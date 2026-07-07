@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://api.github.com/repos/cbtw-apac/HarborRAG)",
+      "Bash(curl -s \"https://api.github.com/repos/cbtw-apac/HarborRAG/actions/runs?per_page=15\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://api.github.com/repos/cbtw-apac/HarborRAG\")",
+      "Bash(curl -s \"https://api.github.com/repos/cbtw-apac/HarborRAG/actions/workflows\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(uv --version)",
+      "Bash(timeout 180 uv sync --all-packages --all-extras)",
+      "Bash(uv run *)",
+      "Bash(echo \"EXIT:$?\")"
+    ]
+  }
+}
