@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-07
+
+### Changed
+
+#### Project renamed: Qdrant-loader → HarborRAG
+
+- Qdrant-loader is now **HarborRAG**, restructured from a single Qdrant-coupled ingestion tool into a modular, provider-agnostic RAG framework. The old `qdrant-loader` / `qdrant-loader-core` / `qdrant-loader-mcp-server` packages are replaced by seven ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently instead of being hardwired to Qdrant and a fixed provider set.
+- Documentation, Docker assets, and CI workflows updated to reflect the new package layout and naming.
+
+> This is a breaking rename: import paths, package names, and CLI/config references from `qdrant-loader` do not carry over. See [README.md](README.md) for the current architecture.
+
 ## [1.0.3] - 2026-06-08
 
 ### Added
@@ -665,6 +676,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Change detection for incremental updates [#21]
 - Signal handling for graceful shutdown [#21]
 
+[2.0.0]: https://github.com/cbtw-apac/HarborRAG/compare/qdrant-loader-v1.0.3...harborrag-v2.0.0
 [1.0.3]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.2...qdrant-loader-v1.0.3
 [1.0.2]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.1...qdrant-loader-v1.0.2
 [1.0.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.0...qdrant-loader-v1.0.1
