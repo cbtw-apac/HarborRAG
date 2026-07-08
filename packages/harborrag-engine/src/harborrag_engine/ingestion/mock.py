@@ -9,7 +9,7 @@ from harborrag_adapters.repositories.vector.base import BaseVectorRepository
 from harborrag_core.domain.document import HarborDocument
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.metadata import DocumentMetadata
-from harborrag_core.domain.parsed_document import ParsedDocument
+from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument
 
@@ -69,7 +69,7 @@ class MockIngestionPipeline(BaseIngestionPipeline):
             loaded += 1
             parsed: ParsedDocument = self.parser.parse(raw)
             parsed_count += 1
-            documents.append(self.normalizer.normalize(raw, parsed.text))
+            documents.append(self.normalizer.normalize(raw, parsed.content))
         if self.embedder and self.vector_repository and documents:
             vectors = self.embedder.embed([doc.text for doc in documents]).vectors
             self.vector_repository.upsert(

@@ -1,9 +1,11 @@
 from .chunk import Chunk
-from .data_source import DataSourceType
+from .data_source import DataSourceType, DocumentMetadata
 from .document import DocumentRelation, HarborDocument
 from .element import DocumentElement
-from .metadata import DocumentMetadata
+from .parser import ParsedDocument, ParserFormat, ParseInput
+from .raw_document import RawDocument
 from .retrieval import RetrievalQuery, RetrievalResult
+from .source import SourceRecord
 from .tenant import Tenant
 
 __all__ = [
@@ -13,7 +15,12 @@ __all__ = [
     "DocumentMetadata",
     "DocumentRelation",
     "HarborDocument",
+    "ParsedDocument",
+    "ParseInput",
+    "ParserFormat",
+    "RawDocument",
     "RetrievalQuery",
     "RetrievalResult",
+    "SourceRecord",
     "Tenant",
 ]

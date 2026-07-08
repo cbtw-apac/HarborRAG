@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from harborrag_core.domain.source import SourceRecord
+
+from .utils import (
+    guess_mime_type,
+    relative_path,
+    stat_datetime,
+)
+
+
+def path_from_record(record: SourceRecord) -> Path:
+    """Recover the filesystem path from a local source record."""
+    path = record.metadata.get("path") or record.locator
+    if not path:
+        raise ValueError(f"SourceRecord {record.id!r} does not contain path")
+    return Path(str(path))
+
+
+def build_source_record(
+    path: Path,
+    *,
+    root_path: Path,
+    checksum: str | None,
+) -> SourceRecord:
+    """Convert a local file path into a lightweight source record."""
+    stat = path.stat()
+    relative = relative_path(path, root_path)
+    mime_type = guess_mime_type(path)
+
+    return SourceRecord(
+        id=path.as_uri(),
+        source_type=mime_type,
+        locator=str(path),
+        updated_at=stat_datetime(stat.st_mtime),
+        checksum=checksum,
+        metadata={
+            "source_system": "local",
+            "path": str(path),
+            "relative_path": relative,
+            "name": path.name,
+            "parent_path": str(path.parent),
+            "suffix": path.suffix.lower(),
+            "mime_type": mime_type,
+            "size": stat.st_size,
+            "checksum": checksum,
+            "created_at": stat_datetime(stat.st_ctime),
+            "updated_at": stat_datetime(stat.st_mtime),
+            "accessed_at": stat_datetime(stat.st_atime),
+            "is_symlink": path.is_symlink(),
+        },
+    )
+
+
+def build_document_metadata(
+    path: Path,
+    *,
+    root_path: Path,
+    checksum: str,
+) -> dict[str, Any]:
+    """Build parsed provenance metadata for a loaded local file."""
+    stat = path.stat()
+    return {
+        "source_system": "local",
+        "path": str(path),
+        "relative_path": relative_path(path, root_path),
+        "name": path.name,
+        "parent_path": str(path.parent),
+        "suffix": path.suffix.lower(),
+        "mime_type": guess_mime_type(path),
+        "size": stat.st_size,
+        "checksum": checksum,
+        "created_at": stat_datetime(stat.st_ctime),
+        "updated_at": stat_datetime(stat.st_mtime),
+        "accessed_at": stat_datetime(stat.st_atime),
+        "is_symlink": path.is_symlink(),
+    }

@@ -164,6 +164,7 @@ markers = [
     "unit: marks tests as unit tests",
     "smoke: fast import and wiring tests",
     "blackbox: public API behavior tests",
+    "graybox: public behavior tests that assert observable internal signals",
     "whitebox: internal architecture and contract tests",
     "requires_deps: marks tests requiring optional dependencies",
     "workflow: marks tests that validate GitHub Actions workflow",

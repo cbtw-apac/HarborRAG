@@ -7,6 +7,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ConnectorCapabilities:
+    """Feature flags advertised by a connector provider."""
+
     sync: bool = True
     async_: bool = False
     incremental_sync: bool = False
@@ -25,6 +27,13 @@ class ConnectorCapabilities:
 
 @dataclass
 class ConnectorQuery:
+    """Shared query envelope for discovery calls.
+
+    Provider-specific selectors belong in ``filters`` so the public connector
+    contract can stay stable while sources expose different concepts such as
+    page IDs, issue keys, repository paths, labels, or drive item IDs.
+    """
+
     path: str | None = None
     pattern: str | None = None
     recursive: bool = True
@@ -36,6 +45,8 @@ class ConnectorQuery:
 
 @dataclass
 class ConnectorSyncState:
+    """Small sync checkpoint carried by runtime or persistence layers."""
+
     connector_id: str
     source_system: str
     cursor: str | None = None
@@ -45,4 +56,5 @@ class ConnectorSyncState:
     checksum_map: dict[str, str] = field(default_factory=dict)
 
     def update_checksum(self, source_id: str, checksum: str) -> None:
+        """Record the latest checksum observed for a source item."""
         self.checksum_map[source_id] = checksum

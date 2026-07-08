@@ -14,8 +14,10 @@ from harborrag_core.domain import (
     DocumentMetadata,
     DocumentRelation,
     HarborDocument,
+    RawDocument,
     RetrievalQuery,
     RetrievalResult,
+    SourceRecord,
     Tenant,
 )
 from harborrag_core.observability.metrics import InMemoryMetrics
@@ -39,8 +41,10 @@ __all__ = [
     "InMemoryMetrics",
     "Input",
     "InputGet",
+    "RawDocument",
     "RetrievalQuery",
     "RetrievalResult",
+    "SourceRecord",
     "Status",
     "Tenant",
     "UrlPolicy",

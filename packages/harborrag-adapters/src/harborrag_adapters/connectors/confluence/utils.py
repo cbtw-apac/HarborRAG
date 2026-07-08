@@ -1,91 +1,102 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
-from urllib.parse import urlparse
+
+CONTENT_EXPAND = (
+    "body.export_view,body.storage,version,metadata.labels,history,space,"
+    "extensions.position,ancestors,children.page"
+)
+LIGHT_EXPAND = "version,metadata.labels,space"
+COMMENT_EXPAND = "body.storage,history"
+DEFAULT_PAGE_SIZE = 25
+
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def is_cloud_hostname(base_url: str) -> bool:
-    """True if `base_url` looks like a Confluence Cloud site (*.atlassian.net).
-
-    Deliberately has zero dependency on config.py or any Confluence-specific
-    types, so config.py can import this at module load time without the
-    config <-> auth circular import the previous version worked around with
-    a deferred (function-local) import inside __post_init__.
-    """
+    """Return whether a base URL looks like Atlassian Cloud."""
     try:
         hostname = urlparse(str(base_url)).hostname
     except ValueError:
         return False
-    if not hostname:
-        return False
-    return hostname == "atlassian.net" or hostname.endswith(".atlassian.net")
+    return bool(hostname and hostname.endswith(".atlassian.net"))
 
 
-def _quote_cql_literal(value: str) -> str:
+def extract_cursor(next_url: str | None) -> str | None:
+    """Extract Confluence Cloud cursor pagination from a next link."""
+    if not next_url:
+        return None
+    values = parse_qs(urlparse(next_url).query).get("cursor")
+    return values[0] if values else None
+
+
+def quote_cql(value: str) -> str:
+    """Quote a CQL literal with the escaping Confluence expects."""
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
-def _sanitize_space_key(space_key: str) -> str:
-    if not _ALLOWED_TOKEN_RE.fullmatch(space_key):
+def validate_token(value: str, *, field_name: str) -> str:
+    """Validate simple CQL tokens that should never contain operators."""
+    if not _TOKEN_RE.fullmatch(value):
         raise ValueError(
-            "Invalid Confluence space key. Only alphanumerics, underscore and hyphen are allowed."
+            f"Invalid Confluence {field_name}: only letters, numbers, "
+            "underscore and hyphen are allowed."
         )
-    return _quote_cql_literal(space_key)
+    return value
 
 
-def _sanitize_content_types(content_types: list[str]) -> list[str]:
-    sanitized: list[str] = []
-    for content_type in content_types:
-        if not isinstance(content_type, str) or not _ALLOWED_TOKEN_RE.fullmatch(
-            content_type
-        ):
-            raise ValueError(f"Invalid Confluence content type: {content_type!r}")
-        sanitized.append(_quote_cql_literal(content_type))
-    return sanitized
-
-
-def _build_cql(
-    space_key: str, content_types: list[str] | None, updated_after: datetime | None
+def build_cql(
+    *,
+    space_key: str | None = None,
+    content_types: list[str] | None = None,
+    labels: list[str] | None = None,
+    updated_after: datetime | None = None,
+    raw_cql: str | None = None,
 ) -> str:
-    cql = f"space = {_sanitize_space_key(space_key)}"
+    """Build a conservative CQL search expression from shared filters."""
+    if raw_cql:
+        return raw_cql
+
+    clauses: list[str] = []
+    if space_key:
+        safe_space = validate_token(space_key, field_name="space key")
+        clauses.append(f"space = {quote_cql(safe_space)}")
     if content_types:
-        safe_types = _sanitize_content_types(content_types)
-        cql += f" and type in ({','.join(safe_types)})"
-    if updated_after is not None:
-        cql += f' and lastmodified >= "{updated_after.strftime("%Y/%m/%d %H:%M")}"'
-    return cql
+        safe_types = [
+            quote_cql(validate_token(value, field_name="content type"))
+            for value in content_types
+        ]
+        clauses.append(f"type in ({','.join(safe_types)})")
+    if labels:
+        safe_labels = [
+            quote_cql(validate_token(value, field_name="label")) for value in labels
+        ]
+        clauses.append(f"label in ({','.join(safe_labels)})")
+    if updated_after:
+        clauses.append(
+            f"lastmodified >= {quote_cql(updated_after.strftime('%Y/%m/%d %H:%M'))}"
+        )
+
+    return " and ".join(clauses) or 'type in ("page","blogpost")'
 
 
-def build_cloud_search_params(
-    space_key: str,
-    content_types: list[str] | None,
-    cursor: str | None,
-    light: bool = False,
-    updated_after: datetime | None = None,
+def build_search_params(
+    *,
+    cql: str,
+    limit: int = DEFAULT_PAGE_SIZE,
+    start: int | None = None,
+    cursor: str | None = None,
+    expand: str = LIGHT_EXPAND,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {
-        "expand": LIGHT_EXPAND if light else CONTENT_EXPAND,
-        "limit": DEFAULT_PAGE_SIZE,
-        "cql": _build_cql(space_key, content_types, updated_after),
-    }
-    if cursor is not None:
+    """Build Confluence search params for cursor or offset pagination."""
+    params: dict[str, Any] = {"cql": cql, "limit": limit, "expand": expand}
+    if cursor:
         params["cursor"] = cursor
+    elif start is not None:
+        params["start"] = start
     return params
-
-
-def build_dc_search_params(
-    space_key: str,
-    content_types: list[str] | None,
-    start: int,
-    light: bool = False,
-    updated_after: datetime | None = None,
-) -> dict[str, Any]:
-    return {
-        "expand": LIGHT_EXPAND if light else CONTENT_EXPAND,
-        "limit": DEFAULT_PAGE_SIZE,
-        "start": start,
-        "cql": _build_cql(space_key, content_types, updated_after),
-    }

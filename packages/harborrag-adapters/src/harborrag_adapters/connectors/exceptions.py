@@ -2,8 +2,24 @@ class ConnectorError(Exception):
     """Base exception for connector errors."""
 
 
+class ConnectorNotFoundError(ConnectorError):
+    """Raised when a connector provider is not registered."""
+
+
 class ConnectorNotInitializedError(ConnectorError):
     """Raised when the connector is not properly initialized."""
+
+
+class AuthenticationError(ConnectorError):
+    """Raised when a connector cannot authenticate or is not authorized."""
+
+
+class FetchError(ConnectorError):
+    """Raised when a connector cannot fetch source data."""
+
+
+class RateLimitError(FetchError):
+    """Raised when the source system rate-limits the connector."""
 
 
 class DocumentProcessingError(ConnectorError):
