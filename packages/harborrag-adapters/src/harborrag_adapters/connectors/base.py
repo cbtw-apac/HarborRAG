@@ -1,27 +1,30 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterator
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
+from .schemas import ConnectorCapabilities, ConnectorQuery
 
 class BaseConnector(ABC):
-    """Base class for connector adapters.
+    provider_name: str = "base"
+    connector_version: str | None = "1.0.0"
+    capabilities: ConnectorCapabilities = ConnectorCapabilities()
 
-    TODO: Implement real connectors by subclassing this class, mapping provider-native
-    records into SourceRecord in discover(), and loading provider-native content into
-    RawDocument in load(). Keep authentication, pagination, retries, and provider SDK
-    details inside the concrete connector folder.
-    """
-
-    provider_name: str
+    def connect(self) -> None:
+        return None
 
     @abstractmethod
-    def discover(self) -> Iterable[SourceRecord]:
+    def discover(self, query: ConnectorQuery | None = None) -> list[SourceRecord]:
         raise NotImplementedError
 
     @abstractmethod
     def load(self, record: SourceRecord) -> RawDocument:
         raise NotImplementedError
+
+    def load_raw_documents(self, query: ConnectorQuery | None = None) -> Iterator[RawDocument]:
+        self.connect()
+        for record in self.discover(query):
+            yield self.load(record)

@@ -1,18 +1,14 @@
 class HarborError(Exception):
     """Base HarborRAG error."""
 
+class HarborImportError(HarborError):
+    """Raised when a required module is not installed."""
 
-class HarborConfigurationError(HarborError):
-    """Configuration is invalid."""
+class HarborConfigError(HarborError):
+    """Raised when there is a configuration error."""
 
+class HarborConnectionError(HarborError):
+    """Raised when there is a connection error to an external service."""
 
-class HarborCapabilityError(HarborError):
-    """Requested capability is not supported."""
-
-
-class HarborSecurityError(HarborError):
-    """Security policy rejected an operation."""
-
-
-class HarborDeadlineExceeded(HarborError):
-    """Operation exceeded its deadline."""
+class HarborNotSupportedError(HarborError):
+    """Raised when a feature or operation is not supported."""
