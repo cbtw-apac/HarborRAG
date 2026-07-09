@@ -5,9 +5,12 @@ from harborrag_adapters.connectors.jira.config import (
     JiraProjectConfig,
 )
 from harborrag_adapters.connectors.jira.connector import JiraConnector
-
-__all__ = [
-    "JiraConnector",
-    "JiraDeploymentType",
-    "JiraProjectConfig",
-]
+from harborrag_adapters.connectors.jira.schemas import (
+    JiraChangelogItemMetadata,
+    JiraChangelogMetadata,
+    JiraCommentMetadata,
+    JiraCustomFieldMetadata,
+    JiraIssueLinkMetadata,
+    JiraIssueReference,
+    JiraMetadata,
+)

@@ -1,6 +1,7 @@
 # Testing
 
-Every package owns its own test folder — there is no shared/global test suite that mixes packages:
+Every package owns its own test folder. There is no shared/global test suite
+that mixes packages:
 
 ```text
 tests/                              cross-package + website build tests
@@ -13,7 +14,8 @@ packages/harborrag-mcp/tests/
 packages/harborrag/tests/
 ```
 
-Add tests next to the package you modify. The root `tests/` folder is reserved for checks that span packages (currently the website build test suite) or repository-wide architecture rules.
+Add tests next to the package you modify. The root `tests/` folder is reserved
+for checks that span packages or repository-wide architecture rules.
 
 ## Running tests
 
@@ -23,7 +25,9 @@ pytest --cov --cov-report=term-missing        # with coverage
 make test-package PACKAGE=harborrag-core      # a single package
 ```
 
-`make test` runs the same as plain `pytest`; both are driven by `[tool.pytest.ini_options]` in the workspace `pyproject.toml`, which lists every package's `tests/` directory under `testpaths`.
+`make test` runs the same as plain `pytest`; both are driven by
+`[tool.pytest.ini_options]` in the workspace `pyproject.toml`, which lists every
+package's `tests/` directory under `testpaths`.
 
 ## Coverage gate
 
@@ -31,7 +35,10 @@ make test-package PACKAGE=harborrag-core      # a single package
 make coverage
 ```
 
-`[tool.coverage.report].fail_under = 95` in `pyproject.toml` — coverage below 95% fails the command (and CI's `quality-gates.yml`). `[tool.coverage.run].source` lists every package's `src/` directory, so coverage is measured on implementation code, not test code.
+`[tool.coverage.report].fail_under = 95` in `pyproject.toml`; coverage below
+95% fails the command and CI's `quality-gates.yml`. `[tool.coverage.run].source`
+lists every package's `src/` directory, so coverage is measured on
+implementation code, not test code.
 
 ## Markers
 
@@ -39,37 +46,54 @@ Defined in `[tool.pytest.ini_options].markers`:
 
 ```text
 slow          marks tests as slow (deselect with '-m not slow')
-integration   marks tests that require Docker, cloud credentials, or live services
+integration   marks tests that compose packages or require environment-dependent boundaries
 unit          marks unit tests
-smoke         fast import and wiring tests
+smoke         smoke checks; adapter provider smokes are standalone scripts
 blackbox      public API behavior tests
+graybox       public behavior tests that assert observable internal signals
 whitebox      internal architecture and contract tests
 requires_deps marks tests requiring optional dependencies
 workflow      marks tests that validate GitHub Actions workflow files
 ```
 
-Tests requiring Docker, cloud credentials, provider accounts, or live model APIs must be marked `@pytest.mark.integration` and must not run by default — default CI should never require external services.
+Tests requiring Docker, cloud credentials, provider accounts, or live model APIs
+must be marked `@pytest.mark.integration`.
 
-`packages/harborrag-adapters/tests/live/` is one example of this pattern: it hits real Confluence/JIRA/GitHub/SharePoint APIs (and can scan a real local directory or parse real sample documents) using credentials read from the environment. Copy `.env.example` at the repo root to `.env`, fill in only the connectors you want to validate, export it, then run:
+`packages/harborrag-adapters/tests/smoke/` contains standalone env-gated
+provider smoke scripts for Confluence/JIRA/GitHub/SharePoint/local files. They
+do not use pytest. They use `HarborConnector`, load repo-root `.env` values,
+discover a small number of records, load one `RawDocument`, and print it. Copy
+`.env.example` at the repo root to `.env`, fill in only the connectors you want
+to validate, then run:
 
 ```bash
-set -a && source .env && set +a
-pytest packages/harborrag-adapters/tests/live -m integration -v -s
+python packages/harborrag-adapters/tests/smoke/run_all.py
 ```
 
-Each test skips itself with a clear "missing env vars" reason when its connector isn't configured, so it's safe to run with only a subset filled in — and because these tests aren't selected by default, they never affect the coverage gate or default CI.
+Run a single provider script when only one connector is configured:
+
+```bash
+python packages/harborrag-adapters/tests/smoke/jira.py
+```
 
 ## Testing the base + mock pattern
 
-Because every provider family ships a `base.py` contract and a `mock.py` implementation (see [Architecture Overview](../architecture/README.md#the-base-mock-pattern)), package-local tests typically:
+Because every provider family ships a `base.py` contract and a `mock.py`
+implementation (see [Architecture Overview](../architecture/README.md#the-base-mock-pattern)),
+package-local tests typically:
 
 1. instantiate the mock (e.g. `MockConnector`, `MockEmbeddingModel`, `MockVectorRepository`);
 2. exercise the contract method (`discover()`/`load()`, `embed()`, `upsert()`/`search()`, ...);
 3. assert on the shape and values of the returned core domain object (`SourceRecord`, `RawDocument`, `EmbeddingResponse`, `RetrievalResult`, ...).
 
-`harborrag-core`'s `testing/fakes.py` (`FakeConnector`, `FakeParser`) exists for tests in other packages that need connector/parser behavior without importing `harborrag-adapters`.
+`harborrag-core`'s `testing/fakes.py` (`FakeConnector`, `FakeParser`) exists for
+tests in other packages that need connector/parser behavior without importing
+`harborrag-adapters`.
 
-When you implement a real provider, add its tests using a fake client or fixture data — not live credentials — so the default suite stays hermetic. A provider test suite typically mirrors the mock test's shape, but constructs the real class with a fake/stub of the underlying SDK client.
+When you implement a real provider, add its tests using a fake client or fixture
+data, not live credentials, so the default suite stays hermetic. A provider test
+suite typically mirrors the mock test's shape, but constructs the real class
+with a fake/stub of the underlying SDK client.
 
 ## Quality gates as a whole
 
@@ -81,9 +105,11 @@ make deps-check      # scripts/check_dependency_direction.py
 make coverage
 ```
 
-All five run in `.github/workflows/quality-gates.yml` on every push/PR to `main`. `.github/workflows/test.yml` additionally runs each package's test suite in its own matrix job, plus the website build tests.
+All five run in `.github/workflows/quality-gates.yml` on every push/PR to
+`main`. `.github/workflows/test.yml` additionally runs each package's test suite
+in its own matrix job, plus the website build tests.
 
 ## Related
 
-- [Architecture Overview](../architecture/README.md) — the package boundaries these tests protect.
-- [Extending HarborRAG](../extending/README.md) — how to test a real provider you're adding.
+- [Architecture Overview](../architecture/README.md) - the package boundaries these tests protect.
+- [Extending HarborRAG](../extending/README.md) - how to test a real provider you're adding.

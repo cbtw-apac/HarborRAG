@@ -23,7 +23,6 @@ from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorQuery,
-    ConnectorSyncState,
 )
 from harborrag_adapters.connectors.sharepoint import (
     SharePointConnector,
@@ -55,23 +54,3 @@ connector_registry.register(
     SharePointConnector,
     aliases=["microsoft_sharepoint", "sharepoint_online"],
 )
-
-__all__ = [
-    "ConfluenceConnector",
-    "ConfluenceDeploymentType",
-    "ConfluenceSpaceConfig",
-    "ConnectorCapabilities",
-    "ConnectorQuery",
-    "ConnectorSyncState",
-    "GitHubConnector",
-    "GitHubRepositoryConfig",
-    "HarborConnector",
-    "JiraConnector",
-    "JiraDeploymentType",
-    "JiraProjectConfig",
-    "LocalFileConfig",
-    "LocalFileConnector",
-    "SharePointConnector",
-    "SharePointSiteConfig",
-    "connector_registry",
-]

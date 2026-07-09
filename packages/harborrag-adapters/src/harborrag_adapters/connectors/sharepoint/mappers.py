@@ -5,6 +5,7 @@ from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
 
+from .schemas import SharePointMetadata, SharePointParentReference
 from .utils import item_mime_type, item_name, item_path
 
 
@@ -51,14 +52,10 @@ def build_source_record(
             "item_id": item_id,
             "name": item_name(item),
             "path": path,
-            "web_url": item.get("webUrl"),
-            "mime_type": mime_type,
             "size": int(item.get("size") or 0),
             "etag": item.get("eTag"),
             "ctag": item.get("cTag"),
-            "checksum": checksum,
             "created_at": parse_timestamp(item.get("createdDateTime")),
-            "updated_at": parse_timestamp(item.get("lastModifiedDateTime")),
             "created_by": _identity_name(item.get("createdBy")),
             "updated_by": _identity_name(item.get("lastModifiedBy")),
             "parent_id": item.get("parentReference", {}).get("id"),
@@ -73,37 +70,34 @@ def build_document_metadata(
     site: dict[str, Any],
     drive: dict[str, Any],
     checksum: str,
-) -> dict[str, Any]:
+) -> SharePointMetadata:
     """Build parsed provenance metadata for a loaded SharePoint file."""
-    return {
-        "source_system": "sharepoint",
-        "site_id": site.get("id"),
-        "site_name": site.get("name") or site.get("displayName"),
-        "site_web_url": site.get("webUrl"),
-        "drive_id": drive.get("id"),
-        "drive_name": drive.get("name"),
-        "drive_type": drive.get("driveType"),
-        "drive_web_url": drive.get("webUrl"),
-        "item_id": item.get("id"),
-        "item_name": item_name(item),
-        "path": item_path(item),
-        "web_url": item.get("webUrl"),
-        "mime_type": item_mime_type(item),
-        "size": int(item.get("size") or 0),
-        "checksum": checksum,
-        "etag": item.get("eTag"),
-        "ctag": item.get("cTag"),
-        "created_at": parse_timestamp(item.get("createdDateTime")),
-        "updated_at": parse_timestamp(item.get("lastModifiedDateTime")),
-        "created_by": _identity_name(item.get("createdBy")),
-        "updated_by": _identity_name(item.get("lastModifiedBy")),
-        "parent": {
-            "drive_id": item.get("parentReference", {}).get("driveId"),
-            "id": item.get("parentReference", {}).get("id"),
-            "path": item.get("parentReference", {}).get("path"),
-        },
-        "sharepoint_hashes": _hashes(item),
-    }
+    parent = item.get("parentReference", {})
+    return SharePointMetadata(
+        source_system="sharepoint",
+        site_id=site.get("id"),
+        site_name=site.get("name") or site.get("displayName"),
+        drive_id=drive.get("id"),
+        drive_name=drive.get("name"),
+        drive_type=drive.get("driveType"),
+        item_id=item.get("id"),
+        item_name=item_name(item),
+        path=item_path(item),
+        size=int(item.get("size") or 0),
+        checksum=checksum,
+        etag=item.get("eTag"),
+        ctag=item.get("cTag"),
+        created_at=parse_timestamp(item.get("createdDateTime")),
+        updated_at=parse_timestamp(item.get("lastModifiedDateTime")),
+        created_by=_identity_name(item.get("createdBy")),
+        updated_by=_identity_name(item.get("lastModifiedBy")),
+        parent=SharePointParentReference(
+            drive_id=parent.get("driveId"),
+            id=parent.get("id"),
+            path=parent.get("path"),
+        ),
+        sharepoint_hashes=_hashes(item),
+    )
 
 
 def _item_checksum(item: dict[str, Any]) -> str | None:

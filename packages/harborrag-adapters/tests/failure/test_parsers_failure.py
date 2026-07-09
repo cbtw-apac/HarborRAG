@@ -26,12 +26,7 @@ from harborrag_adapters.parsers.utils import open_guarded_zip
 from harborrag_core.domain.parser import ParseInput
 
 
-pytestmark = [pytest.mark.unit]
-
-
-# ---------------------------------------------------------------------------
-# Corrupt zip-container office/ebook documents
-# ---------------------------------------------------------------------------
+pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 
 
 @pytest.mark.parametrize(
@@ -58,8 +53,6 @@ def test_non_zip_bytes_raise_parse_error(parser, filename):
     ],
 )
 def test_truncated_zip_local_header_raises_parse_error(parser, filename):
-    # A valid ZIP local file signature followed by garbage: enough to look like
-    # a zip but impossible to read cleanly.
     truncated = b"PK\x03\x04" + b"\x00" * 8 + b"corrupt-and-incomplete"
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=truncated, filename=filename))
@@ -70,14 +63,7 @@ def test_corrupt_docx_does_not_leak_raw_badzipfile():
 
     with pytest.raises(ParseError) as excinfo:
         DocxParser().parse(ParseInput(content=b"not a zip", filename="x.docx"))
-    # ParseError is raised, and the original library error is preserved as cause
-    # rather than propagating uncaught.
     assert not isinstance(excinfo.value, zipfile.BadZipFile)
-
-
-# ---------------------------------------------------------------------------
-# JSON failures
-# ---------------------------------------------------------------------------
 
 
 def test_invalid_json_raises_parse_error():
@@ -88,8 +74,6 @@ def test_invalid_json_raises_parse_error():
 
 
 def test_deeply_nested_json_raises_parse_error():
-    # Adversarial nesting: json.loads raises RecursionError or JSONDecodeError,
-    # both normalized to ParseError.
     with pytest.raises(ParseError):
         JsonParser().parse(ParseInput(content="[" * 10000, filename="bomb.json"))
 
@@ -101,13 +85,8 @@ def test_invalid_ndjson_line_raises_parse_error():
         )
 
 
-# ---------------------------------------------------------------------------
-# CSV oversized field
-# ---------------------------------------------------------------------------
-
-
 def test_csv_oversized_field_raises_parse_error():
-    from harborrag_adapters.parsers.structured import CsvParser
+    from harborrag_adapters.parsers.csv import CsvParser
 
     original_limit = csv.field_size_limit()
     try:
@@ -121,11 +100,6 @@ def test_csv_oversized_field_raises_parse_error():
         csv.field_size_limit(original_limit)
 
 
-# ---------------------------------------------------------------------------
-# Decompression bombs
-# ---------------------------------------------------------------------------
-
-
 def test_open_guarded_zip_rejects_zip_bomb():
     with pytest.raises(ParseError):
         open_guarded_zip(build_zip_bomb_bytes())
@@ -136,21 +110,11 @@ def test_epub_parse_of_zip_bomb_raises_parse_error(zip_bomb_bytes):
         EpubParser().parse(ParseInput(content=zip_bomb_bytes, filename="bomb.epub"))
 
 
-# ---------------------------------------------------------------------------
-# Corrupt image (PIL is installed)
-# ---------------------------------------------------------------------------
-
-
 def test_corrupt_image_bytes_raise_parse_error():
     with pytest.raises(ParseError):
         ImageParser().parse(
             ParseInput(content=b"this is not a valid image", filename="broken.png")
         )
-
-
-# ---------------------------------------------------------------------------
-# Unsupported format routing
-# ---------------------------------------------------------------------------
 
 
 def test_unknown_suffix_and_content_type_raise_unsupported_format():
@@ -166,5 +130,4 @@ def test_unknown_suffix_and_content_type_raise_unsupported_format():
 
 
 def test_unsupported_format_is_a_parse_error_subclass():
-    # parse_many(on_error="skip") relies on this to quarantine unroutable inputs.
     assert issubclass(UnsupportedFormatError, ParseError)

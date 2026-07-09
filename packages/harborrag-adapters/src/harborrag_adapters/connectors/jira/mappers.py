@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin
@@ -9,6 +8,19 @@ from urllib.parse import urljoin
 from harborrag_adapters.connectors.attachments import AttachmentMetadata
 from harborrag_adapters.parsers.utils import compact_text, html_to_text
 from harborrag_core.domain.source import SourceRecord
+
+from .schemas import (
+    JiraChangelogItemMetadata,
+    JiraChangelogMetadata,
+    JiraCommentMetadata,
+    JiraCustomFieldMetadata,
+    JiraIssueLinkMetadata,
+    JiraIssueReference,
+    JiraMetadata,
+)
+
+
+CUSTOM_FIELD_PREFIX = "customfield_"
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
@@ -80,6 +92,15 @@ def build_raw_content(
         _field_text(fields.get("description")),
     ]
 
+    custom_fields = custom_field_metadata(issue)
+    custom_field_lines = [
+        f"{field.name}: {field.text}".strip()
+        for field in custom_fields
+        if field.text
+    ]
+    if custom_field_lines:
+        lines.extend(["", "## Custom Fields", *custom_field_lines])
+
     if comments:
         lines.extend(["", "## Comments"])
         for comment in comments:
@@ -101,54 +122,47 @@ def build_raw_content(
 def build_document_metadata(
     issue: dict[str, Any],
     *,
-    base_url: str,
+    content: str,
     comments: list[dict[str, Any]] | None = None,
     attachments: list[AttachmentMetadata] | None = None,
     changelog: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+) -> JiraMetadata:
     """Build parsed provenance metadata for a loaded JIRA issue."""
     fields = issue.get("fields", {})
     issue_key = str(issue.get("key") or "")
     project = fields.get("project") or {}
-    content = build_raw_content(
-        issue,
-        comments=comments,
-        attachments=attachments,
-        include_attachment_text=True,
-    )
 
-    return {
-        "source_system": "jira",
-        "issue_id": str(issue.get("id") or ""),
-        "issue_key": issue_key,
-        "title": fields.get("summary"),
-        "project_key": project.get("key"),
-        "project_name": project.get("name"),
-        "issue_type": _name(fields.get("issuetype")),
-        "status": _name(fields.get("status")),
-        "status_category": _status_category(fields.get("status")),
-        "priority": _name(fields.get("priority")),
-        "assignee": _display_name(fields.get("assignee")),
-        "reporter": _display_name(fields.get("reporter")),
-        "creator": _display_name(fields.get("creator")),
-        "labels": list(fields.get("labels") or []),
-        "components": [_name(item) for item in fields.get("components") or []],
-        "fix_versions": [_name(item) for item in fields.get("fixVersions") or []],
-        "affected_versions": [_name(item) for item in fields.get("versions") or []],
-        "created_at": parse_timestamp(fields.get("created")),
-        "updated_at": parse_timestamp(fields.get("updated")),
-        "resolved_at": parse_timestamp(fields.get("resolutiondate")),
-        "due_date": fields.get("duedate"),
-        "url": issue_url(base_url, issue_key),
-        "checksum": hashlib.sha256(content.encode("utf-8")).hexdigest(),
-        "parent": _parent(fields.get("parent")),
-        "subtasks": [_issue_ref(item) for item in fields.get("subtasks") or []],
-        "issue_links": [_issue_link(link) for link in fields.get("issuelinks") or []],
-        "comments": [_comment_metadata(comment) for comment in comments or []],
-        "attachments": [asdict(attachment) for attachment in attachments or []],
-        "attachments_summary": _attachment_summary(attachments or []),
-        "changelog": changelog or [],
-    }
+    return JiraMetadata(
+        source_system="jira",
+        issue_id=str(issue.get("id") or ""),
+        issue_key=issue_key,
+        title=fields.get("summary"),
+        project_key=project.get("key"),
+        project_name=project.get("name"),
+        issue_type=_name(fields.get("issuetype")),
+        status=_name(fields.get("status")),
+        status_category=_status_category(fields.get("status")),
+        priority=_name(fields.get("priority")),
+        assignee=_display_name(fields.get("assignee")),
+        reporter=_display_name(fields.get("reporter")),
+        creator=_display_name(fields.get("creator")),
+        labels=list(fields.get("labels") or []),
+        components=[_name(item) for item in fields.get("components") or []],
+        fix_versions=[_name(item) for item in fields.get("fixVersions") or []],
+        affected_versions=[_name(item) for item in fields.get("versions") or []],
+        created_at=parse_timestamp(fields.get("created")),
+        updated_at=parse_timestamp(fields.get("updated")),
+        resolved_at=parse_timestamp(fields.get("resolutiondate")),
+        due_date=fields.get("duedate"),
+        checksum=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        parent=_parent(fields.get("parent")),
+        subtasks=[_issue_ref(item) for item in fields.get("subtasks") or []],
+        issue_links=[_issue_link(link) for link in fields.get("issuelinks") or []],
+        comments=[_comment_metadata(comment) for comment in comments or []],
+        attachments=attachments or [],
+        changelog=[_changelog_metadata(history) for history in changelog or []],
+        custom_fields=custom_field_metadata(issue),
+    )
 
 
 def changelog_histories(response: dict[str, Any]) -> list[dict[str, Any]]:
@@ -172,14 +186,52 @@ def changelog_histories(response: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata]:
+    """Return all custom fields present on an issue with names and rendered text."""
+    fields = issue.get("fields", {})
+    names = issue.get("names", {}) or {}
+    schemas = issue.get("schema", {}) or {}
+    rendered_fields = issue.get("renderedFields", {}) or {}
+
+    values: list[JiraCustomFieldMetadata] = []
+    for field_id, value in fields.items():
+        if not str(field_id).startswith(CUSTOM_FIELD_PREFIX):
+            continue
+        schema = schemas.get(field_id) or {}
+        rendered_value = rendered_fields.get(field_id)
+        text_source = rendered_value if rendered_value not in (None, "") else value
+        values.append(
+            JiraCustomFieldMetadata(
+                field_id=str(field_id),
+                name=str(names.get(field_id) or field_id),
+                schema_type=schema.get("type") if isinstance(schema, dict) else None,
+                custom_type=schema.get("custom") if isinstance(schema, dict) else None,
+                value=value,
+                text=_field_text(text_source),
+            )
+        )
+    return values
+
+
 def _field_text(value: Any) -> str:
     """Extract readable text from JIRA strings, HTML, ADF, or lists."""
     if value is None:
         return ""
     if isinstance(value, str):
-        return html_to_text(value) if "<" in value and ">" in value else compact_text(value)
+        return (
+            html_to_text(value)
+            if "<" in value and ">" in value
+            else compact_text(value)
+        )
     if isinstance(value, dict):
-        return compact_text("".join(_walk_adf(value)))
+        adf_text = compact_text("".join(_walk_adf(value)))
+        if adf_text:
+            return adf_text
+        for key in ("displayName", "name", "value", "key", "emailAddress"):
+            if value.get(key):
+                return compact_text(str(value[key]))
+        parts = [_field_text(item) for item in value.values()]
+        return compact_text("\n".join(part for part in parts if part))
     if isinstance(value, list):
         return compact_text("\n".join(_field_text(item) for item in value))
     return compact_text(str(value))
@@ -229,46 +281,55 @@ def _status_category(status: Any) -> str | None:
     return _name(status.get("statusCategory"))
 
 
-def _parent(parent: Any) -> dict[str, Any] | None:
+def _parent(parent: Any) -> JiraIssueReference | None:
     if not isinstance(parent, dict):
         return None
     return _issue_ref(parent)
 
 
-def _issue_ref(issue: Any) -> dict[str, Any]:
+def _issue_ref(issue: Any) -> JiraIssueReference:
     fields = issue.get("fields", {}) if isinstance(issue, dict) else {}
-    return {
-        "id": issue.get("id") if isinstance(issue, dict) else None,
-        "key": issue.get("key") if isinstance(issue, dict) else None,
-        "summary": fields.get("summary"),
-        "status": _name(fields.get("status")),
-        "issue_type": _name(fields.get("issuetype")),
-    }
+    return JiraIssueReference(
+        id=issue.get("id") if isinstance(issue, dict) else None,
+        key=issue.get("key") if isinstance(issue, dict) else None,
+        summary=fields.get("summary"),
+        status=_name(fields.get("status")),
+        issue_type=_name(fields.get("issuetype")),
+    )
 
 
-def _issue_link(link: dict[str, Any]) -> dict[str, Any]:
+def _issue_link(link: dict[str, Any]) -> JiraIssueLinkMetadata:
     linked_issue = link.get("outwardIssue") or link.get("inwardIssue") or {}
     direction = "outward" if link.get("outwardIssue") else "inward"
-    return {
-        "id": link.get("id"),
-        "type": _name(link.get("type")),
-        "direction": direction,
-        "issue": _issue_ref(linked_issue),
-    }
+    return JiraIssueLinkMetadata(
+        id=link.get("id"),
+        type=_name(link.get("type")),
+        direction=direction,
+        issue=_issue_ref(linked_issue),
+    )
 
 
-def _comment_metadata(comment: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": comment.get("id"),
-        "author": _display_name(comment.get("author")),
-        "created_at": comment.get("created"),
-        "updated_at": comment.get("updated"),
-        "body": _field_text(comment.get("body") or comment.get("renderedBody")),
-    }
+def _comment_metadata(comment: dict[str, Any]) -> JiraCommentMetadata:
+    return JiraCommentMetadata(
+        id=comment.get("id"),
+        author=_display_name(comment.get("author")),
+        created_at=comment.get("created"),
+        updated_at=comment.get("updated"),
+        body=_field_text(comment.get("body") or comment.get("renderedBody")),
+    )
 
 
-def _attachment_summary(attachments: list[AttachmentMetadata]) -> dict[str, int]:
-    return {
-        status: sum(1 for attachment in attachments if attachment.status == status)
-        for status in ("processed", "skipped", "unsupported", "failed")
-    }
+def _changelog_metadata(history: dict[str, Any]) -> JiraChangelogMetadata:
+    return JiraChangelogMetadata(
+        id=history.get("id"),
+        author=history.get("author"),
+        created_at=history.get("created_at"),
+        items=[
+            JiraChangelogItemMetadata(
+                field=item.get("field"),
+                from_value=item.get("from"),
+                to_value=item.get("to"),
+            )
+            for item in history.get("items", [])
+        ],
+    )

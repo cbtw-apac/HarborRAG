@@ -1,78 +1,20 @@
 from __future__ import annotations
 
-import csv
 import json
-from io import StringIO
 from typing import Any, ClassVar
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .base import BaseParser
+from .csv import CsvParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 
 
-parser_logger = get_parser_logger("structured")
+parser_logger = get_parser_logger("json")
 
-
-class CsvParser(BaseParser[ParseInput, ParsedDocument]):
-    """Render CSV and TSV inputs as tab-separated table text."""
-
-    parser_name: ClassVar[str] = "csv"
-    parser_engine: ClassVar[str] = "python/csv"
-    suffixes: ClassVar[frozenset[str]] = frozenset({"csv", "tsv"})
-    content_types: ClassVar[frozenset[str]] = frozenset(
-        {"text/csv", "text/tab-separated-values"}
-    )
-
-    def parse(self, input: ParseInput) -> ParsedDocument:
-        """Sniff the dialect when possible and emit a single table element."""
-
-        parse_input = self.coerce_input(input)
-        parser_logger.debug(
-            "Extracting CSV text from %s",
-            input_label(parse_input),
-            extra=parser_log_extra(
-                input=parse_input,
-                parser_name=self.parser_name,
-                parser_engine=self.parser_engine,
-            ),
-        )
-        text = parse_input.read_text()
-        sample = text[:4096]
-        try:
-            dialect = csv.Sniffer().sniff(sample)
-        except csv.Error:
-            dialect = csv.excel_tab if parse_input.suffix == ".tsv" else csv.excel
-
-        try:
-            rows = list(csv.reader(StringIO(text), dialect=dialect))
-        except csv.Error as exc:
-            # e.g. a single cell larger than csv.field_size_limit — surface as an
-            # expected ParseError so bulk callers can quarantine the document.
-            raise ParseError(f"Invalid CSV: {exc}") from exc
-        rendered_rows = [
-            "\t".join(cell.strip() for cell in row).rstrip()
-            for row in rows
-            if any(cell.strip() for cell in row)
-        ]
-        content = "\n".join(rendered_rows)
-        elements = [
-            DocumentElement(
-                id="csv:0",
-                type="table",
-                content=content,
-                metadata={"rows": len(rendered_rows)},
-            )
-        ] if content else []
-        return ParsedDocument(
-            content=content,
-            elements=elements,
-            parser_name=self.parser_name,
-            parser_version=self.parser_version,
-            metadata=self.metadata_for(parse_input, rows=len(rendered_rows)),
-        )
+__all__ = ["CsvParser", "JsonParser"]
 
 
 class JsonParser(BaseParser[ParseInput, ParsedDocument]):
@@ -125,7 +67,11 @@ class JsonParser(BaseParser[ParseInput, ParsedDocument]):
             raise ParseError(f"Invalid JSON: {exc}") from exc
 
         flattened = list(self._flatten(data))
-        content = "\n".join(flattened) if flattened else json.dumps(data, ensure_ascii=False)
+        content = (
+            "\n".join(flattened)
+            if flattened
+            else json.dumps(data, ensure_ascii=False)
+        )
         elements = [
             DocumentElement(
                 id="json:0",

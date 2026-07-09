@@ -1,71 +1,32 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Iterator
-from typing import Any, Protocol
+from typing import Any
 
-import requests
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
 from harborrag_adapters.connectors.attachments import AttachmentProcessor
 from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.exceptions import (
-    AuthenticationError,
-    DocumentProcessingError,
-    FetchError,
-    RateLimitError,
-)
-from harborrag_adapters.connectors.http_utils import (
-    ResponseTooLargeError,
-    read_capped_content,
-    require_same_origin_url,
-    retry_delay_seconds,
-    safe_error_detail,
-)
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
-from harborrag_adapters.connectors.utils import extend_with_limit
 from harborrag_adapters.parsers import HarborParser
 
-from .config import ConfluenceDeploymentType, ConfluenceSpaceConfig
+from .client import ConfluenceClient, _RequestsConfluenceClient
+from .config import ConfluenceSpaceConfig
+from .content import ConfluenceContentAPI
 from .mappers import (
     body_html_from_content,
     build_document_metadata,
     build_source_record,
     content_id_from_record,
+    display_url,
 )
-from .utils import (
-    COMMENT_EXPAND,
-    CONTENT_EXPAND,
-    LIGHT_EXPAND,
-    build_cql,
-    build_search_params,
-    extract_cursor,
-)
+from .utils import build_cql
 
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-
-
-class ConfluenceClient(Protocol):
-    """Small API surface needed by ``ConfluenceConnector``.
-
-    Tests can provide this protocol without constructing a real authenticated
-    requests session.
-    """
-
-    def get_json(
-        self,
-        endpoint: str,
-        *,
-        params: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        ...
-
-    def download_bytes(self, url: str) -> bytes | None:
-        ...
 
 
 class ConfluenceConnector(BaseConnector):
@@ -97,6 +58,7 @@ class ConfluenceConnector(BaseConnector):
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsConfluenceClient(config)
+        self._content = ConfluenceContentAPI(self.client, config)
         self._attachments = AttachmentProcessor(
             download_fn=self.client.download_bytes,
             base_url=self.base_url,
@@ -113,14 +75,14 @@ class ConfluenceConnector(BaseConnector):
         query = query or ConnectorQuery()
         content_ids = self._content_ids_from_query(query)
         if content_ids:
-            ids = list(self._with_children(content_ids, query))
+            ids = list(self._content.with_children(content_ids, query))
             for content_id in ids[: query.limit]:
                 yield self._record_for_id(content_id, query)
             return
 
         cql = self._cql_from_query(query)
         yielded = 0
-        for content in self._search(cql):
+        for content in self._content.search(cql):
             if not self._should_process_content(content):
                 continue
             record = build_source_record(
@@ -138,7 +100,7 @@ class ConfluenceConnector(BaseConnector):
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""
         content_id = content_id_from_record(record)
-        content = self._get_content(content_id)
+        content = self._content.get_content(content_id)
 
         if not self._should_process_content(content):
             raise DocumentProcessingError(
@@ -146,30 +108,41 @@ class ConfluenceConnector(BaseConnector):
             )
 
         self._validate_content(content, content_id)
-        comments = self._fetch_comments(content_id) if self.config.include_comments else []
+        comments = (
+            self._content.fetch_comments(content_id)
+            if self.config.include_comments
+            else []
+        )
         attachments = []
         include_attachments = bool(
             self.config.include_attachments
             and record.metadata.get("include_attachments", True)
         )
         if include_attachments:
-            attachments = self._attachments.process(self._list_attachments(content_id))
+            attachments = self._attachments.process(
+                self._content.list_attachments(content_id)
+            )
 
         metadata = build_document_metadata(
             content,
-            base_url=self.base_url,
-            deployment_type=self.config.deployment_type,
             comments=comments,
             attachments=attachments,
         )
         body_html = body_html_from_content(content)
+        source_url = display_url(
+            self.base_url,
+            self.config.deployment_type,
+            metadata.space_key,
+            metadata.content_id,
+            metadata.title,
+        )
 
         return RawDocument(
             id=record.id,
-            source=metadata["display_url"],
+            source=source_url,
             content=body_html,
             content_type="text/html",
-            metadata=metadata,
+            metadata=metadata.to_dict(),
             raw=content,
         )
 
@@ -177,139 +150,6 @@ class ConfluenceConnector(BaseConnector):
         """Convenience loader for callers that already have Confluence IDs."""
         for content_id in content_ids:
             yield self.load(self._record_for_id(content_id, ConnectorQuery()))
-
-    def _search(self, cql: str) -> Iterator[dict[str, Any]]:
-        """Iterate CQL results across Cloud cursor and Data Center start paging."""
-        cursor: str | None = None
-        start = 0
-        while True:
-            params = build_search_params(
-                cql=cql,
-                limit=self.config.page_size,
-                start=start,
-                cursor=cursor,
-                expand=LIGHT_EXPAND,
-            )
-            response = self.client.get_json("content/search", params=params)
-            results = response.get("results", [])
-            if not results:
-                return
-            yield from results
-
-            next_url = response.get("_links", {}).get("next")
-            next_cursor = extract_cursor(next_url)
-            if next_cursor:
-                cursor = next_cursor
-                continue
-            if not next_url and len(results) < self.config.page_size:
-                return
-            cursor = None
-            start += len(results)
-
-    def _get_content(self, content_id: str) -> dict[str, Any]:
-        """Fetch the fully expanded page/blogpost needed for loading."""
-        return self.client.get_json(
-            f"content/{content_id}",
-            params={"expand": CONTENT_EXPAND},
-        )
-
-    def _fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch all comments for one content item while enforcing configured caps."""
-        comments: list[dict[str, Any]] = []
-        start = 0
-        while True:
-            response = self.client.get_json(
-                f"content/{content_id}/child/comment",
-                params={
-                    "depth": "all",
-                    "expand": COMMENT_EXPAND,
-                    "limit": self.config.page_size,
-                    "start": start,
-                },
-            )
-            results = response.get("results", [])
-            extend_with_limit(
-                comments,
-                results,
-                limit=self.config.max_comments,
-                label=f"Confluence comments for {content_id}",
-                setting_name="max_comments",
-            )
-            if len(results) < self.config.page_size:
-                return comments
-            start += len(results)
-
-    def _list_attachments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch attachment metadata for one content item within configured caps."""
-        attachments: list[dict[str, Any]] = []
-        start = 0
-        while True:
-            response = self.client.get_json(
-                f"content/{content_id}/child/attachment",
-                params={"limit": self.config.page_size, "start": start},
-            )
-            results = response.get("results", [])
-            extend_with_limit(
-                attachments,
-                results,
-                limit=self.config.max_attachments,
-                label=f"Confluence attachments for {content_id}",
-                setting_name="max_attachments",
-            )
-            if len(results) < self.config.page_size:
-                return attachments
-            start += len(results)
-
-    def _with_children(
-        self,
-        content_ids: list[str],
-        query: ConnectorQuery,
-    ) -> Iterator[str]:
-        """Yield requested content IDs and optionally traverse child pages."""
-        include_children = bool(query.filters.get("include_children"))
-        seen: set[str] = set()
-        for content_id in content_ids:
-            if content_id in seen:
-                continue
-            seen.add(content_id)
-            yield content_id
-            if include_children:
-                yield from self._child_page_ids(
-                    content_id,
-                    recursive=query.recursive,
-                    seen=seen,
-                )
-
-    def _child_page_ids(
-        self,
-        content_id: str,
-        *,
-        recursive: bool,
-        seen: set[str],
-    ) -> Iterator[str]:
-        """Traverse child page IDs without revisiting already emitted pages."""
-        start = 0
-        while True:
-            response = self.client.get_json(
-                f"content/{content_id}/child/page",
-                params={"limit": self.config.page_size, "start": start},
-            )
-            results = response.get("results", [])
-            for child in results:
-                child_id = str(child.get("id") or "")
-                if not child_id or child_id in seen:
-                    continue
-                seen.add(child_id)
-                yield child_id
-                if recursive:
-                    yield from self._child_page_ids(
-                        child_id,
-                        recursive=True,
-                        seen=seen,
-                    )
-            if len(results) < self.config.page_size:
-                return
-            start += len(results)
 
     def _cql_from_query(self, query: ConnectorQuery) -> str:
         """Translate shared connector filters into Confluence CQL."""
@@ -392,123 +232,3 @@ class ConfluenceConnector(BaseConnector):
                 f"Confluence content {content_id} missing required fields: "
                 f"{', '.join(missing)}"
             )
-
-
-class _RequestsConfluenceClient:
-    """Authenticated, rate-limited Confluence REST client."""
-
-    def __init__(self, config: ConfluenceSpaceConfig) -> None:
-        self.config = config
-        self.base_url = config.base_url.rstrip("/")
-        self.session = requests.Session()
-        self.session.headers.update({"Accept": "application/json"})
-        if config.deployment_type == ConfluenceDeploymentType.CLOUD:
-            self.session.auth = (config.email, config.token)
-        else:
-            self.session.headers.update({"Authorization": f"Bearer {config.token}"})
-        self._min_interval = 60.0 / config.requests_per_minute
-        self._last_request_at = 0.0
-
-    def get_json(
-        self,
-        endpoint: str,
-        *,
-        params: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """GET a Confluence REST endpoint and decode its JSON body."""
-        response = self._request(
-            "GET",
-            self._api_url(endpoint),
-            params=params,
-        )
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise FetchError(f"Confluence returned non-JSON response for {endpoint}") from exc
-
-    def download_bytes(self, url: str) -> bytes | None:
-        """Download attachment bytes only from the configured Confluence origin."""
-        try:
-            safe_url = require_same_origin_url(
-                url,
-                self.base_url,
-                label="Confluence download",
-            )
-        except ValueError as exc:
-            raise FetchError(str(exc)) from exc
-        response = self._request(
-            "GET", safe_url, headers={"Accept": "*/*"}, stream=True
-        )
-        try:
-            content = read_capped_content(
-                response, self.config.max_attachment_size_bytes
-            )
-        except ResponseTooLargeError as exc:
-            raise FetchError(str(exc)) from exc
-        return content or None
-
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one HTTP request with local rate limiting and retry handling."""
-        last_error: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            self._acquire()
-            try:
-                response = self.session.request(
-                    method,
-                    url,
-                    timeout=self.config.request_timeout_seconds,
-                    **kwargs,
-                )
-            except requests.RequestException as exc:
-                last_error = exc
-                if attempt == self.config.max_retries:
-                    raise FetchError(str(exc)) from exc
-                self._sleep(attempt, exc)
-                continue
-
-            if response.status_code in (401, 403):
-                raise AuthenticationError(safe_error_detail(response.text))
-            if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_error_detail(response.text))
-            if (
-                response.status_code not in _RETRYABLE_STATUS
-                or attempt == self.config.max_retries
-            ):
-                if response.status_code >= 400:
-                    raise FetchError(
-                        f"Confluence request failed with HTTP "
-                        f"{response.status_code}: {safe_error_detail(response.text)}"
-                    )
-                return response
-
-            last_error = FetchError(
-                f"Confluence request returned HTTP {response.status_code}"
-            )
-            self._sleep(attempt, last_error, response.headers)
-
-        raise FetchError(str(last_error))
-
-    def _api_url(self, endpoint: str) -> str:
-        """Build a Confluence REST API URL from a relative endpoint."""
-        return f"{self.base_url}/rest/api/{endpoint.lstrip('/')}"
-
-    def _acquire(self) -> None:
-        """Throttle requests according to the configured per-minute budget."""
-        now = time.monotonic()
-        wait = self._min_interval - (now - self._last_request_at)
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_at = time.monotonic()
-
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
-        """Sleep before retrying, honoring provider retry headers when present."""
-        fallback_delay = self.config.backoff_factor * (2**attempt)
-        delay = retry_delay_seconds(headers, fallback_delay)
-        logger.warning(
-            "Retrying Confluence request after error, attempt %d/%d: %s",
-            attempt + 1,
-            self.config.max_retries,
-            error,
-        )
-        if delay > 0:
-            time.sleep(delay)

@@ -5,7 +5,8 @@ from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
 
-from .utils import github_blob_url, github_raw_url, guess_mime_type, normalize_repo_path
+from .schemas import GitHubCommitIdentity, GitHubMetadata
+from .utils import guess_mime_type, normalize_repo_path
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
@@ -50,7 +51,6 @@ def build_source_record(
     *,
     owner: str,
     repo: str,
-    web_url: str,
     ref: str,
     commit_sha: str,
     commit: dict[str, Any],
@@ -62,10 +62,6 @@ def build_source_record(
     updated_at = commit_timestamp(commit)
 
     return SourceRecord(
-        # Commit-independent, path-stable ID so a downstream index keyed on it
-        # is not invalidated for every file on every commit (which would force a
-        # full-repo re-ingest). The commit/blob SHA lives in metadata/checksum
-        # and drives change detection.
         id=f"github://{owner}/{repo}/{path}",
         source_type=mime_type,
         locator=path,
@@ -75,7 +71,6 @@ def build_source_record(
             "source_system": "github",
             "owner": owner,
             "repo": repo,
-            "repository": f"{owner}/{repo}",
             "ref": ref,
             "commit_sha": commit_sha,
             "tree_sha": tree_sha_from_commit(commit),
@@ -83,23 +78,6 @@ def build_source_record(
             "sha": file_sha,
             "mode": item.get("mode"),
             "size": int(item.get("size") or 0),
-            "mime_type": mime_type,
-            "html_url": github_blob_url(
-                web_url=web_url,
-                owner=owner,
-                repo=repo,
-                ref=ref,
-                path=path,
-            ),
-            "raw_url": github_raw_url(
-                web_url=web_url,
-                owner=owner,
-                repo=repo,
-                ref=ref,
-                path=path,
-            ),
-            "commit_url": commit.get("html_url"),
-            "updated_at": updated_at,
         },
     )
 
@@ -109,59 +87,42 @@ def build_document_metadata(
     *,
     owner: str,
     repo: str,
-    web_url: str,
     ref: str,
     commit: dict[str, Any],
     repository: dict[str, Any],
-) -> dict[str, Any]:
+) -> GitHubMetadata:
     """Build parsed provenance metadata for a loaded GitHub file."""
     path = normalize_repo_path(str(item.get("path") or ""))
     commit_sha = str(commit.get("sha") or "")
-    return {
-        "source_system": "github",
-        "owner": owner,
-        "repo": repo,
-        "repository": f"{owner}/{repo}",
-        "repository_id": repository.get("id"),
-        "repository_full_name": repository.get("full_name"),
-        "repository_private": repository.get("private"),
-        "default_branch": repository.get("default_branch"),
-        "ref": ref,
-        "commit_sha": commit_sha,
-        "commit_message": commit.get("commit", {}).get("message"),
-        "commit_author": _commit_identity(commit, "author"),
-        "commit_committer": _commit_identity(commit, "committer"),
-        "commit_url": commit.get("html_url"),
-        "tree_sha": tree_sha_from_commit(commit),
-        "path": path,
-        "sha": item.get("sha"),
-        "mode": item.get("mode"),
-        "size": int(item.get("size") or 0),
-        "mime_type": guess_mime_type(path),
-        "html_url": github_blob_url(
-            web_url=web_url,
-            owner=owner,
-            repo=repo,
-            ref=ref,
-            path=path,
-        ),
-        "raw_url": github_raw_url(
-            web_url=web_url,
-            owner=owner,
-            repo=repo,
-            ref=ref,
-            path=path,
-        ),
-        "updated_at": commit_timestamp(commit),
-    }
+    return GitHubMetadata(
+        source_system="github",
+        owner=owner,
+        repo=repo,
+        repository_id=repository.get("id"),
+        repository_private=repository.get("private"),
+        default_branch=repository.get("default_branch"),
+        ref=ref,
+        commit_sha=commit_sha,
+        commit_message=commit.get("commit", {}).get("message"),
+        commit_author=_commit_identity(commit, "author"),
+        commit_committer=_commit_identity(commit, "committer"),
+        tree_sha=tree_sha_from_commit(commit),
+        path=path,
+        sha=item.get("sha"),
+        mode=item.get("mode"),
+        size=int(item.get("size") or 0),
+    )
 
 
-def _commit_identity(commit: dict[str, Any], key: str) -> dict[str, Any] | None:
+def _commit_identity(
+    commit: dict[str, Any],
+    key: str,
+) -> GitHubCommitIdentity | None:
     value = commit.get("commit", {}).get(key)
     if not isinstance(value, dict):
         return None
-    return {
-        "name": value.get("name"),
-        "email": value.get("email"),
-        "date": parse_timestamp(value.get("date")),
-    }
+    return GitHubCommitIdentity(
+        name=value.get("name"),
+        email=value.get("email"),
+        date=parse_timestamp(value.get("date")),
+    )

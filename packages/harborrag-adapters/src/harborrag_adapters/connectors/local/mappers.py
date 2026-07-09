@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
 
+from .schemas import LocalFileMetadata
 from .utils import (
     guess_mime_type,
     relative_path,
@@ -44,11 +44,8 @@ def build_source_record(
             "name": path.name,
             "parent_path": str(path.parent),
             "suffix": path.suffix.lower(),
-            "mime_type": mime_type,
             "size": stat.st_size,
-            "checksum": checksum,
             "created_at": stat_datetime(stat.st_ctime),
-            "updated_at": stat_datetime(stat.st_mtime),
             "accessed_at": stat_datetime(stat.st_atime),
             "is_symlink": path.is_symlink(),
         },
@@ -60,21 +57,20 @@ def build_document_metadata(
     *,
     root_path: Path,
     checksum: str,
-) -> dict[str, Any]:
+) -> LocalFileMetadata:
     """Build parsed provenance metadata for a loaded local file."""
     stat = path.stat()
-    return {
-        "source_system": "local",
-        "path": str(path),
-        "relative_path": relative_path(path, root_path),
-        "name": path.name,
-        "parent_path": str(path.parent),
-        "suffix": path.suffix.lower(),
-        "mime_type": guess_mime_type(path),
-        "size": stat.st_size,
-        "checksum": checksum,
-        "created_at": stat_datetime(stat.st_ctime),
-        "updated_at": stat_datetime(stat.st_mtime),
-        "accessed_at": stat_datetime(stat.st_atime),
-        "is_symlink": path.is_symlink(),
-    }
+    return LocalFileMetadata(
+        source_system="local",
+        path=str(path),
+        relative_path=relative_path(path, root_path),
+        name=path.name,
+        parent_path=str(path.parent),
+        suffix=path.suffix.lower(),
+        size=stat.st_size,
+        checksum=checksum,
+        created_at=stat_datetime(stat.st_ctime),
+        updated_at=stat_datetime(stat.st_mtime),
+        accessed_at=stat_datetime(stat.st_atime),
+        is_symlink=path.is_symlink(),
+    )

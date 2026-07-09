@@ -5,15 +5,18 @@ from typing import Any, Iterable, NamedTuple
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .base import BaseParser
+from .csv import CsvParser
+from .docx import DocxParser
 from .ebook import EpubParser
 from .exceptions import ParseError, UnsupportedFormatError
+from .excel import ExcelParser
 from .html_engine import HtmlParser
 from .image import ImageParser
 from .markdown import MarkdownParser
-from .office import DocxParser, ExcelParser, PptxParser
-from .parser_logging import get_parser_logger, input_label, parser_log_extra
+from .parser_logging import get_parser_logger, input_label
 from .pdf_engine import PdfParser
-from .structured import CsvParser, JsonParser
+from .pptx import PptxParser
+from .structured import JsonParser
 from .text import TextParser
 
 
@@ -81,11 +84,6 @@ class HarborParser:
         if parser.name in self._by_name:
             if not replace:
                 raise ValueError(f"Parser {parser.name!r} is already registered.")
-            parser_logger.info(
-                "Replacing parser %s",
-                parser.name,
-                extra=parser_log_extra(parser_name=parser.name),
-            )
             self.unregister(parser.name)
 
         self._register_key(self._by_name, parser.name, parser, replace=replace)
@@ -100,18 +98,6 @@ class HarborParser:
             )
 
         self.parsers.append(parser)
-        parser_logger.debug(
-            "Registered parser %s suffixes=%s content_types=%s",
-            parser.name,
-            sorted(parser.suffixes),
-            sorted(parser.content_types),
-            extra=parser_log_extra(
-                parser_name=parser.name,
-                parser_engine=parser.parser_engine,
-                suffixes=sorted(parser.suffixes),
-                content_types=sorted(parser.content_types),
-            ),
-        )
 
     def unregister(self, name: str) -> None:
         """Remove a parser by name from every route index."""
@@ -130,11 +116,6 @@ class HarborParser:
         self.parsers = [
             registered for registered in self.parsers if registered is not parser
         ]
-        parser_logger.debug(
-            "Unregistered parser %s",
-            name,
-            extra=parser_log_extra(parser_name=name),
-        )
 
     def create(self, name: str) -> BaseParser[ParseInput, ParsedDocument]:
         """Return a registered parser by stable parser name."""
@@ -149,18 +130,11 @@ class HarborParser:
         route = self._route_for(parse_input)
         if route is not None:
             parser_logger.debug(
-                "Parsing %s with parser %s matched_by=%s key=%s",
+                "Parsing %s with %s via %s=%s",
                 input_label(parse_input),
                 route.parser.name,
                 route.kind,
                 route.key,
-                extra=parser_log_extra(
-                    input=parse_input,
-                    parser_name=route.parser.name,
-                    parser_engine=route.parser.parser_engine,
-                    route_kind=route.kind,
-                    route_key=route.key,
-                ),
             )
             try:
                 document = route.parser.parse(parse_input)
@@ -172,12 +146,6 @@ class HarborParser:
                     route.parser.name,
                     input_label(parse_input),
                     exc,
-                    extra=parser_log_extra(
-                        input=parse_input,
-                        parser_name=route.parser.name,
-                        route_kind=route.kind,
-                        route_key=route.key,
-                    ),
                 )
                 raise ParseError(
                     f"Parser {route.parser.name!r} failed: {exc}"
@@ -188,15 +156,6 @@ class HarborParser:
                 route.parser.name,
                 len(document.content),
                 len(document.elements or []),
-                extra=parser_log_extra(
-                    input=parse_input,
-                    parser_name=route.parser.name,
-                    parser_engine=route.parser.parser_engine,
-                    route_kind=route.kind,
-                    route_key=route.key,
-                    content_chars=len(document.content),
-                    elements=len(document.elements or []),
-                ),
             )
             return document
 
@@ -208,7 +167,6 @@ class HarborParser:
             input_label(parse_input),
             suffix,
             content_type,
-            extra=parser_log_extra(input=parse_input),
         )
         raise UnsupportedFormatError(f"No parser registered for input with{detail}.")
 
@@ -241,7 +199,6 @@ class HarborParser:
                     "Skipping input %d after parse failure: %s",
                     index,
                     exc,
-                    extra=parser_log_extra(input_index=index),
                 )
         return results
 
@@ -276,12 +233,6 @@ class HarborParser:
             and content_type_route is not None
             and suffix_route.parser is not content_type_route.parser
         ):
-            # A specific filename suffix beats a generic transport MIME type.
-            # Object stores, email gateways, and web servers routinely label
-            # .csv/.md/.json/.html as text/plain or application/octet-stream, so
-            # treating those as a hard conflict would fail a large fraction of
-            # otherwise-parseable documents. A hard error is reserved for two
-            # genuinely specific, disagreeing signals.
             if content_type in _GENERIC_CONTENT_TYPES:
                 return suffix_route
             if parse_input.suffix in ("", None):
@@ -294,12 +245,6 @@ class HarborParser:
                 suffix_route.parser.name,
                 content_type_route.key,
                 content_type_route.parser.name,
-                extra=parser_log_extra(
-                    input=parse_input,
-                    route_kind="conflict",
-                    suffix_parser=suffix_route.parser.name,
-                    content_type_parser=content_type_route.parser.name,
-                ),
             )
             raise UnsupportedFormatError(
                 "Conflicting parser routes for input: "
@@ -326,11 +271,6 @@ class HarborParser:
                 key,
                 existing.name,
                 parser.name,
-                extra=parser_log_extra(
-                    parser_name=parser.name,
-                    route_key=key,
-                    existing_parser=existing.name,
-                ),
             )
             raise ValueError(
                 f"Parser route {key!r} is already registered to {existing.name!r}; "

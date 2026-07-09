@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Any
+
+from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_adapters.connectors.utils import extend_with_limit
+
+from .client import ConfluenceClient
+from .config import ConfluenceSpaceConfig
+from .utils import (
+    COMMENT_EXPAND,
+    CONTENT_EXPAND,
+    LIGHT_EXPAND,
+    build_search_params,
+    extract_cursor,
+)
+
+
+class ConfluenceContentAPI:
+    """Confluence content traversal and child-resource pagination."""
+
+    def __init__(self, client: ConfluenceClient, config: ConfluenceSpaceConfig) -> None:
+        self.client = client
+        self.config = config
+
+    def search(self, cql: str) -> Iterator[dict[str, Any]]:
+        """Iterate CQL results across Cloud cursor and Data Center start paging."""
+        cursor: str | None = None
+        start = 0
+        while True:
+            params = build_search_params(
+                cql=cql,
+                limit=self.config.page_size,
+                start=start,
+                cursor=cursor,
+                expand=LIGHT_EXPAND,
+            )
+            response = self.client.get_json("content/search", params=params)
+            results = response.get("results", [])
+            if not results:
+                return
+            yield from results
+
+            next_url = response.get("_links", {}).get("next")
+            next_cursor = extract_cursor(next_url)
+            if next_cursor:
+                cursor = next_cursor
+                continue
+            if not next_url and len(results) < self.config.page_size:
+                return
+            cursor = None
+            start += len(results)
+
+    def get_content(self, content_id: str) -> dict[str, Any]:
+        """Fetch the fully expanded page/blogpost needed for loading."""
+        return self.client.get_json(
+            f"content/{content_id}",
+            params={"expand": CONTENT_EXPAND},
+        )
+
+    def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
+        """Fetch all comments for one content item while enforcing configured caps."""
+        comments: list[dict[str, Any]] = []
+        start = 0
+        while True:
+            response = self.client.get_json(
+                f"content/{content_id}/child/comment",
+                params={
+                    "depth": "all",
+                    "expand": COMMENT_EXPAND,
+                    "limit": self.config.page_size,
+                    "start": start,
+                },
+            )
+            results = response.get("results", [])
+            extend_with_limit(
+                comments,
+                results,
+                limit=self.config.max_comments,
+                label=f"Confluence comments for {content_id}",
+                setting_name="max_comments",
+            )
+            if len(results) < self.config.page_size:
+                return comments
+            start += len(results)
+
+    def list_attachments(self, content_id: str) -> list[dict[str, Any]]:
+        """Fetch attachment metadata for one content item within configured caps."""
+        attachments: list[dict[str, Any]] = []
+        start = 0
+        while True:
+            response = self.client.get_json(
+                f"content/{content_id}/child/attachment",
+                params={"limit": self.config.page_size, "start": start},
+            )
+            results = response.get("results", [])
+            extend_with_limit(
+                attachments,
+                results,
+                limit=self.config.max_attachments,
+                label=f"Confluence attachments for {content_id}",
+                setting_name="max_attachments",
+            )
+            if len(results) < self.config.page_size:
+                return attachments
+            start += len(results)
+
+    def with_children(
+        self,
+        content_ids: list[str],
+        query: ConnectorQuery,
+    ) -> Iterator[str]:
+        """Yield requested content IDs and optionally traverse child pages."""
+        include_children = bool(query.filters.get("include_children"))
+        seen: set[str] = set()
+        for content_id in content_ids:
+            if content_id in seen:
+                continue
+            seen.add(content_id)
+            yield content_id
+            if include_children:
+                yield from self.child_page_ids(
+                    content_id,
+                    recursive=query.recursive,
+                    seen=seen,
+                )
+
+    def child_page_ids(
+        self,
+        content_id: str,
+        *,
+        recursive: bool,
+        seen: set[str],
+    ) -> Iterator[str]:
+        """Traverse child page IDs without revisiting already emitted pages."""
+        start = 0
+        while True:
+            response = self.client.get_json(
+                f"content/{content_id}/child/page",
+                params={"limit": self.config.page_size, "start": start},
+            )
+            results = response.get("results", [])
+            for child in results:
+                child_id = str(child.get("id") or "")
+                if not child_id or child_id in seen:
+                    continue
+                seen.add(child_id)
+                yield child_id
+                if recursive:
+                    yield from self.child_page_ids(
+                        child_id,
+                        recursive=True,
+                        seen=seen,
+                    )
+            if len(results) < self.config.page_size:
+                return
+            start += len(results)

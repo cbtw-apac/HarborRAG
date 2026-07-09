@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from harborrag_adapters.connectors.mock import MockConnector
-from harborrag_adapters.parsers.mock import MockMarkdownParser
+from harborrag_adapters.parsers.markdown import MarkdownParser
 from harborrag_core.domain.document import HarborDocument
 from harborrag_core.domain.graph import GraphHint
 from harborrag_core.domain.metadata import DocumentMetadata
@@ -109,7 +109,7 @@ def test_base_methods_raise():
 
 def test_mock_ingestion_chunking_indexing_graph_and_builder():
     pipeline = MockIngestionPipeline(
-        MockConnector(), MockMarkdownParser(), MockDocumentNormalizer(), MockChunker()
+        MockConnector(), MarkdownParser(), MockDocumentNormalizer(), MockChunker()
     )
     docs = pipeline.run_once()
     assert docs[0].title == "Mock Document"

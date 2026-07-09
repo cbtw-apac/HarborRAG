@@ -2,8 +2,4 @@
 
 from .config import SharePointSiteConfig
 from .connector import SharePointConnector
-
-__all__ = [
-    "SharePointConnector",
-    "SharePointSiteConfig",
-]
+from .schemas import SharePointMetadata, SharePointParentReference

@@ -30,12 +30,19 @@ class BaseConnector:
 The expected flow is:
 
 1. `discover()` returns cheap `SourceRecord` objects with stable IDs, locators,
-   timestamps, checksums when available, and provider metadata.
+   first-class timestamps/checksums when available, and compact provider
+   metadata.
 2. `load(record)` performs the heavier fetch and returns a `RawDocument`.
 3. `load_raw_documents(query)` is available for simple pull-through ingestion.
 
 `SourceRecord` and `RawDocument` live in `harborrag-core` so runtime, engine, and
 adapters share the same contracts.
+
+Loaded document URLs belong in `RawDocument.source`, content types belong in
+`RawDocument.content_type`, and duplicate copies should not be repeated inside
+provider metadata. Provider-specific loaded metadata should use small typed
+schema classes with a `to_dict()` method before it is attached to
+`RawDocument.metadata`.
 
 ## Providers
 
@@ -196,6 +203,31 @@ Connector safeguards are source-specific and intentionally conservative:
 Concurrency, global rate budgets, job checkpoints, and resumable ingestion should
 be implemented in `harborrag-runtime`, not inside individual connectors.
 
+## Package Layout
+
+Provider packages use focused modules so connector orchestration stays small:
+
+```text
+connectors/<provider>/
+  __init__.py
+  config.py       # provider configuration and validation
+  connector.py    # discover/load orchestration
+  mappers.py      # provider payloads -> SourceRecord/metadata
+  schemas.py      # typed provider metadata classes
+  utils.py        # pure provider helpers
+```
+
+Add these modules only when they remove real connector complexity:
+
+```text
+client.py         # HTTP/auth/rate-limit client
+content.py        # Confluence content traversal
+issues.py         # JIRA issue search and nested pagination
+repository.py     # GitHub repository traversal/blob helpers
+drive.py          # SharePoint site/drive traversal
+filesystem.py     # Local filesystem traversal/filtering
+```
+
 ## Adding A Connector
 
 Use this shape:
@@ -206,18 +238,25 @@ connectors/<provider>/
   config.py
   connector.py
   mappers.py
+  schemas.py
   utils.py
 ```
 
 Guidelines:
 
-- Keep auth and SDK imports inside the provider module.
+- Keep auth and SDK imports in `client.py` or the provider module.
 - Put reusable provider helpers in `utils.py`.
 - Put schema-to-domain conversion in `mappers.py`.
 - Validate config in `config.py`.
+- Keep loaded metadata typed in `schemas.py`; serialize with `to_dict()` at the
+  connector boundary.
 - Return `SourceRecord` from discovery and `RawDocument` from load.
+- Do not duplicate `RawDocument.source`, `RawDocument.content_type`,
+  `SourceRecord.updated_at`, or `SourceRecord.checksum` inside metadata.
 - Use shared exceptions from `connectors.exceptions`.
 - Add provider tests under `packages/harborrag-adapters/tests/`.
+- Keep test doubles in tests or fixtures; do not add production `mock`
+  connectors.
 
 ## Logging
 

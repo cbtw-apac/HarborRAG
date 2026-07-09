@@ -15,8 +15,6 @@ from .parser_logging import get_parser_logger, input_label
 
 parser_logger = get_parser_logger("utils")
 
-# Defensive limits for untrusted document parsing. A single hostile upload
-# should never be able to exhaust a worker's memory during ingestion.
 DEFAULT_MAX_INPUT_BYTES = 512 * 1024 * 1024  # 512 MiB raw input
 MAX_ARCHIVE_MEMBERS = 10_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB total

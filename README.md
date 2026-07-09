@@ -56,7 +56,7 @@ harborrag_adapters/
   connectors/base.py
   connectors/mock.py
   parsers/base.py
-  parsers/mock.py
+  parsers/markdown.py
   models/chat/base.py
   models/chat/mock.py
   models/embedding/base.py
@@ -221,7 +221,7 @@ Create a provider folder under `harborrag_adapters/parsers/`:
 ```text
 parsers/pdf/docling_engine.py
 parsers/pdf/pypdf_engine.py
-parsers/office/docx_engine.py
+parsers/docx.py
 ```
 
 Implementation requirements:

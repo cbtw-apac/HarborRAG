@@ -12,8 +12,6 @@ from urllib.parse import urlparse
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
-# Cap how much of a provider error body is echoed into exceptions/logs. Full
-# bodies can be huge (proxy HTML) and may carry sensitive payloads.
 DEFAULT_ERROR_BODY_LIMIT = 500
 
 
@@ -25,7 +23,7 @@ def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT
         from harborrag_core.security.redaction import redact_secrets
 
         text = redact_secrets(text)
-    except ImportError:  # pragma: no cover - core always present in practice
+    except ImportError:  # pragma: no cover
         pass
     text = text.strip().replace("\n", " ")
     if len(text) > limit:
@@ -44,7 +42,6 @@ def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
     """
     parsed = urlparse(url)
     if not parsed.scheme:
-        # Relative reference; caller joins it against the trusted base URL.
         return url
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
         raise ValueError(f"Unsafe {label} URL scheme: {url}")
@@ -76,10 +73,7 @@ def read_capped_content(
             try:
                 declared_len = int(declared)
             except ValueError:
-                declared_len = None  # Unparseable; rely on the incremental cap.
-            # Raise OUTSIDE the try: ResponseTooLargeError subclasses ValueError,
-            # so raising inside the except-ValueError would swallow it (and leave
-            # the pre-check as dead code).
+                declared_len = None
             if declared_len is not None and declared_len > max_bytes:
                 response.close()
                 raise ResponseTooLargeError(
@@ -160,7 +154,6 @@ def _header(headers: Mapping[str, str] | HTTPResponse, name: str) -> str | None:
     if hasattr(headers, "get"):
         value = headers.get(name)
     elif hasattr(headers, "getheader"):
-        # http.client.HTTPResponse exposes headers via getheader(), not get().
         value = headers.getheader(name)
     else:
         value = None

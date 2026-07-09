@@ -166,6 +166,8 @@ harborrag.adapters.parsers
 
 Use `get_parser_logger()` and `parser_log_extra()` so parser name, engine, route,
 filename, and content type stay consistent across format implementations.
+Prefer structured counters such as `input_bytes`, `content_chars`, `elements`,
+`pages`, `slides`, `sheets`, and `rows`; never log extracted document text.
 
 ## Tests
 

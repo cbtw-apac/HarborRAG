@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from harborrag_adapters.connectors.mock import MockConnector
 from harborrag_adapters.models.embedding.mock import MockEmbeddingModel
-from harborrag_adapters.parsers.mock import MockMarkdownParser
+from harborrag_adapters.parsers.markdown import MarkdownParser
 from harborrag_adapters.repositories.vector.mock import MockVectorRepository
 from harborrag_engine.builder import EngineBuilder
 from harborrag_engine.ingestion.mock import MockIngestionPipeline
@@ -30,7 +30,7 @@ class CompositionRoot:
         """
         return MockIngestionPipeline(
             MockConnector(),
-            MockMarkdownParser(),
+            MarkdownParser(),
             embedder=MockEmbeddingModel(),
             vector_repository=MockVectorRepository(),
         )

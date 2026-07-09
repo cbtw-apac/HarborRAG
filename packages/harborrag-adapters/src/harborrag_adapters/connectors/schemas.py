@@ -41,20 +41,3 @@ class ConnectorQuery:
     limit: int | None = None
     include_attachments: bool = True
     filters: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ConnectorSyncState:
-    """Small sync checkpoint carried by runtime or persistence layers."""
-
-    connector_id: str
-    source_system: str
-    cursor: str | None = None
-    last_success_at: datetime | None = None
-    last_seen_updated_at: datetime | None = None
-    high_watermark: str | None = None
-    checksum_map: dict[str, str] = field(default_factory=dict)
-
-    def update_checksum(self, source_id: str, checksum: str) -> None:
-        """Record the latest checksum observed for a source item."""
-        self.checksum_map[source_id] = checksum

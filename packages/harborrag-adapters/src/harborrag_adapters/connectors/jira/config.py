@@ -70,6 +70,7 @@ class JiraProjectConfig:
     include_attachments: bool = False
     include_changelog: bool = False
     include_attachment_text_in_content: bool = True
+    include_all_fields: bool = True
     fields: tuple[str, ...] = DEFAULT_ISSUE_FIELDS
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
     process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
@@ -89,6 +90,9 @@ class JiraProjectConfig:
         self.base_url = str(self.base_url).rstrip("/")
         self.token = self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
         self.email = self.email or os.getenv("JIRA_EMAIL")
+        self.fields = tuple(
+            dict.fromkeys(str(field) for field in self.fields if field)
+        )
 
         if self.deployment_type is None:
             self.deployment_type = (
@@ -114,3 +118,9 @@ class JiraProjectConfig:
             raise ValueError("requests_per_minute must be between 1 and 6000")
         if not 1 <= self.page_size <= 100:
             raise ValueError("page_size must be between 1 and 100")
+
+    def requested_fields(self) -> tuple[str, ...]:
+        """Return the JIRA field selector for search and issue loads."""
+        if self.include_all_fields:
+            return ("*all",)
+        return self.fields

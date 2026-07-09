@@ -38,14 +38,14 @@ Contract (`parsers/base.py`, `BaseParser`):
 def parse(self, raw: RawDocument) -> ParsedDocument: ...
 ```
 
-`MockMarkdownParser` splits on blank lines and classifies each block as a `heading` or `paragraph` `DocumentElement` — enough to exercise the ingestion pipeline without a real parsing library.
+`MarkdownParser` splits on blank lines and classifies each block as a `heading` or `paragraph` `DocumentElement` — enough to exercise the ingestion pipeline without an optional parsing library.
 
 To add a real parser (PDF, Office documents, HTML):
 
 ```text
 parsers/pdf/docling_engine.py
 parsers/pdf/pypdf_engine.py
-parsers/office/docx_engine.py
+parsers/docx.py
 ```
 
 Requirements: return `ParsedDocument` with `elements` populated (`heading`, `paragraph`, `table`, `image`, `code`, or `metadata`); preserve layout/table/page metadata when the engine exposes it; return warnings instead of silently dropping partial-parse issues; include a fake-engine or fixture-based test path so tests don't need the real parsing library installed.

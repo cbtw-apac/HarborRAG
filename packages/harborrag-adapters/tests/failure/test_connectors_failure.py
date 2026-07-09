@@ -1,16 +1,3 @@
-"""Failure and recovery tests for connector clients and the base contract.
-
-These exercise the throttle/retry loops and error-classification branches that
-are otherwise only hit under real HTTP failures. Two seams are used:
-
-* the connectors' ``client=`` injection point for behavioral tests, and
-* swapping a real ``_Requests*Client.session`` for a scripted ``FakeSession``
-  to drive the private ``_request`` retry/rate-limit loop directly.
-
-``time.sleep`` is monkeypatched everywhere a retry could otherwise stall, and
-rate limiters use ``time.monotonic`` with a high ``requests_per_minute`` so no
-real waiting happens.
-"""
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -34,20 +21,21 @@ from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
+
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
     """Neutralize retry/backoff sleeps in every connector client module."""
     for module in (
+        "harborrag_adapters.connectors.github.client",
         "harborrag_adapters.connectors.github.connector",
+        "harborrag_adapters.connectors.jira.client",
         "harborrag_adapters.connectors.jira.connector",
+        "harborrag_adapters.connectors.sharepoint.client",
         "harborrag_adapters.connectors.sharepoint.connector",
     ):
         monkeypatch.setattr(f"{module}.time.sleep", lambda *_a, **_k: None)
-
-
-# ---------------------------------------------------------------------------
-# GitHub _rate_limited classification
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -73,11 +61,6 @@ def _no_sleep(monkeypatch):
 )
 def test_github_rate_limited_classification(response, expected):
     assert _RequestsGitHubClient._rate_limited(response) is expected
-
-
-# ---------------------------------------------------------------------------
-# GitHub _request retry/rate-limit loop via FakeSession
-# ---------------------------------------------------------------------------
 
 
 def _github_config(**overrides) -> GitHubRepositoryConfig:
@@ -135,11 +118,6 @@ def test_github_rate_limit_exhausts_retries_raises_rate_limit_error():
     assert len(client.session.calls) == 3  # max_retries + 1 attempts
 
 
-# ---------------------------------------------------------------------------
-# BaseConnector.load_raw_documents on_error policies
-# ---------------------------------------------------------------------------
-
-
 def _record(record_id: str) -> SourceRecord:
     return SourceRecord(record_id, "text/plain", record_id)
 
@@ -191,11 +169,6 @@ def test_load_raw_documents_rejects_unknown_policy():
         list(connector.load_raw_documents(on_error="bogus"))
 
 
-# ---------------------------------------------------------------------------
-# Streaming cap enforcement through a real client + FakeSession
-# ---------------------------------------------------------------------------
-
-
 def _sharepoint_config(**overrides) -> SharePointSiteConfig:
     values = {
         "site_id": "site-123",
@@ -217,8 +190,6 @@ def test_sharepoint_get_bytes_oversized_stream_raises_fetch_error():
 
 
 def test_sharepoint_get_bytes_rejects_oversized_content_length_before_read():
-    # A declared Content-Length over the configured cap (10 bytes) is rejected
-    # up front and surfaced as FetchError, without streaming the body.
     client = _RequestsGraphClient(_sharepoint_config())
     client.session = FakeSession(
         responses=[
@@ -231,11 +202,6 @@ def test_sharepoint_get_bytes_rejects_oversized_content_length_before_read():
     )
     with pytest.raises(FetchError):
         client.get_bytes("drives/d/items/i/content")
-
-
-# ---------------------------------------------------------------------------
-# JIRA _request retry loop: recovery and exhaustion
-# ---------------------------------------------------------------------------
 
 
 def _jira_config(**overrides) -> JiraProjectConfig:
@@ -296,7 +262,6 @@ def test_jira_download_bytes_oversized_stream_raises_fetch_error():
 
 def test_jira_download_bytes_rejects_cross_origin_url():
     client = _RequestsJiraClient(_jira_config())
-    # No session interaction expected: origin check fails before the request.
     client.session = FakeSession(responses=[])
     with pytest.raises(FetchError):
         client.download_bytes("https://evil.example.com/secure/attachment/1")

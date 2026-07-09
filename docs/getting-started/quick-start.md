@@ -28,7 +28,7 @@ This confirms the runtime and engine composition (`harborrag_runtime.composition
 python scripts/run_mock_pipeline.py --json
 ```
 
-This connects `MockConnector` → `MockMarkdownParser` → `MockDocumentNormalizer` → `MockEmbeddingModel` → `MockVectorRepository`, then chunks and retrieves the result with `MockRetrievalPipeline`:
+This connects `MockConnector` → `MarkdownParser` → `MockDocumentNormalizer` → `MockEmbeddingModel` → `MockVectorRepository`, then chunks and retrieves the result with `MockRetrievalPipeline`:
 
 ```json
 {
