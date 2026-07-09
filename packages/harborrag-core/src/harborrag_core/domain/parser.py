@@ -8,6 +8,15 @@ from typing import Any, Iterable
 from .element import DocumentElement
 
 
+def _has_bom(data: bytes, encoding: str) -> bool:
+    """Return whether ``data`` starts with the byte-order mark for ``encoding``."""
+    if encoding == "utf-8-sig":
+        return data.startswith(b"\xef\xbb\xbf")
+    if encoding == "utf-16":
+        return data.startswith((b"\xff\xfe", b"\xfe\xff"))
+    return False
+
+
 class ParserFormat(str, Enum):
     PPTX = "pptx"
     DOCX = "docx"
@@ -44,7 +53,7 @@ class ParseInput:
             raise ValueError("ParseInput requires either `path` or `content`")
 
     @classmethod
-    def coerce(cls, input: Any) -> "ParseInput":
+    def coerce(cls, input: Any, *, allow_path_strings: bool = False) -> "ParseInput":
         if isinstance(input, cls):
             return input
 
@@ -55,8 +64,16 @@ class ParseInput:
             return cls(path=input)
 
         if isinstance(input, str):
-            path = cls._path_from_string(input)
-            return cls(path=path) if path else cls(content=input)
+            # A bare string is ALWAYS treated as document content. Auto-promoting
+            # a string to a filesystem path (based on os.path.exists) is an
+            # arbitrary-file-read and non-determinism hazard when the string
+            # originates from untrusted document content, so path reads must be
+            # requested explicitly via a Path/ParseInput or allow_path_strings.
+            if allow_path_strings:
+                path = cls._path_from_string(input)
+                if path is not None:
+                    return cls(path=path)
+            return cls(content=input)
 
         text_method = getattr(input, "text", None)
         content = getattr(input, "content", None)
@@ -106,11 +123,30 @@ class ParseInput:
         if encoding:
             return data.decode(encoding)
 
-        for candidate in ("utf-8-sig", "utf-16", "cp1252"):
-            try:
-                return data.decode(candidate)
-            except UnicodeDecodeError:
-                continue
+        # UTF variants with a BOM are unambiguous, so try them first.
+        for candidate in ("utf-8-sig", "utf-16"):
+            if _has_bom(data, candidate):
+                try:
+                    return data.decode(candidate)
+                except UnicodeDecodeError:
+                    break
+
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            pass
+
+        # Confidence-based detection avoids the cp1252 trap where almost any
+        # byte sequence "successfully" decodes into mojibake with no signal.
+        try:
+            from charset_normalizer import from_bytes
+
+            best = from_bytes(data).best()
+            if best is not None:
+                return str(best)
+        except ImportError:
+            pass
+
         return data.decode("utf-8", errors="replace")
 
     def is_supported(self, supported_formats: Iterable[ParserFormat | str]) -> bool:
@@ -134,7 +170,7 @@ class ParseInput:
         return name or None
 
     @staticmethod
-    def _path_from_string(value: str) -> Path | None:
+    def _path_from_string(value: str) -> Path | None:  # noqa: D401 - see coerce
         if "\n" in value or len(value) >= 260:
             return None
         try:

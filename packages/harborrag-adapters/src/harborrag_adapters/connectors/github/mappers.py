@@ -62,7 +62,11 @@ def build_source_record(
     updated_at = commit_timestamp(commit)
 
     return SourceRecord(
-        id=f"github://{owner}/{repo}/{commit_sha}/{path}",
+        # Commit-independent, path-stable ID so a downstream index keyed on it
+        # is not invalidated for every file on every commit (which would force a
+        # full-repo re-ingest). The commit/blob SHA lives in metadata/checksum
+        # and drives change detection.
+        id=f"github://{owner}/{repo}/{path}",
         source_type=mime_type,
         locator=path,
         updated_at=updated_at,

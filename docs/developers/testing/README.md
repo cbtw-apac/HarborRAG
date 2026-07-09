@@ -50,6 +50,15 @@ workflow      marks tests that validate GitHub Actions workflow files
 
 Tests requiring Docker, cloud credentials, provider accounts, or live model APIs must be marked `@pytest.mark.integration` and must not run by default — default CI should never require external services.
 
+`packages/harborrag-adapters/tests/live/` is one example of this pattern: it hits real Confluence/JIRA/GitHub/SharePoint APIs (and can scan a real local directory or parse real sample documents) using credentials read from the environment. Copy `.env.example` at the repo root to `.env`, fill in only the connectors you want to validate, export it, then run:
+
+```bash
+set -a && source .env && set +a
+pytest packages/harborrag-adapters/tests/live -m integration -v -s
+```
+
+Each test skips itself with a clear "missing env vars" reason when its connector isn't configured, so it's safe to run with only a subset filled in — and because these tests aren't selected by default, they never affect the coverage gate or default CI.
+
 ## Testing the base + mock pattern
 
 Because every provider family ships a `base.py` contract and a `mock.py` implementation (see [Architecture Overview](../architecture/README.md#the-base-mock-pattern)), package-local tests typically:

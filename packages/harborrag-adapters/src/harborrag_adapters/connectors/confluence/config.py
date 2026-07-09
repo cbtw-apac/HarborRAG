@@ -38,7 +38,7 @@ class ConfluenceSpaceConfig:
 
     space_key: str
     base_url: str
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)  # secret: keep out of repr/logs
     email: str | None = None
     deployment_type: ConfluenceDeploymentType | str | None = None
     content_types: list[str] = field(default_factory=lambda: ["page"])

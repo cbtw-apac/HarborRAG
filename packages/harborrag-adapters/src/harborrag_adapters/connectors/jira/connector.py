@@ -18,8 +18,11 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.http_utils import (
+    ResponseTooLargeError,
+    read_capped_content,
     require_same_origin_url,
     retry_delay_seconds,
+    safe_error_detail,
 )
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_adapters.connectors.utils import (
@@ -37,7 +40,7 @@ from .mappers import (
     issue_key_from_record,
     issue_url,
 )
-from .utils import build_jql, search_body
+from .utils import build_jql, search_body, search_jql_body
 
 
 logger = logging.getLogger("harborrag.adapters.connectors.jira")
@@ -183,7 +186,36 @@ class JiraConnector(BaseConnector):
             yield self.load(self._record_for_key(issue_key, ConnectorQuery()))
 
     def _search(self, jql: str) -> Iterator[dict[str, Any]]:
-        """Iterate JIRA search results using startAt/maxResults pagination."""
+        """Iterate search results using the endpoint appropriate to deployment."""
+        if self.config.deployment_type == JiraDeploymentType.CLOUD:
+            yield from self._search_cloud(jql)
+        else:
+            yield from self._search_datacenter(jql)
+
+    def _search_cloud(self, jql: str) -> Iterator[dict[str, Any]]:
+        """Paginate Jira Cloud's token-based ``/search/jql`` endpoint."""
+        next_page_token: str | None = None
+        while True:
+            response = self.client.post_json(
+                "search/jql",
+                json=search_jql_body(
+                    jql=jql,
+                    max_results=self.config.page_size,
+                    fields=self.config.fields,
+                    next_page_token=next_page_token,
+                    expand=self._issue_expand(),
+                ),
+            )
+            issues = response.get("issues", [])
+            yield from issues
+
+            next_page_token = response.get("nextPageToken")
+            # The endpoint returns no total; stop on isLast or an absent token.
+            if response.get("isLast") or not next_page_token:
+                return
+
+    def _search_datacenter(self, jql: str) -> Iterator[dict[str, Any]]:
+        """Paginate Jira Data Center's offset-based ``/search`` endpoint."""
         start_at = 0
         while True:
             response = self.client.post_json(
@@ -396,8 +428,16 @@ class _RequestsJiraClient:
             safe_url = require_same_origin_url(url, self.base_url, label="JIRA download")
         except ValueError as exc:
             raise FetchError(str(exc)) from exc
-        response = self._request("GET", safe_url, headers={"Accept": "*/*"})
-        return response.content or None
+        response = self._request(
+            "GET", safe_url, headers={"Accept": "*/*"}, stream=True
+        )
+        try:
+            content = read_capped_content(
+                response, self.config.max_attachment_size_bytes
+            )
+        except ResponseTooLargeError as exc:
+            raise FetchError(str(exc)) from exc
+        return content or None
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Send one HTTP request with local rate limiting and retry handling."""
@@ -419,9 +459,9 @@ class _RequestsJiraClient:
                 continue
 
             if response.status_code in (401, 403):
-                raise AuthenticationError(response.text)
+                raise AuthenticationError(safe_error_detail(response.text))
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(response.text)
+                raise RateLimitError(safe_error_detail(response.text))
             if (
                 response.status_code not in _RETRYABLE_STATUS
                 or attempt == self.config.max_retries
@@ -429,7 +469,7 @@ class _RequestsJiraClient:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"JIRA request failed with HTTP "
-                        f"{response.status_code}: {response.text}"
+                        f"{response.status_code}: {safe_error_detail(response.text)}"
                     )
                 return response
 

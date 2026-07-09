@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -8,19 +9,94 @@ from typing import Mapping
 from urllib.parse import urlparse
 
 
+DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+# Cap how much of a provider error body is echoed into exceptions/logs. Full
+# bodies can be huge (proxy HTML) and may carry sensitive payloads.
+DEFAULT_ERROR_BODY_LIMIT = 500
+
+
+def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT) -> str:
+    """Return a truncated, secret-redacted snippet of a response body."""
+    if not text:
+        return ""
+    try:
+        from harborrag_core.security.redaction import redact_secrets
+
+        text = redact_secrets(text)
+    except ImportError:  # pragma: no cover - core always present in practice
+        pass
+    text = text.strip().replace("\n", " ")
+    if len(text) > limit:
+        return f"{text[:limit]}… (truncated)"
+    return text
+
+
 def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
     """Validate absolute URLs before sending authenticated requests.
 
     Connectors often receive download links from source APIs. Relative links are
     safe to join against the configured base URL, but absolute links must stay on
     the same scheme, host, and port to avoid leaking credentials to another
-    origin.
+    origin. Absoluteness is decided by parsing (not a case-sensitive prefix
+    check), and any non-http(s) scheme is rejected outright.
     """
-    if not url.startswith(("http://", "https://")):
+    parsed = urlparse(url)
+    if not parsed.scheme:
+        # Relative reference; caller joins it against the trusted base URL.
         return url
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+        raise ValueError(f"Unsafe {label} URL scheme: {url}")
     if not same_origin(url, base_url):
         raise ValueError(f"Unsafe {label} URL outside trusted origin: {url}")
     return url
+
+
+class ResponseTooLargeError(ValueError):
+    """Raised when a streamed response body exceeds the configured byte cap."""
+
+
+def read_capped_content(
+    response,
+    max_bytes: int | None,
+    *,
+    chunk_size: int = 64 * 1024,
+) -> bytes:
+    """Read a ``requests`` response body while enforcing a hard byte ceiling.
+
+    Streaming with an incremental cap bounds peak memory even when the provider
+    misreports (or omits) the size and when ``Content-Length`` is absent. The
+    read is aborted — and the connection released — as soon as the cap is
+    exceeded, so a hostile/unbounded body can never be fully buffered.
+    """
+    if max_bytes is not None:
+        declared = response.headers.get("Content-Length")
+        if declared is not None:
+            try:
+                declared_len = int(declared)
+            except ValueError:
+                declared_len = None  # Unparseable; rely on the incremental cap.
+            # Raise OUTSIDE the try: ResponseTooLargeError subclasses ValueError,
+            # so raising inside the except-ValueError would swallow it (and leave
+            # the pre-check as dead code).
+            if declared_len is not None and declared_len > max_bytes:
+                response.close()
+                raise ResponseTooLargeError(
+                    f"Content-Length {declared} exceeds cap {max_bytes}"
+                )
+
+    buffer = bytearray()
+    for chunk in response.iter_content(chunk_size=chunk_size):
+        if not chunk:
+            continue
+        buffer.extend(chunk)
+        if max_bytes is not None and len(buffer) > max_bytes:
+            response.close()
+            raise ResponseTooLargeError(
+                f"Downloaded body exceeds cap {max_bytes} bytes"
+            )
+    return bytes(buffer)
 
 
 def same_origin(url: str, base_url: str) -> bool:
@@ -37,13 +113,30 @@ def same_origin(url: str, base_url: str) -> bool:
 def retry_delay_seconds(
     headers: Mapping[str, str] | HTTPResponse | None,
     fallback_delay: float,
+    *,
+    max_delay: float = DEFAULT_MAX_RETRY_DELAY_SECONDS,
+    jitter: bool = True,
 ) -> float:
     """Choose a retry delay from provider headers or a fallback backoff.
 
     HTTP providers commonly return either ``Retry-After`` or
     ``X-RateLimit-Reset``. This helper centralizes that interpretation so every
-    connector sleeps consistently when it is throttled.
+    connector sleeps consistently when it is throttled. The result is always
+    clamped to ``max_delay`` (defending against hostile headers) and, when
+    ``jitter`` is set, spread by a small random factor to avoid a thundering
+    herd of synchronized retries across workers.
     """
+    delay = _raw_delay(headers, fallback_delay)
+    delay = max(0.0, min(delay, max_delay))
+    if jitter and delay > 0:
+        delay += random.uniform(0.0, min(1.0, delay * 0.1))
+    return delay
+
+
+def _raw_delay(
+    headers: Mapping[str, str] | HTTPResponse | None,
+    fallback_delay: float,
+) -> float:
     if not headers:
         return fallback_delay
 
@@ -64,7 +157,13 @@ def retry_delay_seconds(
 
 
 def _header(headers: Mapping[str, str] | HTTPResponse, name: str) -> str | None:
-    value = headers.get(name) if hasattr(headers, "get") else None
+    if hasattr(headers, "get"):
+        value = headers.get(name)
+    elif hasattr(headers, "getheader"):
+        # http.client.HTTPResponse exposes headers via getheader(), not get().
+        value = headers.getheader(name)
+    else:
+        value = None
     return str(value).strip() if value else None
 
 

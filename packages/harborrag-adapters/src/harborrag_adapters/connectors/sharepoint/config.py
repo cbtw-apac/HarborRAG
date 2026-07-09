@@ -29,10 +29,10 @@ class SharePointSiteConfig:
     drive_id: str | None = None
     drive_name: str | None = None
     root_path: str | None = None
-    access_token: str | None = None
+    access_token: str | None = field(default=None, repr=False)  # secret
     tenant_id: str | None = None
     client_id: str | None = None
-    client_secret: str | None = None
+    client_secret: str | None = field(default=None, repr=False)  # secret
     graph_api_url: str = DEFAULT_GRAPH_API_URL
     allowed_extensions: set[str] = field(default_factory=set)
     excluded_extensions: set[str] = field(default_factory=set)

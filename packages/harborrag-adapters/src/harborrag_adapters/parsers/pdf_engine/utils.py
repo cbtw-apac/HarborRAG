@@ -44,10 +44,11 @@ def materialized_pdf_path(input: ParseInput) -> Iterator[Path]:
         return
 
     with TemporaryDirectory(prefix="harborrag-pdf-") as directory:
-        filename = input.filename or "document.pdf"
-        path = Path(directory) / filename
-        if path.suffix.lower() != ".pdf":
-            path = path.with_suffix(".pdf")
+        # NEVER derive the on-disk name from the (attacker-influenced) filename:
+        # "../../etc/cron.d/x.pdf" or an absolute path would escape the temp dir
+        # and turn this into an arbitrary-file-write primitive. Nothing
+        # downstream needs the original name, so use a fixed basename.
+        path = Path(directory) / "document.pdf"
         path.write_bytes(input.read_bytes())
         yield path
 
@@ -127,23 +128,51 @@ def _call_or_value(value: Any, name: str) -> Any:
     return attribute() if callable(attribute) else attribute
 
 
-def _walk_text(value: Any) -> Iterator[str]:
-    """Recursively yield text-like fields from nested parser result structures."""
+_TEXT_KEYS = ("text", "content", "markdown", "md", "rec_text")
+_MAX_WALK_DEPTH = 200
+
+
+def _walk_text(
+    value: Any,
+    depth: int = 0,
+    seen: set[int] | None = None,
+) -> Iterator[str]:
+    """Recursively yield text-like fields from nested parser result structures.
+
+    Guards against adversarial/cyclic third-party result objects (depth cap and
+    an id-based visited set) and avoids emitting the same field twice by not
+    re-walking the text keys already yielded from a dict.
+    """
+
+    if depth >= _MAX_WALK_DEPTH:
+        return
 
     if isinstance(value, str):
         if value.strip():
             yield value
         return
 
+    if seen is None:
+        seen = set()
+    if isinstance(value, (dict, list, tuple, set)):
+        marker = id(value)
+        if marker in seen:
+            return
+        seen.add(marker)
+
     if isinstance(value, dict):
-        for key in ("text", "content", "markdown", "md", "rec_text"):
+        for key in _TEXT_KEYS:
             child = value.get(key)
             if isinstance(child, str) and child.strip():
                 yield child
-        for child in value.values():
-            yield from _walk_text(child)
+        # Recurse only into the non-text-key children so matched strings above
+        # are not yielded a second time.
+        for key, child in value.items():
+            if key in _TEXT_KEYS and isinstance(child, str):
+                continue
+            yield from _walk_text(child, depth + 1, seen)
         return
 
     if isinstance(value, (list, tuple, set)):
         for child in value:
-            yield from _walk_text(child)
+            yield from _walk_text(child, depth + 1, seen)

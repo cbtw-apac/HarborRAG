@@ -7,7 +7,7 @@ from typing import ClassVar
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from ..base import BaseParser
-from ..exceptions import ParseError
+from ..exceptions import EncryptedPdfError, ParseError
 from ..parser_logging import get_parser_logger, input_label, parser_log_extra
 from .base import PdfBackend, PdfParseResult
 from .docling import DoclingBackend, DoclingBackendOptions
@@ -164,6 +164,10 @@ class PdfParser(BaseParser[ParseInput, ParsedDocument]):
             )
             try:
                 result = backend.parse(parse_input)
+            except EncryptedPdfError:
+                # No downstream engine can decrypt; stop the chain immediately
+                # instead of burning OCR budget on every remaining backend.
+                raise
             except ImportError as exc:
                 warning = f"{backend.name}: unavailable ({exc})"
                 warnings.append(warning)
@@ -178,7 +182,10 @@ class PdfParser(BaseParser[ParseInput, ParsedDocument]):
                     ),
                 )
                 continue
-            except ParseError as exc:
+            except Exception as exc:  # noqa: BLE001 - normalize + continue chain
+                # Any backend failure (ParseError or an unwrapped third-party
+                # exception) must not abort the fallback chain; record and move
+                # on to the next backend.
                 warning = f"{backend.name}: failed ({exc})"
                 warnings.append(warning)
                 parser_logger.warning(

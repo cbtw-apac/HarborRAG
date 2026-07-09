@@ -78,6 +78,7 @@ class DoclingBackend(PdfBackend):
             DoclingBackendOptions,
             overrides,
         )
+        self._cached_converter: Any = None
 
     def parse(self, input: ParseInput) -> PdfParseResult:
         """Convert a PDF through Docling and export the document content."""
@@ -101,10 +102,18 @@ class DoclingBackend(PdfBackend):
         )
 
     def _converter(self) -> Any:
-        """Build or reuse a Docling DocumentConverter for PDF inputs."""
+        """Build (once) or reuse a Docling DocumentConverter for PDF inputs.
+
+        Constructing a ``DocumentConverter`` loads hundreds of MB of layout/OCR
+        models. Building it per document would make ingestion at scale
+        prohibitively slow and thrash GPU memory, so the converter is memoized
+        on this long-lived backend instance.
+        """
 
         if self.options.converter is not None:
             return self.options.converter
+        if self._cached_converter is not None:
+            return self._cached_converter
 
         try:
             from docling.datamodel.base_models import InputFormat
@@ -117,7 +126,10 @@ class DoclingBackend(PdfBackend):
 
         pipeline_options = self.options.pipeline_options or self._pipeline_options()
         format_option = self._pdf_format_option(PdfFormatOption, pipeline_options)
-        return DocumentConverter(format_options={InputFormat.PDF: format_option})
+        self._cached_converter = DocumentConverter(
+            format_options={InputFormat.PDF: format_option}
+        )
+        return self._cached_converter
 
     def _pipeline_options(self) -> Any:
         """Build PdfPipelineOptions while tolerating Docling version differences."""

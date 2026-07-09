@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
+
+
+def format_query_timestamp(value: datetime) -> str:
+    """Render a datetime for JQL as UTC ``yyyy/MM/dd HH:mm``.
+
+    Bare JQL timestamps are evaluated in the API user's timezone; normalizing to
+    UTC keeps the incremental-sync watermark from drifting by that offset.
+    Deployments should set the integration account timezone to UTC.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).strftime("%Y/%m/%d %H:%M")
 
 
 _PROJECT_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
@@ -59,7 +71,7 @@ def build_jql(
         clauses.append(f"labels in ({_quoted_values(labels)})")
     if updated_after:
         clauses.append(
-            f"updated >= {quote_jql(updated_after.strftime('%Y/%m/%d %H:%M'))}"
+            f"updated >= {quote_jql(format_query_timestamp(updated_after))}"
         )
 
     prefix = " and ".join(clauses) if clauses else ""
@@ -83,7 +95,36 @@ def search_body(
         "fields": list(fields),
     }
     if expand:
-        body["expand"] = ",".join(expand)
+        # The search POST body expects expand as an array of strings; a
+        # comma-joined string is the GET query-param convention only and is
+        # rejected (or silently ignored) by the search endpoint.
+        body["expand"] = list(expand)
+    return body
+
+
+def search_jql_body(
+    *,
+    jql: str,
+    max_results: int,
+    fields: tuple[str, ...],
+    next_page_token: str | None = None,
+    expand: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Build the body for Jira Cloud's ``POST /rest/api/3/search/jql``.
+
+    The legacy ``/search`` endpoint (offset ``startAt``/``total`` paging) was
+    removed on Jira Cloud in 2025; the replacement paginates with an opaque
+    ``nextPageToken`` and returns ``isLast`` instead of a total count.
+    """
+    body: dict[str, Any] = {
+        "jql": jql,
+        "maxResults": max_results,
+        "fields": list(fields),
+    }
+    if next_page_token:
+        body["nextPageToken"] = next_page_token
+    if expand:
+        body["expand"] = list(expand)
     return body
 
 

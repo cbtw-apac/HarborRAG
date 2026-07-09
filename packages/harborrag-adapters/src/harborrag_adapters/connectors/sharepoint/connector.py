@@ -18,8 +18,11 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.http_utils import (
+    ResponseTooLargeError,
+    read_capped_content,
     require_same_origin_url,
     retry_delay_seconds,
+    safe_error_detail,
 )
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 
@@ -443,13 +446,17 @@ class _RequestsGraphClient:
             raise FetchError(f"Microsoft Graph returned non-JSON for {endpoint}") from exc
 
     def get_bytes(self, endpoint: str) -> bytes:
-        """GET a Graph endpoint that returns file bytes."""
+        """GET a Graph endpoint that returns file bytes, capped by size limit."""
         response = self._request(
             "GET",
             self._api_url(endpoint),
             headers={"Accept": "*/*"},
+            stream=True,
         )
-        return response.content
+        try:
+            return read_capped_content(response, self.config.max_file_size_bytes)
+        except ResponseTooLargeError as exc:
+            raise FetchError(str(exc)) from exc
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Send one Graph request with auth, local rate limiting, and retries."""
@@ -475,9 +482,9 @@ class _RequestsGraphClient:
                 continue
 
             if response.status_code in (401, 403):
-                raise AuthenticationError(response.text)
+                raise AuthenticationError(safe_error_detail(response.text))
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(response.text)
+                raise RateLimitError(safe_error_detail(response.text))
             if (
                 response.status_code not in _RETRYABLE_STATUS
                 or attempt == self.config.max_retries
@@ -485,7 +492,7 @@ class _RequestsGraphClient:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"Microsoft Graph request failed with HTTP "
-                        f"{response.status_code}: {response.text}"
+                        f"{response.status_code}: {safe_error_detail(response.text)}"
                     )
                 return response
 
@@ -522,7 +529,7 @@ class _RequestsGraphClient:
             raise AuthenticationError(str(exc)) from exc
 
         if response.status_code >= 400:
-            raise AuthenticationError(response.text)
+            raise AuthenticationError(safe_error_detail(response.text))
         try:
             payload = response.json()
         except ValueError as exc:

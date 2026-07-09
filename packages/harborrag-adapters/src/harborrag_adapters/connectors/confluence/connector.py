@@ -18,8 +18,11 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.http_utils import (
+    ResponseTooLargeError,
+    read_capped_content,
     require_same_origin_url,
     retry_delay_seconds,
+    safe_error_detail,
 )
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_adapters.connectors.utils import extend_with_limit
@@ -433,8 +436,16 @@ class _RequestsConfluenceClient:
             )
         except ValueError as exc:
             raise FetchError(str(exc)) from exc
-        response = self._request("GET", safe_url, headers={"Accept": "*/*"})
-        return response.content or None
+        response = self._request(
+            "GET", safe_url, headers={"Accept": "*/*"}, stream=True
+        )
+        try:
+            content = read_capped_content(
+                response, self.config.max_attachment_size_bytes
+            )
+        except ResponseTooLargeError as exc:
+            raise FetchError(str(exc)) from exc
+        return content or None
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Send one HTTP request with local rate limiting and retry handling."""
@@ -456,9 +467,9 @@ class _RequestsConfluenceClient:
                 continue
 
             if response.status_code in (401, 403):
-                raise AuthenticationError(response.text)
+                raise AuthenticationError(safe_error_detail(response.text))
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(response.text)
+                raise RateLimitError(safe_error_detail(response.text))
             if (
                 response.status_code not in _RETRYABLE_STATUS
                 or attempt == self.config.max_retries
@@ -466,7 +477,7 @@ class _RequestsConfluenceClient:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"Confluence request failed with HTTP "
-                        f"{response.status_code}: {response.text}"
+                        f"{response.status_code}: {safe_error_detail(response.text)}"
                     )
                 return response
 

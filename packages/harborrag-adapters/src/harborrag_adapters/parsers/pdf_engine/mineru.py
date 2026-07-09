@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -87,8 +88,14 @@ class MinerUBackend(PdfBackend):
     def _parse_path(self, executable: str, path: Path) -> tuple[str, list[str], Path]:
         """Run MinerU using either a persistent or temporary output directory."""
 
+        # Persistent output dirs MUST use a fresh per-document subdirectory:
+        # reading a shared, accumulating directory with rglob() would silently
+        # concatenate earlier documents' Markdown into this document's result
+        # (cross-document / cross-tenant content contamination) and grow without
+        # bound.
         if self.options.output_dir is not None:
-            output_dir = Path(self.options.output_dir)
+            base_dir = Path(self.options.output_dir)
+            output_dir = base_dir / uuid.uuid4().hex
             output_dir.mkdir(parents=True, exist_ok=True)
             command = self._command(executable, path, output_dir)
             self._run(command)
@@ -96,7 +103,8 @@ class MinerUBackend(PdfBackend):
             return content, output_files, output_dir
 
         if self.options.keep_output:
-            output_dir = Path.cwd() / ".harborrag-mineru-output"
+            base_dir = Path(self.options.output_dir or Path.cwd() / ".harborrag-mineru-output")
+            output_dir = base_dir / uuid.uuid4().hex
             output_dir.mkdir(parents=True, exist_ok=True)
             command = self._command(executable, path, output_dir)
             self._run(command)

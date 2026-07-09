@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import posixpath
 import zipfile
-from io import BytesIO
 from typing import ClassVar
-from xml.etree import ElementTree
+
+try:  # defusedxml hardens against billion-laughs / XXE in untrusted archives.
+    from defusedxml.ElementTree import fromstring as _xml_fromstring
+    from defusedxml.ElementTree import ParseError as _XmlParseError
+except ImportError:  # pragma: no cover - fallback when defusedxml is absent
+    from xml.etree.ElementTree import fromstring as _xml_fromstring
+    from xml.etree.ElementTree import ParseError as _XmlParseError
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -12,7 +17,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import html_to_text
+from .utils import guard_input_size, html_to_text, open_guarded_zip
 
 
 parser_logger = get_parser_logger("epub")
@@ -40,14 +45,17 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
                     parser_engine=self.parser_engine,
                 ),
             )
-            with zipfile.ZipFile(BytesIO(parse_input.read_bytes())) as archive:
+            warnings: list[str] = []
+            with open_guarded_zip(guard_input_size(parse_input.read_bytes())) as archive:
                 document_paths = self._document_paths(archive)
                 sections: list[str] = []
                 elements: list[DocumentElement] = []
                 for index, path in enumerate(document_paths, start=1):
                     try:
                         html = archive.read(path)
-                    except KeyError:
+                    except (KeyError, zipfile.BadZipFile, RuntimeError) as exc:
+                        # RuntimeError => encrypted member; record and continue.
+                        warnings.append(f"skipped section {path!r}: {exc}")
                         continue
                     text = html_to_text(html)
                     if not text:
@@ -80,6 +88,7 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
             parser_name=self.parser_name,
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input, sections=len(elements)),
+            warnings=warnings or None,
         )
 
     @classmethod
@@ -92,8 +101,8 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
             return cls._fallback_html_paths(names)
 
         try:
-            root = ElementTree.fromstring(archive.read(opf_path))
-        except ElementTree.ParseError as exc:
+            root = _xml_fromstring(archive.read(opf_path))
+        except _XmlParseError as exc:
             parser_logger.warning(
                 "Invalid EPUB package document in %s",
                 opf_path,
@@ -131,8 +140,8 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
         """Locate the package document declared by META-INF/container.xml."""
 
         try:
-            container = ElementTree.fromstring(archive.read("META-INF/container.xml"))
-        except (KeyError, ElementTree.ParseError):
+            container = _xml_fromstring(archive.read("META-INF/container.xml"))
+        except (KeyError, _XmlParseError):
             return None
 
         for node in container.iter():

@@ -21,6 +21,7 @@ from harborrag_adapters.connectors.exceptions import (
 from harborrag_adapters.connectors.http_utils import (
     require_same_origin_url,
     retry_delay_seconds,
+    safe_error_detail,
 )
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 
@@ -513,15 +514,15 @@ class _RequestsGitHubClient:
                 continue
 
             if response.status_code in (401,):
-                raise AuthenticationError(response.text)
+                raise AuthenticationError(safe_error_detail(response.text))
             if self._rate_limited(response):
                 if attempt == self.config.max_retries:
-                    raise RateLimitError(response.text)
-                last_error = RateLimitError(response.text)
+                    raise RateLimitError(safe_error_detail(response.text))
+                last_error = RateLimitError(safe_error_detail(response.text))
                 self._sleep(attempt, last_error, response.headers)
                 continue
             if response.status_code == 403:
-                raise AuthenticationError(response.text)
+                raise AuthenticationError(safe_error_detail(response.text))
             if (
                 response.status_code not in _RETRYABLE_STATUS
                 or attempt == self.config.max_retries
@@ -529,7 +530,7 @@ class _RequestsGitHubClient:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"GitHub request failed with HTTP "
-                        f"{response.status_code}: {response.text}"
+                        f"{response.status_code}: {safe_error_detail(response.text)}"
                     )
                 return response
 
@@ -555,10 +556,18 @@ class _RequestsGitHubClient:
     def _rate_limited(response: requests.Response) -> bool:
         if response.status_code == 429:
             return True
-        return (
-            response.status_code == 403
-            and response.headers.get("X-RateLimit-Remaining") == "0"
-        )
+        if response.status_code != 403:
+            return False
+        # Primary limit: remaining budget exhausted. Secondary/abuse limits
+        # instead return 403 with a Retry-After header (and usually non-zero
+        # remaining), so both must be treated as throttling rather than auth
+        # failure — otherwise a transient throttle aborts the whole sync.
+        if response.headers.get("X-RateLimit-Remaining") == "0":
+            return True
+        if response.headers.get("Retry-After"):
+            return True
+        body = (response.text or "").lower()
+        return "secondary rate limit" in body or "abuse detection" in body
 
     def _acquire(self) -> None:
         """Throttle requests according to the configured per-minute budget."""

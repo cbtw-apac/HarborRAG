@@ -1,9 +1,23 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+
+def format_query_timestamp(value: datetime) -> str:
+    """Render a datetime for CQL/JQL as UTC ``yyyy/MM/dd HH:mm``.
+
+    Bare CQL/JQL timestamps are interpreted in the API user's configured
+    timezone, so a naive local-time render silently shifts the incremental-sync
+    watermark by that offset (missing or re-ingesting documents). We normalize
+    to UTC — deployments must set the integration account's timezone to UTC (and
+    ideally apply a safety-overlap window) for exact incremental behavior.
+    """
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).strftime("%Y/%m/%d %H:%M")
 
 
 CONTENT_EXPAND = (
@@ -79,7 +93,7 @@ def build_cql(
         clauses.append(f"label in ({','.join(safe_labels)})")
     if updated_after:
         clauses.append(
-            f"lastmodified >= {quote_cql(updated_after.strftime('%Y/%m/%d %H:%M'))}"
+            f"lastmodified >= {quote_cql(format_query_timestamp(updated_after))}"
         )
 
     return " and ".join(clauses) or 'type in ("page","blogpost")'

@@ -6,7 +6,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .base import BaseParser
 from .ebook import EpubParser
-from .exceptions import UnsupportedFormatError
+from .exceptions import ParseError, UnsupportedFormatError
 from .html_engine import HtmlParser
 from .image import ImageParser
 from .markdown import MarkdownParser
@@ -18,6 +18,11 @@ from .text import TextParser
 
 
 parser_logger = get_parser_logger("registry")
+
+# Transport-level content types too generic to override a specific suffix.
+_GENERIC_CONTENT_TYPES = frozenset(
+    {"", "text/plain", "application/octet-stream", "binary/octet-stream"}
+)
 
 
 class _ParserRoute(NamedTuple):
@@ -157,7 +162,26 @@ class HarborParser:
                     route_key=route.key,
                 ),
             )
-            document = route.parser.parse(parse_input)
+            try:
+                document = route.parser.parse(parse_input)
+            except ParseError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - normalize at boundary
+                parser_logger.warning(
+                    "Parser %s failed on %s: %s",
+                    route.parser.name,
+                    input_label(parse_input),
+                    exc,
+                    extra=parser_log_extra(
+                        input=parse_input,
+                        parser_name=route.parser.name,
+                        route_kind=route.kind,
+                        route_key=route.key,
+                    ),
+                )
+                raise ParseError(
+                    f"Parser {route.parser.name!r} failed: {exc}"
+                ) from exc
             parser_logger.debug(
                 "Parsed %s with parser %s content_chars=%d elements=%d",
                 input_label(parse_input),
@@ -188,9 +212,38 @@ class HarborParser:
         )
         raise UnsupportedFormatError(f"No parser registered for input with{detail}.")
 
-    def parse_many(self, inputs: Iterable[Any]) -> list[ParsedDocument]:
-        """Parse inputs sequentially with the same route rules as ``parse``."""
-        return [self.parse(input) for input in inputs]
+    def parse_many(
+        self,
+        inputs: Iterable[Any],
+        *,
+        on_error: str = "raise",
+    ) -> list[ParsedDocument]:
+        """Parse inputs sequentially with the same route rules as ``parse``.
+
+        ``on_error`` controls per-item failure isolation, which is essential for
+        bulk ingestion where a single corrupt document must not discard the
+        successfully parsed remainder:
+
+        * ``"raise"`` (default): propagate the first failure (legacy behavior).
+        * ``"skip"``: log and drop failed inputs, returning only the successes.
+        """
+        if on_error not in ("raise", "skip"):
+            raise ValueError(f"Unknown on_error policy: {on_error!r}")
+
+        results: list[ParsedDocument] = []
+        for index, input in enumerate(inputs):
+            try:
+                results.append(self.parse(input))
+            except ParseError as exc:
+                if on_error == "raise":
+                    raise
+                parser_logger.warning(
+                    "Skipping input %d after parse failure: %s",
+                    index,
+                    exc,
+                    extra=parser_log_extra(input_index=index),
+                )
+        return results
 
     def parser_for(
         self, input: Any
@@ -223,6 +276,16 @@ class HarborParser:
             and content_type_route is not None
             and suffix_route.parser is not content_type_route.parser
         ):
+            # A specific filename suffix beats a generic transport MIME type.
+            # Object stores, email gateways, and web servers routinely label
+            # .csv/.md/.json/.html as text/plain or application/octet-stream, so
+            # treating those as a hard conflict would fail a large fraction of
+            # otherwise-parseable documents. A hard error is reserved for two
+            # genuinely specific, disagreeing signals.
+            if content_type in _GENERIC_CONTENT_TYPES:
+                return suffix_route
+            if parse_input.suffix in ("", None):
+                return content_type_route
             parser_logger.warning(
                 "Conflicting parser routes for %s suffix=%s parser=%s "
                 "content_type=%s parser=%s",

@@ -38,7 +38,8 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
 
     lang: str | None = None
     config: str = ""
-    timeout: int | float | None = None
+    # Finite default so a pathological image can never block a worker forever.
+    timeout: int | float | None = 60
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         """Decode the image with Pillow, OCR it, and return extracted text."""
@@ -73,14 +74,18 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
                     ocr_lang=self.lang,
                 ),
             )
-            image = Image.open(BytesIO(parse_input.read_bytes()))
-            content = pytesseract.image_to_string(
-                image,
-                lang=self.lang,
-                config=self.config,
-                timeout=self.timeout,
-            ).strip()
-        except RuntimeError as exc:
+            with Image.open(BytesIO(parse_input.read_bytes())) as image:
+                image.load()
+                content = pytesseract.image_to_string(
+                    image,
+                    lang=self.lang,
+                    config=self.config,
+                    timeout=self.timeout,
+                ).strip()
+        except (RuntimeError, OSError, ValueError) as exc:
+            # RuntimeError => tesseract timeout; PIL raises UnidentifiedImageError
+            # (ValueError subclass), OSError (truncated), and DecompressionBombError
+            # (ValueError subclass) for malicious/corrupt images.
             parser_logger.warning(
                 "Image OCR failed for %s: %s",
                 input_label(parse_input),

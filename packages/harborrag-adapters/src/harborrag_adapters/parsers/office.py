@@ -11,7 +11,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import compact_text
+from .utils import compact_text, guard_input_size, wrap_parse_errors
 
 
 parser_logger = get_parser_logger("office")
@@ -58,10 +58,11 @@ class DocxParser(BaseParser[ParseInput, ParsedDocument]):
                     parser_engine=self.parser_engine,
                 ),
             )
-            with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                tmp.write(parse_input.read_bytes())
-                tmp_path = Path(tmp.name)
-            content = compact_text(docx2txt.process(str(tmp_path)) or "")
+            with wrap_parse_errors(self.parser_engine):
+                with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                    tmp.write(guard_input_size(parse_input.read_bytes()))
+                    tmp_path = Path(tmp.name)
+                content = compact_text(docx2txt.process(str(tmp_path)) or "")
         finally:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
@@ -125,24 +126,24 @@ class PptxParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        presentation = Presentation(BytesIO(parse_input.read_bytes()))
         sections: list[str] = []
         elements: list[DocumentElement] = []
-
-        for slide_index, slide in enumerate(presentation.slides, start=1):
-            slide_lines = list(self._shape_text(slide.shapes))
-            slide_content = compact_text("\n".join(slide_lines))
-            if not slide_content:
-                continue
-            sections.append(f"Slide {slide_index}\n{slide_content}")
-            elements.append(
-                DocumentElement(
-                    id=f"pptx:slide:{slide_index}",
-                    type="paragraph",
-                    content=slide_content,
-                    metadata={"slide": slide_index},
+        with wrap_parse_errors(self.parser_engine):
+            presentation = Presentation(BytesIO(guard_input_size(parse_input.read_bytes())))
+            for slide_index, slide in enumerate(presentation.slides, start=1):
+                slide_lines = list(self._shape_text(slide.shapes))
+                slide_content = compact_text("\n".join(slide_lines))
+                if not slide_content:
+                    continue
+                sections.append(f"Slide {slide_index}\n{slide_content}")
+                elements.append(
+                    DocumentElement(
+                        id=f"pptx:slide:{slide_index}",
+                        type="paragraph",
+                        content=slide_content,
+                        metadata={"slide": slide_index},
+                    )
                 )
-            )
 
         content = "\n\n".join(sections).strip()
         return ParsedDocument(
@@ -246,12 +247,13 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        workbook = load_workbook(
-            BytesIO(parse_input.read_bytes()),
-            read_only=True,
-            data_only=True,
-            keep_links=False,
-        )
+        with wrap_parse_errors(self.parser_engine):
+            workbook = load_workbook(
+                BytesIO(guard_input_size(parse_input.read_bytes())),
+                read_only=True,
+                data_only=True,
+                keep_links=False,
+            )
         sheet_names = workbook.sheetnames
         try:
             sections: list[str] = []
@@ -309,15 +311,19 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        workbook = xlrd.open_workbook(
-            file_contents=parse_input.read_bytes(),
-            on_demand=True,
-        )
+        with wrap_parse_errors(self.parser_engine):
+            workbook = xlrd.open_workbook(
+                file_contents=guard_input_size(parse_input.read_bytes()),
+                on_demand=True,
+            )
         sheet_names = workbook.sheet_names()
         sections: list[str] = []
         elements: list[DocumentElement] = []
         try:
-            for sheet in workbook.sheets():
+            # Load sheets one at a time (Book.sheets() would defeat on_demand and
+            # load them all), unloading each after rendering to bound memory.
+            for sheet_index in range(workbook.nsheets):
+                sheet = workbook.sheet_by_index(sheet_index)
                 rows = []
                 for row_index in range(sheet.nrows):
                     row = "\t".join(
@@ -342,6 +348,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
                         metadata={"sheet": sheet.name},
                     )
                 )
+                workbook.unload_sheet(sheet_index)
         finally:
             workbook.release_resources()
 

@@ -63,6 +63,8 @@ class PaddleOcrBackend(PdfBackend):
             overrides,
         )
         self._active_pipeline_class: str | None = None
+        self._cached_pipeline: Any = None
+        self._cached_pipeline_class: str | None = None
 
     def parse(self, input: ParseInput) -> PdfParseResult:
         """Run the first supported PaddleOCR pipeline and normalize its output."""
@@ -106,7 +108,17 @@ class PaddleOcrBackend(PdfBackend):
             pipeline_cls = getattr(paddleocr, class_name, None)
             if pipeline_cls is None:
                 continue
-            pipeline = pipeline_cls(**options)
+            # Reuse the already-loaded pipeline across documents; constructing
+            # PPStructureV3/PaddleOCR loads large models and is far too expensive
+            # to redo per document at ingestion scale.
+            if self._cached_pipeline is not None and (
+                self._cached_pipeline_class == class_name
+            ):
+                pipeline = self._cached_pipeline
+            else:
+                pipeline = pipeline_cls(**options)
+                self._cached_pipeline = pipeline
+                self._cached_pipeline_class = class_name
             self._active_pipeline_class = class_name
             predict = getattr(pipeline, "predict", None)
             if callable(predict):

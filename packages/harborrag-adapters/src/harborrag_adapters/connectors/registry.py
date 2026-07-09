@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from .base import BaseConnector
 from .exceptions import ConnectorNotFoundError
+
+
+logger = logging.getLogger("harborrag.adapters.connectors.registry")
 
 
 class ConnectorRegistry:
@@ -11,20 +16,40 @@ class ConnectorRegistry:
         self._providers: dict[str, type[BaseConnector]] = {}
 
     def register(
-        self, name: str, provider_cls: type[BaseConnector], *, aliases: list[str] | None = None
+        self,
+        name: str,
+        provider_cls: type[BaseConnector],
+        *,
+        aliases: list[str] | None = None,
+        replace: bool = False,
     ) -> None:
-        """Register one connector class under a canonical name and aliases."""
-        self._providers[name] = provider_cls
-        for alias in aliases or []:
-            self._providers[alias] = provider_cls
+        """Register one connector class under a canonical name and aliases.
+
+        A key already owned by a *different* provider is a misconfiguration
+        (e.g. two providers sharing an alias) and is rejected unless
+        ``replace=True`` so silent shadowing cannot occur.
+        """
+        for key in (name, *(aliases or [])):
+            existing = self._providers.get(key)
+            if existing is not None and existing is not provider_cls and not replace:
+                raise ValueError(
+                    f"Connector key {key!r} already registered to "
+                    f"{existing.__name__}; pass replace=True to override."
+                )
+            self._providers[key] = provider_cls
+
+    def get_class(self, name: str) -> type[BaseConnector]:
+        """Return a registered connector class by name (canonical or alias)."""
+        try:
+            return self._providers[name]
+        except KeyError as exc:
+            raise ConnectorNotFoundError(
+                f"Unsupported connector provider: {name}"
+            ) from exc
 
     def create(self, name: str, **kwargs) -> BaseConnector:
         """Instantiate a registered connector by name."""
-        try:
-            cls = self._providers[name]
-        except KeyError as exc:
-            raise ConnectorNotFoundError(f"Unsupported connector provider: {name}") from exc
-        return cls(**kwargs)
+        return self.get_class(name)(**kwargs)
 
     def names(self) -> list[str]:
         """Return all registered canonical names and aliases."""

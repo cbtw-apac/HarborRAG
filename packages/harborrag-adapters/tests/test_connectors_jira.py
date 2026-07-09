@@ -162,12 +162,32 @@ def test_build_jql_supports_incremental_sync_and_rejects_bad_project_key():
         build_jql(project_keys=['ENG" OR project = "OPS'])
 
 
-def test_discover_searches_jql_with_start_at_pagination():
+def test_discover_datacenter_searches_jql_with_start_at_pagination():
     client = FakeJiraClient()
     client.add_post(
         "search",
         {"startAt": 0, "total": 3, "issues": [issue("ENG-1"), issue("ENG-2")]},
         {"startAt": 2, "total": 3, "issues": [issue("ENG-3")]},
+    )
+    connector = JiraConnector(dc_config(page_size=2), client=client)
+
+    records = list(connector.discover())
+
+    assert [record.metadata["issue_key"] for record in records] == [
+        "ENG-1",
+        "ENG-2",
+        "ENG-3",
+    ]
+    assert client.post_calls[1][1]["startAt"] == 2
+    assert records[0].id == "jira://ENG/ENG-1"
+
+
+def test_discover_cloud_uses_search_jql_token_pagination():
+    client = FakeJiraClient()
+    client.add_post(
+        "search/jql",
+        {"issues": [issue("ENG-1"), issue("ENG-2")], "nextPageToken": "tok2", "isLast": False},
+        {"issues": [issue("ENG-3")], "isLast": True},
     )
     connector = JiraConnector(cloud_config(), client=client)
 
@@ -178,7 +198,11 @@ def test_discover_searches_jql_with_start_at_pagination():
         "ENG-2",
         "ENG-3",
     ]
-    assert client.post_calls[1][1]["startAt"] == 2
+    # Cloud must use the token endpoint and forward nextPageToken; expand is an
+    # array (not a comma-joined string) in the POST body.
+    assert client.post_calls[0][0] == "search/jql"
+    assert client.post_calls[1][1]["nextPageToken"] == "tok2"
+    assert isinstance(client.post_calls[0][1]["expand"], list)
     assert records[0].id == "jira://ENG/ENG-1"
 
 

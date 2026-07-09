@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
-from ..exceptions import ParseError
+from ..exceptions import EncryptedPdfError, ParseError
 from ..utils import compact_text
 from .base import PdfBackend, PdfParseResult
 from .utils import page_element
@@ -26,16 +26,27 @@ class PyMuPdfBackend(PdfBackend):
             raise ParseError(f"PyMuPDF could not open PDF: {exc}") from exc
 
         try:
+            if getattr(document, "needs_pass", False):
+                # Encrypted: no engine in the chain can extract text, so fail
+                # distinctly instead of letting page access crash mid-loop and
+                # abort the whole fallback chain.
+                raise EncryptedPdfError("PDF is password-protected")
+
             sections: list[str] = []
             elements: list[DocumentElement] = []
+            warnings: list[str] = []
             for page_index, page in enumerate(document, start=1):
-                page_text = compact_text(page.get_text("text") or "")
+                try:
+                    page_text = compact_text(page.get_text("text") or "")
+                except Exception as exc:  # noqa: BLE001 - per-page isolation
+                    warnings.append(f"page {page_index} failed: {exc}")
+                    continue
                 if not page_text:
                     continue
                 sections.append(f"Page {page_index}\n{page_text}")
                 elements.append(page_element(self.name, page_index, page_text))
 
-            warnings = self._warnings(pymupdf)
+            warnings.extend(self._warnings(pymupdf))
             return PdfParseResult(
                 content="\n\n".join(sections).strip(),
                 engine=self.name,

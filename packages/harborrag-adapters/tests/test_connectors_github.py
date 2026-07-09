@@ -138,7 +138,7 @@ def test_discover_uses_recursive_tree_and_filters_files():
     records = list(connector.discover(ConnectorQuery(path="src", pattern="*.py")))
 
     assert [record.metadata["path"] for record in records] == ["src/app.py"]
-    assert records[0].id == "github://acme/harbor-rag/commit1/src/app.py"
+    assert records[0].id == "github://acme/harbor-rag/src/app.py"
     assert records[0].checksum == "sha-app"
     assert records[0].source_type == guess_mime_type("src/app.py")
     assert client.calls[-1] == (
@@ -210,7 +210,7 @@ def test_load_decodes_blob_and_builds_metadata():
 
     document = connector.load(
         SourceRecord(
-            "github://acme/harbor-rag/commit1/README.md",
+            "github://acme/harbor-rag/README.md",
             "text/markdown",
             "README.md",
             metadata={"path": "README.md", "sha": "sha-readme", "size": 7},
@@ -243,7 +243,7 @@ def test_load_rejects_oversized_blob_before_decode():
     with pytest.raises(DocumentProcessingError, match="max_file_size_bytes"):
         connector.load(
             SourceRecord(
-                "github://acme/harbor-rag/commit1/big.txt",
+                "github://acme/harbor-rag/big.txt",
                 "text/plain",
                 "big.txt",
                 metadata={"path": "big.txt", "sha": "sha-big"},
@@ -263,7 +263,7 @@ def test_load_rejects_non_base64_blob():
     with pytest.raises(DocumentProcessingError, match="unsupported encoding"):
         connector.load(
             SourceRecord(
-                "github://acme/harbor-rag/commit1/README.md",
+                "github://acme/harbor-rag/README.md",
                 "text/markdown",
                 "README.md",
                 metadata={"path": "README.md", "sha": "sha-bad"},

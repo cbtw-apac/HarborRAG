@@ -27,7 +27,7 @@ class GitHubRepositoryConfig:
     owner: str | None = None
     repo: str | None = None
     repository_url: str | None = None
-    token: str | None = None
+    token: str | None = field(default=None, repr=False)  # secret: keep out of repr/logs
     ref: str | None = None
     branch: str | None = None
     commit_sha: str | None = None

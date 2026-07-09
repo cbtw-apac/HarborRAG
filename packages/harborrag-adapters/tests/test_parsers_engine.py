@@ -299,7 +299,7 @@ def test_liteparse_backend_uses_llamaindex_liteparse_api_shape():
 
     document = backend.parse(ParseInput(content=b"%PDF", filename="report.pdf"))
 
-    assert Path(str(fake_parser.input)).name == "report.pdf"
+    assert Path(str(fake_parser.input)).name == "document.pdf"
     assert document.content == "Hello\nWorld"
     assert document.metadata["liteparse_output_format"] == "markdown"
     assert document.metadata["liteparse_ocr_enabled"] is False

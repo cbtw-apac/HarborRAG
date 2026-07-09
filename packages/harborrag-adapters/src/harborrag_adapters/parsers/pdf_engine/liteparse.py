@@ -65,6 +65,7 @@ class LiteParseBackend(PdfBackend):
             LiteParseBackendOptions,
             overrides,
         )
+        self._cached_parser: Any = None
 
     def parse(self, input: ParseInput) -> PdfParseResult:
         """Run LiteParse and normalize its result into the PDF backend contract."""
@@ -95,6 +96,8 @@ class LiteParseBackend(PdfBackend):
 
         if self.options.parser is not None:
             return self.options.parser
+        if self._cached_parser is not None:
+            return self._cached_parser
 
         try:
             from liteparse import LiteParse
@@ -105,7 +108,10 @@ class LiteParseBackend(PdfBackend):
                 "`pip install liteparse`."
             ) from exc
 
-        return LiteParse(**self._constructor_kwargs())
+        # Reuse across documents: building LiteParse loads models and is too
+        # costly to redo per document during bulk ingestion.
+        self._cached_parser = LiteParse(**self._constructor_kwargs())
+        return self._cached_parser
 
     def _constructor_kwargs(self) -> dict[str, Any]:
         """Translate backend options into LiteParse constructor keyword arguments."""
