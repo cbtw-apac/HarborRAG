@@ -6,10 +6,9 @@ language: "en-US"
 
 tone_instructions: >
   Be direct, precise, and engineering-focused. Prioritize correctness, package
-  boundary violations, security, resource safety, async/concurrency risks,
-  provider lifecycle issues, and test coverage. Do not spend review budget on
-  formatting nits already handled by Ruff, Black, or isort. For every issue,
-  include a concrete fix suggestion and one-sentence rationale.
+  boundaries, security, resource safety, concurrency, provider lifecycle, and
+  test coverage. Ignore formatting handled by tooling. Give each issue a fix
+  and brief rationale.
 
 reviews:
   profile: assertive
