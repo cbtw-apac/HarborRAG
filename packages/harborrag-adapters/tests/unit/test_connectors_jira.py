@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.jira import (
     JiraConnector,
     JiraDeploymentType,
@@ -11,12 +12,16 @@ from harborrag_adapters.connectors.jira import (
 )
 from harborrag_adapters.connectors.jira.content import (
     _display_name as content_display_name,
+)
+from harborrag_adapters.connectors.jira.content import (
     _name as content_name,
+)
+from harborrag_adapters.connectors.jira.content import (
     _walk_adf,
     build_raw_content,
     field_text,
 )
-from harborrag_adapters.connectors.jira.issues import JiraIssueAPI
+from harborrag_adapters.connectors.jira.issues import DISCOVERY_FIELDS, JiraIssueAPI
 from harborrag_adapters.connectors.jira.mappers import (
     build_document_metadata,
     issue_key_from_record,
@@ -28,11 +33,9 @@ from harborrag_adapters.connectors.jira.utils import (
     is_cloud_hostname,
     search_body,
 )
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.source import SourceRecord
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -207,7 +210,7 @@ def test_discover_datacenter_searches_jql_with_start_at_pagination():
     client.add_post(
         "search",
         {"startAt": 0, "total": 3, "issues": [issue("ENG-1"), issue("ENG-2")]},
-        {"startAt": 2, "total": 3, "issues": [issue("ENG-3")]},
+        {"startAt": 0, "total": 3, "issues": [issue("ENG-3")]},
     )
     connector = JiraConnector(dc_config(page_size=2), client=client)
 
@@ -219,6 +222,8 @@ def test_discover_datacenter_searches_jql_with_start_at_pagination():
         "ENG-3",
     ]
     assert client.post_calls[1][1]["startAt"] == 2
+    assert client.post_calls[0][1]["fields"] == list(DISCOVERY_FIELDS)
+    assert "expand" not in client.post_calls[0][1]
     assert records[0].id == "jira://ENG/ENG-1"
 
 
@@ -248,7 +253,7 @@ def test_discover_cloud_uses_search_jql_token_pagination():
     assert client.post_calls[0][0] == "search/jql"
     assert client.post_calls[1][1]["nextPageToken"] == "tok2"
     assert "expand" not in client.post_calls[0][1]
-    assert client.post_calls[0][1]["fields"] == ["*all"]
+    assert client.post_calls[0][1]["fields"] == list(DISCOVERY_FIELDS)
     assert records[0].id == "jira://ENG/ENG-1"
 
 
@@ -432,7 +437,9 @@ def test_config_requires_token_when_env_vars_absent(monkeypatch):
     monkeypatch.delenv("JIRA_TOKEN", raising=False)
     monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
     with pytest.raises(ValueError, match="token is required"):
-        JiraProjectConfig(base_url=DC_BASE, deployment_type=JiraDeploymentType.DATACENTER)
+        JiraProjectConfig(
+            base_url=DC_BASE, deployment_type=JiraDeploymentType.DATACENTER
+        )
 
 
 def test_config_rejects_out_of_range_requests_per_minute():
@@ -495,6 +502,14 @@ def test_issue_keys_from_query_accepts_single_string_value():
     assert JiraConnector._issue_keys_from_query(query) == ["ENG-1"]
 
 
+@pytest.mark.parametrize("issue_key", ["ENG-1/comment", "ENG-1?expand=all", "eng-1"])
+def test_discover_rejects_unsafe_issue_keys(issue_key):
+    connector = JiraConnector(cloud_config(), client=FakeJiraClient())
+
+    with pytest.raises(ValueError, match="issue key"):
+        list(connector.discover(ConnectorQuery(filters={"issue_keys": [issue_key]})))
+
+
 def test_jql_from_query_normalizes_string_and_list_filters_and_prefers_raw_jql():
     connector = JiraConnector(cloud_config(), client=FakeJiraClient())
 
@@ -516,14 +531,6 @@ def test_jql_from_query_normalizes_string_and_list_filters_and_prefers_raw_jql()
 # ---------------------------------------------------------------------------
 
 
-def test_fetch_comments_returns_empty_when_response_is_not_a_dict():
-    client = FakeJiraClient()
-    client.add_get("issue/ENG-1/comment", None)
-    api = JiraIssueAPI(client, cloud_config())
-
-    assert api.fetch_comments("ENG-1") == []
-
-
 def test_fetch_comments_stops_when_total_missing_and_page_short():
     client = FakeJiraClient()
     client.add_get(
@@ -535,14 +542,6 @@ def test_fetch_comments_stops_when_total_missing_and_page_short():
     comments = api.fetch_comments("ENG-1")
 
     assert [comment["id"] for comment in comments] == ["c1"]
-
-
-def test_fetch_changelog_returns_empty_when_response_is_not_a_dict():
-    client = FakeJiraClient()
-    client.add_get("issue/ENG-1/changelog", None)
-    api = JiraIssueAPI(client, cloud_config())
-
-    assert api.fetch_changelog("ENG-1") == []
 
 
 def test_fetch_changelog_stops_when_total_missing_and_page_short():
@@ -573,43 +572,42 @@ def test_fetch_comments_continues_to_next_page_when_page_is_full():
     client.add_get(
         "issue/ENG-1/comment",
         {"startAt": 0, "comments": [{"id": "c1"}, {"id": "c2"}]},
-        {"startAt": 2, "comments": [{"id": "c3"}]},
+        {"startAt": 0, "comments": [{"id": "c3"}]},
     )
     api = JiraIssueAPI(client, cloud_config(page_size=2))
 
     comments = api.fetch_comments("ENG-1")
 
     assert [comment["id"] for comment in comments] == ["c1", "c2", "c3"]
+    assert client.get_calls[1][1]["startAt"] == 2
 
 
 def test_fetch_changelog_continues_to_next_page_when_page_is_full():
     client = FakeJiraClient()
     client.add_get(
         "issue/ENG-1/changelog",
-        {"startAt": 0, "values": [{"id": "h1", "items": []}, {"id": "h2", "items": []}]},
-        {"startAt": 2, "values": [{"id": "h3", "items": []}]},
+        {
+            "startAt": 0,
+            "values": [{"id": "h1", "items": []}, {"id": "h2", "items": []}],
+        },
+        {"startAt": 0, "values": [{"id": "h3", "items": []}]},
     )
     api = JiraIssueAPI(client, cloud_config(page_size=2))
 
     histories = api.fetch_changelog("ENG-1")
 
     assert [history["id"] for history in histories] == ["h1", "h2", "h3"]
+    assert client.get_calls[1][1]["startAt"] == 2
 
 
-def test_search_cloud_returns_when_response_is_not_a_dict():
+def test_get_issue_does_not_expand_changelog_when_enabled():
     client = FakeJiraClient()
-    client.add_post("search/jql", None)
-    api = JiraIssueAPI(client, cloud_config())
+    client.add_get("issue/ENG-1", issue())
+    api = JiraIssueAPI(client, cloud_config(include_changelog=True))
 
-    assert list(api.search("order by updated ASC")) == []
+    api.get_issue("ENG-1")
 
-
-def test_search_datacenter_returns_when_response_is_not_a_dict():
-    client = FakeJiraClient()
-    client.add_post("search", None)
-    api = JiraIssueAPI(client, dc_config())
-
-    assert list(api.search("order by updated ASC")) == []
+    assert "changelog" not in client.get_calls[0][1]["expand"]
 
 
 def test_search_datacenter_stops_immediately_when_first_page_has_no_issues():
@@ -647,7 +645,9 @@ def test_field_text_extracts_html():
 
 def test_walk_adf_handles_string_list_hardbreak_and_other_scalars():
     assert _walk_adf("plain") == ["plain"]
-    assert _walk_adf([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == [
+    assert _walk_adf(
+        [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]
+    ) == [
         "a",
         "b",
     ]
@@ -683,6 +683,15 @@ def test_issue_key_from_record_requires_issue_key():
     record = SourceRecord(id="jira://x", source_type="jira", locator="")
 
     with pytest.raises(ValueError, match="does not contain issue_key"):
+        issue_key_from_record(record)
+
+
+def test_issue_key_from_record_rejects_path_fragments():
+    record = SourceRecord(
+        id="jira://ENG/ENG-1", source_type="jira", locator="ENG-1/comment"
+    )
+
+    with pytest.raises(ValueError, match="issue key"):
         issue_key_from_record(record)
 
 

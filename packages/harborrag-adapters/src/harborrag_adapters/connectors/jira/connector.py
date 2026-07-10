@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Iterator
 from typing import Any
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
-from harborrag_adapters.connectors.attachments import AttachmentProcessor
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
-from harborrag_adapters.connectors.utils import enforce_collection_limit
+from harborrag_adapters.connectors.shared.attachments import AttachmentProcessor
+from harborrag_adapters.connectors.utils.helpers import enforce_collection_limit
 from harborrag_adapters.parsers import HarborParser
 
 from .client import JiraClient, _RequestsJiraClient
@@ -27,10 +26,9 @@ from .mappers import (
     issue_key_from_record,
     issue_url,
 )
-from .utils import build_jql
+from .utils import build_jql, validate_issue_key
 
 logger = logging.getLogger("harborrag.adapters.connectors.jira")
-_TIME_FOR_JIRA_CONNECTOR_TESTS = time
 
 
 class JiraConnector(BaseConnector):
@@ -183,8 +181,8 @@ class JiraConnector(BaseConnector):
         if values is None:
             return []
         if isinstance(values, str):
-            return [values]
-        return [str(value) for value in values]
+            return [validate_issue_key(values)]
+        return [validate_issue_key(str(value)) for value in values]
 
     @staticmethod
     def _list_filter(value: Any, *, default: list[str]) -> list[str]:
@@ -196,6 +194,7 @@ class JiraConnector(BaseConnector):
 
     def _record_for_key(self, issue_key: str, query: ConnectorQuery) -> SourceRecord:
         """Build a direct-load record when discovery is driven by issue keys."""
+        issue_key = validate_issue_key(issue_key)
         project_key = issue_key.split("-", 1)[0]
         return SourceRecord(
             id=f"jira://{project_key}/{issue_key}",
@@ -223,6 +222,5 @@ class JiraConnector(BaseConnector):
         ]
         if missing:
             raise DocumentProcessingError(
-                f"JIRA issue {issue_key} missing required fields: "
-                f"{', '.join(missing)}"
+                f"JIRA issue {issue_key} missing required fields: {', '.join(missing)}"
             )

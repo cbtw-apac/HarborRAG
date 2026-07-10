@@ -7,12 +7,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from harborrag_adapters.connectors.attachments import (
+from harborrag_adapters.connectors.shared.attachments import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
     CustomAttachmentParser,
     FileType,
 )
-from harborrag_adapters.connectors.utils import (
+from harborrag_adapters.connectors.utils.helpers import (
     DEFAULT_MAX_NESTED_ITEMS,
     validate_http_tuning,
     validate_non_negative_limit,
@@ -97,7 +97,9 @@ class JiraProjectConfig:
             self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
         )
         self.email = self.email or os.getenv("JIRA_EMAIL")
-        self.fields = tuple(dict.fromkeys(str(field) for field in self.fields if field))
+        self.fields = tuple(
+            dict.fromkeys(str(field_name) for field_name in self.fields if field_name)
+        )
 
         if self.deployment_type is None:
             self.deployment_type = (

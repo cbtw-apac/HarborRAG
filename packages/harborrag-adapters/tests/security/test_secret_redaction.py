@@ -1,10 +1,9 @@
 """Credential leakage and error-detail redaction tests."""
+
 from __future__ import annotations
 
 import pytest
-
-from harborrag_adapters.connectors.http_utils import safe_error_detail
-
+from harborrag_adapters.connectors.utils.http import safe_error_detail
 
 pytestmark = pytest.mark.blackbox
 

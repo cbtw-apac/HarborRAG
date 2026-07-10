@@ -11,7 +11,7 @@ class ConnectorNotInitializedError(ConnectorError):
 
 
 class AuthenticationError(ConnectorError):
-    """Raised when a connector cannot authenticate or is not authorized."""
+    """Raised when source credentials are rejected for the whole connector."""
 
 
 class FetchError(ConnectorError):

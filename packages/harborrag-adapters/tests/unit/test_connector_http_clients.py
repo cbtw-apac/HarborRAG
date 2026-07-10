@@ -1,10 +1,9 @@
 """Unit tests for real connector HTTP client wrappers with fake sessions."""
+
 from __future__ import annotations
 
 import pytest
-
 from harbor_test_builders import FakeResponse, FakeSession
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -51,7 +50,9 @@ def test_confluence_get_json_rejects_non_dict_payload():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _confluence_client()
-    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=200, _json=[1, 2])]
+    )
     with pytest.raises(FetchError, match="invalid JSON"):
         client.get_json("content/search")
 
@@ -125,6 +126,18 @@ def test_confluence_request_raises_authentication_error_on_401():
         client.get_json("content/search")
 
 
+def test_confluence_request_maps_403_to_skippable_fetch_error():
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = _confluence_client()
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=403, text="restricted page")]
+    )
+
+    with pytest.raises(FetchError, match="403"):
+        client.get_json("content/1")
+
+
 def test_confluence_request_raises_rate_limit_error_after_exhausting_retries():
     from harborrag_adapters.connectors.exceptions import RateLimitError
 
@@ -177,7 +190,6 @@ def test_confluence_request_retries_connection_errors_then_succeeds():
 
 def test_confluence_request_raises_fetch_error_after_exhausting_connection_errors():
     import requests
-
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _confluence_client()
@@ -273,7 +285,9 @@ def test_github_get_json_rejects_list_with_non_dict_item():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _github_client()
-    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=200, _json=[1, 2])]
+    )
     with pytest.raises(FetchError, match="invalid JSON"):
         client.get_json("repos/o/r/git/trees/x")
 
@@ -379,7 +393,6 @@ def test_github_request_retries_connection_errors_then_succeeds():
 
 def test_github_request_raises_fetch_error_after_exhausting_connection_errors():
     import requests
-
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _github_client(max_retries=0)
@@ -485,7 +498,9 @@ def test_sharepoint_get_json_rejects_non_dict_payload():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _sharepoint_client()
-    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=200, _json=[1, 2])]
+    )
     with pytest.raises(FetchError, match="invalid JSON"):
         client.get_json("sites/x/drives")
 
@@ -612,7 +627,6 @@ def test_sharepoint_request_retries_connection_errors_then_succeeds():
 
 def test_sharepoint_request_raises_fetch_error_after_exhausting_connection_errors():
     import requests
-
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _sharepoint_client(max_retries=0)
@@ -703,7 +717,6 @@ def test_sharepoint_access_token_refreshes_when_expired():
 
 def test_sharepoint_access_token_raises_on_request_exception():
     import requests
-
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = _client_credentials_sharepoint_client()
@@ -736,7 +749,9 @@ def test_sharepoint_access_token_raises_on_non_dict_json():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = _client_credentials_sharepoint_client()
-    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=200, _json=[1, 2])]
+    )
     with pytest.raises(AuthenticationError, match="invalid JSON"):
         client._access_token()
 
@@ -830,12 +845,49 @@ def test_jira_post_json_decodes_and_rejects_non_json():
         client.post_json("search/jql", json={})
 
 
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_jira_json_methods_reject_non_dict_payload(method):
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = _jira_client()
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[])])
+
+    with pytest.raises(FetchError, match="invalid JSON"):
+        if method == "get":
+            client.get_json("issue/ENG-1")
+        else:
+            client.post_json("search/jql", json={})
+
+
 def test_jira_download_bytes_rejects_cross_origin():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _jira_client()
     with pytest.raises(FetchError, match="origin|scheme"):
         client.download_bytes("https://evil.example.com/secret")
+
+
+@pytest.mark.parametrize(
+    "factory,path",
+    [(_confluence_client, "/wiki/download/a"), (_jira_client, "/secure/a")],
+)
+def test_atlassian_downloads_refuse_redirects(factory, path):
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = factory()
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(
+                status_code=302,
+                headers={"Location": "https://evil.example.com/payload"},
+            )
+        ]
+    )
+
+    with pytest.raises(FetchError, match="redirect"):
+        client.download_bytes(f"https://ex.atlassian.net{path}")
+
+    assert client.session.calls[0]["allow_redirects"] is False
 
 
 def test_jira_download_bytes_streams_capped_body():
@@ -876,6 +928,18 @@ def test_jira_request_raises_authentication_error_on_401():
         client.get_json("issue/ENG-1")
 
 
+def test_jira_request_maps_403_to_skippable_fetch_error():
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = _jira_client()
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=403, text="restricted issue")]
+    )
+
+    with pytest.raises(FetchError, match="403"):
+        client.get_json("issue/ENG-1")
+
+
 def test_jira_request_raises_rate_limit_error_after_exhausting_retries():
     from harborrag_adapters.connectors.exceptions import RateLimitError
 
@@ -913,7 +977,6 @@ def test_jira_request_retries_connection_errors_then_succeeds():
 
 def test_jira_request_raises_fetch_error_after_exhausting_connection_errors():
     import requests
-
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _jira_client(max_retries=0)

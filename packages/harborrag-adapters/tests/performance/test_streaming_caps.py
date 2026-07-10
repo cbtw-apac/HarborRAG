@@ -1,14 +1,13 @@
 """Streaming cap tests for connector response bodies."""
+
 from __future__ import annotations
 
 import pytest
-
 from harbor_test_builders import FakeResponse
-from harborrag_adapters.connectors.http_utils import (
+from harborrag_adapters.connectors.utils.http import (
     ResponseTooLargeError,
     read_capped_content,
 )
-
 
 pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]
 

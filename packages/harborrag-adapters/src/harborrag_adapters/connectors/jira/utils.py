@@ -21,6 +21,7 @@ def format_query_timestamp(value: datetime) -> str:
 
 
 _PROJECT_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
+_ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+-[1-9][0-9]*$")
 
 
 def is_cloud_hostname(base_url: str) -> bool:
@@ -46,6 +47,17 @@ def validate_project_key(value: str) -> str:
             "or underscore, starting with a letter."
         )
     return value
+
+
+def validate_issue_key(value: str) -> str:
+    """Validate issue keys before interpolating them into REST paths."""
+    normalized = str(value).strip()
+    if not _ISSUE_KEY_RE.fullmatch(normalized):
+        raise ValueError(
+            "Invalid JIRA issue key: expected PROJECT-123 with an uppercase "
+            "project key and positive numeric issue number."
+        )
+    return normalized
 
 
 def build_jql(

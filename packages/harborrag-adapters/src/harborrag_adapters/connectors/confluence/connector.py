@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from itertools import islice
 from typing import Any
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
-from harborrag_adapters.connectors.attachments import AttachmentProcessor
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
+from harborrag_adapters.connectors.shared.attachments import AttachmentProcessor
 from harborrag_adapters.parsers import HarborParser
 
 from .client import ConfluenceClient, _RequestsConfluenceClient
@@ -25,7 +26,7 @@ from .mappers import (
     content_id_from_record,
     display_url,
 )
-from .utils import build_cql
+from .utils import build_cql, validate_content_id
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
@@ -77,8 +78,10 @@ class ConfluenceConnector(BaseConnector):
         query = query or ConnectorQuery()
         content_ids = self._content_ids_from_query(query)
         if content_ids:
-            ids = list(self._content.with_children(content_ids, query))
-            for content_id in ids[: query.limit]:
+            ids: Iterator[str] = self._content.with_children(content_ids, query)
+            if query.limit is not None:
+                ids = islice(ids, query.limit)
+            for content_id in ids:
                 yield self._record_for_id(content_id, query)
             return
 
@@ -177,8 +180,8 @@ class ConfluenceConnector(BaseConnector):
         if values is None:
             return []
         if isinstance(values, str):
-            return [values]
-        return [str(value) for value in values]
+            return [validate_content_id(values)]
+        return [validate_content_id(str(value)) for value in values]
 
     @staticmethod
     def _list_filter(value: Any, *, default: list[str]) -> list[str]:
@@ -190,16 +193,16 @@ class ConfluenceConnector(BaseConnector):
 
     def _record_for_id(self, content_id: str, query: ConnectorQuery) -> SourceRecord:
         """Build a direct-load record when discovery is driven by explicit IDs."""
-        return SourceRecord(
-            id=f"confluence://{self.config.space_key}/{content_id}",
-            source_type="text/html",
-            locator=str(content_id),
-            metadata={
-                "content_id": str(content_id),
-                "space_key": self.config.space_key,
-                "include_attachments": query.include_attachments,
-            },
+        content = self._content.get_content_summary(validate_content_id(content_id))
+        self._validate_content(content, content_id)
+        record = build_source_record(
+            content,
+            base_url=self.base_url,
+            deployment_type=self.config.deployment,
+            default_space_key=self.config.space_key,
         )
+        record.metadata["include_attachments"] = query.include_attachments
+        return record
 
     def _should_process_content(self, content: dict[str, Any]) -> bool:
         """Apply include/exclude label filters to Confluence content."""

@@ -1,12 +1,12 @@
 """White-box unit tests for shared connector HTTP utilities."""
+
 from __future__ import annotations
 
 import time
 
 import pytest
-
 from harbor_test_builders import FakeResponse
-from harborrag_adapters.connectors.http_utils import (
+from harborrag_adapters.connectors.utils.http import (
     ResponseTooLargeError,
     read_capped_content,
     require_same_origin_url,
@@ -14,7 +14,6 @@ from harborrag_adapters.connectors.http_utils import (
     safe_error_detail,
     same_origin,
 )
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -273,8 +272,8 @@ def test_retry_delay_none_headers_uses_fallback():
 
 
 def test_retry_delay_parses_http_date_retry_after():
+    from datetime import UTC, datetime, timedelta
     from email.utils import format_datetime
-    from datetime import datetime, timedelta, UTC
 
     future = datetime.now(tz=UTC) + timedelta(seconds=30)
     delay = retry_delay_seconds(

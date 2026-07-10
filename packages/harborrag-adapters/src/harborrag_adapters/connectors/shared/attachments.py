@@ -9,7 +9,7 @@ from typing import Literal
 
 from harborrag_adapters.parsers import HarborParser, ParseInput
 
-from .http_utils import require_same_origin_url
+from ..utils.http import require_same_origin_url
 
 AttachmentStatus = Literal["processed", "skipped", "unsupported", "failed"]
 CustomAttachmentParser = Callable[[bytes, str], str]
@@ -73,7 +73,7 @@ MEDIA_TYPE_MAP: dict[str, tuple[FileType, str]] = {
 }
 
 
-logger = logging.getLogger("harborrag.adapters.connectors.attachments")
+logger = logging.getLogger("harborrag.adapters.connectors.shared.attachments")
 
 
 def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | None:

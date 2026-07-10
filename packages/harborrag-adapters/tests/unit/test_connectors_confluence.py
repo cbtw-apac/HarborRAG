@@ -13,6 +13,8 @@ from harborrag_adapters.connectors.confluence.content import ConfluenceContentAP
 from harborrag_adapters.connectors.confluence.mappers import (
     content_id_from_record,
     display_url,
+)
+from harborrag_adapters.connectors.confluence.mappers import (
     parse_timestamp as mapper_parse_timestamp,
 )
 from harborrag_adapters.connectors.confluence.utils import (
@@ -25,7 +27,6 @@ from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.source import SourceRecord
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -92,12 +93,18 @@ def dc_config(**overrides: Any) -> ConfluenceSpaceConfig:
     return ConfluenceSpaceConfig(**values)
 
 
-def light_content(content_id: str, title: str, labels: list[str] | None = None) -> dict:
+def light_content(
+    content_id: str,
+    title: str,
+    labels: list[str] | None = None,
+    *,
+    space_key: str = "ENG",
+) -> dict:
     return {
         "id": content_id,
         "title": title,
         "type": "page",
-        "space": {"key": "ENG"},
+        "space": {"key": space_key},
         "metadata": {"labels": {"results": [{"name": name} for name in labels or []]}},
         "version": {"when": "2024-05-24T20:57:56.130Z"},
     }
@@ -179,19 +186,23 @@ def test_discover_paginates_and_filters_excluded_labels():
 
 
 def test_discover_supports_direct_content_ids_without_search():
-    connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Direct", space_key="OPS"))
+    connector = ConfluenceConnector(cloud_config(), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(filters={"content_ids": ["1", "2"]}, limit=1)
-        )
+        connector.discover(ConnectorQuery(filters={"content_ids": ["1", "2"]}, limit=1))
     )
 
     assert [record.locator for record in records] == ["1"]
+    assert records[0].id == "confluence://OPS/1"
+    assert records[0].metadata["space_key"] == "OPS"
 
 
 def test_discover_can_expand_child_pages_for_direct_ids():
     client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Parent"))
+    client.add("content/2", light_content("2", "Child"))
     client.add(
         "content/1/child/page",
         {"results": [light_content("2", "Child")]},
@@ -206,6 +217,25 @@ def test_discover_can_expand_child_pages_for_direct_ids():
     )
 
     assert [record.locator for record in records] == ["1", "2"]
+
+
+def test_direct_id_discovery_stops_before_child_traversal_at_limit():
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Parent"))
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    records = list(
+        connector.discover(
+            ConnectorQuery(
+                filters={"content_ids": ["1"], "include_children": True},
+                recursive=True,
+                limit=1,
+            )
+        )
+    )
+
+    assert [record.locator for record in records] == ["1"]
+    assert [endpoint for endpoint, _params in client.calls] == ["content/1"]
 
 
 def test_load_builds_raw_document_metadata_comments_and_attachments():
@@ -362,9 +392,7 @@ def test_load_raises_on_missing_required_fields():
 
 def test_config_rejects_missing_token():
     with pytest.raises(ValueError, match="token is required"):
-        ConfluenceSpaceConfig(
-            space_key="ENG", base_url=DC_BASE, token=None, email=None
-        )
+        ConfluenceSpaceConfig(space_key="ENG", base_url=DC_BASE, token=None, email=None)
 
 
 def test_config_accepts_deployment_type_enum_directly():
@@ -432,6 +460,13 @@ def test_content_id_from_record_requires_a_content_id():
         content_id_from_record(record)
 
 
+def test_content_id_from_record_rejects_path_fragments():
+    record = SourceRecord("confluence://ENG/1", "text/html", "1/child/page")
+
+    with pytest.raises(ValueError, match="content ID"):
+        content_id_from_record(record)
+
+
 def test_display_url_datacenter_uses_display_path():
     url = display_url(
         DC_BASE, ConfluenceDeploymentType.DATACENTER, "ENG", "1", "Page One"
@@ -451,7 +486,7 @@ def test_search_returns_immediately_on_empty_first_page():
     assert list(api.search("type=page")) == []
 
 
-def test_search_falls_back_to_offset_pagination_when_full_page_has_no_next_link():
+def test_search_falls_back_to_offset_when_first_full_page_has_no_next_link():
     client = FakeConfluenceClient()
     client.add(
         "content/search",
@@ -467,6 +502,28 @@ def test_search_falls_back_to_offset_pagination_when_full_page_has_no_next_link(
 
     assert ids == ["1", "2", "3"]
     assert client.calls[1][1]["start"] == 2
+
+
+def test_cursor_search_stops_after_exact_full_final_page_without_next_link():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/search",
+        {
+            "results": [light_content("1", "A"), light_content("2", "B")],
+            "_links": {"next": "/rest/api/content/search?cursor=next-page"},
+        },
+        {
+            "results": [light_content("3", "C"), light_content("4", "D")],
+            "_links": {},
+        },
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=2))
+
+    ids = [item["id"] for item in api.search("type=page")]
+
+    assert ids == ["1", "2", "3", "4"]
+    assert len(client.calls) == 2
+    assert client.calls[1][1]["cursor"] == "next-page"
 
 
 def test_fetch_comments_stops_on_short_final_page():
@@ -496,6 +553,26 @@ def test_fetch_comments_paginates_across_multiple_pages():
     assert [c["id"] for c in comments] == ["c1", "c2", "c3"]
 
 
+def test_fetch_comments_honors_server_clamped_page_limit():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/1/child/comment",
+        {
+            "results": [{"id": "c1"}, {"id": "c2"}],
+            "size": 2,
+            "limit": 2,
+            "_links": {},
+        },
+        {"results": [{"id": "c3"}], "size": 1, "limit": 2, "_links": {}},
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=100))
+
+    comments = api.fetch_comments("1")
+
+    assert [comment["id"] for comment in comments] == ["c1", "c2", "c3"]
+    assert client.calls[1][1]["start"] == 2
+
+
 def test_list_attachments_stops_on_short_final_page():
     client = FakeConfluenceClient()
     client.add(
@@ -521,6 +598,26 @@ def test_list_attachments_paginates_across_multiple_pages():
     attachments = api.list_attachments("1")
 
     assert [a["id"] for a in attachments] == ["a1", "a2", "a3"]
+
+
+def test_list_attachments_honors_server_clamped_page_limit():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/1/child/attachment",
+        {
+            "results": [{"id": "a1"}, {"id": "a2"}],
+            "size": 2,
+            "limit": 2,
+            "_links": {"next": "/next"},
+        },
+        {"results": [{"id": "a3"}], "size": 1, "limit": 2, "_links": {}},
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=100))
+
+    attachments = api.list_attachments("1")
+
+    assert [attachment["id"] for attachment in attachments] == ["a1", "a2", "a3"]
+    assert client.calls[1][1]["start"] == 2
 
 
 def test_with_children_skips_duplicate_ids():
@@ -574,6 +671,26 @@ def test_child_page_ids_paginates_across_multiple_pages():
     assert ids == ["2", "3", "4"]
 
 
+def test_child_page_ids_honors_server_clamped_page_limit():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/1/child/page",
+        {
+            "results": [{"id": "2"}, {"id": "3"}],
+            "size": 2,
+            "limit": 2,
+            "_links": {"next": "/next"},
+        },
+        {"results": [{"id": "4"}], "size": 1, "limit": 2, "_links": {}},
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=100))
+
+    ids = list(api.child_page_ids("1", recursive=False, seen=set()))
+
+    assert ids == ["2", "3", "4"]
+    assert client.calls[1][1]["start"] == 2
+
+
 # --------------------------------------------------------------------------
 # connector.py discover/load edge cases
 
@@ -609,7 +726,7 @@ def test_load_raises_when_content_filtered_out_by_labels():
 
 def test_load_by_ids_loads_each_content_id():
     client = FakeConfluenceClient()
-    client.add("content/1", full_content())
+    client.add("content/1", light_content("1", "Page One"), full_content())
     connector = ConfluenceConnector(cloud_config(), client=client)
 
     documents = list(connector.load_by_ids(["1"]))
@@ -619,13 +736,20 @@ def test_load_by_ids_loads_each_content_id():
 
 def test_content_ids_from_query_accepts_bare_string():
     client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Direct"))
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"content_ids": "1"}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"content_ids": "1"})))
 
     assert [r.locator for r in records] == ["1"]
+
+
+@pytest.mark.parametrize("content_id", ["1/child/page", "1?expand=body", "#1"])
+def test_discover_rejects_unsafe_content_ids(content_id):
+    connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())
+
+    with pytest.raises(ValueError, match="content ID"):
+        list(connector.discover(ConnectorQuery(filters={"content_ids": [content_id]})))
 
 
 def test_discover_content_types_filter_accepts_list_value():
@@ -637,7 +761,9 @@ def test_discover_content_types_filter_accepts_list_value():
     connector = ConfluenceConnector(cloud_config(page_size=10), client=client)
 
     records = list(
-        connector.discover(ConnectorQuery(filters={"content_types": ["page", "blogpost"]}))
+        connector.discover(
+            ConnectorQuery(filters={"content_types": ["page", "blogpost"]})
+        )
     )
 
     assert [r.metadata["content_id"] for r in records] == ["1"]
@@ -659,8 +785,6 @@ def test_discover_labels_filter_uses_label_alias_and_matches_include_labels():
         cloud_config(include_labels=["runbook"], page_size=10), client=client
     )
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"label": "runbook"}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"label": "runbook"})))
 
     assert [r.metadata["content_id"] for r in records] == ["1"]

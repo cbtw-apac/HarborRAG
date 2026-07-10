@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_adapters.connectors.attachments import AttachmentMetadata
+from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
 from harborrag_adapters.parsers.utils import compact_text, html_to_text
 
 from .schemas import JiraCustomFieldMetadata

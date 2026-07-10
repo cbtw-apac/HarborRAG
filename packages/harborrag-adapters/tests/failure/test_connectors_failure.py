@@ -4,7 +4,6 @@ from collections.abc import Iterator
 
 import pytest
 from harbor_test_builders import FakeResponse, FakeSession
-
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
@@ -20,7 +19,6 @@ from harborrag_adapters.connectors.sharepoint.connector import _RequestsGraphCli
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
-
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
@@ -30,8 +28,7 @@ def _no_sleep(monkeypatch):
     for module in (
         "harborrag_adapters.connectors.github.client",
         "harborrag_adapters.connectors.github.connector",
-        "harborrag_adapters.connectors.jira.client",
-        "harborrag_adapters.connectors.jira.connector",
+        "harborrag_adapters.connectors.shared.atlassian_client",
         "harborrag_adapters.connectors.sharepoint.client",
         "harborrag_adapters.connectors.sharepoint.connector",
     ):
@@ -241,12 +238,12 @@ def test_jira_retry_exhaustion_raises_fetch_error():
     assert len(client.session.calls) == 3
 
 
-def test_jira_403_is_authentication_error_not_retried():
+def test_jira_403_is_skippable_fetch_error_not_retried():
     client = _RequestsJiraClient(_jira_config())
     client.session = FakeSession(
         responses=[FakeResponse(status_code=403, text="forbidden")]
     )
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(FetchError, match="403"):
         client.get_json("search")
     assert len(client.session.calls) == 1
 

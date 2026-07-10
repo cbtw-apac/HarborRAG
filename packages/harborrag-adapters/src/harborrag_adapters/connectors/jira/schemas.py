@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
-from harborrag_adapters.connectors.attachments import AttachmentMetadata
+from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
 
 
 @dataclass(slots=True)

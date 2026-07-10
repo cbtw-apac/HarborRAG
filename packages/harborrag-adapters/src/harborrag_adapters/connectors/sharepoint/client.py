@@ -13,7 +13,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     RateLimitError,
 )
-from harborrag_adapters.connectors.http_utils import (
+from harborrag_adapters.connectors.utils.http import (
     ResponseTooLargeError,
     read_capped_content,
     require_same_origin_url,
@@ -37,11 +37,11 @@ class SharePointClient(Protocol):
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return a decoded Microsoft Graph response object."""
-        ...
+        pass
 
     def get_bytes(self, endpoint: str) -> bytes:
         """Return bytes downloaded from a Microsoft Graph endpoint."""
-        ...
+        pass
 
 
 class _RequestsGraphClient:

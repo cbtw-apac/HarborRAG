@@ -5,12 +5,22 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.utils import extend_with_limit
+from harborrag_adapters.connectors.utils.helpers import extend_with_limit
 
 from .client import JiraClient
 from .config import JiraDeploymentType, JiraProjectConfig
 from .mappers import changelog_histories
-from .utils import search_body, search_jql_body
+from .utils import search_body, search_jql_body, validate_issue_key
+
+DISCOVERY_FIELDS = (
+    "summary",
+    "issuetype",
+    "status",
+    "labels",
+    "updated",
+    "project",
+)
+ISSUE_EXPAND = ("renderedFields", "names", "schema")
 
 
 class JiraIssueAPI:
@@ -30,6 +40,7 @@ class JiraIssueAPI:
 
     def get_issue(self, issue_key: str) -> dict[str, Any]:
         """Fetch one issue with configured fields and expansion settings."""
+        issue_key = validate_issue_key(issue_key)
         response = self.client.get_json(
             f"issue/{issue_key}",
             params={
@@ -37,10 +48,11 @@ class JiraIssueAPI:
                 "expand": ",".join(self.issue_expand()),
             },
         )
-        return response if isinstance(response, dict) else {}
+        return response
 
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
         """Fetch all comments for one issue while enforcing configured caps."""
+        issue_key = validate_issue_key(issue_key)
         comments: list[dict[str, Any]] = []
         start_at = 0
         while True:
@@ -48,8 +60,6 @@ class JiraIssueAPI:
                 f"issue/{issue_key}/comment",
                 params={"startAt": start_at, "maxResults": self.config.page_size},
             )
-            if not isinstance(response, dict):
-                return comments
             values = response.get("comments", [])
             extend_with_limit(
                 comments,
@@ -58,7 +68,7 @@ class JiraIssueAPI:
                 label=f"JIRA comments for {issue_key}",
                 setting_name="max_comments",
             )
-            start_at = int(response.get("startAt", start_at)) + len(values)
+            start_at += len(values)
             total = response.get("total")
             if total is not None and start_at >= int(total):
                 return comments
@@ -67,6 +77,7 @@ class JiraIssueAPI:
 
     def fetch_changelog(self, issue_key: str) -> list[dict[str, Any]]:
         """Fetch issue changelog pages and normalize histories for metadata."""
+        issue_key = validate_issue_key(issue_key)
         histories: list[dict[str, Any]] = []
         start_at = 0
         while True:
@@ -74,8 +85,6 @@ class JiraIssueAPI:
                 f"issue/{issue_key}/changelog",
                 params={"startAt": start_at, "maxResults": self.config.page_size},
             )
-            if not isinstance(response, dict):
-                return histories
             values = response.get("values") or response.get("histories") or []
             extend_with_limit(
                 histories,
@@ -84,7 +93,7 @@ class JiraIssueAPI:
                 label=f"JIRA changelog for {issue_key}",
                 setting_name="max_changelog_items",
             )
-            start_at = int(response.get("startAt", start_at)) + len(values)
+            start_at += len(values)
             total = response.get("total")
             if total is not None and start_at >= int(total):
                 return histories
@@ -93,10 +102,7 @@ class JiraIssueAPI:
 
     def issue_expand(self) -> tuple[str, ...]:
         """Return JIRA expansions needed for body rendering and custom fields."""
-        values = ["renderedFields", "names", "schema"]
-        if self.config.include_changelog:
-            values.append("changelog")
-        return tuple(values)
+        return ISSUE_EXPAND
 
     def _search_cloud(self, jql: str) -> Iterator[dict[str, Any]]:
         """Paginate Jira Cloud's token-based ``/search/jql`` endpoint."""
@@ -107,12 +113,10 @@ class JiraIssueAPI:
                 json=search_jql_body(
                     jql=jql,
                     max_results=self.config.page_size,
-                    fields=self.config.requested_fields(),
+                    fields=DISCOVERY_FIELDS,
                     next_page_token=next_page_token,
                 ),
             )
-            if not isinstance(response, dict):
-                return
             issues = response.get("issues") or []
             yield from issues
 
@@ -130,18 +134,15 @@ class JiraIssueAPI:
                     jql=jql,
                     start_at=start_at,
                     max_results=self.config.page_size,
-                    fields=self.config.requested_fields(),
-                    expand=self.issue_expand(),
+                    fields=DISCOVERY_FIELDS,
                 ),
             )
-            if not isinstance(response, dict):
-                return
             issues = response.get("issues") or []
             if not issues:
                 return
             yield from issues
 
-            start_at = int(response.get("startAt", start_at)) + len(issues)
+            start_at += len(issues)
             total = response.get("total")
             if total is not None and start_at >= int(total):
                 return

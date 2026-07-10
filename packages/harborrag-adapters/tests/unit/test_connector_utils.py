@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.utils import (
+from harborrag_adapters.connectors.utils.helpers import (
     enforce_collection_limit,
     extend_with_limit,
     validate_http_tuning,

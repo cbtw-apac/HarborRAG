@@ -1,14 +1,13 @@
 """White-box unit tests for attachment classification and processing."""
+
 from __future__ import annotations
 
 import pytest
-
-from harborrag_adapters.connectors.attachments import (
+from harborrag_adapters.connectors.shared.attachments import (
     AttachmentProcessor,
     FileType,
     classify_attachment,
 )
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -60,11 +59,11 @@ BASE_URL = "https://wiki.example.com"
 
 
 def _text_processor(**overrides) -> AttachmentProcessor:
-    defaults = dict(
-        download_fn=lambda url: b"hello world",
-        base_url=BASE_URL,
-        custom_parsers={FileType.TEXT: lambda content, ext: content.decode()},
-    )
+    defaults = {
+        "download_fn": lambda url: b"hello world",
+        "base_url": BASE_URL,
+        "custom_parsers": {FileType.TEXT: lambda content, ext: content.decode()},
+    }
     defaults.update(overrides)
     return AttachmentProcessor(**defaults)
 
@@ -200,9 +199,7 @@ def test_attachment_missing_download_url_is_skipped():
 
 def test_attachment_relative_download_url_without_leading_slash():
     processor = _text_processor()
-    [result] = processor.process(
-        [_attachment(downloadUrl="download/notes.txt")]
-    )
+    [result] = processor.process([_attachment(downloadUrl="download/notes.txt")])
 
     assert result.status == "processed"
     assert result.download_url == f"{BASE_URL}/download/notes.txt"

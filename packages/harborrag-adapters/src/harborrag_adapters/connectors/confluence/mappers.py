@@ -17,6 +17,7 @@ from .schemas import (
     ConfluenceMetadata,
     ConfluencePageReference,
 )
+from .utils import validate_content_id
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
@@ -40,7 +41,7 @@ def content_id_from_record(record: SourceRecord) -> str:
     content_id = record.metadata.get("content_id") or record.locator
     if not content_id:
         raise ValueError(f"SourceRecord {record.id!r} does not contain content_id")
-    return str(content_id).rstrip("/").rsplit("/", 1)[-1]
+    return validate_content_id(str(content_id))
 
 
 def display_url(

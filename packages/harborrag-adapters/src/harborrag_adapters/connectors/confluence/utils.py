@@ -31,6 +31,7 @@ COMMENT_EXPAND = "body.storage,history"
 DEFAULT_PAGE_SIZE = 25
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_CONTENT_ID_RE = re.compile(r"^[0-9]+$")
 
 
 def is_cloud_hostname(base_url: str) -> bool:
@@ -64,6 +65,14 @@ def validate_token(value: str, *, field_name: str) -> str:
             "underscore and hyphen are allowed."
         )
     return value
+
+
+def validate_content_id(value: str) -> str:
+    """Require the numeric IDs accepted by Confluence content paths."""
+    normalized = str(value).strip()
+    if not _CONTENT_ID_RE.fullmatch(normalized):
+        raise ValueError("Invalid Confluence content ID: expected digits only")
+    return normalized
 
 
 def build_cql(

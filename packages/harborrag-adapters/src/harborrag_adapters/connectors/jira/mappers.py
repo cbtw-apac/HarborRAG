@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 from harborrag_core.domain.source import SourceRecord
 
-from harborrag_adapters.connectors.attachments import AttachmentMetadata
+from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
 
 from .content import custom_field_metadata, field_text
 from .schemas import (
@@ -20,6 +20,7 @@ from .schemas import (
     JiraIssueReference,
     JiraMetadata,
 )
+from .utils import validate_issue_key
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
@@ -37,11 +38,12 @@ def issue_key_from_record(record: SourceRecord) -> str:
     issue_key = record.metadata.get("issue_key") or record.locator
     if not issue_key:
         raise ValueError(f"SourceRecord {record.id!r} does not contain issue_key")
-    return str(issue_key).rstrip("/").rsplit("/", 1)[-1]
+    return validate_issue_key(str(issue_key))
 
 
 def issue_url(base_url: str, issue_key: str) -> str:
     """Build the user-facing browse URL for an issue."""
+    issue_key = validate_issue_key(issue_key)
     base = base_url if base_url.endswith("/") else f"{base_url}/"
     return urljoin(base, f"browse/{issue_key}")
 

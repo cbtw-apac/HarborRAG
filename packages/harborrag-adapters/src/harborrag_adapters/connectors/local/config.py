@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from harborrag_adapters.connectors.utils import validate_non_negative_limit
+from harborrag_adapters.connectors.utils.helpers import validate_non_negative_limit
 
 from .utils import DEFAULT_EXCLUDED_DIR_NAMES, normalize_extension, resolve_path
 

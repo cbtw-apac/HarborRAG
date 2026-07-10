@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from harborrag_adapters.connectors.utils import (
+from harborrag_adapters.connectors.utils.helpers import (
     validate_http_tuning,
     validate_non_negative_limit,
 )
