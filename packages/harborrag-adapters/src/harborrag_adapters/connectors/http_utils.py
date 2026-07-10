@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import random
 import time
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http.client import HTTPResponse
-from typing import Mapping
-from urllib.parse import urlparse
-
+from typing import Protocol
+from urllib.parse import ParseResult, urlparse
 
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -15,7 +15,23 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 DEFAULT_ERROR_BODY_LIMIT = 500
 
 
-def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT) -> str:
+class StreamingResponse(Protocol):
+    """Minimal response surface required by :func:`read_capped_content`."""
+
+    headers: Mapping[str, str]
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]:
+        """Yield response body chunks."""
+        ...
+
+    def close(self) -> None:
+        """Release the response connection."""
+        ...
+
+
+def safe_error_detail(
+    text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT
+) -> str:
     """Return a truncated, secret-redacted snippet of a response body."""
     if not text:
         return ""
@@ -55,7 +71,7 @@ class ResponseTooLargeError(ValueError):
 
 
 def read_capped_content(
-    response,
+    response: StreamingResponse,
     max_bytes: int | None,
     *,
     chunk_size: int = 64 * 1024,
@@ -175,7 +191,7 @@ def _parse_retry_after(value: str) -> float | None:
     return max(0.0, (retry_at - datetime.now(tz=UTC)).total_seconds())
 
 
-def _port(parsed) -> int | None:
+def _port(parsed: ParseResult) -> int | None:
     if parsed.port is not None:
         return parsed.port
     if parsed.scheme.lower() == "https":

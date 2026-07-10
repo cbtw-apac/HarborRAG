@@ -1,3 +1,5 @@
+"""SharePoint site, drive, and item traversal operations."""
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +28,6 @@ from .utils import (
     site_path_endpoint,
 )
 
-
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 
 
@@ -34,6 +35,7 @@ class SharePointDriveAPI:
     """SharePoint site, drive, and drive-item traversal helpers."""
 
     def __init__(self, client: SharePointClient, config: SharePointSiteConfig) -> None:
+        """Bind drive traversal to a client and validated config."""
         self.client = client
         self.config = config
         self._site: dict[str, Any] | None = None
@@ -118,7 +120,8 @@ class SharePointDriveAPI:
         while endpoint:
             response = self.client.get_json(endpoint, params=params)
             yield from response.get("value", [])
-            endpoint = response.get("@odata.nextLink")
+            next_link = response.get("@odata.nextLink")
+            endpoint = str(next_link) if next_link else ""
             params = None
 
     def iter_site_drives(self, site_id: str) -> Iterator[dict[str, Any]]:
@@ -132,7 +135,8 @@ class SharePointDriveAPI:
         while endpoint:
             response = self.client.get_json(endpoint, params=params)
             yield from response.get("value", [])
-            endpoint = response.get("@odata.nextLink")
+            next_link = response.get("@odata.nextLink")
+            endpoint = str(next_link) if next_link else ""
             params = None
 
     def get_item(self, drive_id: str, item_id: str) -> dict[str, Any]:
@@ -256,6 +260,7 @@ class SharePointDriveAPI:
             )
 
     def record_for_item_id(self, item_id: str) -> SourceRecord:
+        """Resolve a drive item ID and build its source record."""
         site = self.resolve_site()
         drive = self.resolve_drive(site)
         item = self.get_item(str(drive["id"]), item_id)

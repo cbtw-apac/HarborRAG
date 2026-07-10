@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from .base import BaseConnector
 from .exceptions import ConnectorNotFoundError
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.registry")
 
@@ -13,6 +13,7 @@ class ConnectorRegistry:
     """In-process provider registry used by ``HarborConnector``."""
 
     def __init__(self) -> None:
+        """Create an empty provider mapping."""
         self._providers: dict[str, type[BaseConnector]] = {}
 
     def register(
@@ -47,7 +48,7 @@ class ConnectorRegistry:
                 f"Unsupported connector provider: {name}"
             ) from exc
 
-    def create(self, name: str, **kwargs) -> BaseConnector:
+    def create(self, name: str, **kwargs: Any) -> BaseConnector:
         """Instantiate a registered connector by name."""
         return self.get_class(name)(**kwargs)
 

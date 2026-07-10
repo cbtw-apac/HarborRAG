@@ -1,9 +1,11 @@
+"""Validated configuration for JIRA project connectors."""
+
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Callable
 
 from harborrag_adapters.connectors.attachments import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
@@ -73,7 +75,9 @@ class JiraProjectConfig:
     include_all_fields: bool = True
     fields: tuple[str, ...] = DEFAULT_ISSUE_FIELDS
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
-    process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
+    process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = (
+        None
+    )
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
@@ -88,11 +92,11 @@ class JiraProjectConfig:
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate query/load limits."""
         self.base_url = str(self.base_url).rstrip("/")
-        self.token = self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
-        self.email = self.email or os.getenv("JIRA_EMAIL")
-        self.fields = tuple(
-            dict.fromkeys(str(field) for field in self.fields if field)
+        self.token = (
+            self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
         )
+        self.email = self.email or os.getenv("JIRA_EMAIL")
+        self.fields = tuple(dict.fromkeys(str(field) for field in self.fields if field))
 
         if self.deployment_type is None:
             self.deployment_type = (

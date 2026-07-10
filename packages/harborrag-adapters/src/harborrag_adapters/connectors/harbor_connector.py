@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -12,7 +13,7 @@ from .schemas import ConnectorCapabilities, ConnectorQuery
 class HarborConnector:
     """Factory facade that hides provider-class lookup from callers."""
 
-    def __init__(self, provider: str, **kwargs) -> None:
+    def __init__(self, provider: str, **kwargs: Any) -> None:
         """Create a concrete connector from the provider registry."""
         self.provider_name = provider
         self.provider = connector_registry.create(provider, **kwargs)

@@ -10,7 +10,6 @@ from harborrag_core.domain.source import SourceRecord
 from .exceptions import AuthenticationError
 from .schemas import ConnectorCapabilities, ConnectorQuery
 
-
 logger = logging.getLogger("harborrag.adapters.connectors.base")
 
 
@@ -51,7 +50,7 @@ class BaseConnector(ABC):
         *,
         on_error: str = "raise",
     ) -> Iterator[RawDocument]:
-        """Convenience stream that discovers records and loads them in order.
+        """Discover records and load them in order.
 
         ``on_error`` controls per-record failure isolation, essential when
         crawling large sources where a single restricted/deleted item must not

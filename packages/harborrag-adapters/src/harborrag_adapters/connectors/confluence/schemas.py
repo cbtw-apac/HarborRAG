@@ -8,9 +8,6 @@ from typing import Any
 
 from harborrag_adapters.connectors.attachments import (
     AttachmentMetadata,
-    AttachmentStatus,
-    CustomAttachmentParser,
-    FileType,
 )
 
 

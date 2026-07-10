@@ -1,10 +1,12 @@
+"""Confluence client protocol and requests-based implementation."""
+
 from __future__ import annotations
 
 import logging
 import time
 from typing import Any, Protocol
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
@@ -20,7 +22,6 @@ from harborrag_adapters.connectors.http_utils import (
 )
 
 from .config import ConfluenceDeploymentType, ConfluenceSpaceConfig
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -39,10 +40,12 @@ class ConfluenceClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        pass
+        """Return a decoded Confluence response object."""
+        ...
 
     def download_bytes(self, url: str) -> bytes | None:
-        pass
+        """Download bytes from a trusted Confluence URL."""
+        ...
 
 
 class _RequestsConfluenceClient:
@@ -73,11 +76,14 @@ class _RequestsConfluenceClient:
             params=params,
         )
         try:
-            return response.json()
+            payload: object = response.json()
         except ValueError as exc:
             raise FetchError(
                 f"Confluence returned non-JSON response for {endpoint}"
             ) from exc
+        if not isinstance(payload, dict):
+            raise FetchError(f"Confluence returned invalid JSON for {endpoint}")
+        return payload
 
     def download_bytes(self, url: str) -> bytes | None:
         """Download attachment bytes only from the configured Confluence origin."""

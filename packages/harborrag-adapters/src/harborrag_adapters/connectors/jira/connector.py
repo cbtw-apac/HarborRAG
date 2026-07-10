@@ -1,3 +1,5 @@
+"""JIRA issue discovery and raw-document loading orchestration."""
+
 from __future__ import annotations
 
 import logging
@@ -17,16 +19,15 @@ from harborrag_adapters.parsers import HarborParser
 
 from .client import JiraClient, _RequestsJiraClient
 from .config import JiraProjectConfig
+from .content import build_raw_content
 from .issues import JiraIssueAPI
 from .mappers import (
     build_document_metadata,
-    build_raw_content,
     build_source_record,
     issue_key_from_record,
     issue_url,
 )
 from .utils import build_jql
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.jira")
 _TIME_FOR_JIRA_CONNECTOR_TESTS = time
@@ -59,6 +60,7 @@ class JiraConnector(BaseConnector):
         client: JiraClient | None = None,
         parser: HarborParser | None = None,
     ) -> None:
+        """Initialize issue operations and shared attachment processing."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsJiraClient(config)
@@ -147,7 +149,7 @@ class JiraConnector(BaseConnector):
         )
 
     def load_by_keys(self, issue_keys: list[str]) -> Iterator[RawDocument]:
-        """Convenience loader for callers that already have issue keys."""
+        """Load issues for callers that already have issue keys."""
         for issue_key in issue_keys:
             yield self.load(self._record_for_key(issue_key, ConnectorQuery()))
 

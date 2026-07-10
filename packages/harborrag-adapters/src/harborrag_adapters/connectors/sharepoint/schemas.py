@@ -1,3 +1,5 @@
+"""Structured metadata emitted by the SharePoint connector."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

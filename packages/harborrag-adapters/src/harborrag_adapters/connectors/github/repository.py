@@ -1,3 +1,5 @@
+"""Repository metadata, tree traversal, and blob-loading operations."""
+
 from __future__ import annotations
 
 import base64
@@ -13,28 +15,19 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .client import GitHubClient
 from .config import GitHubRepositoryConfig
-from .mappers import (
-    build_source_record,
-    commit_timestamp,
-    tree_sha_from_commit,
-)
+from .filters import should_process_file
+from .mappers import build_source_record, tree_sha_from_commit
 from .utils import (
     GITHUB_BLOB_LIMIT_BYTES,
     blob_endpoint,
     commit_endpoint,
     content_endpoint,
-    file_extension,
-    guess_mime_type,
     is_blob,
     is_tree,
     normalize_repo_path,
-    path_in_scope,
-    path_matches_patterns,
-    path_matches_query,
     repo_endpoint,
     tree_endpoint,
 )
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.github")
 
@@ -43,6 +36,7 @@ class GitHubRepositoryAPI:
     """Repository-scoped GitHub traversal, filtering, and blob loading."""
 
     def __init__(self, config: GitHubRepositoryConfig, client: GitHubClient) -> None:
+        """Bind repository operations to a client and validated config."""
         self.config = config
         self.client = client
         self.owner = str(config.owner)
@@ -53,6 +47,7 @@ class GitHubRepositoryAPI:
 
     @property
     def resolved_ref(self) -> str | None:
+        """Return the configured ref resolved for the current ingestion run."""
         return self._resolved_ref
 
     def iter_tree(self, tree_sha: str, *, recursive: bool) -> Iterator[dict[str, Any]]:
@@ -127,6 +122,7 @@ class GitHubRepositoryAPI:
         ref: str,
         commit: dict[str, Any],
     ) -> SourceRecord:
+        """Map a tree item and its anchoring commit to a source record."""
         return build_source_record(
             item,
             owner=self.owner,
@@ -137,6 +133,7 @@ class GitHubRepositoryAPI:
         )
 
     def record_for_path(self, path: str) -> SourceRecord:
+        """Resolve one repository path and return its source record."""
         repository = self.resolve_repository()
         commit = self.resolve_commit(repository)
         ref = self.resolved_ref or str(commit.get("sha") or "")
@@ -187,62 +184,7 @@ class GitHubRepositoryAPI:
         commit: dict[str, Any],
     ) -> bool:
         """Apply query/config filters to one GitHub tree or content item."""
-        path = normalize_repo_path(str(item.get("path") or ""))
-        size = int(item.get("size") or 0)
-        extension = file_extension(path)
-        mime_type = guess_mime_type(path)
-
-        if query.updated_after:
-            updated_at = commit_timestamp(commit)
-            if updated_at and updated_at <= query.updated_after:
-                return False
-        if not path_matches_query(path, query.pattern):
-            return False
-
-        allowed_extensions = self._extension_filter(query, "allowed_extensions")
-        if allowed_extensions and extension not in allowed_extensions:
-            return False
-        excluded_extensions = self._extension_filter(query, "excluded_extensions")
-        if extension in excluded_extensions:
-            return False
-
-        include_paths = self._path_filter(query, "include_paths")
-        if include_paths and not any(
-            path_in_scope(path, value, recursive=True) for value in include_paths
-        ):
-            return False
-        exclude_paths = self._path_filter(query, "exclude_paths")
-        if any(path_in_scope(path, value, recursive=True) for value in exclude_paths):
-            return False
-
-        include_globs = self._path_filter(query, "include_globs")
-        if include_globs and not path_matches_patterns(path, include_globs):
-            return False
-        exclude_globs = self._path_filter(query, "exclude_globs")
-        if path_matches_patterns(path, exclude_globs):
-            return False
-
-        if self.config.max_file_size_bytes is not None:
-            if size > self.config.max_file_size_bytes:
-                logger.debug("Skipping oversized GitHub file %s", path)
-                return False
-
-        if self.config.process_file_callback:
-            try:
-                should_process, reason = self.config.process_file_callback(
-                    path,
-                    size,
-                    mime_type,
-                )
-            except Exception:
-                if self.config.fail_on_error:
-                    raise
-                logger.exception("GitHub file callback failed for %s", path)
-                return False
-            if not should_process:
-                logger.debug("Skipping GitHub file %s: %s", path, reason)
-                return False
-        return True
+        return should_process_file(self.config, item, query, commit=commit)
 
     def enforce_size_limit(self, label: str, size: int) -> None:
         """Prevent large blobs from being materialized by direct loads."""
@@ -277,39 +219,3 @@ class GitHubRepositoryAPI:
                 )
             else:
                 yield item
-
-    def _extension_filter(self, query: ConnectorQuery, key: str) -> set[str]:
-        values = query.filters.get(key)
-        if values is None and key == "allowed_extensions":
-            values = query.filters.get("extensions")
-        if values is None:
-            return set(getattr(self.config, key))
-        if isinstance(values, str):
-            values = [values]
-        return {
-            str(value).lower().strip()
-            if str(value).startswith(".")
-            else f".{str(value).lower().strip()}"
-            for value in values
-        }
-
-    def _path_filter(self, query: ConnectorQuery, key: str) -> list[str]:
-        values = query.filters.get(key)
-        if values is None:
-            return list(getattr(self.config, key))
-        if isinstance(values, str):
-            return [normalize_repo_path(values)]
-        return [normalize_repo_path(str(value)) for value in values]
-
-    @staticmethod
-    def file_paths_from_query(query: ConnectorQuery) -> list[str]:
-        values = (
-            query.filters.get("file_paths")
-            or query.filters.get("paths")
-            or query.filters.get("files")
-        )
-        if values is None:
-            return []
-        if isinstance(values, str):
-            return [normalize_repo_path(values)]
-        return [normalize_repo_path(str(value)) for value in values]

@@ -1,3 +1,5 @@
+"""Structured metadata emitted by the JIRA connector."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

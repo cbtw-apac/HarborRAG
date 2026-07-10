@@ -1,10 +1,11 @@
+"""Pure path, URL, and payload helpers for SharePoint."""
+
 from __future__ import annotations
 
 from fnmatch import fnmatch
 from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
-
 
 DRIVE_ITEM_SELECT = ",".join(
     (

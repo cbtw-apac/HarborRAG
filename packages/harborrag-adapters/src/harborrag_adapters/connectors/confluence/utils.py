@@ -1,3 +1,5 @@
+"""Pure URL, query, and payload helpers for Confluence."""
+
 from __future__ import annotations
 
 import re

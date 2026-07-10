@@ -1,13 +1,14 @@
+"""Validated configuration for SharePoint site connectors."""
+
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from harborrag_adapters.connectors.utils import validate_non_negative_limit
 
 from .utils import parse_sharepoint_site_url
-
 
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024

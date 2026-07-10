@@ -32,6 +32,7 @@ class HTTPRequestError(ConnectorError):
     def __init__(
         self, url: str, status_code: int | None = None, message: str | None = None
     ):
+        """Capture request context while preserving a standard exception message."""
         self.url = url
         self.status_code = status_code
         self.message = message

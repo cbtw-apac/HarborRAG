@@ -1,3 +1,5 @@
+"""JIRA issue search and nested-resource pagination."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -15,6 +17,7 @@ class JiraIssueAPI:
     """JIRA issue search and nested-resource pagination."""
 
     def __init__(self, client: JiraClient, config: JiraProjectConfig) -> None:
+        """Bind issue traversal to a client and validated config."""
         self.client = client
         self.config = config
 

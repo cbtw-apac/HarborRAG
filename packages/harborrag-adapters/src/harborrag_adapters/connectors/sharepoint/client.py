@@ -1,10 +1,12 @@
+"""Microsoft Graph client protocol and requests-based implementation."""
+
 from __future__ import annotations
 
 import logging
 import time
 from typing import Any, Protocol
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
@@ -21,7 +23,6 @@ from harborrag_adapters.connectors.http_utils import (
 
 from .config import SharePointSiteConfig
 
-
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -35,9 +36,11 @@ class SharePointClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Return a decoded Microsoft Graph response object."""
         ...
 
     def get_bytes(self, endpoint: str) -> bytes:
+        """Return bytes downloaded from a Microsoft Graph endpoint."""
         ...
 
 
@@ -62,11 +65,14 @@ class _RequestsGraphClient:
         """GET a Graph endpoint and decode its JSON body."""
         response = self._request("GET", self._api_url(endpoint), params=params)
         try:
-            return response.json()
+            payload: object = response.json()
         except ValueError as exc:
             raise FetchError(
                 f"Microsoft Graph returned non-JSON for {endpoint}"
             ) from exc
+        if not isinstance(payload, dict):
+            raise FetchError(f"Microsoft Graph returned invalid JSON for {endpoint}")
+        return payload
 
     def get_bytes(self, endpoint: str) -> bytes:
         """GET a Graph endpoint that returns file bytes, capped by size limit."""
@@ -154,12 +160,14 @@ class _RequestsGraphClient:
         if response.status_code >= 400:
             raise AuthenticationError(safe_error_detail(response.text))
         try:
-            payload = response.json()
+            payload: object = response.json()
         except ValueError as exc:
             raise AuthenticationError(
                 "Microsoft identity returned non-JSON token"
             ) from exc
 
+        if not isinstance(payload, dict):
+            raise AuthenticationError("Microsoft identity returned invalid JSON token")
         token = payload.get("access_token")
         if not token:
             raise AuthenticationError("Microsoft identity token response missing token")

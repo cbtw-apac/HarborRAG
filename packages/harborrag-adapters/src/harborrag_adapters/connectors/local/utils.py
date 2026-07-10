@@ -1,3 +1,5 @@
+"""Pure path, checksum, MIME, and filtering helpers for local files."""
+
 from __future__ import annotations
 
 import hashlib
@@ -5,7 +7,6 @@ import mimetypes
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
-
 
 DEFAULT_EXCLUDED_DIR_NAMES = {
     ".git",

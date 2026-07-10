@@ -1,3 +1,5 @@
+"""GitHub repository discovery and raw-blob loading orchestration."""
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +15,7 @@ from harborrag_adapters.connectors.schemas import ConnectorCapabilities, Connect
 
 from .client import GitHubClient, _RequestsGitHubClient
 from .config import GitHubRepositoryConfig
+from .filters import file_paths_from_query
 from .mappers import (
     build_document_metadata,
     commit_timestamp,
@@ -28,7 +31,6 @@ from .utils import (
     normalize_repo_path,
     path_in_scope,
 )
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.github")
 _TIME_FOR_GITHUB_CONNECTOR_TESTS = time
@@ -57,6 +59,7 @@ class GitHubConnector(BaseConnector):
         *,
         client: GitHubClient | None = None,
     ) -> None:
+        """Initialize repository operations with an optional client override."""
         self.config = config
         self.owner = str(config.owner)
         self.repo = str(config.repo)
@@ -77,7 +80,7 @@ class GitHubConnector(BaseConnector):
         )
 
         yielded = 0
-        paths = self._github.file_paths_from_query(query)
+        paths = file_paths_from_query(query)
         if paths:
             for path in paths:
                 item = self._github.content_file_item(path, ref=ref)
@@ -99,7 +102,9 @@ class GitHubConnector(BaseConnector):
         for item in self._github.iter_tree(tree_sha, recursive=tree_recursive):
             if not is_blob(item):
                 continue
-            if not path_in_scope(str(item.get("path") or ""), root_path, recursive=True):
+            if not path_in_scope(
+                str(item.get("path") or ""), root_path, recursive=True
+            ):
                 continue
             if not query.recursive:
                 if not path_in_scope(
@@ -171,6 +176,6 @@ class GitHubConnector(BaseConnector):
         )
 
     def load_by_paths(self, paths: list[str]) -> Iterator[RawDocument]:
-        """Convenience loader for callers that already know repository paths."""
+        """Load files for callers that already know repository paths."""
         for path in paths:
             yield self.load(self._github.record_for_path(path))

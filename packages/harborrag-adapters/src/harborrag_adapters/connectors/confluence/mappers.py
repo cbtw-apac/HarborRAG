@@ -1,3 +1,5 @@
+"""Mappings from Confluence API payloads to Harbor domain objects."""
+
 from __future__ import annotations
 
 import hashlib
@@ -52,7 +54,9 @@ def display_url(
     base = base_url if base_url.endswith("/") else f"{base_url}/"
     if deployment_type == ConfluenceDeploymentType.CLOUD:
         return urljoin(base, f"spaces/{space_key}/pages/{content_id}")
-    return urljoin(base, f"display/{space_key}/{quote(title.replace(' ', '+'), safe='+')}")
+    return urljoin(
+        base, f"display/{space_key}/{quote(title.replace(' ', '+'), safe='+')}"
+    )
 
 
 def body_html_from_content(content: dict[str, Any]) -> str:
@@ -116,7 +120,7 @@ def build_document_metadata(
     hierarchy = _hierarchy_metadata(content)
 
     checksum = hashlib.sha256(
-        f"{content_id}:{version.get('number')}:{body_html}".encode("utf-8")
+        f"{content_id}:{version.get('number')}:{body_html}".encode()
     ).hexdigest()
 
     return ConfluenceMetadata(
@@ -143,10 +147,10 @@ def build_document_metadata(
 
 
 def _author(content: dict[str, Any]) -> str | None:
-    return (
-        content.get("history", {}).get("createdBy", {}).get("displayName")
-        or content.get("version", {}).get("by", {}).get("displayName")
-    )
+    value = content.get("history", {}).get("createdBy", {}).get(
+        "displayName"
+    ) or content.get("version", {}).get("by", {}).get("displayName")
+    return str(value) if value else None
 
 
 def _comment_metadata(comment: dict[str, Any]) -> ConfluenceCommentMetadata:

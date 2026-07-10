@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TypeVar
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 
-
 DEFAULT_MAX_NESTED_ITEMS = 1000
-
-T = TypeVar("T")
 
 
 def validate_non_negative_limit(name: str, value: int | None) -> None:
@@ -17,7 +13,7 @@ def validate_non_negative_limit(name: str, value: int | None) -> None:
         raise ValueError(f"{name} must be greater than or equal to 0")
 
 
-def extend_with_limit(
+def extend_with_limit[T](
     target: list[T],
     values: Iterable[T],
     *,

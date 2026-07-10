@@ -1,10 +1,12 @@
+"""JIRA client protocol and requests-based implementation."""
+
 from __future__ import annotations
 
 import logging
 import time
 from typing import Any, Protocol
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
@@ -21,7 +23,6 @@ from harborrag_adapters.connectors.http_utils import (
 
 from .config import JiraDeploymentType, JiraProjectConfig
 
-
 logger = logging.getLogger("harborrag.adapters.connectors.jira")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -35,7 +36,8 @@ class JiraClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> Any:
-        pass
+        """Return a decoded JIRA GET response."""
+        ...
 
     def post_json(
         self,
@@ -43,10 +45,12 @@ class JiraClient(Protocol):
         *,
         json: dict[str, Any],
     ) -> Any:
-        pass
+        """Return a decoded JIRA POST response."""
+        ...
 
     def download_bytes(self, url: str) -> bytes | None:
-        pass
+        """Download bytes from a trusted JIRA URL."""
+        ...
 
 
 class _RequestsJiraClient:

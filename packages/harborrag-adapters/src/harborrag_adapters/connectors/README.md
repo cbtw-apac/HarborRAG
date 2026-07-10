@@ -221,7 +221,8 @@ Add these modules only when they remove real connector complexity:
 
 ```text
 client.py         # HTTP/auth/rate-limit client
-content.py        # Confluence content traversal
+  content.py        # provider content traversal or text rendering
+  filters.py        # query/config filter normalization
 issues.py         # JIRA issue search and nested pagination
 repository.py     # GitHub repository traversal/blob helpers
 drive.py          # SharePoint site/drive traversal

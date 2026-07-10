@@ -1,3 +1,5 @@
+"""SharePoint drive discovery and raw-file loading orchestration."""
+
 from __future__ import annotations
 
 import hashlib
@@ -17,7 +19,6 @@ from .config import SharePointSiteConfig
 from .drive import SharePointDriveAPI
 from .mappers import build_document_metadata, drive_item_id_from_record
 from .utils import is_drive_file, item_mime_type, item_name
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _TIME_FOR_SHAREPOINT_CONNECTOR_TESTS = time
@@ -45,6 +46,7 @@ class SharePointConnector(BaseConnector):
         *,
         client: SharePointClient | None = None,
     ) -> None:
+        """Initialize drive operations with an optional client override."""
         self.config = config
         self.client = client or _RequestsGraphClient(config)
         self._drive = SharePointDriveAPI(self.client, config)
@@ -128,7 +130,7 @@ class SharePointConnector(BaseConnector):
         )
 
     def load_by_ids(self, item_ids: list[str]) -> Iterator[RawDocument]:
-        """Convenience loader for callers that already have drive item IDs."""
+        """Load files for callers that already have drive item IDs."""
         for item_id in item_ids:
             yield self.load(self._drive.record_for_item_id(item_id))
 

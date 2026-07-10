@@ -1,3 +1,5 @@
+"""Confluence content search and nested-resource traversal."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -21,6 +23,7 @@ class ConfluenceContentAPI:
     """Confluence content traversal and child-resource pagination."""
 
     def __init__(self, client: ConfluenceClient, config: ConfluenceSpaceConfig) -> None:
+        """Bind content traversal to a client and validated config."""
         self.client = client
         self.config = config
 

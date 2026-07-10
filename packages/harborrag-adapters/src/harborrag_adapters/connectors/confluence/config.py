@@ -1,9 +1,11 @@
+"""Validated configuration for Confluence connector instances."""
+
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Callable
 
 from harborrag_adapters.connectors.attachments import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
@@ -16,7 +18,6 @@ from harborrag_adapters.connectors.utils import (
 )
 
 from .utils import is_cloud_hostname
-
 
 _VALID_CONTENT_TYPES = {"page", "blogpost"}
 
@@ -47,7 +48,9 @@ class ConfluenceSpaceConfig:
     include_comments: bool = False
     include_attachments: bool = False
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
-    process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
+    process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = (
+        None
+    )
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
@@ -75,7 +78,9 @@ class ConfluenceSpaceConfig:
                 self.deployment_type.lower()
             )
 
-        self.content_types = [content_type.lower() for content_type in self.content_types]
+        self.content_types = [
+            content_type.lower() for content_type in self.content_types
+        ]
         invalid = sorted(set(self.content_types) - _VALID_CONTENT_TYPES)
         if invalid:
             raise ValueError(
@@ -97,3 +102,10 @@ class ConfluenceSpaceConfig:
             raise ValueError("requests_per_minute must be between 1 and 6000")
         if not 1 <= self.page_size <= 100:
             raise ValueError("page_size must be between 1 and 100")
+
+    @property
+    def deployment(self) -> ConfluenceDeploymentType:
+        """Return the normalized deployment type after validation."""
+        if not isinstance(self.deployment_type, ConfluenceDeploymentType):
+            raise RuntimeError("Confluence deployment type was not normalized")
+        return self.deployment_type

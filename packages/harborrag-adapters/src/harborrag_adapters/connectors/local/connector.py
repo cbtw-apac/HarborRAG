@@ -1,3 +1,5 @@
+"""Local filesystem discovery and raw-file loading orchestration."""
+
 from __future__ import annotations
 
 import logging
@@ -18,7 +20,6 @@ from .config import LocalFileConfig
 from .filesystem import LocalFileSystem
 from .mappers import build_document_metadata, path_from_record
 from .utils import guess_mime_type, sha256_file
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -41,6 +42,7 @@ class LocalFileConnector(BaseConnector):
     )
 
     def __init__(self, config: LocalFileConfig) -> None:
+        """Initialize safe filesystem operations for the configured scope."""
         self.config = config
         self._files = LocalFileSystem(config)
         self.source_path = self._files.source_path
@@ -86,6 +88,6 @@ class LocalFileConnector(BaseConnector):
         )
 
     def load_by_paths(self, paths: list[str | Path]) -> Iterator[RawDocument]:
-        """Convenience loader for callers that already have file paths."""
+        """Load files for callers that already have file paths."""
         for path in paths:
             yield self.load(self._files.record_for_path(path))

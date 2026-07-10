@@ -1,13 +1,15 @@
+"""Validated configuration for local filesystem connectors."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 from harborrag_adapters.connectors.utils import validate_non_negative_limit
 
 from .utils import DEFAULT_EXCLUDED_DIR_NAMES, normalize_extension, resolve_path
-
 
 ChecksumMode = Literal["none", "stat", "sha256"]
 DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024

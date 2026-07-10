@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 from harborrag_adapters.parsers import HarborParser, ParseInput
 
 from .http_utils import require_same_origin_url
-
 
 AttachmentStatus = Literal["processed", "skipped", "unsupported", "failed"]
 CustomAttachmentParser = Callable[[bytes, str], str]
@@ -115,12 +115,14 @@ class AttachmentProcessor:
         base_url: str,
         parser: HarborParser | None = None,
         custom_parsers: dict[FileType, CustomAttachmentParser] | None = None,
-        process_attachment_callback: Callable[[str, int, str], tuple[bool, str]]
-        | None = None,
+        process_attachment_callback: (
+            Callable[[str, int, str], tuple[bool, str]] | None
+        ) = None,
         max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
         fail_on_error: bool = False,
         logger_: logging.Logger | None = None,
     ) -> None:
+        """Configure attachment download, parsing, limits, and error policy."""
         self._download = download_fn
         self.base_url = base_url.rstrip("/")
         self.parser = parser or HarborParser()

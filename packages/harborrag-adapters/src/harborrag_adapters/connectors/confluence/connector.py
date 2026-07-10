@@ -1,3 +1,5 @@
+"""Confluence discovery and raw-document loading orchestration."""
+
 from __future__ import annotations
 
 import logging
@@ -24,7 +26,6 @@ from .mappers import (
     display_url,
 )
 from .utils import build_cql
-
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
@@ -55,6 +56,7 @@ class ConfluenceConnector(BaseConnector):
         client: ConfluenceClient | None = None,
         parser: HarborParser | None = None,
     ) -> None:
+        """Initialize provider APIs and shared attachment processing."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsConfluenceClient(config)
@@ -88,7 +90,7 @@ class ConfluenceConnector(BaseConnector):
             record = build_source_record(
                 content,
                 base_url=self.base_url,
-                deployment_type=self.config.deployment_type,
+                deployment_type=self.config.deployment,
                 default_space_key=self.config.space_key,
             )
             record.metadata["include_attachments"] = query.include_attachments
@@ -131,7 +133,7 @@ class ConfluenceConnector(BaseConnector):
         body_html = body_html_from_content(content)
         source_url = display_url(
             self.base_url,
-            self.config.deployment_type,
+            self.config.deployment,
             metadata.space_key,
             metadata.content_id,
             metadata.title,
@@ -147,16 +149,14 @@ class ConfluenceConnector(BaseConnector):
         )
 
     def load_by_ids(self, content_ids: list[str]) -> Iterator[RawDocument]:
-        """Convenience loader for callers that already have Confluence IDs."""
+        """Load content for callers that already have Confluence IDs."""
         for content_id in content_ids:
             yield self.load(self._record_for_id(content_id, ConnectorQuery()))
 
     def _cql_from_query(self, query: ConnectorQuery) -> str:
         """Translate shared connector filters into Confluence CQL."""
         filters = query.filters
-        space_key = str(
-            filters.get("space_key") or query.path or self.config.space_key
-        )
+        space_key = str(filters.get("space_key") or query.path or self.config.space_key)
         return build_cql(
             space_key=space_key,
             content_types=self._list_filter(

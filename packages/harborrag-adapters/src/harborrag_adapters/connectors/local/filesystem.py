@@ -1,3 +1,5 @@
+"""Safe local filesystem traversal, filtering, and scope enforcement."""
+
 from __future__ import annotations
 
 import logging
@@ -10,6 +12,7 @@ from harborrag_adapters.connectors.exceptions import DocumentProcessingError, Fe
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .config import LocalFileConfig
+from .filters import extension_filter, file_paths_from_query, path_filter
 from .mappers import build_source_record
 from .utils import (
     file_extension,
@@ -26,7 +29,6 @@ from .utils import (
     stat_signature,
 )
 
-
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 
@@ -34,15 +36,18 @@ class LocalFileSystem:
     """Filesystem traversal, filtering, and scope enforcement for local files."""
 
     def __init__(self, config: LocalFileConfig) -> None:
+        """Normalize the configured source into concrete traversal paths."""
         self.config = config
-        self.source_path = config.source_path
+        # Config accepts strings at the package boundary; traversal uses one
+        # concrete Path representation after validation.
+        self.source_path = Path(config.source_path)
         self.root_path = (
             self.source_path.parent if self.source_path.is_file() else self.source_path
         )
 
     def files_from_query(self, query: ConnectorQuery) -> Iterator[Path]:
         """Yield resolved files from explicit query paths or source traversal."""
-        file_paths = self.file_paths_from_query(query)
+        file_paths = file_paths_from_query(query)
         if file_paths:
             for path in file_paths:
                 resolved = self.resolve_candidate(path)
@@ -92,7 +97,9 @@ class LocalFileSystem:
                 raise FetchError(
                     f"Could not list local directory {start_path}: {exc}"
                 ) from exc
-            logger.warning("Skipping unreadable local directory %s: %s", start_path, exc)
+            logger.warning(
+                "Skipping unreadable local directory %s: %s", start_path, exc
+            )
             return
 
         for entry in entries:
@@ -152,27 +159,29 @@ class LocalFileSystem:
             return False
 
         extension = file_extension(path)
-        allowed_extensions = self.extension_filter(query, "allowed_extensions")
+        allowed_extensions = extension_filter(self.config, query, "allowed_extensions")
         if allowed_extensions and extension not in allowed_extensions:
             return False
-        excluded_extensions = self.extension_filter(query, "excluded_extensions")
+        excluded_extensions = extension_filter(
+            self.config, query, "excluded_extensions"
+        )
         if extension in excluded_extensions:
             return False
 
-        include_paths = self.path_filter(query, "include_paths")
+        include_paths = path_filter(self.config, query, "include_paths")
         if include_paths:
             if not any(
                 path_in_scope(path, self.root_path, value) for value in include_paths
             ):
                 return False
-        exclude_paths = self.path_filter(query, "exclude_paths")
+        exclude_paths = path_filter(self.config, query, "exclude_paths")
         if any(path_in_scope(path, self.root_path, value) for value in exclude_paths):
             return False
 
-        include_globs = self.path_filter(query, "include_globs")
+        include_globs = path_filter(self.config, query, "include_globs")
         if include_globs and not matches_globs(path, self.root_path, include_globs):
             return False
-        exclude_globs = self.path_filter(query, "exclude_globs")
+        exclude_globs = path_filter(self.config, query, "exclude_globs")
         if matches_globs(path, self.root_path, exclude_globs):
             return False
 
@@ -209,6 +218,7 @@ class LocalFileSystem:
             )
 
     def source_record(self, path: Path) -> SourceRecord:
+        """Build a lightweight source record for a discovered file."""
         return build_source_record(
             path,
             root_path=self.root_path,
@@ -216,6 +226,7 @@ class LocalFileSystem:
         )
 
     def record_for_path(self, path: str | Path) -> SourceRecord:
+        """Resolve a caller-provided path and return its source record."""
         resolved = self.resolve_candidate(path)
         return self.source_record(resolved)
 
@@ -228,6 +239,7 @@ class LocalFileSystem:
         return stat_signature(path)
 
     def start_path(self, query: ConnectorQuery) -> Path:
+        """Resolve the traversal root selected by a query."""
         if query.path:
             return self.resolve_candidate(query.path)
         return self.source_path
@@ -260,39 +272,3 @@ class LocalFileSystem:
             if current == self.root_path or current == current.parent:
                 return False
             current = current.parent
-
-    def extension_filter(self, query: ConnectorQuery, key: str) -> set[str]:
-        values = query.filters.get(key)
-        if values is None and key == "allowed_extensions":
-            values = query.filters.get("extensions")
-        if values is None:
-            return set(getattr(self.config, key))
-        if isinstance(values, str):
-            values = [values]
-        return {
-            str(value).lower().strip()
-            if str(value).startswith(".")
-            else f".{str(value).lower().strip()}"
-            for value in values
-        }
-
-    def path_filter(self, query: ConnectorQuery, key: str) -> list[str]:
-        values = query.filters.get(key)
-        if values is None:
-            return list(getattr(self.config, key))
-        if isinstance(values, str):
-            return [values.replace("\\", "/").strip("/")]
-        return [str(value).replace("\\", "/").strip("/") for value in values]
-
-    @staticmethod
-    def file_paths_from_query(query: ConnectorQuery) -> list[str | Path]:
-        values = (
-            query.filters.get("file_paths")
-            or query.filters.get("paths")
-            or query.filters.get("files")
-        )
-        if values is None:
-            return []
-        if isinstance(values, (str, Path)):
-            return [values]
-        return [str(value) for value in values]

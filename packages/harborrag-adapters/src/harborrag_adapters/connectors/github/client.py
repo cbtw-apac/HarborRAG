@@ -1,10 +1,12 @@
+"""GitHub client protocol and requests-based implementation."""
+
 from __future__ import annotations
 
 import logging
 import time
 from typing import Any, Protocol
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
@@ -19,7 +21,6 @@ from harborrag_adapters.connectors.http_utils import (
 
 from .config import GitHubRepositoryConfig
 
-
 logger = logging.getLogger("harborrag.adapters.connectors.github")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -33,7 +34,8 @@ class GitHubClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
-        pass
+        """Return a decoded GitHub response object or object list."""
+        ...
 
 
 class _RequestsGitHubClient:
@@ -62,12 +64,21 @@ class _RequestsGitHubClient:
         """GET a GitHub API endpoint and decode its JSON body."""
         response = self._request("GET", self._api_url(endpoint), params=params)
         try:
-            payload = response.json()
+            payload: object = response.json()
         except ValueError as exc:
             raise FetchError(
                 f"GitHub returned non-JSON response for {endpoint}"
             ) from exc
-        return payload
+        if isinstance(payload, dict):
+            return payload
+        if isinstance(payload, list):
+            items: list[dict[str, Any]] = []
+            for item in payload:
+                if not isinstance(item, dict):
+                    raise FetchError(f"GitHub returned invalid JSON for {endpoint}")
+                items.append(item)
+            return items
+        raise FetchError(f"GitHub returned invalid JSON for {endpoint}")
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Send one HTTP request with local rate limiting and retry handling."""

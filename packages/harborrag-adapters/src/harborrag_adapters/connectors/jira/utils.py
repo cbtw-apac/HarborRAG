@@ -1,3 +1,5 @@
+"""Pure query, URL, and payload helpers for JIRA."""
+
 from __future__ import annotations
 
 import re
@@ -70,9 +72,7 @@ def build_jql(
     if labels:
         clauses.append(f"labels in ({_quoted_values(labels)})")
     if updated_after:
-        clauses.append(
-            f"updated >= {quote_jql(format_query_timestamp(updated_after))}"
-        )
+        clauses.append(f"updated >= {quote_jql(format_query_timestamp(updated_after))}")
 
     prefix = " and ".join(clauses) if clauses else ""
     suffix = "order by updated ASC, key ASC"

@@ -1,8 +1,10 @@
+"""Validated configuration for GitHub repository connectors."""
+
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from harborrag_adapters.connectors.utils import validate_non_negative_limit
 
