@@ -7,6 +7,7 @@ from typing import ClassVar
 
 import pytest
 from harborrag_adapters.parsers import (
+    PARSER_LOGGER_NAME,
     BaseParser,
     CsvParser,
     DoclingBackend,
@@ -14,17 +15,16 @@ from harborrag_adapters.parsers import (
     HarborParser,
     HtmlParser,
     JsonParser,
-    MarkdownParser,
     LiteParseBackend,
     LiteParseBackendOptions,
+    MarkdownParser,
     MinerUBackend,
     MinerUBackendOptions,
-    PARSER_LOGGER_NAME,
     PaddleOcrBackend,
     PaddleOcrBackendOptions,
     PdfBackend,
-    PdfParseResult,
     PdfParser,
+    PdfParseResult,
     PdfParserProfile,
     TextParser,
     UnsupportedFormatError,
@@ -34,7 +34,6 @@ from harborrag_adapters.parsers import (
 from harborrag_adapters.parsers.pdf_engine.utils import content_from_any
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
-
 
 pytestmark = pytest.mark.unit
 
@@ -52,9 +51,7 @@ class FakeParser(BaseParser[ParseInput, ParsedDocument]):
             content=content,
             parser_name=self.parser_name,
             parser_version=self.parser_version,
-            elements=[
-                DocumentElement(id="fake:0", type="paragraph", content=content)
-            ],
+            elements=[DocumentElement(id="fake:0", type="paragraph", content=content)],
             metadata=self.metadata_for(parse_input),
         )
 
@@ -100,9 +97,7 @@ def test_parser_package_smoke_imports_and_default_registry():
         "pdf"
     )
     assert get_parser_logger().name == PARSER_LOGGER_NAME
-    assert get_parser_logger("Registry").name == (
-        "harborrag.adapters.parsers.registry"
-    )
+    assert get_parser_logger("Registry").name == ("harborrag.adapters.parsers.registry")
     assert any(
         isinstance(handler, logging.NullHandler)
         for handler in get_parser_logger().handlers
@@ -168,7 +163,9 @@ def test_parser_registry_logs_route_and_result(caplog):
     started = next(
         record for record in caplog.records if record.msg.startswith("Parsing")
     )
-    finished = next(record for record in caplog.records if record.msg.startswith("Parsed"))
+    finished = next(
+        record for record in caplog.records if record.msg.startswith("Parsed")
+    )
     assert started.name == "harborrag.adapters.parsers.registry"
     assert started.getMessage() == "Parsing doc.fake with fake via suffix=.fake"
     assert finished.getMessage() == (
@@ -339,9 +336,12 @@ def test_liteparse_constructor_kwargs_match_documented_python_options():
 def test_mineru_command_includes_advanced_cli_options():
     backend = MinerUBackend(
         MinerUBackendOptions(
-            backend="hybrid",
+            backend="hybrid-http-client",
             effort="high",
+            method="ocr",
+            language="ch",
             api_url="http://127.0.0.1:8000",
+            server_url="http://127.0.0.1:30000",
             extra_args=("--debug", "true"),
         )
     )
@@ -353,14 +353,33 @@ def test_mineru_command_includes_advanced_cli_options():
         "-o",
         "out",
         "-b",
-        "hybrid",
+        "hybrid-http-client",
         "--effort",
         "high",
+        "--method",
+        "ocr",
+        "--lang",
+        "ch",
         "--api-url",
         "http://127.0.0.1:8000",
+        "--url",
+        "http://127.0.0.1:30000",
         "--debug",
         "true",
     ]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"timeout_seconds": 0},
+        {"method": "invalid"},
+        {"effort": "invalid"},
+    ],
+)
+def test_mineru_options_reject_invalid_cli_controls(overrides):
+    with pytest.raises(ValueError):
+        MinerUBackendOptions(**overrides)
 
 
 @pytest.mark.whitebox

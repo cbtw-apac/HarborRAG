@@ -66,6 +66,17 @@ connector = HarborConnector(
 )
 ```
 
+## File Configuration
+
+Applications can define multiple named connector instances in
+`config/connectors.yaml` and load them through `harborrag_runtime.config`. The
+runtime loader resolves environment
+secret references and then constructs the same validated provider config
+dataclasses shown below; adapters do not parse configuration files directly.
+
+See [Connector Configuration](../../../../../docs/users/configuration/connector-config.md)
+for the schema and loading API.
+
 ## Query Shape
 
 `ConnectorQuery` provides shared filters:

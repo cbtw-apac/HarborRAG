@@ -45,7 +45,7 @@ python packages/harborrag-adapters/tests/smoke/run_all.py
 A script exits `2` and prints which variables are missing if its provider
 isn't configured, so it's safe to leave providers you don't use unset — only
 the ones you fill in get exercised (`run_all.py` skips exit-`2` providers
-without failing the run). Copy `.env.example` to repo-root `.env` and fill in
+without failing the run). Copy `.env.connector.example` to repo-root `.env` and fill in
 the providers you want to test; `_bootstrap.load_env()` reads it directly
 without requiring a real shell export.
 
@@ -68,7 +68,7 @@ terminal; the truncation marker also reports the untruncated length.
 | Local files | `smoke/local.py` | `LOCAL_SOURCE_PATH` (a file or directory that exists on disk; relative paths resolve from the repo root) | — |
 
 Notes:
-- `GITHUB_REPOSITORY_URL` takes a full URL like `https://github.com/acme/harbor-rag.git` or `git@github.com:acme/harbor-rag.git`; don't set `GITHUB_REPO` to a URL when using the `GITHUB_OWNER`/`GITHUB_REPO` pair — it must be the bare repo name.
+- `GITHUB_REPOSITORY_URL` takes a full URL like `https://github.com/abc/harbor-rag.git` or `git@github.com:abc/harbor-rag.git`; don't set `GITHUB_REPO` to a URL when using the `GITHUB_OWNER`/`GITHUB_REPO` pair — it must be the bare repo name.
 - SharePoint's `MICROSOFT_GRAPH_TOKEN` is a short-lived (~1 hour) pre-issued Graph token; for anything longer-running, use the `MICROSOFT_TENANT_ID`/`MICROSOFT_CLIENT_ID`/`MICROSOFT_CLIENT_SECRET` client-credentials flow instead, which the connector refreshes itself.
 - JIRA reads `JIRA_TOKEN` first and falls back to `JIRA_API_TOKEN` if unset — set either one.
 

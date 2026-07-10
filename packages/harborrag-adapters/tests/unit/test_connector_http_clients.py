@@ -393,13 +393,9 @@ def test_github_client_omits_authorization_header_without_token():
     assert "Authorization" not in client.session.headers
 
 
-def test_github_request_raises_fetch_error_when_max_retries_is_negative():
-    from harborrag_adapters.connectors.exceptions import FetchError
-
-    client = _github_client(max_retries=-1)
-    client.session = FakeSession(responses=[])
-    with pytest.raises(FetchError):
-        client.get_json("repos/o/r")
+def test_github_config_rejects_negative_max_retries():
+    with pytest.raises(ValueError, match="max_retries"):
+        _github_client(max_retries=-1)
 
 
 def test_github_rate_limited_static_predicate_branches():
@@ -625,13 +621,9 @@ def test_sharepoint_request_raises_fetch_error_after_exhausting_connection_error
         client.get_json("sites/x")
 
 
-def test_sharepoint_request_raises_fetch_error_when_max_retries_is_negative():
-    from harborrag_adapters.connectors.exceptions import FetchError
-
-    client = _sharepoint_client(max_retries=-1)
-    client.session = FakeSession(responses=[])
-    with pytest.raises(FetchError):
-        client.get_json("sites/x")
+def test_sharepoint_config_rejects_negative_max_retries():
+    with pytest.raises(ValueError, match="max_retries"):
+        _sharepoint_client(max_retries=-1)
 
 
 def test_sharepoint_acquire_sleeps_when_requests_arrive_faster_than_budget(monkeypatch):
@@ -941,16 +933,9 @@ def test_jira_request_raises_fetch_error_on_non_retryable_4xx():
         client.get_json("issue/ENG-1/nope")
 
 
-def test_jira_request_raises_fetch_error_when_max_retries_is_negative():
-    from harborrag_adapters.connectors.exceptions import FetchError
-
-    # max_retries is not validated by JiraProjectConfig, so a caller-supplied
-    # negative value makes the retry loop's range() empty. The request is
-    # never sent, and the loop falls through to the trailing raise.
-    client = _jira_client(max_retries=-1)
-    client.session = FakeSession(responses=[])
-    with pytest.raises(FetchError):
-        client.get_json("issue/ENG-1")
+def test_jira_config_rejects_negative_max_retries():
+    with pytest.raises(ValueError, match="max_retries"):
+        _jira_client(max_retries=-1)
 
 
 def test_jira_acquire_sleeps_when_requests_arrive_faster_than_budget(monkeypatch):

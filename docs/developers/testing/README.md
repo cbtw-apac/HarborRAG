@@ -63,7 +63,7 @@ must be marked `@pytest.mark.integration`.
 provider smoke scripts for Confluence/JIRA/GitHub/SharePoint/local files. They
 do not use pytest. They use `HarborConnector`, load repo-root `.env` values,
 discover a small number of records, load one `RawDocument`, and print it. Copy
-`.env.example` at the repo root to `.env`, fill in only the connectors you want
+`.env.connector.example` at the repo root to `.env`, fill in only the connectors you want
 to validate, then run:
 
 ```bash

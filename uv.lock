@@ -1849,6 +1849,7 @@ dependencies = [
     { name = "harborrag-adapters" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -1856,6 +1857,7 @@ requires-dist = [
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
 ]
 
 [[package]]

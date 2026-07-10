@@ -14,6 +14,7 @@ from harborrag_adapters.connectors.attachments import (
 )
 from harborrag_adapters.connectors.utils import (
     DEFAULT_MAX_NESTED_ITEMS,
+    validate_http_tuning,
     validate_non_negative_limit,
 )
 
@@ -98,8 +99,12 @@ class ConfluenceSpaceConfig:
         )
         validate_non_negative_limit("max_comments", self.max_comments)
         validate_non_negative_limit("max_attachments", self.max_attachments)
-        if not 1 <= self.requests_per_minute <= 6000:
-            raise ValueError("requests_per_minute must be between 1 and 6000")
+        validate_http_tuning(
+            requests_per_minute=self.requests_per_minute,
+            request_timeout_seconds=self.request_timeout_seconds,
+            max_retries=self.max_retries,
+            backoff_factor=self.backoff_factor,
+        )
         if not 1 <= self.page_size <= 100:
             raise ValueError("page_size must be between 1 and 100")
 

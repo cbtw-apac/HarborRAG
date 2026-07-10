@@ -6,7 +6,10 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from harborrag_adapters.connectors.utils import validate_non_negative_limit
+from harborrag_adapters.connectors.utils import (
+    validate_http_tuning,
+    validate_non_negative_limit,
+)
 
 from .utils import parse_sharepoint_site_url
 
@@ -70,8 +73,12 @@ class SharePointSiteConfig:
             raise ValueError(
                 "SharePoint config requires access_token or client credentials"
             )
-        if not 1 <= self.requests_per_minute <= 6000:
-            raise ValueError("requests_per_minute must be between 1 and 6000")
+        validate_http_tuning(
+            requests_per_minute=self.requests_per_minute,
+            request_timeout_seconds=self.request_timeout_seconds,
+            max_retries=self.max_retries,
+            backoff_factor=self.backoff_factor,
+        )
         if not 1 <= self.page_size <= 999:
             raise ValueError("page_size must be between 1 and 999")
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)

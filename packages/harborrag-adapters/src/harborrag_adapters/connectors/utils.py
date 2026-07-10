@@ -13,6 +13,40 @@ def validate_non_negative_limit(name: str, value: int | None) -> None:
         raise ValueError(f"{name} must be greater than or equal to 0")
 
 
+def validate_http_tuning(
+    *,
+    requests_per_minute: int,
+    request_timeout_seconds: float,
+    max_retries: int,
+    backoff_factor: float,
+) -> None:
+    """Validate the shared operational controls used by HTTP connectors."""
+    if (
+        isinstance(requests_per_minute, bool)
+        or not isinstance(requests_per_minute, int)
+        or not 1 <= requests_per_minute <= 6000
+    ):
+        raise ValueError("requests_per_minute must be between 1 and 6000")
+    if (
+        isinstance(request_timeout_seconds, bool)
+        or not isinstance(request_timeout_seconds, (int, float))
+        or request_timeout_seconds <= 0
+    ):
+        raise ValueError("request_timeout_seconds must be greater than 0")
+    if (
+        isinstance(max_retries, bool)
+        or not isinstance(max_retries, int)
+        or max_retries < 0
+    ):
+        raise ValueError("max_retries must be greater than or equal to 0")
+    if (
+        isinstance(backoff_factor, bool)
+        or not isinstance(backoff_factor, (int, float))
+        or backoff_factor < 0
+    ):
+        raise ValueError("backoff_factor must be greater than or equal to 0")
+
+
 def extend_with_limit[T](
     target: list[T],
     values: Iterable[T],

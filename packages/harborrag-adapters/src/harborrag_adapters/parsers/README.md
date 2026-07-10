@@ -1,5 +1,15 @@
 # Parsers
 
+## File Configuration
+
+Applications can select parser profiles and explicit PDF backend chains in
+`config/parsers.yaml`, then load them through `harborrag_runtime.config`.
+Runtime configuration constructs the parser adapters; parser implementations
+remain independent from YAML parsing.
+
+See [Parser Configuration](../../../../../docs/users/configuration/parser-config.md)
+for the schema and registry replacement API.
+
 Parsers convert raw source payloads into `ParsedDocument` objects for later RAG
 stages. Shared parser schemas live in `harborrag-core`; this package owns the
 format-specific extraction engines.

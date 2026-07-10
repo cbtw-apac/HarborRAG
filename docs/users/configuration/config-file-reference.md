@@ -1,6 +1,10 @@
 # Configuration Reference
 
-There is no YAML/file-based configuration loader yet — `harborrag_runtime.composition.CompositionRoot` hard-codes the mock pipeline assembly today (see [Architecture Overview](../../developers/architecture/README.md#harborrag-runtime-composition-jobs-scheduling)). This page documents the configuration surface that actually exists in code: two small dataclasses in `harborrag-engine`.
+Connector instances and parser profiles can be loaded from YAML as documented in
+[Connector Configuration](connector-config.md) and
+[Parser Configuration](parser-config.md). Engine and complete pipeline
+composition remain code-driven. This page documents the two small configuration
+dataclasses that currently exist in `harborrag-engine`.
 
 ## `EngineConfig`
 
@@ -48,9 +52,14 @@ python -m harborrag_app.cli.main doctor --json
 
 ## What's planned
 
-A configuration-driven `CompositionRoot` that validates provider names, required secrets, repository settings, and feature budgets before wiring a pipeline — see the TODO on `CompositionRoot.mock_pipeline()`. Until that lands, changing configuration means changing `EngineConfig`/`EnginePolicy` defaults or constructing them explicitly in code, not editing a YAML file.
+A future configuration-driven `CompositionRoot` can consume the connector
+catalog alongside engine, parser, model, repository, and feature-budget
+configuration. Until that broader composition layer lands, changing
+`EngineConfig` or `EnginePolicy` still means constructing them explicitly in
+code.
 
 ## Related
 
 - [Workspace / Multi-Tenancy](workspace-mode.md) — the `Tenant` and `RequestContext` primitives.
-- [Extending HarborRAG](../../developers/extending/README.md) — where a real, validated configuration loader would live.
+- [Connector Configuration](connector-config.md) — the validated connector YAML loader.
+- [Extending HarborRAG](../../developers/extending/README.md) — provider and composition extension points.

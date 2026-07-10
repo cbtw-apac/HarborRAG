@@ -30,13 +30,27 @@ class MinerUBackendOptions:
     backend: str = "pipeline"
     executable: str = "mineru"
     timeout_seconds: int = 600
+    method: str | None = None
+    language: str | None = None
     effort: str | None = None
     api_url: str | None = None
+    server_url: str | None = None
     output_dir: Path | str | None = None
     keep_output: bool = False
     extra_args: tuple[str, ...] = ()
     env: dict[str, str] = field(default_factory=dict)
     working_directory: Path | str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate CLI controls before any subprocess is started."""
+        if not self.backend.strip():
+            raise ValueError("MinerU backend must be a non-empty string")
+        if self.timeout_seconds <= 0:
+            raise ValueError("MinerU timeout_seconds must be greater than 0")
+        if self.method not in {None, "auto", "txt", "ocr"}:
+            raise ValueError("MinerU method must be one of: auto, txt, ocr")
+        if self.effort not in {None, "medium", "high"}:
+            raise ValueError("MinerU effort must be one of: medium, high")
 
 
 class MinerUBackend(PdfBackend):
@@ -103,7 +117,9 @@ class MinerUBackend(PdfBackend):
             return content, output_files, output_dir
 
         if self.options.keep_output:
-            base_dir = Path(self.options.output_dir or Path.cwd() / ".harborrag-mineru-output")
+            base_dir = Path(
+                self.options.output_dir or Path.cwd() / ".harborrag-mineru-output"
+            )
             output_dir = base_dir / uuid.uuid4().hex
             output_dir.mkdir(parents=True, exist_ok=True)
             command = self._command(executable, path, output_dir)
@@ -118,7 +134,9 @@ class MinerUBackend(PdfBackend):
             content, output_files = self._read_output(output_dir)
             return content, output_files, output_dir
 
-    def _command(self, executable: str, input_path: Path, output_dir: Path) -> list[str]:
+    def _command(
+        self, executable: str, input_path: Path, output_dir: Path
+    ) -> list[str]:
         """Build the MinerU CLI command without shell interpolation."""
 
         command = [
@@ -132,8 +150,14 @@ class MinerUBackend(PdfBackend):
         ]
         if self.options.effort:
             command.extend(["--effort", self.options.effort])
+        if self.options.method:
+            command.extend(["--method", self.options.method])
+        if self.options.language:
+            command.extend(["--lang", self.options.language])
         if self.options.api_url:
             command.extend(["--api-url", self.options.api_url])
+        if self.options.server_url:
+            command.extend(["--url", self.options.server_url])
         command.extend(self.options.extra_args)
         return command
 
