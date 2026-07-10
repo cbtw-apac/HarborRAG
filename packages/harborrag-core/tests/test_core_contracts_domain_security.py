@@ -11,10 +11,9 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.contracts.schemas import FetchResult, Input, InputGet, Status
 from harborrag_core.domain.chunk import Chunk
-from harborrag_core.domain.data_source import DataSourceType
+from harborrag_core.domain.data_source import DataSourceType, DocumentMetadata
 from harborrag_core.domain.document import DocumentRelation, HarborDocument
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.metadata import DocumentMetadata
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_core.domain.tenant import Tenant
 from harborrag_core.observability.metrics import InMemoryMetrics
@@ -55,28 +54,32 @@ def test_domain_dataclasses():
     assert chunk.metadata == {}
 
     metadata = DocumentMetadata(
-        source_system=DataSourceType.CONFLUENCE, title="Doc", author="alice"
+        source_system=DataSourceType.CONFLUENCE,
+        title="Doc",
+        author="alice",
     )
     assert metadata.author == "alice"
 
     relation = DocumentRelation(
-        predicate="parent_of", target_id="confluence://SPACE/1", target_type="document"
+        predicate="parent_of",
+        target_id="confluence://SPACE/1",
+        target_type="document",
     )
     assert relation.metadata == {}
 
+    element = DocumentElement(id="e1", type="paragraph", content="hello world")
     document = HarborDocument(
         id="doc-1",
         title="Doc",
-        source_system=DataSourceType.CONFLUENCE,
-        content="hello world",
+        source_system=DataSourceType.CONFLUENCE.value,
+        content=[element],
         content_type="page",
         metadata=metadata,
         relations=[relation],
     )
     assert document.relations[0].predicate == "parent_of"
+    assert document.content[0].content == "hello world"
     assert document.raw is None
-
-    element = DocumentElement(id="e1", type="paragraph", content="hi")
     assert element.metadata == {}
 
     assert RetrievalQuery("q", top_k=2).top_k == 2
@@ -91,13 +94,17 @@ def test_domain_dataclasses():
 
 def test_security_and_observability_helpers():
     redacted = redact_secrets("api_key=abc token:xyz password=hunter2")
-    assert "abc" not in redacted and "xyz" not in redacted and "hunter2" not in redacted
+    assert "abc" not in redacted
+    assert "xyz" not in redacted
+    assert "hunter2" not in redacted
 
     UrlPolicy().validate("https://example.com")
     with pytest.raises(HarborConnectionError):
         UrlPolicy().validate("ftp://example.com")
     with pytest.raises(HarborConnectionError):
-        UrlPolicy(denied_hosts={"blocked.local"}).validate("https://blocked.local/a")
+        UrlPolicy(denied_hosts={"blocked.local"}).validate(
+            "https://blocked.local/a"
+        )
 
     metrics = InMemoryMetrics()
     metrics.increment("items", provider="mock")

@@ -23,7 +23,6 @@ from harborrag_adapters.connectors.local.utils import (
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
-
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 
 
@@ -142,21 +141,32 @@ def test_discover_rejects_paths_outside_source_scope(tmp_path: Path):
         )
 
 
-def test_discover_rejects_direct_symlink_when_symlinks_disabled(tmp_path: Path):
+def test_discover_rejects_direct_symlink_when_symlinks_disabled(
+    tmp_path: Path, monkeypatch
+):
     target = write_file(tmp_path / "target.md")
     link = tmp_path / "link.md"
     try:
         link.symlink_to(target)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        write_file(link)
 
     connector = LocalFileConnector(config(tmp_path, follow_symlinks=False))
+    if not link.is_symlink():
+        original = connector._files.has_symlink_component
+        monkeypatch.setattr(
+            connector._files,
+            "has_symlink_component",
+            lambda path: Path(path) == link or original(path),
+        )
 
     with pytest.raises(ValueError, match="symlinks are disabled"):
         list(connector.discover(ConnectorQuery(filters={"file_paths": [link]})))
 
 
-def test_discover_does_not_follow_symlinks_outside_source_scope(tmp_path: Path):
+def test_discover_does_not_follow_symlinks_outside_source_scope(
+    tmp_path: Path, monkeypatch
+):
     source_root = tmp_path / "scope"
     source_root.mkdir()
     outside = tmp_path / "outside"
@@ -165,9 +175,18 @@ def test_discover_does_not_follow_symlinks_outside_source_scope(tmp_path: Path):
     try:
         link.symlink_to(outside, target_is_directory=True)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        link.mkdir()
 
     connector = LocalFileConnector(config(source_root, follow_symlinks=True))
+    if not link.is_symlink():
+        from harborrag_adapters.connectors.local import filesystem
+
+        original = filesystem.resolve_path
+
+        def resolve_link(path: str | Path) -> Path:
+            return outside.resolve() if Path(path) == link else original(path)
+
+        monkeypatch.setattr(filesystem, "resolve_path", resolve_link)
 
     assert list(connector.discover()) == []
 
@@ -253,12 +272,29 @@ def test_updated_after_filter_uses_file_mtime(tmp_path: Path):
 # config.py validation
 
 
-def test_config_rejects_special_file_types(tmp_path: Path):
+def test_config_rejects_special_file_types(tmp_path: Path, monkeypatch):
     fifo_path = tmp_path / "pipe"
     try:
         os.mkfifo(fifo_path)
     except (AttributeError, OSError):
-        pytest.skip("mkfifo is not available in this environment")
+        original_exists = Path.exists
+        original_is_file = Path.is_file
+        original_is_dir = Path.is_dir
+        monkeypatch.setattr(
+            Path,
+            "exists",
+            lambda path: path == fifo_path or original_exists(path),
+        )
+        monkeypatch.setattr(
+            Path,
+            "is_file",
+            lambda path: False if path == fifo_path else original_is_file(path),
+        )
+        monkeypatch.setattr(
+            Path,
+            "is_dir",
+            lambda path: False if path == fifo_path else original_is_dir(path),
+        )
 
     with pytest.raises(ValueError, match="must be a regular file or directory"):
         LocalFileConfig(source_path=fifo_path)
@@ -346,13 +382,13 @@ def test_files_from_query_source_is_a_single_file(tmp_path: Path):
     assert [r.metadata["relative_path"] for r in records] == ["solo.md"]
 
 
-def test_iter_files_raises_for_dangling_symlink(tmp_path: Path):
+def test_iter_files_raises_for_dangling_or_missing_start_path(tmp_path: Path):
     target = tmp_path / "missing_target.md"
     link = tmp_path / "dangling.md"
     try:
         link.symlink_to(target)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        pass
 
     # A dangling symlink as a directory *entry* is silently skipped (neither
     # is_dir() nor is_file() match), so raise only fires when it's the
@@ -371,7 +407,18 @@ def test_iter_files_skips_already_visited_directory_via_symlink_loop(tmp_path: P
     try:
         loop_link.symlink_to(tmp_path, target_is_directory=True)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        files = LocalFileSystem(
+            config(tmp_path, follow_symlinks=True, allowed_extensions={".md"})
+        )
+        records = list(
+            files.iter_files(
+                nested,
+                query=ConnectorQuery(),
+                seen_dirs={nested.resolve()},
+            )
+        )
+        assert records == []
+        return
 
     connector = LocalFileConnector(
         config(tmp_path, follow_symlinks=True, allowed_extensions={".md"})
@@ -435,14 +482,22 @@ def test_iter_files_skips_excluded_dir_names(tmp_path: Path):
     assert [r.metadata["relative_path"] for r in records] == ["src/keep.md"]
 
 
-def test_iter_files_skips_symlinked_directory_when_disabled(tmp_path: Path):
+def test_iter_files_skips_symlinked_directory_when_disabled(
+    tmp_path: Path, monkeypatch
+):
     real_dir = tmp_path / "real"
     write_file(real_dir / "a.md")
     link = tmp_path / "linked"
     try:
         link.symlink_to(real_dir, target_is_directory=True)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        write_file(link / "ignored.md")
+        original = Path.is_symlink
+        monkeypatch.setattr(
+            Path,
+            "is_symlink",
+            lambda path: True if path == link else original(path),
+        )
 
     connector = LocalFileConnector(
         config(tmp_path, follow_symlinks=False, allowed_extensions={".md"})
@@ -453,16 +508,24 @@ def test_iter_files_skips_symlinked_directory_when_disabled(tmp_path: Path):
     assert [r.metadata["relative_path"] for r in records] == ["real/a.md"]
 
 
-def test_should_process_file_rejects_symlink_component_when_disabled(tmp_path: Path):
-    target = write_file(tmp_path / "real" / "a.md")
+def test_should_process_file_rejects_symlink_component_when_disabled(
+    tmp_path: Path, monkeypatch
+):
+    write_file(tmp_path / "real" / "a.md")
     link_dir = tmp_path / "linked"
     try:
         link_dir.symlink_to(tmp_path / "real", target_is_directory=True)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        write_file(link_dir / "a.md")
 
     files = LocalFileSystem(config(tmp_path, follow_symlinks=False))
     linked_file = link_dir / "a.md"
+    if not link_dir.is_symlink():
+        monkeypatch.setattr(
+            files,
+            "has_symlink_component",
+            lambda path: Path(path) == linked_file,
+        )
 
     assert files.should_process_file(linked_file, ConnectorQuery()) is False
 
@@ -593,13 +656,21 @@ def test_load_raises_fetch_error_on_read_failure(tmp_path: Path, monkeypatch):
         )
 
 
-def test_iter_files_returns_immediately_for_disabled_symlink_start_path(tmp_path: Path):
+def test_iter_files_returns_immediately_for_disabled_symlink_start_path(
+    tmp_path: Path, monkeypatch
+):
     target = write_file(tmp_path / "target.md")
     link = tmp_path / "link.md"
     try:
         link.symlink_to(target)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        write_file(link)
+        original = Path.is_symlink
+        monkeypatch.setattr(
+            Path,
+            "is_symlink",
+            lambda path: True if path == link else original(path),
+        )
 
     files = LocalFileSystem(config(tmp_path, follow_symlinks=False))
     results = list(files.iter_files(link, query=ConnectorQuery()))
@@ -622,7 +693,9 @@ def test_iter_files_continues_after_recursing_into_a_non_last_subdirectory(
     ]
 
 
-def test_iter_files_skips_symlinked_file_outside_source_scope(tmp_path: Path):
+def test_iter_files_skips_symlinked_file_outside_source_scope(
+    tmp_path: Path, monkeypatch
+):
     source_root = tmp_path / "scope"
     source_root.mkdir()
     outside = write_file(tmp_path / "outside.md")
@@ -630,20 +703,43 @@ def test_iter_files_skips_symlinked_file_outside_source_scope(tmp_path: Path):
     try:
         link.symlink_to(outside)
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        write_file(link)
 
     connector = LocalFileConnector(config(source_root, follow_symlinks=True))
+    if not link.is_symlink():
+        from harborrag_adapters.connectors.local import filesystem
+
+        original = filesystem.resolve_path
+
+        def resolve_link(path: str | Path) -> Path:
+            return outside.resolve() if Path(path) == link else original(path)
+
+        monkeypatch.setattr(filesystem, "resolve_path", resolve_link)
 
     assert list(connector.discover()) == []
 
 
-def test_iter_files_silently_skips_dangling_symlink_entries(tmp_path: Path):
+def test_iter_files_silently_skips_dangling_symlink_entries(
+    tmp_path: Path, monkeypatch
+):
     write_file(tmp_path / "keep.md")
     dangling = tmp_path / "dangling.md"
     try:
         dangling.symlink_to(tmp_path / "missing_target.md")
     except (NotImplementedError, OSError):
-        pytest.skip("symlinks are not available in this environment")
+        write_file(dangling)
+        original_is_file = Path.is_file
+        original_is_dir = Path.is_dir
+        monkeypatch.setattr(
+            Path,
+            "is_file",
+            lambda path: False if path == dangling else original_is_file(path),
+        )
+        monkeypatch.setattr(
+            Path,
+            "is_dir",
+            lambda path: False if path == dangling else original_is_dir(path),
+        )
 
     connector = LocalFileConnector(
         config(tmp_path, follow_symlinks=True, allowed_extensions={".md"})

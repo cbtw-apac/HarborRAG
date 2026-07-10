@@ -4,37 +4,12 @@ Edge case and error handling tests for the website build system.
 These tests focus on error conditions, edge cases, and exception handling.
 """
 
-import importlib.util
 import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-
-def import_website_builder():
-    """Import WebsiteBuilder class dynamically to avoid linter issues."""
-    website_dir = Path(__file__).parent.parent / "website"
-    build_file = website_dir / "build.py"
-
-    if not build_file.exists():
-        pytest.skip("Website build.py not found", allow_module_level=True)
-
-    spec = importlib.util.spec_from_file_location("build", build_file)
-    if spec is None or spec.loader is None:
-        pytest.skip("Cannot load build module", allow_module_level=True)
-
-    build_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(build_module)
-
-    return build_module.WebsiteBuilder
-
-
-# Import the class at module level
-try:
-    WebsiteBuilder = import_website_builder()
-except Exception:
-    pytest.skip("Cannot import WebsiteBuilder", allow_module_level=True)
+from website.builder import WebsiteBuilder
 
 
 class TestWebsiteBuilderEdgeCases:
@@ -257,17 +232,17 @@ class TestWebsiteBuilderEdgeCases:
         # Should handle empty directories gracefully
         assert (mock_project_structure / "site").exists()
 
-    def test_circular_directory_references(
+    def test_additional_directory_reference_does_not_break_build(
         self, mock_project_structure, clean_workspace
     ):
-        """Test handling of circular directory references."""
+        """Test an extra directory reference without requiring symlink privileges."""
         os.chdir(mock_project_structure)
 
-        # Create a circular reference (symlink to parent)
+        reference = mock_project_structure / "circular"
         try:
-            (mock_project_structure / "circular").symlink_to(mock_project_structure)
+            reference.symlink_to(mock_project_structure)
         except OSError:
-            pytest.skip("Cannot create symlinks on this system")
+            reference.mkdir()
 
         builder = WebsiteBuilder("website/templates", "site")
 
@@ -388,7 +363,6 @@ class TestWebsiteBuilderCompatibility:
 
         # Test that the system can handle Path objects correctly
         # rather than raw Windows-style strings (which wouldn't work on Unix)
-        from pathlib import Path
 
         templates_path = Path("website") / "templates"
         output_path = Path("site")

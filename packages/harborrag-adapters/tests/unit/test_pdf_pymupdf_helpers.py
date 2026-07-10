@@ -3,14 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import fitz
 import pytest
-
 from harborrag_core.domain.parser import ParseInput
 
-
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
-
-fitz = pytest.importorskip("fitz")
 
 
 def _one_page_pdf(text: str = "Hello PDF world this is a sentence") -> bytes:
