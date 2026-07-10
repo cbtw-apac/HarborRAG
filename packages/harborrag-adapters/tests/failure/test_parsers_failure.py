@@ -10,7 +10,6 @@ from __future__ import annotations
 import csv
 
 import pytest
-
 from harbor_test_builders import build_zip_bomb_bytes
 from harborrag_adapters.parsers import (
     DocxParser,
@@ -24,7 +23,6 @@ from harborrag_adapters.parsers import (
 from harborrag_adapters.parsers.exceptions import ParseError, UnsupportedFormatError
 from harborrag_adapters.parsers.utils import open_guarded_zip
 from harborrag_core.domain.parser import ParseInput
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 

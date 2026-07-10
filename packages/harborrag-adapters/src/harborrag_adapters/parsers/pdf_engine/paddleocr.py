@@ -79,7 +79,7 @@ class PaddleOcrBackend(PdfBackend):
 
         with materialized_pdf_path(input) as path:
             try:
-                result = self._predict(paddleocr, str(path))
+                result, pipeline_warnings = self._predict(paddleocr, str(path))
             except Exception as exc:  # noqa: BLE001 - external parser boundary
                 raise ParseError(f"PaddleOCR could not parse PDF: {exc}") from exc
 
@@ -94,11 +94,21 @@ class PaddleOcrBackend(PdfBackend):
                 "paddleocr_device": self.options.device,
                 "paddleocr_engine": self.options.engine,
             },
+            warnings=pipeline_warnings,
         )
 
-    def _predict(self, paddleocr: Any, path: str) -> Any:
-        """Try modern document pipelines before falling back to legacy PaddleOCR."""
+    def _predict(self, paddleocr: Any, path: str) -> tuple[Any, list[str]]:
+        """Try modern document pipelines before falling back to legacy PaddleOCR.
 
+        Falls back to the next configured pipeline class on ANY failure, not
+        just when the class is missing from the ``paddleocr`` module.
+        Construction (missing model weights, GPU init failure) and predict
+        failures are the most common real-world failure mode and previously
+        propagated straight out, aborting the whole fallback list instead of
+        trying ``fallback_pipeline_classes``.
+        """
+
+        warnings: list[str] = []
         options = self._pipeline_options()
         class_names = (
             self.options.pipeline_class,
@@ -108,26 +118,30 @@ class PaddleOcrBackend(PdfBackend):
             pipeline_cls = getattr(paddleocr, class_name, None)
             if pipeline_cls is None:
                 continue
-            # Reuse the already-loaded pipeline across documents; constructing
-            # PPStructureV3/PaddleOCR loads large models and is far too expensive
-            # to redo per document at ingestion scale.
-            if self._cached_pipeline is not None and (
-                self._cached_pipeline_class == class_name
-            ):
-                pipeline = self._cached_pipeline
-            else:
-                pipeline = pipeline_cls(**options)
-                self._cached_pipeline = pipeline
-                self._cached_pipeline_class = class_name
-            self._active_pipeline_class = class_name
-            predict = getattr(pipeline, "predict", None)
-            if callable(predict):
-                output = self._call_predict(predict, path)
-                markdown = self._concatenate_markdown(pipeline, output)
-                return markdown or output
-            call = getattr(pipeline, "__call__", None)
-            if callable(call):
-                return call(path)
+            try:
+                # Reuse the already-loaded pipeline across documents;
+                # constructing PPStructureV3/PaddleOCR loads large models and
+                # is far too expensive to redo per document at ingestion scale.
+                if self._cached_pipeline is not None and (
+                    self._cached_pipeline_class == class_name
+                ):
+                    pipeline = self._cached_pipeline
+                else:
+                    pipeline = pipeline_cls(**options)
+                    self._cached_pipeline = pipeline
+                    self._cached_pipeline_class = class_name
+                predict = getattr(pipeline, "predict", None)
+                if callable(predict):
+                    output = self._call_predict(predict, path)
+                    markdown = self._concatenate_markdown(pipeline, output)
+                    self._active_pipeline_class = class_name
+                    return markdown or output, warnings
+                if callable(pipeline):
+                    self._active_pipeline_class = class_name
+                    return pipeline(path), warnings
+            except Exception as exc:  # noqa: BLE001 - fallback boundary, try next class
+                warnings.append(f"{class_name}: {exc}")
+                continue
 
         ocr_cls = getattr(paddleocr, "PaddleOCR", None)
         if ocr_cls is None:
@@ -137,13 +151,13 @@ class PaddleOcrBackend(PdfBackend):
         ocr = ocr_cls(**self._legacy_ocr_options(options))
         predict = getattr(ocr, "predict", None)
         if callable(predict):
-            return self._call_predict(predict, path)
+            return self._call_predict(predict, path), warnings
         ocr_method = getattr(ocr, "ocr", None)
         if callable(ocr_method):
             try:
-                return ocr_method(path, cls=True)
+                return ocr_method(path, cls=True), warnings
             except TypeError:
-                return ocr_method(path)
+                return ocr_method(path), warnings
 
         raise ImportError("PaddleOCR package does not expose a supported parse method.")
 

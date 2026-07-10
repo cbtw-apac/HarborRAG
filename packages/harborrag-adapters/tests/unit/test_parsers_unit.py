@@ -4,16 +4,13 @@ These exercise routing, per-parser extraction, metadata provenance, and the
 shared parser utilities directly, without going through any network or optional
 heavyweight backends (docling/mineru/paddleocr are never touched here).
 """
+
 from __future__ import annotations
 
-import csv
-import json
 from typing import ClassVar
 
 import pytest
-
 from harbor_test_builders import (
-    build_docx_bytes,
     build_epub_bytes,
     build_pptx_bytes,
     build_xlsx_bytes,
@@ -42,7 +39,6 @@ from harborrag_adapters.parsers.utils import (
     parse_metadata,
 )
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -110,9 +106,7 @@ def test_init_subclass_normalizes_suffix_and_content_type_declarations():
             raise NotImplementedError
 
     assert WeirdParser.suffixes == frozenset({".foo", ".bar", ".baz"})
-    assert WeirdParser.content_types == frozenset(
-        {"application/x-weird", "text/thing"}
-    )
+    assert WeirdParser.content_types == frozenset({"application/x-weird", "text/thing"})
 
 
 def test_normalize_suffix_helper():
@@ -224,9 +218,7 @@ def test_csv_parser_sniffs_semicolon_dialect():
 
 
 def test_csv_parser_handles_tsv_suffix():
-    document = CsvParser().parse(
-        ParseInput(content="a\tb\n1\t2", filename="t.tsv")
-    )
+    document = CsvParser().parse(ParseInput(content="a\tb\n1\t2", filename="t.tsv"))
     assert document.content == "a\tb\n1\t2"
 
 
@@ -266,8 +258,7 @@ def test_json_flatten_caps_at_max_depth():
 
     lines = JsonParser._flatten(nested)
     assert any(
-        f"<max-depth {JsonParser.MAX_FLATTEN_DEPTH} reached>" in line
-        for line in lines
+        f"<max-depth {JsonParser.MAX_FLATTEN_DEPTH} reached>" in line for line in lines
     )
 
 
@@ -309,6 +300,32 @@ def test_excel_parser_extracts_sheet_text_and_names():
     assert document.elements[0].metadata["sheet"] == "Sheet1"
 
 
+def test_fixture_builders_preserve_explicit_empty_collections():
+    import io
+    import zipfile
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(build_xlsx_bytes([])), read_only=True)
+    assert list(workbook.active.values) == []
+
+    epub = build_epub_bytes([])
+    with zipfile.ZipFile(io.BytesIO(epub)) as archive:
+        assert not any(name.endswith(".xhtml") for name in archive.namelist())
+        assert archive.getinfo("mimetype").compress_type == zipfile.ZIP_STORED
+
+
+def test_epub_fixture_builder_escapes_xhtml_section_text():
+    import io
+    import zipfile
+
+    epub = build_epub_bytes(["A & <B>"])
+    with zipfile.ZipFile(io.BytesIO(epub)) as archive:
+        chapter = archive.read("OEBPS/ch1.xhtml").decode("utf-8")
+
+    assert "A &amp; &lt;B&gt;" in chapter
+
+
 # The legacy .xls path is exercised only for routing; building a real binary
 # .xls fixture is not worth it, so we assert it routes to the excel parser.
 def test_excel_parser_advertises_legacy_xls_route():
@@ -336,9 +353,10 @@ def test_epub_parser_warns_on_missing_referenced_section():
 
     original = build_epub_bytes(["One text", "Two text"])
     buffer = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(
-        buffer, "w"
-    ) as sink:
+    with (
+        zipfile.ZipFile(io.BytesIO(original)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
         for info in source.infolist():
             if info.filename == "OEBPS/ch2.xhtml":
                 continue  # spine still references it -> should warn, not crash

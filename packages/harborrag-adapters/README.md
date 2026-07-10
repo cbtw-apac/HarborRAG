@@ -14,6 +14,34 @@ The adapter layer should stay focused on source-specific behavior: auth, API
 pagination, request retry hints, payload safety limits, parser routing, and clear
 errors for missing optional dependencies.
 
+## Public extension API
+
+`AdapterRegistry` registers connector, parser, model, and repository classes by
+provider name. `AdapterBuilder` resolves those registrations and constructs an
+adapter from provider-specific keyword arguments. Both are exported from
+`harborrag_adapters`; built-in connectors are also available through
+`HarborConnector` and its provider registry.
+
+## File ownership and test doubles
+
+- `connectors/base.py` and `parsers/base.py` define contracts. Production
+  implementations belong in provider or format modules under those packages.
+- Implemented connectors and parsers do not keep production `mock.py` modules;
+  their fakes and test doubles belong under `tests/`.
+- Model and repository families that are still scaffolding keep matching
+  `base.py` and `mock.py` files inside their feature directories until real
+  providers replace those mocks.
+- Shared adapter construction belongs in `builder.py` and `registry.py`; domain
+  schemas must remain in `harborrag-core`, and workflow orchestration must remain
+  in `harborrag-runtime`.
+
+## Contributor and teammate deliverables
+
+A new adapter contribution should include its implementation and validated
+config, public exports or registry registration, focused unit/failure/security
+tests, optional-dependency declarations, and documentation or example env keys.
+Never commit credentials or use real provider payloads as fixtures.
+
 ## Install
 
 Base connector support only requires `requests` plus `harborrag-core`:
@@ -39,6 +67,8 @@ pip install -e "packages/harborrag-adapters[pdf]"
 
 | Module | Purpose |
 | --- | --- |
+| `harborrag_adapters.AdapterRegistry` | Registers adapter classes by family and provider name. |
+| `harborrag_adapters.AdapterBuilder` | Constructs registered adapters from configuration. |
 | `harborrag_adapters.connectors` | Source connectors that discover `SourceRecord`s and load `RawDocument`s. |
 | `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
 
@@ -115,8 +145,8 @@ path handling, and structured logging.
 ## Parsers
 
 `HarborParser` is the parser factory and registry. It routes by filename suffix
-and MIME content type, and raises on conflicting routes instead of choosing a
-parser silently.
+and MIME content type. Generic transport MIME types defer to a specific suffix;
+other conflicting routes raise instead of choosing a parser silently.
 
 Default parser support includes:
 

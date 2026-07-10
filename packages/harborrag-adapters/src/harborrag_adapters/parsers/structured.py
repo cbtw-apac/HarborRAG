@@ -11,7 +11,6 @@ from .csv import CsvParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 
-
 parser_logger = get_parser_logger("json")
 
 __all__ = ["CsvParser", "JsonParser"]

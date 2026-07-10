@@ -11,7 +11,6 @@ from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import guard_input_size, wrap_parse_errors
 
-
 parser_logger = get_parser_logger("excel")
 
 

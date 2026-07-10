@@ -12,7 +12,6 @@ from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import compact_text, guard_input_size, wrap_parse_errors
 
-
 parser_logger = get_parser_logger("docx")
 
 

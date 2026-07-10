@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import pytest
+from harborrag_core.domain.data_source import DataSourceType, DocumentMetadata
+from harborrag_core.domain.document import HarborDocument
+from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_engine.builder import EngineBuilder
 from harborrag_engine.config import EngineConfig
+from harborrag_engine.indexing.base import BaseIndexer
+from harborrag_engine.indexing.mock import MockIndexer
+from harborrag_engine.ingestion.base import (
+    BaseChunker,
+    BaseDocumentNormalizer,
+    BaseIngestionPipeline,
+    IngestionRunSummary,
+)
 from harborrag_engine.policy import EnginePolicy
 from harborrag_engine.retrieval.base import BaseEvidenceBuilder, BaseRetrievalPipeline
 from harborrag_engine.retrieval.fusion import reciprocal_rank_fusion
+from harborrag_engine.retrieval.mock import MockEvidenceBuilder
 from harborrag_engine.retrieval.reranking import keep_top
 from harborrag_engine.retrieval.rewriting import identity_rewrite
 
@@ -21,11 +33,83 @@ class BrokenEvidence(BaseEvidenceBuilder):
         return super().build(results)
 
 
+class BrokenIndexer(BaseIndexer):
+    def index(self, documents):
+        return super().index(documents)
+
+
+class BrokenNormalizer(BaseDocumentNormalizer):
+    def normalize(self, raw, parsed_text):
+        return super().normalize(raw, parsed_text)
+
+
+class BrokenChunker(BaseChunker):
+    def chunk(self, document):
+        return super().chunk(document)
+
+
+class BrokenIngestionPipeline(BaseIngestionPipeline):
+    def run_once(self):
+        return super().run_once()
+
+    def summarize(self):
+        return super().summarize()
+
+
 def test_implemented_engine_base_methods_raise():
     with pytest.raises(NotImplementedError):
         BrokenRetrieval().retrieve(RetrievalQuery("q"))
     with pytest.raises(NotImplementedError):
         BrokenEvidence().build([])
+    with pytest.raises(NotImplementedError):
+        BrokenIndexer().index([])
+    with pytest.raises(NotImplementedError):
+        BrokenNormalizer().normalize(None, "text")
+    with pytest.raises(NotImplementedError):
+        BrokenChunker().chunk(None)
+    with pytest.raises(NotImplementedError):
+        BrokenIngestionPipeline().run_once()
+    with pytest.raises(NotImplementedError):
+        BrokenIngestionPipeline().summarize()
+
+
+def test_ingestion_run_summary_is_a_plain_dataclass():
+    summary = IngestionRunSummary(discovered=2, loaded=2, parsed=1, indexed=1)
+    assert (summary.discovered, summary.loaded, summary.parsed, summary.indexed) == (
+        2,
+        2,
+        1,
+        1,
+    )
+
+
+def test_mock_evidence_builder_numbers_results_in_order():
+    builder = MockEvidenceBuilder()
+    results = [
+        RetrievalResult("a", "first", 0.9),
+        RetrievalResult("b", "second", 0.5),
+    ]
+
+    evidence = builder.build(results)
+
+    assert evidence == "[1] first\n\n[2] second"
+
+
+def test_mock_indexer_records_indexed_document_ids():
+    indexer = MockIndexer(indexed=[])
+    document = HarborDocument(
+        id="doc-1",
+        title="Doc 1",
+        source_system="local_file",
+        content=[DocumentElement(id="doc-1:0", type="paragraph", content="body")],
+        content_type="page",
+        metadata=DocumentMetadata(source_system=DataSourceType.LOCAL_FILE),
+    )
+
+    count = indexer.index([document])
+
+    assert count == 1
+    assert indexer.indexed == ["doc-1"]
 
 
 def test_engine_builder_and_policy():

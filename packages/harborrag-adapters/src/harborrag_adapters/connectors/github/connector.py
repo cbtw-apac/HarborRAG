@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Iterator
 
 from harborrag_core.domain.raw_document import RawDocument
@@ -33,7 +32,6 @@ from .utils import (
 )
 
 logger = logging.getLogger("harborrag.adapters.connectors.github")
-_TIME_FOR_GITHUB_CONNECTOR_TESTS = time
 
 
 class GitHubConnector(BaseConnector):
@@ -144,10 +142,11 @@ class GitHubConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"GitHub source record {record.id!r} does not include a blob sha"
             )
-        self._github.enforce_size_limit(path, int(item.get("size") or 0))
+        known_size = int(item.get("size") or 0)
+        self._github.enforce_size_limit(path, known_size)
 
         logger.info("Loading GitHub file %s/%s:%s", self.owner, self.repo, path)
-        content = self._github.load_blob(sha)
+        content = self._github.load_blob(sha, known_size=known_size or None)
         metadata = build_document_metadata(
             item,
             owner=self.owner,

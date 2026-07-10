@@ -4,9 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from harborrag_core.domain.parser import ParseInput
-
 
 pytestmark = pytest.mark.blackbox
 

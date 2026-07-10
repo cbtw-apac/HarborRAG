@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from enum import Enum
+from enum import StrEnum
 from typing import ClassVar
 
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -16,11 +16,10 @@ from .mineru import MinerUBackend, MinerUBackendOptions
 from .paddleocr import PaddleOcrBackend, PaddleOcrBackendOptions
 from .pymupdf import PyMuPdfBackend
 
-
 parser_logger = get_parser_logger("pdf")
 
 
-class PdfParserProfile(str, Enum):
+class PdfParserProfile(StrEnum):
     """Predefined backend orderings for speed, OCR, and quality tradeoffs."""
 
     FAST = "fast"
@@ -29,7 +28,7 @@ class PdfParserProfile(str, Enum):
     QUALITY = "quality"
 
     @classmethod
-    def normalize(cls, value: "PdfParserProfile | str") -> "PdfParserProfile":
+    def normalize(cls, value: PdfParserProfile | str) -> PdfParserProfile:
         """Coerce user configuration into a supported parser profile."""
 
         if isinstance(value, cls):
@@ -130,16 +129,27 @@ class PdfParser(BaseParser[ParseInput, ParsedDocument]):
                 LiteParseBackend(),
             ]
 
+        # Previously this profile constructed two separate DoclingBackend
+        # instances (one OCR-disabled for tables-only, one full-OCR
+        # fallback). DoclingBackend lazily builds and memoizes its own
+        # DocumentConverter (hundreds of MB of layout/OCR models) on first
+        # use, so two instances meant two full model loads for the default
+        # profile. PyMuPDF already covers the fast, non-OCR path earlier in
+        # the chain, so a single Docling instance configured for OCR + table
+        # structure covers both use cases the old pair was meant to serve.
+        # Re-running the identical instance a second time later in the chain
+        # would just repeat an already-failed call with the same input and
+        # the same (failing) result, so the duplicate entry is dropped
+        # rather than reused at two positions.
         return [
             PyMuPdfBackend(),
             DoclingBackend(
                 DoclingBackendOptions(
-                    do_ocr=False,
+                    do_ocr=True,
                     do_table_structure=True,
                 )
             ),
             LiteParseBackend(),
-            DoclingBackend(),
             MinerUBackend(MinerUBackendOptions(backend="pipeline")),
             PaddleOcrBackend(PaddleOcrBackendOptions(use_table_recognition=True)),
         ]

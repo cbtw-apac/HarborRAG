@@ -5,11 +5,11 @@ import zipfile
 from typing import ClassVar
 
 try:  # defusedxml hardens against billion-laughs / XXE in untrusted archives.
-    from defusedxml.ElementTree import fromstring as _xml_fromstring
     from defusedxml.ElementTree import ParseError as _XmlParseError
+    from defusedxml.ElementTree import fromstring as _xml_fromstring
 except ImportError:  # pragma: no cover - fallback when defusedxml is absent
-    from xml.etree.ElementTree import fromstring as _xml_fromstring
     from xml.etree.ElementTree import ParseError as _XmlParseError
+    from xml.etree.ElementTree import fromstring as _xml_fromstring
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -18,7 +18,6 @@ from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import guard_input_size, html_to_text, open_guarded_zip
-
 
 parser_logger = get_parser_logger("epub")
 

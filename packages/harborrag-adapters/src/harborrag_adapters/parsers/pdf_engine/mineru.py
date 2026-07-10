@@ -93,9 +93,12 @@ class MinerUBackend(PdfBackend):
                 "mineru_backend": self.options.backend,
                 "mineru_effort": self.options.effort,
                 "output_files": output_files,
-                "output_dir": str(output_dir)
-                if self.options.output_dir or self.options.keep_output
-                else None,
+                # Only report a directory that actually still exists on disk:
+                # a custom `output_dir` without `keep_output=True` is cleaned
+                # up after `_read_output` runs (see `_parse_path`), so
+                # advertising its path here would point callers at a
+                # directory that no longer exists.
+                "output_dir": str(output_dir) if self.options.keep_output else None,
             },
         )
 
@@ -113,7 +116,16 @@ class MinerUBackend(PdfBackend):
             output_dir.mkdir(parents=True, exist_ok=True)
             command = self._command(executable, path, output_dir)
             self._run(command)
-            content, output_files = self._read_output(output_dir)
+            try:
+                content, output_files = self._read_output(output_dir)
+            finally:
+                # `output_dir` only means "use this custom location", not
+                # "retain output forever" -- that's what `keep_output` is
+                # for. Without this, every parsed document would leave
+                # behind an uncleaned per-document subdirectory under the
+                # user-supplied output_dir.
+                if not self.options.keep_output:
+                    shutil.rmtree(output_dir, ignore_errors=True)
             return content, output_files, output_dir
 
         if self.options.keep_output:

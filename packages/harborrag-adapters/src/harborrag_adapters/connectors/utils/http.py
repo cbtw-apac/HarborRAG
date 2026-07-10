@@ -140,7 +140,7 @@ def retry_delay_seconds(
     delay = max(0.0, min(delay, max_delay))
     if jitter and delay > 0:
         delay += random.uniform(0.0, min(1.0, delay * 0.1))
-    return delay
+    return max(0.0, min(delay, max_delay))
 
 
 def _raw_delay(

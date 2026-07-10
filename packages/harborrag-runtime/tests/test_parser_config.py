@@ -16,6 +16,10 @@ from harborrag_runtime.config import (
     ParserConfigurationError,
     load_parser_catalog,
 )
+from harborrag_runtime.config.parsers.models import (
+    ParserDefinition,
+    PdfBackendDefinition,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -268,6 +272,31 @@ def test_rejects_invalid_parser_configuration(
 ) -> None:
     with pytest.raises(ParserConfigurationError, match=message):
         load_parser_catalog(_write_config(tmp_path, content))
+
+
+def test_parser_definition_repr_hides_settings() -> None:
+    definition = ParserDefinition(
+        name="secretive",
+        parser="pdf",
+        settings={"api_key": "super-secret-value"},
+    )
+
+    representation = repr(definition)
+
+    assert "super-secret-value" not in representation
+    assert "secretive" in representation
+
+
+def test_pdf_backend_definition_repr_hides_settings() -> None:
+    backend = PdfBackendDefinition(
+        backend="mineru",
+        settings={"server_url": "https://secret.internal/v1"},
+    )
+
+    representation = repr(backend)
+
+    assert "https://secret.internal/v1" not in representation
+    assert "mineru" in representation
 
 
 def test_registry_rejects_multiple_enabled_profiles_for_same_parser(

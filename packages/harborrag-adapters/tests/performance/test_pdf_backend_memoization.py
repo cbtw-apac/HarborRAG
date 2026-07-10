@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from harborrag_adapters.parsers.pdf_engine.base import PdfBackend, PdfParseResult
 from harborrag_adapters.parsers.pdf_engine.docling import (
     DoclingBackend,
@@ -14,7 +13,6 @@ from harborrag_adapters.parsers.pdf_engine.liteparse import (
 )
 from harborrag_adapters.parsers.pdf_engine.parser import PdfParser
 from harborrag_core.domain.parser import ParseInput
-
 
 pytestmark = [pytest.mark.slow, pytest.mark.graybox, pytest.mark.timeout(30)]
 

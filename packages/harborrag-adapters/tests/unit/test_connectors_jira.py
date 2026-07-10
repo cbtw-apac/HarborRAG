@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -82,8 +83,10 @@ class FakeJiraClient:
 
 
 class FakeAttachmentParser:
-    def parse(self, input) -> ParsedDocument:
-        return ParsedDocument(content=f"parsed:{input.filename}", parser_name="fake")
+    def parse(self, parse_input) -> ParsedDocument:
+        return ParsedDocument(
+            content=f"parsed:{parse_input.filename}", parser_name="fake"
+        )
 
 
 def cloud_config(**overrides: Any) -> JiraProjectConfig:
@@ -201,7 +204,7 @@ def test_build_jql_supports_incremental_sync_and_rejects_bad_project_key():
     assert 'labels in ("rag")' in jql
     assert 'updated >= "2024/01/02 03:04"' in jql
     assert "order by updated ASC, key ASC" in jql
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid JIRA project key"):
         build_jql(project_keys=['ENG" OR project = "OPS'])
 
 
@@ -343,6 +346,11 @@ def test_load_builds_raw_document_comments_attachments_and_changelog():
     assert client.get_calls[0][1]["fields"] == "*all"
     assert "names" in client.get_calls[0][1]["expand"]
     assert "schema" in client.get_calls[0][1]["expand"]
+    assert isinstance(document.metadata["created_at"], str)
+    assert isinstance(document.metadata["updated_at"], str)
+    assert isinstance(document.metadata["comments"][0]["created_at"], str)
+    assert isinstance(document.metadata["changelog"][0]["created_at"], str)
+    json.dumps(document.metadata)  # datetimes must be JSON-serializable
 
 
 def test_load_skips_cross_origin_attachment_download_urls():

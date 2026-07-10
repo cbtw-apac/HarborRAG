@@ -73,9 +73,13 @@ class ConnectorDefinition:
         if overrides:
             values.update(overrides)
 
+        source_path_overridden = overrides is not None and "source_path" in overrides
         self._resolve_local_source_path(
             values,
-            from_environment="source_path" in self.setting_environment,
+            from_environment=(
+                "source_path" in self.setting_environment
+                and not source_path_overridden
+            ),
         )
         return values
 

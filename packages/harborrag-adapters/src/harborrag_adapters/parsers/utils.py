@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import zipfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from html.parser import HTMLParser as StdlibHTMLParser
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from harborrag_core.domain.parser import ParseInput
 
 from .exceptions import ParseError
-from .parser_logging import get_parser_logger, input_label
-
+from .parser_logging import get_parser_logger
 
 parser_logger = get_parser_logger("utils")
 
@@ -49,9 +49,7 @@ def wrap_parse_errors(engine: str) -> Iterator[None]:
 def guard_input_size(data: bytes, *, max_bytes: int = DEFAULT_MAX_INPUT_BYTES) -> bytes:
     """Reject oversized raw inputs before a parser materializes them further."""
     if len(data) > max_bytes:
-        raise ParseError(
-            f"Input size {len(data)} exceeds max_input_bytes {max_bytes}"
-        )
+        raise ParseError(f"Input size {len(data)} exceeds max_input_bytes {max_bytes}")
     return data
 
 
@@ -165,10 +163,9 @@ def html_to_text_with_engine(html: str | bytes) -> tuple[str, str]:
         parser_logger.debug("BeautifulSoup is not installed; using stdlib HTML parser")
         parser = _FallbackHTMLTextParser()
         parser.feed(
-            html.decode("utf-8", errors="replace")
-            if isinstance(html, bytes)
-            else html
+            html.decode("utf-8", errors="replace") if isinstance(html, bytes) else html
         )
+        parser.close()
         return compact_text("\n".join(parser.parts)), "python/html.parser"
 
     soup = BeautifulSoup(html, "html.parser")

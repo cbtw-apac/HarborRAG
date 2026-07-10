@@ -4,12 +4,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.registry import ConnectorRegistry
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -77,3 +75,21 @@ def test_registry_unknown_name_raises():
     registry = ConnectorRegistry()
     with pytest.raises(ConnectorNotFoundError):
         registry.get_class("nope")
+
+
+def test_registry_unregister_removes_name():
+    registry = ConnectorRegistry()
+    registry.register("dummy", _DummyConnector, aliases=["dm"])
+
+    registry.unregister("dm")
+
+    assert "dm" not in registry.names()
+    assert registry.get_class("dummy") is _DummyConnector
+
+
+def test_registry_unregister_unknown_name_raises():
+    from harborrag_adapters.connectors.exceptions import ConnectorNotFoundError
+
+    registry = ConnectorRegistry()
+    with pytest.raises(ConnectorNotFoundError):
+        registry.unregister("nope")

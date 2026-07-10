@@ -74,5 +74,7 @@ class BaseConnector(ABC):
                 if on_error == "raise":
                     raise
                 logger.warning(
-                    "Skipping record %s after load failure: %s", record.id, exc
+                    "Skipping record %s after load failure (%s)",
+                    record.id,
+                    type(exc).__name__,
                 )

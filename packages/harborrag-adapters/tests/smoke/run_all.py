@@ -7,7 +7,6 @@ import jira
 import local
 import sharepoint
 
-
 PROVIDERS = {
     "confluence": confluence.main,
     "github": github.main,

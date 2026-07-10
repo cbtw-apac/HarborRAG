@@ -50,12 +50,15 @@ the providers you want to test; `_bootstrap.load_env()` reads it directly
 without requiring a real shell export.
 
 Confluence and JIRA additionally load their first discovered record twice —
-once with `include_attachments=False`, once with `True` — and print an
-`attachments:` block for each attachment (title, status, size, extracted-text
-char count), so you can see the with/without-attachments difference in one
-run. Every printed value (document content, metadata, raw payload, attachment
-text) is truncated to 200 chars so a large PDF/DOCX doesn't flood the
-terminal; the truncation marker also reports the untruncated length.
+once with `include_attachments=False`, once with `True` — and print safe
+attachment summaries containing only index, status, size, and extracted-text
+character count. Smoke output never prints document content, source URLs,
+metadata values, raw payloads, attachment titles, reasons, or text by default.
+
+For a local interactive investigation only, set `HARBOR_SMOKE_VERBOSE=1` to
+show bounded, secret-redacted previews. The opt-in is ignored when `CI` is set.
+Do not persist verbose output; redaction cannot guarantee removal of all
+confidential content or PII.
 
 ### Per-provider configuration
 

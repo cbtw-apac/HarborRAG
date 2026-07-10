@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from io import BytesIO
-from typing import Any, ClassVar, Iterable
+from typing import Any, ClassVar
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -10,7 +11,6 @@ from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import compact_text, guard_input_size, wrap_parse_errors
-
 
 parser_logger = get_parser_logger("pptx")
 

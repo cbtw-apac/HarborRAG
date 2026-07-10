@@ -18,7 +18,7 @@ from harborrag_adapters.connectors.utils.helpers import (
     validate_non_negative_limit,
 )
 
-from .utils import is_cloud_hostname
+from .utils import is_cloud_hostname, validate_token
 
 _VALID_CONTENT_TYPES = {"page", "blogpost"}
 
@@ -65,6 +65,9 @@ class ConfluenceSpaceConfig:
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
+        self.space_key = validate_token(
+            str(self.space_key).strip(), field_name="space key"
+        )
         self.token = self.token or os.getenv("CONFLUENCE_TOKEN")
         self.email = self.email or os.getenv("CONFLUENCE_EMAIL")
 

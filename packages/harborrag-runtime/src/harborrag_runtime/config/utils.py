@@ -122,7 +122,13 @@ def parse_environment_references(
                 )
             target = key.removesuffix(key_suffix)
         else:
-            target = key.strip()
+            if key != key.strip():
+                raise error_type(
+                    f"{label} keys must not have surrounding whitespace: {key!r}"
+                )
+            target = key
+            if target in parsed:
+                raise error_type(f"{label} defines {target!r} more than once")
         if not isinstance(variable_name, str) or not variable_name.strip():
             raise error_type(
                 f"{label} reference {key!r} must name an environment variable"

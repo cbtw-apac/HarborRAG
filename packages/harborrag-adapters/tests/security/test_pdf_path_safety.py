@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import pytest
-
 from harborrag_adapters.parsers.pdf_engine.utils import materialized_pdf_path
 from harborrag_core.domain.parser import ParseInput
-
 
 pytestmark = pytest.mark.blackbox
 

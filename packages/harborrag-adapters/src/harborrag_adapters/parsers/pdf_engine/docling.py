@@ -8,7 +8,12 @@ from harborrag_core.domain.parser import ParseInput
 
 from ..exceptions import ParseError
 from .base import PdfBackend, PdfParseResult
-from .utils import content_element, content_from_any, materialized_pdf_path
+from .utils import (
+    content_element,
+    content_from_any,
+    materialized_pdf_path,
+    raise_if_encrypted_pdf,
+)
 
 
 @dataclass(slots=True)
@@ -86,6 +91,7 @@ class DoclingBackend(PdfBackend):
         converter = self._converter()
 
         with materialized_pdf_path(input) as path:
+            raise_if_encrypted_pdf(path)
             try:
                 result = converter.convert(path, **self._convert_kwargs())
             except Exception as exc:  # noqa: BLE001 - external parser boundary

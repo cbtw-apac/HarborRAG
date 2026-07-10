@@ -61,9 +61,9 @@ class FakeConfluenceClient:
 
 
 class FakeAttachmentParser:
-    def parse(self, input) -> ParsedDocument:
+    def parse(self, parse_input) -> ParsedDocument:
         return ParsedDocument(
-            content=f"parsed:{input.filename}",
+            content=f"parsed:{parse_input.filename}",
             parser_name="fake",
         )
 
@@ -156,7 +156,7 @@ def test_build_cql_supports_incremental_sync_and_rejects_unsafe_tokens():
     assert 'type in ("page")' in cql
     assert 'label in ("runbook")' in cql
     assert 'lastmodified >= "2024/01/02 03:04"' in cql
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid Confluence space key"):
         build_cql(space_key='ENG" OR space = "OTHER')
 
 
@@ -187,7 +187,7 @@ def test_discover_paginates_and_filters_excluded_labels():
 
 def test_discover_supports_direct_content_ids_without_search():
     client = FakeConfluenceClient()
-    client.add("content/1", light_content("1", "Direct", space_key="OPS"))
+    client.add("content/1", light_content("1", "Direct"))
     connector = ConfluenceConnector(cloud_config(), client=client)
 
     records = list(
@@ -195,8 +195,24 @@ def test_discover_supports_direct_content_ids_without_search():
     )
 
     assert [record.locator for record in records] == ["1"]
-    assert records[0].id == "confluence://OPS/1"
-    assert records[0].metadata["space_key"] == "OPS"
+    assert records[0].id == "confluence://ENG/1"
+    assert records[0].metadata["space_key"] == "ENG"
+
+
+def test_discover_rejects_direct_content_ids_outside_configured_space():
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Direct", space_key="OPS"))
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    with pytest.raises(DocumentProcessingError, match="outside configured space"):
+        list(connector.discover(ConnectorQuery(filters={"content_ids": ["1"]})))
+
+
+def test_discover_rejects_query_space_override():
+    connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())
+
+    with pytest.raises(ValueError, match="outside configured space"):
+        list(connector.discover(ConnectorQuery(filters={"space_key": "OPS"})))
 
 
 def test_discover_can_expand_child_pages_for_direct_ids():

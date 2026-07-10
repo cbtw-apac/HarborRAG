@@ -159,9 +159,17 @@ class LiteParseBackend(PdfBackend):
             return parse(str(path))
 
     def _content_from_result(self, result: Any) -> str:
-        """Read LiteParse's primary text field with a generic fallback."""
+        """Read LiteParse's primary text field with a generic fallback.
 
-        return content_from_any(getattr(result, "text", None) or result)
+        Only falls back to normalizing the whole ``result`` object when the
+        ``text`` attribute is missing or ``None``; a present-but-empty string
+        is a genuine empty extraction and must not be treated as "missing".
+        """
+
+        text = getattr(result, "text", None)
+        if text is not None:
+            return content_from_any(text)
+        return content_from_any(result)
 
     def _elements_from_result(
         self,

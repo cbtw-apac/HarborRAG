@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar
 
 from harborrag_core.domain.parser import ParseInput
 
 from .utils import input_content_type, input_suffix, normalize_suffix, parse_metadata
 
 
-ParserInput = TypeVar("ParserInput")
-ParserOutput = TypeVar("ParserOutput")
-
-
-class BaseParser(ABC, Generic[ParserInput, ParserOutput]):
+class BaseParser[ParserInput, ParserOutput](ABC):
     """Base contract for document parsers.
 
     A parser turns one raw document or parse input into one parsed document. Concrete

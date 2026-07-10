@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import zipfile
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from html import escape
 from typing import Any
 
 
@@ -35,7 +37,8 @@ def build_xlsx_bytes(rows: list[list[Any]] | None = None) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Sheet1"
-    for row in rows or [["name", "role"], ["Ada", "engineer"]]:
+    effective_rows = [["name", "role"], ["Ada", "engineer"]] if rows is None else rows
+    for row in effective_rows:
         sheet.append(row)
     buffer = io.BytesIO()
     workbook.save(buffer)
@@ -43,10 +46,16 @@ def build_xlsx_bytes(rows: list[list[Any]] | None = None) -> bytes:
 
 
 def build_epub_bytes(sections: list[str] | None = None) -> bytes:
-    sections = sections or ["Chapter one text", "Chapter two text"]
+    sections = (
+        ["Chapter one text", "Chapter two text"] if sections is None else sections
+    )
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("mimetype", "application/epub+zip")
+        archive.writestr(
+            "mimetype",
+            "application/epub+zip",
+            compress_type=zipfile.ZIP_STORED,
+        )
         archive.writestr(
             "META-INF/container.xml",
             '<?xml version="1.0"?>'
@@ -67,7 +76,7 @@ def build_epub_bytes(sections: list[str] | None = None) -> bytes:
             spine_items.append(f'<itemref idref="{item_id}"/>')
             archive.writestr(
                 f"OEBPS/{href}",
-                f"<html><body><p>{sections[index - 1]}</p></body></html>",
+                f"<html><body><p>{escape(sections[index - 1])}</p></body></html>",
             )
         archive.writestr(
             "OEBPS/content.opf",
@@ -88,7 +97,9 @@ def build_png_bytes(size: tuple[int, int] = (8, 8)) -> bytes:
     return buffer.getvalue()
 
 
-def build_zip_bomb_bytes(member_size: int = 50 * 1024 * 1024, members: int = 4) -> bytes:
+def build_zip_bomb_bytes(
+    member_size: int = 50 * 1024 * 1024, members: int = 4
+) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         payload = b"\0" * member_size
@@ -113,7 +124,8 @@ class FakeResponse:
             raise ValueError("no json")
         return self._json
 
-    def iter_content(self, chunk_size: int = 65536):
+    def iter_content(self, chunk_size: int = 65536) -> Iterator[bytes]:
+        _ = chunk_size
         yield from self._chunks
 
     def close(self) -> None:

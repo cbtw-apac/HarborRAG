@@ -5,18 +5,16 @@ from contextlib import contextmanager
 from dataclasses import fields, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, TypeVar
+from typing import Any
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
+from ..exceptions import EncryptedPdfError
 from ..utils import compact_text
 
 
-OptionT = TypeVar("OptionT")
-
-
-def merge_dataclass_options(
+def merge_dataclass_options[OptionT](
     options: OptionT | None,
     option_type: type[OptionT],
     overrides: dict[str, Any],
@@ -53,6 +51,39 @@ def materialized_pdf_path(input: ParseInput) -> Iterator[Path]:
         yield path
 
 
+def raise_if_encrypted_pdf(path: Path) -> None:
+    """Fail fast on password-protected PDFs before running an expensive backend.
+
+    Backends like Docling only report generic conversion failures, and their
+    exact status/error vocabulary varies by version, so detection can't rely
+    on inspecting a backend's own error output. PyMuPDF's ``needs_pass`` check
+    is fast (header read, no full parse) and ships alongside every backend in
+    the ``pdf`` extra, so it works as a reliable pre-check regardless of which
+    backend runs first in a profile's fallback chain. Detection is
+    best-effort: if PyMuPDF isn't importable, this silently no-ops and lets
+    the calling backend's own error handling take over.
+    """
+
+    try:
+        import pymupdf as pdf_module
+    except ImportError:
+        try:
+            import fitz as pdf_module  # type: ignore[no-redef]
+        except ImportError:
+            return
+
+    try:
+        document = pdf_module.open(str(path), filetype="pdf")
+    except Exception:  # noqa: BLE001 - best-effort pre-check boundary
+        return
+
+    try:
+        if getattr(document, "needs_pass", False):
+            raise EncryptedPdfError("PDF is password-protected")
+    finally:
+        document.close()
+
+
 def page_element(engine: str, page: int, content: str) -> DocumentElement:
     """Build a standard page-level element for PDF backends."""
 
@@ -80,8 +111,23 @@ def content_element(engine: str, content: str) -> list[DocumentElement]:
     ]
 
 
-def content_from_any(value: Any) -> str:
-    """Best-effort extraction of readable text from third-party result objects."""
+def content_from_any(
+    value: Any,
+    *,
+    depth: int = 0,
+    visited: set[int] | None = None,
+) -> str:
+    """Best-effort extraction of readable text from third-party result objects.
+
+    ``depth`` and ``visited`` guard against adversarial/cyclic third-party
+    result objects (a pathological deeply-nested or self-referential object
+    could otherwise raise an uncaught ``RecursionError``), mirroring the
+    depth cap and id-based visited set already used by ``_walk_text``. Both
+    are keyword-only with defaults so existing call sites are unaffected.
+    """
+
+    if depth >= _MAX_WALK_DEPTH:
+        return compact_text(str(value)) if isinstance(value, str) else ""
 
     if value is None:
         return ""
@@ -90,31 +136,42 @@ def content_from_any(value: Any) -> str:
     if isinstance(value, bytes):
         return compact_text(value.decode("utf-8", errors="replace"))
 
+    if visited is None:
+        visited = set()
+    if isinstance(value, (dict, list, tuple, set)):
+        marker = id(value)
+        if marker in visited:
+            return ""
+        visited.add(marker)
+
+    def _recurse(child: Any) -> str:
+        return content_from_any(child, depth=depth + 1, visited=visited)
+
     markdown = _call_or_value(value, "export_to_markdown")
     if markdown:
-        return content_from_any(markdown)
+        return _recurse(markdown)
 
     text = _call_or_value(value, "export_to_text")
     if text:
-        return content_from_any(text)
+        return _recurse(text)
 
     if isinstance(value, dict):
         for key in ("markdown", "md", "content", "text", "plain_text"):
             if key in value:
-                content = content_from_any(value[key])
+                content = _recurse(value[key])
                 if content:
                     return content
-        return compact_text("\n".join(_walk_text(value)))
+        return compact_text("\n".join(_walk_text(value, depth + 1)))
 
     if isinstance(value, (list, tuple, set)):
-        walked = compact_text("\n".join(_walk_text(value)))
+        walked = compact_text("\n".join(_walk_text(value, depth + 1)))
         if walked:
             return walked
-        return compact_text("\n".join(content_from_any(item) for item in value))
+        return compact_text("\n".join(_recurse(item) for item in value))
 
     for attribute in ("markdown", "content", "text", "plain_text"):
         if hasattr(value, attribute):
-            content = content_from_any(getattr(value, attribute))
+            content = _recurse(getattr(value, attribute))
             if content:
                 return content
 

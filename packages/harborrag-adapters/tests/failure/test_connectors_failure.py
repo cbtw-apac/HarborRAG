@@ -27,7 +27,6 @@ def _no_sleep(monkeypatch):
     """Neutralize retry/backoff sleeps in every connector client module."""
     for module in (
         "harborrag_adapters.connectors.github.client",
-        "harborrag_adapters.connectors.github.connector",
         "harborrag_adapters.connectors.shared.atlassian_client",
         "harborrag_adapters.connectors.sharepoint.client",
         "harborrag_adapters.connectors.sharepoint.connector",
@@ -146,6 +145,16 @@ def test_load_raw_documents_skip_isolates_failed_record():
     connector = _FlakyConnector(FetchError("transient"))
     docs = list(connector.load_raw_documents(on_error="skip"))
     assert [doc.id for doc in docs] == ["a", "c"]
+
+
+def test_load_raw_documents_skip_does_not_log_exception_secrets(caplog):
+    secret = "token=do-not-log-this"
+    connector = _FlakyConnector(FetchError(secret))
+
+    list(connector.load_raw_documents(on_error="skip"))
+
+    assert secret not in caplog.text
+    assert "FetchError" in caplog.text
 
 
 def test_load_raw_documents_raise_propagates_first_failure():

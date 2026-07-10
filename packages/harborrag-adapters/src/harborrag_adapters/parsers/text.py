@@ -9,7 +9,6 @@ from .base import BaseParser
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import compact_text
 
-
 parser_logger = get_parser_logger("text")
 
 

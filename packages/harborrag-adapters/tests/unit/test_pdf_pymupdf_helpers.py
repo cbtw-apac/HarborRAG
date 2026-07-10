@@ -12,9 +12,12 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 def _one_page_pdf(text: str = "Hello PDF world this is a sentence") -> bytes:
     doc = fitz.open()
-    page = doc.new_page()
-    page.insert_text((72, 72), text)
-    return doc.tobytes()
+    try:
+        page = doc.new_page()
+        page.insert_text((72, 72), text)
+        return doc.tobytes()
+    finally:
+        doc.close()
 
 
 def test_pymupdf_backend_extracts_text() -> None:
@@ -31,12 +34,15 @@ def test_pymupdf_backend_rejects_encrypted_pdf() -> None:
     from harborrag_adapters.parsers.pdf_engine.pymupdf import PyMuPdfBackend
 
     doc = fitz.open()
-    doc.new_page().insert_text((72, 72), "secret content here")
-    encrypted = doc.tobytes(
-        encryption=fitz.PDF_ENCRYPT_AES_256,
-        owner_pw="o",
-        user_pw="u",
-    )
+    try:
+        doc.new_page().insert_text((72, 72), "secret content here")
+        encrypted = doc.tobytes(
+            encryption=fitz.PDF_ENCRYPT_AES_256,
+            owner_pw="o",
+            user_pw="u",
+        )
+    finally:
+        doc.close()
     with pytest.raises(EncryptedPdfError):
         PyMuPdfBackend().parse(ParseInput(content=encrypted, filename="e.pdf"))
 

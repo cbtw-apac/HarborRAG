@@ -57,8 +57,11 @@ Routing is deterministic:
 
 - Suffix and MIME content type are indexed at registration time.
 - A direct suffix route or content-type route is used when only one matches.
-- If suffix and content type match different parsers, parsing fails with
-  `UnsupportedFormatError` instead of guessing.
+- A specific suffix wins when the transport MIME type is generic, such as
+  `text/plain` or `application/octet-stream`.
+- A content-type route is used when the input has no suffix.
+- Other conflicts where suffix and content type match different parsers fail
+  with `UnsupportedFormatError` instead of guessing.
 - Route overrides require `replace=True`.
 
 ```python
@@ -184,7 +187,9 @@ Prefer structured counters such as `input_bytes`, `content_chars`, `elements`,
 Parser tests live in:
 
 ```text
-packages/harborrag-adapters/tests/test_parsers_engine.py
+packages/harborrag-adapters/tests/unit/test_parsers_engine.py
+packages/harborrag-adapters/tests/unit/test_parsers_unit.py
+packages/harborrag-adapters/tests/failure/test_parsers_failure.py
 ```
 
 Useful test levels:

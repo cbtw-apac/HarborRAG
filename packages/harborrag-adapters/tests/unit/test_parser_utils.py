@@ -1,8 +1,8 @@
 """Unit tests for shared parser utility helpers."""
+
 from __future__ import annotations
 
 import pytest
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -17,35 +17,45 @@ def test_html_to_text_bytes_and_entities() -> None:
 
 def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
     import builtins
+    from typing import Any
 
     from harborrag_adapters.parsers import utils
 
     real_import = builtins.__import__
+    fallback_closed = False
 
-    def fake_import(name, *args, **kwargs):
+    class TrackingFallbackParser(utils._FallbackHTMLTextParser):
+        def close(self) -> None:
+            nonlocal fallback_closed
+            fallback_closed = True
+            super().close()
+
+    def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "bs4":
-            raise ImportError("no bs4")
+            raise ImportError
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(utils, "_FallbackHTMLTextParser", TrackingFallbackParser)
     text, engine = utils.html_to_text_with_engine(
         "<div>A</div><p>B</p><script>hide()</script>"
     )
     assert engine == "python/html.parser"
-    assert "A" in text and "B" in text and "hide()" not in text
+    assert "A" in text
+    assert "B" in text
+    assert "hide()" not in text
+    assert fallback_closed is True
 
 
 def test_wrap_parse_errors_passthrough_and_normalize() -> None:
     from harborrag_adapters.parsers.exceptions import ParseError
     from harborrag_adapters.parsers.utils import wrap_parse_errors
 
-    with pytest.raises(ParseError, match="already"):
-        with wrap_parse_errors("eng"):
-            raise ParseError("already")
+    with pytest.raises(ParseError, match="already"), wrap_parse_errors("eng"):
+        raise ParseError("already")
 
-    with pytest.raises(ParseError, match="eng failed"):
-        with wrap_parse_errors("eng"):
-            raise KeyError("boom")
+    with pytest.raises(ParseError, match="eng failed"), wrap_parse_errors("eng"):
+        raise KeyError("boom")
 
 
 def test_guard_input_size_ok_and_over() -> None:

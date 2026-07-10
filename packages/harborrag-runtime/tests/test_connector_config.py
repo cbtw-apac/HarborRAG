@@ -95,6 +95,36 @@ def test_environment_local_source_resolves_from_process_directory(
     assert connector.provider.config.source_path == source.resolve()
 
 
+def test_override_source_path_resolves_from_config_directory_not_process_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other_cwd = tmp_path / "elsewhere"
+    other_cwd.mkdir()
+    config_path = _write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          local-docs:
+            provider: local
+            environment:
+              source_path: TEST_LOCAL_SOURCE_PATH
+        """,
+    )
+    source = config_path.parent / "override-docs"
+    source.mkdir()
+    monkeypatch.chdir(other_cwd)
+
+    connector = load_connector_catalog(config_path).build(
+        "local-docs",
+        environment={"TEST_LOCAL_SOURCE_PATH": "/env/should/not/be/used"},
+        overrides={"source_path": "override-docs"},
+    )
+
+    assert connector.provider.config.source_path == source.resolve()
+
+
 def test_resolves_secret_environment_and_allows_explicit_overrides(
     tmp_path: Path,
 ) -> None:

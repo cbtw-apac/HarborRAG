@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
     ConnectorError,
@@ -13,7 +12,6 @@ from harborrag_adapters.connectors.exceptions import (
     HTTPRequestError,
     RateLimitError,
 )
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

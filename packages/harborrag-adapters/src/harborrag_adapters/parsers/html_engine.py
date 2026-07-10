@@ -7,8 +7,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .base import BaseParser
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import html_to_text_with_engine
-
+from .utils import guard_input_size, html_to_text_with_engine
 
 parser_logger = get_parser_logger("html")
 
@@ -36,6 +35,7 @@ class HtmlParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
+        guard_input_size(parse_input.read_bytes())
         html = parse_input.read_text()
         content, text_engine = html_to_text_with_engine(html)
         elements = [

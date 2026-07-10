@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 from harbor_test_builders import FakeResponse
 from harborrag_adapters.connectors.utils.http import (
@@ -13,7 +15,8 @@ pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]
 
 
 class _CountingResponse(FakeResponse):
-    def iter_content(self, chunk_size: int = 65536):
+    def iter_content(self, chunk_size: int = 65536) -> Iterator[bytes]:
+        _ = chunk_size
         self.consumed = 0
         for chunk in self._chunks:
             self.consumed += len(chunk)

@@ -5,7 +5,6 @@ from typing import Any
 
 from harborrag_core.domain.parser import ParseInput
 
-
 PARSER_LOGGER_NAME = "harborrag.adapters.parsers"
 
 

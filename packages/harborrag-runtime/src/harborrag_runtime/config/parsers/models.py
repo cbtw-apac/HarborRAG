@@ -23,7 +23,7 @@ class PdfBackendDefinition:
     """One PDF backend in an explicitly ordered backend chain."""
 
     backend: str
-    settings: Mapping[str, Any] = field(default_factory=dict)
+    settings: Mapping[str, Any] = field(default_factory=dict, repr=False)
     secret_environment: Mapping[str, str] = field(default_factory=dict, repr=False)
     process_environment: Mapping[str, str] = field(default_factory=dict, repr=False)
 
@@ -88,7 +88,7 @@ class ParserDefinition:
     name: str
     parser: str
     enabled: bool = True
-    settings: Mapping[str, Any] = field(default_factory=dict)
+    settings: Mapping[str, Any] = field(default_factory=dict, repr=False)
     pdf_backends: tuple[PdfBackendDefinition, ...] = ()
 
     def __post_init__(self) -> None:

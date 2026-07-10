@@ -11,6 +11,8 @@ from harborrag_adapters.connectors.sharepoint.drive import SharePointDriveAPI
 from harborrag_adapters.connectors.sharepoint.mappers import (
     build_document_metadata,
     drive_item_id_from_record,
+)
+from harborrag_adapters.connectors.sharepoint.mappers import (
     parse_timestamp as mapper_parse_timestamp,
 )
 from harborrag_adapters.connectors.sharepoint.utils import (
@@ -23,7 +25,6 @@ from harborrag_adapters.connectors.sharepoint.utils import (
     site_path_endpoint,
 )
 from harborrag_core.domain.source import SourceRecord
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

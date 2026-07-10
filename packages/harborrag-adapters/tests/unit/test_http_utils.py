@@ -94,6 +94,17 @@ def test_retry_delay_jitter_stays_within_expected_band():
         assert 10.0 <= delay <= 11.0
 
 
+def test_retry_delay_jitter_never_exceeds_max_delay():
+    for _ in range(20):
+        delay = retry_delay_seconds(
+            {"Retry-After": "10"},
+            fallback_delay=1.0,
+            max_delay=10.0,
+            jitter=True,
+        )
+        assert delay <= 10.0
+
+
 class _GetHeaderOnly:
     def __init__(self, values: dict[str, str]) -> None:
         self._values = values

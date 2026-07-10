@@ -4,9 +4,7 @@ from __future__ import annotations
 import io
 
 import pytest
-
 from harborrag_core.domain.parser import ParseInput
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -36,8 +34,8 @@ def test_excel_parser_reads_legacy_xls() -> None:
 def test_excel_parser_missing_dependency_raises_parse_error(monkeypatch) -> None:
     import builtins
 
-    from harborrag_adapters.parsers.exceptions import ParseError
     from harborrag_adapters.parsers.excel import ExcelParser
+    from harborrag_adapters.parsers.exceptions import ParseError
 
     real_import = builtins.__import__
 

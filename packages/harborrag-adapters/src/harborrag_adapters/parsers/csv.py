@@ -10,7 +10,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-
+from .utils import guard_input_size
 
 parser_logger = get_parser_logger("csv")
 
@@ -38,6 +38,7 @@ class CsvParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
+        guard_input_size(parse_input.read_bytes())
         text = parse_input.read_text()
         sample = text[:4096]
         try:

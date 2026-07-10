@@ -6,10 +6,6 @@ from harborrag_adapters.repositories.database import (
     BaseDatabaseRepository,
     MockDatabaseRepository,
 )
-from harborrag_adapters.repositories.graph import (
-    BaseGraphRepository,
-    MockGraphRepository,
-)
 from harborrag_adapters.repositories.object_store import (
     BaseObjectRepository,
     MockObjectRepository,
@@ -22,12 +18,23 @@ from harborrag_adapters.repositories.vector import (
 __all__ = [
     "BaseCacheRepository",
     "BaseDatabaseRepository",
-    "BaseGraphRepository",
     "BaseObjectRepository",
     "BaseVectorRepository",
     "MockCacheRepository",
     "MockDatabaseRepository",
-    "MockGraphRepository",
     "MockObjectRepository",
     "MockVectorRepository",
 ]
+
+try:
+    # repositories.graph depends on harborrag_core.domain.graph.GraphHint, which
+    # doesn't exist yet. Isolate the failure here so it doesn't take down the
+    # other (working) repository submodules re-exported by this package.
+    from harborrag_adapters.repositories.graph import (
+        BaseGraphRepository,
+        MockGraphRepository,
+    )
+except ImportError:
+    pass
+else:  # pragma: no cover - unreachable until harborrag_core.domain.graph exists
+    __all__ += ["BaseGraphRepository", "MockGraphRepository"]

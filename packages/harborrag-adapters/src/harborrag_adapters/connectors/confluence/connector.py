@@ -88,6 +88,8 @@ class ConfluenceConnector(BaseConnector):
         cql = self._cql_from_query(query)
         yielded = 0
         for content in self._content.search(cql):
+            content_id = str(content.get("id") or "<unknown>")
+            self._validate_content(content, content_id)
             if not self._should_process_content(content):
                 continue
             record = build_source_record(
@@ -106,13 +108,12 @@ class ConfluenceConnector(BaseConnector):
         """Load one expanded Confluence content item as an HTML raw document."""
         content_id = content_id_from_record(record)
         content = self._content.get_content(content_id)
+        self._validate_content(content, content_id)
 
         if not self._should_process_content(content):
             raise DocumentProcessingError(
                 f"Confluence content {content_id} does not match label filters"
             )
-
-        self._validate_content(content, content_id)
         comments = (
             self._content.fetch_comments(content_id)
             if self.config.include_comments
@@ -160,6 +161,11 @@ class ConfluenceConnector(BaseConnector):
         """Translate shared connector filters into Confluence CQL."""
         filters = query.filters
         space_key = str(filters.get("space_key") or query.path or self.config.space_key)
+        if space_key != self.config.space_key:
+            raise ValueError(
+                f"Confluence query space {space_key!r} is outside configured "
+                f"space {self.config.space_key!r}"
+            )
         return build_cql(
             space_key=space_key,
             content_types=self._list_filter(
@@ -218,15 +224,15 @@ class ConfluenceConnector(BaseConnector):
             return bool(label_names.intersection(self.config.include_labels))
         return True
 
-    @staticmethod
-    def _validate_content(content: dict[str, Any], content_id: str) -> None:
-        """Fail fast when Confluence omits fields required by mappers."""
+    def _validate_content(self, content: dict[str, Any], content_id: str) -> None:
+        """Fail fast when content is malformed or outside the configured space."""
+        space_key = content.get("space", {}).get("key")
         missing = [
             name
             for name, value in (
                 ("id", content.get("id")),
                 ("title", content.get("title")),
-                ("space.key", content.get("space", {}).get("key")),
+                ("space.key", space_key),
             )
             if not value
         ]
@@ -234,4 +240,9 @@ class ConfluenceConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"Confluence content {content_id} missing required fields: "
                 f"{', '.join(missing)}"
+            )
+        if str(space_key) != self.config.space_key:
+            raise DocumentProcessingError(
+                f"Confluence content {content_id} belongs to space {space_key!r}, "
+                f"outside configured space {self.config.space_key!r}"
             )

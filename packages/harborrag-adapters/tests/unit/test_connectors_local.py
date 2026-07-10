@@ -16,6 +16,7 @@ from harborrag_adapters.connectors.local.filters import (
 from harborrag_adapters.connectors.local.mappers import path_from_record
 from harborrag_adapters.connectors.local.utils import (
     guess_mime_type,
+    matches_globs,
     matches_pattern,
     path_in_scope,
     relative_path,
@@ -45,7 +46,9 @@ def test_config_requires_existing_file_or_folder(tmp_path: Path):
     with pytest.raises(ValueError, match="does not exist"):
         LocalFileConfig(source_path=tmp_path / "missing")
 
-    cfg = config(tmp_path, allowed_extensions={"md", ".PY"}, excluded_extensions={"tmp"})
+    cfg = config(
+        tmp_path, allowed_extensions={"md", ".PY"}, excluded_extensions={"tmp"}
+    )
 
     assert cfg.source_path == tmp_path.resolve()
     assert cfg.allowed_extensions == {".md", ".py"}
@@ -134,11 +137,7 @@ def test_discover_rejects_paths_outside_source_scope(tmp_path: Path):
     connector = LocalFileConnector(config(source_root))
 
     with pytest.raises(ValueError, match="outside configured source scope"):
-        list(
-            connector.discover(
-                ConnectorQuery(filters={"file_paths": [str(outside)]})
-            )
-        )
+        list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
 
 
 def test_discover_rejects_direct_symlink_when_symlinks_disabled(
@@ -207,9 +206,14 @@ def test_load_reads_file_bytes_and_builds_metadata(tmp_path: Path):
     assert "mime_type" not in document.metadata
 
 
-def test_load_rejects_oversized_files_before_read(tmp_path: Path):
+def test_load_rejects_oversized_files_before_read(tmp_path: Path, monkeypatch):
     path = write_file(tmp_path / "big.txt", b"too large")
     connector = LocalFileConnector(config(tmp_path, max_file_size_bytes=3))
+
+    def fail_if_read(_path: Path) -> bytes:
+        pytest.fail("oversized file was read before its size was rejected")
+
+    monkeypatch.setattr(Path, "read_bytes", fail_if_read)
 
     with pytest.raises(DocumentProcessingError, match="max_file_size_bytes"):
         connector.load(
@@ -226,7 +230,9 @@ def test_load_rejects_directories(tmp_path: Path):
     connector = LocalFileConnector(config(tmp_path))
 
     with pytest.raises(DocumentProcessingError, match="not a file"):
-        connector.load(SourceRecord(tmp_path.as_uri(), "inode/directory", str(tmp_path)))
+        connector.load(
+            SourceRecord(tmp_path.as_uri(), "inode/directory", str(tmp_path))
+        )
 
 
 def test_process_file_callback_can_skip_or_raise(tmp_path: Path):
@@ -330,12 +336,12 @@ def test_path_filter_accepts_string_value_and_list(tmp_path: Path):
 
 
 def test_file_paths_from_query_accepts_bare_string_and_path(tmp_path: Path):
-    assert file_paths_from_query(
-        ConnectorQuery(filters={"file_paths": "a.md"})
-    ) == ["a.md"]
-    assert file_paths_from_query(
-        ConnectorQuery(filters={"paths": tmp_path})
-    ) == [tmp_path]
+    assert file_paths_from_query(ConnectorQuery(filters={"file_paths": "a.md"})) == [
+        "a.md"
+    ]
+    assert file_paths_from_query(ConnectorQuery(filters={"paths": tmp_path})) == [
+        tmp_path
+    ]
     assert file_paths_from_query(ConnectorQuery()) == []
 
 
@@ -367,6 +373,19 @@ def test_path_in_scope_matches_and_rejects(tmp_path: Path):
     assert path_in_scope(path, tmp_path, "src") is True
     assert path_in_scope(path, tmp_path, "docs") is False
     assert path_in_scope(path, tmp_path, "") is True
+
+
+def test_path_in_scope_is_case_insensitive(tmp_path: Path):
+    path = tmp_path / "SRC" / "app.py"
+    assert path_in_scope(path, tmp_path, "src") is True
+    assert path_in_scope(path, tmp_path, "SRC") is True
+
+
+def test_matches_globs_is_case_insensitive(tmp_path: Path):
+    path = tmp_path / "logs" / "file.log"
+    assert matches_globs(path, tmp_path, ["*.LOG"]) is True
+    assert matches_globs(path, tmp_path, ["logs/FILE.log"]) is True
+    assert matches_globs(path, tmp_path, ["*.txt"]) is False
 
 
 # --------------------------------------------------------------------------
@@ -769,9 +788,7 @@ def test_should_process_file_rejects_hidden_file_via_direct_path(tmp_path: Path)
     hidden = write_file(tmp_path / ".secret.md")
     connector = LocalFileConnector(config(tmp_path))
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"file_paths": [hidden]}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"file_paths": [hidden]})))
 
     assert records == []
 

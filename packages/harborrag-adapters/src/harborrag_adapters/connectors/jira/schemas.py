@@ -9,6 +9,18 @@ from typing import Any
 from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
 
 
+def _dict_factory(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Convert datetime values to ISO-8601 strings while building dicts.
+
+    Used as ``dataclasses.asdict``'s ``dict_factory`` so nested dataclasses
+    (e.g. comments, changelog entries) are also covered.
+    """
+    return {
+        key: value.isoformat() if isinstance(value, datetime) else value
+        for key, value in pairs
+    }
+
+
 @dataclass(slots=True)
 class JiraIssueReference:
     """Compact issue reference used for relationships."""
@@ -108,4 +120,4 @@ class JiraMetadata:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize metadata for ``RawDocument.metadata``."""
-        return asdict(self)
+        return asdict(self, dict_factory=_dict_factory)

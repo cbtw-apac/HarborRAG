@@ -1,17 +1,16 @@
 """White-box unit tests for the HarborConnector factory facade."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
 
 import pytest
-
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -47,7 +46,10 @@ class _StubConnector(BaseConnector):
 @pytest.fixture(autouse=True)
 def _register_stub():
     connector_registry.register("harbor-connector-stub", _StubConnector)
-    yield
+    try:
+        yield
+    finally:
+        connector_registry.unregister("harbor-connector-stub")
 
 
 def test_init_creates_provider_from_registry():

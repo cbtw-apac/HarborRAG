@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .element import DocumentElement
 
@@ -17,7 +18,7 @@ def _has_bom(data: bytes, encoding: str) -> bool:
     return False
 
 
-class ParserFormat(str, Enum):
+class ParserFormat(StrEnum):
     PPTX = "pptx"
     DOCX = "docx"
     EXCEL = "excel"
@@ -53,7 +54,7 @@ class ParseInput:
             raise ValueError("ParseInput requires either `path` or `content`")
 
     @classmethod
-    def coerce(cls, input: Any, *, allow_path_strings: bool = False) -> "ParseInput":
+    def coerce(cls, input: Any, *, allow_path_strings: bool = False) -> ParseInput:
         if isinstance(input, cls):
             return input
 

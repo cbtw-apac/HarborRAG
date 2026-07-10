@@ -72,8 +72,17 @@ class GitHubRepositoryAPI:
 
         yield from response.get("tree", [])
 
-    def load_blob(self, sha: str) -> bytes:
-        """Fetch and decode a Git blob while enforcing GitHub and config limits."""
+    def load_blob(self, sha: str, *, known_size: int | None = None) -> bytes:
+        """Fetch and decode a Git blob while enforcing GitHub and config limits.
+
+        When ``known_size`` is supplied (e.g. from a prior contents-API lookup
+        for a single path), the configured size limit is enforced before the
+        blob endpoint is ever called so oversized files are rejected without
+        being downloaded and JSON-parsed first.
+        """
+        if known_size is not None:
+            self.enforce_size_limit(sha, known_size)
+
         blob = self.client.get_json(blob_endpoint(self.owner, self.repo, sha))
         if not isinstance(blob, dict):
             raise FetchError("GitHub blob response was not an object")

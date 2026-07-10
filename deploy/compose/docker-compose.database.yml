@@ -71,3 +71,4 @@ volumes:
   falkordb_data:
   redis_data:
   minio_data:
+  pg_data:

@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from abc import ABC
 from typing import Any
+
 
 class Status:
     SUCCESS = "success"
@@ -8,7 +10,7 @@ class Status:
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
 
-class Input(ABC):
+class Input:
     """Input schemas"""
     pass
 

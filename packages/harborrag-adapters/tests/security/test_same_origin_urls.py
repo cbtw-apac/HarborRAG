@@ -28,7 +28,7 @@ def test_require_same_origin_allows_relative_and_same_origin() -> None:
     ],
 )
 def test_require_same_origin_rejects_cross_origin_and_odd_schemes(hostile: str) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unsafe attachment URL"):
         require_same_origin_url(
             hostile, "https://example.atlassian.net/wiki", label="attachment"
         )

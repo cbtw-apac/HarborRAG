@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,14 +20,12 @@ from harborrag_adapters.connectors.github.utils import (
     file_extension,
     github_raw_url,
     guess_mime_type,
-    is_tree,
     parse_github_repository_url,
     path_in_scope,
     path_matches_query,
 )
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
-
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -245,6 +244,9 @@ def test_load_decodes_blob_and_builds_metadata():
     assert "html_url" not in document.metadata
     assert "raw_url" not in document.metadata
     assert "commit_url" not in document.metadata
+    assert document.metadata["commit_author"]["date"] == "2024-05-24T20:57:56+00:00"
+    assert document.metadata["commit_committer"]["date"] == "2024-05-24T21:00:00+00:00"
+    json.dumps(document.metadata)  # datetimes must be JSON-serializable
 
 
 def test_load_rejects_oversized_blob_before_decode():
@@ -268,6 +270,29 @@ def test_load_rejects_oversized_blob_before_decode():
                 "text/plain",
                 "big.txt",
                 metadata={"path": "big.txt", "sha": "sha-big"},
+            )
+        )
+
+
+def test_load_rejects_oversized_single_path_lookup_without_fetching_blob():
+    client = FakeGitHubClient()
+    add_repo_and_commit(client)
+    client.add(
+        "repos/acme/harbor-rag/contents/big.txt",
+        {"type": "file", "path": "big.txt", "sha": "sha-big", "size": 99},
+    )
+    connector = GitHubConnector(config(max_file_size_bytes=10), client=client)
+
+    # No response is registered for the blob endpoint: if load_blob were ever
+    # called, the fake client would raise AssertionError instead of the
+    # expected DocumentProcessingError, proving the blob was never fetched.
+    with pytest.raises(DocumentProcessingError, match="max_file_size_bytes"):
+        connector.load(
+            SourceRecord(
+                "github://acme/harbor-rag/big.txt",
+                "text/plain",
+                "big.txt",
+                metadata={"path": "big.txt"},
             )
         )
 
@@ -527,13 +552,11 @@ def test_file_extension_returns_empty_without_dot():
 
 
 def test_path_in_scope_exact_root_match():
-    from harborrag_adapters.connectors.github.utils import path_in_scope
 
     assert path_in_scope("src", "src", recursive=True) is True
 
 
 def test_path_in_scope_non_recursive_rejects_nested_paths():
-    from harborrag_adapters.connectors.github.utils import path_in_scope
 
     assert path_in_scope("src/pkg/app.py", "src", recursive=False) is False
     assert path_in_scope("src/app.py", "src", recursive=False) is True
@@ -545,7 +568,6 @@ def test_path_matches_query_plain_substring():
 
 
 def test_github_raw_url_default_web_url_uses_raw_githubusercontent():
-    from harborrag_adapters.connectors.github.utils import github_raw_url
 
     url = github_raw_url(
         web_url="https://github.com",
@@ -558,7 +580,6 @@ def test_github_raw_url_default_web_url_uses_raw_githubusercontent():
 
 
 def test_github_raw_url_custom_web_url_uses_raw_path():
-    from harborrag_adapters.connectors.github.utils import github_raw_url
 
     url = github_raw_url(
         web_url="https://ghe.example.com",
@@ -651,6 +672,36 @@ def test_load_blob_rejects_invalid_base64_content():
 
     with pytest.raises(DocumentProcessingError, match="not valid base64"):
         api.load_blob("sha-bad")
+
+
+def test_load_blob_rejects_known_oversized_size_without_fetching():
+    client = FakeGitHubClient()
+    api = GitHubRepositoryAPI(config(max_file_size_bytes=10), client)
+
+    # No blob endpoint response is registered: if the network call happened
+    # before the size check, the fake client would raise AssertionError.
+    with pytest.raises(DocumentProcessingError, match="max_file_size_bytes"):
+        api.load_blob("sha-big", known_size=99)
+
+    assert client.calls == []
+
+
+def test_load_blob_still_fetches_and_decodes_when_known_size_is_within_limit():
+    client = FakeGitHubClient()
+    client.add(
+        "repos/acme/harbor-rag/git/blobs/sha-readme",
+        {
+            "sha": "sha-readme",
+            "size": 7,
+            "encoding": "base64",
+            "content": base64.b64encode(b"# Hello").decode("ascii"),
+        },
+    )
+    api = GitHubRepositoryAPI(config(max_file_size_bytes=100), client)
+
+    content = api.load_blob("sha-readme", known_size=7)
+
+    assert content == b"# Hello"
 
 
 def test_content_file_item_raises_when_response_is_not_a_dict():

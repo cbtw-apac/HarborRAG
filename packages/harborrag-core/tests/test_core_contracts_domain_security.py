@@ -14,6 +14,7 @@ from harborrag_core.domain.chunk import Chunk
 from harborrag_core.domain.data_source import DataSourceType, DocumentMetadata
 from harborrag_core.domain.document import DocumentRelation, HarborDocument
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_core.domain.tenant import Tenant
 from harborrag_core.observability.metrics import InMemoryMetrics
@@ -90,6 +91,14 @@ def test_domain_dataclasses():
         Tenant("")
     with pytest.raises(ValueError):
         Tenant("has space")
+
+    text_raw = RawDocument(id="r1", source="s", content="hello", content_type="text/plain")
+    assert text_raw.text() == "hello"
+    bytes_raw = RawDocument(
+        id="r2", source="s", content="héllo".encode(), content_type="text/plain"
+    )
+    assert bytes_raw.text() == "héllo"
+    assert bytes_raw.text(encoding="ascii") == "h��llo"
 
 
 def test_security_and_observability_helpers():

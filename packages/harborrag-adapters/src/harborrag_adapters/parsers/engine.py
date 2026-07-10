@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, NamedTuple
+from collections.abc import Iterable
+from typing import Any, NamedTuple
 
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
@@ -8,8 +9,8 @@ from .base import BaseParser
 from .csv import CsvParser
 from .docx import DocxParser
 from .ebook import EpubParser
-from .exceptions import ParseError, UnsupportedFormatError
 from .excel import ExcelParser
+from .exceptions import ParseError, UnsupportedFormatError
 from .html_engine import HtmlParser
 from .image import ImageParser
 from .markdown import MarkdownParser
@@ -19,10 +20,9 @@ from .pptx import PptxParser
 from .structured import JsonParser
 from .text import TextParser
 
-
 parser_logger = get_parser_logger("registry")
 
-# Transport-level content types too generic to override a specific suffix.
+# Transport content types too generic to override a specific suffix.
 _GENERIC_CONTENT_TYPES = frozenset(
     {"", "text/plain", "application/octet-stream", "binary/octet-stream"}
 )
@@ -140,16 +140,15 @@ class HarborParser:
                 document = route.parser.parse(parse_input)
             except ParseError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - normalize at boundary
-                parser_logger.warning(
-                    "Parser %s failed on %s: %s",
+            except Exception as exc:  # noqa: BLE001
+                parser_logger.error(
+                    "Unexpected parser implementation failure parser=%s input=%s "
+                    "exception_type=%s",
                     route.parser.name,
                     input_label(parse_input),
-                    exc,
+                    type(exc).__name__,
                 )
-                raise ParseError(
-                    f"Parser {route.parser.name!r} failed: {exc}"
-                ) from exc
+                raise
             parser_logger.debug(
                 "Parsed %s with parser %s content_chars=%d elements=%d",
                 input_label(parse_input),
@@ -202,9 +201,7 @@ class HarborParser:
                 )
         return results
 
-    def parser_for(
-        self, input: Any
-    ) -> BaseParser[ParseInput, ParsedDocument] | None:
+    def parser_for(self, input: Any) -> BaseParser[ParseInput, ParsedDocument] | None:
         """Return the parser that would handle input, without parsing it."""
         route = self._route_for(ParseInput.coerce(input))
         return route.parser if route is not None else None

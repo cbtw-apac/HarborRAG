@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 from harborrag_adapters.parsers import (
@@ -59,6 +59,15 @@ class FakeParser(BaseParser[ParseInput, ParsedDocument]):
 class OtherFakeParser(FakeParser):
     parser_name: ClassVar[str] = "other_fake"
     content_types: ClassVar[frozenset[str]] = frozenset({"application/x-other-fake"})
+
+
+class BuggyParser(FakeParser):
+    parser_name: ClassVar[str] = "buggy"
+    suffixes: ClassVar[frozenset[str]] = frozenset({"buggy"})
+    content_types: ClassVar[frozenset[str]] = frozenset({"application/x-buggy"})
+
+    def parse(self, parse_input: ParseInput) -> ParsedDocument:
+        raise TypeError("implementation bug")
 
 
 class EmptyPdfBackend(PdfBackend):
@@ -134,6 +143,14 @@ def test_registry_rejects_conflicting_suffix_and_content_type_routes():
         registry.parse(ambiguous)
 
 
+def test_unexpected_parser_bug_is_not_normalized_or_skipped():
+    registry = HarborParser([BuggyParser()])
+    parse_input = ParseInput(content="data", filename="doc.buggy")
+
+    with pytest.raises(TypeError, match="implementation bug"):
+        registry.parse_many([parse_input], on_error="skip")
+
+
 @pytest.mark.whitebox
 def test_pdf_result_normalizer_keeps_ocr_text_without_scores():
     raw_ocr = [
@@ -144,6 +161,27 @@ def test_pdf_result_normalizer_keeps_ocr_text_without_scores():
     ]
 
     assert content_from_any(raw_ocr) == "Hello\nWorld"
+
+
+@pytest.mark.whitebox
+def test_content_from_any_does_not_recurse_forever_on_self_reference():
+    cyclic: dict[str, Any] = {"text": "leaf value"}
+    cyclic["self"] = cyclic
+
+    # Must not raise RecursionError; the cycle guard should short-circuit
+    # once the object has already been visited.
+    assert content_from_any(cyclic) == "leaf value"
+
+
+@pytest.mark.whitebox
+def test_content_from_any_bails_out_on_pathologically_deep_nesting():
+    nested: Any = "leaf value"
+    for _ in range(1000):
+        nested = {"content": nested}
+
+    # Must not raise RecursionError; deep nesting past the walk-depth cap
+    # bails out cleanly instead of blowing the Python call stack.
+    content_from_any(nested)
 
 
 @pytest.mark.graybox
@@ -263,6 +301,62 @@ def test_docling_backend_options_build_convert_kwargs_without_importing_docling(
     }
 
 
+def _encrypted_pdf_bytes() -> bytes:
+    import fitz
+
+    doc = fitz.open()
+    try:
+        doc.new_page().insert_text((72, 72), "secret content here")
+        return doc.tobytes(
+            encryption=fitz.PDF_ENCRYPT_AES_256,
+            owner_pw="o",
+            user_pw="u",
+        )
+    finally:
+        doc.close()
+
+
+@pytest.mark.whitebox
+def test_docling_backend_rejects_encrypted_pdf_without_invoking_converter():
+    from harborrag_adapters.parsers.exceptions import EncryptedPdfError
+
+    class _ExplodingConverter:
+        def convert(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError(
+                "Docling converter must not run on an encrypted PDF; the "
+                "PyMuPDF pre-check should short-circuit first."
+            )
+
+    backend = DoclingBackend(DoclingBackendOptions(converter=_ExplodingConverter()))
+
+    with pytest.raises(EncryptedPdfError):
+        backend.parse(ParseInput(content=_encrypted_pdf_bytes(), filename="secret.pdf"))
+
+
+@pytest.mark.whitebox
+def test_docling_backend_pre_check_does_not_block_normal_pdfs():
+    calls: list[str] = []
+
+    class _RecordingConverter:
+        def convert(self, *args: Any, **kwargs: Any) -> Any:
+            calls.append("converted")
+            return SimpleNamespace(document=SimpleNamespace())
+
+    backend = DoclingBackend(DoclingBackendOptions(converter=_RecordingConverter()))
+    import fitz
+
+    plain_pdf = fitz.open()
+    try:
+        plain_pdf.new_page().insert_text((72, 72), "not secret")
+        content = plain_pdf.tobytes()
+    finally:
+        plain_pdf.close()
+
+    backend.parse(ParseInput(content=content, filename="plain.pdf"))
+
+    assert calls == ["converted"]
+
+
 class FakeLiteParse:
     def __init__(self) -> None:
         self.input: str | bytes | None = None
@@ -303,6 +397,22 @@ def test_liteparse_backend_uses_llamaindex_liteparse_api_shape():
     assert document.metadata["page_count"] == 1
     assert document.elements[0].content == "Hello\nWorld"
     assert document.elements[0].metadata["page"] == 1
+
+
+@pytest.mark.whitebox
+def test_liteparse_backend_treats_empty_text_as_empty_not_missing():
+    class _FakeEmptyLiteParse:
+        def parse(self, _input: str | bytes) -> SimpleNamespace:
+            # `text == ""` is a genuine empty extraction; it must not be
+            # treated the same as `text is None` and fall back to dumping
+            # the whole result object as content.
+            return SimpleNamespace(text="", pages=[])
+
+    backend = LiteParseBackend(LiteParseBackendOptions(parser=_FakeEmptyLiteParse()))
+
+    document = backend.parse(ParseInput(content=b"%PDF", filename="empty.pdf"))
+
+    assert document.content == ""
 
 
 @pytest.mark.whitebox
@@ -370,15 +480,15 @@ def test_mineru_command_includes_advanced_cli_options():
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "match"),
     [
-        {"timeout_seconds": 0},
-        {"method": "invalid"},
-        {"effort": "invalid"},
+        ({"timeout_seconds": 0}, "timeout_seconds must be greater than 0"),
+        ({"method": "invalid"}, "method must be one of"),
+        ({"effort": "invalid"}, "effort must be one of"),
     ],
 )
-def test_mineru_options_reject_invalid_cli_controls(overrides):
-    with pytest.raises(ValueError):
+def test_mineru_options_reject_invalid_cli_controls(overrides, match):
+    with pytest.raises(ValueError, match=match):
         MinerUBackendOptions(**overrides)
 
 
@@ -401,6 +511,86 @@ def test_paddleocr_pipeline_options_are_sparse_and_advanced():
         "use_table_recognition": False,
         "markdown_ignore_labels": ["image", "footer"],
     }
+
+
+class _FailingPipeline:
+    def __init__(self, **_options: Any) -> None:
+        raise RuntimeError("missing model weights")
+
+
+class _WorkingPipeline:
+    def __init__(self, **_options: Any) -> None:
+        pass
+
+    def predict(self, input: str) -> list[dict[str, str]]:
+        return [{"markdown": f"parsed {input}"}]
+
+    def concatenate_markdown_pages(self, pages: list[str]) -> str:
+        return "\n".join(pages)
+
+
+@pytest.mark.whitebox
+def test_paddleocr_falls_back_when_pipeline_construction_raises():
+    fake_module = SimpleNamespace(
+        PPStructureV3=_FailingPipeline,
+        PaddleOCRVL=_WorkingPipeline,
+        PPStructure=_WorkingPipeline,
+    )
+    backend = PaddleOcrBackend()
+
+    result, warnings = backend._predict(fake_module, "doc.pdf")
+
+    assert result == "parsed doc.pdf"
+    assert backend._active_pipeline_class == "PaddleOCRVL"
+    assert any("PPStructureV3" in warning for warning in warnings)
+
+
+class _FailingPredictPipeline:
+    def __init__(self, **_options: Any) -> None:
+        pass
+
+    def predict(self, input: str) -> Any:
+        raise RuntimeError("GPU init failure")
+
+
+@pytest.mark.whitebox
+def test_paddleocr_falls_back_when_predict_raises():
+    fake_module = SimpleNamespace(
+        PPStructureV3=_FailingPredictPipeline,
+        PaddleOCRVL=_WorkingPipeline,
+        PPStructure=_WorkingPipeline,
+    )
+    backend = PaddleOcrBackend()
+
+    result, warnings = backend._predict(fake_module, "doc.pdf")
+
+    assert result == "parsed doc.pdf"
+    assert backend._active_pipeline_class == "PaddleOCRVL"
+    assert any("GPU init failure" in warning for warning in warnings)
+
+
+@pytest.mark.whitebox
+def test_paddleocr_falls_back_to_legacy_api_when_all_pipelines_fail():
+    class _LegacyOcr:
+        def __init__(self, **_options: Any) -> None:
+            pass
+
+        def ocr(self, path: str, cls: bool = True) -> list[str]:
+            return [f"legacy {path}"]
+
+    fake_module = SimpleNamespace(
+        PPStructureV3=_FailingPipeline,
+        PaddleOCRVL=_FailingPipeline,
+        PPStructure=_FailingPipeline,
+        PaddleOCR=_LegacyOcr,
+    )
+    backend = PaddleOcrBackend()
+
+    result, warnings = backend._predict(fake_module, "doc.pdf")
+
+    assert result == ["legacy doc.pdf"]
+    assert backend._active_pipeline_class == "PaddleOCR"
+    assert len(warnings) == 3
 
 
 @pytest.mark.blackbox
