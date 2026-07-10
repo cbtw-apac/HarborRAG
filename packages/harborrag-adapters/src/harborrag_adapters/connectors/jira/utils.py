@@ -108,13 +108,15 @@ def search_jql_body(
     max_results: int,
     fields: tuple[str, ...],
     next_page_token: str | None = None,
-    expand: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Build the body for Jira Cloud's ``POST /rest/api/3/search/jql``.
 
     The legacy ``/search`` endpoint (offset ``startAt``/``total`` paging) was
     removed on Jira Cloud in 2025; the replacement paginates with an opaque
-    ``nextPageToken`` and returns ``isLast`` instead of a total count.
+    ``nextPageToken`` and returns ``isLast`` instead of a total count. Unlike
+    the legacy endpoint, this one rejects the request outright (400 Invalid
+    request payload) if an ``expand`` key is present at all, so it is never
+    added here even when empty.
     """
     body: dict[str, Any] = {
         "jql": jql,
@@ -123,8 +125,6 @@ def search_jql_body(
     }
     if next_page_token:
         body["nextPageToken"] = next_page_token
-    if expand:
-        body["expand"] = list(expand)
     return body
 
 

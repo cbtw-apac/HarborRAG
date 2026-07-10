@@ -109,7 +109,6 @@ class JiraIssueAPI:
                     max_results=self.config.page_size,
                     fields=self.config.requested_fields(),
                     next_page_token=next_page_token,
-                    expand=self.issue_expand(),
                 ),
             )
             if not isinstance(response, dict):

@@ -51,10 +51,47 @@ def env_path(name: str) -> Path | None:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+PREVIEW_CHARS = 200
+
+
+def _preview(value: object, *, limit: int = PREVIEW_CHARS) -> str:
+    """Render a short, safe preview of a value that may be huge (raw bytes/text)."""
+    text = value if isinstance(value, str) else repr(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}… (truncated, {len(text)} chars total)"
+
+
 def print_document(provider: str, document) -> None:
     print(f"\n[{provider}] loaded document")
-    print(document)
-    print(
-        f"[{provider}] id={document.id!r} "
-        f"content_type={document.content_type!r} chars={len(document.text())}"
-    )
+    print(f"[{provider}] id={document.id!r} source={document.source!r}")
+    print(f"[{provider}] content_type={document.content_type!r}")
+    text = document.text()
+    print(f"[{provider}] chars={len(text)} preview={_preview(text)!r}")
+    print(f"[{provider}] metadata preview={_preview(document.metadata)!r}")
+    if document.raw is not None:
+        print(f"[{provider}] raw preview={_preview(document.raw)!r}")
+    print_attachments(provider, document)
+
+
+def print_attachments(provider: str, document) -> None:
+    attachments = (document.metadata or {}).get("attachments") or []
+    if not attachments:
+        print(f"[{provider}] attachments: none")
+        return
+    print(f"[{provider}] attachments: {len(attachments)}")
+    for attachment in attachments:
+        title = attachment.get("title")
+        status = attachment.get("status")
+        size_bytes = attachment.get("size_bytes")
+        text = attachment.get("text") or ""
+        reason = attachment.get("reason")
+        line = (
+            f"  - {title!r} status={status!r} size_bytes={size_bytes} "
+            f"text_chars={len(text)}"
+        )
+        if reason:
+            line += f" reason={reason!r}"
+        print(line)
+        if text:
+            print(f"    preview={_preview(text)!r}")

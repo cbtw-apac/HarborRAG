@@ -13,22 +13,24 @@ def missing_vars() -> list[str]:
     return [name for name in required if not env(name)]
 
 
+def _config(*, include_attachments: bool) -> ConfluenceSpaceConfig:
+    return ConfluenceSpaceConfig(
+        space_key=env("CONFLUENCE_SPACE_KEY"),
+        base_url=env("CONFLUENCE_BASE_URL"),
+        token=env("CONFLUENCE_TOKEN"),
+        email=env("CONFLUENCE_EMAIL"),
+        include_comments=False,
+        include_attachments=include_attachments,
+    )
+
+
 def main() -> int:
     load_env()
     if missing := missing_vars():
         print(f"[confluence] missing env vars: {missing}")
         return 2
 
-    config = ConfluenceSpaceConfig(
-        space_key=env("CONFLUENCE_SPACE_KEY"),
-        base_url=env("CONFLUENCE_BASE_URL"),
-        token=env("CONFLUENCE_TOKEN"),
-        email=env("CONFLUENCE_EMAIL"),
-        include_comments=False,
-        include_attachments=False,
-    )
-
-    connector = HarborConnector("confluence", config=config)
+    connector = HarborConnector("confluence", config=_config(include_attachments=False))
     records = list(connector.discover(ConnectorQuery(limit=3)))
     print(f"\n[confluence] discovered {len(records)} record(s)")
     for record in records:
@@ -37,8 +39,16 @@ def main() -> int:
         print("[confluence] no records discovered")
         return 1
 
+    print("\n[confluence] === load without attachments ===")
     document = connector.load(records[0])
     print_document("confluence", document)
+
+    print("\n[confluence] === load with attachments ===")
+    with_attachments = HarborConnector(
+        "confluence", config=_config(include_attachments=True)
+    )
+    document_with_attachments = with_attachments.load(records[0])
+    print_document("confluence", document_with_attachments)
     return 0
 
 

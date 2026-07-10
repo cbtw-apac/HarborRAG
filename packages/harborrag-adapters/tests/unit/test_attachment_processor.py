@@ -28,6 +28,34 @@ def test_classify_unknown_returns_none():
     assert classify_attachment("application/x-mystery", "thing.bin") is None
 
 
+def test_classify_presentation_suffix():
+    assert classify_attachment("application/octet-stream", "deck.pptx") == (
+        FileType.PRESENTATION,
+        "pptx",
+    )
+
+
+def test_classify_document_suffix():
+    assert classify_attachment("application/octet-stream", "report.docx") == (
+        FileType.DOCUMENT,
+        "docx",
+    )
+
+
+def test_classify_spreadsheet_suffix():
+    assert classify_attachment("application/octet-stream", "sheet.xlsx") == (
+        FileType.SPREADSHEET,
+        "xlsx",
+    )
+
+
+def test_classify_pdf_suffix():
+    assert classify_attachment("application/octet-stream", "doc.pdf") == (
+        FileType.PDF,
+        "pdf",
+    )
+
+
 BASE_URL = "https://wiki.example.com"
 
 
@@ -151,3 +179,30 @@ def test_attachment_downloaded_body_over_cap_is_skipped():
 
     assert result.status == "skipped"
     assert "downloaded size" in result.reason
+
+
+def test_attachment_callback_can_allow():
+    processor = _text_processor(
+        process_attachment_callback=lambda media, size, title: (True, ""),
+    )
+    [result] = processor.process([_attachment()])
+
+    assert result.status == "processed"
+
+
+def test_attachment_missing_download_url_is_skipped():
+    processor = _text_processor()
+    [result] = processor.process([_attachment(downloadUrl="")])
+
+    assert result.status == "skipped"
+    assert "missing a download URL" in result.reason
+
+
+def test_attachment_relative_download_url_without_leading_slash():
+    processor = _text_processor()
+    [result] = processor.process(
+        [_attachment(downloadUrl="download/notes.txt")]
+    )
+
+    assert result.status == "processed"
+    assert result.download_url == f"{BASE_URL}/download/notes.txt"
