@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from harborrag_core.security.redaction import redact_secrets
 
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.parsers import ParseInput
 
 if TYPE_CHECKING:
@@ -271,7 +272,7 @@ class AttachmentProcessor:
                 safe_reason,
             )
             if self.fail_on_error:
-                raise
+                raise FetchError(safe_reason) from exc
             metadata.status = "failed"
             metadata.reason = safe_reason
             return metadata

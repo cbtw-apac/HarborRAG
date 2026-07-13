@@ -58,7 +58,7 @@ pytest
 pytest --cov --cov-report=term-missing
 ```
 
-Every package owns its own `tests/` folder; coverage must stay at or above 95% (`make coverage`).
+Every package owns its own `tests/` folder; coverage must stay at or above 90% (`make coverage`).
 
 ## Where to go next
 

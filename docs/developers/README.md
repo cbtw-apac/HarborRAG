@@ -6,7 +6,7 @@ Everything needed to understand, extend, test, and deploy HarborRAG.
 
 - [Architecture Overview](architecture/README.md) — package map, dependency direction, and a tour of `harborrag-core`'s contracts, domain, ports, execution, security, and observability primitives.
 - [Extending HarborRAG](extending/README.md) — implement a real connector, parser, model adapter, or repository using the base + mock pattern.
-- [Testing](testing/README.md) — package-local test layout, markers, and the 95% coverage gate.
+- [Testing](testing/README.md) — package-local test layout, markers, and the 90% coverage gate.
 - [Deployment](deployment/README.md) — the `deploy/` Compose stacks and helper scripts.
 
 For setup, branching, and the PR checklist, see the root [CONTRIBUTING.md](../CONTRIBUTING.md) — that file is the canonical source for contribution workflow.

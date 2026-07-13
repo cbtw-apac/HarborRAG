@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.shared.attachments import (
     AttachmentProcessor,
     FileType,
@@ -150,8 +151,22 @@ def test_attachment_fail_on_error_reraises():
         custom_parsers={FileType.TEXT: boom},
         fail_on_error=True,
     )
-    with pytest.raises(RuntimeError, match="parser exploded"):
+    with pytest.raises(FetchError, match="parser exploded"):
         processor.process([_attachment()])
+
+
+def test_attachment_fail_on_error_redacts_secret_in_reraised_error():
+    def boom(content: bytes, ext: str) -> str:
+        raise RuntimeError("token=SECRET123 leaked")
+
+    processor = _text_processor(
+        custom_parsers={FileType.TEXT: boom},
+        fail_on_error=True,
+    )
+    with pytest.raises(FetchError) as excinfo:
+        processor.process([_attachment()])
+
+    assert "SECRET123" not in str(excinfo.value)
 
 
 def test_attachment_error_without_fail_on_error_marks_failed():

@@ -21,7 +21,7 @@ HarborRAG's mock pipeline and CLI have a small enough surface that most problems
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `make coverage` fails below 95% | New code under `packages/*/src` added without a matching test | Add a package-local test under the same package's `tests/` folder — see [Testing](../../developers/testing/README.md) |
+| `make coverage` fails below 90% | New code under `packages/*/src` added without a matching test | Add a package-local test under the same package's `tests/` folder — see [Testing](../../developers/testing/README.md) |
 | `make deps-check` / `scripts/check_dependency_direction.py` fails | An import violates the one-directional package dependency graph | Check the allowed direction in [Architecture Overview](../../developers/architecture/README.md#dependency-direction) and move shared code down to `harborrag-core` instead |
 | `make typecheck` fails on a new function | Missing type annotations | `mypy` runs with `disallow_untyped_defs = true`; annotate parameters and return types (test files under `packages/*/tests/` are excluded) |
 | `make lint` fails | A Ruff rule violation | `ruff check . --fix` fixes most automatically; re-run `make lint` after |

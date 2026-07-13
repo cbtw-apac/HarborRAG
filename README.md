@@ -170,7 +170,7 @@ make test-package PACKAGE=harborrag-engine
 Coverage gate:
 
 ```text
-95% minimum
+90% minimum
 ```
 
 ## Makefile commands

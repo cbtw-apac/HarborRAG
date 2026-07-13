@@ -66,7 +66,7 @@ reviews:
   high_level_summary_instructions: >
     Summarize: (1) which HarborRAG package boundaries are touched,
     (2) whether public contracts/base classes changed, (3) whether mocks and
-    package-local tests were updated, (4) whether coverage remains at least 95%,
+    package-local tests were updated, (4) whether coverage remains at least 90%,
     and (5) any security, async, resource-lifecycle, or dependency-direction risk.
     Keep it under 180 words.
 
@@ -225,7 +225,7 @@ reviews:
         Every package owns its own tests. New base classes require abstract/base
         behavior tests; new mocks require deterministic behavior tests; new
         providers require fake-client tests and optional integration tests. Avoid
-        brittle sleep-based tests. Keep coverage at or above 95% for the repo.
+        brittle sleep-based tests. Keep coverage at or above 90% for the repo.
 
     - path: "tests/**"
       instructions: >

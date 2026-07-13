@@ -175,6 +175,49 @@ def test_load_raw_documents_rejects_unknown_policy():
         list(connector.load_raw_documents(on_error="bogus"))
 
 
+class _ClosableConnector(BaseConnector):
+    """Tracks close() calls to verify load_raw_documents() releases resources."""
+
+    provider_name = "closable"
+
+    def __init__(self, fail_with: Exception | None = None) -> None:
+        self._fail_with = fail_with
+        self.closed = False
+
+    def discover(self, query=None) -> Iterator[SourceRecord]:
+        yield _record("a")
+        if self._fail_with:
+            yield _record("boom")
+
+    def load(self, record: SourceRecord) -> RawDocument:
+        if self._fail_with and record.id == "boom":
+            raise self._fail_with
+        return _doc(record.id)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_load_raw_documents_closes_connector_after_full_consumption():
+    connector = _ClosableConnector()
+    list(connector.load_raw_documents())
+    assert connector.closed is True
+
+
+def test_load_raw_documents_closes_connector_after_raise():
+    connector = _ClosableConnector(FetchError("transient"))
+    with pytest.raises(FetchError):
+        list(connector.load_raw_documents(on_error="raise"))
+    assert connector.closed is True
+
+
+def test_load_raw_documents_closes_connector_on_early_break():
+    connector = _ClosableConnector()
+    for _ in connector.load_raw_documents():
+        break
+    assert connector.closed is True
+
+
 def _sharepoint_config(**overrides) -> SharePointSiteConfig:
     values = {
         "site_id": "site-123",

@@ -10,6 +10,8 @@ from harborrag_adapters.connectors.shared.attachments import (
     AttachmentMetadata,
 )
 
+from .utils import _isoformat_datetimes
+
 
 @dataclass(slots=True)
 class ConfluencePageReference:
@@ -63,10 +65,12 @@ class ConfluenceMetadata:
     breadcrumb: list[str]
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize metadata for ``RawDocument.metadata``."""
-        payload = asdict(self)
-        for key in ("created_at", "updated_at"):
-            value = payload.get(key)
-            if isinstance(value, datetime):
-                payload[key] = value.isoformat()
-        return payload
+        """Serialize metadata for ``RawDocument.metadata``.
+
+        ``asdict`` recurses into nested dataclasses (comments, attachments)
+        but leaves non-container field values like ``datetime`` untouched, so
+        a raw datetime nested inside a comment/attachment would still fail
+        JSON serialization. Walk the whole payload instead of just the
+        top-level keys.
+        """
+        return _isoformat_datetimes(asdict(self))

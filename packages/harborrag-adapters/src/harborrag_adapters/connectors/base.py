@@ -80,16 +80,19 @@ class BaseConnector(ABC):
             raise ValueError(f"Unknown on_error policy: {on_error!r}")
 
         self.connect()
-        for record in self.discover(query):
-            try:
-                yield self.load(record)
-            except AuthenticationError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - per-record isolation
-                if on_error == "raise":
+        try:
+            for record in self.discover(query):
+                try:
+                    yield self.load(record)
+                except AuthenticationError:
                     raise
-                logger.warning(
-                    "Skipping record %s after load failure (%s)",
-                    record.id,
-                    type(exc).__name__,
-                )
+                except Exception as exc:  # noqa: BLE001
+                    if on_error == "raise":
+                        raise
+                    logger.warning(
+                        "Skipping record %s after load failure (%s)",
+                        record.id,
+                        type(exc).__name__,
+                    )
+        finally:
+            self.close()

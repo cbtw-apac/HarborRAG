@@ -125,3 +125,13 @@ def build_search_params(
     elif start is not None:
         params["start"] = start
     return params
+
+def _isoformat_datetimes(value: Any) -> Any:
+    """Recursively convert ``datetime`` values to ISO strings for JSON output."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _isoformat_datetimes(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_isoformat_datetimes(item) for item in value]
+    return value

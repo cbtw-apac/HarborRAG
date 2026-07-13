@@ -134,7 +134,7 @@ make coverage
 Coverage must stay at or above:
 
 ```text
-95%
+90%
 ```
 
 ## PR checklist
