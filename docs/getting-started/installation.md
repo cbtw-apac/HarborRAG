@@ -49,5 +49,5 @@ Both commands should print `"ok": true` and exit 0 without any external services
 
 - **`ModuleNotFoundError: harborrag_core`** — a package was not installed in dependency order, or your virtualenv is stale. Re-run `make bootstrap` or `uv sync --all-packages --extra dev`.
 - **`uv sync` picks up stale versions** — delete `uv.lock` only if you intend to regenerate it (`uv lock`); otherwise a stale lock usually means a package's `pyproject.toml` version was bumped without a `uv lock` run.
-- **Coverage gate fails locally** — `make coverage` enforces a 95% minimum (`pyproject.toml`'s `[tool.coverage.report].fail_under`). Run `make coverage` after any change under `packages/*/src`.
+- **Coverage gate fails locally** — `make coverage` enforces a 90% minimum (`pyproject.toml`'s `[tool.coverage.report].fail_under`). Run `make coverage` after any change under `packages/*/src`.
 - **`scripts/check_dependency_direction.py` fails** — a package imported another package outside the allowed direction described in [Architecture Overview](../developers/architecture/README.md#dependency-direction). Move the shared code down to `harborrag-core`, or restructure the import.

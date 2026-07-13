@@ -171,15 +171,8 @@ class TestWebsiteBuildSystem:
         """Test that favicon generation dependencies are available."""
         cairo_spec = importlib.util.find_spec("cairosvg")
         pil_spec = importlib.util.find_spec("PIL")
-        if cairo_spec is None or pil_spec is None:
-            missing = []
-            if cairo_spec is None:
-                missing.append("cairosvg")
-            if pil_spec is None:
-                missing.append("PIL")
-            pytest.skip(
-                f"Favicon generation dependencies not available: {', '.join(missing)}"
-            )
+        assert cairo_spec is not None
+        assert pil_spec is not None
 
     def test_coverage_template_has_required_elements(self):
         """Test that the coverage template has required elements."""

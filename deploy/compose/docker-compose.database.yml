@@ -9,6 +9,8 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
       - ../qdrant/config.yaml:/qdrant/config/config.yaml:ro
+    networks:
+      - harborrag-network
 
   falkordb:
     image: falkordb/falkordb:latest
@@ -16,6 +18,8 @@ services:
       - "6379:6379"
     volumes:
       - falkordb_data:/data
+    networks:
+      - harborrag-network
 
   redis:
     image: redis:7-alpine
@@ -23,8 +27,48 @@ services:
       - "6380:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - harborrag-network
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: rag-minio
+    profiles: ["object-minio"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin-change-me}
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - harborrag-network
+
+  pglite:
+    image: postgres:15-alpine
+    container_name: rag-postgres
+    profiles: ["object-pg"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-harborrag}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - harborrag-network
+
+networks:
+  harborrag-network:
 
 volumes:
   qdrant_data:
   falkordb_data:
   redis_data:
+  minio_data:
+  pg_data:

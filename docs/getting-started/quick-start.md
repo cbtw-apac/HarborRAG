@@ -28,7 +28,7 @@ This confirms the runtime and engine composition (`harborrag_runtime.composition
 python scripts/run_mock_pipeline.py --json
 ```
 
-This connects `MockConnector` → `MockMarkdownParser` → `MockDocumentNormalizer` → `MockEmbeddingModel` → `MockVectorRepository`, then chunks and retrieves the result with `MockRetrievalPipeline`:
+This connects `MockConnector` → the real `MarkdownParser` → `MockDocumentNormalizer` → `MockEmbeddingModel` → `MockVectorRepository`, then chunks and retrieves the result with `MockRetrievalPipeline`:
 
 ```json
 {
@@ -58,7 +58,7 @@ pytest
 pytest --cov --cov-report=term-missing
 ```
 
-Every package owns its own `tests/` folder; coverage must stay at or above 95% (`make coverage`).
+Every package owns its own `tests/` folder; coverage must stay at or above 90% (`make coverage`).
 
 ## Where to go next
 

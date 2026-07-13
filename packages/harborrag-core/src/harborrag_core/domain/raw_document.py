@@ -6,16 +6,16 @@ from typing import Any
 
 @dataclass(slots=True)
 class RawDocument:
+    """Raw connector payload before parser and normalizer stages."""
+
     id: str
     source: str
-    content: bytes | str
+    content: str | bytes
     content_type: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    raw: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] | None = None
 
-    def text(self) -> str:
-        return (
-            self.content.decode("utf-8", errors="replace")
-            if isinstance(self.content, bytes)
-            else self.content
-        )
+    def text(self, encoding: str = "utf-8") -> str:
+        if isinstance(self.content, str):
+            return self.content
+        return self.content.decode(encoding, errors="replace")

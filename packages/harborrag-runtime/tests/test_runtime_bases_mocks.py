@@ -9,10 +9,10 @@ from harborrag_runtime.local import run_sync
 from harborrag_runtime.schedules import ScheduleSpec
 from harborrag_runtime.scheduling.base import BaseScheduler
 from harborrag_runtime.scheduling.mock import MockScheduler
-from harborrag_runtime.services.base import BaseRuntimeService
 from harborrag_runtime.services.mock import MockRuntimeService
 from harborrag_runtime.supervision.base import BaseSupervisor
 from harborrag_runtime.supervision.mock import MockSupervisor
+from harborrag_runtime.supervisor import LocalSupervisor
 
 
 class BrokenJobStore(BaseJobStore):
@@ -33,14 +33,6 @@ class BrokenSupervisor(BaseSupervisor):
         return super().submit(job_id)
 
 
-class BrokenRuntimeService(BaseRuntimeService):
-    def diagnostics(self):
-        return super().diagnostics()
-
-    def run_mock_ingestion(self):
-        return super().run_mock_ingestion()
-
-
 def test_runtime_base_methods_raise():
     with pytest.raises(NotImplementedError):
         BrokenJobStore().save(JobState("j"))
@@ -50,32 +42,75 @@ def test_runtime_base_methods_raise():
         BrokenScheduler().add(ScheduleSpec("daily", "0 0 * * *"))
     with pytest.raises(NotImplementedError):
         BrokenSupervisor().submit("job")
-    with pytest.raises(NotImplementedError):
-        BrokenRuntimeService().diagnostics()
-    with pytest.raises(NotImplementedError):
-        BrokenRuntimeService().run_mock_ingestion()
 
 
-def test_runtime_mocks_and_composition():
+def test_implemented_runtime_components():
     job = JobState("job-1")
-    store = MockJobStore()
+    store = InMemoryJobStore()
     store.save(job)
+
     assert store.get("job-1") is job
-    in_memory = InMemoryJobStore()
-    in_memory.save(job)
-    assert in_memory.get("job-1") is job
-    assert in_memory.get("missing") is None
-    scheduler = MockScheduler()
-    scheduler.add(ScheduleSpec("hourly", "0 * * * *"))
-    assert scheduler.schedules[0].name == "hourly"
+    assert store.get("missing") is None
+    assert run_sync(lambda: 42) == 42
+    assert CompositionRoot.local().diagnostics()["engine"]["tenant"] == "default"
+
+
+def test_mock_job_store_supervisor_and_scheduler():
+    job_store = MockJobStore()
+    job = JobState("job-1")
+    job_store.save(job)
+    assert job_store.get("job-1") is job
+    assert job_store.get("missing") is None
+
     supervisor = MockSupervisor()
     supervisor.submit("job-1")
     assert supervisor.submitted == ["job-1"]
-    assert run_sync(lambda: 42) == 42
-    root = CompositionRoot.local()
-    assert root.diagnostics()["runtime"]["provider"] == "mock_runtime"
-    docs = root.mock_pipeline().run_once()
-    assert docs
+
+    scheduler = MockScheduler()
+    spec = ScheduleSpec("daily", "0 0 * * *")
+    scheduler.add(spec)
+    assert scheduler.schedules == [spec]
+
+
+def test_local_supervisor_tracks_running_jobs():
+    supervisor = LocalSupervisor()
+    supervisor.start("job-1")
+    assert "job-1" in supervisor.running_jobs
+    supervisor.finish("job-1")
+    assert "job-1" not in supervisor.running_jobs
+    supervisor.finish("never-started")
+
+
+def test_mock_runtime_service_diagnostics_and_ingestion():
     service = MockRuntimeService()
-    assert service.diagnostics()["ready"] is True
-    assert service.run_mock_ingestion()["documents"]
+
+    assert service.diagnostics() == {"provider": "mock_runtime", "ready": True}
+
+    result = service.run_mock_ingestion()
+
+    assert result["documents"] == ["mock://composition/1"]
+    assert result["summary"] == {
+        "discovered": 1,
+        "loaded": 1,
+        "parsed": 1,
+        "indexed": 0,
+    }
+
+
+def test_composition_root_mock_pipeline_runs_connector_through_parser():
+    root = CompositionRoot.local()
+    pipeline = root.mock_pipeline()
+
+    documents = pipeline.run_once()
+
+    assert [doc.id for doc in documents] == ["mock://composition/1"]
+    summary = pipeline.summarize()
+    assert (summary.discovered, summary.loaded, summary.parsed) == (1, 1, 1)
+
+
+def test_package_lazily_loads_composition_root_and_rejects_unknown_attrs():
+    import harborrag_runtime
+
+    assert harborrag_runtime.CompositionRoot is CompositionRoot
+    with pytest.raises(AttributeError, match="no attribute 'missing'"):
+        _ = harborrag_runtime.missing

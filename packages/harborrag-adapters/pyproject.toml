@@ -4,7 +4,27 @@ version = "0.1.0"
 description = "Provider adapters for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
-dependencies = ["harborrag-core==0.1.0"]
+dependencies = ["harborrag-core==0.1.0", "requests>=2.28.0"]
+
+[project.optional-dependencies]
+parsers = [
+    "beautifulsoup4>=4.12.0",
+    "defusedxml>=0.7.1",
+    "docx2txt>=0.9",
+    "openpyxl>=3.1.0",
+    "Pillow>=10.0.0",
+    "PyMuPDF>=1.24.0",
+    "pytesseract>=0.3.13",
+    "python-pptx>=1.0.0",
+    "xlrd>=2.0.1",
+]
+pdf = [
+    "PyMuPDF>=1.24.0",
+    "docling>=2.0.0",
+    "liteparse>=2.5.0",
+    "mineru[all]>=2.0.0",
+    "paddleocr>=3.0.0",
+]
 
 [build-system]
 requires = ["hatchling"]

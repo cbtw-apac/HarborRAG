@@ -51,3 +51,41 @@ def test_mcp_mock_tools_server_and_module_facade():
     assert call_tool("harbor_sample_retrieve", {"query": "rag"})["ok"] is True
     with pytest.raises(ValueError):
         call_tool("missing")
+
+
+def test_audit_log_records_tool_calls():
+    from harborrag_mcp.audit import McpAuditLog
+
+    log = McpAuditLog()
+    log.record("harbor_health_check")
+    log.record("harbor_sample_retrieve")
+
+    assert log.entries == [
+        {"tool": "harbor_health_check"},
+        {"tool": "harbor_sample_retrieve"},
+    ]
+
+
+def test_tool_policy_enforces_result_budget():
+    from harborrag_mcp.policy import McpToolPolicy
+
+    policy = McpToolPolicy(max_results=2)
+    policy.check_results(2)
+    with pytest.raises(ValueError, match="MCP result budget exceeded"):
+        policy.check_results(3)
+
+    default_policy = McpToolPolicy()
+    assert default_policy.max_results == 20
+    assert default_policy.allow_ingestion is False
+
+
+def test_tool_schema_builds_input_schema_stub():
+    from harborrag_mcp.schemas import tool_schema
+
+    schema = tool_schema("harbor_health_check", "Return diagnostics.")
+
+    assert schema == {
+        "name": "harbor_health_check",
+        "description": "Return diagnostics.",
+        "inputSchema": {"type": "object"},
+    }

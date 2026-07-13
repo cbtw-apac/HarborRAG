@@ -1,23 +1,52 @@
-from harborrag_core.contracts.ids import HarborId, stable_hash_id
-from harborrag_core.contracts.result import Result
-from harborrag_core.domain.document import HarborDocument
-from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.graph import GraphHint
-from harborrag_core.domain.metadata import DocumentMetadata
-from harborrag_core.domain.parsed_document import ParsedDocument, ParseQuality
-from harborrag_core.domain.provenance import DocumentProvenance
-from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.contracts.capabilities import CapabilityProfile
+from harborrag_core.contracts.errors import (
+    HarborConfigError,
+    HarborConnectionError,
+    HarborError,
+    HarborImportError,
+    HarborNotSupportedError,
+)
+from harborrag_core.contracts.schemas import FetchResult, Input, InputGet, Status
+from harborrag_core.domain import (
+    Chunk,
+    DataSourceType,
+    DocumentElement,
+    DocumentMetadata,
+    DocumentRelation,
+    HarborDocument,
+    RawDocument,
+    RetrievalQuery,
+    RetrievalResult,
+    SourceRecord,
+    Tenant,
+)
+from harborrag_core.observability.metrics import InMemoryMetrics
+from harborrag_core.security.redaction import redact_secrets
+from harborrag_core.security.url_policy import UrlPolicy
 
 __all__ = [
+    "CapabilityProfile",
+    "Chunk",
+    "DataSourceType",
     "DocumentElement",
     "DocumentMetadata",
-    "DocumentProvenance",
-    "GraphHint",
+    "DocumentRelation",
+    "FetchResult",
+    "HarborConfigError",
+    "HarborConnectionError",
     "HarborDocument",
-    "HarborId",
-    "ParsedDocument",
-    "ParseQuality",
+    "HarborError",
+    "HarborImportError",
+    "HarborNotSupportedError",
+    "InMemoryMetrics",
+    "Input",
+    "InputGet",
     "RawDocument",
-    "Result",
-    "stable_hash_id",
+    "RetrievalQuery",
+    "RetrievalResult",
+    "SourceRecord",
+    "Status",
+    "Tenant",
+    "UrlPolicy",
+    "redact_secrets",
 ]
