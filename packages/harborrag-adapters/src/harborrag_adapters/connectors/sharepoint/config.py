@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from harborrag_adapters.connectors.utils.helpers import (
     validate_http_tuning,
+    validate_https_url,
     validate_non_negative_limit,
 )
 
@@ -53,6 +54,7 @@ class SharePointSiteConfig:
     def __post_init__(self) -> None:
         """Resolve site/auth shortcuts and validate paging and size limits."""
         self.graph_api_url = self.graph_api_url.rstrip("/")
+        validate_https_url("graph_api_url", self.graph_api_url)
         self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")
         self.tenant_id = self.tenant_id or os.getenv("MICROSOFT_TENANT_ID")
         self.client_id = self.client_id or os.getenv("MICROSOFT_CLIENT_ID")

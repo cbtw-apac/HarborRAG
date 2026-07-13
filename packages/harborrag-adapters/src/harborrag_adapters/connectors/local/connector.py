@@ -52,8 +52,8 @@ class LocalFileConnector(BaseConnector):
         """Discover files under the configured source path or explicit paths."""
         query = query or ConnectorQuery()
         yielded = 0
-        for path in self._files.files_from_query(query):
-            yield self._files.source_record(path)
+        for path, is_symlink in self._files.files_from_query(query):
+            yield self._files.source_record(path, is_symlink=is_symlink)
             yielded += 1
             if query.limit is not None and yielded >= query.limit:
                 return
@@ -68,7 +68,7 @@ class LocalFileConnector(BaseConnector):
         try:
             stat = path.stat()
             self._files.enforce_size_limit(path, stat.st_size)
-            content = path.read_bytes()
+            content = self._files.read_capped_bytes(path)
         except OSError as exc:
             raise FetchError(f"Could not read local file {path}: {exc}") from exc
 
@@ -76,6 +76,7 @@ class LocalFileConnector(BaseConnector):
             path,
             root_path=self.root_path,
             checksum=sha256_file(path),
+            is_symlink=bool(record.metadata.get("is_symlink", False)),
         )
 
         return RawDocument(

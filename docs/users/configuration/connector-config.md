@@ -52,7 +52,7 @@ from harborrag_runtime.config import load_connector_catalog
 catalog = load_connector_catalog("config/connectors.yaml")
 
 # Build one connector, even if its definition is disabled.
-github = catalog.build("engineering-github")
+local_docs = catalog.build("local-docs")
 
 # Build only definitions with enabled: true.
 enabled_connectors = catalog.build_enabled()

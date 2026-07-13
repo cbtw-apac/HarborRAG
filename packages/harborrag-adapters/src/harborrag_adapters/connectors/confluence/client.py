@@ -26,11 +26,9 @@ class ConfluenceClient(Protocol):
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return a decoded Confluence response object."""
-        pass
 
     def download_bytes(self, url: str) -> bytes | None:
         """Download bytes from a trusted Confluence URL."""
-        pass
 
 
 class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):

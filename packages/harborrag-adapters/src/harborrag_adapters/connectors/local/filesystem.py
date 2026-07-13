@@ -31,6 +31,8 @@ from .utils import (
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
+_READ_CHUNK_SIZE = 1024 * 1024
+
 
 class LocalFileSystem:
     """Filesystem traversal, filtering, and scope enforcement for local files."""
@@ -45,21 +47,22 @@ class LocalFileSystem:
             self.source_path.parent if self.source_path.is_file() else self.source_path
         )
 
-    def files_from_query(self, query: ConnectorQuery) -> Iterator[Path]:
-        """Yield resolved files from explicit query paths or source traversal."""
+    def files_from_query(self, query: ConnectorQuery) -> Iterator[tuple[Path, bool]]:
+        """Yield resolved files (with pre-resolution symlink provenance)."""
         file_paths = file_paths_from_query(query)
         if file_paths:
             for path in file_paths:
+                is_symlink = Path(path).is_symlink()
                 resolved = self.resolve_candidate(path)
                 if self.should_process_file(resolved, query):
-                    yield resolved
+                    yield resolved, is_symlink
             return
 
         start_path = self.start_path(query)
         logger.info("Discovering local files under %s", start_path)
-        for path in self.iter_files(start_path, query=query):
+        for path, is_symlink in self.iter_files(start_path, query=query):
             if self.should_process_file(path, query):
-                yield path
+                yield path, is_symlink
 
     def iter_files(
         self,
@@ -68,15 +71,15 @@ class LocalFileSystem:
         query: ConnectorQuery,
         depth: int = 0,
         seen_dirs: set[Path] | None = None,
-    ) -> Iterator[Path]:
-        """Yield candidate files while respecting recursion and symlink policy."""
+    ) -> Iterator[tuple[Path, bool]]:
+        """Yield candidate files (with symlink provenance) respecting recursion and symlink policy."""
         if start_path.is_symlink() and not self.config.follow_symlinks:
             return
         if not self.within_source_scope(start_path):
             logger.warning("Skipping local path outside source scope %s", start_path)
             return
         if start_path.is_file():
-            yield start_path
+            yield start_path, start_path.is_symlink()
             return
         if not start_path.is_dir():
             raise DocumentProcessingError(
@@ -103,7 +106,8 @@ class LocalFileSystem:
             return
 
         for entry in entries:
-            if entry.is_symlink() and not self.config.follow_symlinks:
+            is_symlink_entry = entry.is_symlink()
+            if is_symlink_entry and not self.config.follow_symlinks:
                 continue
             if not self.config.include_hidden and is_hidden_path(entry, self.root_path):
                 continue
@@ -131,7 +135,7 @@ class LocalFileSystem:
                         entry,
                     )
                     continue
-                yield resolved
+                yield resolved, is_symlink_entry
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
         """Apply local connector filters to one candidate path."""
@@ -140,7 +144,9 @@ class LocalFileSystem:
         if not self.config.follow_symlinks and self.has_symlink_component(path):
             return False
         if not self.within_source_scope(path):
-            raise ValueError(f"Local path is outside configured source scope: {path}")
+            raise DocumentProcessingError(
+                f"Local path is outside configured source scope: {path}"
+            )
         if not self.config.include_hidden and is_hidden_path(path, self.root_path):
             return False
 
@@ -217,18 +223,44 @@ class LocalFileSystem:
                 f"max_file_size_bytes {self.config.max_file_size_bytes}"
             )
 
-    def source_record(self, path: Path) -> SourceRecord:
+    def read_capped_bytes(self, path: Path) -> bytes:
+        """Read a file while re-enforcing max_file_size_bytes during the read.
+
+        A stat-then-read size check leaves a window where the file can grow
+        between the two calls, so ``load()`` would materialize an unbounded
+        file despite the earlier check. Re-checking the size incrementally
+        while reading closes that race.
+        """
+        limit = self.config.max_file_size_bytes
+        if limit is None:
+            return path.read_bytes()
+        buffer = bytearray()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(_READ_CHUNK_SIZE)
+                if not chunk:
+                    break
+                buffer.extend(chunk)
+                if len(buffer) > limit:
+                    raise DocumentProcessingError(
+                        f"Local file {path} exceeds max_file_size_bytes {limit}"
+                    )
+        return bytes(buffer)
+
+    def source_record(self, path: Path, *, is_symlink: bool) -> SourceRecord:
         """Build a lightweight source record for a discovered file."""
         return build_source_record(
             path,
             root_path=self.root_path,
             checksum=self.checksum(path),
+            is_symlink=is_symlink,
         )
 
     def record_for_path(self, path: str | Path) -> SourceRecord:
         """Resolve a caller-provided path and return its source record."""
+        is_symlink = Path(path).is_symlink()
         resolved = self.resolve_candidate(path)
-        return self.source_record(resolved)
+        return self.source_record(resolved, is_symlink=is_symlink)
 
     def checksum(self, path: Path) -> str | None:
         """Return the configured change-detection signature for a file."""
@@ -250,10 +282,14 @@ class LocalFileSystem:
         if not candidate.is_absolute():
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
-            raise ValueError(f"Local symlinks are disabled for source scope: {value}")
+            raise DocumentProcessingError(
+                f"Local symlinks are disabled for source scope: {value}"
+            )
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
-            raise ValueError(f"Local path is outside configured source scope: {value}")
+            raise DocumentProcessingError(
+                f"Local path is outside configured source scope: {value}"
+            )
         return resolved
 
     def within_source_scope(self, path: Path) -> bool:

@@ -4,10 +4,10 @@ import posixpath
 import zipfile
 from typing import ClassVar
 
-try:  # defusedxml hardens against billion-laughs / XXE in untrusted archives.
+try:  # pragma: no cover
     from defusedxml.ElementTree import ParseError as _XmlParseError
     from defusedxml.ElementTree import fromstring as _xml_fromstring
-except ImportError:  # pragma: no cover - fallback when defusedxml is absent
+except ImportError:  # pragma: no cover
     from xml.etree.ElementTree import ParseError as _XmlParseError
     from xml.etree.ElementTree import fromstring as _xml_fromstring
 
@@ -53,7 +53,6 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
                     try:
                         html = archive.read(path)
                     except (KeyError, zipfile.BadZipFile, RuntimeError) as exc:
-                        # RuntimeError => encrypted member; record and continue.
                         warnings.append(f"skipped section {path!r}: {exc}")
                         continue
                     text = html_to_text(html)

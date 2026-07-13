@@ -27,8 +27,14 @@ def build_source_record(
     *,
     root_path: Path,
     checksum: str | None,
+    is_symlink: bool,
 ) -> SourceRecord:
-    """Convert a local file path into a lightweight source record."""
+    """Convert a local file path into a lightweight source record.
+
+    ``is_symlink`` must be captured by the caller before ``path`` is resolved —
+    traversal resolves symlinks to their real target, so ``path.is_symlink()``
+    here would always be ``False``.
+    """
     stat = path.stat()
     relative = relative_path(path, root_path)
     mime_type = guess_mime_type(path)
@@ -49,7 +55,7 @@ def build_source_record(
             "size": stat.st_size,
             "created_at": stat_datetime(stat.st_ctime),
             "accessed_at": stat_datetime(stat.st_atime),
-            "is_symlink": path.is_symlink(),
+            "is_symlink": is_symlink,
         },
     )
 
@@ -59,8 +65,13 @@ def build_document_metadata(
     *,
     root_path: Path,
     checksum: str,
+    is_symlink: bool,
 ) -> LocalFileMetadata:
-    """Build parsed provenance metadata for a loaded local file."""
+    """Build parsed provenance metadata for a loaded local file.
+
+    ``is_symlink`` must be captured by the caller before ``path`` is resolved;
+    see :func:`build_source_record`.
+    """
     stat = path.stat()
     return LocalFileMetadata(
         source_system="local",
@@ -74,5 +85,5 @@ def build_document_metadata(
         created_at=stat_datetime(stat.st_ctime),
         updated_at=stat_datetime(stat.st_mtime),
         accessed_at=stat_datetime(stat.st_atime),
-        is_symlink=path.is_symlink(),
+        is_symlink=is_symlink,
     )

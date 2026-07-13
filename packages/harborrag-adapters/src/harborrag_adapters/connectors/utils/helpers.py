@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from urllib.parse import urlparse
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 
@@ -11,6 +12,12 @@ def validate_non_negative_limit(name: str, value: int | None) -> None:
     """Validate optional size/count limits shared by connector configs."""
     if value is not None and value < 0:
         raise ValueError(f"{name} must be greater than or equal to 0")
+
+
+def validate_https_url(name: str, value: str) -> None:
+    """Require an HTTPS origin for connector URLs that carry credentials."""
+    if urlparse(value).scheme != "https":
+        raise ValueError(f"{name} must be an https URL")
 
 
 def validate_http_tuning(

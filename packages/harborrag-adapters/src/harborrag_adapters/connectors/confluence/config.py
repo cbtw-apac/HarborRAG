@@ -15,6 +15,7 @@ from harborrag_adapters.connectors.shared.attachments import (
 from harborrag_adapters.connectors.utils.helpers import (
     DEFAULT_MAX_NESTED_ITEMS,
     validate_http_tuning,
+    validate_https_url,
     validate_non_negative_limit,
 )
 
@@ -55,6 +56,7 @@ class ConfluenceSpaceConfig:
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
+    max_child_pages: int | None = DEFAULT_MAX_NESTED_ITEMS
     fail_on_error: bool = False
     requests_per_minute: int = 60
     page_size: int = 25
@@ -65,6 +67,7 @@ class ConfluenceSpaceConfig:
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
+        validate_https_url("base_url", self.base_url)
         self.space_key = validate_token(
             str(self.space_key).strip(), field_name="space key"
         )
@@ -102,6 +105,7 @@ class ConfluenceSpaceConfig:
         )
         validate_non_negative_limit("max_comments", self.max_comments)
         validate_non_negative_limit("max_attachments", self.max_attachments)
+        validate_non_negative_limit("max_child_pages", self.max_child_pages)
         validate_http_tuning(
             requests_per_minute=self.requests_per_minute,
             request_timeout_seconds=self.request_timeout_seconds,

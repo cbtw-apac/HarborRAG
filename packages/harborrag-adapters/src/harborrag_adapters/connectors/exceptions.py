@@ -1,3 +1,20 @@
+from urllib.parse import urlparse, urlunparse
+
+
+def _redact_url(url: str) -> str:
+    """Strip userinfo, query, and fragment before a URL reaches an error message.
+
+    Kept local (not imported from ``connectors.utils.http``) because that
+    module's package imports back from this one, which would create a
+    circular import.
+    """
+    parsed = urlparse(url)
+    netloc = parsed.hostname or ""
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunparse((parsed.scheme, netloc, parsed.path, "", "", ""))
+
+
 class ConnectorError(Exception):
     """Base exception for connector errors."""
 
@@ -36,4 +53,7 @@ class HTTPRequestError(ConnectorError):
         self.url = url
         self.status_code = status_code
         self.message = message
-        super().__init__(f"HTTP request failed for {url}: {message or 'Unknown error'}")
+        safe_url = _redact_url(url)
+        super().__init__(
+            f"HTTP request failed for {safe_url}: {message or 'Unknown error'}"
+        )

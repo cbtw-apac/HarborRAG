@@ -53,7 +53,7 @@ services:
     profiles: ["object-pg"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-harborrag}
     ports:
       - "5432:5432"

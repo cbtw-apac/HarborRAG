@@ -136,7 +136,7 @@ def test_discover_rejects_paths_outside_source_scope(tmp_path: Path):
     outside = write_file(tmp_path / "outside.md")
     connector = LocalFileConnector(config(source_root))
 
-    with pytest.raises(ValueError, match="outside configured source scope"):
+    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
         list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
 
 
@@ -159,7 +159,7 @@ def test_discover_rejects_direct_symlink_when_symlinks_disabled(
             lambda path: Path(path) == link or original(path),
         )
 
-    with pytest.raises(ValueError, match="symlinks are disabled"):
+    with pytest.raises(DocumentProcessingError, match="symlinks are disabled"):
         list(connector.discover(ConnectorQuery(filters={"file_paths": [link]})))
 
 
@@ -624,6 +624,28 @@ def test_enforce_size_limit_noop_without_configured_limit(tmp_path: Path):
     files.enforce_size_limit(path, 10_000_000)
 
 
+def test_read_capped_bytes_returns_content_within_limit(tmp_path: Path):
+    path = write_file(tmp_path / "a.txt", b"hello")
+    files = LocalFileSystem(config(tmp_path, max_file_size_bytes=10))
+    assert files.read_capped_bytes(path) == b"hello"
+
+
+def test_read_capped_bytes_ignores_limit_when_not_configured(tmp_path: Path):
+    path = write_file(tmp_path / "a.txt", b"hello")
+    files = LocalFileSystem(config(tmp_path, max_file_size_bytes=None))
+    assert files.read_capped_bytes(path) == b"hello"
+
+
+def test_read_capped_bytes_raises_when_content_exceeds_limit_during_read(
+    tmp_path: Path,
+):
+    path = write_file(tmp_path / "big.txt", b"0123456789")
+    files = LocalFileSystem(config(tmp_path, max_file_size_bytes=5))
+
+    with pytest.raises(DocumentProcessingError, match="exceeds max_file_size_bytes"):
+        files.read_capped_bytes(path)
+
+
 def test_checksum_mode_none_returns_no_checksum(tmp_path: Path):
     path = write_file(tmp_path / "a.txt")
     files = LocalFileSystem(config(tmp_path, checksum_mode="none"))
@@ -654,14 +676,14 @@ def test_discover_stops_at_limit(tmp_path: Path):
 def test_load_raises_fetch_error_on_read_failure(tmp_path: Path, monkeypatch):
     path = write_file(tmp_path / "secret.md")
     resolved_path = os.path.realpath(str(path))
-    original_read_bytes = Path.read_bytes
+    original_open = Path.open
 
     def maybe_raise(self, *args, **kwargs):
         if os.path.realpath(str(self)) == resolved_path:
             raise OSError("permission denied")
-        return original_read_bytes(self, *args, **kwargs)
+        return original_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", maybe_raise)
+    monkeypatch.setattr(Path, "open", maybe_raise)
     connector = LocalFileConnector(config(tmp_path))
 
     with pytest.raises(FetchError, match="Could not read local file"):
@@ -780,7 +802,7 @@ def test_should_process_file_raises_for_path_outside_source_scope(tmp_path: Path
     outside = write_file(tmp_path / "outside.md")
     files = LocalFileSystem(config(source_root))
 
-    with pytest.raises(ValueError, match="outside configured source scope"):
+    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
         files.should_process_file(outside, ConnectorQuery())
 
 

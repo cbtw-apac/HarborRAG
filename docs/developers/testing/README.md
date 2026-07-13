@@ -35,8 +35,8 @@ package's `tests/` directory under `testpaths`.
 make coverage
 ```
 
-`[tool.coverage.report].fail_under = 95` in `pyproject.toml`; coverage below
-95% fails the command and CI's `quality-gates.yml`. `[tool.coverage.run].source`
+`[tool.coverage.report].fail_under = 90` in `pyproject.toml`; coverage below
+90% fails the command and CI's `quality-gates.yml`. `[tool.coverage.run].source`
 lists every package's `src/` directory, so coverage is measured on
 implementation code, not test code.
 

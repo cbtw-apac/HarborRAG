@@ -5,8 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_adapters.connectors.utils.helpers import extend_with_limit
+from harborrag_adapters.connectors.utils.helpers import (
+    enforce_collection_limit,
+    extend_with_limit,
+)
 
 from .client import ConfluenceClient
 from .config import ConfluenceSpaceConfig
@@ -31,6 +35,7 @@ class ConfluenceContentAPI:
     def search(self, cql: str) -> Iterator[dict[str, Any]]:
         """Iterate CQL results across Cloud cursor and Data Center start paging."""
         cursor: str | None = None
+        seen_cursors: set[str] = set()
         paging_mode: str | None = None
         start = 0
         while True:
@@ -50,6 +55,12 @@ class ConfluenceContentAPI:
             next_url = response.get("_links", {}).get("next")
             next_cursor = extract_cursor(next_url)
             if next_cursor and paging_mode != "offset":
+                if next_cursor in seen_cursors:
+                    raise FetchError(
+                        f"Confluence search pagination did not advance for "
+                        f"cql={cql!r}: cursor {next_cursor!r} repeated"
+                    )
+                seen_cursors.add(next_cursor)
                 paging_mode = "cursor"
                 cursor = next_cursor
                 continue
@@ -154,33 +165,45 @@ class ConfluenceContentAPI:
         recursive: bool,
         seen: set[str],
     ) -> Iterator[str]:
-        """Traverse child page IDs without revisiting already emitted pages."""
-        content_id = validate_content_id(content_id)
-        start = 0
-        while True:
-            response = self.client.get_json(
-                f"content/{content_id}/child/page",
-                params={"limit": self.config.page_size, "start": start},
-            )
-            results = response.get("results", [])
-            for child in results:
-                child_id = str(child.get("id") or "")
-                if not child_id:
-                    continue
-                child_id = validate_content_id(child_id)
-                if child_id in seen:
-                    continue
-                seen.add(child_id)
-                yield child_id
-                if recursive:
-                    yield from self.child_page_ids(
-                        child_id,
-                        recursive=True,
-                        seen=seen,
+        """Traverse child page IDs iteratively, bounded by max_child_pages.
+
+        An explicit stack replaces recursive generator delegation so a deep or
+        broad page hierarchy cannot grow the Python call stack or raise
+        RecursionError; ``max_child_pages`` caps the total discovery count.
+        """
+        root_id = validate_content_id(content_id)
+        stack = [root_id]
+        discovered = 0
+        while stack:
+            current_id = stack.pop()
+            start = 0
+            while True:
+                response = self.client.get_json(
+                    f"content/{current_id}/child/page",
+                    params={"limit": self.config.page_size, "start": start},
+                )
+                results = response.get("results", [])
+                for child in results:
+                    child_id = str(child.get("id") or "")
+                    if not child_id:
+                        continue
+                    child_id = validate_content_id(child_id)
+                    if child_id in seen:
+                        continue
+                    seen.add(child_id)
+                    discovered += 1
+                    enforce_collection_limit(
+                        count=discovered,
+                        limit=self.config.max_child_pages,
+                        label=f"Confluence child pages for {root_id}",
+                        setting_name="max_child_pages",
                     )
-            if not _has_next_page(response, results, self.config.page_size):
-                return
-            start += len(results)
+                    yield child_id
+                    if recursive:
+                        stack.append(child_id)
+                if not _has_next_page(response, results, self.config.page_size):
+                    break
+                start += len(results)
 
 
 def _has_next_page(
