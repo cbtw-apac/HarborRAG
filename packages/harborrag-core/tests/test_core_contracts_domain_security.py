@@ -38,7 +38,13 @@ def test_schemas():
     assert Status.SUCCESS == "success"
     assert Status.FAILURE == "failure"
     assert issubclass(InputGet, Input)
-    assert FetchResult().message is None
+
+    fetch_result = FetchResult(status=Status.SUCCESS, result=42)
+    assert fetch_result.message is None
+    assert fetch_result.result == 42
+
+    input_get = InputGet(id="123")
+    assert input_get.id == "123"
 
 
 def test_capability_profile():
@@ -107,13 +113,41 @@ def test_security_and_observability_helpers():
     assert "xyz" not in redacted
     assert "hunter2" not in redacted
 
+    redacted = redact_secrets("secret=shh credential:cred123")
+    assert "shh" not in redacted
+    assert "cred123" not in redacted
+
+    redacted = redact_secrets("Authorization: Bearer abc.def.ghi")
+    assert "abc.def.ghi" not in redacted
+
+    redacted = redact_secrets(
+        "aws=AKIAABCDEFGHIJKLMNOP github=ghp_" + "a" * 36
+        + " openai=sk-" + "a" * 20 + " google=AIza" + "a" * 25
+        + " slack=xoxb-1234567890"
+    )
+    assert "AKIAABCDEFGHIJKLMNOP" not in redacted
+    assert "ghp_" + "a" * 36 not in redacted
+    assert "sk-" + "a" * 20 not in redacted
+    assert "AIza" + "a" * 25 not in redacted
+    assert "xoxb-1234567890" not in redacted
+
     UrlPolicy().validate("https://example.com")
     with pytest.raises(HarborConnectionError):
         UrlPolicy().validate("ftp://example.com")
     with pytest.raises(HarborConnectionError):
+        UrlPolicy().validate("file:///etc/passwd")
+    with pytest.raises(HarborConnectionError):
+        UrlPolicy().validate("javascript:alert(1)")
+    with pytest.raises(HarborConnectionError):
         UrlPolicy(denied_hosts={"blocked.local"}).validate(
             "https://blocked.local/a"
         )
+    with pytest.raises(HarborConnectionError):
+        UrlPolicy(denied_hosts={"169.254.169.254"}).validate(
+            "https://169.254.169.254/latest/meta-data/"
+        )
+    with pytest.raises(HarborConnectionError):
+        UrlPolicy(denied_hosts={"localhost"}).validate("https://localhost/admin")
 
     metrics = InMemoryMetrics()
     metrics.increment("items", provider="mock")

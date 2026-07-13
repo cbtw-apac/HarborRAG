@@ -55,6 +55,22 @@ def test_classify_pdf_suffix():
     )
 
 
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("notes.txt", (FileType.TEXT, "txt")),
+        ("page.html", (FileType.HTML, "html")),
+        ("image.png", (FileType.IMAGE, "png")),
+        ("data.json", (FileType.TEXT, "json")),
+        ("book.epub", (FileType.DOCUMENT, "epub")),
+    ],
+)
+def test_classify_routes_generic_mime_attachments_by_suffix(title, expected):
+    # Providers often report a generic/incorrect MIME type (application/
+    # octet-stream) for these formats; the suffix must still route correctly.
+    assert classify_attachment("application/octet-stream", title) == expected
+
+
 BASE_URL = "https://wiki.example.com"
 
 
@@ -147,6 +163,48 @@ def test_attachment_error_without_fail_on_error_marks_failed():
 
     assert result.status == "failed"
     assert "parser exploded" in result.reason
+
+
+def test_attachment_without_parser_or_matching_custom_parser_marks_failed():
+    # No general-purpose `parser` and no custom_parsers entry for this
+    # FileType: must fail the single attachment, not crash the whole batch.
+    processor = AttachmentProcessor(
+        download_fn=lambda url: b"hello world",
+        base_url=BASE_URL,
+    )
+    [result] = processor.process([_attachment()])
+
+    assert result.status == "failed"
+    assert "No parser configured" in result.reason
+
+
+def test_attachment_malformed_size_does_not_crash_the_batch():
+    processor = _text_processor()
+    [result] = processor.process([_attachment(size="not-a-number")])
+
+    assert result.status == "failed"
+
+
+def test_attachment_callback_exception_does_not_crash_the_batch():
+    def raising_callback(media_type: str, size_bytes: int, title: str):
+        raise RuntimeError("callback exploded")
+
+    processor = _text_processor(process_attachment_callback=raising_callback)
+    [result] = processor.process([_attachment()])
+
+    assert result.status == "failed"
+    assert "callback exploded" in result.reason
+
+
+def test_attachment_failure_reason_is_redacted():
+    def boom(content: bytes, ext: str) -> str:
+        raise RuntimeError("token=abc123secret")
+
+    processor = _text_processor(custom_parsers={FileType.TEXT: boom})
+    [result] = processor.process([_attachment()])
+
+    assert result.status == "failed"
+    assert "abc123secret" not in result.reason
 
 
 def test_attachment_cross_origin_download_url_rejected():

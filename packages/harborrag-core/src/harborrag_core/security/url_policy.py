@@ -8,7 +8,7 @@ from harborrag_core.contracts.errors import HarborConnectionError
 
 @dataclass(slots=True)
 class UrlPolicy:
-    allowed_schemes: set[str] = field(default_factory=lambda: {"http", "https", "file"})
+    allowed_schemes: set[str] = field(default_factory=lambda: {"http", "https"})
     denied_hosts: set[str] = field(default_factory=set)
 
     def validate(self, url: str) -> None:

@@ -114,9 +114,9 @@ class MinerUBackend(PdfBackend):
             base_dir = Path(self.options.output_dir)
             output_dir = base_dir / uuid.uuid4().hex
             output_dir.mkdir(parents=True, exist_ok=True)
-            command = self._command(executable, path, output_dir)
-            self._run(command)
             try:
+                command = self._command(executable, path, output_dir)
+                self._run(command)
                 content, output_files = self._read_output(output_dir)
             finally:
                 # `output_dir` only means "use this custom location", not

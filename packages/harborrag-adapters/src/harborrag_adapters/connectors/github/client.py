@@ -37,6 +37,10 @@ class GitHubClient(Protocol):
         """Return a decoded GitHub response object or object list."""
         ...
 
+    def close(self) -> None:
+        """Release any HTTP resources held by the client."""
+        ...
+
 
 class _RequestsGitHubClient:
     """Authenticated, rate-limited GitHub REST client."""
@@ -54,6 +58,16 @@ class _RequestsGitHubClient:
             self.session.headers.update({"Authorization": f"Bearer {config.token}"})
         self._min_interval = 60.0 / config.requests_per_minute
         self._last_request_at = 0.0
+
+    def close(self) -> None:
+        """Close the underlying HTTP session."""
+        self.session.close()
+
+    def __enter__(self) -> _RequestsGitHubClient:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     def get_json(
         self,

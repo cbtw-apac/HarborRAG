@@ -78,4 +78,29 @@ Notes:
 When a file grows to cover multiple behaviors, split it by the thing under test:
 for example HTTP utility tests, attachment processing tests, PDF memoization
 tests, same-origin URL tests, and secret redaction tests should each live in
-their own file.
+their own file. Keep every file at or under 300 lines.
+
+`unit/` groups those files into subfolders by the thing under test, mirroring
+`src/harborrag_adapters/`:
+
+```text
+unit/
+  connectors/           registry, exceptions, and the HarborConnector facade
+    atlassian/          HTTP behavior shared by Confluence and JIRA clients
+    confluence/         Confluence connector + HTTP client
+    github/              GitHub connector + HTTP client
+    jira/                JIRA connector + HTTP client
+    local/               local filesystem connector
+    sharepoint/          SharePoint connector + HTTP client
+    shared/              cross-connector attachment processing
+    utils/               cross-connector HTTP/validation helpers
+  parsers/               parser routing, format parsers, and shared parser utils
+    pdf_engine/          PDF backend tests (docling, mineru, paddleocr, liteparse, pymupdf)
+  adapters/              top-level AdapterBuilder/AdapterRegistry wiring
+```
+
+Each provider folder holds its own `*_test_helpers.py` fixture module
+(fake clients, config builders) alongside the test files that use it — keep
+fixtures shared across providers only when the behavior under test is
+genuinely shared (e.g. `connectors/atlassian/`), not by importing another
+provider's helper module.

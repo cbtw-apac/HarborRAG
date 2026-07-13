@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Protocol
 
@@ -53,6 +54,7 @@ class _RequestsGraphClient:
         self.session.headers.update({"Accept": "application/json"})
         self._min_interval = 60.0 / config.requests_per_minute
         self._last_request_at = 0.0
+        self._rate_lock = threading.Lock()
         self._token: str | None = None
         self._token_expires_at = 0.0
 
@@ -139,26 +141,7 @@ class _RequestsGraphClient:
         if self._token and time.monotonic() < self._token_expires_at - 60:
             return self._token
 
-        token_url = (
-            f"https://login.microsoftonline.com/{self.config.tenant_id}"
-            "/oauth2/v2.0/token"
-        )
-        try:
-            response = self.session.post(
-                token_url,
-                data={
-                    "client_id": self.config.client_id,
-                    "client_secret": self.config.client_secret,
-                    "grant_type": "client_credentials",
-                    "scope": "https://graph.microsoft.com/.default",
-                },
-                timeout=self.config.request_timeout_seconds,
-            )
-        except requests.RequestException as exc:
-            raise AuthenticationError(str(exc)) from exc
-
-        if response.status_code >= 400:
-            raise AuthenticationError(safe_error_detail(response.text))
+        response = self._request_token()
         try:
             payload: object = response.json()
         except ValueError as exc:
@@ -177,6 +160,46 @@ class _RequestsGraphClient:
         )
         return self._token
 
+    def _request_token(self) -> requests.Response:
+        """POST for an OAuth token, retrying transient failures and 429/5xx."""
+        token_url = (
+            f"https://login.microsoftonline.com/{self.config.tenant_id}"
+            "/oauth2/v2.0/token"
+        )
+        last_error: Exception | None = None
+        for attempt in range(self.config.max_retries + 1):
+            try:
+                response = self.session.post(
+                    token_url,
+                    data={
+                        "client_id": self.config.client_id,
+                        "client_secret": self.config.client_secret,
+                        "grant_type": "client_credentials",
+                        "scope": "https://graph.microsoft.com/.default",
+                    },
+                    timeout=self.config.request_timeout_seconds,
+                )
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt == self.config.max_retries:
+                    raise AuthenticationError(str(exc)) from exc
+                self._sleep(attempt, exc)
+                continue
+
+            if response.status_code not in _RETRYABLE_STATUS:
+                if response.status_code >= 400:
+                    raise AuthenticationError(safe_error_detail(response.text))
+                return response
+            if attempt == self.config.max_retries:
+                raise AuthenticationError(safe_error_detail(response.text))
+
+            last_error = AuthenticationError(
+                f"Microsoft identity token request returned HTTP {response.status_code}"
+            )
+            self._sleep(attempt, last_error, response.headers)
+
+        raise AuthenticationError(str(last_error))
+
     def _api_url(self, endpoint: str) -> str:
         """Build a Graph API URL while rejecting cross-origin absolute URLs."""
         if endpoint.startswith(("http://", "https://")):
@@ -192,11 +215,12 @@ class _RequestsGraphClient:
 
     def _acquire(self) -> None:
         """Throttle requests according to the configured per-minute budget."""
-        now = time.monotonic()
-        wait = self._min_interval - (now - self._last_request_at)
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_at = time.monotonic()
+        with self._rate_lock:
+            now = time.monotonic()
+            wait = self._min_interval - (now - self._last_request_at)
+            if wait > 0:
+                time.sleep(wait)
+            self._last_request_at = time.monotonic()
 
     def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
         """Sleep before retrying, honoring provider retry headers when present."""

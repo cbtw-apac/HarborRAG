@@ -148,7 +148,13 @@ class ParseInput:
         except ImportError:
             pass
 
-        return data.decode("utf-8", errors="replace")
+        # No encoding could be determined with any confidence. Raising here
+        # (rather than silently substituting replacement characters) lets
+        # callers surface this as a parse failure instead of returning
+        # corrupted content that looks like it decoded successfully.
+        raise UnicodeDecodeError(
+            "utf-8", data, 0, len(data), "no encoding detected with confidence"
+        )
 
     def is_supported(self, supported_formats: Iterable[ParserFormat | str]) -> bool:
         suffix = self.suffix.lstrip(".")

@@ -10,6 +10,7 @@ from .base import BaseParser
 from .csv import CsvParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
+from .utils import guard_input_size
 
 parser_logger = get_parser_logger("json")
 
@@ -39,9 +40,10 @@ class JsonParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        source = parse_input.read_text()
+        guard_input_size(parse_input.read_bytes())
         data: Any
         try:
+            source = parse_input.read_text()
             if parse_input.suffix in {".jsonl", ".ndjson"}:
                 data = [
                     json.loads(line)
@@ -50,7 +52,7 @@ class JsonParser(BaseParser[ParseInput, ParsedDocument]):
                 ]
             else:
                 data = json.loads(source)
-        except (json.JSONDecodeError, RecursionError) as exc:
+        except (json.JSONDecodeError, RecursionError, UnicodeDecodeError) as exc:
             # RecursionError comes from adversarially deep nesting; both are
             # expected "bad document" outcomes, not internal bugs.
             parser_logger.warning(

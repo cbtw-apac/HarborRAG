@@ -88,10 +88,12 @@ class DoclingBackend(PdfBackend):
     def parse(self, input: ParseInput) -> PdfParseResult:
         """Convert a PDF through Docling and export the document content."""
 
-        converter = self._converter()
-
         with materialized_pdf_path(input) as path:
             raise_if_encrypted_pdf(path)
+            # Building a DocumentConverter loads hundreds of MB of layout/OCR
+            # models, so it must not run until *after* the cheap encryption
+            # check above has had a chance to reject the file.
+            converter = self._converter()
             try:
                 result = converter.convert(path, **self._convert_kwargs())
             except Exception as exc:  # noqa: BLE001 - external parser boundary
@@ -99,11 +101,14 @@ class DoclingBackend(PdfBackend):
 
         document = getattr(result, "document", result)
         content = self._export_document(document)
+        metadata = self._metadata(result)
+        warnings = metadata.get("docling_errors") or []
         return PdfParseResult(
             content=content,
             engine=self.name,
             elements=content_element(self.name, content),
-            metadata=self._metadata(result),
+            metadata=metadata,
+            warnings=warnings,
             raw=self._raw(document),
         )
 

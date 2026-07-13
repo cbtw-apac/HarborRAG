@@ -9,6 +9,8 @@ from http.client import HTTPResponse
 from typing import Protocol
 from urllib.parse import ParseResult, urlparse
 
+from harborrag_core.security.redaction import redact_secrets
+
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -35,12 +37,7 @@ def safe_error_detail(
     """Return a truncated, secret-redacted snippet of a response body."""
     if not text:
         return ""
-    try:
-        from harborrag_core.security.redaction import redact_secrets
-
-        text = redact_secrets(text)
-    except ImportError:  # pragma: no cover
-        pass
+    text = redact_secrets(text)
     text = text.strip().replace("\n", " ")
     if len(text) > limit:
         return f"{text[:limit]}… (truncated)"

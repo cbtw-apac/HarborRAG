@@ -10,7 +10,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import compact_text, guard_input_size, wrap_parse_errors
+from .utils import compact_text, guard_input_size, open_guarded_zip, wrap_parse_errors
 
 parser_logger = get_parser_logger("docx")
 
@@ -59,6 +59,7 @@ class DocxParser(BaseParser[ParseInput, ParsedDocument]):
                 ),
             )
             with wrap_parse_errors(self.parser_engine):
+                open_guarded_zip(source_bytes).close()
                 with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
                     tmp.write(source_bytes)
                     tmp_path = Path(tmp.name)

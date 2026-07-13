@@ -4,7 +4,7 @@ import re
 
 _LABELED_PATTERNS = [
     re.compile(
-        r"(?i)(api[_-]?key|token|secret|password)['\"]?\s*[:=]\s*"
+        r"(?i)(api[_-]?key|token|secret|password|credential)['\"]?\s*[:=]\s*"
         r"['\"]?([^\s,'\";}\]]+)"
     ),
     re.compile(

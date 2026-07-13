@@ -64,6 +64,12 @@ class GitHubConnector(BaseConnector):
         self.client = client or _RequestsGitHubClient(config)
         self._github = GitHubRepositoryAPI(config, self.client)
 
+    def close(self) -> None:
+        """Release the underlying GitHub HTTP client's resources."""
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Discover repository file records from explicit paths or tree walking."""
         query = query or ConnectorQuery()

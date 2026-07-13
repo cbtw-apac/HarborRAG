@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -10,15 +10,17 @@ class Status:
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
 
+@dataclass
 class Input:
     """Input schemas"""
-    pass
 
+@dataclass
 class InputGet(Input):
     """Input schema for a GET request"""
     id: str
 
-class FetchResult(ABC):
+@dataclass
+class FetchResult:
     """Fetch result schemas"""
     status: Status
     result: Any

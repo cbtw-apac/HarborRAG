@@ -81,21 +81,27 @@ class HarborParser:
         replace: bool = False,
     ) -> None:
         """Register a parser and all of its advertised route keys."""
+        if parser.name in self._by_name and not replace:
+            raise ValueError(f"Parser {parser.name!r} is already registered.")
+
+        # Preflight every route key before mutating any index, so a collision
+        # on a later suffix/content-type can't leave the parser partially
+        # registered.
+        route_indexes: list[tuple[dict[str, BaseParser[ParseInput, ParsedDocument]], str]] = [
+            (self._by_suffix, suffix) for suffix in parser.suffixes
+        ] + [
+            (self._by_content_type, content_type)
+            for content_type in parser.content_types
+        ]
+        for index, key in route_indexes:
+            self._check_key(index, key, parser, replace=replace)
+
         if parser.name in self._by_name:
-            if not replace:
-                raise ValueError(f"Parser {parser.name!r} is already registered.")
             self.unregister(parser.name)
 
-        self._register_key(self._by_name, parser.name, parser, replace=replace)
-        for suffix in parser.suffixes:
-            self._register_key(self._by_suffix, suffix, parser, replace=replace)
-        for content_type in parser.content_types:
-            self._register_key(
-                self._by_content_type,
-                content_type,
-                parser,
-                replace=replace,
-            )
+        self._by_name[parser.name] = parser
+        for index, key in route_indexes:
+            index[key] = parser
 
         self.parsers.append(parser)
 
@@ -253,14 +259,14 @@ class HarborParser:
         return suffix_route or content_type_route
 
     @staticmethod
-    def _register_key(
+    def _check_key(
         index: dict[str, BaseParser[ParseInput, ParsedDocument]],
         key: str,
         parser: BaseParser[ParseInput, ParsedDocument],
         *,
         replace: bool,
     ) -> None:
-        """Insert one route key while protecting existing parser ownership."""
+        """Validate one route key without mutating the index."""
         existing = index.get(key)
         if existing is not None and existing.name != parser.name and not replace:
             parser_logger.warning(
@@ -273,4 +279,3 @@ class HarborParser:
                 f"Parser route {key!r} is already registered to {existing.name!r}; "
                 "pass replace=True to override it."
             )
-        index[key] = parser

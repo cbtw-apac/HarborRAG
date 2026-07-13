@@ -39,7 +39,10 @@ class CsvParser(BaseParser[ParseInput, ParsedDocument]):
             ),
         )
         guard_input_size(parse_input.read_bytes())
-        text = parse_input.read_text()
+        try:
+            text = parse_input.read_text()
+        except UnicodeDecodeError as exc:
+            raise ParseError(f"Could not decode CSV input: {exc}") from exc
         sample = text[:4096]
         try:
             dialect = csv.Sniffer().sniff(sample)

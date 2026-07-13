@@ -6,8 +6,9 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .base import BaseParser
+from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import compact_text
+from .utils import compact_text, guard_input_size
 
 parser_logger = get_parser_logger("text")
 
@@ -88,7 +89,12 @@ class TextParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        content = compact_text(parse_input.read_text())
+        guard_input_size(parse_input.read_bytes())
+        try:
+            text = parse_input.read_text()
+        except UnicodeDecodeError as exc:
+            raise ParseError(f"Could not decode text input: {exc}") from exc
+        content = compact_text(text)
         elements = [
             DocumentElement(
                 id="text:0",

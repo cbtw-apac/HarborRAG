@@ -26,7 +26,7 @@ class ConnectorDefinition:
     name: str
     provider: str
     enabled: bool = True
-    settings: Mapping[str, Any] = field(default_factory=dict)
+    settings: Mapping[str, Any] = field(default_factory=dict, repr=False)
     setting_environment: Mapping[str, str] = field(default_factory=dict, repr=False)
     secret_environment: Mapping[str, str] = field(default_factory=dict, repr=False)
     base_directory: Path = field(default_factory=Path.cwd, repr=False)

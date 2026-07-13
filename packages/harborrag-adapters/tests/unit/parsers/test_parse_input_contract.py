@@ -24,9 +24,9 @@ def test_read_text_uses_confidence_detection_not_cp1252_mojibake() -> None:
     assert ParseInput(content=text.encode("utf-8")).read_text() == text
 
 
-def test_read_text_replaces_undecodable_bytes_as_last_resort() -> None:
-    out = ParseInput(content=b"\xff\xfe\x00bad\x81").read_text()
-    assert isinstance(out, str)
+def test_read_text_raises_on_undecodable_bytes_instead_of_replacing() -> None:
+    with pytest.raises(UnicodeDecodeError):
+        ParseInput(content=b"\xff\xfe\x00bad\x81").read_text()
 
 
 def test_coerce_shapes() -> None:

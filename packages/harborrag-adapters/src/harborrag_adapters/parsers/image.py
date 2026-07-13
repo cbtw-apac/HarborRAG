@@ -10,8 +10,11 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
+from .utils import guard_input_size
 
 parser_logger = get_parser_logger("image")
+
+DEFAULT_MAX_IMAGE_PIXELS = 100_000_000  # 100 megapixels decoded
 
 
 @dataclass(slots=True)
@@ -38,6 +41,7 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
     lang: str | None = None
     config: str = ""
     timeout: int | float | None = 60
+    max_pixels: int | None = DEFAULT_MAX_IMAGE_PIXELS
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         """Decode the image with Pillow, OCR it, and return extracted text."""
@@ -72,7 +76,20 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
                     ocr_lang=self.lang,
                 ),
             )
-            with Image.open(BytesIO(parse_input.read_bytes())) as image:
+            data = guard_input_size(parse_input.read_bytes())
+            with Image.open(BytesIO(data)) as image:
+                # Pillow's `open()` only reads the header, so the encoded size
+                # guard above doesn't bound the decoded pixel buffer. Check the
+                # dimensions before `.load()` actually decodes the image, since
+                # a small, highly-compressed file can still expand to an
+                # enormous in-memory bitmap.
+                width, height = image.size
+                pixel_count = width * height
+                if self.max_pixels is not None and pixel_count > self.max_pixels:
+                    raise ParseError(
+                        f"Image {width}x{height} ({pixel_count} pixels) exceeds "
+                        f"max_pixels {self.max_pixels}"
+                    )
                 image.load()
                 content = pytesseract.image_to_string(
                     image,
@@ -80,6 +97,8 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
                     config=self.config,
                     timeout=self.timeout,
                 ).strip()
+        except ParseError:
+            raise
         except (RuntimeError, OSError, ValueError) as exc:
             parser_logger.warning(
                 "Image OCR failed for %s: %s",

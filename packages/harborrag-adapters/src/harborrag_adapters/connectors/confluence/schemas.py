@@ -64,4 +64,9 @@ class ConfluenceMetadata:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize metadata for ``RawDocument.metadata``."""
-        return asdict(self)
+        payload = asdict(self)
+        for key in ("created_at", "updated_at"):
+            value = payload.get(key)
+            if isinstance(value, datetime):
+                payload[key] = value.isoformat()
+        return payload

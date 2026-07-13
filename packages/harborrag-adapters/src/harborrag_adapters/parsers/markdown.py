@@ -7,6 +7,7 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .base import BaseParser
+from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import guard_input_size
 
@@ -37,7 +38,10 @@ class MarkdownParser(BaseParser[ParseInput, ParsedDocument]):
             ),
         )
         guard_input_size(parse_input.read_bytes())
-        markdown = parse_input.read_text()
+        try:
+            markdown = parse_input.read_text()
+        except UnicodeDecodeError as exc:
+            raise ParseError(f"Could not decode Markdown input: {exc}") from exc
         elements = self._elements(markdown, parse_input.filename or "markdown")
         content = self._to_text(markdown)
         return ParsedDocument(

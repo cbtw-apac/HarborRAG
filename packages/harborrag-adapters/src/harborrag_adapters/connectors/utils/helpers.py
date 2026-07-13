@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+import math
 from collections.abc import Iterable
 from urllib.parse import urlparse
 
@@ -10,14 +12,22 @@ DEFAULT_MAX_NESTED_ITEMS = 1000
 
 def validate_non_negative_limit(name: str, value: int | None) -> None:
     """Validate optional size/count limits shared by connector configs."""
-    if value is not None and value < 0:
-        raise ValueError(f"{name} must be greater than or equal to 0")
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be an integer greater than or equal to 0")
 
 
 def validate_https_url(name: str, value: str) -> None:
     """Require an HTTPS origin for connector URLs that carry credentials."""
-    if urlparse(value).scheme != "https":
-        raise ValueError(f"{name} must be an https URL")
+    parsed = urlparse(value)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError(f"{name} must be an HTTPS URL without embedded credentials")
 
 
 def validate_http_tuning(
@@ -37,9 +47,10 @@ def validate_http_tuning(
     if (
         isinstance(request_timeout_seconds, bool)
         or not isinstance(request_timeout_seconds, (int, float))
+        or not math.isfinite(request_timeout_seconds)
         or request_timeout_seconds <= 0
     ):
-        raise ValueError("request_timeout_seconds must be greater than 0")
+        raise ValueError("request_timeout_seconds must be a finite number greater than 0")
     if (
         isinstance(max_retries, bool)
         or not isinstance(max_retries, int)
@@ -49,9 +60,12 @@ def validate_http_tuning(
     if (
         isinstance(backoff_factor, bool)
         or not isinstance(backoff_factor, (int, float))
+        or not math.isfinite(backoff_factor)
         or backoff_factor < 0
     ):
-        raise ValueError("backoff_factor must be greater than or equal to 0")
+        raise ValueError(
+            "backoff_factor must be a finite number greater than or equal to 0"
+        )
 
 
 def extend_with_limit[T](
@@ -63,7 +77,14 @@ def extend_with_limit[T](
     setting_name: str,
 ) -> None:
     """Append one page of nested API results while enforcing a max count."""
-    page = list(values)
+    if limit is None:
+        target.extend(values)
+        return
+    # Consume at most one item past the remaining allowance so a hostile or
+    # accidental unbounded page can't be materialized in full before the
+    # limit check runs.
+    remaining = max(limit - len(target), 0)
+    page = list(itertools.islice(values, remaining + 1))
     enforce_collection_limit(
         count=len(target) + len(page),
         limit=limit,

@@ -2,14 +2,8 @@ from __future__ import annotations
 
 import posixpath
 import zipfile
-from typing import ClassVar
-
-try:  # pragma: no cover
-    from defusedxml.ElementTree import ParseError as _XmlParseError
-    from defusedxml.ElementTree import fromstring as _xml_fromstring
-except ImportError:  # pragma: no cover
-    from xml.etree.ElementTree import ParseError as _XmlParseError
-    from xml.etree.ElementTree import fromstring as _xml_fromstring
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -20,6 +14,32 @@ from .parser_logging import get_parser_logger, input_label, parser_log_extra
 from .utils import guard_input_size, html_to_text, open_guarded_zip
 
 parser_logger = get_parser_logger("epub")
+
+_xml_fromstring: Callable[[bytes], Any] | None = None
+_XmlParseError: type[BaseException] | None = None
+
+
+def _ensure_defusedxml() -> tuple[Callable[[bytes], Any], type[BaseException]]:
+    """Import defusedxml lazily, failing closed if it is not installed.
+
+    Falling back to ``xml.etree.ElementTree`` would parse untrusted EPUB
+    content with a parser known to be vulnerable to XML attacks (billion
+    laughs, external entity expansion). Requiring defusedxml keeps that
+    boundary closed instead of silently degrading.
+    """
+    global _xml_fromstring, _XmlParseError
+    if _xml_fromstring is None or _XmlParseError is None:
+        try:
+            from defusedxml.ElementTree import ParseError as xml_parse_error
+            from defusedxml.ElementTree import fromstring as xml_fromstring
+        except ImportError as exc:
+            raise ParseError(
+                "EPUB parsing requires `defusedxml`; install "
+                "`harborrag-adapters[parsers]` or `pip install defusedxml`."
+            ) from exc
+        _xml_fromstring = xml_fromstring
+        _XmlParseError = xml_parse_error
+    return _xml_fromstring, _XmlParseError
 
 
 class EpubParser(BaseParser[ParseInput, ParsedDocument]):
@@ -34,6 +54,7 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
         """Read EPUB HTML documents, convert them to text, and preserve section order."""
 
         parse_input = self.coerce_input(input)
+        _ensure_defusedxml()
         try:
             parser_logger.debug(
                 "Extracting EPUB text from %s",
@@ -93,14 +114,22 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
     def _document_paths(cls, archive: zipfile.ZipFile) -> list[str]:
         """Resolve content documents from the OPF spine with an HTML fallback."""
 
+        xml_fromstring, xml_parse_error = _ensure_defusedxml()
         names = set(archive.namelist())
-        opf_path = cls._opf_path(archive)
+        opf_path = cls._opf_path(archive, xml_fromstring, xml_parse_error)
         if opf_path is None:
             return cls._fallback_html_paths(names)
 
         try:
-            root = _xml_fromstring(archive.read(opf_path))
-        except _XmlParseError as exc:
+            root = xml_fromstring(archive.read(opf_path))
+        except KeyError as exc:
+            parser_logger.warning(
+                "EPUB package document %s referenced by container.xml is missing",
+                opf_path,
+                extra=parser_log_extra(parser_name=cls.parser_name, opf_path=opf_path),
+            )
+            raise ParseError(f"EPUB package document {opf_path!r} is missing") from exc
+        except xml_parse_error as exc:
             parser_logger.warning(
                 "Invalid EPUB package document in %s",
                 opf_path,
@@ -134,12 +163,17 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
         return ordered or cls._fallback_html_paths(names)
 
     @classmethod
-    def _opf_path(cls, archive: zipfile.ZipFile) -> str | None:
+    def _opf_path(
+        cls,
+        archive: zipfile.ZipFile,
+        xml_fromstring: Callable[[bytes], Any],
+        xml_parse_error: type[BaseException],
+    ) -> str | None:
         """Locate the package document declared by META-INF/container.xml."""
 
         try:
-            container = _xml_fromstring(archive.read("META-INF/container.xml"))
-        except (KeyError, _XmlParseError):
+            container = xml_fromstring(archive.read("META-INF/container.xml"))
+        except (KeyError, xml_parse_error):
             return None
 
         for node in container.iter():

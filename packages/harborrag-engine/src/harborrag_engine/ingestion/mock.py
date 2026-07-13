@@ -6,11 +6,10 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.models.embedding.base import BaseEmbeddingModel
 from harborrag_adapters.parsers.base import BaseParser
 from harborrag_adapters.repositories.vector.base import BaseVectorRepository
+from harborrag_core.domain.data_source import DataSourceType, DocumentMetadata
 from harborrag_core.domain.document import HarborDocument
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.metadata import DocumentMetadata
 from harborrag_core.domain.parser import ParsedDocument
-from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument
 
 from harborrag_engine.ingestion.base import (
@@ -21,20 +20,26 @@ from harborrag_engine.ingestion.base import (
 )
 
 
+def _document_text(document: HarborDocument) -> str:
+    """Join element content into one text blob for chunking/embedding."""
+    return "\n".join(
+        element.content for element in document.content if element.content
+    )
+
+
 class MockDocumentNormalizer(BaseDocumentNormalizer):
     def normalize(self, raw: RawDocument, parsed_text: str) -> HarborDocument:
         return HarborDocument(
             id=raw.id,
-            source=raw.source,
-            source_type=str(raw.metadata.get("source_type", "mock")),
-            content_type=raw.content_type,
             title=str(raw.metadata.get("title", raw.id)),
-            text=parsed_text,
-            metadata=DocumentMetadata(source_id=raw.id, source_system="mock"),
-            provenance=DocumentProvenance(connector_name="mock", parser_name="mock"),
-            elements=[
-                DocumentElement(id=f"{raw.id}:0", type="paragraph", text=parsed_text)
+            source_system=str(raw.metadata.get("source_type", "mock")),
+            content=[
+                DocumentElement(id=f"{raw.id}:0", type="paragraph", content=parsed_text)
             ],
+            content_type=raw.content_type,
+            metadata=DocumentMetadata(
+                source_system=DataSourceType.LOCAL_FILE, record_id=raw.id
+            ),
         )
 
 
@@ -43,9 +48,9 @@ class MockChunker(BaseChunker):
         self.chunk_size = chunk_size
 
     def chunk(self, document: HarborDocument) -> list[str]:
+        text = _document_text(document)
         return [
-            document.text[i : i + self.chunk_size]
-            for i in range(0, len(document.text), self.chunk_size)
+            text[i : i + self.chunk_size] for i in range(0, len(text), self.chunk_size)
         ] or [""]
 
 
@@ -71,16 +76,23 @@ class MockIngestionPipeline(BaseIngestionPipeline):
             parsed_count += 1
             documents.append(self.normalizer.normalize(raw, parsed.content))
         if self.embedder and self.vector_repository and documents:
-            vectors = self.embedder.embed([doc.text for doc in documents]).vectors
+            texts = [_document_text(doc) for doc in documents]
+            vectors = self.embedder.embed(texts).vectors
             self.vector_repository.upsert(
                 [
                     {
                         "id": doc.id,
-                        "text": doc.text,
+                        "text": text,
                         "vector": vector,
-                        "metadata": doc.vector_payload(),
+                        "metadata": {
+                            "title": doc.title,
+                            "source_system": doc.source_system,
+                            "content_type": doc.content_type,
+                        },
                     }
-                    for doc, vector in zip(documents, vectors, strict=True)
+                    for doc, text, vector in zip(
+                        documents, texts, vectors, strict=True
+                    )
                 ]
             )
             indexed = len(documents)

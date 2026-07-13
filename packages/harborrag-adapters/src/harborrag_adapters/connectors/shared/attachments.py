@@ -5,9 +5,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from harborrag_adapters.parsers import HarborParser, ParseInput
+from harborrag_core.security.redaction import redact_secrets
+
+from harborrag_adapters.parsers import ParseInput
+
+if TYPE_CHECKING:
+    from harborrag_adapters.parsers import HarborParser
 
 from ..utils.http import require_same_origin_url
 
@@ -75,6 +80,40 @@ MEDIA_TYPE_MAP: dict[str, tuple[FileType, str]] = {
 
 logger = logging.getLogger("harborrag.adapters.connectors.shared.attachments")
 
+_SUFFIX_TYPE_MAP: dict[str, tuple[FileType, str]] = {
+    "csv": (FileType.CSV, "csv"),
+    "tsv": (FileType.CSV, "tsv"),
+    "md": (FileType.MARKDOWN, "md"),
+    "markdown": (FileType.MARKDOWN, "markdown"),
+    "mdx": (FileType.MARKDOWN, "mdx"),
+    "pptx": (FileType.PRESENTATION, "pptx"),
+    "ppt": (FileType.PRESENTATION, "ppt"),
+    "docx": (FileType.DOCUMENT, "docx"),
+    "doc": (FileType.DOCUMENT, "doc"),
+    "epub": (FileType.DOCUMENT, "epub"),
+    "xlsx": (FileType.SPREADSHEET, "xlsx"),
+    "xls": (FileType.SPREADSHEET, "xls"),
+    "xlsm": (FileType.SPREADSHEET, "xlsm"),
+    "xlsb": (FileType.SPREADSHEET, "xlsb"),
+    "pdf": (FileType.PDF, "pdf"),
+    "html": (FileType.HTML, "html"),
+    "htm": (FileType.HTML, "htm"),
+    "xhtml": (FileType.HTML, "xhtml"),
+    "png": (FileType.IMAGE, "png"),
+    "jpg": (FileType.IMAGE, "jpg"),
+    "jpeg": (FileType.IMAGE, "jpeg"),
+    "webp": (FileType.IMAGE, "webp"),
+    "gif": (FileType.IMAGE, "gif"),
+    "bmp": (FileType.IMAGE, "bmp"),
+    "tiff": (FileType.IMAGE, "tiff"),
+    "svg": (FileType.SVG, "svg"),
+    "json": (FileType.TEXT, "json"),
+    "jsonl": (FileType.TEXT, "jsonl"),
+    "ndjson": (FileType.TEXT, "ndjson"),
+    "txt": (FileType.TEXT, "txt"),
+    "text": (FileType.TEXT, "text"),
+}
+
 
 def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | None:
     """Resolve an attachment category from filename suffix and media type.
@@ -84,18 +123,8 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
     more specific.
     """
     suffix = Path(title).suffix.lower().lstrip(".")
-    if suffix == "csv":
-        return FileType.CSV, "csv"
-    if suffix in {"md", "mdx"}:
-        return FileType.MARKDOWN, suffix
-    if suffix in {"pptx", "ppt"}:
-        return FileType.PRESENTATION, suffix
-    if suffix in {"docx", "doc"}:
-        return FileType.DOCUMENT, suffix
-    if suffix in {"xlsx", "xls", "xlsm", "xlsb"}:
-        return FileType.SPREADSHEET, suffix
-    if suffix == "pdf":
-        return FileType.PDF, "pdf"
+    if suffix in _SUFFIX_TYPE_MAP:
+        return _SUFFIX_TYPE_MAP[suffix]
     return MEDIA_TYPE_MAP.get(media_type)
 
 
@@ -122,10 +151,19 @@ class AttachmentProcessor:
         fail_on_error: bool = False,
         logger_: logging.Logger | None = None,
     ) -> None:
-        """Configure attachment download, parsing, limits, and error policy."""
+        """Configure attachment download, parsing, limits, and error policy.
+
+        ``parser`` should be an explicitly constructed/injected ``HarborParser``
+        (e.g. the runtime's profile-configured instance). This class never
+        constructs a default parser itself, since a silent default would
+        bypass runtime-configured PDF backends and parser policies. Passing
+        ``None`` is only safe when every attachment type is covered by
+        ``custom_parsers``; otherwise parsing an uncovered attachment raises
+        (caught by the per-attachment failure boundary below).
+        """
         self._download = download_fn
         self.base_url = base_url.rstrip("/")
-        self.parser = parser or HarborParser()
+        self.parser = parser
         self.custom_parsers = custom_parsers or {}
         self.process_attachment_callback = process_attachment_callback
         self.max_attachment_size_bytes = max_attachment_size_bytes
@@ -140,51 +178,56 @@ class AttachmentProcessor:
         attachment_id = str(attachment.get("id") or "")
         title = self._title(attachment)
         media_type = self._media_type(attachment)
-        size_bytes = self._size_bytes(attachment)
-        download_url = ""
 
         metadata = AttachmentMetadata(
             id=attachment_id,
             title=title,
             media_type=media_type,
-            size_bytes=size_bytes,
-            download_url=download_url,
+            size_bytes=0,
+            download_url="",
             status="skipped",
         )
         try:
-            metadata.download_url = self._download_url(attachment)
-        except ValueError as exc:
-            metadata.reason = str(exc)
-            return metadata
+            # Everything below (size/URL normalization, the caller callback,
+            # size limits, classification, download, and parsing) runs inside
+            # this one boundary so a malformed provider value or a raising
+            # callback degrades to a per-attachment failure instead of
+            # aborting every remaining attachment.
+            metadata.size_bytes = self._size_bytes(attachment)
 
-        if self.process_attachment_callback:
-            should_process, reason = self.process_attachment_callback(
-                media_type,
-                size_bytes,
-                title,
-            )
-            if not should_process:
-                metadata.reason = reason
+            try:
+                metadata.download_url = self._download_url(attachment)
+            except ValueError as exc:
+                metadata.reason = str(exc)
                 return metadata
 
-        if (
-            self.max_attachment_size_bytes is not None
-            and size_bytes > self.max_attachment_size_bytes
-        ):
-            metadata.reason = (
-                f"size {size_bytes} exceeds max_attachment_size_bytes "
-                f"{self.max_attachment_size_bytes}"
-            )
-            return metadata
+            if self.process_attachment_callback:
+                should_process, reason = self.process_attachment_callback(
+                    media_type,
+                    metadata.size_bytes,
+                    title,
+                )
+                if not should_process:
+                    metadata.reason = reason
+                    return metadata
 
-        classified = classify_attachment(media_type, title)
-        if classified is None:
-            metadata.status = "unsupported"
-            metadata.reason = f"no handler for media_type {media_type!r}"
-            return metadata
+            if (
+                self.max_attachment_size_bytes is not None
+                and metadata.size_bytes > self.max_attachment_size_bytes
+            ):
+                metadata.reason = (
+                    f"size {metadata.size_bytes} exceeds max_attachment_size_bytes "
+                    f"{self.max_attachment_size_bytes}"
+                )
+                return metadata
 
-        file_type, extension = classified
-        try:
+            classified = classify_attachment(media_type, title)
+            if classified is None:
+                metadata.status = "unsupported"
+                metadata.reason = f"no handler for media_type {media_type!r}"
+                return metadata
+            file_type, extension = classified
+
             content = self._download(metadata.download_url)
             if not content:
                 metadata.status = "failed"
@@ -202,7 +245,7 @@ class AttachmentProcessor:
 
             if file_type in self.custom_parsers:
                 text = self.custom_parsers[file_type](content, extension)
-            else:
+            elif self.parser is not None:
                 text = self.parser.parse(
                     ParseInput(
                         content=content,
@@ -210,21 +253,27 @@ class AttachmentProcessor:
                         content_type=media_type or None,
                     )
                 ).content
+            else:
+                raise ValueError(
+                    f"No parser configured for attachment type {file_type!r}; "
+                    "pass an explicit `parser` or a matching custom_parsers entry"
+                )
 
             metadata.status = "processed"
             metadata.text = text
             return metadata
         except Exception as exc:  # noqa: BLE001 - attachment boundary
+            safe_reason = redact_secrets(str(exc))
             self.logger.warning(
                 "Failed to process attachment %s (%s): %s",
                 title,
                 attachment_id,
-                exc,
+                safe_reason,
             )
             if self.fail_on_error:
                 raise
             metadata.status = "failed"
-            metadata.reason = str(exc)
+            metadata.reason = safe_reason
             return metadata
 
     @staticmethod

@@ -34,6 +34,21 @@ class BaseConnector(ABC):
         """
         return None
 
+    def close(self) -> None:
+        """Release any connector-owned resources (HTTP sessions, handles, etc.).
+
+        Most providers hold nothing beyond a lazily-created HTTP session.
+        Override this when a connector needs deterministic teardown so callers
+        can dispose of it via ``with`` or an explicit ``close()`` call.
+        """
+        return None
+
+    def __enter__(self) -> BaseConnector:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
     @abstractmethod
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Yield lightweight records that identify loadable source items."""
