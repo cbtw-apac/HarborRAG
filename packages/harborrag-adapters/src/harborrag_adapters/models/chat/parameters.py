@@ -11,8 +11,8 @@ from harborrag_core.models.errors import (
 )
 from pydantic import ValidationError
 
-from harborrag_core.models.common.litellm_backend import build_provider_params
-from harborrag_core.models.common.security import reveal_secret
+from harborrag_adapters.models.common.litellm_backend import build_provider_params
+from harborrag_adapters.models.common.security import reveal_secret
 from .configs import (
     HarborChatClientConfig,
     HarborChatModelConfig,

@@ -7,8 +7,8 @@ from harborrag_core.models.errors import (
 )
 from harborrag_core.models.rerank import HarborRerankRequest
 
-from harborrag_core.models.common.config import RoutingEngine
-from harborrag_core.models.common.transport import validate_base_url
+from harborrag_adapters.models.common.config import RoutingEngine
+from harborrag_adapters.models.common.transport import validate_base_url
 from .configs import (
     HarborRerankClientConfig,
     HarborRerankModelConfig,

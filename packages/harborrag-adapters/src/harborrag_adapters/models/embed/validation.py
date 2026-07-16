@@ -11,7 +11,7 @@ from harborrag_core.models.errors import (
     HarborEmbedInvalidRequestError,
 )
 
-from harborrag_core.models.common.transport import validate_base_url
+from harborrag_adapters.models.common.transport import validate_base_url
 from .configs import (
     HarborEmbedClientConfig,
     HarborEmbedModelConfig,

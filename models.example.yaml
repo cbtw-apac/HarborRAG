@@ -54,19 +54,19 @@ embed:
           max_batch_size: 128
 
 # Reranking always sends the complete candidate set to one deployment.
-rerank:
-  default_model: rerank-primary
-  models:
-    rerank-primary:
-      aliases: [retrieval-reranker]
-      default_params:
-        top_n: 10
-        return_documents: true
-      deployments:
-        - name: cohere-rerank
-          provider: cohere
-          model: cohere/rerank-v3.5
-          api_key: ${COHERE_API_KEY}
+# rerank:
+#   default_model: rerank-primary
+#   models:
+#     rerank-primary:
+#       aliases: [retrieval-reranker]
+#       default_params:
+#         top_n: 10
+#         return_documents: true
+#       deployments:
+#         - name: cohere-rerank
+#           provider: cohere
+#           model: cohere/rerank-v3.5
+#           api_key: ${COHERE_API_KEY}
 
 # Profiles are named, partial overlays on the base configuration above.
 # Select one with `from_file("models.example.yaml", profile="local")`.
@@ -80,6 +80,14 @@ profiles:
       default_model: local-chat
       models:
         local-chat:
-          provider: ollama
-          model: ollama/llama3.2
-          api_base: http://localhost:11434
+          provider: vllm
+          model: hosted_vllm/Qwen3.5-0.8B-int8-ov
+          api_base: http://localhost:8000/v3
+    embed:
+      default_model: local-embed
+      models:
+        local-embed:
+          provider: vllm
+          model: hosted_vllm/Qwen3-Embedding-0.6B-int8-ov
+          api_base: http://localhost:8001/v3
+          expected_dimensions: 1024

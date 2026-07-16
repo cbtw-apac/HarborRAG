@@ -18,8 +18,8 @@ from harborrag_core.models.errors import (
 )
 from pydantic import ValidationError
 
-from harborrag_core.models.common.litellm_backend import build_provider_params
-from harborrag_core.models.common.transport import reveal_headers
+from harborrag_adapters.models.common.litellm_backend import build_provider_params
+from harborrag_adapters.models.common.transport import reveal_headers
 from .configs import HarborEmbedClientConfig, HarborEmbedDefaults, HarborEmbedProviderConfig
 from .registry import EmbedProviderRegistry, HarborEmbedProvider
 from .validation import default_deployment, validate_embed_request

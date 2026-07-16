@@ -14,9 +14,9 @@ from harborrag_core.models.rerank import (
     RawRerankDocument,
 )
 
-from harborrag_core.models.common.cache import ModelResponseCache
-from harborrag_core.models.common.lifecycle import ResourceOwnership
-from harborrag_core.models.common.telemetry import TelemetryDispatcher
+from harborrag_adapters.models.common.cache import ModelResponseCache
+from harborrag_adapters.models.common.lifecycle import ResourceOwnership
+from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
 from .configs import HarborRerankClientConfig
 from .execution import RerankExecution
 from .invocation import LiteLLMRerankInvocation, RerankInvocation

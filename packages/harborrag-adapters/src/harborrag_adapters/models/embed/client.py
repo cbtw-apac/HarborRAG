@@ -9,11 +9,11 @@ from harborrag_core.models.protocols import (
     HarborEmbedClientProtocol,
 )
 
-from harborrag_core.models.common.cache import ModelResponseCache
-from harborrag_core.models.common.config import RoutingEngine
-from harborrag_core.models.common.lifecycle import ResourceOwnership
-from harborrag_core.models.common.litellm_router import build_litellm_router
-from harborrag_core.models.common.telemetry import TelemetryDispatcher
+from harborrag_adapters.models.common.cache import ModelResponseCache
+from harborrag_adapters.models.common.config import RoutingEngine
+from harborrag_adapters.models.common.lifecycle import ResourceOwnership
+from harborrag_adapters.models.common.litellm_router import build_litellm_router
+from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
 from .configs import HarborEmbedClientConfig
 from .execution import EmbedExecution
 from .invocation import (

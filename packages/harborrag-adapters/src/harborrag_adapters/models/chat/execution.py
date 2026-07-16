@@ -5,12 +5,12 @@ from typing import cast
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
 from harborrag_core.models.errors import HarborChatError
 
-from harborrag_core.models.common.cache import CacheDecision, ModelResponseCache, ResponseCacheController
-from harborrag_core.models.common.config import RoutingEngine
-from harborrag_core.models.common.execution import RoutedAttempt, RoutedModelExecutor
-from harborrag_core.models.common.litellm_router import router_model_name
-from harborrag_core.models.common.telemetry import TelemetryDispatcher, litellm_telemetry_metadata
-from harborrag_core.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_adapters.models.common.cache import CacheDecision, ModelResponseCache, ResponseCacheController
+from harborrag_adapters.models.common.config import RoutingEngine
+from harborrag_adapters.models.common.execution import RoutedAttempt, RoutedModelExecutor
+from harborrag_adapters.models.common.litellm_router import router_model_name
+from harborrag_adapters.models.common.telemetry import TelemetryDispatcher, litellm_telemetry_metadata
+from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .errors import normalize_exception

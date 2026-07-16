@@ -4,7 +4,7 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
-from harborrag_core.models.common.sync import run_awaitable_synchronously
+from harborrag_adapters.models.common.sync import run_awaitable_synchronously
 
 type CompletionCallable = Callable[..., Any]
 type AsyncCompletionCallable = Callable[..., Awaitable[Any]]

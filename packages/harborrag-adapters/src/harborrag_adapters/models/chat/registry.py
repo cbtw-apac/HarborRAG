@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from types import MappingProxyType
 
-from harborrag_core.models.common.provider import (
+from harborrag_adapters.models.common.provider import (
     ImmutableProviderRegistry,
     ProviderMetadata,
 )
@@ -20,6 +20,7 @@ class HarborProvider(StrEnum):
     GEMINI = "gemini"
     OLLAMA = "ollama"
     OPENAI_COMPATIBLE = "openai_compatible"
+    VLLM = "vllm"
     CUSTOM = "custom"
 
 
@@ -70,6 +71,13 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborProvider, ProviderDescriptor] = MappingProxy
         HarborProvider.OPENAI_COMPATIBLE: ProviderDescriptor(
             name=HarborProvider.OPENAI_COMPATIBLE,
             litellm_provider="openai",
+            required_fields=frozenset({"api_base"}),
+            requires_custom_base_url=True,
+            default_capabilities=frozenset({"chat", "streaming"}),
+        ),
+        HarborProvider.VLLM: ProviderDescriptor(
+            name=HarborProvider.VLLM,
+            litellm_provider="hosted_vllm",
             required_fields=frozenset({"api_base"}),
             requires_custom_base_url=True,
             default_capabilities=frozenset({"chat", "streaming"}),

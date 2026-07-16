@@ -7,12 +7,12 @@ from typing import cast
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
 from harborrag_core.models.errors import HarborEmbedError, HarborEmbedPartialBatchError
 
-from harborrag_core.models.common.cache import CacheDecision, ModelResponseCache, ResponseCacheController
-from harborrag_core.models.common.config import RoutingEngine
-from harborrag_core.models.common.execution import RoutedAttempt, RoutedModelExecutor
-from harborrag_core.models.common.litellm_router import router_model_name
-from harborrag_core.models.common.telemetry import TelemetryDispatcher, litellm_telemetry_metadata
-from harborrag_core.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_adapters.models.common.cache import CacheDecision, ModelResponseCache, ResponseCacheController
+from harborrag_adapters.models.common.config import RoutingEngine
+from harborrag_adapters.models.common.execution import RoutedAttempt, RoutedModelExecutor
+from harborrag_adapters.models.common.litellm_router import router_model_name
+from harborrag_adapters.models.common.telemetry import TelemetryDispatcher, litellm_telemetry_metadata
+from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
 from .configs import HarborEmbedClientConfig, HarborEmbedProviderConfig
 from .errors import normalize_exception
 from .invocation import EmbeddingInvocation

@@ -7,7 +7,7 @@ These tests call real chat, embedding, and reranking providers through the publi
 Copy the example file and add real credentials and model identifiers:
 
 ```bash
-cp .env.llm.example .env
+cp .env.models.example .env
 ```
 
 At minimum, configure the variables for each smoke test you intend to run. The default command runs all three clients, so all three groups must be configured.
