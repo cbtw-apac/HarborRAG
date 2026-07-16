@@ -223,7 +223,7 @@ exclude_lines = [
 
 [tool.ruff]
 target-version = "py312"
-line-length = 88
+line-length = 100
 src = [
     "packages",
     "tests",
@@ -260,6 +260,8 @@ ignore = [
 "__init__.py" = ["F401"]
 "tests/*" = ["B011", "B017"]
 "packages/*/tests/*" = ["B011", "B017"]
+"tests/*.py" = ["D101", "D103"]
+"tests/**/*.py" = ["D101", "D103"]
 
 [tool.uv]
 environments = [

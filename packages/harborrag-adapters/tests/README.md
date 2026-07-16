@@ -8,6 +8,8 @@ helpers; avoid catch-all files such as `test_performance.py`,
 ```text
 tests/
   smoke/        standalone real connector smoke scripts driven by repo-root .env
+                 (smoke/models/ is a pytest-based live suite for the chat/embed/rerank
+                 clients instead, gated behind --run-smoke; see smoke/models/README.md)
   unit/         hermetic parser, connector, base, registry, and test-double tests
   failure/      hermetic error normalization and recovery tests
   e2e/          local/fake-client public workflow tests
@@ -97,10 +99,19 @@ unit/
   parsers/               parser routing, format parsers, and shared parser utils
     pdf_engine/          PDF backend tests (docling, mineru, paddleocr, liteparse, pymupdf)
   adapters/              top-level AdapterBuilder/AdapterRegistry wiring
+  models/                chat/embed/rerank LiteLLM-backed model clients
+    chat/                chat, streaming, tools, normalization, errors, lifecycle
+    embed/               embedding client, batching, normalization
+    rerank/              reranking client and normalization
 ```
 
 Each provider folder holds its own `*_test_helpers.py` fixture module
 (fake clients, config builders) alongside the test files that use it — keep
 fixtures shared across providers only when the behavior under test is
 genuinely shared (e.g. `connectors/atlassian/`), not by importing another
-provider's helper module.
+provider's helper module. `models/` follows the same rule:
+`model_invocation_support.py` lives at `models/` because its injected SDK
+boundaries are shared by embedding and reranking tests. A `conftest.py` in a
+domain folder (e.g. `models/chat/conftest.py`)
+is only for `@pytest.fixture`-decorated fixtures that must be auto-injected;
+everything else is a plain importable helper.
