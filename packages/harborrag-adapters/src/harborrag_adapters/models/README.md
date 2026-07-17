@@ -237,10 +237,9 @@ native-schema, JSON-mode, and multimodal capabilities. The structured-output pol
 may allow JSON degradation or opt into prompt fallback, and repair attempts are
 strictly bounded. Image and text parts use the provider-neutral core content schemas.
 
-`AsyncHarborChatClient`, `AsyncHarborEmbedClient`, and
-`AsyncHarborRerankingClient` remain direct aliases for compatibility; each concrete
-client exposes both sync and async methods. Each logical model may contain multiple
-enabled deployments and ordered fallback references.
+Each family exposes one concrete client. The client provides both synchronous and
+asynchronous methods, so no duplicate `AsyncHarbor*` alias is exported. Each logical
+model may contain multiple enabled deployments and ordered fallback references.
 
 ## Embeddings
 

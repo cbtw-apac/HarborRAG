@@ -277,14 +277,33 @@ def disabled_telemetry(privacy: PrivacyConfig | None = None) -> TelemetryDispatc
 
 
 def litellm_telemetry_metadata(
-    *, request_id: str | None, operation: str, logical_model: str
+    *,
+    request_id: str | None,
+    operation: str,
+    logical_model: str,
+    request_metadata: object | None = None,
+    privacy: PrivacyConfig | None = None,
 ) -> dict[str, Any]:
-    """Build non-sensitive LiteLLM callback correlation metadata."""
+    """Build privacy-enforced LiteLLM callback and Proxy spend metadata."""
 
-    return {
-        "harborrag": {
-            "request_id": request_id,
-            "operation": operation,
-            "logical_model": logical_model,
-        }
+    policy = privacy or PrivacyConfig()
+    raw = (
+        request_metadata.model_dump(mode="python", exclude_none=True)
+        if isinstance(request_metadata, BaseModel)
+        else {}
+    )
+    sanitized = PrivacySanitizer(policy).metadata(raw)
+    harbor = {
+        **sanitized,
+        "request_id": request_id,
+        "operation": operation,
+        "logical_model": logical_model,
     }
+    result: dict[str, Any] = {"harborrag": harbor}
+    if policy.propagate_proxy_metadata:
+        result["trace_id"] = sanitized.get("trace_id")
+        result["session_id"] = sanitized.get("conversation_id")
+        if policy.propagate_user_identifiers:
+            result["user"] = sanitized.get("user_id")
+            result["tenant_id"] = sanitized.get("tenant_id")
+    return {key: value for key, value in result.items() if value is not None}

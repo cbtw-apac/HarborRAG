@@ -18,17 +18,35 @@ from .config import CacheBackend, CacheConfig
 class ModelResponseCache(Protocol):
     """Define the cache boundary accepted by all model clients."""
 
-    def get(self, key: str) -> BaseModel | None: ...
+    def get(self, key: str) -> BaseModel | None:
+        """Return a defensive response copy for an unexpired cache key."""
 
-    def set(self, key: str, value: BaseModel, ttl_seconds: int) -> None: ...
+        ...
 
-    async def aget(self, key: str) -> BaseModel | None: ...
+    def set(self, key: str, value: BaseModel, ttl_seconds: int) -> None:
+        """Store a defensive response copy for the requested TTL."""
 
-    async def aset(self, key: str, value: BaseModel, ttl_seconds: int) -> None: ...
+        ...
 
-    def close(self) -> None: ...
+    async def aget(self, key: str) -> BaseModel | None:
+        """Return a cached response through the asynchronous boundary."""
 
-    async def aclose(self) -> None: ...
+        ...
+
+    async def aset(self, key: str, value: BaseModel, ttl_seconds: int) -> None:
+        """Store a response through the asynchronous boundary."""
+
+        ...
+
+    def close(self) -> None:
+        """Release synchronous cache resources."""
+
+        ...
+
+    async def aclose(self) -> None:
+        """Release asynchronous cache resources."""
+
+        ...
 
 
 @dataclass(slots=True)
@@ -43,12 +61,16 @@ class InMemoryModelCache:
     """Store bounded, isolated response copies with monotonic TTL expiry."""
 
     def __init__(self, *, max_entries: int = 1_024, clock: Any = time.monotonic) -> None:
+        """Create a bounded cache using the supplied monotonic clock."""
+
         self._max_entries = max_entries
         self._clock = clock
         self._entries: dict[str, CacheEntry] = {}
         self._lock = RLock()
 
     def get(self, key: str) -> BaseModel | None:
+        """Return an isolated value when the entry exists and has not expired."""
+
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
@@ -59,6 +81,8 @@ class InMemoryModelCache:
             return entry.value.model_copy(deep=True)
 
     def set(self, key: str, value: BaseModel, ttl_seconds: int) -> None:
+        """Insert a defensive value copy and evict the oldest expiry when full."""
+
         with self._lock:
             self._purge_expired()
             if key not in self._entries and len(self._entries) >= self._max_entries:
@@ -70,16 +94,24 @@ class InMemoryModelCache:
             )
 
     async def aget(self, key: str) -> BaseModel | None:
+        """Delegate asynchronous reads to the thread-safe in-memory store."""
+
         return self.get(key)
 
     async def aset(self, key: str, value: BaseModel, ttl_seconds: int) -> None:
+        """Delegate asynchronous writes to the thread-safe in-memory store."""
+
         self.set(key, value, ttl_seconds)
 
     def close(self) -> None:
+        """Clear every cached value owned by this in-memory backend."""
+
         with self._lock:
             self._entries.clear()
 
     async def aclose(self) -> None:
+        """Clear every cached value through the asynchronous boundary."""
+
         self.close()
 
     def _purge_expired(self) -> None:
@@ -97,6 +129,8 @@ class CacheDecision:
 
     @property
     def allowed(self) -> bool:
+        """Return whether policy produced a usable cache key."""
+
         return self.key is not None
 
 
@@ -110,11 +144,15 @@ class ResponseCacheController:
         family: str,
         backend: ModelResponseCache | None = None,
     ) -> None:
+        """Bind cache policy to one model family and optional backend."""
+
         self.config = config
         self.family = family
         self.backend = backend or InMemoryModelCache(max_entries=config.max_entries)
 
     def decision(self, request: BaseModel, logical_model: str) -> CacheDecision:
+        """Evaluate sensitivity and tenant policy before generating a cache key."""
+
         if not self.config.enabled:
             return CacheDecision(None, "disabled")
         if not bool(getattr(request, "cacheable", False)):
@@ -135,24 +173,40 @@ class ResponseCacheController:
         return CacheDecision(key, "eligible")
 
     def get(self, decision: CacheDecision) -> BaseModel | None:
-        if self.config.backend is not CacheBackend.CUSTOM:
+        """Read from a custom cache only when the request is eligible."""
+
+        if self.config.backend not in {CacheBackend.CUSTOM, CacheBackend.REDIS}:
             return None
         return self.backend.get(decision.key) if decision.key is not None else None
 
     async def aget(self, decision: CacheDecision) -> BaseModel | None:
-        if self.config.backend is not CacheBackend.CUSTOM:
+        """Read asynchronously from a custom cache when eligible."""
+
+        if self.config.backend not in {CacheBackend.CUSTOM, CacheBackend.REDIS}:
             return None
         return await self.backend.aget(decision.key) if decision.key is not None else None
 
     def set(self, decision: CacheDecision, response: BaseModel) -> None:
-        if decision.key is not None and self.config.backend is CacheBackend.CUSTOM:
+        """Write an eligible response to the configured custom cache."""
+
+        if decision.key is not None and self.config.backend in {
+            CacheBackend.CUSTOM,
+            CacheBackend.REDIS,
+        }:
             self.backend.set(decision.key, response, self.config.ttl_seconds)
 
     async def aset(self, decision: CacheDecision, response: BaseModel) -> None:
-        if decision.key is not None and self.config.backend is CacheBackend.CUSTOM:
+        """Write an eligible response through the asynchronous cache boundary."""
+
+        if decision.key is not None and self.config.backend in {
+            CacheBackend.CUSTOM,
+            CacheBackend.REDIS,
+        }:
             await self.backend.aset(decision.key, response, self.config.ttl_seconds)
 
     def mark_hit(self, response: BaseModel, *, request_id: str | None) -> BaseModel:
+        """Return an isolated response annotated as a Harbor cache hit."""
+
         metadata = dict(getattr(response, "provider_metadata", {}))
         metadata["cache"] = {"backend": "harbor", "ttl_seconds": self.config.ttl_seconds}
         return response.model_copy(
@@ -162,6 +216,16 @@ class ResponseCacheController:
                 "request_id": request_id,
                 "provider_metadata": metadata,
             }
+        )
+
+    def mark_shared(self, response: BaseModel, *, request_id: str | None) -> BaseModel:
+        """Return an isolated response annotated as a single-flight follower result."""
+
+        metadata = dict(getattr(response, "provider_metadata", {}))
+        metadata["singleflight"] = {"shared": True}
+        return response.model_copy(
+            deep=True,
+            update={"request_id": request_id, "provider_metadata": metadata},
         )
 
     def provider_parameters(self, decision: CacheDecision) -> dict[str, Any]:

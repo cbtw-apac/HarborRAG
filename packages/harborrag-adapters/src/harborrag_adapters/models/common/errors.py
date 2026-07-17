@@ -9,6 +9,10 @@ from typing import Any
 from harborrag_core.models import errors as model_errors
 
 
+class HarborNoHealthyDeploymentError(model_errors.HarborModelError):
+    """Report that routing exhausted every healthy deployment and fallback."""
+
+
 class ModelErrorCategory(StrEnum):
     """Classify provider failures independently of a model family."""
 
@@ -136,18 +140,13 @@ def classify_model_exception(exc: Exception, *, provider: str | None = None) -> 
 
 
 def safe_provider_error_message(exc: Exception) -> str:
-    """Return a bounded error message with credential-looking content redacted."""
-    message = str(exc).strip() or type(exc).__name__
-    markers = (
-        "api_key",
-        "authorization:",
-        "bearer ",
-        "aws_secret_access_key",
-        "x-api-key",
-    )
-    if any(marker in message.lower() for marker in markers):
-        return f"{type(exc).__name__}: provider request failed; sensitive details were redacted"
-    return message[:2_000]
+    """Return a stable provider error summary without raw prompt or payload content."""
+
+    error_name = type(exc).__name__
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return f"{error_name}: provider request failed with status {status_code}"
+    return f"{error_name}: provider request failed"
 
 
 def _provider_request_id(exc: Exception) -> str | None:

@@ -13,12 +13,13 @@ from pydantic import ValidationError
 
 from harborrag_adapters.models.common.litellm_backend import build_provider_params
 from harborrag_adapters.models.common.security import reveal_secret
+
 from .configs import (
     HarborChatClientConfig,
     HarborChatModelConfig,
     HarborChatProviderConfig,
 )
-from .registry import HarborProvider, ProviderRegistry
+from .registry import HarborProvider
 from .validation import default_deployment, validate_chat_request
 
 _RESERVED_REQUEST_PARAMETERS = frozenset(
@@ -44,6 +45,7 @@ _RESERVED_REQUEST_PARAMETERS = frozenset(
         "user",
         "parallel_tool_calls",
         "response_format",
+        "reasoning_effort",
     }
 )
 
@@ -175,6 +177,7 @@ def build_litellm_parameters(
     timeout: float,
     stream: bool = False,
     model_override: str | None = None,
+    litellm_provider: str | None = None,
 ) -> dict[str, Any]:
     """Translate one Harbor request into LiteLLM completion parameters."""
 
@@ -187,7 +190,6 @@ def build_litellm_parameters(
             logical_model=request.logical_model,
             request_id=request.metadata.request_id,
         )
-    descriptor = ProviderRegistry.default().get(deployment.provider)
     provider_model = (
         f"azure/{deployment.deployment_name}"
         if deployment.provider is HarborProvider.AZURE_OPENAI and deployment.deployment_name
@@ -195,7 +197,7 @@ def build_litellm_parameters(
     )
     parameters = build_provider_params(
         deployment,
-        litellm_provider=descriptor.litellm_provider,
+        litellm_provider=litellm_provider,
         model=model_override or provider_model,
     )
     deployment_headers = parameters.pop("extra_headers", {})
@@ -215,6 +217,7 @@ def build_litellm_parameters(
         "stop": list(request.stop) if isinstance(request.stop, tuple) else request.stop,
         "seed": request.seed,
         "user": request.metadata.user_id,
+        "reasoning_effort": request.reasoning_effort,
     }
     parameters.update({name: value for name, value in optionals.items() if value is not None})
     if request.tools:

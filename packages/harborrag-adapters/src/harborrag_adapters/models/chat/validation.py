@@ -1,46 +1,113 @@
 from __future__ import annotations
 
-from harborrag_core.models.chat import (
-    HarborChatRequest,
-    InputAudioContentPart,
-    MessageRole,
-)
+from harborrag_core.models.chat import HarborChatRequest, InputAudioContentPart, MessageRole
 from harborrag_core.models.errors import (
     HarborChatCapabilityError,
     HarborChatConfigurationError,
     HarborChatInvalidRequestError,
 )
 
+from harborrag_adapters.models.common.config import RoutingEngine, RoutingStrategy
+from harborrag_adapters.models.common.provider_validation import (
+    validate_extension_parameters,
+    validate_provider_deployment,
+    validate_request_headers,
+)
 from harborrag_adapters.models.common.transport import validate_base_url
-from .configs import (
-    HarborChatClientConfig,
-    HarborChatModelConfig,
-    HarborChatProviderConfig,
+
+from .backend_config import ChatBackendType
+from .configs import HarborChatClientConfig, HarborChatModelConfig, HarborChatProviderConfig
+from .registry import HarborProvider, ProviderRegistry
+
+_CHAT_TYPED_EXTENSION_FIELDS = frozenset(
+    {
+        "max_completion_tokens",
+        "max_tokens",
+        "messages",
+        "parallel_tool_calls",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p",
+        "user",
+    }
 )
 
 
-def validate_chat_configuration(config: HarborChatClientConfig) -> None:
-    """Validate provider security and require an enabled route for every model."""
-    policy = config.security
+def validate_chat_configuration(
+    config: HarborChatClientConfig, registry: ProviderRegistry | None = None
+) -> None:
+    """Validate provider policy, credentials, endpoints, and enabled chat routes."""
+
+    backend_type = config.backend.resolved_type(config.routing.engine)
+    _validate_backend_routing(config, backend_type)
+    if (
+        config.routing.engine is RoutingEngine.LITELLM_ROUTER
+        and config.routing.strategy is RoutingStrategy.ROUND_ROBIN
+    ):
+        raise HarborChatConfigurationError(
+            "LiteLLM Router cannot provide exact round-robin chat routing; "
+            "use the direct SDK backend with routing.engine=harbor"
+        )
+    if config.backend.proxy is not None:
+        try:
+            validate_base_url(
+                config.backend.proxy.api_base,
+                allowed_hosts=config.security.allowed_base_url_hosts,
+                require_https=config.security.require_https_for_remote_endpoints,
+            )
+        except ValueError as exc:
+            raise HarborChatConfigurationError(str(exc), original_exception=exc) from exc
+    active_registry = registry or ProviderRegistry.default()
     for logical_name, logical in config.models.items():
         default_deployment(logical_name, logical)
         for deployment in logical.deployments:
-            if (
-                policy.allowed_providers is not None
-                and deployment.provider not in policy.allowed_providers
-            ):
-                raise HarborChatConfigurationError(
-                    f"provider {deployment.provider.value!r} is not allowed",
-                    logical_model=logical_name,
-                    deployment=deployment.name,
-                )
-            if deployment.provider.value == "custom" and not policy.allow_custom_providers:
-                raise HarborChatConfigurationError(
-                    "custom providers are disabled by security policy",
-                    logical_model=logical_name,
-                    deployment=deployment.name,
-                )
-            _validate_deployment_security(config, logical_name, deployment)
+            _validate_backend_provider(backend_type, logical_name, deployment)
+            validate_provider_deployment(
+                deployment,
+                logical_model=logical_name,
+                metadata=active_registry.get(deployment.provider),
+                policy=config.security,
+                error_type=HarborChatConfigurationError,
+            )
+
+
+def _validate_backend_routing(
+    config: HarborChatClientConfig, backend_type: ChatBackendType
+) -> None:
+    expected = (
+        RoutingEngine.LITELLM_ROUTER
+        if backend_type is ChatBackendType.LITELLM_ROUTER
+        else RoutingEngine.HARBOR
+    )
+    if config.routing.engine is not expected:
+        raise HarborChatConfigurationError(
+            f"backend {backend_type.value!r} requires routing.engine={expected.value!r}"
+        )
+
+
+def _validate_backend_provider(
+    backend_type: ChatBackendType,
+    logical_name: str,
+    deployment: HarborChatProviderConfig,
+) -> None:
+    is_proxy_provider = deployment.provider is HarborProvider.LITELLM_PROXY
+    if backend_type is ChatBackendType.LITELLM_PROXY and not is_proxy_provider:
+        raise HarborChatConfigurationError(
+            "LiteLLM Proxy backend deployments must use provider='litellm_proxy'",
+            logical_model=logical_name,
+            deployment=deployment.name,
+        )
+    if backend_type is not ChatBackendType.LITELLM_PROXY and is_proxy_provider:
+        raise HarborChatConfigurationError(
+            "provider='litellm_proxy' requires backend.type='litellm_proxy'",
+            logical_model=logical_name,
+            deployment=deployment.name,
+        )
 
 
 def default_deployment(
@@ -62,12 +129,9 @@ def validate_chat_request(
     config: HarborChatClientConfig,
     deployment: HarborChatProviderConfig,
 ) -> None:
-    """Validate request semantics, declared capabilities, and request security."""
+    """Validate chat semantics, declared capabilities, and request security."""
 
-    unsupported = (
-        (request.reasoning_effort is not None, "reasoning parameters"),
-        (request.token_budget is not None, "token budgeting"),
-    )
+    unsupported = ((request.token_budget is not None, "token budgeting"),)
     for is_unsupported, feature in unsupported:
         if is_unsupported:
             raise HarborChatCapabilityError(
@@ -80,40 +144,30 @@ def validate_chat_request(
                 request_id=request.metadata.request_id,
                 retryable=False,
             )
+    _validate_reasoning_capability(request, deployment)
     _validate_multimodal_capabilities(request, deployment)
     _validate_response_format_capability(request, deployment)
     if request.tool_choice is not None and not request.tools:
-        raise HarborChatInvalidRequestError(
-            "tool_choice requires at least one tool definition",
-            operation="chat",
-            provider=deployment.provider.value,
-            logical_model=request.logical_model,
-            provider_model=deployment.model,
-            deployment=deployment.name,
-            request_id=request.metadata.request_id,
-            retryable=False,
-        )
+        raise _invalid(request, deployment, "tool_choice requires at least one tool definition")
     if request.parallel_tool_calls is not None and not request.tools:
-        raise HarborChatInvalidRequestError(
+        raise _invalid(
+            request,
+            deployment,
             "parallel_tool_calls requires at least one tool definition",
-            operation="chat",
-            provider=deployment.provider.value,
-            logical_model=request.logical_model,
-            provider_model=deployment.model,
-            deployment=deployment.name,
-            request_id=request.metadata.request_id,
-            retryable=False,
         )
     for message in request.messages:
         if message.role is MessageRole.TOOL and message.tool_call_id is None:
-            raise HarborChatInvalidRequestError(
-                "tool messages require tool_call_id",
-                operation="chat",
-                logical_model=request.logical_model,
-                request_id=request.metadata.request_id,
-                retryable=False,
-            )
-    _validate_request_security(request, config)
+            raise _invalid(request, deployment, "tool messages require tool_call_id")
+    _validate_request_security(request, config, deployment)
+
+
+def _validate_reasoning_capability(
+    request: HarborChatRequest, deployment: HarborChatProviderConfig
+) -> None:
+    if request.reasoning_effort is None:
+        return
+    if not bool(getattr(deployment.capabilities, "reasoning", False)):
+        _raise_capability_error(request, deployment, "reasoning")
 
 
 def _validate_multimodal_capabilities(
@@ -154,16 +208,29 @@ def _validate_response_format_capability(
         if not deployment.capabilities.json_mode:
             _raise_capability_error(request, deployment, "JSON response mode")
         return
-    raise HarborChatInvalidRequestError(
-        "response_format must use json_schema or json_object",
-        operation="chat",
-        provider=deployment.provider.value,
-        logical_model=request.logical_model,
-        provider_model=deployment.model,
-        deployment=deployment.name,
-        request_id=request.metadata.request_id,
-        retryable=False,
-    )
+    raise _invalid(request, deployment, "response_format must use json_schema or json_object")
+
+
+def _validate_request_security(
+    request: HarborChatRequest,
+    config: HarborChatClientConfig,
+    deployment: HarborChatProviderConfig,
+) -> None:
+    policy = config.security
+    if len(request.extra_params) > policy.max_extra_params:
+        raise _invalid(request, deployment, "too many request extra_params")
+    try:
+        validate_extension_parameters(
+            request.extra_params,
+            allowed=policy.allowed_extra_litellm_params,
+            reserved=_CHAT_TYPED_EXTENSION_FIELDS,
+        )
+        validate_request_headers(
+            request.custom_headers,
+            allow_auth_headers=policy.allow_request_auth_headers,
+        )
+    except ValueError as exc:
+        raise _invalid(request, deployment, str(exc), exc) from exc
 
 
 def _raise_capability_error(
@@ -183,58 +250,20 @@ def _raise_capability_error(
     )
 
 
-def _validate_deployment_security(
-    config: HarborChatClientConfig,
-    logical_name: str,
+def _invalid(
+    request: HarborChatRequest,
     deployment: HarborChatProviderConfig,
-) -> None:
-    policy = config.security
-    disallowed = set(deployment.extra_litellm_params) - set(policy.allowed_extra_litellm_params)
-    if disallowed:
-        raise HarborChatConfigurationError(
-            f"unsafe or unapproved LiteLLM params: {', '.join(sorted(disallowed))}",
-            logical_model=logical_name,
-            deployment=deployment.name,
-        )
-    if deployment.api_base:
-        try:
-            validate_base_url(
-                deployment.api_base,
-                allowed_hosts=policy.allowed_base_url_hosts,
-                require_https=policy.require_https_for_remote_endpoints,
-            )
-        except ValueError as exc:
-            raise HarborChatConfigurationError(
-                str(exc),
-                logical_model=logical_name,
-                deployment=deployment.name,
-                original_exception=exc,
-            ) from exc
-
-
-def _validate_request_security(request: HarborChatRequest, config: HarborChatClientConfig) -> None:
-    policy = config.security
-    if len(request.extra_params) > policy.max_extra_params:
-        raise HarborChatConfigurationError(
-            "too many request extra_params",
-            logical_model=request.logical_model,
-            request_id=request.metadata.request_id,
-        )
-    disallowed = set(request.extra_params) - set(policy.allowed_extra_litellm_params)
-    if disallowed:
-        raise HarborChatConfigurationError(
-            f"unsafe or unapproved request LiteLLM params: {', '.join(sorted(disallowed))}",
-            logical_model=request.logical_model,
-            request_id=request.metadata.request_id,
-        )
-    auth_headers = {
-        name
-        for name in request.custom_headers
-        if name.lower() in {"authorization", "proxy-authorization", "x-api-key", "api-key"}
-    }
-    if auth_headers and not policy.allow_request_auth_headers:
-        raise HarborChatConfigurationError(
-            f"request-level authentication headers are disabled: {', '.join(sorted(auth_headers))}",
-            logical_model=request.logical_model,
-            request_id=request.metadata.request_id,
-        )
+    message: str,
+    original: Exception | None = None,
+) -> HarborChatInvalidRequestError:
+    return HarborChatInvalidRequestError(
+        message,
+        operation="chat",
+        provider=deployment.provider.value,
+        logical_model=request.logical_model,
+        provider_model=deployment.model,
+        deployment=deployment.name,
+        request_id=request.metadata.request_id,
+        retryable=False,
+        original_exception=original,
+    )

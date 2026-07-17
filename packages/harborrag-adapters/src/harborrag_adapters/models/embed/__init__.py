@@ -1,4 +1,4 @@
-from .client import AsyncHarborEmbedClient, HarborEmbedClient
+from .client import HarborEmbedClient
 from .configs import (
     HarborEmbedClientConfig,
     HarborEmbedDefaults,
@@ -10,7 +10,6 @@ from .invocation import EmbeddingInvocation, LiteLLMEmbeddingInvocation
 from .registry import EmbedProviderRegistry, HarborEmbedProvider
 
 __all__ = [
-    "AsyncHarborEmbedClient",
     "EmbedProviderRegistry",
     "EmbeddingInvocation",
     "HarborEmbedClient",

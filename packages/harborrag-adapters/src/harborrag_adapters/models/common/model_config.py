@@ -159,3 +159,79 @@ def validate_unique_deployments(
     names = [deployment.name for deployment in deployments]
     if len(names) != len(set(names)):
         raise ValueError(f"deployment names must be unique within a logical {family_name} model")
+
+
+class CapabilityDeployment(NamedDeployment, Protocol):
+    """Expose enabled state and a typed capability model for compatibility checks."""
+
+    @property
+    def enabled(self) -> bool:
+        """Return whether routing may select the deployment."""
+
+        ...
+
+    @property
+    def capabilities(self) -> BaseModel:
+        """Return the provider-neutral declared capability model."""
+
+        ...
+
+
+class CapabilityLogicalModel(LogicalModelView, Protocol):
+    """Expose deployments and fallbacks for capability compatibility checks."""
+
+    @property
+    def deployments(self) -> Sequence[CapabilityDeployment]:
+        """Return the deployments behind this logical model."""
+
+        ...
+
+
+def validate_capability_compatibility(
+    models: Mapping[str, CapabilityLogicalModel], *, family_name: str
+) -> None:
+    """Require interchangeable deployments and fallbacks to declare equal capabilities."""
+
+    signatures: dict[str, tuple[tuple[str, Any], ...]] = {}
+    for logical_name, logical in models.items():
+        enabled = [deployment for deployment in logical.deployments if deployment.enabled]
+        if not enabled:
+            continue
+        first = _capability_signature(enabled[0].capabilities)
+        incompatible = [
+            deployment.name
+            for deployment in enabled[1:]
+            if _capability_signature(deployment.capabilities) != first
+        ]
+        if incompatible:
+            names = ", ".join(incompatible)
+            raise ValueError(
+                f"{family_name} logical model {logical_name!r} contains capability-"
+                f"incompatible deployments: {names}"
+            )
+        signatures[logical_name] = first
+    for logical_name, logical in models.items():
+        source = signatures.get(logical_name)
+        if source is None:
+            continue
+        for fallback in logical.fallbacks:
+            target_name = resolve_logical_model(models, fallback)
+            target = signatures.get(target_name or "")
+            if target is not None and target != source:
+                raise ValueError(
+                    f"{family_name} fallback {logical_name!r} -> {target_name!r} "
+                    "declares incompatible capabilities"
+                )
+
+
+def _capability_signature(capabilities: BaseModel) -> tuple[tuple[str, Any], ...]:
+    values = capabilities.model_dump(mode="json")
+    return tuple(sorted((name, _freeze(value)) for name, value in values.items()))
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return tuple(sorted((str(key), _freeze(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    return value

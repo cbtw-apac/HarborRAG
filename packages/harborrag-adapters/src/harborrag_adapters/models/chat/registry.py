@@ -21,6 +21,7 @@ class HarborProvider(StrEnum):
     OLLAMA = "ollama"
     OPENAI_COMPATIBLE = "openai_compatible"
     VLLM = "vllm"
+    LITELLM_PROXY = "litellm_proxy"
     CUSTOM = "custom"
 
 
@@ -30,63 +31,53 @@ ProviderDescriptor = ProviderMetadata
 _DEFAULT_DESCRIPTORS: Mapping[HarborProvider, ProviderDescriptor] = MappingProxyType(
     {
         HarborProvider.OPENAI: ProviderDescriptor(
-            name=HarborProvider.OPENAI,
-            litellm_provider="openai",
-            requires_api_key=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
+            name=HarborProvider.OPENAI, litellm_provider="openai", requires_api_key=True
         ),
         HarborProvider.AZURE_OPENAI: ProviderDescriptor(
             name=HarborProvider.AZURE_OPENAI,
             litellm_provider="azure",
             required_fields=frozenset({"api_base", "api_version", "deployment_name"}),
             requires_api_key=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
         ),
         HarborProvider.BEDROCK: ProviderDescriptor(
             name=HarborProvider.BEDROCK,
             litellm_provider="bedrock",
             required_fields=frozenset({"aws_region_name"}),
             supports_ambient_credentials=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
+            explicit_credential_sets=(frozenset({"aws_access_key_id", "aws_secret_access_key"}),),
         ),
         HarborProvider.ANTHROPIC: ProviderDescriptor(
-            name=HarborProvider.ANTHROPIC,
-            litellm_provider="anthropic",
-            requires_api_key=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
+            name=HarborProvider.ANTHROPIC, litellm_provider="anthropic", requires_api_key=True
         ),
         HarborProvider.GEMINI: ProviderDescriptor(
-            name=HarborProvider.GEMINI,
-            litellm_provider="gemini",
-            requires_api_key=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
+            name=HarborProvider.GEMINI, litellm_provider="gemini", requires_api_key=True
         ),
         HarborProvider.OLLAMA: ProviderDescriptor(
             name=HarborProvider.OLLAMA,
             litellm_provider="ollama",
             required_fields=frozenset({"api_base"}),
             requires_custom_base_url=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
         ),
         HarborProvider.OPENAI_COMPATIBLE: ProviderDescriptor(
             name=HarborProvider.OPENAI_COMPATIBLE,
             litellm_provider="openai",
             required_fields=frozenset({"api_base"}),
             requires_custom_base_url=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
         ),
         HarborProvider.VLLM: ProviderDescriptor(
             name=HarborProvider.VLLM,
             litellm_provider="hosted_vllm",
             required_fields=frozenset({"api_base"}),
             requires_custom_base_url=True,
-            default_capabilities=frozenset({"chat", "streaming"}),
+        ),
+        HarborProvider.LITELLM_PROXY: ProviderDescriptor(
+            name=HarborProvider.LITELLM_PROXY,
+            litellm_provider="litellm_proxy",
         ),
         HarborProvider.CUSTOM: ProviderDescriptor(
             name=HarborProvider.CUSTOM,
             litellm_provider=None,
             required_fields=frozenset({"custom_llm_provider"}),
-            default_capabilities=frozenset({"chat", "streaming"}),
         ),
     }
 )

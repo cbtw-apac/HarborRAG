@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any, Protocol, TypeVar
 
 from harborrag_core.models.chat import (
-    HarborChatMessage,
     HarborChatRequest,
     HarborChatResponse,
-    StructuredOutputDegradation,
 )
 from harborrag_core.models.errors import (
-    HarborChatCapabilityError,
     HarborChatInvalidRequestError,
     HarborChatStructuredOutputError,
 )
@@ -21,6 +16,16 @@ from pydantic import BaseModel, ValidationError
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .parameters import ChatMessageInput, prepare_chat_request
+from .structured_policy import (
+    apply_structured_output_mode,
+    resolve_structured_output_mode,
+)
+from .structured_strategy import StructuredOutputStrategy
+from .structured_validation import (
+    build_repair_request,
+    structured_validation_error,
+    validate_structured_content,
+)
 
 StructuredResponseT = TypeVar("StructuredResponseT", bound=BaseModel)
 
@@ -35,14 +40,6 @@ class StructuredChatClient(Protocol):
     async def achat(self, *, request: HarborChatRequest) -> HarborChatResponse:
         """Generate one asynchronous response."""
         ...
-
-
-class StructuredOutputMode(StrEnum):
-    """Identify the concrete LiteLLM structured-output strategy for one request."""
-
-    NATIVE = "native"
-    JSON = "json"
-    PROMPT = "prompt"
 
 
 @dataclass
@@ -92,6 +89,7 @@ class StructuredOutputExecutor:
         request: HarborChatRequest | None,
         model: str | None,
         max_repair_attempts: int | None,
+        strategy: StructuredOutputStrategy | None,
         request_kwargs: Mapping[str, Any],
     ) -> StructuredResponseT:
         """Generate a synchronous response and return only validated model data."""
@@ -102,6 +100,7 @@ class StructuredOutputExecutor:
             request=request,
             model=model,
             max_repair_attempts=max_repair_attempts,
+            strategy=strategy,
             request_kwargs=request_kwargs,
         )
         while True:
@@ -118,6 +117,7 @@ class StructuredOutputExecutor:
         request: HarborChatRequest | None,
         model: str | None,
         max_repair_attempts: int | None,
+        strategy: StructuredOutputStrategy | None,
         request_kwargs: Mapping[str, Any],
     ) -> StructuredResponseT:
         """Generate an asynchronous response and return only validated model data."""
@@ -128,6 +128,7 @@ class StructuredOutputExecutor:
             request=request,
             model=model,
             max_repair_attempts=max_repair_attempts,
+            strategy=strategy,
             request_kwargs=request_kwargs,
         )
         while True:
@@ -144,6 +145,7 @@ class StructuredOutputExecutor:
         request: HarborChatRequest | None,
         model: str | None,
         max_repair_attempts: int | None,
+        strategy: StructuredOutputStrategy | None,
         request_kwargs: Mapping[str, Any],
     ) -> StructuredOutputAttemptState[StructuredResponseT]:
         _validate_response_model(response_model)
@@ -161,6 +163,7 @@ class StructuredOutputExecutor:
             deployment,
             self._config.structured_output.degradation,
             request=prepared,
+            strategy=strategy or self._config.structured_output.strategy,
         )
         return StructuredOutputAttemptState(
             response_model=response_model,
@@ -169,117 +172,6 @@ class StructuredOutputExecutor:
             schema=schema,
             max_repair_attempts=repairs,
         )
-
-
-def resolve_structured_output_mode(
-    deployment: HarborChatProviderConfig,
-    degradation: StructuredOutputDegradation,
-    *,
-    request: HarborChatRequest,
-) -> StructuredOutputMode:
-    """Select native, JSON, or explicitly allowed prompt mode from capabilities."""
-
-    capabilities = deployment.capabilities
-    if capabilities.structured_output:
-        return StructuredOutputMode.NATIVE
-    if degradation is not StructuredOutputDegradation.REJECT and capabilities.json_mode:
-        return StructuredOutputMode.JSON
-    if degradation is StructuredOutputDegradation.PROMPT:
-        return StructuredOutputMode.PROMPT
-    raise HarborChatCapabilityError(
-        "deployment cannot satisfy the configured structured-output policy",
-        operation="chat",
-        provider=deployment.provider.value,
-        logical_model=request.logical_model,
-        provider_model=deployment.model,
-        deployment=deployment.name,
-        request_id=request.metadata.request_id,
-        retryable=False,
-        metadata={"degradation": degradation.value},
-    )
-
-
-def apply_structured_output_mode(
-    request: HarborChatRequest,
-    response_model: type[BaseModel],
-    schema: dict[str, Any],
-    mode: StructuredOutputMode,
-) -> HarborChatRequest:
-    """Apply one normalized response format or schema prompt to a request."""
-
-    if mode is StructuredOutputMode.NATIVE:
-        response_format: dict[str, Any] = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": response_model.__name__,
-                "schema": schema,
-                "strict": True,
-            },
-        }
-        return request.model_copy(update={"response_format": response_format})
-    if mode is StructuredOutputMode.JSON:
-        return request.model_copy(update={"response_format": {"type": "json_object"}})
-    instruction = _schema_instruction(schema)
-    messages = (HarborChatMessage.system(instruction), *request.messages)
-    return request.model_copy(update={"messages": messages})
-
-
-def validate_structured_content[ResponseT: BaseModel](
-    content: str | None,
-    response_model: type[ResponseT],
-) -> ResponseT:
-    """Parse and validate provider text as the requested Pydantic response model."""
-
-    if content is None or not content.strip():
-        raise ValueError("structured response content is empty")
-    return response_model.model_validate_json(content)
-
-
-def build_repair_request(
-    request: HarborChatRequest,
-    invalid_content: str | None,
-    schema: dict[str, Any],
-) -> HarborChatRequest:
-    """Append one failed output and a constrained correction instruction."""
-
-    previous = invalid_content if invalid_content is not None else "<empty response>"
-    repair = (
-        "The previous response failed JSON schema validation. Correct it and return only "
-        f"one JSON object matching this schema: {_schema_json(schema)}"
-    )
-    messages = (
-        *request.messages,
-        HarborChatMessage.assistant(previous),
-        HarborChatMessage.user(repair),
-    )
-    return request.model_copy(update={"messages": messages})
-
-
-def structured_validation_error(
-    error: Exception,
-    *,
-    response_model: type[BaseModel],
-    deployment: HarborChatProviderConfig,
-    request: HarborChatRequest,
-    completion_attempts: int,
-) -> HarborChatStructuredOutputError:
-    """Build a sanitized terminal error for invalid or exhausted structured output."""
-
-    return HarborChatStructuredOutputError(
-        "structured response validation failed",
-        operation="chat",
-        provider=deployment.provider.value,
-        logical_model=request.logical_model,
-        provider_model=deployment.model,
-        deployment=deployment.name,
-        request_id=request.metadata.request_id,
-        retryable=False,
-        original_exception=error,
-        metadata={
-            "response_model": response_model.__name__,
-            "completion_attempts": completion_attempts,
-        },
-    )
 
 
 def _validate_response_model(response_model: object) -> None:
@@ -336,14 +228,3 @@ def _build_response_schema(
             original_exception=exc,
             metadata={"response_model": response_model.__name__},
         ) from exc
-
-
-def _schema_instruction(schema: dict[str, Any]) -> str:
-    return (
-        "Return only one valid JSON object matching this JSON Schema. Do not include markdown "
-        f"or commentary: {_schema_json(schema)}"
-    )
-
-
-def _schema_json(schema: dict[str, Any]) -> str:
-    return json.dumps(schema, separators=(",", ":"), sort_keys=True)

@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .security import HeaderValue, SecretValue, sanitize_configuration
+from .security import HeaderValue, SecretReference, SecretValue, sanitize_configuration
 from .transport import protect_sensitive_headers
 
 
@@ -23,7 +23,7 @@ class ProviderMetadata:
     requires_api_key: bool = False
     supports_ambient_credentials: bool = False
     requires_custom_base_url: bool = False
-    default_capabilities: frozenset[str] = frozenset()
+    explicit_credential_sets: tuple[frozenset[str], ...] = ()
 
 
 class ProviderDescriptorProtocol[ProviderKey](Protocol):
@@ -95,6 +95,7 @@ class ProviderDeploymentConfig(BaseModel):
 
     vertex_project: str | None = None
     vertex_location: str | None = None
+    vertex_credentials: SecretValue | None = None
 
     headers: dict[str, HeaderValue] = Field(default_factory=dict)
     weight: float = Field(default=1.0, gt=0)
@@ -116,6 +117,10 @@ class ProviderDeploymentConfig(BaseModel):
         parsed = urlsplit(value)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("api_base must be an absolute HTTP(S) URL")
+        if parsed.username or parsed.password:
+            raise ValueError("api_base must not contain user information")
+        if parsed.query or parsed.fragment:
+            raise ValueError("api_base must not contain query or fragment data")
         return value.rstrip("/")
 
     @field_validator("headers", mode="before")
@@ -141,6 +146,11 @@ class ProviderDeploymentConfig(BaseModel):
         ]
         if invalid_headers:
             raise ValueError("header names must be non-empty and cannot contain newlines")
+        invalid_values = [
+            name for name, value in self.headers.items() if _contains_header_newline(value)
+        ]
+        if invalid_values:
+            raise ValueError("header values cannot contain newlines")
         return self
 
     def validate_provider_metadata(self, metadata: ProviderMetadata) -> Self:
@@ -155,11 +165,30 @@ class ProviderDeploymentConfig(BaseModel):
                 f"{metadata.name.value} deployment {self.name!r} does not support "
                 "ambient credentials"
             )
+        if (
+            metadata.supports_ambient_credentials
+            and not self.allow_ambient_credentials
+            and not self.has_explicit_credentials_for(metadata)
+        ):
+            raise ValueError(
+                f"{metadata.name.value} deployment {self.name!r} requires explicit "
+                "credentials or allow_ambient_credentials=true"
+            )
         if metadata.requires_api_key and self.api_key is None:
             raise ValueError(
                 f"{metadata.name.value} deployment {self.name!r} requires api_key credentials"
             )
         return self
+
+    def has_explicit_credentials_for(self, metadata: ProviderMetadata) -> bool:
+        """Return whether one provider's complete explicit credential set is configured."""
+
+        credential_sets = list(metadata.explicit_credential_sets)
+        if metadata.requires_api_key:
+            credential_sets.append(frozenset({"api_key"}))
+        return any(
+            all(getattr(self, field) is not None for field in fields) for fields in credential_sets
+        )
 
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
         """Redact sensitive provider extension values in nested configuration reprs."""
@@ -178,3 +207,15 @@ class ProviderExtensionParameters(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     values: dict[str, Any]
+
+
+def _contains_header_newline(value: HeaderValue) -> bool:
+    """Return whether a configured header value can inject another header line."""
+
+    if isinstance(value, SecretReference):
+        raw = value.uri
+    elif hasattr(value, "get_secret_value"):
+        raw = value.get_secret_value()
+    else:
+        raw = str(value)
+    return "\r" in raw or "\n" in raw

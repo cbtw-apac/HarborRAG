@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Mapping
+from contextlib import suppress
 from typing import Any
 from urllib.parse import urlparse
 
@@ -37,14 +38,16 @@ def validate_base_url(
         return
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(f"invalid provider base URL: {url!r}")
+        raise ValueError("invalid provider base URL")
+    if parsed.username or parsed.password:
+        raise ValueError("provider base URL must not contain user information")
+    if parsed.query or parsed.fragment:
+        raise ValueError("provider base URL must not contain query or fragment data")
     hostname = parsed.hostname.lower()
     is_local = hostname == "localhost"
     if not is_local:
-        try:
+        with suppress(ValueError):
             is_local = ipaddress.ip_address(hostname).is_loopback
-        except ValueError:
-            pass
     if require_https and not is_local and parsed.scheme != "https":
         raise ValueError("remote provider base URLs must use HTTPS")
     normalized_hosts = (

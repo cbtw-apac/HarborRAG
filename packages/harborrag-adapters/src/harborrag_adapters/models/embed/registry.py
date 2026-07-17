@@ -45,6 +45,7 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborEmbedProvider, EmbedProviderDescriptor] = Ma
             "bedrock",
             required_fields=frozenset({"aws_region_name"}),
             supports_ambient_credentials=True,
+            explicit_credential_sets=(frozenset({"aws_access_key_id", "aws_secret_access_key"}),),
         ),
         HarborEmbedProvider.COHERE: EmbedProviderDescriptor(
             HarborEmbedProvider.COHERE, "cohere", requires_api_key=True
@@ -56,6 +57,7 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborEmbedProvider, EmbedProviderDescriptor] = Ma
             HarborEmbedProvider.VERTEX_AI,
             "vertex_ai",
             supports_ambient_credentials=True,
+            explicit_credential_sets=(frozenset({"vertex_credentials"}),),
         ),
         HarborEmbedProvider.VOYAGE: EmbedProviderDescriptor(
             HarborEmbedProvider.VOYAGE, "voyage", requires_api_key=True

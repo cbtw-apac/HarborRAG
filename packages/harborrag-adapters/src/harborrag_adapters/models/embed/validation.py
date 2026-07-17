@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
+
 from harborrag_core.models.embed import (
     EmbeddingEncodingFormat,
     EmbeddingPurpose,
@@ -11,43 +14,46 @@ from harborrag_core.models.errors import (
     HarborEmbedInvalidRequestError,
 )
 
-from harborrag_adapters.models.common.transport import validate_base_url
-from .configs import (
-    HarborEmbedClientConfig,
-    HarborEmbedModelConfig,
-    HarborEmbedProviderConfig,
+from harborrag_adapters.models.common.config import RoutingEngine, RoutingStrategy
+from harborrag_adapters.models.common.provider_validation import (
+    validate_extension_parameters,
+    validate_provider_deployment,
+    validate_request_headers,
 )
-from .registry import HarborEmbedProvider
+from harborrag_adapters.models.common.security import HeaderValue
 
-_AUTH_HEADERS = frozenset({"authorization", "proxy-authorization", "x-api-key", "api-key"})
+from .configs import HarborEmbedClientConfig, HarborEmbedModelConfig, HarborEmbedProviderConfig
+from .registry import EmbedProviderRegistry
+
+_EMBED_TYPED_EXTENSION_FIELDS = frozenset(
+    {"dimensions", "encoding_format", "input", "model", "timeout", "user"}
+)
 
 
-def validate_embed_configuration(config: HarborEmbedClientConfig) -> None:
-    """Validate security and require an enabled route for every model."""
-    try:
-        for logical_name, logical in config.models.items():
-            default_deployment(logical_name, logical)
-            for deployment in logical.deployments:
-                validate_base_url(
-                    deployment.api_base,
-                    allowed_hosts=config.security.allowed_base_url_hosts,
-                    require_https=config.security.require_https_for_remote_endpoints,
-                )
-                if (
-                    deployment.provider is HarborEmbedProvider.CUSTOM
-                    and not config.security.allow_custom_providers
-                ):
-                    raise ValueError("custom embedding providers are disabled")
-                unknown = set(deployment.extra_litellm_params).difference(
-                    config.security.allowed_extra_litellm_params
-                )
-                if unknown:
-                    raise ValueError(
-                        f"deployment {deployment.name!r} contains disallowed LiteLLM "
-                        f"parameters: {', '.join(sorted(unknown))}"
-                    )
-    except ValueError as exc:
-        raise HarborEmbedConfigurationError(str(exc), original_exception=exc) from exc
+def validate_embed_configuration(
+    config: HarborEmbedClientConfig, registry: EmbedProviderRegistry | None = None
+) -> None:
+    """Validate provider policy, credentials, endpoints, and enabled embedding routes."""
+
+    if (
+        config.routing.engine is RoutingEngine.LITELLM_ROUTER
+        and config.routing.strategy is RoutingStrategy.ROUND_ROBIN
+    ):
+        raise HarborEmbedConfigurationError(
+            "LiteLLM Router cannot provide exact round-robin embedding routing; "
+            "use routing.engine=harbor"
+        )
+    active_registry = registry or EmbedProviderRegistry.default()
+    for logical_name, logical in config.models.items():
+        default_deployment(logical_name, logical)
+        for deployment in logical.deployments:
+            validate_provider_deployment(
+                deployment,
+                logical_model=logical_name,
+                metadata=active_registry.get(deployment.provider),
+                policy=config.security,
+                error_type=HarborEmbedConfigurationError,
+            )
 
 
 def default_deployment(
@@ -70,7 +76,7 @@ def validate_embed_request(
     config: HarborEmbedClientConfig,
     deployment: HarborEmbedProviderConfig,
 ) -> HarborEmbedRequest:
-    """Validate security and adapt only semantics-preserving capability differences."""
+    """Validate request security and adapt only semantics-preserving capabilities."""
 
     if len(request.inputs) > config.max_inputs_per_request:
         raise _invalid(
@@ -81,15 +87,18 @@ def validate_embed_request(
             raise _invalid(request, "embedding input exceeds max_characters_per_input")
     if len(request.extra_params) > config.security.max_extra_params:
         raise _invalid(request, "too many request extra_params")
-    unknown = set(request.extra_params).difference(config.security.allowed_extra_litellm_params)
-    if unknown:
-        raise _invalid(
-            request,
-            "request contains disallowed LiteLLM parameters: " + ", ".join(sorted(unknown)),
+    try:
+        validate_extension_parameters(
+            request.extra_params,
+            allowed=config.security.allowed_extra_litellm_params,
+            reserved=_EMBED_TYPED_EXTENSION_FIELDS,
         )
-    auth_headers = {name.lower() for name in request.custom_headers}.intersection(_AUTH_HEADERS)
-    if auth_headers and not config.security.allow_request_auth_headers:
-        raise _invalid(request, "request-level authentication headers are disabled")
+        validate_request_headers(
+            cast(Mapping[str, HeaderValue], request.custom_headers),
+            allow_auth_headers=config.security.allow_request_auth_headers,
+        )
+    except ValueError as exc:
+        raise _invalid(request, str(exc), exc) from exc
 
     capabilities = deployment.capabilities
     if any(isinstance(item, tuple) for item in request.inputs) and not capabilities.token_inputs:
@@ -107,19 +116,27 @@ def validate_embed_request(
         else:
             raise _capability(request, deployment, "base64 embedding output")
     purpose = request.purpose
-    if purpose is not None and purpose is not EmbeddingPurpose.UNSPECIFIED:
-        if not capabilities.purpose or purpose not in capabilities.supported_purposes:
-            raise _capability(request, deployment, f"embedding purpose {purpose.value}")
+    if (
+        purpose is not None
+        and purpose is not EmbeddingPurpose.UNSPECIFIED
+        and (not capabilities.purpose or purpose not in capabilities.supported_purposes)
+    ):
+        raise _capability(request, deployment, f"embedding purpose {purpose.value}")
     return request.model_copy(update=updates) if updates else request
 
 
-def _invalid(request: HarborEmbedRequest, message: str) -> HarborEmbedInvalidRequestError:
+def _invalid(
+    request: HarborEmbedRequest,
+    message: str,
+    original: Exception | None = None,
+) -> HarborEmbedInvalidRequestError:
     return HarborEmbedInvalidRequestError(
         message,
         operation="embed",
         logical_model=request.logical_model,
         request_id=request.metadata.request_id,
         retryable=False,
+        original_exception=original,
     )
 
 

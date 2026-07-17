@@ -17,7 +17,9 @@ from harborrag_core.models.errors import HarborChatProviderError
 
 from harborrag_adapters.models.common.responses import coerce_sdk_mapping as coerce_mapping
 from harborrag_adapters.models.common.responses import sdk_hidden_parameters
+
 from .configs import HarborChatProviderConfig
+from .reasoning import normalize_reasoning_content, reasoning_metadata
 
 _FINISH_REASON_ALIASES = {
     "stop": FinishReason.STOP,
@@ -67,6 +69,7 @@ def normalize_chat_response(
             request_id,
         )
     hidden = sdk_hidden_parameters(raw, data)
+    reasoning_content = normalize_reasoning_content(choice, message_data)
     provider_model = str(data.get("model") or deployment.model)
     tool_calls = normalize_tool_calls(
         message_data.get("tool_calls"),
@@ -86,7 +89,11 @@ def normalize_chat_response(
         request_id=request_id,
         provider_request_id=_provider_request_id(hidden),
         cache_hit=bool(hidden.get("cache_hit")),
-        provider_metadata=_safe_provider_metadata(hidden),
+        provider_metadata={
+            **_safe_provider_metadata(hidden),
+            **reasoning_metadata(choice, message_data),
+        },
+        reasoning_content=reasoning_content,
     )
 
 

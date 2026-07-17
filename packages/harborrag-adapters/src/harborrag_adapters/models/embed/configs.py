@@ -11,11 +11,13 @@ from harborrag_adapters.models.common.model_config import (
     LogicalModelConfig,
     normalize_single_deployment_shorthand,
     resolve_logical_model,
+    validate_capability_compatibility,
     validate_logical_model_references,
     validate_unique_deployments,
 )
 from harborrag_adapters.models.common.provider import ProviderDeploymentConfig
-from .registry import EmbedProviderRegistry, HarborEmbedProvider
+
+from .registry import HarborEmbedProvider
 
 
 class HarborEmbedSecurityConfig(SecurityBaseConfig):
@@ -34,8 +36,6 @@ class HarborEmbedSecurityConfig(SecurityBaseConfig):
             "additional_drop_params",
             "model_id",
             "role_name",
-            "vertex_project",
-            "vertex_location",
             "aws_bedrock_runtime_endpoint",
         }
     )
@@ -48,12 +48,6 @@ class HarborEmbedProviderConfig(ProviderDeploymentConfig):
     max_batch_size: int | None = Field(default=None, gt=0)
     expected_dimensions: int | None = Field(default=None, gt=0)
     capabilities: HarborEmbedCapabilities = Field(default_factory=HarborEmbedCapabilities)
-
-    @model_validator(mode="after")
-    def validate_provider_requirements(self) -> Self:
-        """Enforce the provider's required fields, credential, and custom-provider rules."""
-        descriptor = EmbedProviderRegistry.default().get(self.provider)
-        return self.validate_provider_metadata(descriptor)
 
 
 class HarborEmbedDefaults(BaseModel):
@@ -142,18 +136,7 @@ class HarborEmbedClientConfig(ModelClientConfig):
                         f"embedding fallback {name!r} -> {target_name!r} has "
                         "incompatible dimensions"
                     )
-        if self.security.allowed_providers is not None:
-            disallowed = {
-                deployment.provider
-                for model in self.models.values()
-                for deployment in model.deployments
-                if deployment.provider not in self.security.allowed_providers
-            }
-            if disallowed:
-                raise ValueError(
-                    "embedding providers are not allowed by security policy: "
-                    + ", ".join(sorted(item.value for item in disallowed))
-                )
+        validate_capability_compatibility(self.models, family_name="embedding")
         return self
 
     def resolve_alias(self, name: str) -> str | None:

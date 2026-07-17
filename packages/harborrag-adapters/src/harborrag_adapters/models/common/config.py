@@ -7,8 +7,16 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .distributed_config import (
+    ActiveHealthConfig,
+    BudgetPolicyConfig,
+    RoutingStateBackend,
+    SingleFlightBackend,
+    SingleFlightConfig,
+)
 from .environment import expand_environment
 from .loading import load_config_document, prepare_config_section
+from .redis_config import RedisConnectionConfig
 from .security import (
     PrivacyConfig,
     SecretResolver,
@@ -45,7 +53,22 @@ class CacheBackend(StrEnum):
     """Enumerate supported cache ownership boundaries."""
 
     CUSTOM = "custom"
+    REDIS = "redis"
     LITELLM = "litellm"
+
+
+class ConnectionPoolConfig(BaseModel):
+    """Configure the shared async HTTP connection pool used by model backends."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool = True
+    total_timeout_seconds: float = Field(default=180.0, gt=0)
+    connection_limit: int = Field(default=300, ge=1, le=100_000)
+    connection_limit_per_host: int = Field(default=75, ge=1, le=100_000)
+    dns_cache_seconds: int = Field(default=600, ge=0, le=86_400)
+    keepalive_seconds: float = Field(default=60.0, ge=0, le=3_600)
+    trust_env: bool = False
 
 
 class TimeoutConfig(BaseModel):
@@ -99,14 +122,9 @@ class RoutingConfig(BaseModel):
     strategy: RoutingStrategy = RoutingStrategy.WEIGHTED
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
     enable_health_tracking: bool = True
-
-
-class CapabilityPolicyConfig(BaseModel):
-    """Control optional provider metadata discovery for capability resolution."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    allow_provider_metadata_discovery: bool = True
+    state_backend: RoutingStateBackend = RoutingStateBackend.MEMORY
+    lease_seconds: int = Field(default=120, ge=1, le=3_600)
+    active_health: ActiveHealthConfig = Field(default_factory=ActiveHealthConfig)
 
 
 class ObservabilityConfig(BaseModel):
@@ -178,7 +196,31 @@ class ModelClientConfig(BaseModel):
     cache: CacheConfig = Field(default_factory=CacheConfig)
     provider_budgets: dict[str, BudgetLimitConfig] = Field(default_factory=dict)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
-    capability_policy: CapabilityPolicyConfig = Field(default_factory=CapabilityPolicyConfig)
+    connections: ConnectionPoolConfig = Field(default_factory=ConnectionPoolConfig)
+    redis: RedisConnectionConfig | None = None
+    singleflight: SingleFlightConfig = Field(default_factory=SingleFlightConfig)
+    budget: BudgetPolicyConfig = Field(default_factory=BudgetPolicyConfig)
+
+    @model_validator(mode="after")
+    def validate_distributed_dependencies(self) -> Self:
+        """Require Redis configuration for every selected Redis-backed feature."""
+
+        redis_required = (
+            self.cache.backend is CacheBackend.REDIS
+            or self.routing.state_backend is RoutingStateBackend.REDIS
+            or self.singleflight.backend is SingleFlightBackend.REDIS
+        )
+        if redis_required and self.redis is None:
+            raise ValueError("redis configuration is required by a Redis-backed feature")
+        if self.singleflight.backend is not SingleFlightBackend.DISABLED:
+            if not self.cache.enabled or self.cache.backend is CacheBackend.LITELLM:
+                raise ValueError("singleflight requires an enabled Harbor custom or Redis cache")
+            if (
+                self.singleflight.backend is SingleFlightBackend.REDIS
+                and self.cache.backend is not CacheBackend.REDIS
+            ):
+                raise ValueError("Redis singleflight requires Redis response caching")
+        return self
 
     @model_validator(mode="before")
     @classmethod

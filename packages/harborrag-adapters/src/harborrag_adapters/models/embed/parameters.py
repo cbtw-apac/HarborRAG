@@ -19,9 +19,11 @@ from harborrag_core.models.errors import (
 from pydantic import ValidationError
 
 from harborrag_adapters.models.common.litellm_backend import build_provider_params
+from harborrag_adapters.models.common.security import HeaderValue
 from harborrag_adapters.models.common.transport import reveal_headers
+
 from .configs import HarborEmbedClientConfig, HarborEmbedDefaults, HarborEmbedProviderConfig
-from .registry import EmbedProviderRegistry, HarborEmbedProvider
+from .registry import HarborEmbedProvider
 from .validation import default_deployment, validate_embed_request
 
 _RESERVED_PARAMETERS = frozenset(
@@ -182,6 +184,7 @@ def build_litellm_parameters(
     inputs: list[str | list[int]],
     timeout: float,
     model_override: str | None = None,
+    litellm_provider: str | None = None,
 ) -> dict[str, Any]:
     """Translate one validated embedding batch into LiteLLM parameters."""
 
@@ -194,7 +197,6 @@ def build_litellm_parameters(
             request_id=request.metadata.request_id,
             retryable=False,
         )
-    descriptor = EmbedProviderRegistry.default().get(deployment.provider)
     model = (
         f"azure/{deployment.deployment_name}"
         if deployment.provider is HarborEmbedProvider.AZURE_OPENAI and deployment.deployment_name
@@ -202,11 +204,11 @@ def build_litellm_parameters(
     )
     parameters = build_provider_params(
         deployment,
-        litellm_provider=descriptor.litellm_provider,
+        litellm_provider=litellm_provider,
         model=model_override or model,
     )
     deployment_headers = parameters.pop("extra_headers", {})
-    request_headers = reveal_headers(request.custom_headers)
+    request_headers = reveal_headers(cast(Mapping[str, HeaderValue], request.custom_headers))
     optional: dict[str, Any] = {
         "input": inputs,
         "timeout": timeout,

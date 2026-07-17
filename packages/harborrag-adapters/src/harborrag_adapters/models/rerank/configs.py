@@ -10,11 +10,13 @@ from harborrag_adapters.models.common.model_config import (
     LogicalModelConfig,
     normalize_single_deployment_shorthand,
     resolve_logical_model,
+    validate_capability_compatibility,
     validate_logical_model_references,
     validate_unique_deployments,
 )
 from harborrag_adapters.models.common.provider import ProviderDeploymentConfig
-from .registry import HarborRerankProvider, RerankProviderRegistry
+
+from .registry import HarborRerankProvider
 
 
 class HarborRerankSecurityConfig(SecurityBaseConfig):
@@ -29,8 +31,6 @@ class HarborRerankSecurityConfig(SecurityBaseConfig):
             "additional_drop_params",
             "model_id",
             "role_name",
-            "vertex_project",
-            "vertex_location",
             "aws_bedrock_runtime_endpoint",
             "api_type",
         }
@@ -43,12 +43,6 @@ class HarborRerankProviderConfig(ProviderDeploymentConfig):
     provider: HarborRerankProvider
     max_documents: int | None = Field(default=None, gt=0)
     capabilities: HarborRerankCapabilities = Field(default_factory=HarborRerankCapabilities)
-
-    @model_validator(mode="after")
-    def validate_provider_requirements(self) -> Self:
-        """Enforce the provider's required fields, credential, and custom-provider rules."""
-        descriptor = RerankProviderRegistry.default().get(self.provider)
-        return self.validate_provider_metadata(descriptor)
 
 
 class HarborRerankDefaults(BaseModel):
@@ -104,18 +98,7 @@ class HarborRerankClientConfig(ModelClientConfig):
             default_model=self.default_model,
             family_name="rerank",
         )
-        if self.security.allowed_providers is not None:
-            disallowed = {
-                deployment.provider
-                for model in self.models.values()
-                for deployment in model.deployments
-                if deployment.provider not in self.security.allowed_providers
-            }
-            if disallowed:
-                raise ValueError(
-                    "rerank providers are not allowed by security policy: "
-                    + ", ".join(sorted(item.value for item in disallowed))
-                )
+        validate_capability_compatibility(self.models, family_name="rerank")
         return self
 
     def resolve_alias(self, name: str) -> str | None:

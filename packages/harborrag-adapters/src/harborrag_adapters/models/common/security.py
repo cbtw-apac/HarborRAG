@@ -93,6 +93,8 @@ class PrivacyConfig(BaseModel):
         }
     )
     max_logged_content_length: int = Field(default=2_000, ge=0, le=100_000)
+    propagate_user_identifiers: bool = False
+    propagate_proxy_metadata: bool = True
 
 
 class PrivacySanitizer:

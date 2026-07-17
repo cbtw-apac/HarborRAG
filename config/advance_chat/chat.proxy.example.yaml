@@ -1,0 +1,27 @@
+chat:
+  default_model: primary
+  backend:
+    type: litellm_proxy
+    proxy:
+      api_base: ${LITELLM_PROXY_API_BASE}
+      api_key: ${LITELLM_PROXY_API_KEY}
+      headers:
+        X-Harbor-Client: models-v0.4
+  routing:
+    engine: harbor
+    strategy: ordered
+  security:
+    allowed_providers: [litellm_proxy]
+    allowed_base_url_hosts: [proxy.example.test]
+  models:
+    primary:
+      deployments:
+        - name: gateway-primary
+          provider: litellm_proxy
+          model: production-chat
+          capabilities:
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+            reasoning: true

@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any
 
 from .telemetry import TelemetryEvent, TelemetryEventType
+from .telemetry_metrics import OpenTelemetryMetrics
 
 
 class StructuredLoggingTelemetry:
@@ -139,24 +140,30 @@ class LangfuseTelemetry:
 class OpenTelemetryTelemetry:
     """Map sanitized Harbor events onto OpenTelemetry spans and span events."""
 
-    def __init__(self, tracer: Any | None = None) -> None:
-        """Use an injected tracer or lazily resolve the OpenTelemetry API tracer."""
+    def __init__(self, tracer: Any | None = None, meter: Any | None = None) -> None:
+        """Use injected OpenTelemetry APIs or lazily resolve application providers."""
 
-        if tracer is None:
+        if tracer is None or meter is None:
             try:
                 from opentelemetry import trace
             except ImportError as exc:
                 raise RuntimeError(
                     "OpenTelemetry telemetry requires harborrag-adapters[opentelemetry]"
                 ) from exc
-            tracer = trace.get_tracer("harborrag.models")
+            tracer = tracer or trace.get_tracer("harborrag.models")
+            if meter is None:
+                from opentelemetry import metrics
+
+                meter = metrics.get_meter("harborrag.models")
         self.tracer = tracer
+        self.metrics = OpenTelemetryMetrics(meter)
         self._active: dict[str, Any] = {}
         self._lock = RLock()
 
     def emit(self, event: TelemetryEvent) -> None:
-        """Create a request span or append one sanitized lifecycle event."""
+        """Create spans and record low-cardinality metrics from one sanitized event."""
 
+        self.metrics.record(event)
         if event.request_id is None:
             return
         with self._lock:

@@ -1,66 +1,27 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 from typing import Any
 
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatStreamChunk,
     HarborChatUsage,
-    HarborToolCall,
     StreamEventType,
 )
 from harborrag_core.models.errors import HarborChatError, HarborChatProviderError
 
 from harborrag_adapters.models.common.responses import coerce_sdk_mapping as coerce_mapping
+
 from .configs import HarborChatProviderConfig
 from .normalization import (
     normalize_chat_usage,
     normalize_finish_reason,
     normalize_tool_call_delta,
-    normalize_tool_calls,
 )
-
-
-@dataclass(slots=True)
-class ToolCallBuffer:
-    """Accumulate fragments for one indexed provider tool call."""
-
-    index: int
-    call_id: str = ""
-    call_type: str = "function"
-    name_parts: list[str] = field(default_factory=list)
-    argument_parts: list[str] = field(default_factory=list)
-
-    def add(self, delta: HarborToolCall) -> None:
-        """Append one normalized delta without duplicating stable identity fields."""
-
-        if delta.id and not self.call_id:
-            self.call_id = delta.id
-        if delta.type:
-            self.call_type = delta.type
-        if delta.function.name:
-            self.name_parts.append(delta.function.name)
-        if delta.function.arguments:
-            self.argument_parts.append(delta.function.arguments)
-
-    def build(self) -> HarborToolCall:
-        """Build the complete call and parse its assembled JSON arguments."""
-
-        return normalize_tool_calls(
-            [
-                {
-                    "id": self.call_id,
-                    "type": self.call_type,
-                    "index": self.index,
-                    "function": {
-                        "name": "".join(self.name_parts),
-                        "arguments": "".join(self.argument_parts),
-                    },
-                }
-            ]
-        )[0]
+from .reasoning import normalize_reasoning_delta
+from .tool_assembly import StreamingToolCallAssembler
 
 
 class ChatStreamNormalizer:
@@ -82,7 +43,11 @@ class ChatStreamNormalizer:
         self.provider_model = deployment.model
         self.finish_reason = FinishReason.UNKNOWN
         self.usage: HarborChatUsage | None = None
-        self._tool_calls: dict[int, ToolCallBuffer] = {}
+        self._tool_calls = StreamingToolCallAssembler()
+        self._metadata_emitted = False
+        self._metadata: dict[str, Any] = {}
+        self._started_at = time.perf_counter()
+        self._first_output_latency_ms: float | None = None
 
     def consume(self, raw: Any) -> tuple[HarborChatStreamChunk, ...]:
         """Normalize every event represented by one provider stream chunk."""
@@ -96,6 +61,7 @@ class ChatStreamNormalizer:
             self.provider_model = str(data["model"])
 
         events: list[HarborChatStreamChunk] = []
+        events.extend(self._metadata_events(data))
         if data.get("usage") is not None:
             self.usage = normalize_chat_usage(data["usage"])
             events.append(self._event(StreamEventType.USAGE, usage=self.usage))
@@ -116,27 +82,74 @@ class ChatStreamNormalizer:
         if not choice:
             raise self._malformed("invalid first choice")
         delta = coerce_mapping(choice.get("delta"))
-        events.extend(self._content_events(delta))
-        events.extend(self._tool_events(delta))
+        output_events = [
+            *self._reasoning_events(delta),
+            *self._content_events(delta),
+            *self._tool_events(delta),
+        ]
+        if output_events and self._first_output_latency_ms is None:
+            self._first_output_latency_ms = self._elapsed_ms()
+        events.extend(output_events)
         if choice.get("finish_reason") is not None:
             self.finish_reason = normalize_finish_reason(choice["finish_reason"])
+            events.append(
+                self._event(
+                    StreamEventType.METADATA,
+                    finish_reason=self.finish_reason.value,
+                    metadata={"finish_reason": self.finish_reason.value},
+                )
+            )
         return tuple(events)
 
     def complete(self) -> HarborChatStreamChunk:
-        """Create the final event with assembled parallel tool calls and usage."""
+        """Create the final event with assembled calls, usage, timing, and finish metadata."""
 
-        tool_calls = tuple(self._tool_calls[index].build() for index in sorted(self._tool_calls))
+        metadata = {
+            **self._metadata,
+            "finish_reason": self.finish_reason.value,
+            "stream_duration_ms": self._elapsed_ms(),
+        }
+        if self._first_output_latency_ms is not None:
+            metadata["first_token_latency_ms"] = self._first_output_latency_ms
         return self._event(
             StreamEventType.COMPLETED,
             usage=self.usage,
-            tool_calls=tool_calls,
+            tool_calls=self._tool_calls.completed_calls(),
             finish_reason=self.finish_reason.value,
+            metadata=metadata,
         )
 
     def error(self, error: HarborChatError) -> HarborChatStreamChunk:
         """Create a sanitized error event before the typed exception is raised."""
 
-        return self._event(StreamEventType.ERROR, error=error.to_dict())
+        return self._event(
+            StreamEventType.ERROR,
+            error=error.to_dict(),
+            metadata={"stream_duration_ms": self._elapsed_ms()},
+        )
+
+    def _metadata_events(self, data: Mapping[str, Any]) -> list[HarborChatStreamChunk]:
+        updates = {
+            name: data[name]
+            for name in ("created", "system_fingerprint", "service_tier")
+            if data.get(name) is not None
+        }
+        if data.get("model") is not None:
+            updates["provider_model"] = str(data["model"])
+        unchanged = self._metadata_emitted and all(
+            self._metadata.get(name) == value for name, value in updates.items()
+        )
+        if not updates or unchanged:
+            return []
+        self._metadata.update(updates)
+        self._metadata_emitted = True
+        return [self._event(StreamEventType.METADATA, metadata=dict(updates))]
+
+    def _reasoning_events(self, delta: Mapping[str, Any]) -> list[HarborChatStreamChunk]:
+        reasoning = normalize_reasoning_delta(delta)
+        if not reasoning:
+            return []
+        return [self._event(StreamEventType.REASONING_DELTA, reasoning_delta=reasoning)]
 
     def _content_events(self, delta: Mapping[str, Any]) -> list[HarborChatStreamChunk]:
         content = delta.get("content")
@@ -158,9 +171,7 @@ class ChatStreamNormalizer:
         events: list[HarborChatStreamChunk] = []
         for position, value in enumerate(values):
             call = normalize_tool_call_delta(value, fallback_index=position)
-            index = call.index if call.index is not None else position
-            buffer = self._tool_calls.setdefault(index, ToolCallBuffer(index=index))
-            buffer.add(call)
+            self._tool_calls.add(call, fallback_index=position)
             events.append(self._event(StreamEventType.TOOL_CALL_DELTA, tool_call_delta=call))
         return events
 
@@ -175,6 +186,9 @@ class ChatStreamNormalizer:
             response_id=self.response_id,
             **values,
         )
+
+    def _elapsed_ms(self) -> float:
+        return (time.perf_counter() - self._started_at) * 1_000
 
     def _malformed(self, detail: str) -> HarborChatProviderError:
         return HarborChatProviderError(

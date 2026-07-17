@@ -11,11 +11,15 @@ from harborrag_adapters.models.common.model_config import (
     LogicalModelConfig,
     normalize_single_deployment_shorthand,
     resolve_logical_model,
+    validate_capability_compatibility,
     validate_logical_model_references,
     validate_unique_deployments,
 )
 from harborrag_adapters.models.common.provider import ProviderDeploymentConfig
-from .registry import HarborProvider, ProviderRegistry
+
+from .backend_config import ChatBackendConfig
+from .registry import HarborProvider
+from .structured_strategy import StructuredOutputStrategy
 
 
 class HarborChatSecurityConfig(SecurityBaseConfig):
@@ -27,7 +31,6 @@ class HarborChatSecurityConfig(SecurityBaseConfig):
             "organization",
             "project",
             "service_tier",
-            "reasoning_effort",
             "verbosity",
             "safety_identifier",
             "drop_params",
@@ -44,13 +47,6 @@ class HarborChatProviderConfig(ProviderDeploymentConfig):
 
     provider: HarborProvider
     capabilities: HarborChatCapabilities = Field(default_factory=HarborChatCapabilities)
-
-    @model_validator(mode="after")
-    def validate_provider_requirements(self) -> Self:
-        """Validate provider metadata, credentials, and custom-provider settings."""
-
-        descriptor = ProviderRegistry.default().get(self.provider)
-        return self.validate_provider_metadata(descriptor)
 
 
 class GenerationDefaults(BaseModel):
@@ -70,6 +66,7 @@ class StructuredOutputPolicyConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    strategy: StructuredOutputStrategy = StructuredOutputStrategy.AUTO
     degradation: StructuredOutputDegradation = StructuredOutputDegradation.JSON_MODE
     max_repair_attempts: int = Field(default=1, ge=0, le=3)
 
@@ -94,6 +91,7 @@ class HarborChatClientConfig(ModelClientConfig):
     config_section: ClassVar[str] = "chat"
 
     security: HarborChatSecurityConfig = Field(default_factory=HarborChatSecurityConfig)
+    backend: ChatBackendConfig = Field(default_factory=ChatBackendConfig)
     structured_output: StructuredOutputPolicyConfig = Field(
         default_factory=StructuredOutputPolicyConfig
     )
@@ -118,6 +116,7 @@ class HarborChatClientConfig(ModelClientConfig):
             default_model=self.default_model,
             family_name="chat",
         )
+        validate_capability_compatibility(self.models, family_name="chat")
         return self
 
     def resolve_alias(self, name: str) -> str | None:

@@ -36,6 +36,7 @@ def build_provider_params(
         "aws_role_session_name": deployment.aws_role_session_name,
         "vertex_project": deployment.vertex_project,
         "vertex_location": deployment.vertex_location,
+        "vertex_credentials": reveal_secret(deployment.vertex_credentials),
     }
     params.update({key: value for key, value in optional.items() if value is not None})
     headers = reveal_headers(deployment.headers)

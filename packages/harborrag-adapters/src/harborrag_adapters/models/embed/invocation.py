@@ -70,15 +70,21 @@ class LiteLLMEmbeddingRouterInvocation(LiteLLMEmbeddingInvocation):
     """Expose a LiteLLM Router through the embedding invocation boundary."""
 
     def __init__(self, router: Any) -> None:
+        """Store the injected Router and bind its embedding callables."""
+
         self._router = router
         super().__init__(router.embedding, router.aembedding)
 
     def close(self) -> None:
+        """Close synchronous resources owned by the injected LiteLLM Router."""
+
         close = getattr(self._router, "close", None)
         if callable(close):
             close()
 
     async def aclose(self) -> None:
+        """Close asynchronous Router resources, falling back to sync cleanup."""
+
         aclose = getattr(self._router, "aclose", None)
         if callable(aclose):
             await aclose()

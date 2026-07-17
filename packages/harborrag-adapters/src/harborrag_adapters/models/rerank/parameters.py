@@ -19,8 +19,8 @@ from pydantic import ValidationError
 
 from harborrag_adapters.models.common.litellm_backend import build_provider_params
 from harborrag_adapters.models.common.transport import reveal_headers
+
 from .configs import HarborRerankClientConfig, HarborRerankDefaults, HarborRerankProviderConfig
-from .registry import RerankProviderRegistry
 from .validation import default_deployment, validate_rerank_request
 
 _RESERVED_PARAMETERS = frozenset(
@@ -178,6 +178,7 @@ def build_litellm_parameters(
     *,
     timeout: float,
     model_override: str | None = None,
+    litellm_provider: str | None = None,
 ) -> dict[str, Any]:
     """Translate one provider-neutral rerank request into LiteLLM parameters."""
 
@@ -190,10 +191,9 @@ def build_litellm_parameters(
             request_id=request.metadata.request_id,
             retryable=False,
         )
-    descriptor = RerankProviderRegistry.default().get(deployment.provider)
     parameters = build_provider_params(
         deployment,
-        litellm_provider=descriptor.litellm_provider,
+        litellm_provider=litellm_provider,
         model=model_override,
     )
     deployment_headers = parameters.pop("extra_headers", {})

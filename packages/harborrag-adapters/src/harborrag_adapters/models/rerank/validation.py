@@ -8,48 +8,51 @@ from harborrag_core.models.errors import (
 from harborrag_core.models.rerank import HarborRerankRequest
 
 from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.transport import validate_base_url
-from .configs import (
-    HarborRerankClientConfig,
-    HarborRerankModelConfig,
-    HarborRerankProviderConfig,
+from harborrag_adapters.models.common.provider_validation import (
+    validate_extension_parameters,
+    validate_provider_deployment,
+    validate_request_headers,
 )
-from .registry import HarborRerankProvider
 
-_AUTH_HEADERS = frozenset({"authorization", "proxy-authorization", "x-api-key", "api-key"})
+from .configs import HarborRerankClientConfig, HarborRerankModelConfig, HarborRerankProviderConfig
+from .registry import RerankProviderRegistry
+
+_RERANK_TYPED_EXTENSION_FIELDS = frozenset(
+    {
+        "documents",
+        "instruction",
+        "max_chunks_per_doc",
+        "max_tokens_per_doc",
+        "model",
+        "query",
+        "rank_fields",
+        "return_documents",
+        "timeout",
+        "top_n",
+    }
+)
 
 
-def validate_rerank_configuration(config: HarborRerankClientConfig) -> None:
-    """Validate security and require an enabled route for every model."""
+def validate_rerank_configuration(
+    config: HarborRerankClientConfig, registry: RerankProviderRegistry | None = None
+) -> None:
+    """Validate provider policy, credentials, endpoints, and enabled rerank routes."""
 
     if config.routing.engine is RoutingEngine.LITELLM_ROUTER:
         raise HarborRerankConfigurationError(
             "LiteLLM Router does not expose a reliable sync rerank path; use routing.engine=harbor"
         )
-    try:
-        for logical_name, logical in config.models.items():
-            default_deployment(logical_name, logical)
-            for deployment in logical.deployments:
-                validate_base_url(
-                    deployment.api_base,
-                    allowed_hosts=config.security.allowed_base_url_hosts,
-                    require_https=config.security.require_https_for_remote_endpoints,
-                )
-                if (
-                    deployment.provider is HarborRerankProvider.CUSTOM
-                    and not config.security.allow_custom_providers
-                ):
-                    raise ValueError("custom rerank providers are disabled")
-                unknown = set(deployment.extra_litellm_params).difference(
-                    config.security.allowed_extra_litellm_params
-                )
-                if unknown:
-                    raise ValueError(
-                        f"deployment {deployment.name!r} contains disallowed LiteLLM "
-                        f"parameters: {', '.join(sorted(unknown))}"
-                    )
-    except ValueError as exc:
-        raise HarborRerankConfigurationError(str(exc), original_exception=exc) from exc
+    active_registry = registry or RerankProviderRegistry.default()
+    for logical_name, logical in config.models.items():
+        default_deployment(logical_name, logical)
+        for deployment in logical.deployments:
+            validate_provider_deployment(
+                deployment,
+                logical_model=logical_name,
+                metadata=active_registry.get(deployment.provider),
+                policy=config.security,
+                error_type=HarborRerankConfigurationError,
+            )
 
 
 def default_deployment(
@@ -93,15 +96,18 @@ def validate_rerank_request(
             raise _invalid(request, "rerank document exceeds max_document_characters")
     if len(request.extra_params) > config.security.max_extra_params:
         raise _invalid(request, "too many request extra_params")
-    unknown = set(request.extra_params).difference(config.security.allowed_extra_litellm_params)
-    if unknown:
-        raise _invalid(
-            request,
-            "request contains disallowed LiteLLM parameters: " + ", ".join(sorted(unknown)),
+    try:
+        validate_extension_parameters(
+            request.extra_params,
+            allowed=config.security.allowed_extra_litellm_params,
+            reserved=_RERANK_TYPED_EXTENSION_FIELDS,
         )
-    auth_headers = {name.lower() for name in request.custom_headers}.intersection(_AUTH_HEADERS)
-    if auth_headers and not config.security.allow_request_auth_headers:
-        raise _invalid(request, "request-level authentication headers are disabled")
+        validate_request_headers(
+            request.custom_headers,
+            allow_auth_headers=config.security.allow_request_auth_headers,
+        )
+    except ValueError as exc:
+        raise _invalid(request, str(exc), exc) from exc
 
     capabilities = deployment.capabilities
     checks = (
@@ -130,13 +136,18 @@ def validate_rerank_request(
             raise _capability(request, deployment, feature)
 
 
-def _invalid(request: HarborRerankRequest, message: str) -> HarborRerankInvalidRequestError:
+def _invalid(
+    request: HarborRerankRequest,
+    message: str,
+    original: Exception | None = None,
+) -> HarborRerankInvalidRequestError:
     return HarborRerankInvalidRequestError(
         message,
         operation="rerank",
         logical_model=request.logical_model,
         request_id=request.metadata.request_id,
         retryable=False,
+        original_exception=original,
     )
 
 

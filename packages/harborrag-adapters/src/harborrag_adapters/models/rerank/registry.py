@@ -41,6 +41,7 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborRerankProvider, RerankProviderDescriptor] = 
             "bedrock",
             required_fields=frozenset({"aws_region_name"}),
             supports_ambient_credentials=True,
+            explicit_credential_sets=(frozenset({"aws_access_key_id", "aws_secret_access_key"}),),
         ),
         HarborRerankProvider.TOGETHER_AI: RerankProviderDescriptor(
             HarborRerankProvider.TOGETHER_AI, "together_ai", requires_api_key=True
@@ -82,6 +83,7 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborRerankProvider, RerankProviderDescriptor] = 
             HarborRerankProvider.VERTEX_AI,
             "vertex_ai",
             supports_ambient_credentials=True,
+            explicit_credential_sets=(frozenset({"vertex_credentials"}),),
         ),
         HarborRerankProvider.FIREWORKS_AI: RerankProviderDescriptor(
             HarborRerankProvider.FIREWORKS_AI, "fireworks_ai", requires_api_key=True
@@ -93,6 +95,7 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborRerankProvider, RerankProviderDescriptor] = 
             HarborRerankProvider.WATSONX,
             "watsonx",
             supports_ambient_credentials=True,
+            explicit_credential_sets=(frozenset({"api_key"}),),
         ),
         HarborRerankProvider.LITELLM_PROXY: RerankProviderDescriptor(
             HarborRerankProvider.LITELLM_PROXY,
