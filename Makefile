@@ -33,7 +33,7 @@ bootstrap:
 	$(PYTHON) -m pip install -e packages/harborrag-adapters
 	$(PYTHON) -m pip install -e packages/harborrag-engine
 	$(PYTHON) -m pip install -e packages/harborrag-runtime
-	$(PYTHON) -m pip install -e packages/harborrag-app
+	$(PYTHON) -m pip install -e "packages/harborrag-app[api]"
 	$(PYTHON) -m pip install -e packages/harborrag-mcp
 	$(PYTHON) -m pip install -e packages/harborrag
 	$(PYTHON) -m pip install -e ".[dev]"
