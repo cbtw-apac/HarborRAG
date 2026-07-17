@@ -176,6 +176,10 @@ markers = [
     "whitebox: internal architecture and contract tests",
     "requires_deps: marks tests requiring optional dependencies",
     "workflow: marks tests that validate GitHub Actions workflow",
+    "contract: reusable behavioral contracts shared by adapter implementations",
+    "chaos: deterministic fault-injection and recovery tests",
+    "performance: bounded local performance and concurrency tests",
+    "load: correctness-oriented local micro-load tests",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

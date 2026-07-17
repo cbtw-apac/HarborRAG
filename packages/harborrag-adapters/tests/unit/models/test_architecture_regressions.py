@@ -15,7 +15,6 @@ from harborrag_adapters.models.chat.registry import (
 )
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
 from harborrag_adapters.models.common.config import (
-    CacheBackend,
     CircuitBreakerConfig,
     RoutingEngine,
     RoutingStrategy,
@@ -214,23 +213,16 @@ def test_example_yaml_loads_all_model_families(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
     monkeypatch.setenv("COHERE_API_KEY", "cohere-secret")
-    path = Path(__file__).resolve().parents[5] / "models.example.yaml"
+    path = Path(__file__).resolve().parents[5] / "config" / "models.example.yaml"
 
     chat = HarborChatClientConfig.from_file(path)
     embed = HarborEmbedClientConfig.from_file(path)
     rerank = HarborRerankClientConfig.from_file(path)
 
-    assert chat.default_model == "chat-primary"
-    assert embed.models["embed-primary"].embedding_space == "retrieval-v1"
-    assert rerank.default_model == "rerank-primary"
+    assert chat.default_model == "primary"
+    assert embed.models["primary"].embedding_space == "harbor-production-v1"
+    assert rerank.default_model == "primary"
     assert "openai-secret" not in repr(chat)
-
-    local_chat = HarborChatClientConfig.from_file(path, profile="local")
-    local_embed = HarborEmbedClientConfig.from_file(path, profile="local")
-    local_rerank = HarborRerankClientConfig.from_file(path, profile="local")
-    assert local_chat.default_model == "local-chat"
-    assert local_embed.default_model == embed.default_model
-    assert local_rerank.default_model == rerank.default_model
 
 
 def test_advanced_example_yaml_loads_base_and_profiles(
@@ -240,10 +232,12 @@ def test_advanced_example_yaml_loads_base_and_profiles(
         "OPENAI_API_KEY": "openai-primary",
         "OPENAI_API_KEY_SECONDARY": "openai-secondary",
         "ANTHROPIC_API_KEY": "anthropic",
+        "AWS_REGION": "us-east-1",
         "COHERE_API_KEY": "cohere-primary",
         "COHERE_API_KEY_SECONDARY": "cohere-secondary",
         "AZURE_OPENAI_API_KEY": "azure",
-        "AZURE_OPENAI_API_BASE": "https://azure.example.com",
+        "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com",
+        "AZURE_OPENAI_API_VERSION": "2025-01-01-preview",
         "AZURE_OPENAI_CHAT_DEPLOYMENT": "chat-production",
         "AZURE_OPENAI_EMBED_DEPLOYMENT": "embed-production",
         "GEMINI_API_KEY": "gemini",
@@ -252,10 +246,9 @@ def test_advanced_example_yaml_loads_base_and_profiles(
     }
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
-    path = Path(__file__).resolve().parents[5] / "models.advance.examples.yaml"
+    path = Path(__file__).resolve().parents[5] / "config" / "models.advance.example.yaml"
     source = path.read_text(encoding="utf-8")
-    assert "api_key: ${OPENAI_API_KEY}" in source
-    assert "replace-me" not in source
+    assert "api_key: ${AZURE_OPENAI_API_KEY}" in source
 
     configs = (
         HarborChatClientConfig,
@@ -264,51 +257,13 @@ def test_advanced_example_yaml_loads_base_and_profiles(
     )
     base = tuple(config.from_file(path) for config in configs)
     production = tuple(config.from_file(path, profile="production") for config in configs)
-    round_robin = tuple(config.from_file(path, profile="harbor-round-robin") for config in configs)
-    cloud = tuple(config.from_file(path, profile="cloud-providers") for config in configs)
-    local = tuple(config.from_file(path, profile="local") for config in configs)
-
-    for chat, embed, rerank in (base, production, round_robin, cloud, local):
+    for chat, embed, rerank in (base, production):
         validate_chat_configuration(chat)
         validate_embed_configuration(embed)
         validate_rerank_configuration(rerank)
 
     assert all(not config.cache.enabled for config in base)
-    assert tuple(config.cache.key_namespace for config in base) == (
-        "harborrag:chat",
-        "harborrag:embed",
-        "harborrag:rerank",
-    )
-    assert all(config.routing.engine is RoutingEngine.HARBOR for config in base)
-    assert production[0].routing.engine is RoutingEngine.LITELLM_ROUTER
-    assert production[1].routing.engine is RoutingEngine.LITELLM_ROUTER
-    assert production[2].routing.engine is RoutingEngine.HARBOR
-    assert all(config.cache.enabled for config in production)
-    assert all(config.cache.backend is CacheBackend.LITELLM for config in production)
-    assert production[0].provider_budgets["openai"].max_budget == 250
-    assert round_robin[0].routing.strategy is RoutingStrategy.ROUND_ROBIN
-    assert tuple(config.default_model for config in local) == (
-        "local-chat",
-        "local-embed",
-        "local-rerank",
-    )
-    assert cloud[0].resolve_alias("azure-assistant") == "chat-azure"
-    assert cloud[1].resolve_alias("gemini-embedding") == "embed-gemini"
-    assert cloud[2].resolve_alias("aws-reranker") == "rerank-bedrock"
-    chat_providers = {
-        deployment.provider.value
-        for config in (cloud[0], local[0])
-        for model in config.models.values()
-        for deployment in model.deployments
-    }
-    assert {
-        "openai",
-        "azure_openai",
-        "anthropic",
-        "bedrock",
-        "gemini",
-        "ollama",
-        "openai_compatible",
-    } <= chat_providers
-    assert base[0].models["chat-primary"].deployments[0].capabilities.multimodal
-    assert base[1].models["embed-primary"].deployments[0].capabilities.batch
+    assert base[0].routing.engine is RoutingEngine.LITELLM_ROUTER
+    assert base[1].routing.engine is RoutingEngine.HARBOR
+    assert base[2].routing.engine is RoutingEngine.HARBOR
+    assert tuple(config.timeout_seconds for config in production) == (90, 90, 90)

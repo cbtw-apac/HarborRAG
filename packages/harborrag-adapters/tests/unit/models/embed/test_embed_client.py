@@ -5,7 +5,6 @@ import math
 import pytest
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.embed import (
-    AsyncHarborEmbedClient,
     HarborEmbedClient,
     HarborEmbedClientConfig,
 )
@@ -66,7 +65,7 @@ def test_sync_single_input_embedding() -> None:
 @pytest.mark.asyncio
 async def test_async_batch_embedding() -> None:
     invocation = FakeEmbeddingInvocation([embedding_response([[1.0, 0.0], [0.0, 1.0]])])
-    client = AsyncHarborEmbedClient(embed_config(), invocation=invocation)
+    client = HarborEmbedClient(embed_config(), invocation=invocation)
 
     response = await client.aembed(["first", "second"])
 

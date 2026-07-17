@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 from harborrag_adapters.models.chat.configs import HarborChatClientConfig
-from pydantic import ValidationError
+from harborrag_adapters.models.chat.validation import validate_chat_configuration
+from harborrag_core.models.errors import HarborChatConfigurationError
 
 
 @pytest.mark.parametrize(
@@ -66,19 +67,20 @@ def test_provider_configurations(name, entry):
 
 
 def test_azure_validation_rejects_missing_fields():
-    with pytest.raises(ValidationError, match="requires"):
-        HarborChatClientConfig.from_dict(
-            {
-                "default_model": "azure",
-                "models": {
-                    "azure": {
-                        "provider": "azure_openai",
-                        "model": "azure/gpt-4.1",
-                        "api_key": "k",
-                    }
-                },
-            }
-        )
+    config = HarborChatClientConfig.from_dict(
+        {
+            "default_model": "azure",
+            "models": {
+                "azure": {
+                    "provider": "azure_openai",
+                    "model": "azure/gpt-4.1",
+                    "api_key": "k",
+                }
+            },
+        }
+    )
+    with pytest.raises(HarborChatConfigurationError, match="requires"):
+        validate_chat_configuration(config)
 
 
 def test_environment_expansion(monkeypatch):

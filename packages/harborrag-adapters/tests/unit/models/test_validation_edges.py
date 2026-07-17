@@ -157,7 +157,7 @@ def test_chat_request_security_edges(
 ) -> None:
     config = _chat_config(security=security)
     deployment = config.models["primary"].deployments[0]
-    with pytest.raises(HarborChatConfigurationError, match=match):
+    with pytest.raises(HarborChatInvalidRequestError, match=match):
         validate_chat_request(_chat_request(**request_updates), config, deployment)
 
 
@@ -266,5 +266,5 @@ def test_embedding_configuration_rejects_disabled_and_unsafe_routes() -> None:
         .model_copy(update={"extra_litellm_params": {"unsafe": True}})
     )
     logical = config.models["primary"].model_copy(update={"deployments": (deployment,)})
-    with pytest.raises(HarborEmbedConfigurationError, match="disallowed"):
+    with pytest.raises(HarborEmbedConfigurationError, match="unapproved"):
         validate_embed_configuration(config.model_copy(update={"models": {"primary": logical}}))

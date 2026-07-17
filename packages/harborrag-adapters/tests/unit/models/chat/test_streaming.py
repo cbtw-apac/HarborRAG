@@ -54,8 +54,10 @@ def test_sync_text_stream_emits_usage_completion_and_closes(base_config) -> None
     )
 
     assert [event.event for event in events] == [
+        StreamEventType.METADATA,
         StreamEventType.TEXT_DELTA,
         StreamEventType.TEXT_DELTA,
+        StreamEventType.METADATA,
         StreamEventType.USAGE,
         StreamEventType.COMPLETED,
     ]
@@ -149,11 +151,12 @@ def test_provider_disconnect_emits_error_then_raises_and_closes(base_config) -> 
         [HarborChatMessage.user("hello")]
     )
 
+    assert next(iterator).event is StreamEventType.METADATA
     assert next(iterator).event is StreamEventType.TEXT_DELTA
     error_event = next(iterator)
     assert error_event.event is StreamEventType.ERROR
     assert error_event.error["type"] == "HarborChatConnectionError"
-    with pytest.raises(HarborChatConnectionError, match="disconnected"):
+    with pytest.raises(HarborChatConnectionError, match="provider request failed"):
         next(iterator)
     assert raw.closed
 
@@ -167,7 +170,7 @@ async def test_exception_during_async_iteration_is_mapped_and_closed(base_config
 
     error_event = await anext(iterator)
     assert error_event.event is StreamEventType.ERROR
-    with pytest.raises(HarborChatProviderError, match="broken stream"):
+    with pytest.raises(HarborChatProviderError, match="provider request failed"):
         await anext(iterator)
     assert raw.closed
 
@@ -194,6 +197,7 @@ async def test_consumers_can_close_streams_early(base_config) -> None:
     sync_iterator = HarborChatClient(
         base_config, invocation=FakeInvocation(streams=[sync_raw])
     ).stream([HarborChatMessage.user("hello")])
+    assert next(sync_iterator).event is StreamEventType.METADATA
     assert next(sync_iterator).text_delta == "first"
     sync_iterator.close()
 
@@ -201,6 +205,7 @@ async def test_consumers_can_close_streams_early(base_config) -> None:
     async_iterator = HarborChatClient(
         base_config, invocation=FakeInvocation(async_streams=[async_raw])
     ).astream([HarborChatMessage.user("hello")])
+    assert (await anext(async_iterator)).event is StreamEventType.METADATA
     assert (await anext(async_iterator)).text_delta == "first"
     await async_iterator.aclose()
 

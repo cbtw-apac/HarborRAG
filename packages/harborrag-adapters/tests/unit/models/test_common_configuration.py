@@ -10,6 +10,7 @@ from harborrag_adapters.models.chat.configs import (
     HarborChatModelConfig,
     HarborChatProviderConfig,
 )
+from harborrag_adapters.models.chat.validation import validate_chat_configuration
 from harborrag_adapters.models.common.config import RetryPolicyConfig
 from harborrag_adapters.models.common.context import update_operation_context
 from harborrag_adapters.models.common.environment import expand_environment
@@ -24,6 +25,7 @@ from harborrag_adapters.models.common.provider import (
 )
 from harborrag_adapters.models.common.security import SecretReference
 from harborrag_core.models.context import ModelOperationContext
+from harborrag_core.models.errors import HarborChatConfigurationError
 from pydantic import ValidationError
 
 
@@ -153,18 +155,22 @@ def test_configuration_loading_from_json_and_yaml(tmp_path: Path, suffix: str) -
 def test_unknown_and_incomplete_providers_are_rejected() -> None:
     with pytest.raises(ValidationError, match="unknown-provider"):
         HarborChatClientConfig.from_dict(chat_document(provider="unknown-provider"))
-    with pytest.raises(ValidationError, match="api_version"):
-        HarborChatClientConfig.from_dict(
-            chat_document(
-                provider="azure_openai",
-                api_base="https://example.openai.azure.com",
-                deployment_name="production",
-            )
+    incomplete = HarborChatClientConfig.from_dict(
+        chat_document(
+            provider="azure_openai",
+            api_base="https://example.openai.azure.com",
+            deployment_name="production",
         )
-    with pytest.raises(ValidationError, match="does not support ambient credentials"):
-        HarborChatClientConfig.from_dict(
-            chat_document(api_key=None, allow_ambient_credentials=True)
-        )
+    )
+    with pytest.raises(HarborChatConfigurationError, match="api_version"):
+        validate_chat_configuration(incomplete)
+    ambient = HarborChatClientConfig.from_dict(
+        chat_document(api_key=None, allow_ambient_credentials=True)
+    )
+    with pytest.raises(
+        HarborChatConfigurationError, match="does not support ambient credentials"
+    ):
+        validate_chat_configuration(ambient)
 
 
 class ExampleProvider(StrEnum):

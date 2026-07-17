@@ -188,4 +188,7 @@ async def test_litellm_async_callbacks_handle_fallback_error_and_invalid_cost() 
     assert success.operation == "model"
     assert success.estimated_cost_usd is None
     assert success.cache_status == "miss"
-    assert failure.error == {"type": "RuntimeError", "message": "failure"}
+    assert failure.error == {
+        "type": "RuntimeError",
+        "message": "RuntimeError: provider request failed",
+    }

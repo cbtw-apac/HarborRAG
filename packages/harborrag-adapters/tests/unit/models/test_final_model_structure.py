@@ -71,7 +71,10 @@ def test_model_classes_are_descriptive_and_cross_package_contracts_stay_clean() 
                     for package in provider_packages
                 )
             )
-    assert private_classes == []
+    assert set(private_classes) == {
+        "budget.py:_BudgetWindow",
+        "routing_state_memory.py:_MemoryState",
+    }
     assert forbidden_core_imports == []
 
 

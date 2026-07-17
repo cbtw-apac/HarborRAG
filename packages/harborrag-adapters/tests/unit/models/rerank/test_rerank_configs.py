@@ -6,7 +6,8 @@ from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
     HarborRerankProvider,
 )
-from pydantic import ValidationError
+from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
+from harborrag_core.models.errors import HarborRerankConfigurationError
 
 
 def _document(provider: str, **deployment):
@@ -34,8 +35,11 @@ def test_cohere_config_and_secret_repr() -> None:
 
 
 def test_bedrock_rerank_requires_region() -> None:
-    with pytest.raises(ValidationError, match="aws_region_name"):
-        HarborRerankClientConfig.from_dict(_document("bedrock", model="bedrock/amazon.rerank-v1:0"))
+    incomplete = HarborRerankClientConfig.from_dict(
+        _document("bedrock", model="bedrock/amazon.rerank-v1:0")
+    )
+    with pytest.raises(HarborRerankConfigurationError, match="aws_region_name"):
+        validate_rerank_configuration(incomplete)
     config = HarborRerankClientConfig.from_dict(
         _document(
             "bedrock",

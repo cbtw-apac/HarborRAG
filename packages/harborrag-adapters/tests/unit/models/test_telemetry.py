@@ -76,10 +76,16 @@ def test_request_lifecycle_captures_identity_usage_and_safe_defaults() -> None:
     assert completed.total_duration_ms is not None
     assert invocation.calls[0]["metadata"] == {
         "harborrag": {
-            "request_id": "request-1",
-            "operation": "chat",
+            "collection_name": "manuals",
             "logical_model": "primary",
-        }
+            "operation": "chat",
+            "request_id": "request-1",
+            "tenant_id": started.tenant_id,
+            "trace_id": "trace-1",
+            "user_id": started.user_id,
+            "workflow_id": "workflow-1",
+        },
+        "trace_id": "trace-1",
     }
 
 
@@ -223,7 +229,7 @@ def test_errors_are_sanitized_before_dispatch() -> None:
     error = _event(sink, TelemetryEventType.REQUEST_ERROR).error
     assert error is not None
     assert "top-secret" not in str(error)
-    assert "redacted" in str(error).lower()
+    assert "provider request failed" in str(error).lower()
 
 
 def test_stream_events_include_first_token_and_completion() -> None:
@@ -242,7 +248,12 @@ def test_stream_events_include_first_token_and_completion() -> None:
     assert TelemetryEventType.STREAM_START in event_types
     assert TelemetryEventType.STREAM_COMPLETE in event_types
     assert TelemetryEventType.REQUEST_COMPLETE in event_types
-    stream_event = _event(sink, TelemetryEventType.STREAM_EVENT)
+    stream_event = next(
+        event
+        for event in sink.events
+        if event.event_type is TelemetryEventType.STREAM_EVENT
+        and event.first_token_latency_ms is not None
+    )
     assert stream_event.first_token_latency_ms is not None
     assert stream_event.output_payload is None
     assert raw.closed
@@ -257,7 +268,7 @@ def test_stream_errors_emit_stream_and_request_failure_events() -> None:
         telemetry=_dispatcher(sink),
     )
 
-    with pytest.raises(HarborChatConnectionError, match="disconnected"):
+    with pytest.raises(HarborChatConnectionError, match="provider request failed"):
         list(client.stream([HarborChatMessage.user("hello")]))
 
     event_types = [event.event_type for event in sink.events]

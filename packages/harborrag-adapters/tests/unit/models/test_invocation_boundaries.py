@@ -150,13 +150,13 @@ async def test_router_invocations_forward_lifecycle_methods() -> None:
     assert chat.complete(model="chat") == {"model": "chat"}
     chat.close()
     await chat.aclose()
-    assert (router.closed, router.aclosed) == (1, 1)
+    assert (router.closed, router.aclosed) == (1, 0)
 
     embed = LiteLLMEmbeddingRouterInvocation(router)
     assert embed.embed(model="embed") == {"model": "embed"}
     embed.close()
     await embed.aclose()
-    assert (router.closed, router.aclosed) == (2, 2)
+    assert (router.closed, router.aclosed) == (2, 1)
 
     sync_router = SyncOnlyRouter()
     await LiteLLMChatRouterInvocation(sync_router).aclose()

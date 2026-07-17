@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.rerank import (
-    AsyncHarborRerankingClient,
     HarborRerankClientConfig,
     HarborRerankingClient,
 )
@@ -68,7 +67,7 @@ def test_sync_reranking_preserves_source_identity_and_metadata() -> None:
 @pytest.mark.asyncio
 async def test_async_reranking() -> None:
     invocation = FakeRerankInvocation([rerank_response([(0, 0.8), (1, 0.1)])])
-    client = AsyncHarborRerankingClient(rerank_config(), invocation=invocation)
+    client = HarborRerankingClient(rerank_config(), invocation=invocation)
 
     response = await client.arerank("query", ["first", "second"])
 

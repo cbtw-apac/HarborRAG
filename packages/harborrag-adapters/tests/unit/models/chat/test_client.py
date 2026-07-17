@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from harborrag_adapters.models.chat import (
-    AsyncHarborChatClient,
     HarborChatClient,
     HarborChatClientConfig,
 )
@@ -56,7 +55,6 @@ async def test_async_completion_uses_same_client_and_contract(base_config) -> No
     assert response.text == "async"
     assert invocation.async_calls[0]["temperature"] == 0.6
     assert isinstance(client, AsyncHarborChatClientProtocol)
-    assert AsyncHarborChatClient is HarborChatClient
 
 
 def test_alias_resolution_and_timeout_forwarding(base_config) -> None:

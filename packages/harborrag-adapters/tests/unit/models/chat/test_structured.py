@@ -183,7 +183,7 @@ def test_unsupported_structured_output_stops_before_invocation(base_config) -> N
     config = _configured(base_config, HarborChatCapabilities())
     invocation = FakeInvocation([response_dict()])
 
-    with pytest.raises(HarborChatCapabilityError, match="structured-output policy"):
+    with pytest.raises(HarborChatCapabilityError, match="structured-output strategy"):
         HarborChatClient(config, invocation=invocation).chat_structured(
             [HarborChatMessage.user("question")],
             response_model=TypedAnswer,

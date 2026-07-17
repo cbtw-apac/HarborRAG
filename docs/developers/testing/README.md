@@ -54,27 +54,41 @@ graybox       public behavior tests that assert observable internal signals
 whitebox      internal architecture and contract tests
 requires_deps marks tests requiring optional dependencies
 workflow      marks tests that validate GitHub Actions workflow files
+contract      reusable behavioral contracts shared by implementations
+chaos         deterministic fault-injection and recovery tests
+performance   bounded local performance and concurrency tests
+load          correctness-oriented local micro-load tests
 ```
 
 Tests requiring Docker, cloud credentials, provider accounts, or live model APIs
 must be marked `@pytest.mark.integration`.
 
-`packages/harborrag-adapters/tests/smoke/` contains standalone env-gated
-provider smoke scripts for Confluence/JIRA/GitHub/SharePoint/local files. They
-do not use pytest. They use `HarborConnector`, load repo-root `.env` values,
-discover a small number of records, load one `RawDocument`, and print it. Copy
-`.env.connector.example` at the repo root to `.env`, fill in only the connectors you want
-to validate, then run:
+`packages/harborrag-adapters/tests/smoke/` contains standalone real-system
+checks for connectors, model providers, and real parser inputs. They do not use
+pytest or mocks and are not part of normal test discovery. Copy the relevant
+groups from `.env.connector.example` and `.env.models.example` into repo-root
+`.env`, then run a configured group:
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/run_all.py
+python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
+python packages/harborrag-adapters/tests/smoke/models/run_all.py
 ```
 
 Run a single provider script when only one connector is configured:
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/jira.py
+python packages/harborrag-adapters/tests/smoke/connectors/jira.py
 ```
+
+Real parser inputs are checked individually:
+
+```bash
+python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/report.pdf --pdf-profile fast
+```
+
+See the adapter [real smoke-test runbook](../../../packages/harborrag-adapters/tests/smoke/README.md)
+for prerequisites, safe output rules, exit codes, and the list of checks that
+may remain unavailable outside the main environment.
 
 ## Testing the base + mock pattern
 

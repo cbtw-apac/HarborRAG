@@ -6,6 +6,8 @@ from harborrag_adapters.models.embed import (
     HarborEmbedClientConfig,
     HarborEmbedProvider,
 )
+from harborrag_adapters.models.embed.validation import validate_embed_configuration
+from harborrag_core.models.errors import HarborEmbedConfigurationError
 from pydantic import ValidationError
 
 
@@ -35,8 +37,11 @@ def test_openai_config_and_secret_repr() -> None:
 
 
 def test_azure_openai_requires_endpoint_version_and_deployment() -> None:
-    with pytest.raises(ValidationError, match=r"api_base.*api_version.*deployment_name"):
-        HarborEmbedClientConfig.from_dict(_document("azure_openai", api_key="key"))
+    incomplete = HarborEmbedClientConfig.from_dict(
+        _document("azure_openai", api_key="key")
+    )
+    with pytest.raises(HarborEmbedConfigurationError, match="requires"):
+        validate_embed_configuration(incomplete)
 
     config = HarborEmbedClientConfig.from_dict(
         _document(

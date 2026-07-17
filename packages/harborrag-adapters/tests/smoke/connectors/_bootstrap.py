@@ -27,10 +27,15 @@ def _unquote(value: str) -> str:
     return value
 
 
-def load_env() -> None:
-    env_path = REPO_ROOT / ".env"
+def load_env() -> Path:
+    configured_path = os.getenv("HARBOR_SMOKE_ENV_FILE")
+    env_path = (
+        Path(configured_path).expanduser()
+        if configured_path
+        else REPO_ROOT / ".env"
+    )
     if not env_path.exists():
-        return
+        return env_path
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -39,6 +44,7 @@ def load_env() -> None:
         name = name.strip()
         if name and name not in os.environ:
             os.environ[name] = _unquote(value)
+    return env_path
 
 
 def env(name: str) -> str | None:
