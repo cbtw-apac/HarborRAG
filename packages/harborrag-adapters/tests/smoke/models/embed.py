@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import math
 
-from _bootstrap import load_env, safe_error
-from _config import SmokeNotConfigured, embed_config
+from bootstrap import load_env, safe_error
+from config import SmokeNotConfigured, embed_config
 from harborrag_adapters.models.embed import HarborEmbedClient
 
 
@@ -27,6 +27,7 @@ async def _run() -> None:
         "[models/embed] passed "
         f"provider_model={response.provider_model!r} dimensions={response.dimensions}"
     )
+    print(f"[models/embed] embeddings: {[e.value[:5] for e in response.embeddings]!r}")
 
 
 def main() -> int:

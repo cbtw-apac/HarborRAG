@@ -47,9 +47,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
     ],
 )
 def test_can_parse_matches_advertised_routes(parser, filename, content_type):
-    assert parser.can_parse(
-        ParseInput(content=b"x", filename=filename, content_type=content_type)
-    )
+    assert parser.can_parse(ParseInput(content=b"x", filename=filename, content_type=content_type))
 
 
 @pytest.mark.parametrize(
@@ -64,9 +62,7 @@ def test_can_parse_rejects_unrelated_input(parser):
 
 def test_can_parse_uses_normalized_content_type_parameters():
     # Content type with parameters is normalized before comparison.
-    assert HtmlParser().can_parse(
-        ParseInput(content=b"x", content_type="text/html; charset=utf-8")
-    )
+    assert HtmlParser().can_parse(ParseInput(content=b"x", content_type="text/html; charset=utf-8"))
 
 
 def test_init_subclass_normalizes_suffix_and_content_type_declarations():

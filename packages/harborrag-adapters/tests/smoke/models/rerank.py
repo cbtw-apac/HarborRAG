@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import math
 
-from _bootstrap import load_env, safe_error
-from _config import SmokeNotConfigured, rerank_config
+from bootstrap import load_env, safe_error
+from config import SmokeNotConfigured, rerank_config
 from harborrag_adapters.models.rerank import HarborRerankingClient
 
 DOCUMENTS = [
@@ -42,7 +42,7 @@ def main() -> int:
     except SmokeNotConfigured as exc:
         print(f"[models/rerank] not configured: {safe_error(exc)}")
         return 2
-    except Exception as exc:  # noqa: BLE001 - smoke runner must return a stable exit code
+    except Exception as exc:  # noqa: BLE001
         print(f"[models/rerank] failed: {safe_error(exc)}")
         return 1
     return 0

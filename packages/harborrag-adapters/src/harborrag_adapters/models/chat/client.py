@@ -3,8 +3,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Self, cast
 
-from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse, HarborChatStreamChunk
-from harborrag_core.models.protocols import AsyncHarborChatClientProtocol, HarborChatClientProtocol
+from harborrag_core.models.chat import (
+    HarborChatRequest,
+    HarborChatResponse,
+    HarborChatStreamChunk,
+)
+from harborrag_core.models.protocols import (
+    AsyncHarborChatClientProtocol,
+    HarborChatClientProtocol,
+)
 from pydantic import BaseModel
 
 from harborrag_adapters.models.common.budget import ModelBudgetPolicy
@@ -12,7 +19,10 @@ from harborrag_adapters.models.common.cache import ModelResponseCache
 from harborrag_adapters.models.common.client_lifecycle import ModelClientLifecycleMixin
 from harborrag_adapters.models.common.client_runtime import ModelClientRuntimeMixin
 from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
-from harborrag_adapters.models.common.health import ActiveHealthMonitor, DeploymentHealthProbe
+from harborrag_adapters.models.common.health import (
+    ActiveHealthMonitor,
+    DeploymentHealthProbe,
+)
 from harborrag_adapters.models.common.introspection import ModelRuntimeIntrospector
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.common.middleware import MiddlewarePipeline
@@ -207,7 +217,10 @@ class HarborChatClient(
         """Generate and normalize one synchronous chat completion."""
 
         logical, prepared, alias = self._prepare(messages, request, model, kwargs)
-        return cast(HarborChatResponse, self._execution.chat(logical, prepared, model_alias=alias))
+        return cast(
+            HarborChatResponse,
+            self._execution.chat(logical, prepared, model_alias=alias),
+        )
 
     async def achat(
         self,

@@ -23,10 +23,7 @@ def test_children_endpoint_supports_root_path_and_item_children():
         children_endpoint("drive1", path="Shared Documents")
         == "drives/drive1/root:/Shared%20Documents:/children"
     )
-    assert (
-        children_endpoint("drive1", item_id="folder1")
-        == "drives/drive1/items/folder1/children"
-    )
+    assert children_endpoint("drive1", item_id="folder1") == "drives/drive1/items/folder1/children"
 
 
 def test_parse_sharepoint_site_url_rejects_non_absolute_url():
@@ -35,12 +32,8 @@ def test_parse_sharepoint_site_url_rejects_non_absolute_url():
 
 
 def test_site_path_endpoint_without_path():
-    assert site_path_endpoint("contoso.sharepoint.com", None) == (
-        "sites/contoso.sharepoint.com:/"
-    )
-    assert site_path_endpoint("contoso.sharepoint.com", "") == (
-        "sites/contoso.sharepoint.com:/"
-    )
+    assert site_path_endpoint("contoso.sharepoint.com", None) == ("sites/contoso.sharepoint.com:/")
+    assert site_path_endpoint("contoso.sharepoint.com", "") == ("sites/contoso.sharepoint.com:/")
 
 
 def test_item_extension_returns_empty_without_dot():

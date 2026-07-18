@@ -214,13 +214,8 @@ class TestWebsiteBuilderMarkdown:
 
         assert '<ol start="1" class="list-group list-group-numbered">' in result
         assert '<ol start="2" class="list-group list-group-numbered">' in result
-        assert (
-            '<li class="list-group-item"><strong>Fork and Clone</strong></li>' in result
-        )
-        assert (
-            '<li class="list-group-item"><strong>Install Dependencies</strong></li>'
-            in result
-        )
+        assert '<li class="list-group-item"><strong>Fork and Clone</strong></li>' in result
+        assert '<li class="list-group-item"><strong>Install Dependencies</strong></li>' in result
 
     def test_markdown_to_html_with_markdown_library(self):
         """Test markdown conversion with markdown library available."""
@@ -239,9 +234,7 @@ class TestWebsiteBuilderMarkdown:
         """Test markdown conversion fallback when library unavailable."""
         # Test the fallback method directly to avoid mocking issues
         builder = WebsiteBuilder()
-        result = builder.markdown_processor._basic_markdown_to_html_no_regex(
-            "# Test Header"
-        )
+        result = builder.markdown_processor._basic_markdown_to_html_no_regex("# Test Header")
 
         # Should convert basic markdown
         assert "<h1>Test Header</h1>" in result
@@ -269,9 +262,7 @@ class TestWebsiteBuilderPageBuilding:
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
 
-        builder.build_page(
-            "base.html", "test.html", "Test Page", "Test Description", "test.html"
-        )
+        builder.build_page("base.html", "test.html", "Test Page", "Test Description", "test.html")
 
         output_file = mock_project_structure / "site" / "test.html"
         assert output_file.exists()
@@ -313,9 +304,7 @@ class TestWebsiteBuilderPageBuilding:
         md_file = mock_project_structure / "test.md"
         md_file.write_text("# Test Document\n\nThis is a test.")
 
-        builder.build_markdown_page(
-            "test.md", "test.html", "Test Page", "Test Description"
-        )
+        builder.build_markdown_page("test.md", "test.html", "Test Page", "Test Description")
 
         output_file = mock_project_structure / "site" / "test.html"
         assert output_file.exists()
@@ -340,9 +329,7 @@ class TestWebsiteBuilderPageBuilding:
         md_file = mock_project_structure / "test.md"
         md_file.write_text("# Test Document\n\nContent here.")
 
-        builder.build_markdown_page(
-            "test.md", "test.html", breadcrumb="Test Breadcrumb"
-        )
+        builder.build_markdown_page("test.md", "test.html", breadcrumb="Test Breadcrumb")
 
         output_file = mock_project_structure / "site" / "test.html"
         content = output_file.read_text()
@@ -427,9 +414,9 @@ class TestWebsiteBuilderStructures:
         # Create additional docs
         (mock_project_structure / "docs" / "advanced.md").write_text("# Advanced Guide")
         (mock_project_structure / "packages" / "qdrant-loader").mkdir(parents=True)
-        (
-            mock_project_structure / "packages" / "qdrant-loader" / "README.md"
-        ).write_text("# Package Docs")
+        (mock_project_structure / "packages" / "qdrant-loader" / "README.md").write_text(
+            "# Package Docs"
+        )
 
         builder.build_docs_structure()
 
@@ -480,21 +467,17 @@ class TestWebsiteBuilderAssets:
 
         # Create additional assets
         (mock_project_structure / "website" / "assets" / "images").mkdir()
-        (
-            mock_project_structure / "website" / "assets" / "images" / "logo.png"
-        ).write_text("fake image")
-        (mock_project_structure / "website" / "assets" / "script.py").write_text(
-            "# Python file"
+        (mock_project_structure / "website" / "assets" / "images" / "logo.png").write_text(
+            "fake image"
         )
+        (mock_project_structure / "website" / "assets" / "script.py").write_text("# Python file")
 
         builder.copy_assets()
 
         assets_dir = mock_project_structure / "site" / "assets"
         assert assets_dir.exists()
         assert (assets_dir / "images" / "logo.png").exists()
-        assert not (
-            assets_dir / "script.py"
-        ).exists()  # Python files should be excluded
+        assert not (assets_dir / "script.py").exists()  # Python files should be excluded
 
     def test_copy_assets_missing_source(self, mock_project_structure):
         """Test asset copying with missing source directory."""
@@ -546,9 +529,7 @@ class TestWebsiteBuilderSEO:
         # Create some HTML files first so sitemap has content
         (builder.output_dir / "index.html").write_text("<html><body>Home</body></html>")
         (builder.output_dir / "docs").mkdir()
-        (builder.output_dir / "docs" / "index.html").write_text(
-            "<html><body>Docs</body></html>"
-        )
+        (builder.output_dir / "docs" / "index.html").write_text("<html><body>Docs</body></html>")
 
         builder.generate_seo_files()
 
@@ -581,9 +562,7 @@ Everyone is permitted to copy and distribute verbatim copies
 of this license document, but changing it is not allowed."""
         license_file.write_text(license_content)
 
-        builder.build_license_page(
-            "LICENSE", "LICENSE.html", "License", "GNU GPLv3 License"
-        )
+        builder.build_license_page("LICENSE", "LICENSE.html", "License", "GNU GPLv3 License")
 
         output_file = mock_project_structure / "site" / "LICENSE.html"
         assert output_file.exists()
@@ -592,17 +571,13 @@ of this license document, but changing it is not allowed."""
         assert "GNU GENERAL PUBLIC LICENSE" in content
         assert "License Information" in content
 
-    def test_build_license_page_missing_file(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_build_license_page_missing_file(self, mock_project_structure, clean_workspace):
         """Test license page building with missing file."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
 
         # Should handle missing license file gracefully
-        builder.build_license_page(
-            "nonexistent-LICENSE", "LICENSE.html", "License", "License"
-        )
+        builder.build_license_page("nonexistent-LICENSE", "LICENSE.html", "License", "License")
 
         # Output file should not be created
         output_file = mock_project_structure / "site" / "LICENSE.html"
@@ -637,9 +612,7 @@ class TestWebsiteBuilderAdvancedFeatures:
         assert index_file.exists()
         assert "Package Documentation" in index_file.read_text()
 
-    def test_generate_directory_indexes_no_docs(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_generate_directory_indexes_no_docs(self, mock_project_structure, clean_workspace):
         """Test directory index generation with no docs directory."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -647,9 +620,7 @@ class TestWebsiteBuilderAdvancedFeatures:
         # Should handle missing docs directory gracefully
         builder.generate_directory_indexes()
 
-    def test_copy_static_files_with_files(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_copy_static_files_with_files(self, mock_project_structure, clean_workspace):
         """Test copying static files."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -668,9 +639,7 @@ class TestWebsiteBuilderAdvancedFeatures:
         assert (output_dir / "test.txt").exists()
         assert (output_dir / "image.png").exists()
 
-    def test_copy_static_files_with_single_file(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_copy_static_files_with_single_file(self, mock_project_structure, clean_workspace):
         """Test copying a single static file."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -689,9 +658,7 @@ class TestWebsiteBuilderAdvancedFeatures:
         assert output_file.exists()
         assert "User-agent: *" in output_file.read_text()
 
-    def test_copy_static_files_missing_source(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_copy_static_files_missing_source(self, mock_project_structure, clean_workspace):
         """Test copying static files with missing source."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -744,9 +711,7 @@ class TestWebsiteBuilderErrorHandling:
         result = builder.convert_markdown_links_to_html(html)
         assert 'href="../LICENSE.html"' in result
 
-    def test_generate_project_info_with_tomli_error(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_generate_project_info_with_tomli_error(self, mock_project_structure, clean_workspace):
         """Test project info generation with tomli import error."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -767,9 +732,7 @@ class TestWebsiteBuilderErrorHandling:
 class TestWebsiteBuilderSEOAdvanced:
     """Test advanced SEO functionality."""
 
-    def test_generate_dynamic_sitemap_with_files(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_generate_dynamic_sitemap_with_files(self, mock_project_structure, clean_workspace):
         """Test dynamic sitemap generation with actual files."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -785,9 +748,7 @@ class TestWebsiteBuilderSEOAdvanced:
         (site_dir / "coverage").mkdir(parents=True, exist_ok=True)
 
         (site_dir / "docs" / "index.html").write_text("<html><body>Docs</body></html>")
-        (site_dir / "coverage" / "index.html").write_text(
-            "<html><body>Coverage</body></html>"
-        )
+        (site_dir / "coverage" / "index.html").write_text("<html><body>Coverage</body></html>")
 
         builder.generate_dynamic_sitemap("2024-01-01")
 
@@ -799,9 +760,7 @@ class TestWebsiteBuilderSEOAdvanced:
         assert "https://example.com/docs/index.html" in content
         assert "2024-01-01" in content
 
-    def test_generate_dynamic_sitemap_relative_urls(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_generate_dynamic_sitemap_relative_urls(self, mock_project_structure, clean_workspace):
         """Test dynamic sitemap generation with relative URLs."""
         os.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
@@ -887,13 +846,9 @@ class TestWebsiteBuilderCLI:
         custom_templates.mkdir()
 
         # Copy all templates from the mock structure
-        for template_file in (mock_project_structure / "website" / "templates").glob(
-            "*"
-        ):
+        for template_file in (mock_project_structure / "website" / "templates").glob("*"):
             if template_file.is_file():
-                (custom_templates / template_file.name).write_text(
-                    template_file.read_text()
-                )
+                (custom_templates / template_file.name).write_text(template_file.read_text())
 
         # Mock argparse to avoid SystemExit
         mock_args = Mock()
@@ -943,16 +898,12 @@ class TestWebsiteBuilderCLI:
 class TestGitHubActionsWorkflow:
     """Test GitHub Actions workflow integration."""
 
-    def test_favicon_generation_workflow_step(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_favicon_generation_workflow_step(self, mock_project_structure, clean_workspace):
         """Test favicon generation as part of GitHub Actions workflow."""
         os.chdir(mock_project_structure)
 
         # Create favicon generation script path
-        favicon_script = (
-            mock_project_structure / "website" / "assets" / "generate_favicons.py"
-        )
+        favicon_script = mock_project_structure / "website" / "assets" / "generate_favicons.py"
         favicon_script.parent.mkdir(parents=True, exist_ok=True)
 
         # Create a mock favicon generation script
@@ -1056,9 +1007,7 @@ if __name__ == "__main__":
         sitemap_content = (site_dir / "sitemap.xml").read_text()
         assert "https://user.github.io/qdrant-loader" in sitemap_content
 
-    def test_verify_website_build_workflow_step(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_verify_website_build_workflow_step(self, mock_project_structure, clean_workspace):
         """Test website build verification as part of GitHub Actions workflow."""
         os.chdir(mock_project_structure)
 
@@ -1184,12 +1133,8 @@ if __name__ == "__main__":
         assert "fetch('website/status.json')" in content, "Should fetch website status"
 
         # Verify status.json files exist for all packages
-        assert (coverage_dir / "loader" / "status.json").exists(), (
-            "Loader status.json should exist"
-        )
-        assert (coverage_dir / "mcp" / "status.json").exists(), (
-            "MCP status.json should exist"
-        )
+        assert (coverage_dir / "loader" / "status.json").exists(), "Loader status.json should exist"
+        assert (coverage_dir / "mcp" / "status.json").exists(), "MCP status.json should exist"
         assert (coverage_dir / "website" / "status.json").exists(), (
             "Website status.json should exist"
         )

@@ -50,9 +50,7 @@ class FakeJiraClient:
 
 class FakeAttachmentParser:
     def parse(self, parse_input) -> ParsedDocument:
-        return ParsedDocument(
-            content=f"parsed:{parse_input.filename}", parser_name="fake"
-        )
+        return ParsedDocument(content=f"parsed:{parse_input.filename}", parser_name="fake")
 
 
 def cloud_config(**overrides: Any) -> JiraProjectConfig:

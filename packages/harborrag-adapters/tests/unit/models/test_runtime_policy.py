@@ -235,13 +235,22 @@ def test_cache_keys_are_deterministic_and_tenant_partitioned() -> None:
     )
 
     key_one = deterministic_cache_key(
-        family="chat", logical_model="primary", tenant_id="tenant-a", request=request_one
+        family="chat",
+        logical_model="primary",
+        tenant_id="tenant-a",
+        request=request_one,
     )
     key_two = deterministic_cache_key(
-        family="chat", logical_model="primary", tenant_id="tenant-a", request=request_two
+        family="chat",
+        logical_model="primary",
+        tenant_id="tenant-a",
+        request=request_two,
     )
     other_tenant = deterministic_cache_key(
-        family="chat", logical_model="primary", tenant_id="tenant-b", request=request_two
+        family="chat",
+        logical_model="primary",
+        tenant_id="tenant-b",
+        request=request_two,
     )
 
     assert key_one == key_two

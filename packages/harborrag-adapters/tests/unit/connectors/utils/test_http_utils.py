@@ -83,10 +83,7 @@ def test_safe_error_detail_redacts_secrets():
 
 
 def test_require_same_origin_allows_relative_urls():
-    assert (
-        require_same_origin_url("/path/x", "https://wiki.example.com", label="x")
-        == "/path/x"
-    )
+    assert require_same_origin_url("/path/x", "https://wiki.example.com", label="x") == "/path/x"
 
 
 def test_require_same_origin_allows_same_origin_absolute():

@@ -29,7 +29,9 @@ def weather_tool() -> HarborChatTool:
     )
 
 
-def test_tool_definitions_calls_and_parallel_arguments_are_normalized(base_config) -> None:
+def test_tool_definitions_calls_and_parallel_arguments_are_normalized(
+    base_config,
+) -> None:
     raw = response_dict(None, finish_reason="tool_calls")
     raw["choices"][0]["message"]["tool_calls"] = [
         {

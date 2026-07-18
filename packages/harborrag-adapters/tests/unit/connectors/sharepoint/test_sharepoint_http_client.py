@@ -1,4 +1,5 @@
 """Unit tests for the real Microsoft Graph HTTP client wrapper with fake sessions."""
+
 from __future__ import annotations
 
 import time as _time_module
@@ -32,18 +33,14 @@ def test_sharepoint_api_url_and_non_json():
         max_file_size_bytes=1024,
     )
     client = _RequestsGraphClient(cfg)
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, text="not json")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, text="not json")])
     with pytest.raises(FetchError, match="non-JSON"):
         client.get_json("sites/x")
 
 
 def test_sharepoint_get_json_decodes_dict_payload():
     client = sharepoint_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _json={"value": []})]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json={"value": []})])
     assert client.get_json("sites/x/drives") == {"value": []}
 
 
@@ -51,9 +48,7 @@ def test_sharepoint_get_json_rejects_non_dict_payload():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = sharepoint_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _json=[1, 2])]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
     with pytest.raises(FetchError, match="invalid JSON"):
         client.get_json("sites/x/drives")
 
@@ -103,9 +98,7 @@ def test_sharepoint_request_raises_authentication_error_on_401():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = sharepoint_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=401, text="bad token")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=401, text="bad token")])
     with pytest.raises(AuthenticationError):
         client.get_json("sites/x")
 
@@ -114,9 +107,7 @@ def test_sharepoint_request_raises_authentication_error_on_403():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = sharepoint_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=403, text="forbidden")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=403, text="forbidden")])
     with pytest.raises(AuthenticationError):
         client.get_json("sites/x")
 

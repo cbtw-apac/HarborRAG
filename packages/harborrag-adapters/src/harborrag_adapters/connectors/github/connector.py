@@ -106,9 +106,7 @@ class GitHubConnector(BaseConnector):
         for item in self._github.iter_tree(tree_sha, recursive=tree_recursive):
             if not is_blob(item):
                 continue
-            if not path_in_scope(
-                str(item.get("path") or ""), root_path, recursive=True
-            ):
+            if not path_in_scope(str(item.get("path") or ""), root_path, recursive=True):
                 continue
             if not query.recursive:
                 if not path_in_scope(

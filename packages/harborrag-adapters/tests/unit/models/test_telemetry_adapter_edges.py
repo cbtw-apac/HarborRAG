@@ -116,12 +116,14 @@ def _event(event_type: TelemetryEventType, request_id: str | None = "request") -
         status=OperationStatus.IN_PROGRESS,
         request_id=request_id,
         logical_model="primary",
-        error={"message": "safe"} if event_type is TelemetryEventType.REQUEST_ERROR else None,
+        error=({"message": "safe"} if event_type is TelemetryEventType.REQUEST_ERROR else None),
     )
 
 
 @pytest.mark.asyncio
-async def test_structured_logging_async_lifecycle(caplog: pytest.LogCaptureFixture) -> None:
+async def test_structured_logging_async_lifecycle(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     logger = logging.getLogger("harborrag.telemetry.async")
     adapter = StructuredLoggingTelemetry(logger)
     with caplog.at_level(logging.INFO, logger=logger.name):

@@ -42,7 +42,9 @@ class StructuredResult(BaseModel):
 
 
 def _chat_config(
-    *, capabilities: dict[str, Any] | None = None, security: dict[str, Any] | None = None
+    *,
+    capabilities: dict[str, Any] | None = None,
+    security: dict[str, Any] | None = None,
 ) -> HarborChatClientConfig:
     return HarborChatClientConfig.from_dict(
         {
@@ -94,7 +96,9 @@ def _chat_request(**updates: Any) -> HarborChatRequest:
         {"token_budget": HarborTokenBudget(max_input_tokens=100)},
     ],
 )
-def test_chat_rejects_not_yet_supported_baseline_features(updates: dict[str, Any]) -> None:
+def test_chat_rejects_not_yet_supported_baseline_features(
+    updates: dict[str, Any],
+) -> None:
     config = _chat_config()
     deployment = config.models["primary"].deployments[0]
     with pytest.raises(HarborChatCapabilityError):
@@ -216,7 +220,11 @@ def test_chat_configuration_security_edges() -> None:
             HarborEmbedInvalidRequestError,
         ),
         (HarborEmbedRequest(inputs=((1, 2),)), {}, HarborEmbedCapabilityError),
-        (HarborEmbedRequest(inputs=("a",), dimensions=3), {}, HarborEmbedCapabilityError),
+        (
+            HarborEmbedRequest(inputs=("a",), dimensions=3),
+            {},
+            HarborEmbedCapabilityError,
+        ),
         (
             HarborEmbedRequest(inputs=("a",), encoding_format=EmbeddingEncodingFormat.BASE64),
             {},

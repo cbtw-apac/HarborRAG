@@ -14,7 +14,11 @@ from harborrag_adapters.models.common.provider_validation import (
     validate_request_headers,
 )
 
-from .configs import HarborRerankClientConfig, HarborRerankModelConfig, HarborRerankProviderConfig
+from .configs import (
+    HarborRerankClientConfig,
+    HarborRerankModelConfig,
+    HarborRerankProviderConfig,
+)
 from .registry import RerankProviderRegistry
 
 _RERANK_TYPED_EXTENSION_FIELDS = frozenset(
@@ -129,7 +133,10 @@ def validate_rerank_request(
             request.max_tokens_per_doc is not None and not capabilities.max_tokens_per_doc,
             "max_tokens_per_doc",
         ),
-        (request.instruction is not None and not capabilities.instruction, "instructions"),
+        (
+            request.instruction is not None and not capabilities.instruction,
+            "instructions",
+        ),
     )
     for unsupported, feature in checks:
         if unsupported:

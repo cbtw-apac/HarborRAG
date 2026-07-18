@@ -224,9 +224,7 @@ def test_attachment_failure_reason_is_redacted():
 
 def test_attachment_cross_origin_download_url_rejected():
     processor = _text_processor()
-    [result] = processor.process(
-        [_attachment(downloadUrl="https://evil.example.com/steal")]
-    )
+    [result] = processor.process([_attachment(downloadUrl="https://evil.example.com/steal")])
 
     assert result.status == "skipped"
     assert "outside trusted origin" in result.reason

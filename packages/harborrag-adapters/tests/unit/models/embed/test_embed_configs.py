@@ -37,9 +37,7 @@ def test_openai_config_and_secret_repr() -> None:
 
 
 def test_azure_openai_requires_endpoint_version_and_deployment() -> None:
-    incomplete = HarborEmbedClientConfig.from_dict(
-        _document("azure_openai", api_key="key")
-    )
+    incomplete = HarborEmbedClientConfig.from_dict(_document("azure_openai", api_key="key"))
     with pytest.raises(HarborEmbedConfigurationError, match="requires"):
         validate_embed_configuration(incomplete)
 

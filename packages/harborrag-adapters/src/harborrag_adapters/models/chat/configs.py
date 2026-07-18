@@ -6,7 +6,10 @@ from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import StructuredOutputDegradation
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from harborrag_adapters.models.common.config import ModelClientConfig, SecurityBaseConfig
+from harborrag_adapters.models.common.config import (
+    ModelClientConfig,
+    SecurityBaseConfig,
+)
 from harborrag_adapters.models.common.model_config import (
     LogicalModelConfig,
     normalize_single_deployment_shorthand,

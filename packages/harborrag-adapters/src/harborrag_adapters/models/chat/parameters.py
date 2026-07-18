@@ -125,9 +125,11 @@ def build_chat_request(
             "messages or request is required", operation="chat", logical_model=model
         )
     normalized_messages = tuple(
-        message
-        if isinstance(message, HarborChatMessage)
-        else HarborChatMessage.model_validate(message)
+        (
+            message
+            if isinstance(message, HarborChatMessage)
+            else HarborChatMessage.model_validate(message)
+        )
         for message in messages
     )
     return HarborChatRequest(

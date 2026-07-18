@@ -1,7 +1,8 @@
 """Smoke check a real local-files connection using repo-root `.env`."""
+
 from __future__ import annotations
 
-from _bootstrap import env_path, load_env, print_document
+from bootstrap import env_path, load_env, print_document
 from harborrag_adapters.connectors import HarborConnector
 from harborrag_adapters.connectors.local.config import LocalFileConfig
 from harborrag_adapters.connectors.schemas import ConnectorQuery

@@ -18,9 +18,7 @@ def test_connector_config_reprs_redact_secrets() -> None:
     from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
 
     gh = GitHubRepositoryConfig(owner="o", repo="r", token="ghp_SECRET")
-    jira = JiraProjectConfig(
-        base_url="https://x.atlassian.net", email="a@b.c", token="jira_SECRET"
-    )
+    jira = JiraProjectConfig(base_url="https://x.atlassian.net", email="a@b.c", token="jira_SECRET")
     sp = SharePointSiteConfig(
         site_url="https://x.sharepoint.com/sites/s",
         access_token="graph_SECRET",
@@ -55,9 +53,7 @@ def test_connector_config_reprs_redact_secrets() -> None:
         (repr({"token": "mapping-secret-123"}), "mapping-secret-123"),
     ],
 )
-def test_safe_error_detail_redacts_required_secret_patterns(
-    payload: str, secret: str
-) -> None:
+def test_safe_error_detail_redacts_required_secret_patterns(payload: str, secret: str) -> None:
     assert secret not in safe_error_detail(payload)
 
 
@@ -68,13 +64,11 @@ def test_safe_error_detail_truncates() -> None:
 
 
 def _smoke_bootstrap() -> dict[str, object]:
-    path = Path(__file__).parents[1] / "smoke" / "connectors" / "_bootstrap.py"
+    path = Path(__file__).parents[1] / "smoke" / "connectors" / "bootstrap.py"
     return runpy.run_path(str(path))
 
 
-def test_smoke_document_output_hides_provider_content_by_default(
-    monkeypatch, capsys
-) -> None:
+def test_smoke_document_output_hides_provider_content_by_default(monkeypatch, capsys) -> None:
     monkeypatch.delenv("HARBOR_SMOKE_VERBOSE", raising=False)
     document = RawDocument(
         id="safe-id",

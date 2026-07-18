@@ -69,7 +69,9 @@ def test_native_structured_output_returns_validated_pydantic_model(base_config) 
 
 
 @pytest.mark.asyncio
-async def test_async_structured_output_uses_the_same_validation_path(base_config) -> None:
+async def test_async_structured_output_uses_the_same_validation_path(
+    base_config,
+) -> None:
     config = _configured(base_config, HarborChatCapabilities(structured_output=True))
     invocation = FakeInvocation([response_dict('{"answer":"async","confidence":0.7}')])
 

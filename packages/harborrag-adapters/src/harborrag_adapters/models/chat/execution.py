@@ -16,7 +16,10 @@ from harborrag_adapters.models.common.cache import (
 from harborrag_adapters.models.common.config import RoutingEngine
 from harborrag_adapters.models.common.execution import RoutedModelExecutor
 from harborrag_adapters.models.common.litellm_router import router_model_name
-from harborrag_adapters.models.common.middleware import MiddlewarePipeline, middleware_context
+from harborrag_adapters.models.common.middleware import (
+    MiddlewarePipeline,
+    middleware_context,
+)
 from harborrag_adapters.models.common.routing_state import RoutingStateStore
 from harborrag_adapters.models.common.routing_types import RoutedAttempt
 from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
@@ -79,7 +82,10 @@ class ChatExecution:
         """Run one synchronous request through policy, deduplication, and routing."""
 
         context = middleware_context(
-            operation="chat", logical_model=logical, model_alias=model_alias, request=request
+            operation="chat",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborChatRequest, self.middleware.before(request, context))
         operation = self._operation(logical, request, model_alias)
@@ -129,7 +135,10 @@ class ChatExecution:
         """Run one asynchronous request through policy, deduplication, and routing."""
 
         context = middleware_context(
-            operation="chat", logical_model=logical, model_alias=model_alias, request=request
+            operation="chat",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborChatRequest, await self.middleware.abefore(request, context))
         operation = self._operation(logical, request, model_alias)

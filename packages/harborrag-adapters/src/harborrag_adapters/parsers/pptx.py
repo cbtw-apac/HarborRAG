@@ -122,9 +122,7 @@ class PptxParser(BaseParser[ParseInput, ParsedDocument]):
             if getattr(shape, "has_table", False):
                 table_lines = []
                 for row in shape.table.rows:
-                    table_lines.append(
-                        "\t".join(cell.text.strip() for cell in row.cells).rstrip()
-                    )
+                    table_lines.append("\t".join(cell.text.strip() for cell in row.cells).rstrip())
                 table_text = "\n".join(line for line in table_lines if line.strip())
                 if table_text:
                     yield table_text

@@ -5,7 +5,10 @@ import types
 from typing import Any
 
 import pytest
-from harborrag_adapters.models.common.cache_redis import PydanticResponseCodec, RedisModelCache
+from harborrag_adapters.models.common.cache_redis import (
+    PydanticResponseCodec,
+    RedisModelCache,
+)
 from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
 from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
 from harborrag_adapters.models.common.routing_state import (
@@ -13,7 +16,9 @@ from harborrag_adapters.models.common.routing_state import (
     RoutingLease,
     RoutingStateSnapshot,
 )
-from harborrag_adapters.models.common.routing_state_memory import InMemoryRoutingStateStore
+from harborrag_adapters.models.common.routing_state_memory import (
+    InMemoryRoutingStateStore,
+)
 from harborrag_adapters.models.common.routing_state_redis import RedisRoutingStateStore
 from pydantic import BaseModel
 
@@ -206,7 +211,12 @@ def test_memory_routing_admission_circuit_and_health() -> None:
     store.record_failure("primary:a", retryable=True, threshold=1, recovery_seconds=10)
     with pytest.raises(RoutingAdmissionError, match="circuit_open"):
         store.acquire(
-            "primary:a", max_parallel=1, rpm=None, tpm=None, token_cost=0, lease_seconds=5
+            "primary:a",
+            max_parallel=1,
+            rpm=None,
+            tpm=None,
+            token_cost=0,
+            lease_seconds=5,
         )
     store.record_success("primary:a", 12.5)
     store.record_active_health("primary:a", healthy=False, latency_ms=None)
@@ -255,7 +265,12 @@ def test_redis_routing_state_all_operations() -> None:
     assert lease.deployment_key == "primary:a"
     with pytest.raises(RoutingAdmissionError) as error:
         store.acquire(
-            "primary:a", max_parallel=None, rpm=None, tpm=None, token_cost=0, lease_seconds=30
+            "primary:a",
+            max_parallel=None,
+            rpm=None,
+            tpm=None,
+            token_cost=0,
+            lease_seconds=30,
         )
     assert error.value.reason == "rpm"
     store.release(lease)

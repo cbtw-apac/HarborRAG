@@ -79,9 +79,7 @@ class GitHubRepositoryConfig:
             backoff_factor=self.backoff_factor,
         )
 
-        self.allowed_extensions = {
-            _normalize_extension(value) for value in self.allowed_extensions
-        }
+        self.allowed_extensions = {_normalize_extension(value) for value in self.allowed_extensions}
         self.excluded_extensions = {
             _normalize_extension(value) for value in self.excluded_extensions
         }

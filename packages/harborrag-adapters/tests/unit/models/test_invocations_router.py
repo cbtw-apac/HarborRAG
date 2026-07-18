@@ -190,7 +190,9 @@ async def test_router_invocations_forward_and_close(
     [LiteLLMChatRouterInvocation, LiteLLMEmbeddingRouterInvocation],
 )
 @pytest.mark.asyncio
-async def test_router_async_close_falls_back_to_sync(invocation_type: type[Any]) -> None:
+async def test_router_async_close_falls_back_to_sync(
+    invocation_type: type[Any],
+) -> None:
     router = _Router(async_close=False)
     invocation = invocation_type(router)
 

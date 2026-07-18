@@ -63,7 +63,8 @@ def config_for(
 
 def test_factory_builds_direct_sdk_backend() -> None:
     config = config_for(
-        ChatBackendConfig(type=ChatBackendType.DIRECT_SDK), deployment(HarborProvider.OPENAI)
+        ChatBackendConfig(type=ChatBackendType.DIRECT_SDK),
+        deployment(HarborProvider.OPENAI),
     )
 
     backend = build_chat_backend(config, ProviderRegistry.default())

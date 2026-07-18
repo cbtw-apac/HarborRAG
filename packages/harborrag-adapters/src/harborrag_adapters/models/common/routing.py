@@ -93,7 +93,11 @@ class DeploymentSelector[D: DeploymentLike]:
         self._lock = RLock()
 
     def select_sync(
-        self, logical_model: str, deployments: Sequence[D], *, exclude: Iterable[str] = ()
+        self,
+        logical_model: str,
+        deployments: Sequence[D],
+        *,
+        exclude: Iterable[str] = (),
     ) -> DeploymentRuntime[D]:
         """Select one healthy deployment using local and distributed state."""
 
@@ -115,7 +119,11 @@ class DeploymentSelector[D: DeploymentLike]:
             return self._choose(logical_model, candidates)
 
     async def select(
-        self, logical_model: str, deployments: Sequence[D], *, exclude: Iterable[str] = ()
+        self,
+        logical_model: str,
+        deployments: Sequence[D],
+        *,
+        exclude: Iterable[str] = (),
     ) -> DeploymentRuntime[D]:
         """Select one healthy deployment using asynchronous distributed state reads."""
 
@@ -138,7 +146,11 @@ class DeploymentSelector[D: DeploymentLike]:
 
     @contextmanager
     def lease_sync(
-        self, state: DeploymentRuntime[D], *, logical_model: str | None = None, token_cost: int = 0
+        self,
+        state: DeploymentRuntime[D],
+        *,
+        logical_model: str | None = None,
+        token_cost: int = 0,
     ) -> Iterator[None]:
         """Acquire local and distributed concurrency and rate-limit admission."""
 
@@ -167,7 +179,11 @@ class DeploymentSelector[D: DeploymentLike]:
 
     @asynccontextmanager
     async def lease(
-        self, state: DeploymentRuntime[D], *, logical_model: str | None = None, token_cost: int = 0
+        self,
+        state: DeploymentRuntime[D],
+        *,
+        logical_model: str | None = None,
+        token_cost: int = 0,
     ) -> AsyncIterator[None]:
         """Acquire cancellation-safe local and distributed asynchronous admission."""
 
@@ -205,7 +221,8 @@ class DeploymentSelector[D: DeploymentLike]:
                 state.circuit_open_until = 0.0
                 state.last_latency_ms = latency_ms
         self.state_store.record_success(
-            deployment_state_key(self._logical_for(state), state.config.name), latency_ms
+            deployment_state_key(self._logical_for(state), state.config.name),
+            latency_ms,
         )
 
     async def record_success(self, state: DeploymentRuntime[D], latency_ms: float) -> None:
@@ -217,7 +234,8 @@ class DeploymentSelector[D: DeploymentLike]:
                 state.circuit_open_until = 0.0
                 state.last_latency_ms = latency_ms
         await self.state_store.arecord_success(
-            deployment_state_key(self._logical_for(state), state.config.name), latency_ms
+            deployment_state_key(self._logical_for(state), state.config.name),
+            latency_ms,
         )
 
     def record_failure_sync(self, state: DeploymentRuntime[D], *, retryable: bool) -> None:
@@ -293,7 +311,7 @@ class DeploymentSelector[D: DeploymentLike]:
             return min(
                 priority,
                 key=lambda state: (
-                    float("inf") if state.last_latency_ms is None else state.last_latency_ms,
+                    (float("inf") if state.last_latency_ms is None else state.last_latency_ms),
                     state.active_requests + state.distributed_active_requests,
                 ),
             )

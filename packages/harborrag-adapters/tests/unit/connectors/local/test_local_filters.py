@@ -45,12 +45,8 @@ def test_path_filter_accepts_string_value_and_list(tmp_path: Path):
 
 
 def test_file_paths_from_query_accepts_bare_string_and_path(tmp_path: Path):
-    assert file_paths_from_query(ConnectorQuery(filters={"file_paths": "a.md"})) == [
-        "a.md"
-    ]
-    assert file_paths_from_query(ConnectorQuery(filters={"paths": tmp_path})) == [
-        tmp_path
-    ]
+    assert file_paths_from_query(ConnectorQuery(filters={"file_paths": "a.md"})) == ["a.md"]
+    assert file_paths_from_query(ConnectorQuery(filters={"paths": tmp_path})) == [tmp_path]
     assert file_paths_from_query(ConnectorQuery()) == []
 
 

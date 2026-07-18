@@ -87,15 +87,12 @@ def _parse_definition(name: str, raw: object) -> ParserDefinition:
 def _parse_parser_name(name: str, raw_parser: object) -> str:
     """Require a stable, supported parser name."""
     if not isinstance(raw_parser, str) or not raw_parser.strip():
-        raise ParserConfigurationError(
-            f"Parser {name!r} must define a non-empty parser"
-        )
+        raise ParserConfigurationError(f"Parser {name!r} must define a non-empty parser")
     parser = raw_parser.strip().lower()
     if parser_factory(parser) is None:
         supported = ", ".join(supported_parser_names())
         raise ParserConfigurationError(
-            f"Parser {name!r} uses unsupported parser {raw_parser!r}; "
-            f"expected one of: {supported}"
+            f"Parser {name!r} uses unsupported parser {raw_parser!r}; expected one of: {supported}"
         )
     return parser
 
@@ -137,9 +134,7 @@ def _parse_pdf_backends(
 
     raw_engines = definition["engines"]
     if not isinstance(raw_engines, list) or not raw_engines:
-        raise ParserConfigurationError(
-            f"Parser {name!r} engines must be a non-empty list"
-        )
+        raise ParserConfigurationError(f"Parser {name!r} engines must be a non-empty list")
 
     backends = tuple(
         _parse_pdf_backend(name, index, raw_backend)
@@ -147,9 +142,7 @@ def _parse_pdf_backends(
     )
     names = [backend.backend for backend in backends]
     if len(names) != len(set(names)):
-        raise ParserConfigurationError(
-            f"Parser {name!r} engines must not repeat a PDF backend"
-        )
+        raise ParserConfigurationError(f"Parser {name!r} engines must not repeat a PDF backend")
     return backends
 
 
@@ -180,8 +173,7 @@ def _parse_pdf_backend(
     if spec is None:
         supported = ", ".join(supported_pdf_backend_names())
         raise ParserConfigurationError(
-            f"{label} uses unsupported PDF backend {raw_backend!r}; "
-            f"expected one of: {supported}"
+            f"{label} uses unsupported PDF backend {raw_backend!r}; expected one of: {supported}"
         )
 
     settings = dict(
@@ -216,8 +208,7 @@ def _parse_pdf_backend(
     overlap = sorted(set(settings) & set(secret_environment))
     if overlap:
         raise ParserConfigurationError(
-            f"{label} defines setting(s) in both settings and secrets: "
-            f"{', '.join(overlap)}"
+            f"{label} defines setting(s) in both settings and secrets: {', '.join(overlap)}"
         )
     python_only = sorted(set(settings) & PDF_BACKEND_PYTHON_ONLY_FIELDS)
     if python_only:

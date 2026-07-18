@@ -57,9 +57,7 @@ def test_load_rejects_directories(tmp_path: Path):
     connector = LocalFileConnector(config(tmp_path))
 
     with pytest.raises(DocumentProcessingError, match="not a file"):
-        connector.load(
-            SourceRecord(tmp_path.as_uri(), "inode/directory", str(tmp_path))
-        )
+        connector.load(SourceRecord(tmp_path.as_uri(), "inode/directory", str(tmp_path)))
 
 
 def test_process_file_callback_can_skip_or_raise(tmp_path: Path):
@@ -93,9 +91,7 @@ def test_updated_after_filter_uses_file_mtime(tmp_path: Path):
     connector = LocalFileConnector(config(tmp_path, allowed_extensions={".md"}))
 
     records = list(
-        connector.discover(
-            ConnectorQuery(updated_after=datetime(2024, 1, 1, tzinfo=UTC))
-        )
+        connector.discover(ConnectorQuery(updated_after=datetime(2024, 1, 1, tzinfo=UTC)))
     )
 
     assert [record.metadata["relative_path"] for record in records] == ["new.md"]

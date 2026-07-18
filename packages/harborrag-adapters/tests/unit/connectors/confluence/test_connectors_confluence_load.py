@@ -62,9 +62,7 @@ def test_load_builds_raw_document_metadata_comments_and_attachments():
     assert document.source == f"{CLOUD_BASE}/spaces/ENG/pages/1"
     assert document.metadata["author"] == "Alice"
     assert document.metadata["breadcrumb"] == ["Root"]
-    assert document.metadata["children"] == [
-        {"id": "9", "title": "Child", "type": "page"}
-    ]
+    assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
     assert document.metadata["comments"][0]["author"] == "Carol"
     processed_attachments = [
         attachment
@@ -171,9 +169,7 @@ def test_load_raises_when_content_filtered_out_by_labels():
     content = full_content()
     content["metadata"] = {"labels": {"results": [{"name": "archived"}]}}
     client.add("content/1", content)
-    connector = ConfluenceConnector(
-        cloud_config(exclude_labels=["archived"]), client=client
-    )
+    connector = ConfluenceConnector(cloud_config(exclude_labels=["archived"]), client=client)
 
     with pytest.raises(DocumentProcessingError, match="does not match label filters"):
         connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))

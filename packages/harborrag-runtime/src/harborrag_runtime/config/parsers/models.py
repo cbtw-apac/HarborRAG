@@ -142,9 +142,7 @@ class ParserCatalog:
         try:
             return self.parsers[name]
         except KeyError as exc:
-            raise ParserConfigurationError(
-                f"Unknown configured parser: {name!r}"
-            ) from exc
+            raise ParserConfigurationError(f"Unknown configured parser: {name!r}") from exc
 
     def names(self, *, enabled_only: bool = False) -> list[str]:
         """Return configured names alphabetically, optionally filtering disabled."""

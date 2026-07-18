@@ -20,7 +20,11 @@ from pydantic import ValidationError
 from harborrag_adapters.models.common.litellm_backend import build_provider_params
 from harborrag_adapters.models.common.transport import reveal_headers
 
-from .configs import HarborRerankClientConfig, HarborRerankDefaults, HarborRerankProviderConfig
+from .configs import (
+    HarborRerankClientConfig,
+    HarborRerankDefaults,
+    HarborRerankProviderConfig,
+)
 from .validation import default_deployment, validate_rerank_request
 
 _RESERVED_PARAMETERS = frozenset(

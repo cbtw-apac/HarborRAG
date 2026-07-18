@@ -46,14 +46,10 @@ class DocumentProcessingError(ConnectorError):
 class HTTPRequestError(ConnectorError):
     """Raised when there is an error with HTTP requests."""
 
-    def __init__(
-        self, url: str, status_code: int | None = None, message: str | None = None
-    ):
+    def __init__(self, url: str, status_code: int | None = None, message: str | None = None):
         """Capture request context while preserving a standard exception message."""
         self.url = url
         self.status_code = status_code
         self.message = message
         safe_url = _redact_url(url)
-        super().__init__(
-            f"HTTP request failed for {safe_url}: {message or 'Unknown error'}"
-        )
+        super().__init__(f"HTTP request failed for {safe_url}: {message or 'Unknown error'}")

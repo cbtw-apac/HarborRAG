@@ -121,7 +121,9 @@ async def test_dispatcher_async_payload_logging_and_disabled_mode() -> None:
     await disabled.aemit(event(TelemetryEventType.REQUEST_START))
 
 
-def test_dispatcher_failure_modes_and_close_aggregation(caplog: pytest.LogCaptureFixture) -> None:
+def test_dispatcher_failure_modes_and_close_aggregation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     failing = RecordingSink(fail=True)
     ignored = TelemetryDispatcher((failing,), failure_mode=TelemetryFailureMode.IGNORE)
     with caplog.at_level(logging.ERROR):
@@ -281,7 +283,9 @@ def test_opentelemetry_complete_error_and_close_paths() -> None:
     assert tracer.spans[2].ended == 1
 
 
-def test_structured_logging_and_litellm_callback(caplog: pytest.LogCaptureFixture) -> None:
+def test_structured_logging_and_litellm_callback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     logger = logging.getLogger("test.structured")
     adapter = StructuredLoggingTelemetry(logger)
     with caplog.at_level(logging.INFO, logger="test.structured"):

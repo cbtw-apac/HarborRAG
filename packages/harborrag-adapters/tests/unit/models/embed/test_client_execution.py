@@ -145,7 +145,10 @@ def test_embedding_deployment_and_model_fallbacks_preserve_space() -> None:
     )
     invocation = FakeEmbeddingInvocation([TimeoutError(), raw_batch([1, 0, 0])])
     response = HarborEmbedClient(
-        embed_config(deployments=(deployment("first"), deployment("second", order=1)), retry=retry),
+        embed_config(
+            deployments=(deployment("first"), deployment("second", order=1)),
+            retry=retry,
+        ),
         invocation=invocation,
     ).embed("x")
     assert response.deployment == "second" and response.fallback_count == 1

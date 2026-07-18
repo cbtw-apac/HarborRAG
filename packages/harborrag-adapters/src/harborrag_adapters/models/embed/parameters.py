@@ -22,7 +22,11 @@ from harborrag_adapters.models.common.litellm_backend import build_provider_para
 from harborrag_adapters.models.common.security import HeaderValue
 from harborrag_adapters.models.common.transport import reveal_headers
 
-from .configs import HarborEmbedClientConfig, HarborEmbedDefaults, HarborEmbedProviderConfig
+from .configs import (
+    HarborEmbedClientConfig,
+    HarborEmbedDefaults,
+    HarborEmbedProviderConfig,
+)
 from .registry import HarborEmbedProvider
 from .validation import default_deployment, validate_embed_request
 
@@ -110,7 +114,11 @@ def prepare_embed_request(
     )
     prepared = ensure_embed_request_id(prepared)
     deployment = default_deployment(logical_name, logical)
-    return logical_name, deployment, validate_embed_request(prepared, config, deployment)
+    return (
+        logical_name,
+        deployment,
+        validate_embed_request(prepared, config, deployment),
+    )
 
 
 def build_embed_request(
@@ -213,7 +221,7 @@ def build_litellm_parameters(
         "input": inputs,
         "timeout": timeout,
         "dimensions": request.dimensions,
-        "encoding_format": request.encoding_format.value if request.encoding_format else None,
+        "encoding_format": (request.encoding_format.value if request.encoding_format else None),
         "user": request.user or request.metadata.user_id,
     }
     parameters.update({name: value for name, value in optional.items() if value is not None})

@@ -114,20 +114,13 @@ class ConfluenceConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"Confluence content {content_id} does not match label filters"
             )
-        comments = (
-            self._content.fetch_comments(content_id)
-            if self.config.include_comments
-            else []
-        )
+        comments = self._content.fetch_comments(content_id) if self.config.include_comments else []
         attachments = []
         include_attachments = bool(
-            self.config.include_attachments
-            and record.metadata.get("include_attachments", True)
+            self.config.include_attachments and record.metadata.get("include_attachments", True)
         )
         if include_attachments:
-            attachments = self._attachments.process(
-                self._content.list_attachments(content_id)
-            )
+            attachments = self._attachments.process(self._content.list_attachments(content_id))
 
         metadata = build_document_metadata(
             content,
@@ -213,12 +206,8 @@ class ConfluenceConnector(BaseConnector):
     def _should_process_content(self, content: dict[str, Any]) -> bool:
         """Apply include/exclude label filters to Confluence content."""
         labels = content.get("metadata", {}).get("labels", {}).get("results", [])
-        label_names = {
-            str(label.get("name")) for label in labels if isinstance(label, dict)
-        }
-        if self.config.exclude_labels and label_names.intersection(
-            self.config.exclude_labels
-        ):
+        label_names = {str(label.get("name")) for label in labels if isinstance(label, dict)}
+        if self.config.exclude_labels and label_names.intersection(self.config.exclude_labels):
             return False
         if self.config.include_labels:
             return bool(label_names.intersection(self.config.include_labels))
@@ -238,8 +227,7 @@ class ConfluenceConnector(BaseConnector):
         ]
         if missing:
             raise DocumentProcessingError(
-                f"Confluence content {content_id} missing required fields: "
-                f"{', '.join(missing)}"
+                f"Confluence content {content_id} missing required fields: {', '.join(missing)}"
             )
         if str(space_key) != self.config.space_key:
             raise DocumentProcessingError(

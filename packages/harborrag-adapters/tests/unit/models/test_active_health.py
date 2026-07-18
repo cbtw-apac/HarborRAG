@@ -12,7 +12,9 @@ from harborrag_adapters.models.common.health import (
     HealthCheckResult,
     deployment_state_key,
 )
-from harborrag_adapters.models.common.routing_state_memory import InMemoryRoutingStateStore
+from harborrag_adapters.models.common.routing_state_memory import (
+    InMemoryRoutingStateStore,
+)
 
 
 def test_callable_health_probe_and_monitor_sync() -> None:

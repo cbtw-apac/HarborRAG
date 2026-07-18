@@ -124,9 +124,7 @@ class LiteParseBackend(PdfBackend):
             "ocr_language": self.options.ocr_language,
             "ocr_server_url": self.options.ocr_server_url,
             "tessdata_path": (
-                str(self.options.tessdata_path)
-                if self.options.tessdata_path is not None
-                else None
+                str(self.options.tessdata_path) if self.options.tessdata_path is not None else None
             ),
             "max_pages": self.options.max_pages,
             "target_pages": self.options.target_pages,
@@ -250,11 +248,7 @@ class LiteParseBackend(PdfBackend):
 
         parts = []
         for item in text_items:
-            item_text = (
-                item.get("text")
-                if isinstance(item, dict)
-                else getattr(item, "text", None)
-            )
+            item_text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
             if item_text:
                 parts.append(str(item_text))
         return compact_text("\n".join(parts))

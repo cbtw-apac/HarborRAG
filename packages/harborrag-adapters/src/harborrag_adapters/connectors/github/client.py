@@ -80,9 +80,7 @@ class _RequestsGitHubClient:
         try:
             payload: object = response.json()
         except ValueError as exc:
-            raise FetchError(
-                f"GitHub returned non-JSON response for {endpoint}"
-            ) from exc
+            raise FetchError(f"GitHub returned non-JSON response for {endpoint}") from exc
         if isinstance(payload, dict):
             return payload
         if isinstance(payload, list):
@@ -123,10 +121,7 @@ class _RequestsGitHubClient:
                 continue
             if response.status_code == 403:
                 raise AuthenticationError(safe_error_detail(response.text))
-            if (
-                response.status_code not in _RETRYABLE_STATUS
-                or attempt == self.config.max_retries
-            ):
+            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"GitHub request failed with HTTP "
@@ -134,9 +129,7 @@ class _RequestsGitHubClient:
                     )
                 return response
 
-            last_error = FetchError(
-                f"GitHub request returned HTTP {response.status_code}"
-            )
+            last_error = FetchError(f"GitHub request returned HTTP {response.status_code}")
             self._sleep(attempt, last_error, response.headers)
 
         raise FetchError(str(last_error))

@@ -6,7 +6,10 @@ from typing import cast
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
 from harborrag_core.models.errors import HarborEmbedError
 
-from harborrag_adapters.models.common.budget import BudgetAuthorization, ModelBudgetPolicy
+from harborrag_adapters.models.common.budget import (
+    BudgetAuthorization,
+    ModelBudgetPolicy,
+)
 from harborrag_adapters.models.common.cache import (
     CacheDecision,
     ModelResponseCache,
@@ -15,7 +18,10 @@ from harborrag_adapters.models.common.cache import (
 from harborrag_adapters.models.common.config import RoutingEngine
 from harborrag_adapters.models.common.execution import RoutedModelExecutor
 from harborrag_adapters.models.common.litellm_router import router_model_name
-from harborrag_adapters.models.common.middleware import MiddlewarePipeline, middleware_context
+from harborrag_adapters.models.common.middleware import (
+    MiddlewarePipeline,
+    middleware_context,
+)
 from harborrag_adapters.models.common.routing_state import RoutingStateStore
 from harborrag_adapters.models.common.routing_types import RoutedAttempt
 from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
@@ -74,7 +80,10 @@ class EmbedExecution:
         """Run one synchronous embedding request through all runtime policies."""
 
         context = middleware_context(
-            operation="embed", logical_model=logical, model_alias=model_alias, request=request
+            operation="embed",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborEmbedRequest, self.middleware.before(request, context))
         operation = self._operation(logical, request, model_alias)
@@ -120,7 +129,10 @@ class EmbedExecution:
         """Run one asynchronous embedding request through all runtime policies."""
 
         context = middleware_context(
-            operation="embed", logical_model=logical, model_alias=model_alias, request=request
+            operation="embed",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborEmbedRequest, await self.middleware.abefore(request, context))
         operation = self._operation(logical, request, model_alias)
@@ -266,12 +278,15 @@ class EmbedExecution:
             (offset, values[offset : offset + size]) for offset in range(0, len(values), size)
         ]
         model = self.config.models[attempt.logical_model]
-        return EmbeddingBatchAccumulator(
-            attempt.logical_model,
-            model.embedding_space or attempt.logical_model,
-            attempt.deployment,
-            request,
-        ), batches
+        return (
+            EmbeddingBatchAccumulator(
+                attempt.logical_model,
+                model.embedding_space or attempt.logical_model,
+                attempt.deployment,
+                request,
+            ),
+            batches,
+        )
 
     def _parameters(
         self,

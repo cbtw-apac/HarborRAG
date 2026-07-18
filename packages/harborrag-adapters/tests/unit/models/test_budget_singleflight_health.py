@@ -98,7 +98,9 @@ class RedisAsync:
         self.closed += 1
 
 
-def redis_lifecycle(leaders: list[bool]) -> tuple[RedisConnectionLifecycle, RedisSync, RedisAsync]:
+def redis_lifecycle(
+    leaders: list[bool],
+) -> tuple[RedisConnectionLifecycle, RedisSync, RedisAsync]:
     sync = RedisSync(leaders)
     async_client = RedisAsync(sync)
     return (

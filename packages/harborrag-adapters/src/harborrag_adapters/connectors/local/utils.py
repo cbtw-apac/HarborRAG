@@ -104,9 +104,7 @@ def matches_pattern(path: Path, root_path: Path, pattern: str | None) -> bool:
 def matches_globs(path: Path, root_path: Path, patterns: list[str]) -> bool:
     """Return whether a relative path matches any glob pattern (case-insensitive)."""
     relative = relative_path(path, root_path).lower()
-    return any(
-        fnmatch(relative, pattern.replace("\\", "/").lower()) for pattern in patterns
-    )
+    return any(fnmatch(relative, pattern.replace("\\", "/").lower()) for pattern in patterns)
 
 
 def path_in_scope(path: Path, root_path: Path, candidate: str) -> bool:

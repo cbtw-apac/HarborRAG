@@ -48,9 +48,7 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
             provider_label="JIRA",
             logger=logger,
         )
-        self.api_version = (
-            "3" if config.deployment_type == JiraDeploymentType.CLOUD else "2"
-        )
+        self.api_version = "3" if config.deployment_type == JiraDeploymentType.CLOUD else "2"
         if config.deployment_type == JiraDeploymentType.CLOUD:
             self.session.auth = (config.email, config.token)
         else:

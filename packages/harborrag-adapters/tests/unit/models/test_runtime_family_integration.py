@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
-from harborrag_adapters.models.rerank import HarborRerankClientConfig, HarborRerankingClient
+from harborrag_adapters.models.rerank import (
+    HarborRerankClientConfig,
+    HarborRerankingClient,
+)
 from model_invocation_support import (
     FakeEmbeddingInvocation,
     FakeRerankInvocation,

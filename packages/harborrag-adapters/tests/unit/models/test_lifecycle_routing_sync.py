@@ -23,7 +23,10 @@ from harborrag_adapters.models.common.lifecycle import (
 )
 from harborrag_adapters.models.common.retry import RetryController
 from harborrag_adapters.models.common.routing import DeploymentSelector
-from harborrag_adapters.models.common.sync import AsyncLoopRunner, run_awaitable_synchronously
+from harborrag_adapters.models.common.sync import (
+    AsyncLoopRunner,
+    run_awaitable_synchronously,
+)
 
 
 @dataclass
@@ -169,7 +172,9 @@ async def test_async_semaphore_cancellation_does_not_consume_permit() -> None:
     assert state.active_requests == 0
 
 
-def test_retry_controller_delays_and_sync_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_retry_controller_delays_and_sync_sleep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bound exponential delays and delegate synchronous sleeping."""
     controller = RetryController(
         RetryPolicyConfig(base_delay_seconds=1, max_delay_seconds=2, jitter_ratio=0)

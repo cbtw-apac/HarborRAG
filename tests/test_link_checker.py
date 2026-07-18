@@ -55,10 +55,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com")
 
         # Remove fragments
-        assert (
-            checker.normalize_url("http://example.com/page#section")
-            == "http://example.com/page"
-        )
+        assert checker.normalize_url("http://example.com/page#section") == "http://example.com/page"
 
         # Remove index.html from directories
         assert (
@@ -68,8 +65,7 @@ class TestLinkChecker:
 
         # Keep regular files
         assert (
-            checker.normalize_url("http://example.com/page.html")
-            == "http://example.com/page.html"
+            checker.normalize_url("http://example.com/page.html") == "http://example.com/page.html"
         )
 
     def test_extract_links_from_html(self):
@@ -166,9 +162,7 @@ class TestLinkChecker:
         </html>
         """
 
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/page2.html", status=200)
         responses.add(responses.HEAD, "http://external.com", status=200)
 
@@ -193,9 +187,7 @@ class TestLinkChecker:
         </html>
         """
 
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/working.html", status=200)
         responses.add(responses.HEAD, "http://example.com/broken.html", status=404)
 
@@ -213,9 +205,7 @@ class TestLinkChecker:
 
         # Page 1 content
         page1_content = '<a href="/page2.html">Page 2</a>'
-        responses.add(
-            responses.GET, "http://example.com/", body=page1_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=page1_content, status=200)
         responses.add(responses.HEAD, "http://example.com/page2.html", status=200)
 
         # Page 2 content (should not be crawled due to depth limit)
@@ -241,9 +231,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com")
 
         html_content = '<a href="/">Home</a>'
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/", status=200)
 
         # Crawl the same page twice
@@ -287,9 +275,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com", max_depth=1)
 
         html_content = '<a href="/page.html">Page</a>'
-        responses.add(
-            responses.GET, "http://example.com", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/page.html", status=200)
 
         success = checker.run_check()
@@ -303,9 +289,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com", max_depth=1)
 
         html_content = '<a href="/broken.html">Broken</a>'
-        responses.add(
-            responses.GET, "http://example.com", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/broken.html", status=404)
 
         success = checker.run_check()
@@ -319,9 +303,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com")
 
         html_content = '<a href="/redirect">Redirect</a>'
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/redirect", status=301)
 
         checker.crawl_page("http://example.com/")
@@ -396,20 +378,14 @@ class TestLinkCheckerIntegration:
         """
 
         # Set up responses
-        responses.add(
-            responses.GET, "http://example.com", body=home_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com", body=home_content, status=200)
         responses.add(responses.HEAD, "http://example.com/docs/", status=200)
         responses.add(responses.HEAD, "http://example.com/about.html", status=200)
         responses.add(responses.HEAD, "http://example.com/logo.png", status=200)
 
-        responses.add(
-            responses.GET, "http://example.com/docs/", body=docs_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/docs/", body=docs_content, status=200)
         responses.add(responses.HEAD, "http://example.com/docs/guide.html", status=200)
-        responses.add(
-            responses.HEAD, "http://example.com/docs/api.html", status=404
-        )  # Broken link
+        responses.add(responses.HEAD, "http://example.com/docs/api.html", status=404)  # Broken link
         responses.add(responses.HEAD, "http://example.com/", status=200)
 
         success = checker.run_check()
@@ -434,9 +410,7 @@ class TestLinkCheckerIntegration:
         </html>
         """
 
-        responses.add(
-            responses.GET, "http://example.com", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com", body=html_content, status=200)
         responses.add(responses.HEAD, "https://github.com/user/repo", status=200)
         responses.add(responses.HEAD, "https://broken-external.com", status=404)
 
@@ -483,9 +457,7 @@ class TestLinkCheckerCLI:
             with patch("sys.exit") as mock_exit:
                 check_links.main()
 
-        mock_checker_class.assert_called_once_with(
-            "http://127.0.0.1:3000/website/site", 3
-        )
+        mock_checker_class.assert_called_once_with("http://127.0.0.1:3000/website/site", 3)
         mock_exit.assert_called_once_with(0)
 
     @patch("sys.argv", ["check_links.py"])
@@ -589,15 +561,11 @@ class TestLinkCheckerWithFixtures:
         checker = LinkChecker("http://example.com", max_depth=1)
 
         # Set up responses for all links
-        responses.add(
-            responses.GET, "http://example.com/", body=sample_html, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=sample_html, status=200)
         responses.add(responses.HEAD, "http://example.com/", status=200)
         responses.add(responses.HEAD, "http://example.com/docs/", status=200)
         responses.add(responses.HEAD, "http://example.com/about.html", status=200)
-        responses.add(
-            responses.HEAD, "http://example.com/test.html", status=404
-        )  # Broken
+        responses.add(responses.HEAD, "http://example.com/test.html", status=404)  # Broken
         responses.add(responses.HEAD, "http://example.com/images/logo.png", status=200)
         responses.add(responses.HEAD, "https://external.com", status=200)
         responses.add(responses.HEAD, "http://example.com/styles.css", status=200)

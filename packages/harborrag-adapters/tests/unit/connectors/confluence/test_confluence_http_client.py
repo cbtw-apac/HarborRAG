@@ -1,4 +1,5 @@
 """Unit tests for the real Confluence HTTP client wrapper with fake sessions."""
+
 from __future__ import annotations
 
 import pytest
@@ -34,9 +35,7 @@ def test_confluence_get_json_rejects_non_dict_payload():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _confluence_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _json=[1, 2])]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
     with pytest.raises(FetchError, match="invalid JSON"):
         client.get_json("content/search")
 
@@ -55,9 +54,7 @@ def test_confluence_download_bytes_streams_capped_body():
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"hello ", b"world"])]
     )
-    assert client.download_bytes("https://ex.atlassian.net/wiki/download/a") == (
-        b"hello world"
-    )
+    assert client.download_bytes("https://ex.atlassian.net/wiki/download/a") == (b"hello world")
 
 
 def test_confluence_download_bytes_returns_none_for_empty_body():
@@ -103,9 +100,7 @@ def test_confluence_request_raises_authentication_error_on_401():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = _confluence_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=401, text="bad token")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=401, text="bad token")])
     with pytest.raises(AuthenticationError):
         client.get_json("content/search")
 
@@ -114,9 +109,7 @@ def test_confluence_request_maps_403_to_skippable_fetch_error():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _confluence_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=403, text="restricted page")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=403, text="restricted page")])
 
     with pytest.raises(FetchError, match="403"):
         client.get_json("content/1")

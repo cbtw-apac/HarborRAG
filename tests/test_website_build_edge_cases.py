@@ -33,9 +33,7 @@ class TestWebsiteBuilderEdgeCases:
             # This is the expected behavior for missing templates
             pass
 
-    def test_build_page_missing_content_template(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_build_page_missing_content_template(self, mock_project_structure, clean_workspace):
         """Test building page with missing content template."""
         os.chdir(mock_project_structure)
 
@@ -109,9 +107,7 @@ class TestWebsiteBuilderEdgeCases:
         assert "display-4 fw-bold text-primary mb-4" in result
 
     @patch("builtins.open", side_effect=PermissionError("Permission denied"))
-    def test_file_permission_errors(
-        self, mock_open, mock_project_structure, clean_workspace
-    ):
+    def test_file_permission_errors(self, mock_open, mock_project_structure, clean_workspace):
         """Test handling of file permission errors."""
         os.chdir(mock_project_structure)
 
@@ -120,9 +116,7 @@ class TestWebsiteBuilderEdgeCases:
         with pytest.raises(PermissionError):
             builder.load_template("base.html")
 
-    def test_invalid_json_in_coverage_data(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_invalid_json_in_coverage_data(self, mock_project_structure, clean_workspace):
         """Test handling of invalid JSON in coverage data."""
         os.chdir(mock_project_structure)
 
@@ -183,9 +177,7 @@ class TestWebsiteBuilderEdgeCases:
         assert "Nested item" in result
 
     @patch("shutil.copytree", side_effect=OSError("Copy failed"))
-    def test_asset_copy_failure(
-        self, mock_copytree, mock_project_structure, clean_workspace
-    ):
+    def test_asset_copy_failure(self, mock_copytree, mock_project_structure, clean_workspace):
         """Test handling of asset copy failures."""
         os.chdir(mock_project_structure)
 
@@ -196,9 +188,7 @@ class TestWebsiteBuilderEdgeCases:
             builder.copy_assets()
 
     @patch("shutil.rmtree", side_effect=OSError("Remove failed"))
-    def test_directory_cleanup_failure(
-        self, mock_rmtree, mock_project_structure, clean_workspace
-    ):
+    def test_directory_cleanup_failure(self, mock_rmtree, mock_project_structure, clean_workspace):
         """Test handling of directory cleanup failures."""
         os.chdir(mock_project_structure)
 
@@ -284,9 +274,7 @@ class TestWebsiteBuilderEdgeCases:
         if large_html.exists():
             assert large_html.stat().st_size > 0
 
-    def test_concurrent_access_simulation(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_concurrent_access_simulation(self, mock_project_structure, clean_workspace):
         """Test simulation of concurrent access issues."""
         os.chdir(mock_project_structure)
 
@@ -335,17 +323,13 @@ class TestWebsiteBuilderPerformance:
         html_files = list((mock_project_structure / "site" / "docs").glob("*.html"))
         assert len(html_files) > 0
 
-    def test_memory_usage_with_large_content(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_memory_usage_with_large_content(self, mock_project_structure, clean_workspace):
         """Test memory usage with large content."""
         os.chdir(mock_project_structure)
 
         # Create content that might use significant memory
         large_template = "{{ content }}" * 1000
-        (mock_project_structure / "website" / "templates" / "large.html").write_text(
-            large_template
-        )
+        (mock_project_structure / "website" / "templates" / "large.html").write_text(large_template)
 
         builder = WebsiteBuilder("website/templates", "site")
 
@@ -402,9 +386,7 @@ class TestWebsiteBuilderCompatibility:
 
         # Create files with different encodings
         utf8_content = "# UTF-8 Test\n\nContent with émojis 🚀 and spëcial chars"
-        (mock_project_structure / "docs" / "utf8.md").write_text(
-            utf8_content, encoding="utf-8"
-        )
+        (mock_project_structure / "docs" / "utf8.md").write_text(utf8_content, encoding="utf-8")
 
         builder = WebsiteBuilder("website/templates", "site")
         builder.build_site()
@@ -456,9 +438,7 @@ class TestWebsiteBuilderRegression:
 
         for input_case, expected in test_cases:
             result = builder.convert_markdown_links_to_html(input_case)
-            assert result == expected, (
-                f"Expected {expected}, got {result} for input {input_case}"
-            )
+            assert result == expected, f"Expected {expected}, got {result} for input {input_case}"
 
     def test_bootstrap_class_conflicts(self):
         """Test Bootstrap class addition with existing classes."""

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from harborrag_core.models import errors as model_errors
 
-from harborrag_adapters.models.common.errors import ModelErrorCategory, normalize_model_exception
+from harborrag_adapters.models.common.errors import (
+    ModelErrorCategory,
+    normalize_model_exception,
+)
 
 _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborEmbedError]] = {
     ModelErrorCategory.AUTHENTICATION: model_errors.HarborEmbedAuthenticationError,

@@ -78,9 +78,7 @@ def test_html_parser_extracts_visible_text_and_strips_script_style():
 
 
 def test_csv_parser_renders_tab_separated_and_counts_rows():
-    document = CsvParser().parse(
-        ParseInput(content="name,role\nAda,engineer", filename="t.csv")
-    )
+    document = CsvParser().parse(ParseInput(content="name,role\nAda,engineer", filename="t.csv"))
     assert document.parser_name == "csv"
     assert document.content == "name\trole\nAda\tengineer"
     assert document.metadata["rows"] == 2
@@ -89,9 +87,7 @@ def test_csv_parser_renders_tab_separated_and_counts_rows():
 
 
 def test_csv_parser_sniffs_semicolon_dialect():
-    document = CsvParser().parse(
-        ParseInput(content="a;b;c\n1;2;3\n4;5;6", filename="t.csv")
-    )
+    document = CsvParser().parse(ParseInput(content="a;b;c\n1;2;3\n4;5;6", filename="t.csv"))
     # Sniffer detects ';' delimiter and re-emits as tab-separated.
     assert document.content == "a\tb\tc\n1\t2\t3\n4\t5\t6"
 
@@ -115,9 +111,7 @@ def test_json_parser_flattens_jsonpath_lines_and_keeps_raw_json_only():
 
 
 def test_json_parser_handles_ndjson():
-    document = JsonParser().parse(
-        ParseInput(content='{"a": 1}\n\n{"b": 2}\n', filename="d.ndjson")
-    )
+    document = JsonParser().parse(ParseInput(content='{"a": 1}\n\n{"b": 2}\n', filename="d.ndjson"))
     assert document.metadata["root_type"] == "list"
     assert "$[0].a: 1" in document.content
     assert "$[1].b: 2" in document.content
@@ -131,9 +125,7 @@ def test_json_flatten_caps_at_max_depth():
         cursor = cursor["a"]
 
     lines = JsonParser._flatten(nested)
-    assert any(
-        f"<max-depth {JsonParser.MAX_FLATTEN_DEPTH} reached>" in line for line in lines
-    )
+    assert any(f"<max-depth {JsonParser.MAX_FLATTEN_DEPTH} reached>" in line for line in lines)
 
 
 def test_json_flatten_renders_empty_containers():

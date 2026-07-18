@@ -19,9 +19,9 @@ def protect_sensitive_headers(value: Any) -> Any:
     if not isinstance(value, Mapping):
         return value
     return {
-        key: SecretStr(item)
-        if key.lower() in _SENSITIVE_HEADERS and isinstance(item, str)
-        else item
+        key: (
+            SecretStr(item) if key.lower() in _SENSITIVE_HEADERS and isinstance(item, str) else item
+        )
         for key, item in value.items()
     }
 

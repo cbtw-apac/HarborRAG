@@ -89,10 +89,7 @@ class HarborParser:
         # registered.
         route_indexes: list[tuple[dict[str, BaseParser[ParseInput, ParsedDocument]], str]] = [
             (self._by_suffix, suffix) for suffix in parser.suffixes
-        ] + [
-            (self._by_content_type, content_type)
-            for content_type in parser.content_types
-        ]
+        ] + [(self._by_content_type, content_type) for content_type in parser.content_types]
         for index, key in route_indexes:
             self._check_key(index, key, parser, replace=replace)
 
@@ -119,9 +116,7 @@ class HarborParser:
             if self._by_content_type.get(content_type) is parser:
                 del self._by_content_type[content_type]
 
-        self.parsers = [
-            registered for registered in self.parsers if registered is not parser
-        ]
+        self.parsers = [registered for registered in self.parsers if registered is not parser]
 
     def create(self, name: str) -> BaseParser[ParseInput, ParsedDocument]:
         """Return a registered parser by stable parser name."""
@@ -148,8 +143,7 @@ class HarborParser:
                 raise
             except Exception as exc:  # noqa: BLE001
                 parser_logger.error(
-                    "Unexpected parser implementation failure parser=%s input=%s "
-                    "exception_type=%s",
+                    "Unexpected parser implementation failure parser=%s input=%s exception_type=%s",
                     route.parser.name,
                     input_label(parse_input),
                     type(exc).__name__,
@@ -241,8 +235,7 @@ class HarborParser:
             if parse_input.suffix in ("", None):
                 return content_type_route
             parser_logger.warning(
-                "Conflicting parser routes for %s suffix=%s parser=%s "
-                "content_type=%s parser=%s",
+                "Conflicting parser routes for %s suffix=%s parser=%s content_type=%s parser=%s",
                 input_label(parse_input),
                 suffix_route.key,
                 suffix_route.parser.name,

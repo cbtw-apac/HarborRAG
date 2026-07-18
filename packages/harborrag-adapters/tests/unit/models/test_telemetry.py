@@ -22,7 +22,10 @@ from harborrag_adapters.models.common.telemetry import (
     TelemetryEventType,
 )
 from harborrag_core.models.chat import HarborChatMessage
-from harborrag_core.models.errors import HarborChatConnectionError, HarborChatProviderError
+from harborrag_core.models.errors import (
+    HarborChatConnectionError,
+    HarborChatProviderError,
+)
 from telemetry_support import (
     FailingTelemetry,
     RecordingTelemetry,

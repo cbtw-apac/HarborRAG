@@ -12,7 +12,9 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.models.errors import HarborChatError, HarborChatProviderError
 
-from harborrag_adapters.models.common.responses import coerce_sdk_mapping as coerce_mapping
+from harborrag_adapters.models.common.responses import (
+    coerce_sdk_mapping as coerce_mapping,
+)
 
 from .configs import HarborChatProviderConfig
 from .normalization import (

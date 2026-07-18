@@ -140,7 +140,9 @@ def _event(
     )
 
 
-def test_structured_logging_adapter_writes_event_payload(caplog: pytest.LogCaptureFixture) -> None:
+def test_structured_logging_adapter_writes_event_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     logger = logging.getLogger("harborrag.telemetry.test")
     adapter = StructuredLoggingTelemetry(logger)
 

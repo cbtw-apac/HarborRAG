@@ -37,9 +37,7 @@ def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     monkeypatch.setattr(utils, "_FallbackHTMLTextParser", TrackingFallbackParser)
-    text, engine = utils.html_to_text_with_engine(
-        "<div>A</div><p>B</p><script>hide()</script>"
-    )
+    text, engine = utils.html_to_text_with_engine("<div>A</div><p>B</p><script>hide()</script>")
     assert engine == "python/html.parser"
     assert "A" in text
     assert "B" in text

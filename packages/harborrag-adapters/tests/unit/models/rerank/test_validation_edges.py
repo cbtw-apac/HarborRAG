@@ -40,10 +40,14 @@ def _config(
         HarborRerankRequest(query="abcd", documents=(HarborRerankDocument.text("a"),)),
         HarborRerankRequest(query="a", documents=(HarborRerankDocument.text("abcd"),)),
         HarborRerankRequest(
-            query="a", documents=(HarborRerankDocument.text("a"),), extra_params={"a": 1, "b": 2}
+            query="a",
+            documents=(HarborRerankDocument.text("a"),),
+            extra_params={"a": 1, "b": 2},
         ),
         HarborRerankRequest(
-            query="a", documents=(HarborRerankDocument.text("a"),), extra_params={"unsafe": True}
+            query="a",
+            documents=(HarborRerankDocument.text("a"),),
+            extra_params={"unsafe": True},
         ),
         HarborRerankRequest(
             query="a",
@@ -52,7 +56,9 @@ def _config(
         ),
     ],
 )
-def test_rerank_request_limits_and_security(rerank_request: HarborRerankRequest) -> None:
+def test_rerank_request_limits_and_security(
+    rerank_request: HarborRerankRequest,
+) -> None:
     config = _config(
         max_query_characters=2,
         max_document_characters=2,
@@ -66,7 +72,11 @@ def test_rerank_request_limits_and_security(rerank_request: HarborRerankRequest)
 @pytest.mark.parametrize(
     ("request_updates", "feature", "capabilities"),
     [
-        ({"documents": (HarborRerankDocument(content={"text": "a"}),)}, "structured", {}),
+        (
+            {"documents": (HarborRerankDocument(content={"text": "a"}),)},
+            "structured",
+            {},
+        ),
         (
             {
                 "documents": (HarborRerankDocument(content={"text": "a"}),),

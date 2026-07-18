@@ -208,7 +208,10 @@ class ResponseCacheController:
         """Return an isolated response annotated as a Harbor cache hit."""
 
         metadata = dict(getattr(response, "provider_metadata", {}))
-        metadata["cache"] = {"backend": "harbor", "ttl_seconds": self.config.ttl_seconds}
+        metadata["cache"] = {
+            "backend": "harbor",
+            "ttl_seconds": self.config.ttl_seconds,
+        }
         return response.model_copy(
             update={
                 "cache_hit": True,

@@ -1,7 +1,8 @@
 """Smoke check a real SharePoint connection using repo-root `.env`."""
+
 from __future__ import annotations
 
-from _bootstrap import env, load_env, print_document
+from bootstrap import env, load_env, print_document
 from harborrag_adapters.connectors import HarborConnector
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
@@ -14,9 +15,7 @@ def missing_vars() -> list[str]:
 
     has_token = bool(env("MICROSOFT_GRAPH_TOKEN"))
     has_client_creds = bool(
-        env("MICROSOFT_TENANT_ID")
-        and env("MICROSOFT_CLIENT_ID")
-        and env("MICROSOFT_CLIENT_SECRET")
+        env("MICROSOFT_TENANT_ID") and env("MICROSOFT_CLIENT_ID") and env("MICROSOFT_CLIENT_SECRET")
     )
     if not has_token and not has_client_creds:
         missing.append(

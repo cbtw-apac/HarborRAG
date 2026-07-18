@@ -5,14 +5,20 @@ from typing import cast
 from harborrag_core.models.errors import HarborRerankError
 from harborrag_core.models.rerank import HarborRerankRequest, HarborRerankResponse
 
-from harborrag_adapters.models.common.budget import BudgetAuthorization, ModelBudgetPolicy
+from harborrag_adapters.models.common.budget import (
+    BudgetAuthorization,
+    ModelBudgetPolicy,
+)
 from harborrag_adapters.models.common.cache import (
     CacheDecision,
     ModelResponseCache,
     ResponseCacheController,
 )
 from harborrag_adapters.models.common.execution import RoutedModelExecutor
-from harborrag_adapters.models.common.middleware import MiddlewarePipeline, middleware_context
+from harborrag_adapters.models.common.middleware import (
+    MiddlewarePipeline,
+    middleware_context,
+)
 from harborrag_adapters.models.common.routing_state import RoutingStateStore
 from harborrag_adapters.models.common.routing_types import RoutedAttempt
 from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
@@ -71,7 +77,10 @@ class RerankExecution:
         """Run one synchronous rerank request through all runtime policies."""
 
         context = middleware_context(
-            operation="rerank", logical_model=logical, model_alias=model_alias, request=request
+            operation="rerank",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborRerankRequest, self.middleware.before(request, context))
         operation = self._operation(logical, request, model_alias)
@@ -117,7 +126,10 @@ class RerankExecution:
         """Run one asynchronous rerank request through all runtime policies."""
 
         context = middleware_context(
-            operation="rerank", logical_model=logical, model_alias=model_alias, request=request
+            operation="rerank",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborRerankRequest, await self.middleware.abefore(request, context))
         operation = self._operation(logical, request, model_alias)

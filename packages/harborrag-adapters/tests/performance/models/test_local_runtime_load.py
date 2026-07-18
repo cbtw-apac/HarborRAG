@@ -4,7 +4,9 @@ import asyncio
 
 import pytest
 from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
-from harborrag_adapters.models.common.routing_state_memory import InMemoryRoutingStateStore
+from harborrag_adapters.models.common.routing_state_memory import (
+    InMemoryRoutingStateStore,
+)
 from harborrag_adapters.models.common.singleflight import InMemorySingleFlight
 from pydantic import BaseModel
 

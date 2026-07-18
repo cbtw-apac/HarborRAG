@@ -81,9 +81,7 @@ _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
 }
 
 PDF_BACKEND_SECRET_FIELDS = frozenset({"password"})
-PDF_BACKEND_PYTHON_ONLY_FIELDS = frozenset(
-    {"converter", "env", "parser", "pipeline_options"}
-)
+PDF_BACKEND_PYTHON_ONLY_FIELDS = frozenset({"converter", "env", "parser", "pipeline_options"})
 
 
 def parser_factory(parser: str) -> ParserFactory | None:

@@ -47,9 +47,7 @@ class TestMarkdownProcessorCoverage:
         processor = MarkdownProcessor()
 
         # Test the fallback method directly
-        result = processor._basic_markdown_to_html_no_regex(
-            "# Test Header\n\nSome content"
-        )
+        result = processor._basic_markdown_to_html_no_regex("# Test Header\n\nSome content")
 
         # Should convert basic markdown
         assert "<h1>Test Header</h1>" in result
@@ -133,9 +131,7 @@ Regular paragraph text.
         assert "code here" in result
 
         # Test list followed by non-list
-        result = processor._basic_markdown_to_html_no_regex(
-            "- Item 1\n- Item 2\n\nParagraph"
-        )
+        result = processor._basic_markdown_to_html_no_regex("- Item 1\n- Item 2\n\nParagraph")
         assert "<ul>" in result
         assert "</ul>" in result
         assert "<p>Paragraph</p>" in result
@@ -198,9 +194,7 @@ Regular paragraph text.
         from website.builder.markdown import MarkdownProcessor
 
         processor = MarkdownProcessor()
-        html = (
-            '<ul><li>[ ] Pending item</li><li class="existing">[x] Done item</li></ul>'
-        )
+        html = '<ul><li>[ ] Pending item</li><li class="existing">[x] Done item</li></ul>'
 
         result = processor.render_task_list_checkboxes(html)
 
@@ -208,9 +202,7 @@ Regular paragraph text.
         assert result.count("disabled") == 2
         assert "task-list-item" in result
         assert "checked" in result
-        assert (
-            "existing task-list-item" in result or "task-list-item existing" in result
-        )
+        assert "existing task-list-item" in result or "task-list-item existing" in result
 
     def test_convert_markdown_links_edge_cases(self):
         """Test markdown link conversion edge cases."""
@@ -220,16 +212,12 @@ Regular paragraph text.
 
         # Test with source file context
         content = "[Test](docs/guide.md)"
-        result = processor.convert_markdown_links_to_html(
-            content, "packages/test/README.md"
-        )
+        result = processor.convert_markdown_links_to_html(content, "packages/test/README.md")
         assert "/docs/guide.html" in result
 
         # Test LICENSE file conversion
         content = "[License](LICENSE)"
-        result = processor.convert_markdown_links_to_html(
-            content, "packages/test/README.md"
-        )
+        result = processor.convert_markdown_links_to_html(content, "packages/test/README.md")
         assert "/docs/LICENSE.html" in result
 
         # Test relative path conversion with target directory
@@ -251,9 +239,7 @@ Regular paragraph text.
         assert result == "guide.md#section"  # Should preserve in test context
 
         # Test with source file context
-        result = processor._process_link_path(
-            "../../docs/guide.md", "packages/test/README.md"
-        )
+        result = processor._process_link_path("../../docs/guide.md", "packages/test/README.md")
         assert result == "/docs/guide.html"
 
         # Test well-known files
@@ -439,9 +425,7 @@ version = "1.0.0"
 
         # Should raise FileNotFoundError when paths differ and no content template
         with pytest.raises(FileNotFoundError):
-            builder.build_page(
-                "base.html", "test.html", "Test", "Test", "different.html"
-            )
+            builder.build_page("base.html", "test.html", "Test", "Test", "different.html")
 
     def test_build_site_404_page_failure(self, tmp_path):
         """Test build site when 404 page template is missing."""
@@ -530,12 +514,8 @@ This is the {pkg_name} package.
         assert (
             tmp_path / "output" / "docs" / "packages" / "qdrant-loader" / "README.html"
         ).exists()
-        assert (
-            tmp_path / "output" / "docs" / "packages" / "mcp-server" / "README.html"
-        ).exists()
-        assert (
-            tmp_path / "output" / "docs" / "packages" / "core" / "README.html"
-        ).exists()
+        assert (tmp_path / "output" / "docs" / "packages" / "mcp-server" / "README.html").exists()
+        assert (tmp_path / "output" / "docs" / "packages" / "core" / "README.html").exists()
 
         # Check link normalization - the actual behavior may create relative links
         content = (

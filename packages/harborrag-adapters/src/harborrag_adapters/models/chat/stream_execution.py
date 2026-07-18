@@ -11,9 +11,15 @@ from harborrag_core.models.errors import HarborChatError
 from harborrag_adapters.models.common.budget import ModelBudgetPolicy
 from harborrag_adapters.models.common.cache import CacheDecision
 from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.execution import RoutingRuntime, routing_unavailable_error
+from harborrag_adapters.models.common.execution import (
+    RoutingRuntime,
+    routing_unavailable_error,
+)
 from harborrag_adapters.models.common.litellm_router import router_model_name
-from harborrag_adapters.models.common.middleware import MiddlewarePipeline, middleware_context
+from harborrag_adapters.models.common.middleware import (
+    MiddlewarePipeline,
+    middleware_context,
+)
 from harborrag_adapters.models.common.telemetry import (
     TelemetryDispatcher,
     TelemetryDispatchError,
@@ -64,7 +70,10 @@ class ChatStreamExecution:
         """Yield a synchronous stream with retries only before the first event."""
 
         context = middleware_context(
-            operation="chat", logical_model=logical, model_alias=model_alias, request=request
+            operation="chat",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborChatRequest, self.middleware.before(request, context))
         operation = self._operation(logical, request, model_alias)
@@ -152,7 +161,10 @@ class ChatStreamExecution:
         """Yield an async stream with cancellation-safe pre-event failover."""
 
         context = middleware_context(
-            operation="chat", logical_model=logical, model_alias=model_alias, request=request
+            operation="chat",
+            logical_model=logical,
+            model_alias=model_alias,
+            request=request,
         )
         request = cast(HarborChatRequest, await self.middleware.abefore(request, context))
         operation = self._operation(logical, request, model_alias)

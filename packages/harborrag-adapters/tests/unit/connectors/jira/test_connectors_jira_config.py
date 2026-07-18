@@ -23,9 +23,7 @@ def test_config_requires_token_when_env_vars_absent(monkeypatch):
     monkeypatch.delenv("JIRA_TOKEN", raising=False)
     monkeypatch.delenv("JIRA_API_TOKEN", raising=False)
     with pytest.raises(ValueError, match="token is required"):
-        JiraProjectConfig(
-            base_url=DC_BASE, deployment_type=JiraDeploymentType.DATACENTER
-        )
+        JiraProjectConfig(base_url=DC_BASE, deployment_type=JiraDeploymentType.DATACENTER)
 
 
 def test_config_rejects_out_of_range_requests_per_minute():

@@ -6,7 +6,10 @@ from harborrag_core.models.capabilities import HarborEmbedCapabilities
 from harborrag_core.models.embed import EmbeddingEncodingFormat, EmbeddingPurpose
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from harborrag_adapters.models.common.config import ModelClientConfig, SecurityBaseConfig
+from harborrag_adapters.models.common.config import (
+    ModelClientConfig,
+    SecurityBaseConfig,
+)
 from harborrag_adapters.models.common.model_config import (
     LogicalModelConfig,
     normalize_single_deployment_shorthand,

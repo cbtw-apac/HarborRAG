@@ -93,19 +93,14 @@ def build_cql(
         clauses.append(f"space = {quote_cql(safe_space)}")
     if content_types:
         safe_types = [
-            quote_cql(validate_token(value, field_name="content type"))
-            for value in content_types
+            quote_cql(validate_token(value, field_name="content type")) for value in content_types
         ]
         clauses.append(f"type in ({','.join(safe_types)})")
     if labels:
-        safe_labels = [
-            quote_cql(validate_token(value, field_name="label")) for value in labels
-        ]
+        safe_labels = [quote_cql(validate_token(value, field_name="label")) for value in labels]
         clauses.append(f"label in ({','.join(safe_labels)})")
     if updated_after:
-        clauses.append(
-            f"lastmodified >= {quote_cql(format_query_timestamp(updated_after))}"
-        )
+        clauses.append(f"lastmodified >= {quote_cql(format_query_timestamp(updated_after))}")
 
     return " and ".join(clauses) or 'type in ("page","blogpost")'
 
@@ -125,6 +120,7 @@ def build_search_params(
     elif start is not None:
         params["start"] = start
     return params
+
 
 def _isoformat_datetimes(value: Any) -> Any:
     """Recursively convert ``datetime`` values to ISO strings for JSON output."""

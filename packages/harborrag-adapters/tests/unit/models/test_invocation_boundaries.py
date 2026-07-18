@@ -229,7 +229,9 @@ async def test_sync_awaitable_bridge_propagates_thread_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_controller_sync_and_async_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retry_controller_sync_and_async_sleep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     policy = RetryPolicyConfig(base_delay_seconds=1, max_delay_seconds=2, jitter_ratio=0)
     controller = RetryController(policy)
     sync_delays: list[float] = []

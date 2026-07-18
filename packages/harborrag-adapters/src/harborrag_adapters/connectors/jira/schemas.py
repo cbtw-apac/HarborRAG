@@ -16,8 +16,7 @@ def _dict_factory(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     (e.g. comments, changelog entries) are also covered.
     """
     return {
-        key: value.isoformat() if isinstance(value, datetime) else value
-        for key, value in pairs
+        key: value.isoformat() if isinstance(value, datetime) else value for key, value in pairs
     }
 
 

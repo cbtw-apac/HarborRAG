@@ -95,14 +95,18 @@ class TextParser(BaseParser[ParseInput, ParsedDocument]):
         except UnicodeDecodeError as exc:
             raise ParseError(f"Could not decode text input: {exc}") from exc
         content = compact_text(text)
-        elements = [
-            DocumentElement(
-                id="text:0",
-                type="paragraph",
-                content=content,
-                metadata={"filename": parse_input.filename},
-            )
-        ] if content else []
+        elements = (
+            [
+                DocumentElement(
+                    id="text:0",
+                    type="paragraph",
+                    content=content,
+                    metadata={"filename": parse_input.filename},
+                )
+            ]
+            if content
+            else []
+        )
         return ParsedDocument(
             content=content,
             elements=elements,

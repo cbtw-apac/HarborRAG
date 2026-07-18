@@ -47,7 +47,9 @@ _DEFAULT_DESCRIPTORS: Mapping[HarborProvider, ProviderDescriptor] = MappingProxy
             explicit_credential_sets=(frozenset({"aws_access_key_id", "aws_secret_access_key"}),),
         ),
         HarborProvider.ANTHROPIC: ProviderDescriptor(
-            name=HarborProvider.ANTHROPIC, litellm_provider="anthropic", requires_api_key=True
+            name=HarborProvider.ANTHROPIC,
+            litellm_provider="anthropic",
+            requires_api_key=True,
         ),
         HarborProvider.GEMINI: ProviderDescriptor(
             name=HarborProvider.GEMINI, litellm_provider="gemini", requires_api_key=True

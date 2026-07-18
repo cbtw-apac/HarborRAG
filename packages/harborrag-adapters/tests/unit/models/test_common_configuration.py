@@ -167,9 +167,7 @@ def test_unknown_and_incomplete_providers_are_rejected() -> None:
     ambient = HarborChatClientConfig.from_dict(
         chat_document(api_key=None, allow_ambient_credentials=True)
     )
-    with pytest.raises(
-        HarborChatConfigurationError, match="does not support ambient credentials"
-    ):
+    with pytest.raises(HarborChatConfigurationError, match="does not support ambient credentials"):
         validate_chat_configuration(ambient)
 
 

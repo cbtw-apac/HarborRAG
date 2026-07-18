@@ -18,7 +18,10 @@ from harborrag_adapters.models.common.budget import ModelBudgetPolicy
 from harborrag_adapters.models.common.cache import ModelResponseCache
 from harborrag_adapters.models.common.client_lifecycle import ModelClientLifecycleMixin
 from harborrag_adapters.models.common.client_runtime import ModelClientRuntimeMixin
-from harborrag_adapters.models.common.health import ActiveHealthMonitor, DeploymentHealthProbe
+from harborrag_adapters.models.common.health import (
+    ActiveHealthMonitor,
+    DeploymentHealthProbe,
+)
 from harborrag_adapters.models.common.introspection import ModelRuntimeIntrospector
 from harborrag_adapters.models.common.lifecycle import (
     AsyncLifecycleResource,
@@ -232,17 +235,27 @@ class HarborRerankingClient(
                 LifecycleResource(self._invocation.close, self._resource_ownership),
                 LifecycleResource(
                     self._execution.cache.backend.close,
-                    ResourceOwnership.OWNED
-                    if self._execution.owns_cache
-                    else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._execution.owns_cache
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 LifecycleResource(
                     self._telemetry.close,
-                    ResourceOwnership.OWNED if self._owns_telemetry else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_telemetry
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 LifecycleResource(
                     self._services.close,
-                    ResourceOwnership.OWNED if self._owns_services else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_services
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
             )
         )
@@ -257,17 +270,27 @@ class HarborRerankingClient(
                 AsyncLifecycleResource(self._invocation.aclose, self._resource_ownership),
                 AsyncLifecycleResource(
                     self._execution.cache.backend.aclose,
-                    ResourceOwnership.OWNED
-                    if self._execution.owns_cache
-                    else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._execution.owns_cache
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 AsyncLifecycleResource(
                     self._telemetry.aclose,
-                    ResourceOwnership.OWNED if self._owns_telemetry else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_telemetry
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 AsyncLifecycleResource(
                     self._services.aclose,
-                    ResourceOwnership.OWNED if self._owns_services else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_services
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
             )
         )

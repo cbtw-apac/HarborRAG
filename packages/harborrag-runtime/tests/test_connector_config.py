@@ -20,13 +20,11 @@ def _write_config(tmp_path: Path, content: str) -> Path:
 
 
 def test_repository_example_is_valid_and_builds_enabled_local_connector() -> None:
-    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.yaml")
+    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.example.yaml")
 
     assert catalog.names(enabled_only=True) == ["local-docs"]
     assert catalog.names() == ["local-docs"]
-    connectors = catalog.build_enabled(
-        environment={"LOCAL_SOURCE_PATH": str(REPO_ROOT / "docs")}
-    )
+    connectors = catalog.build_enabled(environment={"LOCAL_SOURCE_PATH": str(REPO_ROOT / "docs")})
     assert list(connectors) == ["local-docs"]
 
 

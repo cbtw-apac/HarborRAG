@@ -98,20 +98,11 @@ class JiraConnector(BaseConnector):
         issue = self._issues.get_issue(issue_key)
         self._validate_issue(issue, issue_key)
 
-        comments = (
-            self._issues.fetch_comments(issue_key)
-            if self.config.include_comments
-            else []
-        )
-        changelog = (
-            self._issues.fetch_changelog(issue_key)
-            if self.config.include_changelog
-            else []
-        )
+        comments = self._issues.fetch_comments(issue_key) if self.config.include_comments else []
+        changelog = self._issues.fetch_changelog(issue_key) if self.config.include_changelog else []
         attachments = []
         include_attachments = bool(
-            self.config.include_attachments
-            and record.metadata.get("include_attachments", True)
+            self.config.include_attachments and record.metadata.get("include_attachments", True)
         )
         if include_attachments:
             raw_attachments = issue.get("fields", {}).get("attachment") or []

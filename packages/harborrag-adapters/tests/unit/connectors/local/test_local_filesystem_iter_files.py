@@ -49,9 +49,7 @@ def test_iter_files_skips_already_visited_directory_via_symlink_loop(tmp_path: P
     try:
         loop_link.symlink_to(tmp_path, target_is_directory=True)
     except (NotImplementedError, OSError):
-        files = LocalFileSystem(
-            config(tmp_path, follow_symlinks=True, allowed_extensions={".md"})
-        )
+        files = LocalFileSystem(config(tmp_path, follow_symlinks=True, allowed_extensions={".md"}))
         records = list(
             files.iter_files(
                 nested,
@@ -102,9 +100,7 @@ def test_iter_files_skips_unreadable_directory(tmp_path: Path, monkeypatch):
     assert records == []
 
 
-def test_iter_files_raises_when_fail_on_error_and_directory_unreadable(
-    tmp_path: Path, monkeypatch
-):
+def test_iter_files_raises_when_fail_on_error_and_directory_unreadable(tmp_path: Path, monkeypatch):
     blocked = tmp_path / "blocked"
     blocked.mkdir()
     _block_iterdir(blocked, monkeypatch)
@@ -124,9 +120,7 @@ def test_iter_files_skips_excluded_dir_names(tmp_path: Path):
     assert [r.metadata["relative_path"] for r in records] == ["src/keep.md"]
 
 
-def test_iter_files_skips_symlinked_directory_when_disabled(
-    tmp_path: Path, monkeypatch
-):
+def test_iter_files_skips_symlinked_directory_when_disabled(tmp_path: Path, monkeypatch):
     real_dir = tmp_path / "real"
     write_file(real_dir / "a.md")
     link = tmp_path / "linked"
@@ -187,9 +181,7 @@ def test_iter_files_continues_after_recursing_into_a_non_last_subdirectory(
     ]
 
 
-def test_iter_files_skips_symlinked_file_outside_source_scope(
-    tmp_path: Path, monkeypatch
-):
+def test_iter_files_skips_symlinked_file_outside_source_scope(tmp_path: Path, monkeypatch):
     source_root = tmp_path / "scope"
     source_root.mkdir()
     outside = write_file(tmp_path / "outside.md")
@@ -213,9 +205,7 @@ def test_iter_files_skips_symlinked_file_outside_source_scope(
     assert list(connector.discover()) == []
 
 
-def test_iter_files_silently_skips_dangling_symlink_entries(
-    tmp_path: Path, monkeypatch
-):
+def test_iter_files_silently_skips_dangling_symlink_entries(tmp_path: Path, monkeypatch):
     write_file(tmp_path / "keep.md")
     dangling = tmp_path / "dangling.md"
     try:

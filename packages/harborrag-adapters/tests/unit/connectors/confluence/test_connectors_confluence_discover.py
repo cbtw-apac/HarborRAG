@@ -41,9 +41,7 @@ def test_discover_supports_direct_content_ids_without_search():
     client.add("content/1", light_content("1", "Direct"))
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"content_ids": ["1", "2"]}, limit=1))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"content_ids": ["1", "2"]}, limit=1)))
 
     assert [record.locator for record in records] == ["1"]
     assert records[0].id == "confluence://ENG/1"
@@ -78,9 +76,7 @@ def test_discover_can_expand_child_pages_for_direct_ids():
     connector = ConfluenceConnector(cloud_config(), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(filters={"content_ids": ["1"], "include_children": True})
-        )
+        connector.discover(ConnectorQuery(filters={"content_ids": ["1"], "include_children": True}))
     )
 
     assert [record.locator for record in records] == ["1", "2"]
@@ -130,9 +126,7 @@ def test_discover_content_types_filter_accepts_list_value():
     connector = ConfluenceConnector(cloud_config(page_size=10), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(filters={"content_types": ["page", "blogpost"]})
-        )
+        connector.discover(ConnectorQuery(filters={"content_types": ["page", "blogpost"]}))
     )
 
     assert [r.metadata["content_id"] for r in records] == ["1"]

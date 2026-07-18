@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from smoke.models import _config
+from smoke.models import config
 
 
 def _set_provider(
@@ -25,9 +25,9 @@ def test_smoke_config_builders_accept_explicit_provider_credentials(
     _set_provider(monkeypatch, family="RERANK", provider="cohere", model="cohere/rerank")
     monkeypatch.setenv("HARBOR_SMOKE_EMBED_EXPECTED_DIMENSIONS", "8")
 
-    chat = _config.chat_config()
-    embed = _config.embed_config()
-    rerank = _config.rerank_config()
+    chat = config.chat_config()
+    embed = config.embed_config()
+    rerank = config.rerank_config()
 
     assert chat.models["smoke"].deployments[0].provider.value == "openai"
     assert embed.models["smoke"].deployments[0].expected_dimensions == 8
@@ -44,34 +44,36 @@ def test_smoke_config_supports_ambient_cloud_credentials(
     monkeypatch.setenv(f"{prefix}_VERTEX_PROJECT", "project")
     monkeypatch.setenv(f"{prefix}_VERTEX_LOCATION", "us-central1")
 
-    config = _config.embed_config()
+    smoke_config = config.embed_config()
 
-    assert config.models["smoke"].deployments[0].allow_ambient_credentials is True
+    assert smoke_config.models["smoke"].deployments[0].allow_ambient_credentials is True
 
 
 def test_smoke_config_rejects_missing_or_placeholder_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HARBOR_SMOKE_CHAT_PROVIDER", raising=False)
-    with pytest.raises(_config.SmokeNotConfigured, match="missing required"):
-        _config.chat_config()
+    with pytest.raises(config.SmokeNotConfigured, match="missing required"):
+        config.chat_config()
 
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_PROVIDER", "openai")
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_MODEL", "REPLACE_WITH_REAL_CHAT_MODEL")
-    with pytest.raises(_config.SmokeNotConfigured, match="placeholder"):
-        _config.chat_config()
+    with pytest.raises(config.SmokeNotConfigured, match="placeholder"):
+        config.chat_config()
 
 
-def test_smoke_config_rejects_invalid_typed_values(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_smoke_config_rejects_invalid_typed_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_provider(monkeypatch, family="CHAT", provider="openai", model="openai/chat")
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_ALLOW_AMBIENT_CREDENTIALS", "sometimes")
-    with pytest.raises(_config.SmokeConfigurationError, match="must be true/false"):
-        _config.chat_config()
+    with pytest.raises(config.SmokeConfigurationError, match="must be true/false"):
+        config.chat_config()
 
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_ALLOW_AMBIENT_CREDENTIALS", "false")
     monkeypatch.setenv("HARBOR_SMOKE_TIMEOUT_SECONDS", "zero")
-    with pytest.raises(_config.SmokeConfigurationError, match="must be numeric"):
-        _config.chat_config()
+    with pytest.raises(config.SmokeConfigurationError, match="must be numeric"):
+        config.chat_config()
 
 
 def test_smoke_chat_config_supports_router_backend(
@@ -80,10 +82,10 @@ def test_smoke_chat_config_supports_router_backend(
     _set_provider(monkeypatch, family="CHAT", provider="openai", model="openai/chat")
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_BACKEND", "litellm_router")
 
-    config = _config.chat_config()
+    smoke_config = config.chat_config()
 
-    assert config.backend.type.value == "litellm_router"
-    assert config.routing.engine.value == "litellm_router"
+    assert smoke_config.backend.type.value == "litellm_router"
+    assert smoke_config.routing.engine.value == "litellm_router"
 
 
 def test_smoke_chat_config_supports_proxy_backend(
@@ -99,7 +101,7 @@ def test_smoke_chat_config_supports_proxy_backend(
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_PROXY_API_BASE", "https://proxy.example.test")
     monkeypatch.setenv("HARBOR_SMOKE_CHAT_PROXY_API_KEY", "proxy-key")
 
-    config = _config.chat_config()
+    smoke_config = config.chat_config()
 
-    assert config.backend.proxy is not None
-    assert config.backend.proxy.api_base == "https://proxy.example.test"
+    assert smoke_config.backend.proxy is not None
+    assert smoke_config.backend.proxy.api_base == "https://proxy.example.test"

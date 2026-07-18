@@ -4,10 +4,17 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
-from harborrag_core.models.embed import HarborEmbedding, HarborEmbedResponse, HarborEmbedUsage
+from harborrag_core.models.embed import (
+    HarborEmbedding,
+    HarborEmbedResponse,
+    HarborEmbedUsage,
+)
 from harborrag_core.models.errors import HarborEmbedMalformedResponseError
 
-from harborrag_adapters.models.common.responses import coerce_sdk_mapping, sdk_hidden_parameters
+from harborrag_adapters.models.common.responses import (
+    coerce_sdk_mapping,
+    sdk_hidden_parameters,
+)
 
 from .configs import HarborEmbedProviderConfig
 
@@ -52,7 +59,10 @@ def normalize_embedding_batch(
             normalize_vectors=normalize_vectors,
             expected_dimensions=expected_dimensions,
         )
-        if expected_dimensions is not None and dimensions not in {None, expected_dimensions}:
+        if expected_dimensions is not None and dimensions not in {
+            None,
+            expected_dimensions,
+        }:
             raise HarborEmbedMalformedResponseError(
                 f"deployment expected {expected_dimensions} dimensions but returned {dimensions}"
             )

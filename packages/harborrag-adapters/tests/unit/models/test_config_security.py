@@ -102,7 +102,10 @@ def test_config_document_rejects_invalid_files(tmp_path: Path) -> None:
 
 def test_profile_and_override_merging() -> None:
     document = {
-        "chat": {"timeouts": {"request_seconds": 10}, "routing": {"strategy": "ordered"}},
+        "chat": {
+            "timeouts": {"request_seconds": 10},
+            "routing": {"strategy": "ordered"},
+        },
         "profiles": {
             "prod": {"chat": {"timeouts": {"request_seconds": 20}}},
             "embed-only": {"embed": {"default_model": "x"}},

@@ -71,8 +71,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             ) from exc
         if not isinstance(payload, dict):
             raise FetchError(
-                f"{self._provider_label} returned invalid JSON for {endpoint}: "
-                "expected an object"
+                f"{self._provider_label} returned invalid JSON for {endpoint}: expected an object"
             )
         return payload
 
@@ -123,10 +122,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                 raise AuthenticationError(safe_error_detail(response.text))
             if response.status_code == 429 and attempt == self.config.max_retries:
                 raise RateLimitError(safe_error_detail(response.text))
-            if (
-                response.status_code not in _RETRYABLE_STATUS
-                or attempt == self.config.max_retries
-            ):
+            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
                     detail = safe_error_detail(response.text)
                     raise FetchError(

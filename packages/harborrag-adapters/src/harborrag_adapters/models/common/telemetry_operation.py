@@ -146,9 +146,11 @@ class ModelTelemetryOperation:
         event_type = (
             TelemetryEventType.CACHE_HIT
             if hit
-            else TelemetryEventType.CACHE_MISS
-            if decision.allowed
-            else TelemetryEventType.CACHE_BYPASS
+            else (
+                TelemetryEventType.CACHE_MISS
+                if decision.allowed
+                else TelemetryEventType.CACHE_BYPASS
+            )
         )
         return self._event(
             event_type,
@@ -249,7 +251,7 @@ class ModelTelemetryOperation:
 
     def _error_event(self, error: Exception, *, stream: bool) -> TelemetryEvent:
         return self._event(
-            TelemetryEventType.STREAM_ERROR if stream else TelemetryEventType.REQUEST_ERROR,
+            (TelemetryEventType.STREAM_ERROR if stream else TelemetryEventType.REQUEST_ERROR),
             OperationStatus.FAILED,
             streaming=stream,
             total_duration_ms=self._elapsed(),
@@ -297,7 +299,10 @@ def _safe_error(error: Exception, dispatcher: TelemetryDispatcher) -> dict[str, 
     value = (
         error.to_dict()
         if isinstance(error, HarborModelError)
-        else {"type": type(error).__name__, "message": safe_provider_error_message(error)}
+        else {
+            "type": type(error).__name__,
+            "message": safe_provider_error_message(error),
+        }
     )
     sanitized = dispatcher.privacy.sanitize(value)
     return sanitized if isinstance(sanitized, dict) else {"type": type(error).__name__}

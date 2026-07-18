@@ -73,7 +73,11 @@ def test_normalize_rerank_response_orders_scores_and_metadata() -> None:
     raw = {
         "id": "response",
         "results": [
-            {"index": 0, "relevance_score": 0.2, "document": {"text": "provider first"}},
+            {
+                "index": 0,
+                "relevance_score": 0.2,
+                "document": {"text": "provider first"},
+            },
             {"index": 1, "score": 0.9, "document": {"text": "provider second"}},
         ],
         "meta": {"billed_units": {"search_units": 2}, "tokens": {"input_tokens": 3}},
@@ -113,7 +117,12 @@ def test_normalize_rerank_response_orders_scores_and_metadata() -> None:
         {},
         {"results": "bad"},
         {"results": [{"index": -1, "relevance_score": 1}]},
-        {"results": [{"index": 0, "relevance_score": 1}, {"index": 0, "relevance_score": 0}]},
+        {
+            "results": [
+                {"index": 0, "relevance_score": 1},
+                {"index": 0, "relevance_score": 0},
+            ]
+        },
         {"results": [{"index": 0, "relevance_score": True}]},
         {"results": [{"index": 0, "relevance_score": float("inf")}]},
     ],
@@ -166,7 +175,10 @@ def test_rerank_top_n_and_document_return_semantics() -> None:
 
 def test_rerank_usage_handles_nested_and_invalid_values() -> None:
     usage = normalize_rerank_usage(
-        {"billed_units": {"total_tokens": 5}, "tokens": {"input_tokens": 2, "output_tokens": 1}}
+        {
+            "billed_units": {"total_tokens": 5},
+            "tokens": {"input_tokens": 2, "output_tokens": 1},
+        }
     )
     assert usage.total_tokens == 5 and usage.input_tokens == 2
     fallback = normalize_rerank_usage({"input_tokens": 2, "output_tokens": 3, "search_units": -1})
@@ -222,7 +234,12 @@ def test_defaults_identity_and_request_preparation() -> None:
     assert logical == "primary" and selected.name == "rerank-a" and prepared.metadata.request_id
     with pytest.raises(HarborRerankConfigurationError):
         prepare_rerank_request(
-            rerank_config(), "q", ["a"], request=None, model="missing", request_kwargs={}
+            rerank_config(),
+            "q",
+            ["a"],
+            request=None,
+            model="missing",
+            request_kwargs={},
         )
 
 
@@ -247,7 +264,9 @@ def test_litellm_rerank_parameters_include_complete_candidate_set() -> None:
     assert params["return_original_response"] is True
     with pytest.raises(HarborRerankInvalidRequestError):
         build_litellm_parameters(
-            deployment(), item.model_copy(update={"extra_params": {"model": "bad"}}), timeout=1
+            deployment(),
+            item.model_copy(update={"extra_params": {"model": "bad"}}),
+            timeout=1,
         )
 
 
@@ -277,7 +296,8 @@ def test_rerank_request_capabilities_limits_and_security() -> None:
         request(documents=(HarborRerankDocument.text("a"),), instruction="rank"),
         request(documents=(HarborRerankDocument.text("a"),), extra_params={"model": "bad"}),
         request(
-            documents=(HarborRerankDocument.text("a"),), custom_headers={"Authorization": "bad"}
+            documents=(HarborRerankDocument.text("a"),),
+            custom_headers={"Authorization": "bad"},
         ),
     ]
     for item in invalid:
@@ -286,11 +306,15 @@ def test_rerank_request_capabilities_limits_and_security() -> None:
     tiny = config.model_copy(update={"max_query_characters": 1, "max_document_characters": 1})
     with pytest.raises(HarborRerankInvalidRequestError):
         validate_rerank_request(
-            request(query="too long", documents=(HarborRerankDocument.text("a"),)), tiny, limited
+            request(query="too long", documents=(HarborRerankDocument.text("a"),)),
+            tiny,
+            limited,
         )
     with pytest.raises(HarborRerankInvalidRequestError):
         validate_rerank_request(
-            request(query="q", documents=(HarborRerankDocument.text("long"),)), tiny, limited
+            request(query="q", documents=(HarborRerankDocument.text("long"),)),
+            tiny,
+            limited,
         )
 
 

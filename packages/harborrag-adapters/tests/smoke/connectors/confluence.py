@@ -1,7 +1,8 @@
 """Smoke check a real Confluence connection using repo-root `.env`."""
+
 from __future__ import annotations
 
-from _bootstrap import env, load_env, print_document
+from bootstrap import env, load_env, print_document
 from harborrag_adapters.connectors import HarborConnector
 from harborrag_adapters.connectors.confluence.config import ConfluenceSpaceConfig
 from harborrag_adapters.connectors.schemas import ConnectorQuery
@@ -43,9 +44,7 @@ def main() -> int:
     print_document("confluence", document)
 
     print("\n[confluence] === load with attachments ===")
-    with_attachments = HarborConnector(
-        "confluence", config=_config(include_attachments=True)
-    )
+    with_attachments = HarborConnector("confluence", config=_config(include_attachments=True))
     document_with_attachments = with_attachments.load(records[0])
     print_document("confluence", document_with_attachments)
     return 0

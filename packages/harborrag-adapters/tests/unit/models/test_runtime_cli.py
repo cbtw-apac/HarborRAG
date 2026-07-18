@@ -7,7 +7,10 @@ from typing import Any
 import pytest
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.cli import ModelConfigCli, main
-from harborrag_adapters.models.common.budget import InMemoryBudgetPolicy, NoopBudgetPolicy
+from harborrag_adapters.models.common.budget import (
+    InMemoryBudgetPolicy,
+    NoopBudgetPolicy,
+)
 from harborrag_adapters.models.common.cache import InMemoryModelCache
 from harborrag_adapters.models.common.config import (
     CacheBackend,
@@ -25,7 +28,9 @@ from harborrag_adapters.models.common.introspection import ModelRuntimeIntrospec
 from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
 from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
 from harborrag_adapters.models.common.routing_state import RoutingStateSnapshot
-from harborrag_adapters.models.common.routing_state_memory import InMemoryRoutingStateStore
+from harborrag_adapters.models.common.routing_state_memory import (
+    InMemoryRoutingStateStore,
+)
 from harborrag_adapters.models.common.routing_state_redis import RedisRoutingStateStore
 from harborrag_adapters.models.common.runtime_services import (
     ModelRuntimeServices,

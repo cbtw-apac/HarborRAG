@@ -1,4 +1,5 @@
 """Run every configured real connector smoke script."""
+
 from __future__ import annotations
 
 import confluence

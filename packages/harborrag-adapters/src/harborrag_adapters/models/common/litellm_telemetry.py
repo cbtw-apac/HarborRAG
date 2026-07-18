@@ -15,7 +15,9 @@ if TYPE_CHECKING:
     from litellm.integrations.custom_logger import CustomLogger as LiteLLMCustomLogger
 else:
     try:
-        from litellm.integrations.custom_logger import CustomLogger as LiteLLMCustomLogger
+        from litellm.integrations.custom_logger import (
+            CustomLogger as LiteLLMCustomLogger,
+        )
     except ImportError:
 
         class LiteLLMCustomLogger:
@@ -97,7 +99,7 @@ def _event(
             else TelemetryEventType.PROVIDER_COMPLETE
         ),
         operation=str(harbor.get("operation") or "model"),
-        status=OperationStatus.FAILED if error is not None else OperationStatus.SUCCEEDED,
+        status=(OperationStatus.FAILED if error is not None else OperationStatus.SUCCEEDED),
         request_id=harbor.get("request_id"),
         logical_model=harbor.get("logical_model"),
         provider_model=str(kwargs.get("model")) if kwargs.get("model") else None,

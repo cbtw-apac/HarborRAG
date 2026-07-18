@@ -1,4 +1,5 @@
 """Unit tests for SharePoint OAuth client-credentials token acquisition."""
+
 from __future__ import annotations
 
 import pytest
@@ -126,9 +127,7 @@ def test_sharepoint_access_token_raises_on_non_dict_json():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = client_credentials_sharepoint_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _json=[1, 2])]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
     with pytest.raises(AuthenticationError, match="invalid JSON"):
         client._access_token()
 

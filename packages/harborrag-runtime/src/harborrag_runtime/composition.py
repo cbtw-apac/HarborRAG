@@ -75,9 +75,7 @@ class _MockIngestionShim:
             raw = self.connector.load(record)
             self.parser.parse(raw)
             documents.append(raw)
-        self._summary = _MockIngestionSummary(
-            len(documents), len(documents), len(documents), 0
-        )
+        self._summary = _MockIngestionSummary(len(documents), len(documents), len(documents), 0)
         return documents
 
     def summarize(self) -> _MockIngestionSummary:
@@ -101,9 +99,7 @@ class CompositionRoot:
 
     def mock_pipeline(self) -> _MockIngestionShim:
         """Build the connector/parser pair used by the ingest smoke check."""
-        return _MockIngestionShim(
-            connector=_MockIngestionConnector(), parser=TextParser()
-        )
+        return _MockIngestionShim(connector=_MockIngestionConnector(), parser=TextParser())
 
     def run_mock_ingestion(self) -> dict[str, object]:
         """Proxy to the runtime service so app/CLI callers don't reach into it."""

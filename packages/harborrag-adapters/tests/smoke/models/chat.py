@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from _bootstrap import load_env, safe_error
-from _config import SmokeNotConfigured, chat_config
+from bootstrap import load_env, safe_error
+from config import SmokeNotConfigured, chat_config
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_core.models.chat import HarborChatMessage
 
@@ -24,6 +24,7 @@ async def _run() -> None:
         "[models/chat] passed "
         f"provider_model={response.provider_model!r} latency_ms={response.latency_ms}"
     )
+    print(f"[models/chat] response: {response.text.strip()!r}")
 
 
 def main() -> int:

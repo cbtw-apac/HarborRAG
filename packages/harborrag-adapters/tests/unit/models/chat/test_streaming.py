@@ -162,7 +162,9 @@ def test_provider_disconnect_emits_error_then_raises_and_closes(base_config) -> 
 
 
 @pytest.mark.asyncio
-async def test_exception_during_async_iteration_is_mapped_and_closed(base_config) -> None:
+async def test_exception_during_async_iteration_is_mapped_and_closed(
+    base_config,
+) -> None:
     raw = FakeAsyncStream([RuntimeError("broken stream")])
     iterator = HarborChatClient(
         base_config, invocation=FakeInvocation(async_streams=[raw])

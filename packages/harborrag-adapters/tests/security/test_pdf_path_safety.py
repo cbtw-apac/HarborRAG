@@ -1,4 +1,5 @@
 """PDF temp-file materialization hardening tests."""
+
 from __future__ import annotations
 
 import pytest

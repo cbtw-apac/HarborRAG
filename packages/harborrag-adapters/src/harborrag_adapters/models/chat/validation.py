@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from harborrag_core.models.chat import HarborChatRequest, InputAudioContentPart, MessageRole
+from harborrag_core.models.chat import (
+    HarborChatRequest,
+    InputAudioContentPart,
+    MessageRole,
+)
 from harborrag_core.models.errors import (
     HarborChatCapabilityError,
     HarborChatConfigurationError,
@@ -16,7 +20,11 @@ from harborrag_adapters.models.common.provider_validation import (
 from harborrag_adapters.models.common.transport import validate_base_url
 
 from .backend_config import ChatBackendType
-from .configs import HarborChatClientConfig, HarborChatModelConfig, HarborChatProviderConfig
+from .configs import (
+    HarborChatClientConfig,
+    HarborChatModelConfig,
+    HarborChatProviderConfig,
+)
 from .registry import HarborProvider, ProviderRegistry
 
 _CHAT_TYPED_EXTENSION_FIELDS = frozenset(

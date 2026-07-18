@@ -39,7 +39,10 @@ def raw_chat(content: str | None = "ok", *, finish: str = "stop") -> dict[str, A
         "id": "response",
         "model": "provider-model",
         "choices": [
-            {"finish_reason": finish, "message": {"role": "assistant", "content": content}}
+            {
+                "finish_reason": finish,
+                "message": {"role": "assistant", "content": content},
+            }
         ],
         "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
     }
@@ -249,7 +252,9 @@ def test_structured_output_success_repair_and_terminal_failure() -> None:
 async def test_async_structured_output_and_borrowed_invocation() -> None:
     invocation = FakeChatInvocation([raw_chat('{"answer":"async"}')])
     client = HarborChatClient(
-        chat_config(), invocation=invocation, resource_ownership=ResourceOwnership.BORROWED
+        chat_config(),
+        invocation=invocation,
+        resource_ownership=ResourceOwnership.BORROWED,
     )
     result = await client.achat_structured([HarborChatMessage.user("x")], response_model=Answer)
     assert result.answer == "async"

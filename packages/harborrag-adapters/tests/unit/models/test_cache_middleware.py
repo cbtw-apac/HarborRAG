@@ -163,7 +163,14 @@ def test_middleware_order_and_sync_async_guard() -> None:
     assert pipeline.after(response, context) is response
     error = RuntimeError("x")
     pipeline.error(error, context)
-    assert events == ["before:a", "before:b", "after:b", "after:a", "error:b", "error:a"]
+    assert events == [
+        "before:a",
+        "before:b",
+        "after:b",
+        "after:a",
+        "error:b",
+        "error:a",
+    ]
 
     class BadSync:
         async def before_request(self, request: Any, context: Any) -> Any:

@@ -25,9 +25,7 @@ def test_issue_key_from_record_requires_issue_key():
 
 
 def test_issue_key_from_record_rejects_path_fragments():
-    record = SourceRecord(
-        id="jira://ENG/ENG-1", source_type="jira", locator="ENG-1/comment"
-    )
+    record = SourceRecord(id="jira://ENG/ENG-1", source_type="jira", locator="ENG-1/comment")
 
     with pytest.raises(ValueError, match="issue key"):
         issue_key_from_record(record)

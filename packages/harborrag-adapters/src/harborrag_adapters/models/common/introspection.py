@@ -186,9 +186,11 @@ class ModelRuntimeIntrospector:
         return min(
             candidates,
             key=lambda name: (
-                float("inf")
-                if views[name].last_latency_ms is None
-                else views[name].last_latency_ms,
+                (
+                    float("inf")
+                    if views[name].last_latency_ms is None
+                    else views[name].last_latency_ms
+                ),
                 name,
             ),
         )

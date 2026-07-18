@@ -1,4 +1,5 @@
 """Shared fake-session client builder for Confluence HTTP client tests."""
+
 from __future__ import annotations
 
 

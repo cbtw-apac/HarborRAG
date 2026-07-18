@@ -46,9 +46,7 @@ class PdfParser(BaseParser[ParseInput, ParsedDocument]):
     parser_name: ClassVar[str] = "pdf"
     parser_engine: ClassVar[str] = "pymupdf/docling/liteparse/mineru/paddleocr"
     suffixes: ClassVar[frozenset[str]] = frozenset({"pdf"})
-    content_types: ClassVar[frozenset[str]] = frozenset(
-        {"application/pdf", "application/x-pdf"}
-    )
+    content_types: ClassVar[frozenset[str]] = frozenset({"application/pdf", "application/x-pdf"})
 
     def __init__(
         self,
@@ -61,9 +59,7 @@ class PdfParser(BaseParser[ParseInput, ParsedDocument]):
 
         self.profile = PdfParserProfile.normalize(profile)
         self.backends = (
-            list(backends)
-            if backends is not None
-            else self.default_backends(self.profile)
+            list(backends) if backends is not None else self.default_backends(self.profile)
         )
         self.min_content_chars = min_content_chars
 
@@ -216,10 +212,7 @@ class PdfParser(BaseParser[ParseInput, ParsedDocument]):
             if result.has_content(self.min_content_chars):
                 return self._document(parse_input, result, warnings)
 
-            warning = (
-                f"{backend.name}: extracted less than {self.min_content_chars} "
-                "characters"
-            )
+            warning = f"{backend.name}: extracted less than {self.min_content_chars} characters"
             warnings.append(warning)
             parser_logger.debug(
                 "PDF backend %s returned insufficient text for %s",

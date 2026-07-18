@@ -38,18 +38,14 @@ def test_conflicting_specific_signals_raise_unsupported_format():
 
 def test_content_type_used_when_suffix_absent():
     registry = HarborParser()
-    parser = registry.parser_for(
-        ParseInput(content="a,b\n1,2", content_type="text/csv")
-    )
+    parser = registry.parser_for(ParseInput(content="a,b\n1,2", content_type="text/csv"))
     assert parser is not None and parser.name == "csv"
 
 
 def test_unknown_route_returns_none_from_parser_for():
     registry = HarborParser()
     assert (
-        registry.parser_for(
-            ParseInput(content=b"\x00", filename="x.zzz", content_type="x/y")
-        )
+        registry.parser_for(ParseInput(content=b"\x00", filename="x.zzz", content_type="x/y"))
         is None
     )
 

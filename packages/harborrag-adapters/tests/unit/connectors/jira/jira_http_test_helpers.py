@@ -1,4 +1,5 @@
 """Shared fake-session client builder for Jira HTTP client tests."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -209,7 +209,10 @@ def test_build_chat_request_exclusivity_and_model_override() -> None:
     assert built.messages[0].content == "hello"
     with pytest.raises(HarborChatInvalidRequestError):
         build_chat_request(
-            [HarborChatMessage.user("x")], request=request, model=None, request_kwargs={}
+            [HarborChatMessage.user("x")],
+            request=request,
+            model=None,
+            request_kwargs={},
         )
     with pytest.raises(HarborChatInvalidRequestError):
         build_chat_request(None, request=request, model=None, request_kwargs={"temperature": 1})
@@ -242,7 +245,11 @@ def test_defaults_request_identity_and_prepare_errors() -> None:
     assert prepared.metadata.request_id
     with pytest.raises(HarborChatConfigurationError):
         prepare_chat_request(
-            config, [HarborChatMessage.user("x")], request=None, model="missing", request_kwargs={}
+            config,
+            [HarborChatMessage.user("x")],
+            request=None,
+            model="missing",
+            request_kwargs={},
         )
 
 
@@ -264,9 +271,7 @@ def test_litellm_parameter_rendering_merges_headers_and_options() -> None:
         HarborChatMessage.assistant(None, tool_calls=(tool_call,)),
         HarborChatMessage(role=MessageRole.TOOL, content="result", tool_call_id="call"),
     )
-    tool = HarborChatTool(
-        function=HarborToolFunction(name="lookup", parameters={"type": "object"})
-    )
+    tool = HarborChatTool(function=HarborToolFunction(name="lookup", parameters={"type": "object"}))
     request = HarborChatRequest(
         messages=messages,
         logical_model="primary",
@@ -290,7 +295,9 @@ def test_litellm_parameter_rendering_merges_headers_and_options() -> None:
     assert params["frequency_penalty"] == 0.1
     with pytest.raises(HarborChatInvalidRequestError):
         build_litellm_parameters(
-            deployment(), request.model_copy(update={"extra_params": {"model": "bad"}}), timeout=1
+            deployment(),
+            request.model_copy(update={"extra_params": {"model": "bad"}}),
+            timeout=1,
         )
 
 
@@ -323,11 +330,13 @@ def test_chat_request_capability_and_security_validation() -> None:
         HarborChatRequest(messages=(HarborChatMessage.user("x"),), parallel_tool_calls=True),
         HarborChatRequest(messages=(HarborChatMessage(role=MessageRole.TOOL, content="x"),)),
         HarborChatRequest(
-            messages=(HarborChatMessage.user("x"),), response_format={"type": "json_object"}
+            messages=(HarborChatMessage.user("x"),),
+            response_format={"type": "json_object"},
         ),
         HarborChatRequest(messages=(HarborChatMessage.user("x"),), extra_params={"model": "bad"}),
         HarborChatRequest(
-            messages=(HarborChatMessage.user("x"),), custom_headers={"Authorization": "bad"}
+            messages=(HarborChatMessage.user("x"),),
+            custom_headers={"Authorization": "bad"},
         ),
     ]
     for request in requests:
@@ -337,9 +346,7 @@ def test_chat_request_capability_and_security_validation() -> None:
         messages=(
             HarborChatMessage(
                 role=MessageRole.USER,
-                content=(
-                    ImageURLContentPart(image_url={"url": "https://example.test/image.png"}),
-                ),
+                content=(ImageURLContentPart(image_url={"url": "https://example.test/image.png"}),),
             ),
         )
     )

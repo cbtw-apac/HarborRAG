@@ -30,17 +30,27 @@ class ChatClientResourcesMixin:
                 LifecycleResource(self._invocation.close, self._resource_ownership),
                 LifecycleResource(
                     self._execution.cache.backend.close,
-                    ResourceOwnership.OWNED
-                    if self._execution.owns_cache
-                    else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._execution.owns_cache
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 LifecycleResource(
                     self._telemetry.close,
-                    ResourceOwnership.OWNED if self._owns_telemetry else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_telemetry
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 LifecycleResource(
                     self._services.close,
-                    ResourceOwnership.OWNED if self._owns_services else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_services
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
             )
         )
@@ -55,17 +65,27 @@ class ChatClientResourcesMixin:
                 AsyncLifecycleResource(self._invocation.aclose, self._resource_ownership),
                 AsyncLifecycleResource(
                     self._execution.cache.backend.aclose,
-                    ResourceOwnership.OWNED
-                    if self._execution.owns_cache
-                    else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._execution.owns_cache
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 AsyncLifecycleResource(
                     self._telemetry.aclose,
-                    ResourceOwnership.OWNED if self._owns_telemetry else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_telemetry
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 AsyncLifecycleResource(
                     self._services.aclose,
-                    ResourceOwnership.OWNED if self._owns_services else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_services
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
             )
         )

@@ -98,7 +98,9 @@ class RoutedModelExecutor[D: DeploymentLike]:
             state = attempt.state
             try:
                 with self.runtime.selector.lease_sync(
-                    state, logical_model=attempt.logical_model, token_cost=estimated_tokens
+                    state,
+                    logical_model=attempt.logical_model,
+                    token_cost=estimated_tokens,
                 ):
                     raw = invoke(attempt.public)
                 latency = (time.perf_counter() - started) * 1_000
@@ -144,7 +146,9 @@ class RoutedModelExecutor[D: DeploymentLike]:
             state = attempt.state
             try:
                 async with self.runtime.selector.lease(
-                    state, logical_model=attempt.logical_model, token_cost=estimated_tokens
+                    state,
+                    logical_model=attempt.logical_model,
+                    token_cost=estimated_tokens,
                 ):
                     raw = await invoke(attempt.public)
                 latency = (time.perf_counter() - started) * 1_000

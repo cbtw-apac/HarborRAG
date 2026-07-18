@@ -187,9 +187,7 @@ class SharePointDriveAPI:
                     self._drive = drive
                     logger.debug("Resolved SharePoint drive %s", drive.get("id"))
                     return drive
-            raise FetchError(
-                f"SharePoint drive named {self.config.drive_name!r} was not found"
-            )
+            raise FetchError(f"SharePoint drive named {self.config.drive_name!r} was not found")
 
         drive = self.client.get_json(
             f"sites/{site_id}/drive",
@@ -215,10 +213,7 @@ class SharePointDriveAPI:
             if size > self.config.max_file_size_bytes:
                 logger.debug("Skipping oversized SharePoint file %s", name)
                 return False
-        if (
-            self.config.allowed_extensions
-            and extension not in self.config.allowed_extensions
-        ):
+        if self.config.allowed_extensions and extension not in self.config.allowed_extensions:
             logger.debug("Skipping SharePoint file outside allowed extensions %s", name)
             return False
         if extension in self.config.excluded_extensions:

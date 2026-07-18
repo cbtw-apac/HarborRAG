@@ -101,7 +101,10 @@ class LangfuseTelemetry:
                         if event.estimated_cost_usd is not None
                         else None
                     ),
-                    metadata={**_langfuse_metadata(event), "harbor_events": state.events},
+                    metadata={
+                        **_langfuse_metadata(event),
+                        "harbor_events": state.events,
+                    },
                 )
                 state.observation.end()
                 self._active.pop(event.request_id, None)
@@ -109,7 +112,10 @@ class LangfuseTelemetry:
                 state.observation.update(
                     level="ERROR",
                     status_message=(event.error or {}).get("message"),
-                    metadata={**_langfuse_metadata(event), "harbor_events": state.events},
+                    metadata={
+                        **_langfuse_metadata(event),
+                        "harbor_events": state.events,
+                    },
                 )
                 state.observation.end()
                 self._active.pop(event.request_id, None)

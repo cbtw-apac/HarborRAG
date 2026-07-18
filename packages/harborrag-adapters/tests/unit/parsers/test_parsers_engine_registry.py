@@ -61,18 +61,11 @@ def test_parser_package_smoke_imports_and_default_registry():
     assert parser.create("csv").name == "csv"
     assert parser.create("pdf").name == "pdf"
     assert parser.create("text").name == "text"
-    assert parser.parser_for(ParseInput(content="# Hi", filename="doc.md")).name == (
-        "markdown"
-    )
-    assert parser.parser_for(ParseInput(content=b"%PDF", filename="doc.pdf")).name == (
-        "pdf"
-    )
+    assert parser.parser_for(ParseInput(content="# Hi", filename="doc.md")).name == ("markdown")
+    assert parser.parser_for(ParseInput(content=b"%PDF", filename="doc.pdf")).name == ("pdf")
     assert get_parser_logger().name == PARSER_LOGGER_NAME
     assert get_parser_logger("Registry").name == ("harborrag.adapters.parsers.registry")
-    assert any(
-        isinstance(handler, logging.NullHandler)
-        for handler in get_parser_logger().handlers
-    )
+    assert any(isinstance(handler, logging.NullHandler) for handler in get_parser_logger().handlers)
 
 
 @pytest.mark.whitebox
@@ -160,17 +153,11 @@ def test_parser_registry_logs_route_and_result(caplog):
     )
 
     assert document.content == "hello"
-    started = next(
-        record for record in caplog.records if record.msg.startswith("Parsing")
-    )
-    finished = next(
-        record for record in caplog.records if record.msg.startswith("Parsed")
-    )
+    started = next(record for record in caplog.records if record.msg.startswith("Parsing"))
+    finished = next(record for record in caplog.records if record.msg.startswith("Parsed"))
     assert started.name == "harborrag.adapters.parsers.registry"
     assert started.getMessage() == "Parsing doc.fake with fake via suffix=.fake"
-    assert finished.getMessage() == (
-        "Parsed doc.fake with parser fake content_chars=5 elements=1"
-    )
+    assert finished.getMessage() == ("Parsed doc.fake with parser fake content_chars=5 elements=1")
 
 
 @pytest.mark.graybox

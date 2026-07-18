@@ -9,7 +9,12 @@ from pydantic import BaseModel
 
 from .config import RetryPolicyConfig
 from .model_config import logical_fallback_chain
-from .routing import DeploymentLike, DeploymentRuntime, DeploymentSelector, NoHealthyDeploymentError
+from .routing import (
+    DeploymentLike,
+    DeploymentRuntime,
+    DeploymentSelector,
+    NoHealthyDeploymentError,
+)
 from .routing_types import (
     RoutedAttempt,
     RoutedResult,
@@ -54,7 +59,11 @@ class RoutingExecutionCursor[D: DeploymentLike]:
     def counts(self) -> tuple[int, int, int]:
         """Return retry, deployment-failover, and model-fallback counters."""
 
-        return self.retry_count, self.deployment_failover_count, self.model_fallback_count
+        return (
+            self.retry_count,
+            self.deployment_failover_count,
+            self.model_fallback_count,
+        )
 
     @property
     def diagnostics(self) -> dict[str, int]:
@@ -126,9 +135,11 @@ class RoutingExecutionCursor[D: DeploymentLike]:
         kind = (
             RoutingTransitionType.MODEL_FALLBACK
             if self.model_fallback_count > before[2]
-            else RoutingTransitionType.DEPLOYMENT_FALLBACK
-            if self.deployment_failover_count > before[1]
-            else RoutingTransitionType.RETRY
+            else (
+                RoutingTransitionType.DEPLOYMENT_FALLBACK
+                if self.deployment_failover_count > before[1]
+                else RoutingTransitionType.RETRY
+            )
         )
         return RoutingTransition(
             kind,

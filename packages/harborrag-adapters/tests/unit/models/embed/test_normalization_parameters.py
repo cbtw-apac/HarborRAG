@@ -111,7 +111,15 @@ def test_normalize_embedding_batch_restores_indexes_and_metadata() -> None:
         ({}, 1),
         ({"data": []}, 1),
         ({"data": [{"index": -1, "embedding": [1, 2, 3]}]}, 1),
-        ({"data": [{"index": 0, "embedding": [1, 2, 3]}, {"index": 0, "embedding": [1, 2, 3]}]}, 2),
+        (
+            {
+                "data": [
+                    {"index": 0, "embedding": [1, 2, 3]},
+                    {"index": 0, "embedding": [1, 2, 3]},
+                ]
+            },
+            2,
+        ),
         ({"data": [{"embedding": []}]}, 1),
         ({"data": [{"embedding": [0, 0, 0]}]}, 1),
         ({"data": [{"embedding": [1, float("inf"), 3]}]}, 1),
@@ -291,7 +299,11 @@ def test_embedding_parameters_batch_limits_and_purpose_mapping() -> None:
     )
     cohere = deployment(provider=HarborEmbedProvider.COHERE, model="cohere/embed")
     params = build_litellm_parameters(
-        cohere, request, inputs=litellm_inputs(request), timeout=5, litellm_provider="cohere"
+        cohere,
+        request,
+        inputs=litellm_inputs(request),
+        timeout=5,
+        litellm_provider="cohere",
     )
     assert params["input_type"] == "search_query"
     assert params["extra_headers"] == {"X-Deploy": "one", "X-Request": "two"}

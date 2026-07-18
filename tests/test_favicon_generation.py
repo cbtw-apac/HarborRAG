@@ -118,20 +118,14 @@ class TestFaviconGenerationScript:
 
         try:
             # Copy the actual favicon script
-            actual_script = (
-                Path(original_cwd) / "website" / "assets" / "generate_favicons.py"
-            )
-            mock_script = (
-                mock_project_structure / "website" / "assets" / "generate_favicons.py"
-            )
+            actual_script = Path(original_cwd) / "website" / "assets" / "generate_favicons.py"
+            mock_script = mock_project_structure / "website" / "assets" / "generate_favicons.py"
 
             if actual_script.exists():
                 shutil.copy2(actual_script, mock_script)
 
                 # Create favicons directory
-                favicons_dir = (
-                    mock_project_structure / "website" / "assets" / "favicons"
-                )
+                favicons_dir = mock_project_structure / "website" / "assets" / "favicons"
                 favicons_dir.mkdir(exist_ok=True)
 
                 try:
@@ -162,9 +156,7 @@ class TestFaviconGenerationScript:
 
                     else:
                         # Failure is okay if dependencies are missing
-                        print(
-                            f"Favicon generation failed (expected in test): {result.stderr}"
-                        )
+                        print(f"Favicon generation failed (expected in test): {result.stderr}")
 
                 except subprocess.TimeoutExpired:
                     pytest.skip("Favicon generation timed out")
@@ -219,9 +211,7 @@ class TestFaviconGenerationEdgeCases:
         # Should have import error handling
         import_error_patterns = ["ImportError", "ModuleNotFoundError", "try:", "except"]
 
-        has_import_handling = any(
-            pattern in content for pattern in import_error_patterns
-        )
+        has_import_handling = any(pattern in content for pattern in import_error_patterns)
         assert has_import_handling, "Script should handle missing dependencies"
 
     def test_file_permission_considerations(self):

@@ -16,9 +16,7 @@ def test_config_requires_existing_file_or_folder(tmp_path: Path):
     with pytest.raises(ValueError, match="does not exist"):
         LocalFileConfig(source_path=tmp_path / "missing")
 
-    cfg = config(
-        tmp_path, allowed_extensions={"md", ".PY"}, excluded_extensions={"tmp"}
-    )
+    cfg = config(tmp_path, allowed_extensions={"md", ".PY"}, excluded_extensions={"tmp"})
 
     assert cfg.source_path == tmp_path.resolve()
     assert cfg.allowed_extensions == {".md", ".py"}

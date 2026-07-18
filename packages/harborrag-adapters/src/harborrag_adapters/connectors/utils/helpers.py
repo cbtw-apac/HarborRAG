@@ -51,11 +51,7 @@ def validate_http_tuning(
         or request_timeout_seconds <= 0
     ):
         raise ValueError("request_timeout_seconds must be a finite number greater than 0")
-    if (
-        isinstance(max_retries, bool)
-        or not isinstance(max_retries, int)
-        or max_retries < 0
-    ):
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
         raise ValueError("max_retries must be greater than or equal to 0")
     if (
         isinstance(backoff_factor, bool)
@@ -63,9 +59,7 @@ def validate_http_tuning(
         or not math.isfinite(backoff_factor)
         or backoff_factor < 0
     ):
-        raise ValueError(
-            "backoff_factor must be a finite number greater than or equal to 0"
-        )
+        raise ValueError("backoff_factor must be a finite number greater than or equal to 0")
 
 
 def extend_with_limit[T](
@@ -103,6 +97,4 @@ def enforce_collection_limit(
 ) -> None:
     """Raise when a nested collection would exceed its configured cap."""
     if limit is not None and count > limit:
-        raise DocumentProcessingError(
-            f"{label} count {count} exceeds {setting_name} {limit}"
-        )
+        raise DocumentProcessingError(f"{label} count {count} exceeds {setting_name} {limit}")

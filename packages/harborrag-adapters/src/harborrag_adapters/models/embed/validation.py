@@ -22,7 +22,11 @@ from harborrag_adapters.models.common.provider_validation import (
 )
 from harborrag_adapters.models.common.security import HeaderValue
 
-from .configs import HarborEmbedClientConfig, HarborEmbedModelConfig, HarborEmbedProviderConfig
+from .configs import (
+    HarborEmbedClientConfig,
+    HarborEmbedModelConfig,
+    HarborEmbedProviderConfig,
+)
 from .registry import EmbedProviderRegistry
 
 _EMBED_TYPED_EXTENSION_FIELDS = frozenset(
@@ -80,7 +84,8 @@ def validate_embed_request(
 
     if len(request.inputs) > config.max_inputs_per_request:
         raise _invalid(
-            request, f"request exceeds max_inputs_per_request={config.max_inputs_per_request}"
+            request,
+            f"request exceeds max_inputs_per_request={config.max_inputs_per_request}",
         )
     for item in request.inputs:
         if isinstance(item, str) and len(item) > config.max_characters_per_input:

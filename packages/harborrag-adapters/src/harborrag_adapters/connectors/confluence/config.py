@@ -50,9 +50,7 @@ class ConfluenceSpaceConfig:
     include_comments: bool = False
     include_attachments: bool = False
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
-    process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = (
-        None
-    )
+    process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
@@ -68,9 +66,7 @@ class ConfluenceSpaceConfig:
         """Normalize env-backed credentials and validate ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
-        self.space_key = validate_token(
-            str(self.space_key).strip(), field_name="space key"
-        )
+        self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
         self.token = self.token or os.getenv("CONFLUENCE_TOKEN")
         self.email = self.email or os.getenv("CONFLUENCE_EMAIL")
 
@@ -81,18 +77,13 @@ class ConfluenceSpaceConfig:
                 else ConfluenceDeploymentType.DATACENTER
             )
         elif isinstance(self.deployment_type, str):
-            self.deployment_type = ConfluenceDeploymentType(
-                self.deployment_type.lower()
-            )
+            self.deployment_type = ConfluenceDeploymentType(self.deployment_type.lower())
 
-        self.content_types = [
-            content_type.lower() for content_type in self.content_types
-        ]
+        self.content_types = [content_type.lower() for content_type in self.content_types]
         invalid = sorted(set(self.content_types) - _VALID_CONTENT_TYPES)
         if invalid:
             raise ValueError(
-                f"content_types must be one of {sorted(_VALID_CONTENT_TYPES)}, "
-                f"got {invalid}"
+                f"content_types must be one of {sorted(_VALID_CONTENT_TYPES)}, got {invalid}"
             )
 
         if self.deployment_type == ConfluenceDeploymentType.CLOUD and not self.email:

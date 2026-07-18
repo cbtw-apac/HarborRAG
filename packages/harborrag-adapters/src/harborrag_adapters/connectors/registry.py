@@ -44,18 +44,14 @@ class ConnectorRegistry:
         try:
             return self._providers[name]
         except KeyError as exc:
-            raise ConnectorNotFoundError(
-                f"Unsupported connector provider: {name}"
-            ) from exc
+            raise ConnectorNotFoundError(f"Unsupported connector provider: {name}") from exc
 
     def unregister(self, name: str) -> None:
         """Remove one canonical connector name or alias from the registry."""
         try:
             del self._providers[name]
         except KeyError as exc:
-            raise ConnectorNotFoundError(
-                f"Unsupported connector provider: {name}"
-            ) from exc
+            raise ConnectorNotFoundError(f"Unsupported connector provider: {name}") from exc
 
     def create(self, name: str, **kwargs: Any) -> BaseConnector:
         """Instantiate a registered connector by name."""

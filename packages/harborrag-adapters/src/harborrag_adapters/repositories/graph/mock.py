@@ -16,6 +16,4 @@ class MockGraphRepository(BaseGraphRepository):
 
     def upsert_graph_hints(self, hints: Sequence[GraphHint | dict[str, Any]]) -> None:
         for hint in hints:
-            self.edges.append(
-                hint.as_edge() if isinstance(hint, GraphHint) else dict(hint)
-            )
+            self.edges.append(hint.as_edge() if isinstance(hint, GraphHint) else dict(hint))

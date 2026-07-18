@@ -6,7 +6,12 @@ from .content import (
     InputAudioContentPart,
     TextContentPart,
 )
-from .enums import FinishReason, MessageRole, StreamEventType, StructuredOutputDegradation
+from .enums import (
+    FinishReason,
+    MessageRole,
+    StreamEventType,
+    StructuredOutputDegradation,
+)
 from .messages import HarborChatMessage
 from .requests import HarborChatRequest, HarborRAGMetadata, HarborTokenBudget
 from .responses import HarborChatResponse, HarborChatStreamChunk, HarborChatUsage

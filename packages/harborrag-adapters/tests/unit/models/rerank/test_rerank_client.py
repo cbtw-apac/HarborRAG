@@ -154,7 +154,8 @@ def test_timeout_is_retried_and_remains_typed_when_exhausted() -> None:
 
 def test_provider_error_is_normalized() -> None:
     client = HarborRerankingClient(
-        rerank_config(), invocation=FakeRerankInvocation([RuntimeError("provider failed")])
+        rerank_config(),
+        invocation=FakeRerankInvocation([RuntimeError("provider failed")]),
     )
 
     with pytest.raises(HarborRerankProviderError) as captured:

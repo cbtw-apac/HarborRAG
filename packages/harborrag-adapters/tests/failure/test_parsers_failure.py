@@ -5,6 +5,7 @@ documented :class:`ParseError` (or its :class:`UnsupportedFormatError` subclass)
 rather than leaking raw library exceptions such as ``BadZipFile``, ``KeyError``,
 ``csv.Error``, ``json.JSONDecodeError``, or ``RecursionError``.
 """
+
 from __future__ import annotations
 
 import csv
@@ -66,9 +67,7 @@ def test_corrupt_docx_does_not_leak_raw_badzipfile():
 
 def test_invalid_json_raises_parse_error():
     with pytest.raises(ParseError, match="Invalid JSON"):
-        JsonParser().parse(
-            ParseInput(content='{"unterminated": ', filename="bad.json")
-        )
+        JsonParser().parse(ParseInput(content='{"unterminated": ', filename="bad.json"))
 
 
 def test_deeply_nested_json_raises_parse_error():
@@ -78,9 +77,7 @@ def test_deeply_nested_json_raises_parse_error():
 
 def test_invalid_ndjson_line_raises_parse_error():
     with pytest.raises(ParseError):
-        JsonParser().parse(
-            ParseInput(content='{"ok": 1}\nnot-json-here', filename="bad.ndjson")
-        )
+        JsonParser().parse(ParseInput(content='{"ok": 1}\nnot-json-here', filename="bad.ndjson"))
 
 
 def test_csv_oversized_field_raises_parse_error():
@@ -91,9 +88,7 @@ def test_csv_oversized_field_raises_parse_error():
         csv.field_size_limit(16)
         oversized = "x" * 5000
         with pytest.raises(ParseError, match="Invalid CSV"):
-            CsvParser().parse(
-                ParseInput(content=f"col\n{oversized}", filename="big.csv")
-            )
+            CsvParser().parse(ParseInput(content=f"col\n{oversized}", filename="big.csv"))
     finally:
         csv.field_size_limit(original_limit)
 
@@ -109,9 +104,7 @@ def test_epub_missing_opf_member_raises_parse_error():
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(
-            "mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED
-        )
+        archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
         archive.writestr(
             "META-INF/container.xml",
             '<?xml version="1.0"?>'
@@ -133,9 +126,7 @@ def test_epub_parse_of_zip_bomb_raises_parse_error(zip_bomb_bytes):
 
 def test_corrupt_image_bytes_raise_parse_error():
     with pytest.raises(ParseError):
-        ImageParser().parse(
-            ParseInput(content=b"this is not a valid image", filename="broken.png")
-        )
+        ImageParser().parse(ParseInput(content=b"this is not a valid image", filename="broken.png"))
 
 
 def test_image_oversized_pixel_count_raises_parse_error_before_decoding():
@@ -149,9 +140,7 @@ def test_image_oversized_pixel_count_raises_parse_error_before_decoding():
     # max_pixels=50 rejects the 10x10=100 pixel image before OCR ever runs,
     # so this doesn't depend on a tesseract binary being installed.
     with pytest.raises(ParseError, match="max_pixels"):
-        ImageParser(max_pixels=50).parse(
-            ParseInput(content=buffer.getvalue(), filename="big.png")
-        )
+        ImageParser(max_pixels=50).parse(ParseInput(content=buffer.getvalue(), filename="big.png"))
 
 
 def test_unknown_suffix_and_content_type_raise_unsupported_format():

@@ -89,7 +89,9 @@ def test_rerank_sync_async_cache_middleware_and_capabilities() -> None:
 async def test_rerank_async_context_and_borrowed_invocation() -> None:
     invocation = FakeRerankInvocation([raw_rerank(1.0)])
     async with HarborRerankingClient(
-        rerank_config(), invocation=invocation, resource_ownership=ResourceOwnership.BORROWED
+        rerank_config(),
+        invocation=invocation,
+        resource_ownership=ResourceOwnership.BORROWED,
     ) as client:
         response = await client.arerank("q", ["a"])
         assert response.results[0].relevance_score == 1.0
@@ -116,7 +118,8 @@ def test_rerank_retry_deployment_and_model_fallback() -> None:
     invocation = FakeRerankInvocation([TimeoutError(), raw_rerank(1.0)])
     response = HarborRerankingClient(
         rerank_config(
-            deployments=(deployment("first"), deployment("second", order=1)), retry=retry
+            deployments=(deployment("first"), deployment("second", order=1)),
+            retry=retry,
         ),
         invocation=invocation,
     ).rerank("q", ["a"])

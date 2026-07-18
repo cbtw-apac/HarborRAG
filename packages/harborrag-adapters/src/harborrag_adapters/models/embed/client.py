@@ -4,7 +4,11 @@ from collections.abc import Sequence
 from typing import Any, Self
 
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
-from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse, RawEmbeddingInput
+from harborrag_core.models.embed import (
+    HarborEmbedRequest,
+    HarborEmbedResponse,
+    RawEmbeddingInput,
+)
 from harborrag_core.models.protocols import (
     AsyncHarborEmbedClientProtocol,
     HarborEmbedClientProtocol,
@@ -15,7 +19,10 @@ from harborrag_adapters.models.common.cache import ModelResponseCache
 from harborrag_adapters.models.common.client_lifecycle import ModelClientLifecycleMixin
 from harborrag_adapters.models.common.client_runtime import ModelClientRuntimeMixin
 from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.health import ActiveHealthMonitor, DeploymentHealthProbe
+from harborrag_adapters.models.common.health import (
+    ActiveHealthMonitor,
+    DeploymentHealthProbe,
+)
 from harborrag_adapters.models.common.introspection import ModelRuntimeIntrospector
 from harborrag_adapters.models.common.lifecycle import (
     AsyncLifecycleResource,
@@ -230,17 +237,27 @@ class HarborEmbedClient(
                 LifecycleResource(self._invocation.close, self._resource_ownership),
                 LifecycleResource(
                     self._execution.cache.backend.close,
-                    ResourceOwnership.OWNED
-                    if self._execution.owns_cache
-                    else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._execution.owns_cache
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 LifecycleResource(
                     self._telemetry.close,
-                    ResourceOwnership.OWNED if self._owns_telemetry else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_telemetry
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 LifecycleResource(
                     self._services.close,
-                    ResourceOwnership.OWNED if self._owns_services else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_services
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
             )
         )
@@ -255,17 +272,27 @@ class HarborEmbedClient(
                 AsyncLifecycleResource(self._invocation.aclose, self._resource_ownership),
                 AsyncLifecycleResource(
                     self._execution.cache.backend.aclose,
-                    ResourceOwnership.OWNED
-                    if self._execution.owns_cache
-                    else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._execution.owns_cache
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 AsyncLifecycleResource(
                     self._telemetry.aclose,
-                    ResourceOwnership.OWNED if self._owns_telemetry else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_telemetry
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
                 AsyncLifecycleResource(
                     self._services.aclose,
-                    ResourceOwnership.OWNED if self._owns_services else ResourceOwnership.BORROWED,
+                    (
+                        ResourceOwnership.OWNED
+                        if self._owns_services
+                        else ResourceOwnership.BORROWED
+                    ),
                 ),
             )
         )
