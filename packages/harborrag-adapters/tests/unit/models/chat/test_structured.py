@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 
 from .chat_client_support import FakeInvocation, response_dict
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 class TypedAnswer(BaseModel):
     answer: str

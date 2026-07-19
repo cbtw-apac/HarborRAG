@@ -28,6 +28,8 @@ from harborrag_adapters.models.common.sync import (
     run_awaitable_synchronously,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 @dataclass
 class Deployment:

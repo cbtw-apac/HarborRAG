@@ -13,6 +13,8 @@ from harborrag_core.models.errors import HarborChatInvalidRequestError
 
 from .chat_client_support import FakeInvocation, response_dict
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def weather_tool() -> HarborChatTool:
     return HarborChatTool(

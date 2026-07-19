@@ -46,7 +46,13 @@ class EmbeddingBatchAccumulator:
         return request_id
 
     def failure(self, error: HarborEmbedError, *, batch_index: int, completed: int) -> Exception:
-        """Discard partial vectors and return a stable partial-batch error."""
+        """Discard partial vectors and return a stable partial-batch error.
+
+        Retryable partial failures deliberately propagate retryability: the policy
+        layer retries the complete request from the first batch, trading the cost
+        of re-embedding completed batches for availability. Partial vectors are
+        never returned or resumed mid-request.
+        """
 
         if completed == 0:
             return error

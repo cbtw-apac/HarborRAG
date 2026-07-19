@@ -17,6 +17,8 @@ from harborrag_core.models.errors import (
 )
 from pydantic import ValidationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 class Invocation:
     def __init__(self, responses: list[Any]) -> None:
@@ -205,6 +207,48 @@ def test_cache_bypass_and_sensitive_default() -> None:
     )
 
     assert len(invocation.calls) == 3
+
+
+def test_singleflight_engages_only_for_cache_eligible_requests() -> None:
+    class SpyCoordinator:
+        def __init__(self) -> None:
+            self.keys: list[str] = []
+
+        def execute(self, key: str, producer: Any, follower_loader: Any) -> Any:
+            del follower_loader
+            self.keys.append(key)
+
+            class Result:
+                value = producer()
+                shared = False
+
+            return Result()
+
+        async def aexecute(self, key: str, producer: Any, follower_loader: Any) -> Any:
+            raise AssertionError("async path is not exercised")
+
+        def close(self) -> None: ...
+
+        async def aclose(self) -> None: ...
+
+    spy = SpyCoordinator()
+    invocation = Invocation([response("direct"), response("deduplicated")])
+    client = HarborChatClient(runtime_config(cache=True), invocation=invocation, singleflight=spy)
+
+    direct = client.chat(
+        [HarborChatMessage.user("hello")],
+        metadata={"request_id": "shared-id", "tenant_id": "tenant"},
+    )
+    eligible = client.chat(
+        [HarborChatMessage.user("hello")],
+        cacheable=True,
+        metadata={"request_id": "shared-id", "tenant_id": "tenant"},
+    )
+
+    assert direct.text == "direct"
+    assert eligible.text == "deduplicated"
+    assert len(spy.keys) == 1
+    assert "shared-id" not in spy.keys[0]
 
 
 def test_cache_ttl_and_tenant_isolation() -> None:

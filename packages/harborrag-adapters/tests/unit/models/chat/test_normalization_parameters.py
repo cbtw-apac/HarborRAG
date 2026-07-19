@@ -49,6 +49,8 @@ from harborrag_core.models.errors import (
 from model_runtime_support import chat_config
 from pydantic import BaseModel, SecretStr
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class Answer(BaseModel):
     """Represent a minimal structured response schema."""

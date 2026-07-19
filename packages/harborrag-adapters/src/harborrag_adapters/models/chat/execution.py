@@ -103,19 +103,22 @@ class ChatExecution:
         operation.cache(decision, hit=False)
         authorization = self.budget.authorize(request, logical_model=logical)
         try:
-            shared = self.singleflight.execute(
-                decision.key or f"chat:{chat_request_id(request)}",
-                lambda: self._produce(logical, request, decision, operation, authorization),
-                lambda: cast(HarborChatResponse | None, self.cache.get(decision)),
-            )
-            raw = (
-                cast(
-                    HarborChatResponse,
-                    self.cache.mark_shared(shared.value, request_id=chat_request_id(request)),
+            if decision.key is None:
+                raw = self._produce(logical, request, decision, operation, authorization)
+            else:
+                shared = self.singleflight.execute(
+                    decision.key,
+                    lambda: self._produce(logical, request, decision, operation, authorization),
+                    lambda: cast(HarborChatResponse | None, self.cache.get(decision)),
                 )
-                if shared.shared
-                else shared.value
-            )
+                raw = (
+                    cast(
+                        HarborChatResponse,
+                        self.cache.mark_shared(shared.value, request_id=chat_request_id(request)),
+                    )
+                    if shared.shared
+                    else shared.value
+                )
             response = cast(HarborChatResponse, self.middleware.after(raw, context))
             self.budget.settle(authorization, response)
         except Exception as exc:
@@ -156,19 +159,22 @@ class ChatExecution:
         await operation.acache(decision, hit=False)
         authorization = await self.budget.aauthorize(request, logical_model=logical)
         try:
-            shared = await self.singleflight.aexecute(
-                decision.key or f"chat:{chat_request_id(request)}",
-                lambda: self._aproduce(logical, request, decision, operation, authorization),
-                lambda: self._cached_chat(decision),
-            )
-            raw = (
-                cast(
-                    HarborChatResponse,
-                    self.cache.mark_shared(shared.value, request_id=chat_request_id(request)),
+            if decision.key is None:
+                raw = await self._aproduce(logical, request, decision, operation, authorization)
+            else:
+                shared = await self.singleflight.aexecute(
+                    decision.key,
+                    lambda: self._aproduce(logical, request, decision, operation, authorization),
+                    lambda: self._cached_chat(decision),
                 )
-                if shared.shared
-                else shared.value
-            )
+                raw = (
+                    cast(
+                        HarborChatResponse,
+                        self.cache.mark_shared(shared.value, request_id=chat_request_id(request)),
+                    )
+                    if shared.shared
+                    else shared.value
+                )
             response = cast(HarborChatResponse, await self.middleware.aafter(raw, context))
             await self.budget.asettle(authorization, response)
         except Exception as exc:

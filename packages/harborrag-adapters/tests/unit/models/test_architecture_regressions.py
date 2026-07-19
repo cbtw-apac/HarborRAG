@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass
@@ -20,11 +21,16 @@ from harborrag_adapters.models.common.config import (
     RoutingStrategy,
     TelemetryFailureMode,
 )
+from harborrag_adapters.models.common.health import deployment_state_key
 from harborrag_adapters.models.common.lifecycle import close_async_callbacks
 from harborrag_adapters.models.common.litellm_backend import litellm_routing_strategy
 from harborrag_adapters.models.common.routing import (
     DeploymentSelector,
     NoHealthyDeploymentError,
+)
+from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
+from harborrag_adapters.models.common.routing_state_memory import (
+    InMemoryRoutingStateStore,
 )
 from harborrag_adapters.models.common.security import PrivacyConfig, PrivacySanitizer
 from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
@@ -37,6 +43,8 @@ from harborrag_core.models.errors import (
     HarborChatProviderError,
     HarborChatTimeoutError,
 )
+
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_registry_detects_duplicates_and_reports_unknown_provider() -> None:
@@ -101,6 +109,72 @@ async def test_shared_routing_selection_health_and_leases() -> None:
         await latency.select("model", deployments, exclude={"a"})
     await latency.record_success(state_b, 4)
     assert (await latency.select("model", deployments)).config.name == "b"
+
+
+@dataclass(frozen=True)
+class RateLimitedDeployment:
+    name: str = "a"
+    enabled: bool = True
+    weight: float = 1.0
+    order: int = 0
+    max_parallel_requests: int | None = None
+    rpm: int | None = 1
+    tpm: int | None = None
+
+
+def test_admission_rejection_preserves_active_request_accounting() -> None:
+    deployment = RateLimitedDeployment()
+    selector = DeploymentSelector(
+        {"model": (deployment,)},
+        strategy=RoutingStrategy.ORDERED,
+        circuit_breaker=CircuitBreakerConfig(),
+        enable_health_tracking=True,
+    )
+    state = selector.select_sync("model", (deployment,))
+    with selector.lease_sync(state, logical_model="model"):
+        assert state.active_requests == 1
+        with pytest.raises(RoutingAdmissionError, match="rpm"):
+            with selector.lease_sync(state, logical_model="model"):
+                pass
+        assert state.active_requests == 1
+    assert state.active_requests == 0
+
+
+@pytest.mark.asyncio
+async def test_disabled_circuit_breaker_never_records_distributed_failures() -> None:
+    store = InMemoryRoutingStateStore()
+    deployments = (RoutingDeployment("a"),)
+    selector = DeploymentSelector(
+        {"model": deployments},
+        strategy=RoutingStrategy.ORDERED,
+        circuit_breaker=CircuitBreakerConfig(enabled=False, failure_threshold=1),
+        enable_health_tracking=True,
+        state_store=store,
+    )
+    state = await selector.select("model", deployments)
+    await selector.record_failure(state, retryable=True)
+    snapshot = store.snapshot(deployment_state_key("model", "a"))
+    assert snapshot.consecutive_failures == 0
+    assert snapshot.circuit_open_until == 0.0
+    assert (await selector.select("model", deployments)).config.name == "a"
+
+
+def test_async_concurrency_semaphores_are_bound_per_event_loop() -> None:
+    deployments = (RoutingDeployment("a", max_parallel_requests=1),)
+    selector = DeploymentSelector(
+        {"model": deployments},
+        strategy=RoutingStrategy.ORDERED,
+        circuit_breaker=CircuitBreakerConfig(),
+        enable_health_tracking=True,
+    )
+
+    async def use_once() -> None:
+        state = await selector.select("model", deployments)
+        async with selector.lease(state):
+            assert state.active_requests == 1
+
+    asyncio.run(use_once())
+    asyncio.run(use_once())
 
 
 @pytest.mark.asyncio

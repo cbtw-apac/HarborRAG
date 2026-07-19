@@ -81,6 +81,10 @@ class HarborEmbedClient(
     ) -> None:
         """Validate configuration and store injected embedding runtime boundaries."""
 
+        if config.routing.active_health.start_automatically and health_probe is None:
+            raise ValueError(
+                "routing.active_health.start_automatically requires an injected health probe"
+            )
         registry = provider_registry or EmbedProviderRegistry.default()
         validate_embed_configuration(config, registry)
         self.config = config

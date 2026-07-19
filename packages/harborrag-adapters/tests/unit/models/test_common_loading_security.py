@@ -23,6 +23,8 @@ from harborrag_adapters.models.common.transport import (
 )
 from pydantic import SecretStr
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class SecretResolver:
     def resolve(self, reference: SecretReference) -> str:

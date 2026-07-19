@@ -43,6 +43,8 @@ from harborrag_core.models.errors import (
 from model_runtime_support import embed_config
 from pydantic import SecretStr
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def deployment(**updates: Any) -> HarborEmbedProviderConfig:
     values: dict[str, Any] = {

@@ -18,6 +18,8 @@ from .chat_client_support import (
     stream_chunk,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 class BlockingAsyncStream:
     def __init__(self) -> None:

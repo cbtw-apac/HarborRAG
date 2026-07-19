@@ -12,6 +12,8 @@ from model_runtime_support import FakeChatInvocation, chat_config
 
 from .test_client_execution import raw_chat
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def requests(count: int) -> tuple[HarborChatRequest, ...]:
     return tuple(

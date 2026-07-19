@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from smoke.models import config
 
+pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
+
 
 def _set_provider(
     monkeypatch: pytest.MonkeyPatch,

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from harborrag_adapters.models.chat.streaming import ChatStreamNormalizer
 from harborrag_core.models.chat import StreamEventType
 from model_runtime_support import chat_config
+
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_stream_normalizes_reasoning_tools_usage_and_finish_metadata() -> None:

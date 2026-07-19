@@ -17,6 +17,8 @@ from harborrag_adapters.models.common.middleware import (
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from pydantic import BaseModel, Field
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class ValueModel(BaseModel):
     """Represent a small immutable-style response used by cache tests."""

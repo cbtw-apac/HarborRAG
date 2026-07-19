@@ -28,6 +28,8 @@ from harborrag_core.models.protocols import (
 
 from .chat_client_support import FakeInvocation, response_dict
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def test_sync_completion_normalizes_messages_and_response(base_config) -> None:
     invocation = FakeInvocation([response_dict("sync")])

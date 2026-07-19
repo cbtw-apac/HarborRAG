@@ -18,6 +18,8 @@ from harborrag_core.models.errors import (
 )
 from model_invocation_support import FakeEmbeddingInvocation, embedding_response
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def embed_config(
     *,

@@ -47,6 +47,8 @@ from harborrag_adapters.models.common.transport import (
 from model_runtime_support import chat_config
 from pydantic import SecretStr, ValidationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class Resolver:
     """Resolve test secret references predictably."""

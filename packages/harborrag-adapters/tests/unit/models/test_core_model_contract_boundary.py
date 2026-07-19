@@ -1,3 +1,4 @@
+import pytest
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.models.rerank import HarborRerankingClient
@@ -9,6 +10,8 @@ from harborrag_core.models.protocols import (
     HarborEmbedClientProtocol,
     HarborRerankingClientProtocol,
 )
+
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_adapter_clients_implement_core_protocols() -> None:

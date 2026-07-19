@@ -31,6 +31,8 @@ from harborrag_adapters.models.common.connections import SharedConnectionLifecyc
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.errors import HarborChatConfigurationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def deployment(
     provider: HarborProvider, *, model: str = "openai/model"

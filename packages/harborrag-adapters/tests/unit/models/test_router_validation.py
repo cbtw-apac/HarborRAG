@@ -17,6 +17,8 @@ from harborrag_core.models.errors import (
 )
 from model_runtime_support import chat_config, embed_config
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 @pytest.mark.parametrize(
     ("config", "validator", "error_type"),

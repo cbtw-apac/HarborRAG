@@ -105,7 +105,7 @@ def _singleflight(
     if settings.backend is SingleFlightBackend.DISABLED:
         return NoopSingleFlight()
     if settings.backend is SingleFlightBackend.MEMORY:
-        return InMemorySingleFlight()
+        return InMemorySingleFlight(follower_timeout_seconds=settings.follower_timeout_seconds)
     assert lifecycle is not None and config.redis is not None
     return RedisSingleFlight(
         lifecycle,

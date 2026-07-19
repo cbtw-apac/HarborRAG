@@ -17,6 +17,8 @@ from harborrag_core.models.rerank import HarborRerankDocument
 from model_invocation_support import FakeRerankInvocation, rerank_response
 from pydantic import ValidationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def rerank_config(
     *,

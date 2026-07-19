@@ -98,19 +98,24 @@ class RerankExecution:
         operation.cache(decision, hit=False)
         authorization = self.budget.authorize(request, logical_model=logical)
         try:
-            shared = self.singleflight.execute(
-                decision.key or f"rerank:{request.metadata.request_id}",
-                lambda: self._produce(logical, request, decision, operation, authorization),
-                lambda: cast(HarborRerankResponse | None, self.cache.get(decision)),
-            )
-            raw = (
-                cast(
-                    HarborRerankResponse,
-                    self.cache.mark_shared(shared.value, request_id=request.metadata.request_id),
+            if decision.key is None:
+                raw = self._produce(logical, request, decision, operation, authorization)
+            else:
+                shared = self.singleflight.execute(
+                    decision.key,
+                    lambda: self._produce(logical, request, decision, operation, authorization),
+                    lambda: cast(HarborRerankResponse | None, self.cache.get(decision)),
                 )
-                if shared.shared
-                else shared.value
-            )
+                raw = (
+                    cast(
+                        HarborRerankResponse,
+                        self.cache.mark_shared(
+                            shared.value, request_id=request.metadata.request_id
+                        ),
+                    )
+                    if shared.shared
+                    else shared.value
+                )
             response = cast(HarborRerankResponse, self.middleware.after(raw, context))
             self.budget.settle(authorization, response)
         except Exception as exc:
@@ -147,19 +152,24 @@ class RerankExecution:
         await operation.acache(decision, hit=False)
         authorization = await self.budget.aauthorize(request, logical_model=logical)
         try:
-            shared = await self.singleflight.aexecute(
-                decision.key or f"rerank:{request.metadata.request_id}",
-                lambda: self._aproduce(logical, request, decision, operation, authorization),
-                lambda: self._cached(decision),
-            )
-            raw = (
-                cast(
-                    HarborRerankResponse,
-                    self.cache.mark_shared(shared.value, request_id=request.metadata.request_id),
+            if decision.key is None:
+                raw = await self._aproduce(logical, request, decision, operation, authorization)
+            else:
+                shared = await self.singleflight.aexecute(
+                    decision.key,
+                    lambda: self._aproduce(logical, request, decision, operation, authorization),
+                    lambda: self._cached(decision),
                 )
-                if shared.shared
-                else shared.value
-            )
+                raw = (
+                    cast(
+                        HarborRerankResponse,
+                        self.cache.mark_shared(
+                            shared.value, request_id=request.metadata.request_id
+                        ),
+                    )
+                    if shared.shared
+                    else shared.value
+                )
             response = cast(HarborRerankResponse, await self.middleware.aafter(raw, context))
             await self.budget.asettle(authorization, response)
         except Exception as exc:

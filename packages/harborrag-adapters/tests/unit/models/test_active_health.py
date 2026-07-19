@@ -16,6 +16,8 @@ from harborrag_adapters.models.common.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def test_callable_health_probe_and_monitor_sync() -> None:
     config = SimpleNamespace(

@@ -17,6 +17,8 @@ from harborrag_adapters.models.common.secrets import (
 from harborrag_adapters.models.common.secrets.base import parse_secret_reference
 from harborrag_adapters.models.common.security import SecretReference
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class SyncRedis:
     def get(self, name: str) -> Any:

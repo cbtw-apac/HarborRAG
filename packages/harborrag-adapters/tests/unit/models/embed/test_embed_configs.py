@@ -10,6 +10,8 @@ from harborrag_adapters.models.embed.validation import validate_embed_configurat
 from harborrag_core.models.errors import HarborEmbedConfigurationError
 from pydantic import ValidationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def _document(provider: str, **deployment):
     return {

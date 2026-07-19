@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from harborrag_adapters.models.chat import LiteLLMChatInvocation
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class AsyncOnlyStream:
     def __init__(self) -> None:

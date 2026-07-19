@@ -14,6 +14,8 @@ from pydantic import ValidationError
 
 from .chat_client_support import FakeInvocation, response_dict
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def _with_multimodal_capability(base_config):
     logical = base_config.models["primary"]

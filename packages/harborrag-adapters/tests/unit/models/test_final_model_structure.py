@@ -3,6 +3,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 REPOSITORY = Path(__file__).resolve().parents[5]
 SOURCE_PACKAGES = {
     REPOSITORY / "packages/harborrag-adapters/src": "harborrag_adapters.models",

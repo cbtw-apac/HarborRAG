@@ -51,6 +51,8 @@ from model_runtime_support import (
     rerank_config,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 class SyncRedis:
     def get(self, name: str) -> Any:

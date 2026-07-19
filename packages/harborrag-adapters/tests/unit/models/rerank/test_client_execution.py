@@ -13,6 +13,8 @@ from harborrag_core.models.errors import HarborRerankProviderError
 from harborrag_core.models.rerank import HarborRerankRequest
 from model_runtime_support import FakeRerankInvocation, rerank_config
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def raw_rerank(*scores: float) -> dict[str, Any]:
     """Build one LiteLLM-style reranking response."""

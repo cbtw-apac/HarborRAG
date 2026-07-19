@@ -35,6 +35,16 @@ class SyncRedisClient(Protocol):
 
         ...
 
+    def zcount(self, name: str, min: Any, max: Any) -> Any:
+        """Count sorted-set members within a score range."""
+
+        ...
+
+    def zrem(self, name: str, *values: Any) -> Any:
+        """Remove sorted-set members."""
+
+        ...
+
     def close(self) -> Any:
         """Close the Redis client and owned pool."""
 
@@ -66,6 +76,16 @@ class AsyncRedisClient(Protocol):
 
     async def hgetall(self, name: str) -> Any:
         """Read one Redis hash asynchronously."""
+
+        ...
+
+    async def zcount(self, name: str, min: Any, max: Any) -> Any:
+        """Count sorted-set members within a score range asynchronously."""
+
+        ...
+
+    async def zrem(self, name: str, *values: Any) -> Any:
+        """Remove sorted-set members asynchronously."""
 
         ...
 

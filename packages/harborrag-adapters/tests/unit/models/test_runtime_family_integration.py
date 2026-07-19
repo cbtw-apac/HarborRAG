@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
@@ -11,6 +12,8 @@ from model_invocation_support import (
     embedding_response,
     rerank_response,
 )
+
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
 def test_embedding_deployment_failover_and_cache() -> None:

@@ -22,6 +22,8 @@ from harborrag_adapters.models.common.routing_state_memory import (
 from harborrag_adapters.models.common.routing_state_redis import RedisRoutingStateStore
 from pydantic import BaseModel
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class Payload(BaseModel):
     value: str
@@ -31,6 +33,7 @@ class SyncRedisFake:
     def __init__(self) -> None:
         self.values: dict[str, Any] = {}
         self.hashes: dict[str, dict[Any, Any]] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
         self.eval_results: list[Any] = []
         self.eval_calls: list[tuple[Any, ...]] = []
         self.closed = 0
@@ -53,6 +56,15 @@ class SyncRedisFake:
 
     def hgetall(self, name: str) -> Any:
         return self.hashes.get(name, {})
+
+    def zcount(self, name: str, minimum: Any, maximum: Any) -> int:
+        low = float("-inf") if minimum == "-inf" else float(minimum)
+        high = float("inf") if maximum == "+inf" else float(maximum)
+        return sum(1 for score in self.zsets.get(name, {}).values() if low <= score <= high)
+
+    def zrem(self, name: str, *members: str) -> int:
+        entries = self.zsets.get(name, {})
+        return sum(entries.pop(member, None) is not None for member in members)
 
     def close(self) -> None:
         self.closed += 1
@@ -77,6 +89,12 @@ class AsyncRedisFake:
 
     async def hgetall(self, name: str) -> Any:
         return self.sync.hgetall(name)
+
+    async def zcount(self, name: str, minimum: Any, maximum: Any) -> int:
+        return self.sync.zcount(name, minimum, maximum)
+
+    async def zrem(self, name: str, *members: str) -> int:
+        return self.sync.zrem(name, *members)
 
     async def aclose(self) -> None:
         self.closed += 1
@@ -247,12 +265,16 @@ def test_redis_routing_state_all_operations() -> None:
     store = RedisRoutingStateStore(connections, key_prefix="harbor", clock=lambda: 12.0)
     state_key = "harbor:route:primary:a:state"
     sync.hashes[state_key] = {
-        b"active": b"2",
         b"failures": b"3",
         b"open_until": b"20",
         b"latency_ms": b"9.5",
         b"active_healthy": b"0",
         b"active_checked_at": b"10",
+    }
+    sync.zsets["harbor:route:primary:a:active"] = {
+        "live-1": 30.0,
+        "live-2": 45.0,
+        "expired": 5.0,
     }
     snapshot = store.snapshot("primary:a")
     assert snapshot.active_requests == 2

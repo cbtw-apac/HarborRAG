@@ -34,7 +34,7 @@ def main() -> int:
     except SmokeNotConfigured as exc:
         print(f"[models/chat] not configured: {safe_error(exc)}")
         return 2
-    except Exception as exc:  # noqa: BLE001 - smoke runner must return a stable exit code
+    except Exception as exc:  # noqa: BLE001
         print(f"[models/chat] failed: {safe_error(exc)}")
         return 1
     return 0

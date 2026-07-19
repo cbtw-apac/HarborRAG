@@ -15,6 +15,8 @@ from harborrag_core.models.errors import (
 )
 from harborrag_core.models.rerank import HarborRerankDocument, HarborRerankRequest
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def _config(
     *, capabilities: dict[str, Any] | None = None, **updates: Any

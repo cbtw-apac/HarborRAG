@@ -6,6 +6,8 @@ from harborrag_adapters.models.chat.parameters import build_litellm_parameters
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.models.errors import HarborChatInvalidRequestError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def test_azure_parameters_include_provider_transport_fields() -> None:
     config = HarborChatClientConfig.from_dict(

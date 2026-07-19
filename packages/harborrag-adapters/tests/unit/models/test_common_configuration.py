@@ -28,6 +28,8 @@ from harborrag_core.models.context import ModelOperationContext
 from harborrag_core.models.errors import HarborChatConfigurationError
 from pydantic import ValidationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def chat_document(**deployment: object) -> dict[str, object]:
     return {

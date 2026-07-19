@@ -20,6 +20,8 @@ from harborrag_adapters.models.common.telemetry_adapters import (
     StructuredLoggingTelemetry,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class RecordingSink:
     """Record callback bridge events."""

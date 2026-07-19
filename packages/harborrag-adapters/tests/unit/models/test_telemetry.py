@@ -40,6 +40,8 @@ from telemetry_support import (
     telemetry_dispatcher as _dispatcher,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def test_request_lifecycle_captures_identity_usage_and_safe_defaults() -> None:
     sink = RecordingTelemetry()

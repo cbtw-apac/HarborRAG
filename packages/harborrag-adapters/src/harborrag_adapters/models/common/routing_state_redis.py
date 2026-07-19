@@ -28,15 +28,20 @@ class RedisRoutingStateStore:
         self._clock = clock
 
     def snapshot(self, deployment_key: str) -> RoutingStateSnapshot:
-        """Read a deployment hash from Redis."""
+        """Read a deployment hash and its unexpired lease count from Redis."""
 
-        return _snapshot(self._connections.sync().hgetall(self._state_key(deployment_key)))
+        client = self._connections.sync()
+        state = client.hgetall(self._state_key(deployment_key))
+        active = client.zcount(self._active_key(deployment_key), self._clock(), "+inf")
+        return _snapshot(state, active)
 
     async def asnapshot(self, deployment_key: str) -> RoutingStateSnapshot:
-        """Read a deployment hash asynchronously."""
+        """Read a deployment hash and its unexpired lease count asynchronously."""
 
-        value = await self._connections.async_client().hgetall(self._state_key(deployment_key))
-        return _snapshot(value)
+        client = self._connections.async_client()
+        state = await client.hgetall(self._state_key(deployment_key))
+        active = await client.zcount(self._active_key(deployment_key), self._clock(), "+inf")
+        return _snapshot(state, active)
 
     def acquire(
         self,
@@ -56,13 +61,14 @@ class RedisRoutingStateStore:
             3,
             self._state_key(deployment_key),
             self._rate_key(deployment_key),
-            self._lease_key(lease),
+            self._active_key(deployment_key),
             self._clock(),
             max_parallel or 0,
             rpm or 0,
             tpm or 0,
             max(0, token_cost),
             lease_seconds,
+            lease.lease_id,
         )
         _require_admission(result)
         return lease
@@ -85,13 +91,14 @@ class RedisRoutingStateStore:
             3,
             self._state_key(deployment_key),
             self._rate_key(deployment_key),
-            self._lease_key(lease),
+            self._active_key(deployment_key),
             self._clock(),
             max_parallel or 0,
             rpm or 0,
             tpm or 0,
             max(0, token_cost),
             lease_seconds,
+            lease.lease_id,
         )
         _require_admission(result)
         return lease
@@ -99,21 +106,13 @@ class RedisRoutingStateStore:
     def release(self, lease: RoutingLease) -> None:
         """Release a Redis lease idempotently."""
 
-        self._connections.sync().eval(
-            _RELEASE_SCRIPT,
-            2,
-            self._state_key(lease.deployment_key),
-            self._lease_key(lease),
-        )
+        self._connections.sync().zrem(self._active_key(lease.deployment_key), lease.lease_id)
 
     async def arelease(self, lease: RoutingLease) -> None:
         """Release a Redis lease asynchronously."""
 
-        await self._connections.async_client().eval(
-            _RELEASE_SCRIPT,
-            2,
-            self._state_key(lease.deployment_key),
-            self._lease_key(lease),
+        await self._connections.async_client().zrem(
+            self._active_key(lease.deployment_key), lease.lease_id
         )
 
     def record_success(self, deployment_key: str, latency_ms: float) -> None:
@@ -216,10 +215,13 @@ class RedisRoutingStateStore:
     def _rate_key(self, deployment_key: str) -> str:
         return f"{self._prefix}:route:{deployment_key}:rate"
 
-    def _lease_key(self, lease: RoutingLease) -> str:
-        return f"{self._prefix}:route:{lease.deployment_key}:lease:{lease.lease_id}"
+    def _active_key(self, deployment_key: str) -> str:
+        return f"{self._prefix}:route:{deployment_key}:active"
 
 
+# Active leases live in a sorted set scored by their expiry time. Expired members
+# are pruned on every admission and excluded from every read, so a crashed client
+# or a request that outlives its lease can never permanently consume a slot.
 _ADMISSION_SCRIPT = """
 local now = tonumber(ARGV[1])
 local max_parallel = tonumber(ARGV[2])
@@ -227,9 +229,11 @@ local rpm = tonumber(ARGV[3])
 local tpm = tonumber(ARGV[4])
 local tokens = tonumber(ARGV[5])
 local lease_seconds = tonumber(ARGV[6])
+local lease_id = ARGV[7]
 local open_until = tonumber(redis.call('HGET', KEYS[1], 'open_until') or '0')
 if open_until > now then return {0, 'circuit_open'} end
-local active = tonumber(redis.call('HGET', KEYS[1], 'active') or '0')
+redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', now)
+local active = redis.call('ZCARD', KEYS[3])
 if max_parallel > 0 and active >= max_parallel then return {0, 'concurrency'} end
 local minute = math.floor(now / 60)
 local rate_minute = tonumber(redis.call('HGET', KEYS[2], 'minute') or '-1')
@@ -241,16 +245,9 @@ if tpm > 0 and used_tokens + tokens > tpm then return {0, 'tpm'} end
 redis.call('HSET', KEYS[2], 'minute', minute, 'requests', requests + 1,
   'tokens', used_tokens + tokens)
 redis.call('EXPIRE', KEYS[2], 120)
-redis.call('HINCRBY', KEYS[1], 'active', 1)
-redis.call('SET', KEYS[3], '1', 'EX', lease_seconds)
+redis.call('ZADD', KEYS[3], now + lease_seconds, lease_id)
+redis.call('EXPIRE', KEYS[3], lease_seconds)
 return {1, 'ok'}
-"""
-_RELEASE_SCRIPT = """
-if redis.call('DEL', KEYS[2]) == 1 then
-  local active = tonumber(redis.call('HGET', KEYS[1], 'active') or '0')
-  if active > 0 then redis.call('HINCRBY', KEYS[1], 'active', -1) end
-end
-return 1
 """
 _SUCCESS_SCRIPT = """
 redis.call('HSET', KEYS[1], 'failures', 0, 'open_until', 0, 'latency_ms', ARGV[1])
@@ -270,7 +267,7 @@ return 1
 """
 
 
-def _snapshot(value: object) -> RoutingStateSnapshot:
+def _snapshot(value: object, active: object) -> RoutingStateSnapshot:
     raw = value if isinstance(value, dict) else {}
     normalized = {
         str(key.decode() if isinstance(key, bytes) else key): (
@@ -280,7 +277,7 @@ def _snapshot(value: object) -> RoutingStateSnapshot:
     }
     healthy = normalized.get("active_healthy")
     return RoutingStateSnapshot(
-        active_requests=int(normalized.get("active", 0)),
+        active_requests=int(active) if isinstance(active, (int, float, str)) else 0,
         consecutive_failures=int(normalized.get("failures", 0)),
         circuit_open_until=float(normalized.get("open_until", 0)),
         last_latency_ms=_optional_float(normalized.get("latency_ms")),

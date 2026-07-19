@@ -26,6 +26,8 @@ from harborrag_core.models.errors import (
 from model_runtime_support import FakeChatInvocation, chat_config
 from pydantic import BaseModel
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 class Answer(BaseModel):
     """Represent a structured answer returned by client tests."""

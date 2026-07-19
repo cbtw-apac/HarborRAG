@@ -96,13 +96,13 @@ class NoopSingleFlight:
 class InMemorySingleFlight:
     """Share one in-process result among concurrent callers of the same key."""
 
-    def __init__(self) -> None:
-        """Create independent synchronous and asynchronous in-flight maps."""
+    def __init__(self, *, follower_timeout_seconds: float | None = None) -> None:
+        """Create in-flight maps and an optional bound on follower waiting."""
 
         self._sync: dict[str, Future[BaseModel]] = {}
-        self._async: dict[str, asyncio.Future[BaseModel]] = {}
+        self._async: dict[tuple[int, str], asyncio.Future[BaseModel]] = {}
         self._lock = RLock()
-        self._async_lock = asyncio.Lock()
+        self._timeout = follower_timeout_seconds
 
     def execute[T: BaseModel](
         self,
@@ -120,7 +120,12 @@ class InMemorySingleFlight:
                 future = Future()
                 self._sync[key] = future
         if not leader:
-            value = copy.deepcopy(future.result())
+            try:
+                value = copy.deepcopy(future.result(self._timeout))
+            except TimeoutError as exc:
+                raise SingleFlightTimeoutError(
+                    "in-memory single-flight follower timed out"
+                ) from exc
             return SingleFlightResult(value, True)  # type: ignore[arg-type]
         try:
             value = producer()
@@ -142,14 +147,21 @@ class InMemorySingleFlight:
         """Run the first async producer and share its defensive result copy."""
 
         del follower_loader
-        async with self._async_lock:
-            future = self._async.get(key)
+        loop = asyncio.get_running_loop()
+        loop_key = (id(loop), key)
+        with self._lock:
+            future = self._async.get(loop_key)
             leader = future is None
             if future is None:
-                future = asyncio.get_running_loop().create_future()
-                self._async[key] = future
+                future = loop.create_future()
+                self._async[loop_key] = future
         if not leader:
-            value = copy.deepcopy(await asyncio.shield(future))
+            try:
+                value = copy.deepcopy(await asyncio.wait_for(asyncio.shield(future), self._timeout))
+            except TimeoutError as exc:
+                raise SingleFlightTimeoutError(
+                    "in-memory single-flight follower timed out"
+                ) from exc
             return SingleFlightResult(value, True)  # type: ignore[arg-type]
         try:
             value = await producer()
@@ -159,25 +171,24 @@ class InMemorySingleFlight:
             future.set_exception(exc)
             raise
         finally:
-            async with self._async_lock:
-                self._async.pop(key, None)
+            with self._lock:
+                self._async.pop(loop_key, None)
 
     def close(self) -> None:
-        """Cancel unfinished synchronous followers."""
+        """Cancel unfinished followers and clear all in-flight maps."""
 
         with self._lock:
             for future in self._sync.values():
                 future.cancel()
             self._sync.clear()
+            for async_future in self._async.values():
+                async_future.cancel()
+            self._async.clear()
 
     async def aclose(self) -> None:
-        """Cancel unfinished asynchronous followers and clear all maps."""
+        """Cancel unfinished followers through the asynchronous boundary."""
 
         self.close()
-        async with self._async_lock:
-            for future in self._async.values():
-                future.cancel()
-            self._async.clear()
 
 
 class RedisSingleFlight:

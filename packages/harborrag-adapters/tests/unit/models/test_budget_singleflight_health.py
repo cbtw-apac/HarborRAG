@@ -27,6 +27,8 @@ from harborrag_adapters.models.common.singleflight import (
 )
 from pydantic import BaseModel, Field
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class Metadata(BaseModel):
     tenant_id: str | None = None
@@ -183,16 +185,20 @@ def test_budget_settlement_and_window_reset() -> None:
     )
     policy = InMemoryBudgetPolicy(config, clock=lambda: now[0])
     auth = policy.authorize(Request(token_budget=1), logical_model="m")
+    assert auth.scope == "__unscoped__:m"
     policy.settle(auth, Response(value="ok", estimated_cost_usd=None))
     policy.settle(auth, Response(value="ok", estimated_cost_usd=0.4))
-    with pytest.raises(BudgetExceededError, match="daily"):
-        policy.settle(auth, Response(value="ok", estimated_cost_usd=0.2))
-    now[0] += 86_400
-    policy.settle(auth, Response(value="ok", estimated_cost_usd=0.3))
-    with pytest.raises(BudgetExceededError, match="monthly"):
-        policy.settle(auth, Response(value="ok", estimated_cost_usd=0.1))
+    policy.settle(auth, Response(value="ok", estimated_cost_usd=0.2))
+    assert policy.snapshot("__unscoped__:m")["day_cost_usd"] == pytest.approx(0.6)
     now[0] += 60
-    assert policy.authorize(Request(token_budget=1), logical_model="m").scope == "__unscoped__:m"
+    with pytest.raises(BudgetExceededError, match="daily"):
+        policy.authorize(Request(token_budget=1), logical_model="m")
+    now[0] += 86_400
+    auth = policy.authorize(Request(token_budget=1), logical_model="m")
+    policy.settle(auth, Response(value="ok", estimated_cost_usd=0.3))
+    now[0] += 60
+    with pytest.raises(BudgetExceededError, match="monthly"):
+        policy.authorize(Request(token_budget=1), logical_model="m")
 
 
 @pytest.mark.asyncio

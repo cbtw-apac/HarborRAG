@@ -253,9 +253,14 @@ def deterministic_cache_key(
     request: BaseModel,
     namespace: str = "harborrag:model",
 ) -> str:
-    """Hash canonical request semantics with an explicit tenant partition."""
+    """Hash canonical request semantics with an explicit tenant partition.
 
-    payload = request.model_dump(mode="python", exclude={"metadata": {"request_id", "trace_id"}})
+    Correlation metadata is excluded entirely: tenant isolation is provided by the
+    explicit ``tenant_id`` component, and hashing per-call fields such as request,
+    trace, user, or workflow identifiers would needlessly partition the cache.
+    """
+
+    payload = request.model_dump(mode="python", exclude={"metadata"})
     canonical = _canonicalize(
         {
             "namespace": namespace,

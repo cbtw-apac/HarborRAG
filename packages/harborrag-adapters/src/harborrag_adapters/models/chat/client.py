@@ -89,6 +89,10 @@ class HarborChatClient(
             raise ValueError("backend and invocation are mutually exclusive")
         if connections is not None and (backend is not None or invocation is not None):
             raise ValueError("connections cannot be combined with an injected backend")
+        if config.routing.active_health.start_automatically and health_probe is None:
+            raise ValueError(
+                "routing.active_health.start_automatically requires an injected health probe"
+            )
         registry = provider_registry or ProviderRegistry.default()
         validate_chat_configuration(config, registry)
         self.config = config
@@ -297,7 +301,7 @@ class HarborChatClient(
         """Yield normalized synchronous stream events with pre-event failover."""
 
         logical, prepared, alias = self._prepare(messages, request, model, kwargs)
-        yield from self._stream_execution.stream(logical, prepared, model_alias=alias)
+        return self._stream_execution.stream(logical, prepared, model_alias=alias)
 
     def astream(
         self,

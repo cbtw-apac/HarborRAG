@@ -75,6 +75,10 @@ class HarborRerankingClient(
     ) -> None:
         """Validate configuration and store injected reranking runtime boundaries."""
 
+        if config.routing.active_health.start_automatically and health_probe is None:
+            raise ValueError(
+                "routing.active_health.start_automatically requires an injected health probe"
+            )
         registry = provider_registry or RerankProviderRegistry.default()
         validate_rerank_configuration(config, registry)
         self.config = config

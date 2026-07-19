@@ -7,6 +7,8 @@ from harborrag_core.models.chat import HarborChatMessage
 
 from .chat_client_support import FakeInvocation, response_dict
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def test_owned_sync_lifecycle_is_idempotent(base_config) -> None:
     invocation = FakeInvocation()

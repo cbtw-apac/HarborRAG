@@ -94,7 +94,6 @@ class RoutedModelExecutor[D: DeploymentLike]:
         cursor = self.runtime.cursor(logical_model)
         last_error: HarborModelError | None = None
         while attempt := cursor.next_attempt_sync(self.runtime.selector):
-            started = time.perf_counter()
             state = attempt.state
             try:
                 with self.runtime.selector.lease_sync(
@@ -102,18 +101,20 @@ class RoutedModelExecutor[D: DeploymentLike]:
                     logical_model=attempt.logical_model,
                     token_cost=estimated_tokens,
                 ):
+                    started = time.perf_counter()
                     raw = invoke(attempt.public)
-                latency = (time.perf_counter() - started) * 1_000
+                    latency = (time.perf_counter() - started) * 1_000
                 self.runtime.selector.record_success_sync(state, latency)
                 value = normalize(raw, attempt.logical_model, state.config, latency)
                 return cursor.result(value, attempt.public)
             except Exception as exc:
-                error = _normalize_execution_error(
+                error = normalize_execution_error(
                     exc, attempt.logical_model, state.config, normalize_error
                 )
                 last_error = error
                 retryable = bool(error.retryable)
-                self.runtime.selector.record_failure_sync(state, retryable=retryable)
+                if not isinstance(exc, RoutingAdmissionError):
+                    self.runtime.selector.record_failure_sync(state, retryable=retryable)
                 before = cursor.counts
                 if not cursor.failed(
                     retryable=retryable,
@@ -142,7 +143,6 @@ class RoutedModelExecutor[D: DeploymentLike]:
         cursor = self.runtime.cursor(logical_model)
         last_error: HarborModelError | None = None
         while attempt := await cursor.next_attempt(self.runtime.selector):
-            started = time.perf_counter()
             state = attempt.state
             try:
                 async with self.runtime.selector.lease(
@@ -150,18 +150,20 @@ class RoutedModelExecutor[D: DeploymentLike]:
                     logical_model=attempt.logical_model,
                     token_cost=estimated_tokens,
                 ):
+                    started = time.perf_counter()
                     raw = await invoke(attempt.public)
-                latency = (time.perf_counter() - started) * 1_000
+                    latency = (time.perf_counter() - started) * 1_000
                 await self.runtime.selector.record_success(state, latency)
                 value = normalize(raw, attempt.logical_model, state.config, latency)
                 return cursor.result(value, attempt.public)
             except Exception as exc:
-                error = _normalize_execution_error(
+                error = normalize_execution_error(
                     exc, attempt.logical_model, state.config, normalize_error
                 )
                 last_error = error
                 retryable = bool(error.retryable)
-                await self.runtime.selector.record_failure(state, retryable=retryable)
+                if not isinstance(exc, RoutingAdmissionError):
+                    await self.runtime.selector.record_failure(state, retryable=retryable)
                 before = cursor.counts
                 if not cursor.failed(
                     retryable=retryable,
@@ -174,7 +176,7 @@ class RoutedModelExecutor[D: DeploymentLike]:
         raise routing_unavailable_error(logical_model, cursor, last_error)
 
 
-def _normalize_execution_error[D: DeploymentLike](
+def normalize_execution_error[D: DeploymentLike](
     exc: Exception,
     logical_model: str,
     deployment: D,

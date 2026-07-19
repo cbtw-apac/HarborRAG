@@ -25,6 +25,8 @@ from harborrag_core.models.errors import (
     HarborEmbedInvalidRequestError,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def _config(
     provider: str = "openai",

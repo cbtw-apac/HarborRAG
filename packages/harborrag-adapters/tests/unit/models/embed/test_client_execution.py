@@ -13,6 +13,8 @@ from harborrag_core.models.embed import HarborEmbedRequest
 from harborrag_core.models.errors import HarborEmbedProviderError
 from model_runtime_support import FakeEmbeddingInvocation, embed_config
 
+pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
 
 def raw_batch(*vectors: list[float]) -> dict[str, Any]:
     """Build one LiteLLM-style embedding response batch."""

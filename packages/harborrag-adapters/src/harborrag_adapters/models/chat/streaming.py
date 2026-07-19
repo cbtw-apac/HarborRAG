@@ -10,7 +10,7 @@ from harborrag_core.models.chat import (
     HarborChatUsage,
     StreamEventType,
 )
-from harborrag_core.models.errors import HarborChatError, HarborChatProviderError
+from harborrag_core.models.errors import HarborChatProviderError, HarborModelError
 
 from harborrag_adapters.models.common.responses import (
     coerce_sdk_mapping as coerce_mapping,
@@ -121,7 +121,7 @@ class ChatStreamNormalizer:
             metadata=metadata,
         )
 
-    def error(self, error: HarborChatError) -> HarborChatStreamChunk:
+    def error(self, error: HarborModelError) -> HarborChatStreamChunk:
         """Create a sanitized error event before the typed exception is raised."""
 
         return self._event(

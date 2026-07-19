@@ -25,6 +25,8 @@ from harborrag_adapters.models.embed.invocation import (
 )
 from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class Router:
     """Expose injectable model-family methods and lifecycle counters."""

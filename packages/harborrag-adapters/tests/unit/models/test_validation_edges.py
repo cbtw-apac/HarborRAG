@@ -34,6 +34,8 @@ from harborrag_core.models.errors import (
 )
 from pydantic import BaseModel
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class StructuredResult(BaseModel):
     """Provide a response schema for capability validation."""

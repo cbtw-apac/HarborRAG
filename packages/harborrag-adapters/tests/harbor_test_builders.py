@@ -86,14 +86,6 @@ def build_epub_bytes(sections: list[str] | None = None) -> bytes:
     return buffer.getvalue()
 
 
-def build_png_bytes(size: tuple[int, int] = (8, 8)) -> bytes:
-    from PIL import Image
-
-    buffer = io.BytesIO()
-    Image.new("RGB", size, (255, 255, 255)).save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
 def build_zip_bomb_bytes(member_size: int = 50 * 1024 * 1024, members: int = 4) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:

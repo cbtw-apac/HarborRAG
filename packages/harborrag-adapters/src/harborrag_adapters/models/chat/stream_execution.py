@@ -6,13 +6,14 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any, cast
 
 from harborrag_core.models.chat import HarborChatRequest, HarborChatStreamChunk
-from harborrag_core.models.errors import HarborChatError
+from harborrag_core.models.errors import HarborChatError, HarborModelError
 
 from harborrag_adapters.models.common.budget import ModelBudgetPolicy
 from harborrag_adapters.models.common.cache import CacheDecision
 from harborrag_adapters.models.common.config import RoutingEngine
 from harborrag_adapters.models.common.execution import (
     RoutingRuntime,
+    normalize_execution_error,
     routing_unavailable_error,
 )
 from harborrag_adapters.models.common.litellm_router import router_model_name
@@ -20,6 +21,7 @@ from harborrag_adapters.models.common.middleware import (
     MiddlewarePipeline,
     middleware_context,
 )
+from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
 from harborrag_adapters.models.common.telemetry import (
     TelemetryDispatcher,
     TelemetryDispatchError,
@@ -81,20 +83,20 @@ class ChatStreamExecution:
         operation.cache(CacheDecision(None, "streaming"), hit=False)
         authorization = self.budget.authorize(request, logical_model=logical)
         cursor = self.runtime.cursor(logical)
-        last_error: HarborChatError | None = None
+        last_error: HarborModelError | None = None
         while attempt := cursor.next_attempt_sync(self.runtime.selector):
             state = attempt.state
             routed = request.model_copy(update={"logical_model": attempt.logical_model})
             normalizer = self._normalizer(attempt.logical_model, state.config, routed)
             raw_stream: Any = None
             emitted = False
-            started = time.perf_counter()
             try:
                 with self.runtime.selector.lease_sync(
                     state,
                     logical_model=attempt.logical_model,
                     token_cost=authorization.estimated_tokens,
                 ):
+                    started = time.perf_counter()
                     raw_stream = self.invocation.stream(
                         **self._parameters(attempt.logical_model, state.config, routed)
                     )
@@ -121,10 +123,11 @@ class ChatStreamExecution:
                 operation.error(cancellation, streaming=True)
                 raise
             except Exception as exc:
-                error = self._error(exc, attempt.logical_model, state.config, routed)
+                error = self._routed_error(exc, attempt.logical_model, state.config, routed)
                 last_error = error
                 retryable = bool(error.retryable)
-                self.runtime.selector.record_failure_sync(state, retryable=retryable)
+                if not isinstance(exc, RoutingAdmissionError):
+                    self.runtime.selector.record_failure_sync(state, retryable=retryable)
                 if emitted:
                     self.middleware.error(error, context)
                     operation.error(error, streaming=True)
@@ -172,20 +175,20 @@ class ChatStreamExecution:
         await operation.acache(CacheDecision(None, "streaming"), hit=False)
         authorization = await self.budget.aauthorize(request, logical_model=logical)
         cursor = self.runtime.cursor(logical)
-        last_error: HarborChatError | None = None
+        last_error: HarborModelError | None = None
         while attempt := await cursor.next_attempt(self.runtime.selector):
             state = attempt.state
             routed = request.model_copy(update={"logical_model": attempt.logical_model})
             normalizer = self._normalizer(attempt.logical_model, state.config, routed)
             raw_stream: Any = None
             emitted = False
-            started = time.perf_counter()
             try:
                 async with self.runtime.selector.lease(
                     state,
                     logical_model=attempt.logical_model,
                     token_cost=authorization.estimated_tokens,
                 ):
+                    started = time.perf_counter()
                     raw_stream = await self.invocation.astream(
                         **self._parameters(attempt.logical_model, state.config, routed)
                     )
@@ -212,10 +215,11 @@ class ChatStreamExecution:
                 await operation.aerror(cancellation, streaming=True)
                 raise
             except Exception as exc:
-                error = self._error(exc, attempt.logical_model, state.config, routed)
+                error = self._routed_error(exc, attempt.logical_model, state.config, routed)
                 last_error = error
                 retryable = bool(error.retryable)
-                await self.runtime.selector.record_failure(state, retryable=retryable)
+                if not isinstance(exc, RoutingAdmissionError):
+                    await self.runtime.selector.record_failure(state, retryable=retryable)
                 if emitted:
                     await self.middleware.aerror(error, context)
                     await operation.aerror(error, streaming=True)
@@ -266,6 +270,8 @@ class ChatStreamExecution:
             request_id=request.metadata.request_id,
             operation="chat",
             logical_model=logical,
+            request_metadata=request.metadata,
+            privacy=self.config.observability.privacy,
         )
         return parameters
 
@@ -306,6 +312,21 @@ class ChatStreamExecution:
             provider_model=deployment.model,
             deployment=deployment.name,
             request_id=chat_request_id(request),
+        )
+
+    @classmethod
+    def _routed_error(
+        cls,
+        exc: Exception,
+        logical: str,
+        deployment: HarborChatProviderConfig,
+        request: HarborChatRequest,
+    ) -> HarborModelError:
+        return normalize_execution_error(
+            exc,
+            logical,
+            deployment,
+            lambda raw, name, target: cls._error(raw, name, target, request),
         )
 
 

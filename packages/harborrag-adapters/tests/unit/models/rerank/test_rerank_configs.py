@@ -9,6 +9,8 @@ from harborrag_adapters.models.rerank import (
 from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
 from harborrag_core.models.errors import HarborRerankConfigurationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def _document(provider: str, **deployment):
     return {

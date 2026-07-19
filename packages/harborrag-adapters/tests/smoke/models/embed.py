@@ -37,7 +37,7 @@ def main() -> int:
     except SmokeNotConfigured as exc:
         print(f"[models/embed] not configured: {safe_error(exc)}")
         return 2
-    except Exception as exc:  # noqa: BLE001 - smoke runner must return a stable exit code
+    except Exception as exc:  # noqa: BLE001
         print(f"[models/embed] failed: {safe_error(exc)}")
         return 1
     return 0

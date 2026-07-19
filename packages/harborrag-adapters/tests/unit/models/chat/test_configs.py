@@ -5,6 +5,8 @@ from harborrag_adapters.models.chat.configs import HarborChatClientConfig
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
 from harborrag_core.models.errors import HarborChatConfigurationError
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 @pytest.mark.parametrize(
     ("name", "entry"),

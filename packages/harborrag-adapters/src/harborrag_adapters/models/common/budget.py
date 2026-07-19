@@ -128,6 +128,7 @@ class InMemoryBudgetPolicy:
                 and window.tokens + estimated_tokens > self.config.tpm_limit
             ):
                 raise BudgetExceededError("token rate budget exceeded")
+            self._validate_spend(window, estimated_cost)
             window.requests += 1
             window.tokens += estimated_tokens
         return BudgetAuthorization(
@@ -143,7 +144,13 @@ class InMemoryBudgetPolicy:
         return self.authorize(request, logical_model=logical_model)
 
     def settle(self, authorization: BudgetAuthorization, response: BaseModel) -> None:
-        """Apply actual response cost to daily and monthly spend windows."""
+        """Record actual response cost unconditionally so spend windows stay truthful.
+
+        Spend caps are enforced before the provider call in ``authorize``; rejecting
+        at settlement would discard a response that was already paid for while
+        leaving the overage unrecorded, so future authorizations would never see
+        the window as exhausted.
+        """
 
         cost = _response_cost(response)
         if cost is None:
@@ -151,16 +158,6 @@ class InMemoryBudgetPolicy:
         with self._lock:
             window = self._window(authorization.scope)
             self._reset_windows(window)
-            if (
-                self.config.daily_cost_usd is not None
-                and window.day_cost + cost > self.config.daily_cost_usd
-            ):
-                raise BudgetExceededError("daily cost budget exceeded during settlement")
-            if (
-                self.config.monthly_cost_usd is not None
-                and window.month_cost + cost > self.config.monthly_cost_usd
-            ):
-                raise BudgetExceededError("monthly cost budget exceeded during settlement")
             window.day_cost += cost
             window.month_cost += cost
 
@@ -198,6 +195,19 @@ class InMemoryBudgetPolicy:
                 raise BudgetEstimationError("max_request_cost_usd requires a cost estimator")
             return None
         return self._cost_estimator(request, logical_model)
+
+    def _validate_spend(self, window: _BudgetWindow, estimated_cost: float | None) -> None:
+        projected = estimated_cost or 0.0
+        if self.config.daily_cost_usd is not None and (
+            window.day_cost >= self.config.daily_cost_usd
+            or window.day_cost + projected > self.config.daily_cost_usd
+        ):
+            raise BudgetExceededError("daily cost budget exceeded")
+        if self.config.monthly_cost_usd is not None and (
+            window.month_cost >= self.config.monthly_cost_usd
+            or window.month_cost + projected > self.config.monthly_cost_usd
+        ):
+            raise BudgetExceededError("monthly cost budget exceeded")
 
     def _validate_request(self, tokens: int, cost: float | None) -> None:
         if self.config.max_request_tokens is not None and tokens > self.config.max_request_tokens:

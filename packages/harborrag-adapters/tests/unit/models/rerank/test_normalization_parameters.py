@@ -39,6 +39,8 @@ from harborrag_core.models.rerank import (
 from model_runtime_support import rerank_config
 from pydantic import SecretStr
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 def deployment(**updates: Any) -> HarborRerankProviderConfig:
     values: dict[str, Any] = {

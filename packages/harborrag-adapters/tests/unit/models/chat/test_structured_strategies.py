@@ -15,6 +15,8 @@ from pydantic import BaseModel
 
 from .test_client_execution import raw_chat
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 class Answer(BaseModel):
     answer: str

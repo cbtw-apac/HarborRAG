@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from threading import BoundedSemaphore, RLock
 from typing import Protocol
+from weakref import WeakKeyDictionary
 
 from .config import CircuitBreakerConfig, RoutingStrategy
 from .health import deployment_state_key
@@ -40,19 +41,32 @@ class DeploymentRuntime[D: DeploymentLike]:
     """Track mutable health and concurrency state for one deployment."""
 
     config: D
+    logical_model: str = ""
     active_requests: int = 0
     consecutive_failures: int = 0
     circuit_open_until: float = 0.0
     last_latency_ms: float | None = None
     distributed_active_requests: int = 0
     sync_semaphore: BoundedSemaphore | None = field(default=None, repr=False)
-    async_semaphore: asyncio.BoundedSemaphore | None = field(default=None, repr=False)
+    _async_semaphores: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.BoundedSemaphore] = (
+        field(default_factory=WeakKeyDictionary, repr=False)
+    )
 
     def __post_init__(self) -> None:
         if self.config.max_parallel_requests:
-            limit = self.config.max_parallel_requests
-            self.sync_semaphore = BoundedSemaphore(limit)
-            self.async_semaphore = asyncio.BoundedSemaphore(limit)
+            self.sync_semaphore = BoundedSemaphore(self.config.max_parallel_requests)
+
+    def async_semaphore(self) -> asyncio.BoundedSemaphore | None:
+        """Return the concurrency semaphore bound to the running event loop."""
+
+        if not self.config.max_parallel_requests:
+            return None
+        loop = asyncio.get_running_loop()
+        semaphore = self._async_semaphores.get(loop)
+        if semaphore is None:
+            semaphore = asyncio.BoundedSemaphore(self.config.max_parallel_requests)
+            self._async_semaphores[loop] = semaphore
+        return semaphore
 
     def available(self, now: float) -> bool:
         """Return whether the deployment is enabled and outside cooldown."""
@@ -85,7 +99,7 @@ class DeploymentSelector[D: DeploymentLike]:
         self._lease_seconds = lease_seconds
         self._health_stale_seconds = health_stale_seconds
         self._states = {
-            (logical, deployment.name): DeploymentRuntime(deployment)
+            (logical, deployment.name): DeploymentRuntime(deployment, logical)
             for logical, items in deployments.items()
             for deployment in items
         }
@@ -129,7 +143,7 @@ class DeploymentSelector[D: DeploymentLike]:
 
         excluded = set(exclude)
         now = time.time()
-        candidates: list[DeploymentRuntime[D]] = []
+        observed: list[tuple[DeploymentRuntime[D], RoutingStateSnapshot]] = []
         for deployment in deployments:
             state = self._states[(logical_model, deployment.name)]
             if deployment.name in excluded or not state.available(time.monotonic()):
@@ -137,11 +151,14 @@ class DeploymentSelector[D: DeploymentLike]:
             snapshot = await self.state_store.asnapshot(
                 deployment_state_key(logical_model, deployment.name)
             )
-            if not snapshot.available(now, health_stale_seconds=self._health_stale_seconds):
-                continue
-            self._apply_snapshot(state, snapshot)
-            candidates.append(state)
+            observed.append((state, snapshot))
         with self._lock:
+            candidates: list[DeploymentRuntime[D]] = []
+            for state, snapshot in observed:
+                if not snapshot.available(now, health_stale_seconds=self._health_stale_seconds):
+                    continue
+                self._apply_snapshot(state, snapshot)
+                candidates.append(state)
             return self._choose(logical_model, candidates)
 
     @contextmanager
@@ -157,9 +174,10 @@ class DeploymentSelector[D: DeploymentLike]:
         if state.sync_semaphore is not None:
             state.sync_semaphore.acquire()
         lease: RoutingLease | None = None
+        incremented = False
         try:
             lease = self.state_store.acquire(
-                deployment_state_key(logical_model or self._logical_for(state), state.config.name),
+                deployment_state_key(logical_model or state.logical_model, state.config.name),
                 max_parallel=state.config.max_parallel_requests,
                 rpm=getattr(state.config, "rpm", None),
                 tpm=getattr(state.config, "tpm", None),
@@ -168,12 +186,14 @@ class DeploymentSelector[D: DeploymentLike]:
             )
             with self._lock:
                 state.active_requests += 1
+                incremented = True
             yield
         finally:
             if lease is not None:
                 self.state_store.release(lease)
-            with self._lock:
-                state.active_requests = max(0, state.active_requests - 1)
+            if incremented:
+                with self._lock:
+                    state.active_requests = max(0, state.active_requests - 1)
             if state.sync_semaphore is not None:
                 state.sync_semaphore.release()
 
@@ -187,14 +207,16 @@ class DeploymentSelector[D: DeploymentLike]:
     ) -> AsyncIterator[None]:
         """Acquire cancellation-safe local and distributed asynchronous admission."""
 
+        semaphore = state.async_semaphore()
         acquired_local = False
         lease: RoutingLease | None = None
+        incremented = False
         try:
-            if state.async_semaphore is not None:
-                await state.async_semaphore.acquire()
+            if semaphore is not None:
+                await semaphore.acquire()
                 acquired_local = True
             lease = await self.state_store.aacquire(
-                deployment_state_key(logical_model or self._logical_for(state), state.config.name),
+                deployment_state_key(logical_model or state.logical_model, state.config.name),
                 max_parallel=state.config.max_parallel_requests,
                 rpm=getattr(state.config, "rpm", None),
                 tpm=getattr(state.config, "tpm", None),
@@ -203,14 +225,16 @@ class DeploymentSelector[D: DeploymentLike]:
             )
             with self._lock:
                 state.active_requests += 1
+                incremented = True
             yield
         finally:
             if lease is not None:
                 await self.state_store.arelease(lease)
-            with self._lock:
-                state.active_requests = max(0, state.active_requests - 1)
-            if acquired_local and state.async_semaphore is not None:
-                state.async_semaphore.release()
+            if incremented:
+                with self._lock:
+                    state.active_requests = max(0, state.active_requests - 1)
+            if acquired_local and semaphore is not None:
+                semaphore.release()
 
     def record_success_sync(self, state: DeploymentRuntime[D], latency_ms: float) -> None:
         """Reset failure state and record successful deployment latency."""
@@ -221,7 +245,7 @@ class DeploymentSelector[D: DeploymentLike]:
                 state.circuit_open_until = 0.0
                 state.last_latency_ms = latency_ms
         self.state_store.record_success(
-            deployment_state_key(self._logical_for(state), state.config.name),
+            deployment_state_key(state.logical_model, state.config.name),
             latency_ms,
         )
 
@@ -234,7 +258,7 @@ class DeploymentSelector[D: DeploymentLike]:
                 state.circuit_open_until = 0.0
                 state.last_latency_ms = latency_ms
         await self.state_store.arecord_success(
-            deployment_state_key(self._logical_for(state), state.config.name),
+            deployment_state_key(state.logical_model, state.config.name),
             latency_ms,
         )
 
@@ -248,7 +272,7 @@ class DeploymentSelector[D: DeploymentLike]:
             if state.consecutive_failures >= self._circuit.failure_threshold:
                 state.circuit_open_until = time.monotonic() + self._circuit.recovery_timeout_seconds
         self.state_store.record_failure(
-            deployment_state_key(self._logical_for(state), state.config.name),
+            deployment_state_key(state.logical_model, state.config.name),
             retryable=retryable,
             threshold=self._circuit.failure_threshold,
             recovery_seconds=self._circuit.recovery_timeout_seconds,
@@ -257,15 +281,14 @@ class DeploymentSelector[D: DeploymentLike]:
     async def record_failure(self, state: DeploymentRuntime[D], *, retryable: bool) -> None:
         """Record asynchronous deployment failure using shared health state."""
 
-        if self._enable_health_tracking and retryable and self._circuit.enabled:
-            with self._lock:
-                state.consecutive_failures += 1
-                if state.consecutive_failures >= self._circuit.failure_threshold:
-                    state.circuit_open_until = (
-                        time.monotonic() + self._circuit.recovery_timeout_seconds
-                    )
+        if not self._enable_health_tracking or not retryable or not self._circuit.enabled:
+            return
+        with self._lock:
+            state.consecutive_failures += 1
+            if state.consecutive_failures >= self._circuit.failure_threshold:
+                state.circuit_open_until = time.monotonic() + self._circuit.recovery_timeout_seconds
         await self.state_store.arecord_failure(
-            deployment_state_key(self._logical_for(state), state.config.name),
+            deployment_state_key(state.logical_model, state.config.name),
             retryable=retryable,
             threshold=self._circuit.failure_threshold,
             recovery_seconds=self._circuit.recovery_timeout_seconds,
@@ -328,9 +351,3 @@ class DeploymentSelector[D: DeploymentLike]:
         state.distributed_active_requests = snapshot.active_requests
         if snapshot.last_latency_ms is not None:
             state.last_latency_ms = snapshot.last_latency_ms
-
-    def _logical_for(self, state: DeploymentRuntime[D]) -> str:
-        for (logical, name), candidate in self._states.items():
-            if candidate is state and name == state.config.name:
-                return logical
-        raise KeyError(f"deployment state is not registered: {state.config.name}")

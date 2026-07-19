@@ -27,6 +27,8 @@ from harborrag_adapters.models.embed.invocation import (
 from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
 from model_runtime_support import chat_config
 
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
 
 async def _async_value(**kwargs: Any) -> dict[str, Any]:
     return kwargs
