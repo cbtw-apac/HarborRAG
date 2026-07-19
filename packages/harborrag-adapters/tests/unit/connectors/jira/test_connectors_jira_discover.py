@@ -66,9 +66,7 @@ def test_discover_cloud_uses_search_jql_token_pagination():
 def test_discover_supports_direct_issue_keys_without_search():
     connector = JiraConnector(cloud_config(), client=FakeJiraClient())
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"issue_keys": ["ENG-1"]}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"issue_keys": ["ENG-1"]})))
 
     assert records[0].locator == "ENG-1"
     assert records[0].metadata["url"] == f"{CLOUD_BASE}/browse/ENG-1"

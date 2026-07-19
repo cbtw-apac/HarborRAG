@@ -87,9 +87,7 @@ def test_discover_stops_at_limit_during_item_id_iteration():
     connector = SharePointConnector(config(), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(limit=1, filters={"item_ids": ["file1", "file2"]})
-        )
+        connector.discover(ConnectorQuery(limit=1, filters={"item_ids": ["file1", "file2"]}))
     )
 
     assert [r.metadata["item_id"] for r in records] == ["file1"]
@@ -125,9 +123,7 @@ def test_item_ids_from_query_accepts_list_alias():
     client.add("drives/drive1/items/file1", file_item("file1", "A.docx"))
     connector = SharePointConnector(config(), client=client)
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"drive_item_ids": ["file1"]}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"drive_item_ids": ["file1"]})))
     assert [r.metadata["item_id"] for r in records] == ["file1"]
 
 
@@ -140,7 +136,5 @@ def test_discover_uses_root_item_id_filter_alias():
     )
     connector = SharePointConnector(config(), client=client)
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"folder_item_id": "folder1"}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"folder_item_id": "folder1"})))
     assert [r.metadata["item_id"] for r in records] == ["file1"]

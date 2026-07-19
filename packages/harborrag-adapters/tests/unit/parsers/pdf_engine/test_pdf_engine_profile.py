@@ -34,9 +34,7 @@ class UsefulPdfBackend(PdfBackend):
         return PdfParseResult(
             content=content,
             engine=self.name,
-            elements=[
-                DocumentElement(id="pdf:useful:0", type="paragraph", content=content)
-            ],
+            elements=[DocumentElement(id="pdf:useful:0", type="paragraph", content=content)],
             metadata={"page_count": 1},
         )
 

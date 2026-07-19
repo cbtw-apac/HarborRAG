@@ -43,9 +43,7 @@ class LocalFileSystem:
         # Config accepts strings at the package boundary; traversal uses one
         # concrete Path representation after validation.
         self.source_path = Path(config.source_path)
-        self.root_path = (
-            self.source_path.parent if self.source_path.is_file() else self.source_path
-        )
+        self.root_path = self.source_path.parent if self.source_path.is_file() else self.source_path
 
     def files_from_query(self, query: ConnectorQuery) -> Iterator[tuple[Path, bool]]:
         """Yield resolved files (with pre-resolution symlink provenance)."""
@@ -82,9 +80,7 @@ class LocalFileSystem:
             yield start_path, start_path.is_symlink()
             return
         if not start_path.is_dir():
-            raise DocumentProcessingError(
-                f"Local path is not a file or directory: {start_path}"
-            )
+            raise DocumentProcessingError(f"Local path is not a file or directory: {start_path}")
 
         seen_dirs = seen_dirs or set()
         directory_key = resolve_path(start_path)
@@ -97,12 +93,8 @@ class LocalFileSystem:
             entries = sorted(start_path.iterdir(), key=lambda item: item.name.lower())
         except OSError as exc:
             if self.config.fail_on_error:
-                raise FetchError(
-                    f"Could not list local directory {start_path}: {exc}"
-                ) from exc
-            logger.warning(
-                "Skipping unreadable local directory %s: %s", start_path, exc
-            )
+                raise FetchError(f"Could not list local directory {start_path}: {exc}") from exc
+            logger.warning("Skipping unreadable local directory %s: %s", start_path, exc)
             return
 
         for entry in entries:
@@ -144,9 +136,7 @@ class LocalFileSystem:
         if not self.config.follow_symlinks and self.has_symlink_component(path):
             return False
         if not self.within_source_scope(path):
-            raise DocumentProcessingError(
-                f"Local path is outside configured source scope: {path}"
-            )
+            raise DocumentProcessingError(f"Local path is outside configured source scope: {path}")
         if not self.config.include_hidden and is_hidden_path(path, self.root_path):
             return False
 
@@ -168,17 +158,13 @@ class LocalFileSystem:
         allowed_extensions = extension_filter(self.config, query, "allowed_extensions")
         if allowed_extensions and extension not in allowed_extensions:
             return False
-        excluded_extensions = extension_filter(
-            self.config, query, "excluded_extensions"
-        )
+        excluded_extensions = extension_filter(self.config, query, "excluded_extensions")
         if extension in excluded_extensions:
             return False
 
         include_paths = path_filter(self.config, query, "include_paths")
         if include_paths:
-            if not any(
-                path_in_scope(path, self.root_path, value) for value in include_paths
-            ):
+            if not any(path_in_scope(path, self.root_path, value) for value in include_paths):
                 return False
         exclude_paths = path_filter(self.config, query, "exclude_paths")
         if any(path_in_scope(path, self.root_path, value) for value in exclude_paths):
@@ -282,14 +268,10 @@ class LocalFileSystem:
         if not candidate.is_absolute():
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
-            raise DocumentProcessingError(
-                f"Local symlinks are disabled for source scope: {value}"
-            )
+            raise DocumentProcessingError(f"Local symlinks are disabled for source scope: {value}")
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
-            raise DocumentProcessingError(
-                f"Local path is outside configured source scope: {value}"
-            )
+            raise DocumentProcessingError(f"Local path is outside configured source scope: {value}")
         return resolved
 
     def within_source_scope(self, path: Path) -> bool:

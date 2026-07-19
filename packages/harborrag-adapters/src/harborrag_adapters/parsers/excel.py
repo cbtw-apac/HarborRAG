@@ -19,9 +19,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
 
     parser_name: ClassVar[str] = "excel"
     parser_engine: ClassVar[str] = "openpyxl/xlrd"
-    suffixes: ClassVar[frozenset[str]] = frozenset(
-        {"xls", "xlsx", "xlsm", "xltx", "xltm"}
-    )
+    suffixes: ClassVar[frozenset[str]] = frozenset({"xls", "xlsx", "xlsm", "xltx", "xltm"})
     content_types: ClassVar[frozenset[str]] = frozenset(
         {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

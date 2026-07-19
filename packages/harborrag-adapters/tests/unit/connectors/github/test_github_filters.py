@@ -85,9 +85,7 @@ def test_should_process_file_callback_rejection_and_exception_swallowed():
         raise RuntimeError("boom")
 
     cfg_swallow = config(process_file_callback=explode, fail_on_error=False)
-    assert not github_filters.should_process_file(
-        cfg_swallow, item, _query(), commit=commit()
-    )
+    assert not github_filters.should_process_file(cfg_swallow, item, _query(), commit=commit())
 
     cfg_raise = config(process_file_callback=explode, fail_on_error=True)
     with pytest.raises(RuntimeError):
@@ -117,14 +115,10 @@ def test_file_paths_from_query_returns_empty_when_absent():
 def test_extension_filter_accepts_string_and_alias():
     cfg = config()
     query_alias = _query(filters={"extensions": "PY"})
-    assert github_filters._extension_filter(cfg, query_alias, "allowed_extensions") == {
-        ".py"
-    }
+    assert github_filters._extension_filter(cfg, query_alias, "allowed_extensions") == {".py"}
 
     query_string = _query(filters={"excluded_extensions": ".PNG"})
-    assert github_filters._extension_filter(
-        cfg, query_string, "excluded_extensions"
-    ) == {".png"}
+    assert github_filters._extension_filter(cfg, query_string, "excluded_extensions") == {".png"}
 
 
 def test_path_filter_accepts_string_value():

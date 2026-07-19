@@ -31,9 +31,7 @@ class LocalFileConfig:
     exclude_paths: list[str] = field(default_factory=list)
     include_globs: list[str] = field(default_factory=list)
     exclude_globs: list[str] = field(default_factory=list)
-    excluded_dir_names: set[str] = field(
-        default_factory=lambda: set(DEFAULT_EXCLUDED_DIR_NAMES)
-    )
+    excluded_dir_names: set[str] = field(default_factory=lambda: set(DEFAULT_EXCLUDED_DIR_NAMES))
     include_hidden: bool = False
     follow_symlinks: bool = False
     max_depth: int | None = None
@@ -54,9 +52,7 @@ class LocalFileConfig:
         if self.checksum_mode not in {"none", "stat", "sha256"}:
             raise ValueError("checksum_mode must be one of: none, stat, sha256")
 
-        self.allowed_extensions = {
-            normalize_extension(value) for value in self.allowed_extensions
-        }
+        self.allowed_extensions = {normalize_extension(value) for value in self.allowed_extensions}
         self.excluded_extensions = {
             normalize_extension(value) for value in self.excluded_extensions
         }

@@ -21,9 +21,7 @@ from harborrag_runtime.config.utils import (
     require_string_mapping,
 )
 
-_CONNECTOR_KEYS = frozenset(
-    {"enabled", "environment", "provider", "secrets", "settings"}
-)
+_CONNECTOR_KEYS = frozenset({"enabled", "environment", "provider", "secrets", "settings"})
 
 
 def parse_connector_definitions(
@@ -113,9 +111,7 @@ def _parse_definition(
 def _parse_provider(name: str, raw_provider: object) -> str:
     """Normalize a provider alias and reject unsupported providers."""
     if not isinstance(raw_provider, str) or not raw_provider.strip():
-        raise ConnectorConfigurationError(
-            f"Connector {name!r} must define a non-empty provider"
-        )
+        raise ConnectorConfigurationError(f"Connector {name!r} must define a non-empty provider")
     provider = canonical_provider_name(raw_provider)
     if config_factory(provider) is None:
         supported = ", ".join(supported_provider_names())
@@ -168,14 +164,11 @@ def _validate_provider_fields(
             f"Connector {name!r} uses unsupported provider {provider!r}"
         )
     known_fields = config_field_names(factory)
-    configured_fields = (
-        set(settings) | set(setting_environment) | set(secret_environment)
-    )
+    configured_fields = set(settings) | set(setting_environment) | set(secret_environment)
     unknown = sorted(configured_fields - known_fields)
     if unknown:
         raise ConnectorConfigurationError(
-            f"Connector {name!r} has unknown {provider} setting(s): "
-            f"{', '.join(unknown)}"
+            f"Connector {name!r} has unknown {provider} setting(s): {', '.join(unknown)}"
         )
 
 
@@ -200,9 +193,7 @@ def _validate_yaml_boundaries(
             f"secrets/*_env: {', '.join(environment_secrets)}"
         )
 
-    configured_fields = (
-        set(settings) | set(setting_environment) | set(secret_environment)
-    )
+    configured_fields = set(settings) | set(setting_environment) | set(secret_environment)
     programmatic = sorted(configured_fields & PYTHON_ONLY_CONFIG_FIELDS)
     if programmatic:
         raise ConnectorConfigurationError(

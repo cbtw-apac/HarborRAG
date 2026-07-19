@@ -31,9 +31,7 @@ class StreamingResponse(Protocol):
         ...
 
 
-def safe_error_detail(
-    text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT
-) -> str:
+def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT) -> str:
     """Return a truncated, secret-redacted snippet of a response body."""
     if not text:
         return ""
@@ -89,9 +87,7 @@ def read_capped_content(
                 declared_len = None
             if declared_len is not None and declared_len > max_bytes:
                 response.close()
-                raise ResponseTooLargeError(
-                    f"Content-Length {declared} exceeds cap {max_bytes}"
-                )
+                raise ResponseTooLargeError(f"Content-Length {declared} exceeds cap {max_bytes}")
 
     buffer = bytearray()
     for chunk in response.iter_content(chunk_size=chunk_size):
@@ -100,9 +96,7 @@ def read_capped_content(
         buffer.extend(chunk)
         if max_bytes is not None and len(buffer) > max_bytes:
             response.close()
-            raise ResponseTooLargeError(
-                f"Downloaded body exceeds cap {max_bytes} bytes"
-            )
+            raise ResponseTooLargeError(f"Downloaded body exceeds cap {max_bytes} bytes")
     return bytes(buffer)
 
 

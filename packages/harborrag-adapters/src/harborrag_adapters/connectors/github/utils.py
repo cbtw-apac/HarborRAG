@@ -108,9 +108,7 @@ def path_in_scope(path: str, root_path: str | None, *, recursive: bool) -> bool:
 def path_matches_patterns(path: str, patterns: list[str]) -> bool:
     """Return whether a repository path matches any include/exclude glob."""
     normalized = normalize_repo_path(path)
-    return any(
-        fnmatch(normalized, normalize_repo_path(pattern)) for pattern in patterns
-    )
+    return any(fnmatch(normalized, normalize_repo_path(pattern)) for pattern in patterns)
 
 
 def path_matches_query(path: str, pattern: str | None) -> bool:

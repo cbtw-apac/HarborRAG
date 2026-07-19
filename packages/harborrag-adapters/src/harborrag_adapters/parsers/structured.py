@@ -45,11 +45,7 @@ class JsonParser(BaseParser[ParseInput, ParsedDocument]):
         try:
             source = parse_input.read_text()
             if parse_input.suffix in {".jsonl", ".ndjson"}:
-                data = [
-                    json.loads(line)
-                    for line in source.splitlines()
-                    if line.strip()
-                ]
+                data = [json.loads(line) for line in source.splitlines() if line.strip()]
             else:
                 data = json.loads(source)
         except (json.JSONDecodeError, RecursionError, UnicodeDecodeError) as exc:
@@ -68,11 +64,7 @@ class JsonParser(BaseParser[ParseInput, ParsedDocument]):
             raise ParseError(f"Invalid JSON: {exc}") from exc
 
         flattened = list(self._flatten(data))
-        content = (
-            "\n".join(flattened)
-            if flattened
-            else json.dumps(data, ensure_ascii=False)
-        )
+        content = "\n".join(flattened) if flattened else json.dumps(data, ensure_ascii=False)
         elements = [
             DocumentElement(
                 id="json:0",

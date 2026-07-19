@@ -22,12 +22,7 @@ class MockVectorRepository(BaseVectorRepository):
             RetrievalResult(
                 str(item["id"]),
                 str(item.get("text", "")),
-                float(
-                    sum(
-                        a * b
-                        for a, b in zip(vector, item.get("vector", []), strict=False)
-                    )
-                ),
+                float(sum(a * b for a, b in zip(vector, item.get("vector", []), strict=False))),
                 dict(item.get("metadata", {})),
             )
             for item in self.items

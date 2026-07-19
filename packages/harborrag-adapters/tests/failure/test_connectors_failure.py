@@ -86,9 +86,7 @@ def test_github_retries_after_rate_limit_then_succeeds():
 
 def test_github_plain_403_becomes_authentication_error():
     client = _RequestsGitHubClient(_github_config())
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=403, text="Bad credentials")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=403, text="Bad credentials")])
 
     with pytest.raises(AuthenticationError):
         client.get_json("repos/acme/harbor-rag")
@@ -97,18 +95,14 @@ def test_github_plain_403_becomes_authentication_error():
 
 def test_github_401_becomes_authentication_error():
     client = _RequestsGitHubClient(_github_config())
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=401, text="unauthorized")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=401, text="unauthorized")])
     with pytest.raises(AuthenticationError):
         client.get_json("repos/acme/harbor-rag")
 
 
 def test_github_rate_limit_exhausts_retries_raises_rate_limit_error():
     client = _RequestsGitHubClient(_github_config(max_retries=2))
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=429, text="slow down")] * 3
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=429, text="slow down")] * 3)
     with pytest.raises(RateLimitError):
         client.get_json("repos/acme/harbor-rag")
     assert len(client.session.calls) == 3  # max_retries + 1 attempts
@@ -231,9 +225,7 @@ def _sharepoint_config(**overrides) -> SharePointSiteConfig:
 
 def test_sharepoint_get_bytes_oversized_stream_raises_fetch_error():
     client = _RequestsGraphClient(_sharepoint_config())
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _chunks=[b"x" * 50])]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _chunks=[b"x" * 50])])
     with pytest.raises(FetchError):
         client.get_bytes("drives/d/items/i/content")
 
@@ -282,9 +274,7 @@ def test_jira_retries_transient_500_then_succeeds():
 
 def test_jira_retry_exhaustion_raises_fetch_error():
     client = _RequestsJiraClient(_jira_config(max_retries=2))
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=503, text="unavailable")] * 3
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=503, text="unavailable")] * 3)
     with pytest.raises(FetchError):
         client.get_json("search")
     assert len(client.session.calls) == 3
@@ -292,9 +282,7 @@ def test_jira_retry_exhaustion_raises_fetch_error():
 
 def test_jira_403_is_skippable_fetch_error_not_retried():
     client = _RequestsJiraClient(_jira_config())
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=403, text="forbidden")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=403, text="forbidden")])
     with pytest.raises(FetchError, match="403"):
         client.get_json("search")
     assert len(client.session.calls) == 1
@@ -302,9 +290,7 @@ def test_jira_403_is_skippable_fetch_error_not_retried():
 
 def test_jira_download_bytes_oversized_stream_raises_fetch_error():
     client = _RequestsJiraClient(_jira_config(max_attachment_size_bytes=10))
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _chunks=[b"x" * 50])]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _chunks=[b"x" * 50])])
     with pytest.raises(FetchError):
         client.download_bytes("https://jira.example.com/secure/attachment/1")
 

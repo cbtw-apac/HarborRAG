@@ -7,10 +7,7 @@ _LABELED_PATTERNS = [
         r"(?i)(api[_-]?key|token|secret|password|credential)['\"]?\s*[:=]\s*"
         r"['\"]?([^\s,'\";}\]]+)"
     ),
-    re.compile(
-        r"(?i)(authorization)['\"]?\s*:\s*['\"]?\s*bearer\s+"
-        r"([^\s,'\";}\]]+)"
-    ),
+    re.compile(r"(?i)(authorization)['\"]?\s*:\s*['\"]?\s*bearer\s+" r"([^\s,'\";}\]]+)"),
 ]
 
 _TOKEN_PATTERNS = [

@@ -50,9 +50,7 @@ def test_mineru_command_includes_advanced_cli_options():
 @pytest.mark.whitebox
 def test_mineru_cleans_up_custom_output_dir_when_run_fails(tmp_path, monkeypatch):
     base_dir = tmp_path / "custom-output"
-    backend = MinerUBackend(
-        MinerUBackendOptions(output_dir=base_dir, keep_output=False)
-    )
+    backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=False))
 
     def _raise(command: list[str]) -> None:
         raise RuntimeError("mineru exited non-zero")
@@ -67,9 +65,7 @@ def test_mineru_cleans_up_custom_output_dir_when_run_fails(tmp_path, monkeypatch
     assert list(base_dir.iterdir()) == []
 
 
-def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(
-    tmp_path, monkeypatch
-):
+def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(tmp_path, monkeypatch):
     base_dir = tmp_path / "custom-output"
     backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=True))
 

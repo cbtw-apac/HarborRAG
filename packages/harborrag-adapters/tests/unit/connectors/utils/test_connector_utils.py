@@ -24,9 +24,7 @@ def test_validate_non_negative_limit_allows_none_and_non_negative_values():
 
 
 def test_validate_non_negative_limit_rejects_negative_values():
-    with pytest.raises(
-        ValueError, match="max_items must be an integer greater than or equal to 0"
-    ):
+    with pytest.raises(ValueError, match="max_items must be an integer greater than or equal to 0"):
         validate_non_negative_limit("max_items", -1)
 
 
@@ -92,16 +90,12 @@ def test_validate_http_tuning_rejects_invalid_values(overrides, message):
 
 def test_enforce_collection_limit_allows_within_bounds():
     enforce_collection_limit(count=5, limit=5, label="items", setting_name="max_items")
-    enforce_collection_limit(
-        count=5, limit=None, label="items", setting_name="max_items"
-    )
+    enforce_collection_limit(count=5, limit=None, label="items", setting_name="max_items")
 
 
 def test_enforce_collection_limit_raises_when_exceeded():
     with pytest.raises(DocumentProcessingError, match="exceeds max_items 5"):
-        enforce_collection_limit(
-            count=6, limit=5, label="items", setting_name="max_items"
-        )
+        enforce_collection_limit(count=6, limit=5, label="items", setting_name="max_items")
 
 
 def test_extend_with_limit_appends_and_enforces_cap():
@@ -110,9 +104,7 @@ def test_extend_with_limit_appends_and_enforces_cap():
     assert target == [1, 2, 3, 4]
 
     with pytest.raises(DocumentProcessingError, match="exceeds max_items"):
-        extend_with_limit(
-            target, [5, 6, 7, 8], limit=5, label="items", setting_name="max_items"
-        )
+        extend_with_limit(target, [5, 6, 7, 8], limit=5, label="items", setting_name="max_items")
 
 
 def test_extend_with_limit_does_not_materialize_unbounded_iterables():
@@ -125,9 +117,7 @@ def test_extend_with_limit_does_not_materialize_unbounded_iterables():
 
     target: list[int] = []
     with pytest.raises(DocumentProcessingError, match="exceeds max_items 3"):
-        extend_with_limit(
-            target, unbounded(), limit=3, label="items", setting_name="max_items"
-        )
+        extend_with_limit(target, unbounded(), limit=3, label="items", setting_name="max_items")
 
     # Only the allowance plus one probe item should ever have been pulled.
     assert len(consumed) == 4

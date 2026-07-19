@@ -11,9 +11,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_docx_parser_extracts_text(docx_bytes):
-    document = DocxParser().parse(
-        ParseInput(content=docx_bytes, filename="report.docx")
-    )
+    document = DocxParser().parse(ParseInput(content=docx_bytes, filename="report.docx"))
     assert document.parser_name == "docx"
     assert "Hello Harbor" in document.content
     assert document.metadata["filename"] == "report.docx"
@@ -93,9 +91,7 @@ def test_epub_parser_warns_on_missing_referenced_section():
                 continue  # spine still references it -> should warn, not crash
             sink.writestr(info, source.read(info.filename))
 
-    document = EpubParser().parse(
-        ParseInput(content=buffer.getvalue(), filename="b.epub")
-    )
+    document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="b.epub"))
     assert document.content == "One text"
     assert document.warnings is not None
     assert any("ch2.xhtml" in warning for warning in document.warnings)

@@ -1,4 +1,5 @@
 """Unit tests for HTTP behavior shared by the Atlassian (Confluence/Jira) clients."""
+
 from __future__ import annotations
 
 import pytest

@@ -121,8 +121,12 @@ def test_security_and_observability_helpers():
     assert "abc.def.ghi" not in redacted
 
     redacted = redact_secrets(
-        "aws=AKIAABCDEFGHIJKLMNOP github=ghp_" + "a" * 36
-        + " openai=sk-" + "a" * 20 + " google=AIza" + "a" * 25
+        "aws=AKIAABCDEFGHIJKLMNOP github=ghp_"
+        + "a" * 36
+        + " openai=sk-"
+        + "a" * 20
+        + " google=AIza"
+        + "a" * 25
         + " slack=xoxb-1234567890"
     )
     assert "AKIAABCDEFGHIJKLMNOP" not in redacted
@@ -139,9 +143,7 @@ def test_security_and_observability_helpers():
     with pytest.raises(HarborConnectionError):
         UrlPolicy().validate("javascript:alert(1)")
     with pytest.raises(HarborConnectionError):
-        UrlPolicy(denied_hosts={"blocked.local"}).validate(
-            "https://blocked.local/a"
-        )
+        UrlPolicy(denied_hosts={"blocked.local"}).validate("https://blocked.local/a")
     with pytest.raises(HarborConnectionError):
         UrlPolicy(denied_hosts={"169.254.169.254"}).validate(
             "https://169.254.169.254/latest/meta-data/"

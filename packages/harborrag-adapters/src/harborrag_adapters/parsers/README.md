@@ -187,14 +187,16 @@ Prefer structured counters such as `input_bytes`, `content_chars`, `elements`,
 Parser tests live in:
 
 ```text
-packages/harborrag-adapters/tests/unit/test_parsers_engine.py
-packages/harborrag-adapters/tests/unit/test_parsers_unit.py
+packages/harborrag-adapters/tests/unit/parsers/
 packages/harborrag-adapters/tests/failure/test_parsers_failure.py
+packages/harborrag-adapters/tests/security/
+packages/harborrag-adapters/tests/performance/
+packages/harborrag-adapters/tests/smoke/parsers/
 ```
 
 Useful test levels:
 
-- Smoke tests for default registry construction.
+- Standalone smoke checks for real document extraction and optional PDF engines.
 - Whitebox tests for route indexes and conflict behavior.
 - Graybox tests for parser metadata and warnings.
 - Blackbox tests that parse representative inputs by suffix and content type.

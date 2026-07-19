@@ -20,9 +20,7 @@ class MarkdownParser(BaseParser[ParseInput, ParsedDocument]):
     parser_name: ClassVar[str] = "markdown"
     parser_engine: ClassVar[str] = "python/regex"
     suffixes: ClassVar[frozenset[str]] = frozenset({"md", "markdown", "mdx"})
-    content_types: ClassVar[frozenset[str]] = frozenset(
-        {"text/markdown", "text/x-markdown"}
-    )
+    content_types: ClassVar[frozenset[str]] = frozenset({"text/markdown", "text/x-markdown"})
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         """Extract searchable text while retaining headings, paragraphs, and code."""
@@ -69,9 +67,7 @@ class MarkdownParser(BaseParser[ParseInput, ParsedDocument]):
                     DocumentElement(
                         id=f"{source_id}:{len(elements)}",
                         type=kind,
-                        content=cls._to_text(content)
-                        if kind == "paragraph"
-                        else content,
+                        content=(cls._to_text(content) if kind == "paragraph" else content),
                     )
                 )
             block = []

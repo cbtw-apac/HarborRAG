@@ -1,4 +1,5 @@
 """Unit tests for PyMuPDF PDF backend helpers."""
+
 from __future__ import annotations
 
 from pathlib import Path

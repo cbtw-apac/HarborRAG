@@ -15,4 +15,3 @@ class EncryptedPdfError(ParseError):
     This terminates a PDF backend fallback chain: no downstream engine can
     extract text from an encrypted document, so retrying wastes OCR budget.
     """
-

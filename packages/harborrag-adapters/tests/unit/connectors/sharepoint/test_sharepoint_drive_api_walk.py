@@ -27,9 +27,7 @@ def test_walk_children_stops_descending_when_not_recursive():
     api = SharePointDriveAPI(client, config())
 
     records = list(
-        api.walk_children(
-            site=site(), drive=drive(), query=ConnectorQuery(recursive=False)
-        )
+        api.walk_children(site=site(), drive=drive(), query=ConnectorQuery(recursive=False))
     )
 
     assert [r.metadata["item_id"] for r in records] == ["file1"]
@@ -42,9 +40,7 @@ def test_records_from_item_id_file_filtered_out_yields_nothing():
     api = SharePointDriveAPI(client, config(excluded_extensions={".tmp"}))
 
     records = list(
-        api.records_from_item_id(
-            "file1", site=site(), drive=drive(), query=ConnectorQuery()
-        )
+        api.records_from_item_id("file1", site=site(), drive=drive(), query=ConnectorQuery())
     )
     assert records == []
 
@@ -57,9 +53,7 @@ def test_walk_children_skips_folder_without_id():
     )
     api = SharePointDriveAPI(client, config())
 
-    records = list(
-        api.walk_children(site=site(), drive=drive(), query=ConnectorQuery())
-    )
+    records = list(api.walk_children(site=site(), drive=drive(), query=ConnectorQuery()))
     assert records == []
     # No recursive call for the id-less folder means only the root page was fetched.
     assert len(client.calls) == 1
@@ -74,23 +68,17 @@ def test_records_from_item_id_for_file_and_folder_and_neither():
     api = SharePointDriveAPI(client, config())
 
     file_records = list(
-        api.records_from_item_id(
-            "file1", site=site(), drive=drive(), query=ConnectorQuery()
-        )
+        api.records_from_item_id("file1", site=site(), drive=drive(), query=ConnectorQuery())
     )
     assert [r.metadata["item_id"] for r in file_records] == ["file1"]
 
     folder_records = list(
-        api.records_from_item_id(
-            "folder1", site=site(), drive=drive(), query=ConnectorQuery()
-        )
+        api.records_from_item_id("folder1", site=site(), drive=drive(), query=ConnectorQuery())
     )
     assert folder_records == []
 
     neither_records = list(
-        api.records_from_item_id(
-            "other1", site=site(), drive=drive(), query=ConnectorQuery()
-        )
+        api.records_from_item_id("other1", site=site(), drive=drive(), query=ConnectorQuery())
     )
     assert neither_records == []
 

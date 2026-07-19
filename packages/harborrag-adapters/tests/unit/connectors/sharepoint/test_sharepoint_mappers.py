@@ -36,9 +36,7 @@ def test_build_document_metadata_handles_missing_file_and_identity_info():
         "createdBy": {"nonDictValue": "oops", "application": {"id": "app-1"}},
         "lastModifiedBy": "not-a-dict",
     }
-    metadata = build_document_metadata(
-        item, site=site(), drive=drive(), checksum="etag-1"
-    )
+    metadata = build_document_metadata(item, site=site(), drive=drive(), checksum="etag-1")
     assert metadata.sharepoint_hashes == {}
     assert metadata.created_by is None
     assert metadata.updated_by is None

@@ -113,14 +113,18 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
             )
             raise ParseError(f"Image OCR failed: {exc}") from exc
 
-        elements = [
-            DocumentElement(
-                id="image:ocr:0",
-                type="image",
-                content=content,
-                metadata={"filename": parse_input.filename},
-            )
-        ] if content else []
+        elements = (
+            [
+                DocumentElement(
+                    id="image:ocr:0",
+                    type="image",
+                    content=content,
+                    metadata={"filename": parse_input.filename},
+                )
+            ]
+            if content
+            else []
+        )
         return ParsedDocument(
             content=content,
             elements=elements,

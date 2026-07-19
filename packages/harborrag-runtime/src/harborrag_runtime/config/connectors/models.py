@@ -77,8 +77,7 @@ class ConnectorDefinition:
         self._resolve_local_source_path(
             values,
             from_environment=(
-                "source_path" in self.setting_environment
-                and not source_path_overridden
+                "source_path" in self.setting_environment and not source_path_overridden
             ),
         )
         return values
@@ -149,9 +148,7 @@ class ConnectorCatalog:
         try:
             return self.connectors[name]
         except KeyError as exc:
-            raise ConnectorConfigurationError(
-                f"Unknown configured connector: {name!r}"
-            ) from exc
+            raise ConnectorConfigurationError(f"Unknown configured connector: {name!r}") from exc
 
     def names(self, *, enabled_only: bool = False) -> list[str]:
         """Return configured names alphabetically, optionally filtering disabled."""

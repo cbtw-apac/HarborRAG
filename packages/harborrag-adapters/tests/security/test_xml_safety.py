@@ -1,4 +1,5 @@
 """XML parser hardening tests for EPUB parsing."""
+
 from __future__ import annotations
 
 import pytest

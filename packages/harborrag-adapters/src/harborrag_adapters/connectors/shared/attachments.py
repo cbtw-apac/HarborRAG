@@ -145,9 +145,7 @@ class AttachmentProcessor:
         base_url: str,
         parser: HarborParser | None = None,
         custom_parsers: dict[FileType, CustomAttachmentParser] | None = None,
-        process_attachment_callback: (
-            Callable[[str, int, str], tuple[bool, str]] | None
-        ) = None,
+        process_attachment_callback: (Callable[[str, int, str], tuple[bool, str]] | None) = None,
         max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
         fail_on_error: bool = False,
         logger_: logging.Logger | None = None,
@@ -280,10 +278,7 @@ class AttachmentProcessor:
     @staticmethod
     def _title(attachment: dict) -> str:
         return str(
-            attachment.get("title")
-            or attachment.get("filename")
-            or attachment.get("name")
-            or ""
+            attachment.get("title") or attachment.get("filename") or attachment.get("name") or ""
         )
 
     @staticmethod

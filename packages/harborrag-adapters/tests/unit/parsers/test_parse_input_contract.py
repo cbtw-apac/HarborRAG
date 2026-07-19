@@ -1,4 +1,5 @@
 """Unit tests for the core ParseInput and ParsedDocument contracts."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -92,9 +92,7 @@ def require_schema_version(
     if isinstance(value, bool) or not isinstance(value, int):
         raise error_type(f"{label} version must be {expected}")
     if value != expected:
-        raise error_type(
-            f"Unsupported {label.lower()} version {value}; expected {expected}"
-        )
+        raise error_type(f"Unsupported {label.lower()} version {value}; expected {expected}")
     return value
 
 
@@ -117,21 +115,15 @@ def parse_environment_references(
             raise error_type(f"{label} keys must be non-empty strings")
         if key_suffix is not None:
             if not key.endswith(key_suffix) or len(key) <= len(key_suffix):
-                raise error_type(
-                    f"{label} keys must use the <setting>{key_suffix} form"
-                )
+                raise error_type(f"{label} keys must use the <setting>{key_suffix} form")
             target = key.removesuffix(key_suffix)
         else:
             if key != key.strip():
-                raise error_type(
-                    f"{label} keys must not have surrounding whitespace: {key!r}"
-                )
+                raise error_type(f"{label} keys must not have surrounding whitespace: {key!r}")
             target = key
             if target in parsed:
                 raise error_type(f"{label} defines {target!r} more than once")
         if not isinstance(variable_name, str) or not variable_name.strip():
-            raise error_type(
-                f"{label} reference {key!r} must name an environment variable"
-            )
+            raise error_type(f"{label} reference {key!r} must name an environment variable")
         parsed[target] = variable_name.strip()
     return parsed

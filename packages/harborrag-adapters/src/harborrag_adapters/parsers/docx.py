@@ -68,14 +68,18 @@ class DocxParser(BaseParser[ParseInput, ParsedDocument]):
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
 
-        elements = [
-            DocumentElement(
-                id="docx:0",
-                type="paragraph",
-                content=content,
-                metadata={"filename": parse_input.filename},
-            )
-        ] if content else []
+        elements = (
+            [
+                DocumentElement(
+                    id="docx:0",
+                    type="paragraph",
+                    content=content,
+                    metadata={"filename": parse_input.filename},
+                )
+            ]
+            if content
+            else []
+        )
         parser_logger.info(
             "Parsed DOCX %s content_chars=%d elements=%d",
             input_label(parse_input),

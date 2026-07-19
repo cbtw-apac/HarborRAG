@@ -36,9 +36,7 @@ class FakeGraphClient:
         try:
             return self.downloads[endpoint]
         except KeyError as exc:
-            raise AssertionError(
-                f"Unexpected Microsoft Graph bytes: {endpoint}"
-            ) from exc
+            raise AssertionError(f"Unexpected Microsoft Graph bytes: {endpoint}") from exc
 
 
 def config(**overrides: Any) -> SharePointSiteConfig:
@@ -85,10 +83,7 @@ def file_item(
         "webUrl": f"{SITE_URL}/Shared%20Documents/{name}",
         "size": size,
         "file": {
-            "mimeType": (
-                "application/vnd.openxmlformats-officedocument."
-                "wordprocessingml.document"
-            ),
+            "mimeType": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
             "hashes": {"quickXorHash": f"hash-{item_id}"},
         },
         "parentReference": {

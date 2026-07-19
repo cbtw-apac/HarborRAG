@@ -21,9 +21,7 @@ class CsvParser(BaseParser[ParseInput, ParsedDocument]):
     parser_name: ClassVar[str] = "csv"
     parser_engine: ClassVar[str] = "python/csv"
     suffixes: ClassVar[frozenset[str]] = frozenset({"csv", "tsv"})
-    content_types: ClassVar[frozenset[str]] = frozenset(
-        {"text/csv", "text/tab-separated-values"}
-    )
+    content_types: ClassVar[frozenset[str]] = frozenset({"text/csv", "text/tab-separated-values"})
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         """Sniff the dialect when possible and emit a single table element."""
@@ -60,14 +58,18 @@ class CsvParser(BaseParser[ParseInput, ParsedDocument]):
             if any(cell.strip() for cell in row)
         ]
         content = "\n".join(rendered_rows)
-        elements = [
-            DocumentElement(
-                id="csv:0",
-                type="table",
-                content=content,
-                metadata={"rows": len(rendered_rows)},
-            )
-        ] if content else []
+        elements = (
+            [
+                DocumentElement(
+                    id="csv:0",
+                    type="table",
+                    content=content,
+                    metadata={"rows": len(rendered_rows)},
+                )
+            ]
+            if content
+            else []
+        )
         parser_logger.info(
             "Parsed CSV %s rows=%d content_chars=%d elements=%d",
             input_label(parse_input),

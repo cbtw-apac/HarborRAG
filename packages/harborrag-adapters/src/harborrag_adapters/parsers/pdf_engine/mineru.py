@@ -129,9 +129,7 @@ class MinerUBackend(PdfBackend):
             return content, output_files, output_dir
 
         if self.options.keep_output:
-            base_dir = Path(
-                self.options.output_dir or Path.cwd() / ".harborrag-mineru-output"
-            )
+            base_dir = Path(self.options.output_dir or Path.cwd() / ".harborrag-mineru-output")
             output_dir = base_dir / uuid.uuid4().hex
             output_dir.mkdir(parents=True, exist_ok=True)
             command = self._command(executable, path, output_dir)
@@ -146,9 +144,7 @@ class MinerUBackend(PdfBackend):
             content, output_files = self._read_output(output_dir)
             return content, output_files, output_dir
 
-    def _command(
-        self, executable: str, input_path: Path, output_dir: Path
-    ) -> list[str]:
+    def _command(self, executable: str, input_path: Path, output_dir: Path) -> list[str]:
         """Build the MinerU CLI command without shell interpolation."""
 
         command = [
@@ -200,9 +196,7 @@ class MinerUBackend(PdfBackend):
 
         if completed.returncode != 0:
             detail = compact_text(completed.stderr or completed.stdout)
-            raise ParseError(
-                f"MinerU failed with exit code {completed.returncode}: {detail}"
-            )
+            raise ParseError(f"MinerU failed with exit code {completed.returncode}: {detail}")
 
     @staticmethod
     def _read_output(output_dir: Path) -> tuple[str, list[str]]:
@@ -212,8 +206,7 @@ class MinerUBackend(PdfBackend):
         output_files = [str(path.relative_to(output_dir)) for path in markdown_files]
         if markdown_files:
             sections = [
-                path.read_text(encoding="utf-8", errors="replace")
-                for path in markdown_files
+                path.read_text(encoding="utf-8", errors="replace") for path in markdown_files
             ]
             return compact_text("\n\n".join(sections)), output_files
 

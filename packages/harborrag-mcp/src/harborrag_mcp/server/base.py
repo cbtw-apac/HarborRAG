@@ -17,7 +17,5 @@ class BaseMcpServer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def call_tool(
-        self, name: str, arguments: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def call_tool(self, name: str, arguments: dict[str, object] | None = None) -> dict[str, object]:
         raise NotImplementedError

@@ -85,7 +85,5 @@ def test_content_id_from_record_rejects_path_fragments():
 
 
 def test_display_url_datacenter_uses_display_path():
-    url = display_url(
-        DC_BASE, ConfluenceDeploymentType.DATACENTER, "ENG", "1", "Page One"
-    )
+    url = display_url(DC_BASE, ConfluenceDeploymentType.DATACENTER, "ENG", "1", "Page One")
     assert url == f"{DC_BASE}/display/ENG/Page+One"

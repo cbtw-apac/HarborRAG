@@ -1,4 +1,5 @@
 """White-box unit tests for shared connector exception types."""
+
 from __future__ import annotations
 
 import pytest

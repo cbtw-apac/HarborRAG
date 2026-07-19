@@ -28,6 +28,4 @@ class MockRetrievalPipeline(BaseRetrievalPipeline):
 
 class MockEvidenceBuilder(BaseEvidenceBuilder):
     def build(self, results: Sequence[RetrievalResult]) -> str:
-        return "\n\n".join(
-            f"[{idx}] {item.text}" for idx, item in enumerate(results, start=1)
-        )
+        return "\n\n".join(f"[{idx}] {item.text}" for idx, item in enumerate(results, start=1))

@@ -1,4 +1,5 @@
 """Unit tests for the real GitHub HTTP client wrapper with fake sessions."""
+
 from __future__ import annotations
 
 import pytest
@@ -95,9 +96,7 @@ def test_github_get_json_rejects_list_with_non_dict_item():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _github_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=200, _json=[1, 2])]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _json=[1, 2])])
     with pytest.raises(FetchError, match="invalid JSON"):
         client.get_json("repos/o/r/git/trees/x")
 
@@ -115,9 +114,7 @@ def test_github_request_raises_authentication_error_on_401():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = _github_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=401, text="bad token")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=401, text="bad token")])
     with pytest.raises(AuthenticationError):
         client.get_json("repos/o/r")
 
@@ -224,9 +221,7 @@ def test_github_config_rejects_negative_max_retries():
 def test_github_rate_limited_static_predicate_branches():
     from harborrag_adapters.connectors.github.connector import _RequestsGitHubClient
 
-    assert _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=429, headers={}, text="")
-    )
+    assert _RequestsGitHubClient._rate_limited(FakeResponse(status_code=429, headers={}, text=""))
     assert not _RequestsGitHubClient._rate_limited(
         FakeResponse(status_code=200, headers={}, text="")
     )

@@ -1,4 +1,5 @@
 """Unit tests for Excel parser legacy .xls behavior."""
+
 from __future__ import annotations
 
 import io

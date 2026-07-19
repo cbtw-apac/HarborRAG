@@ -94,9 +94,7 @@ def test_discover_supports_direct_file_paths():
     )
     connector = GitHubConnector(config(), client=client)
 
-    records = list(
-        connector.discover(ConnectorQuery(filters={"file_paths": ["README.md"]}))
-    )
+    records = list(connector.discover(ConnectorQuery(filters={"file_paths": ["README.md"]})))
 
     assert records[0].locator == "README.md"
     assert records[0].metadata["sha"] == "sha-readme"
@@ -116,9 +114,7 @@ def test_discover_stops_at_limit_during_explicit_path_iteration():
     connector = GitHubConnector(config(), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(limit=1, filters={"file_paths": ["a.py", "b.py"]})
-        )
+        connector.discover(ConnectorQuery(limit=1, filters={"file_paths": ["a.py", "b.py"]}))
     )
 
     assert [r.metadata["path"] for r in records] == ["a.py"]
@@ -130,9 +126,7 @@ def test_discover_skips_when_commit_older_than_updated_after():
     connector = GitHubConnector(config(), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(updated_after=datetime(2099, 1, 1, tzinfo=UTC))
-        )
+        connector.discover(ConnectorQuery(updated_after=datetime(2099, 1, 1, tzinfo=UTC)))
     )
 
     assert records == []
@@ -194,9 +188,7 @@ def test_discover_explicit_path_filtered_out_continues_to_next_path():
     connector = GitHubConnector(config(excluded_extensions={".png"}), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(filters={"file_paths": ["logo.png", "README.md"]})
-        )
+        connector.discover(ConnectorQuery(filters={"file_paths": ["logo.png", "README.md"]}))
     )
 
     assert [r.metadata["path"] for r in records] == ["README.md"]
@@ -212,9 +204,7 @@ def test_discover_continues_when_commit_is_newer_than_updated_after():
     connector = GitHubConnector(config(), client=client)
 
     records = list(
-        connector.discover(
-            ConnectorQuery(updated_after=datetime(2000, 1, 1, tzinfo=UTC))
-        )
+        connector.discover(ConnectorQuery(updated_after=datetime(2000, 1, 1, tzinfo=UTC)))
     )
 
     assert [r.metadata["path"] for r in records] == ["a.py"]

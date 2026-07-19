@@ -49,9 +49,7 @@ MODULE_TO_PACKAGE_DIR = {
     "harborrag": "harborrag",
 }
 
-IMPORT_PATTERN = re.compile(
-    r"^\s*(?:from|import)\s+(harborrag(?:_[a-z]+)?)\b", re.MULTILINE
-)
+IMPORT_PATTERN = re.compile(r"^\s*(?:from|import)\s+(harborrag(?:_[a-z]+)?)\b", re.MULTILINE)
 
 
 def find_violations() -> list[str]:
@@ -69,9 +67,7 @@ def find_violations() -> list[str]:
                 if imported not in allowed:
                     line = text.count("\n", 0, match.start()) + 1
                     relative = path.relative_to(REPO_ROOT)
-                    violations.append(
-                        f"{relative}:{line}: {module} must not import {imported}"
-                    )
+                    violations.append(f"{relative}:{line}: {module} must not import {imported}")
     return violations
 
 
@@ -82,9 +78,7 @@ def main() -> int:
         for violation in violations:
             print(f"  {violation}")
         return 1
-    print(
-        "Dependency direction OK: all cross-package imports follow the layering rules."
-    )
+    print("Dependency direction OK: all cross-package imports follow the layering rules.")
     return 0
 
 

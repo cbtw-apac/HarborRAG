@@ -161,9 +161,7 @@ def test_resolve_commit_is_cached():
     second = api.resolve_commit(repository)
 
     assert first is second
-    call_count = len(
-        [c for c in client.calls if c[0] == "repos/acme/harbor-rag/commits/main"]
-    )
+    call_count = len([c for c in client.calls if c[0] == "repos/acme/harbor-rag/commits/main"])
     assert call_count == 1
 
 

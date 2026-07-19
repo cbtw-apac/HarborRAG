@@ -173,9 +173,7 @@ class PaddleOcrBackend(PdfBackend):
             "precision": self.options.precision,
             "enable_mkldnn": self.options.enable_mkldnn,
             "cpu_threads": self.options.cpu_threads,
-            "use_doc_orientation_classify": (
-                self.options.use_doc_orientation_classify
-            ),
+            "use_doc_orientation_classify": (self.options.use_doc_orientation_classify),
             "use_doc_unwarping": self.options.use_doc_unwarping,
             "use_textline_orientation": self.options.use_textline_orientation,
             "use_table_recognition": self.options.use_table_recognition,
@@ -188,9 +186,7 @@ class PaddleOcrBackend(PdfBackend):
                 if self.options.markdown_ignore_labels is not None
                 else None
             ),
-            "text_recognition_model_name": (
-                self.options.text_recognition_model_name
-            ),
+            "text_recognition_model_name": (self.options.text_recognition_model_name),
             "text_detection_model_name": self.options.text_detection_model_name,
             "layout_detection_model_name": self.options.layout_detection_model_name,
         }
@@ -207,11 +203,7 @@ class PaddleOcrBackend(PdfBackend):
             return dict(self.options.legacy_ocr_options)
 
         compatible_keys = {"lang", "use_angle_cls", "show_log"}
-        return {
-            key: value
-            for key, value in pipeline_options.items()
-            if key in compatible_keys
-        }
+        return {key: value for key, value in pipeline_options.items() if key in compatible_keys}
 
     @staticmethod
     def _call_predict(predict: Any, path: str) -> Any:

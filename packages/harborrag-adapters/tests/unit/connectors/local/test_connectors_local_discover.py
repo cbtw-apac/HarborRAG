@@ -59,9 +59,7 @@ def test_discover_supports_non_recursive_and_depth(tmp_path: Path):
         "root.md",
     ]
 
-    connector = LocalFileConnector(
-        config(tmp_path, allowed_extensions={".md"}, max_depth=1)
-    )
+    connector = LocalFileConnector(config(tmp_path, allowed_extensions={".md"}, max_depth=1))
     records = list(connector.discover())
 
     assert [record.metadata["relative_path"] for record in records] == [
@@ -95,15 +93,11 @@ def test_discover_rejects_paths_outside_source_scope(tmp_path: Path):
     outside = write_file(tmp_path / "outside.md")
     connector = LocalFileConnector(config(source_root))
 
-    with pytest.raises(
-        DocumentProcessingError, match="outside configured source scope"
-    ):
+    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
         list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
 
 
-def test_discover_rejects_direct_symlink_when_symlinks_disabled(
-    tmp_path: Path, monkeypatch
-):
+def test_discover_rejects_direct_symlink_when_symlinks_disabled(tmp_path: Path, monkeypatch):
     target = write_file(tmp_path / "target.md")
     link = tmp_path / "link.md"
     try:
@@ -124,9 +118,7 @@ def test_discover_rejects_direct_symlink_when_symlinks_disabled(
         list(connector.discover(ConnectorQuery(filters={"file_paths": [link]})))
 
 
-def test_discover_does_not_follow_symlinks_outside_source_scope(
-    tmp_path: Path, monkeypatch
-):
+def test_discover_does_not_follow_symlinks_outside_source_scope(tmp_path: Path, monkeypatch):
     source_root = tmp_path / "scope"
     source_root.mkdir()
     outside = tmp_path / "outside"

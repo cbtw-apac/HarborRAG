@@ -25,9 +25,7 @@ def test_field_text_extracts_html():
 
 def test_walk_adf_handles_string_list_hardbreak_and_other_scalars():
     assert _walk_adf("plain") == ["plain"]
-    assert _walk_adf(
-        [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]
-    ) == [
+    assert _walk_adf([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == [
         "a",
         "b",
     ]

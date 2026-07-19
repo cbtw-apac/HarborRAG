@@ -1,4 +1,5 @@
 """Concurrency tests for shared parser registries."""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor

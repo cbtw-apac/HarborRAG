@@ -1,4 +1,5 @@
 """PDF backend memoization tests for expensive parser resources."""
+
 from __future__ import annotations
 
 import pytest
@@ -62,9 +63,7 @@ def test_pdf_parser_reuses_one_backend_instance_across_many_parses() -> None:
 
     parser = PdfParser(backends=[_CountingPdfBackend()], min_content_chars=5)
     for i in range(300):
-        document = parser.parse(
-            ParseInput(content=b"%PDF-1.4 fake", filename=f"scan{i}.pdf")
-        )
+        document = parser.parse(ParseInput(content=b"%PDF-1.4 fake", filename=f"scan{i}.pdf"))
         assert document.parser_name == "pdf"
 
     assert _MODEL_BUILDS == 1

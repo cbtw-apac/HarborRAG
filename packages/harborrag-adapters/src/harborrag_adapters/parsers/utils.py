@@ -65,17 +65,14 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
     infos = archive.infolist()
     if len(infos) > MAX_ARCHIVE_MEMBERS:
         archive.close()
-        raise ParseError(
-            f"Archive has {len(infos)} members (max {MAX_ARCHIVE_MEMBERS})"
-        )
+        raise ParseError(f"Archive has {len(infos)} members (max {MAX_ARCHIVE_MEMBERS})")
     total = 0
     for info in infos:
         total += info.file_size
         if total > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
             archive.close()
             raise ParseError(
-                f"Archive uncompressed size exceeds "
-                f"{MAX_ARCHIVE_UNCOMPRESSED_BYTES} bytes"
+                f"Archive uncompressed size exceeds {MAX_ARCHIVE_UNCOMPRESSED_BYTES} bytes"
             )
         if info.compress_size > 0:
             ratio = info.file_size / info.compress_size
@@ -162,9 +159,7 @@ def html_to_text_with_engine(html: str | bytes) -> tuple[str, str]:
     except ImportError:
         parser_logger.debug("BeautifulSoup is not installed; using stdlib HTML parser")
         parser = _FallbackHTMLTextParser()
-        parser.feed(
-            html.decode("utf-8", errors="replace") if isinstance(html, bytes) else html
-        )
+        parser.feed(html.decode("utf-8", errors="replace") if isinstance(html, bytes) else html)
         parser.close()
         return compact_text("\n".join(parser.parts)), "python/html.parser"
 

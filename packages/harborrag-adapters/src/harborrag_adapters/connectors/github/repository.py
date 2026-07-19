@@ -62,8 +62,7 @@ class GitHubRepositoryAPI:
 
         if recursive and response.get("truncated"):
             logger.warning(
-                "GitHub recursive tree for %s/%s was truncated; "
-                "falling back to subtree traversal",
+                "GitHub recursive tree for %s/%s was truncated; falling back to subtree traversal",
                 self.owner,
                 self.repo,
             )
@@ -89,9 +88,7 @@ class GitHubRepositoryAPI:
 
         size = int(blob.get("size") or 0)
         if size > GITHUB_BLOB_LIMIT_BYTES:
-            raise DocumentProcessingError(
-                f"GitHub blob {sha} exceeds the 100 MB REST API limit"
-            )
+            raise DocumentProcessingError(f"GitHub blob {sha} exceeds the 100 MB REST API limit")
         self.enforce_size_limit(sha, size)
         encoding = str(blob.get("encoding") or "")
         content = str(blob.get("content") or "")
@@ -102,9 +99,7 @@ class GitHubRepositoryAPI:
         try:
             return base64.b64decode(content, validate=False)
         except (binascii.Error, ValueError) as exc:
-            raise DocumentProcessingError(
-                f"GitHub blob {sha} is not valid base64"
-            ) from exc
+            raise DocumentProcessingError(f"GitHub blob {sha} is not valid base64") from exc
 
     def content_file_item(self, path: str, *, ref: str) -> dict[str, Any]:
         """Resolve one path through the contents API and normalize it as a blob."""

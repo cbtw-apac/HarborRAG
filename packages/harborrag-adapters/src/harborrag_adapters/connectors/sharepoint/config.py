@@ -69,12 +69,8 @@ class SharePointSiteConfig:
             raise ValueError(
                 "SharePoint config requires either site_id or site_url/hostname/site_path"
             )
-        if not self.access_token and not (
-            self.tenant_id and self.client_id and self.client_secret
-        ):
-            raise ValueError(
-                "SharePoint config requires access_token or client credentials"
-            )
+        if not self.access_token and not (self.tenant_id and self.client_id and self.client_secret):
+            raise ValueError("SharePoint config requires access_token or client credentials")
         validate_http_tuning(
             requests_per_minute=self.requests_per_minute,
             request_timeout_seconds=self.request_timeout_seconds,
@@ -85,9 +81,7 @@ class SharePointSiteConfig:
             raise ValueError("page_size must be between 1 and 999")
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)
 
-        self.allowed_extensions = {
-            _normalize_extension(value) for value in self.allowed_extensions
-        }
+        self.allowed_extensions = {_normalize_extension(value) for value in self.allowed_extensions}
         self.excluded_extensions = {
             _normalize_extension(value) for value in self.excluded_extensions
         }

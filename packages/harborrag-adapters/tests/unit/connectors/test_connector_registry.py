@@ -1,4 +1,5 @@
 """White-box unit tests for the connector registry."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

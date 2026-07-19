@@ -435,9 +435,7 @@ def sample_coverage_data(tmp_path):
     # Create loader coverage data
     loader_dir = coverage_dir / "htmlcov-loader"
     loader_dir.mkdir()
-    (loader_dir / "index.html").write_text(
-        "<html><body>Loader Coverage Report</body></html>"
-    )
+    (loader_dir / "index.html").write_text("<html><body>Loader Coverage Report</body></html>")
     mock_loader_status = {
         "note": "Mock loader coverage data for testing",
         "format": 5,
@@ -501,9 +499,7 @@ def sample_coverage_data(tmp_path):
     # Create website coverage data
     website_dir = coverage_dir / "htmlcov-website"
     website_dir.mkdir()
-    (website_dir / "index.html").write_text(
-        "<html><body>Website Coverage Report</body></html>"
-    )
+    (website_dir / "index.html").write_text("<html><body>Website Coverage Report</body></html>")
     mock_website_status = {
         "note": "Mock website coverage data for testing",
         "format": 5,

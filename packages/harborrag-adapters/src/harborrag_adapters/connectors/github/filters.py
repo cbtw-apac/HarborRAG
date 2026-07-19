@@ -72,9 +72,7 @@ def should_process_file(
 def file_paths_from_query(query: ConnectorQuery) -> list[str]:
     """Normalize explicit file paths from supported query-filter aliases."""
     values = (
-        query.filters.get("file_paths")
-        or query.filters.get("paths")
-        or query.filters.get("files")
+        query.filters.get("file_paths") or query.filters.get("paths") or query.filters.get("files")
     )
     if values is None:
         return []

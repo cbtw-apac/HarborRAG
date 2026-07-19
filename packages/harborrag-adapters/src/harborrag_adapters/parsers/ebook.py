@@ -147,13 +147,16 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
                 item_id = node.attrib.get("id")
                 href = node.attrib.get("href")
                 media_type = node.attrib.get("media-type", "")
-                if item_id and href and media_type in {
-                    "application/xhtml+xml",
-                    "text/html",
-                }:
-                    manifest[item_id] = posixpath.normpath(
-                        posixpath.join(opf_dir, href)
-                    )
+                if (
+                    item_id
+                    and href
+                    and media_type
+                    in {
+                        "application/xhtml+xml",
+                        "text/html",
+                    }
+                ):
+                    manifest[item_id] = posixpath.normpath(posixpath.join(opf_dir, href))
             elif tag == "itemref":
                 idref = node.attrib.get("idref")
                 if idref:

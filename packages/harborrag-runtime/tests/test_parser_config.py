@@ -31,7 +31,7 @@ def _write_config(tmp_path: Path, content: str) -> Path:
 
 
 def test_repository_example_builds_enabled_pdf_override() -> None:
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.example.yaml")
 
     assert catalog.names(enabled_only=True) == ["pdf-default"]
     parser = catalog.build("pdf-default")
@@ -44,7 +44,7 @@ def test_repository_example_builds_enabled_pdf_override() -> None:
 
 
 def test_repository_example_keeps_alternative_pdf_engines_commented() -> None:
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.example.yaml")
 
     assert catalog.names() == ["pdf-default"]
 

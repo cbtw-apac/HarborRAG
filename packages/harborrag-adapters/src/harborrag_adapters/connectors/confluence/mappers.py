@@ -55,19 +55,13 @@ def display_url(
     base = base_url if base_url.endswith("/") else f"{base_url}/"
     if deployment_type == ConfluenceDeploymentType.CLOUD:
         return urljoin(base, f"spaces/{space_key}/pages/{content_id}")
-    return urljoin(
-        base, f"display/{space_key}/{quote(title.replace(' ', '+'), safe='+')}"
-    )
+    return urljoin(base, f"display/{space_key}/{quote(title.replace(' ', '+'), safe='+')}")
 
 
 def body_html_from_content(content: dict[str, Any]) -> str:
     """Extract the best HTML body representation from expanded content."""
     body = content.get("body", {})
-    return (
-        body.get("export_view", {}).get("value")
-        or body.get("storage", {}).get("value")
-        or ""
-    )
+    return body.get("export_view", {}).get("value") or body.get("storage", {}).get("value") or ""
 
 
 def build_source_record(
@@ -132,9 +126,7 @@ def build_document_metadata(
         space_key=space_key,
         version=version.get("number"),
         author=_author(content),
-        created_at=parse_timestamp(
-            history.get("createdDate") or history.get("createdAt")
-        ),
+        created_at=parse_timestamp(history.get("createdDate") or history.get("createdAt")),
         updated_at=parse_timestamp(version.get("when")),
         labels=labels_from_content(content),
         checksum=checksum,
@@ -148,9 +140,9 @@ def build_document_metadata(
 
 
 def _author(content: dict[str, Any]) -> str | None:
-    value = content.get("history", {}).get("createdBy", {}).get(
-        "displayName"
-    ) or content.get("version", {}).get("by", {}).get("displayName")
+    value = content.get("history", {}).get("createdBy", {}).get("displayName") or content.get(
+        "version", {}
+    ).get("by", {}).get("displayName")
     return str(value) if value else None
 
 

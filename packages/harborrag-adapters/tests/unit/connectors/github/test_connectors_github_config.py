@@ -63,9 +63,7 @@ def test_config_rejects_ref_and_branch_together():
 
 def test_config_rejects_commit_sha_with_ref_or_branch():
     with pytest.raises(ValueError, match="commit_sha or ref/branch, not both"):
-        GitHubRepositoryConfig(
-            owner="acme", repo="harbor-rag", commit_sha="abc123", ref="v1"
-        )
+        GitHubRepositoryConfig(owner="acme", repo="harbor-rag", commit_sha="abc123", ref="v1")
 
 
 def test_config_rejects_out_of_range_requests_per_minute():

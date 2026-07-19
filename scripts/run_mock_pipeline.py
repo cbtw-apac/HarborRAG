@@ -47,9 +47,7 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
             for chunk in chunks
         ]
     )
-    retrieved = retrieval_pipeline.retrieve(
-        RetrievalQuery(text=query_text, top_k=top_k)
-    )
+    retrieved = retrieval_pipeline.retrieve(RetrievalQuery(text=query_text, top_k=top_k))
 
     summary = pipeline.summarize()
     return {
@@ -83,13 +81,9 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the deterministic mock pipeline.")
-    parser.add_argument(
-        "--json", action="store_true", help="Print the full result as JSON."
-    )
+    parser.add_argument("--json", action="store_true", help="Print the full result as JSON.")
     parser.add_argument("--query", default="HarborRAG", help="Retrieval query text.")
-    parser.add_argument(
-        "--top-k", type=int, default=5, help="Number of retrieval results."
-    )
+    parser.add_argument("--top-k", type=int, default=5, help="Number of retrieval results.")
     args = parser.parse_args()
 
     result = run_pipeline(args.query, args.top_k)
@@ -103,11 +97,7 @@ def main() -> int:
         result["chunks"],
         result["retrieval"],
     )
-    assert (
-        isinstance(documents, list)
-        and isinstance(chunks, list)
-        and isinstance(retrieval, list)
-    )
+    assert isinstance(documents, list) and isinstance(chunks, list) and isinstance(retrieval, list)
     print("Mock pipeline completed:")
     print(f"  documents: {len(documents)}")
     print(f"  chunks:    {len(chunks)}")

@@ -46,9 +46,7 @@ def build_xlsx_bytes(rows: list[list[Any]] | None = None) -> bytes:
 
 
 def build_epub_bytes(sections: list[str] | None = None) -> bytes:
-    sections = (
-        ["Chapter one text", "Chapter two text"] if sections is None else sections
-    )
+    sections = ["Chapter one text", "Chapter two text"] if sections is None else sections
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -70,8 +68,7 @@ def build_epub_bytes(sections: list[str] | None = None) -> bytes:
             item_id = f"c{index}"
             href = f"ch{index}.xhtml"
             manifest_items.append(
-                f'<item id="{item_id}" href="{href}" '
-                'media-type="application/xhtml+xml"/>'
+                f'<item id="{item_id}" href="{href}" media-type="application/xhtml+xml"/>'
             )
             spine_items.append(f'<itemref idref="{item_id}"/>')
             archive.writestr(
@@ -89,17 +86,7 @@ def build_epub_bytes(sections: list[str] | None = None) -> bytes:
     return buffer.getvalue()
 
 
-def build_png_bytes(size: tuple[int, int] = (8, 8)) -> bytes:
-    from PIL import Image
-
-    buffer = io.BytesIO()
-    Image.new("RGB", size, (255, 255, 255)).save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def build_zip_bomb_bytes(
-    member_size: int = 50 * 1024 * 1024, members: int = 4
-) -> bytes:
+def build_zip_bomb_bytes(member_size: int = 50 * 1024 * 1024, members: int = 4) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         payload = b"\0" * member_size

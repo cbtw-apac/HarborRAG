@@ -15,9 +15,7 @@ from local_test_helpers import config, write_file
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
-def test_should_process_file_rejects_symlink_component_when_disabled(
-    tmp_path: Path, monkeypatch
-):
+def test_should_process_file_rejects_symlink_component_when_disabled(tmp_path: Path, monkeypatch):
     write_file(tmp_path / "real" / "a.md")
     link_dir = tmp_path / "linked"
     try:
@@ -59,9 +57,7 @@ def _block_direct_stat_call(blocked: Path, monkeypatch) -> None:
 
     def maybe_raise(self, *args, **kwargs):
         caller = sys._getframe(1).f_code.co_name
-        if caller == "should_process_file" and os.path.realpath(str(self)) == (
-            resolved_blocked
-        ):
+        if caller == "should_process_file" and os.path.realpath(str(self)) == (resolved_blocked):
             raise OSError("permission denied")
         return original_stat(self, *args, **kwargs)
 
@@ -117,9 +113,7 @@ def test_should_process_file_raises_for_path_outside_source_scope(tmp_path: Path
     outside = write_file(tmp_path / "outside.md")
     files = LocalFileSystem(config(source_root))
 
-    with pytest.raises(
-        DocumentProcessingError, match="outside configured source scope"
-    ):
+    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
         files.should_process_file(outside, ConnectorQuery())
 
 

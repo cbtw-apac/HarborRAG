@@ -1,4 +1,5 @@
 """Unit tests for the real Jira HTTP client wrapper with fake sessions."""
+
 from __future__ import annotations
 
 import pytest
@@ -128,9 +129,7 @@ def test_jira_request_raises_authentication_error_on_401():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     client = _jira_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=401, text="bad token")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=401, text="bad token")])
     with pytest.raises(AuthenticationError):
         client.get_json("issue/ENG-1")
 
@@ -139,9 +138,7 @@ def test_jira_request_maps_403_to_skippable_fetch_error():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _jira_client()
-    client.session = FakeSession(
-        responses=[FakeResponse(status_code=403, text="restricted issue")]
-    )
+    client.session = FakeSession(responses=[FakeResponse(status_code=403, text="restricted issue")])
 
     with pytest.raises(FetchError, match="403"):
         client.get_json("issue/ENG-1")

@@ -1,0 +1,30 @@
+chat:
+  default_model: primary
+  backend:
+    type: litellm_router
+  routing:
+    engine: litellm_router
+    strategy: least_busy
+  connections:
+    enabled: true
+    connection_limit: 300
+    connection_limit_per_host: 100
+  models:
+    primary:
+      deployments:
+        - name: openai-east
+          provider: openai
+          model: openai/REPLACE_WITH_CHAT_MODEL
+          api_key: ${OPENAI_API_KEY}
+          weight: 3
+          capabilities: &chat_capabilities
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+        - name: openai-west
+          provider: openai
+          model: openai/REPLACE_WITH_CHAT_MODEL
+          api_key: ${OPENAI_API_KEY}
+          weight: 1
+          capabilities: *chat_capabilities

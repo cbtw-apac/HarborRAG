@@ -69,9 +69,7 @@ class _RequestsGraphClient:
         try:
             payload: object = response.json()
         except ValueError as exc:
-            raise FetchError(
-                f"Microsoft Graph returned non-JSON for {endpoint}"
-            ) from exc
+            raise FetchError(f"Microsoft Graph returned non-JSON for {endpoint}") from exc
         if not isinstance(payload, dict):
             raise FetchError(f"Microsoft Graph returned invalid JSON for {endpoint}")
         return payload
@@ -116,10 +114,7 @@ class _RequestsGraphClient:
                 raise AuthenticationError(safe_error_detail(response.text))
             if response.status_code == 429 and attempt == self.config.max_retries:
                 raise RateLimitError(safe_error_detail(response.text))
-            if (
-                response.status_code not in _RETRYABLE_STATUS
-                or attempt == self.config.max_retries
-            ):
+            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"Microsoft Graph request failed with HTTP "
@@ -127,9 +122,7 @@ class _RequestsGraphClient:
                     )
                 return response
 
-            last_error = FetchError(
-                f"Microsoft Graph request returned HTTP {response.status_code}"
-            )
+            last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
             self._sleep(attempt, last_error, response.headers)
 
         raise FetchError(str(last_error))
@@ -145,9 +138,7 @@ class _RequestsGraphClient:
         try:
             payload: object = response.json()
         except ValueError as exc:
-            raise AuthenticationError(
-                "Microsoft identity returned non-JSON token"
-            ) from exc
+            raise AuthenticationError("Microsoft identity returned non-JSON token") from exc
 
         if not isinstance(payload, dict):
             raise AuthenticationError("Microsoft identity returned invalid JSON token")
@@ -155,17 +146,12 @@ class _RequestsGraphClient:
         if not token:
             raise AuthenticationError("Microsoft identity token response missing token")
         self._token = str(token)
-        self._token_expires_at = time.monotonic() + int(
-            payload.get("expires_in") or 3599
-        )
+        self._token_expires_at = time.monotonic() + int(payload.get("expires_in") or 3599)
         return self._token
 
     def _request_token(self) -> requests.Response:
         """POST for an OAuth token, retrying transient failures and 429/5xx."""
-        token_url = (
-            f"https://login.microsoftonline.com/{self.config.tenant_id}"
-            "/oauth2/v2.0/token"
-        )
+        token_url = f"https://login.microsoftonline.com/{self.config.tenant_id}/oauth2/v2.0/token"
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             try:

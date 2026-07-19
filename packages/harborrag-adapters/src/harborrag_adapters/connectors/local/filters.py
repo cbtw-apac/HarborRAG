@@ -49,9 +49,7 @@ def path_filter(
 def file_paths_from_query(query: ConnectorQuery) -> list[str | Path]:
     """Return explicit file paths from supported query-filter aliases."""
     values = (
-        query.filters.get("file_paths")
-        or query.filters.get("paths")
-        or query.filters.get("files")
+        query.filters.get("file_paths") or query.filters.get("paths") or query.filters.get("files")
     )
     if values is None:
         return []

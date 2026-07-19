@@ -95,9 +95,7 @@ def test_load_rejects_folders():
     )
 
     with pytest.raises(DocumentProcessingError, match="not a downloadable file"):
-        connector.load(
-            SourceRecord("sharepoint://site1/drive1/folder1", "folder", "folder1")
-        )
+        connector.load(SourceRecord("sharepoint://site1/drive1/folder1", "folder", "folder1"))
 
 
 def test_load_by_ids_loads_each_item():

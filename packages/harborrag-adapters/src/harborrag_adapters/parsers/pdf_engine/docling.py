@@ -137,9 +137,7 @@ class DoclingBackend(PdfBackend):
 
         pipeline_options = self.options.pipeline_options or self._pipeline_options()
         format_option = self._pdf_format_option(PdfFormatOption, pipeline_options)
-        self._cached_converter = DocumentConverter(
-            format_options={InputFormat.PDF: format_option}
-        )
+        self._cached_converter = DocumentConverter(format_options={InputFormat.PDF: format_option})
         return self._cached_converter
 
     def _pipeline_options(self) -> Any:
@@ -202,9 +200,7 @@ class DoclingBackend(PdfBackend):
         pipeline_options = importlib.import_module("docling.datamodel.pipeline_options")
         options_cls = getattr(pipeline_options, class_name, None)
         if options_cls is None:
-            raise ImportError(
-                f"Docling installation does not expose {class_name} for OCR."
-            )
+            raise ImportError(f"Docling installation does not expose {class_name} for OCR.")
 
         options = options_cls()
         self._configure_ocr_options(options)
@@ -303,9 +299,7 @@ class DoclingBackend(PdfBackend):
         module = importlib.import_module(module_name)
         backend_cls = getattr(module, class_name, None)
         if backend_cls is None:
-            raise ImportError(
-                f"Docling installation does not expose {class_name}."
-            )
+            raise ImportError(f"Docling installation does not expose {class_name}.")
         return backend_cls
 
     def _convert_kwargs(self) -> dict[str, Any]:

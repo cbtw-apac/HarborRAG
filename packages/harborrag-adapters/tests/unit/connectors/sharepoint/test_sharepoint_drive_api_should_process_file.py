@@ -54,9 +54,7 @@ def test_should_process_file_callback_reject_allow_and_exception_paths():
     def allow(name, size, mime):
         return True, ""
 
-    api_allow = SharePointDriveAPI(
-        FakeGraphClient(), config(process_file_callback=allow)
-    )
+    api_allow = SharePointDriveAPI(FakeGraphClient(), config(process_file_callback=allow))
     assert api_allow.should_process_file(item, ConnectorQuery()) is True
 
 
