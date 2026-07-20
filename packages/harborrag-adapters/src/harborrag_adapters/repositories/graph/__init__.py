@@ -1,4 +1,4 @@
-from harborrag_adapters.repositories.graph.base import BaseGraphRepository
-from harborrag_adapters.repositories.graph.mock import MockGraphRepository
+from harborrag_adapters.repositories.graph.base import HarborGraphRepository
+from harborrag_adapters.repositories.graph.client import HarborGraphDBClient
 
-__all__ = ["BaseGraphRepository", "MockGraphRepository"]
+__all__ = ["HarborGraphDBClient", "HarborGraphRepository"]

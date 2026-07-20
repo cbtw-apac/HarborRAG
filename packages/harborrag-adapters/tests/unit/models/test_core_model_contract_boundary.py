@@ -5,10 +5,10 @@ from harborrag_adapters.models.rerank import HarborRerankingClient
 from harborrag_core.models.protocols import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
-    AsyncHarborRerankingClientProtocol,
+    AsyncHarborRerankClientProtocol,
     HarborChatClientProtocol,
     HarborEmbedClientProtocol,
-    HarborRerankingClientProtocol,
+    HarborRerankClientProtocol,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -19,5 +19,5 @@ def test_adapter_clients_implement_core_protocols() -> None:
     assert issubclass(HarborChatClient, AsyncHarborChatClientProtocol)
     assert issubclass(HarborEmbedClient, HarborEmbedClientProtocol)
     assert issubclass(HarborEmbedClient, AsyncHarborEmbedClientProtocol)
-    assert issubclass(HarborRerankingClient, HarborRerankingClientProtocol)
-    assert issubclass(HarborRerankingClient, AsyncHarborRerankingClientProtocol)
+    assert issubclass(HarborRerankingClient, HarborRerankClientProtocol)
+    assert issubclass(HarborRerankingClient, AsyncHarborRerankClientProtocol)

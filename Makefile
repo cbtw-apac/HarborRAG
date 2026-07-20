@@ -15,7 +15,7 @@ help:
 	@echo "Quality:"
 	@echo "  make test             Run all root and package-local tests"
 	@echo "  make test-package PACKAGE=harborrag-core"
-	@echo "  make coverage         Run tests with 95% coverage gate"
+	@echo "  make coverage         Run tests with 90% coverage gate"
 	@echo "  make lint             Run Ruff lint checks"
 	@echo "  make format           Format with Black, isort, then Ruff format"
 	@echo "  make typecheck        Run mypy across packages"

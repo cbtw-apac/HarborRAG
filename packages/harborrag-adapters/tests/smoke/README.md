@@ -22,7 +22,7 @@ run here.
 | Confluence, GitHub, JIRA, SharePoint | Credentials, network route, and a readable source exist | Real discovery and load; Atlassian also checks attachment mode |
 | Chat, embeddings, reranking | A real deployment and credentials/ambient identity exist | One real response, normalized metadata, and family-specific output invariants |
 | Parsers | A representative real document and required optional libraries/models exist | Real extraction through registry routing or a selected PDF profile |
-| Repository adapters | Not available yet | Source currently exposes interfaces and in-memory test doubles only |
+| Repository adapters | Local Compose stack or SQLite is available | Real health and write/read/cleanup operations for PostgreSQL, Redis, Qdrant, FalkorDB, and SQLite |
 
 ## Safety rules
 
@@ -120,6 +120,24 @@ The `fast` PDF profile can usually run with PyMuPDF. `balanced`, `ocr`, and
 `quality` may remain unavailable until Docling, LiteParse, MinerU, PaddleOCR,
 their model assets, and suitable CPU/GPU resources are installed in the main
 environment.
+
+## Repository smoke checks
+
+Start the local services, install their optional clients, and run the group
+check:
+
+```bash
+DATABASE_ENV_FILE=env/.env.database ./scripts/deployment/database_up.sh
+uv pip install -e \
+  "packages/harborrag-adapters[redis,qdrant,falkordb,postgres]"
+HARBOR_SMOKE_ENV_FILE=env/.env.database \
+  .venv/bin/python packages/harborrag-adapters/tests/smoke/repositories/run_all.py
+```
+
+SQLite uses a temporary database and needs no running service. The other checks
+default to the ports in `docker-compose.database.yml`. See
+[`repositories/README.md`](repositories/README.md) for individual commands,
+overrides, operations, and cleanup behavior.
 
 ## Exit codes and evidence
 
