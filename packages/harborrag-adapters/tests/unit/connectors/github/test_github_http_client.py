@@ -208,7 +208,8 @@ def test_github_request_raises_fetch_error_after_exhausting_connection_errors():
         client.get_json("repos/o/r")
 
 
-def test_github_client_omits_authorization_header_without_token():
+def test_github_client_omits_authorization_header_without_token(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     client = _github_client(token=None)
     assert "Authorization" not in client.session.headers
 

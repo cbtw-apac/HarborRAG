@@ -419,7 +419,6 @@ async def test_cleanup_path_swallows_unlink_errors(
         assert reference.size_bytes == 4
 
 
-
 @pytest.mark.asyncio
 async def test_get_bytes_range_os_error_is_wrapped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -187,7 +187,6 @@ async def test_delete_returns_false_when_key_absent() -> None:
         assert await store.delete("bkt", "missing", context=context) is False
 
 
-
 @pytest.mark.asyncio
 async def test_put_checksum_mismatch_raises_validation_error() -> None:
     from harborrag_adapters.repositories.errors import HarborStorageValidationError
