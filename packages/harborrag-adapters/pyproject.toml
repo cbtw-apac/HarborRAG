@@ -6,6 +6,15 @@ requires-python = ">=3.12"
 readme = "README.md"
 dependencies = ["harborrag-core==0.1.0"]
 
+[project.optional-dependencies]
+control-plane = [
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "aiosqlite>=0.20",
+    "greenlet>=3",
+]
+postgres = ["asyncpg>=0.30"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
