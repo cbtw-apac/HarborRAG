@@ -1,5 +1,3 @@
-"""Tests for live-smoke attachment OCR selection without real provider calls."""
-
 from __future__ import annotations
 
 import runpy
