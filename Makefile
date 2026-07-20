@@ -30,9 +30,9 @@ help:
 
 bootstrap:
 	$(PYTHON) -m pip install -e packages/harborrag-core
-	$(PYTHON) -m pip install -e packages/harborrag-adapters
+	$(PYTHON) -m pip install -e "packages/harborrag-adapters[control-plane]"
 	$(PYTHON) -m pip install -e packages/harborrag-engine
-	$(PYTHON) -m pip install -e packages/harborrag-runtime
+	$(PYTHON) -m pip install -e "packages/harborrag-runtime[production]"
 	$(PYTHON) -m pip install -e "packages/harborrag-app[api]"
 	$(PYTHON) -m pip install -e packages/harborrag-mcp
 	$(PYTHON) -m pip install -e packages/harborrag

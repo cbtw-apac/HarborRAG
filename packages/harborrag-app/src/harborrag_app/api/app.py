@@ -8,6 +8,7 @@ lifespan builds the app service through runtime composition.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -15,24 +16,25 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from harborrag_app.api.auth.dependencies import build_token_verifier
+from harborrag_app.api.dependencies import select_app_service
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.middleware import TraceIdMiddleware
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.services.mock import MockAppService
 
 API_PREFIX = "/api/v1"
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Compose the app service on startup.
+    """Compose the app service on startup (ST8 selection rule).
 
-    M0 wires the mock composition; ST8 switches to
-    CompositionRoot.production() when a control DB is configured.
+    Runs in a worker thread: production composition executes Alembic
+    migrations and a DB probe, which drive their own event loops.
     """
-    app.state.app_service = MockAppService()
-    app.state.composition_mode = "mock"
+    service, mode = await asyncio.to_thread(select_app_service)
+    app.state.app_service = service
+    app.state.composition_mode = mode
     yield
 
 

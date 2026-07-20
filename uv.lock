@@ -742,12 +742,21 @@ dependencies = [
     { name = "harborrag-engine", marker = "python_full_version < '3.13'" },
 ]
 
+[package.optional-dependencies]
+production = [
+    { name = "harborrag-adapters", extra = ["control-plane"], marker = "python_full_version < '3.13'" },
+    { name = "pydantic-settings", marker = "python_full_version < '3.13'" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["control-plane"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
+    { name = "pydantic-settings", marker = "extra == 'production'", specifier = ">=2.2" },
 ]
+provides-extras = ["production"]
 
 [[package]]
 name = "harborrag-workspace"

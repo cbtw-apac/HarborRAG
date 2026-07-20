@@ -6,6 +6,12 @@ requires-python = ">=3.12"
 readme = "README.md"
 dependencies = ["harborrag-core==0.1.0", "harborrag-engine==0.1.0", "harborrag-adapters==0.1.0"]
 
+[project.optional-dependencies]
+production = [
+    "pydantic-settings>=2.2",
+    "harborrag-adapters[control-plane]==0.1.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
