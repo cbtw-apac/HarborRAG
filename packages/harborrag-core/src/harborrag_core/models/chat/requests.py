@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from harborrag_core.base import StrictModel
 
 from ..headers import ModelHeaderValue, protect_model_headers
 from ..metadata import ModelRequestMetadata
@@ -10,7 +12,7 @@ from .messages import HarborChatMessage
 from .tools import HarborChatTool
 
 
-class HarborRAGMetadata(ModelRequestMetadata):
+class HarborChatMetadata(ModelRequestMetadata):
     """Carry provider-neutral RAG context for a chat operation."""
 
     conversation_id: str | None = None
@@ -23,10 +25,8 @@ class HarborRAGMetadata(ModelRequestMetadata):
     source_citations: tuple[dict[str, Any], ...] = ()
 
 
-class HarborTokenBudget(BaseModel):
+class HarborTokenBudget(StrictModel):
     """Define prompt, completion, and total token limits for one request."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     max_input_tokens: int | None = Field(default=None, gt=0)
     reserved_output_tokens: int = Field(default=0, ge=0)
@@ -51,10 +51,8 @@ class HarborTokenBudget(BaseModel):
         return self.max_input_tokens - self.reserved_output_tokens
 
 
-class HarborChatRequest(BaseModel):
+class HarborChatRequest(StrictModel):
     """Represent a validated, provider-neutral chat request."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     messages: tuple[HarborChatMessage, ...]
     logical_model: str | None = None
@@ -70,7 +68,7 @@ class HarborChatRequest(BaseModel):
     response_format: dict[str, Any] | type[BaseModel] | None = None
     reasoning_effort: str | None = None
     custom_headers: dict[str, ModelHeaderValue] = Field(default_factory=dict)
-    metadata: HarborRAGMetadata = Field(default_factory=HarborRAGMetadata)
+    metadata: HarborChatMetadata = Field(default_factory=HarborChatMetadata)
     token_budget: HarborTokenBudget | None = None
     cacheable: bool = False
     sensitive: bool = False

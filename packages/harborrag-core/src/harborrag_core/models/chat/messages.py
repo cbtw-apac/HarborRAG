@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import field_validator, model_validator
+
+from harborrag_core.base import StrictModel
 
 from .content import ContentPart
 from .enums import MessageRole
 from .tools import HarborToolCall
 
 
-class HarborChatMessage(BaseModel):
+class HarborChatMessage(StrictModel):
     """Represent a provider-neutral chat message with optional multimodal content."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     role: MessageRole
     content: str | tuple[ContentPart, ...] | None = None

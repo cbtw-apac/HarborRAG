@@ -18,11 +18,9 @@ from harborrag_runtime.services.mock import MockRuntimeService
 class _MockIngestionSummary:
     """Local stand-in for ``harborrag_engine.ingestion.base.IngestionRunSummary``.
 
-    Not imported directly: that package's ``__init__.py`` unconditionally
-    imports its ``mock`` submodule, which fails today (depends on core
-    modules that don't exist yet: ``harborrag_core.ports.models``,
-    ``domain.metadata``, ``domain.provenance``). Same field shape so
-    ``dataclasses.asdict`` output is unaffected either way.
+    The old ingestion mock depended on legacy core modules that are no longer
+    part of the public surface. This local shape keeps ``dataclasses.asdict``
+    output stable for the runtime composition check.
     """
 
     discovered: int
@@ -56,11 +54,10 @@ class _MockIngestionConnector(BaseConnector):
 class _MockIngestionShim:
     """Reduced connector -> parser smoke check for the health-check ingest path.
 
-    This is NOT the documented ``BaseIngestionPipeline`` contract: it skips
-    normalization into ``HarborDocument`` because that step depends on core
-    domain modules (``DocumentMetadata``/``DocumentProvenance``) that don't
-    exist yet. It exists only so the runtime/app ingest smoke check has
-    something real to run instead of raising ``AttributeError``.
+    This is not the documented ``BaseIngestionPipeline`` contract. It keeps
+    the runtime/app health check limited to connector loading and parsing;
+    normalization, indexing, and persistence are exercised by the engine
+    pipeline instead.
     """
 
     connector: BaseConnector

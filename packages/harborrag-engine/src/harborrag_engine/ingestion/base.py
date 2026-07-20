@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from harborrag_core.domain.document import HarborDocument
+from harborrag_core.domain.document import Document
 from harborrag_core.domain.raw_document import RawDocument
 
 
@@ -16,14 +16,14 @@ class IngestionRunSummary:
 
 
 class BaseDocumentNormalizer(ABC):
-    """Normalize connector/parser outputs into HarborDocument.
+    """Normalize connector/parser outputs into a canonical Document.
 
     TODO: Implement a production normalizer that preserves source metadata, permissions,
     attachments, parser quality, graph hints, tenant namespace, and object-store artifact links.
     """
 
     @abstractmethod
-    def normalize(self, raw: RawDocument, parsed_text: str) -> HarborDocument:
+    def normalize(self, raw: RawDocument, parsed_text: str) -> Document:
         raise NotImplementedError
 
 
@@ -35,7 +35,7 @@ class BaseChunker(ABC):
     """
 
     @abstractmethod
-    def chunk(self, document: HarborDocument) -> list[str]:
+    def chunk(self, document: Document) -> list[str]:
         raise NotImplementedError
 
 
@@ -43,7 +43,7 @@ class BaseIngestionPipeline(ABC):
     """Orchestrate connector -> parser -> normalizer -> repositories."""
 
     @abstractmethod
-    def run_once(self) -> list[HarborDocument]:
+    def run_once(self) -> list[Document]:
         raise NotImplementedError
 
     @abstractmethod

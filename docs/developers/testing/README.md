@@ -72,6 +72,8 @@ groups from `.env.connector.example` and `.env.models.example` into repo-root
 ```bash
 python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
 python packages/harborrag-adapters/tests/smoke/models/run_all.py
+HARBOR_SMOKE_ENV_FILE=env/.env.database \
+  python packages/harborrag-adapters/tests/smoke/repositories/run_all.py
 ```
 
 Run a single provider script when only one connector is configured:
@@ -90,24 +92,24 @@ See the adapter [real smoke-test runbook](../../../packages/harborrag-adapters/t
 for prerequisites, safe output rules, exit codes, and the list of checks that
 may remain unavailable outside the main environment.
 
-## Testing the base + mock pattern
+## Testing contracts and providers
 
-Because every provider family ships a `base.py` contract and a `mock.py`
-implementation (see [Architecture Overview](../architecture/README.md#the-base-mock-pattern)),
-package-local tests typically:
+Each provider family exposes a stable `base.py` contract. Package-local tests
+exercise production implementations with deterministic in-memory or fake SDK
+clients (see [Architecture Overview](../architecture/README.md#provider-contracts-and-test-doubles)):
 
-1. instantiate the mock (e.g. `MockConnector`, `MockEmbeddingModel`, `MockVectorRepository`);
-2. exercise the contract method (`discover()`/`load()`, `embed()`, `upsert()`/`search()`, ...);
-3. assert on the shape and values of the returned core domain object (`SourceRecord`, `RawDocument`, `EmbeddingResponse`, `RetrievalResult`, ...).
+1. construct the real adapter with validated configuration and a fake provider client;
+2. exercise its public contract, including tenant isolation and lifecycle behavior;
+3. assert both the normalized core schema and the request sent to the provider;
+4. cover conflict, timeout, expiration, and partial-failure paths without live credentials.
 
 `harborrag-core`'s `testing/fakes.py` (`FakeConnector`, `FakeParser`) exists for
 tests in other packages that need connector/parser behavior without importing
 `harborrag-adapters`.
 
-When you implement a real provider, add its tests using a fake client or fixture
-data, not live credentials, so the default suite stays hermetic. A provider test
-suite typically mirrors the mock test's shape, but constructs the real class
-with a fake/stub of the underlying SDK client.
+Standalone smoke scripts complement the hermetic suite by checking deployed
+services through the same public APIs. They never run during normal pytest
+discovery.
 
 ## Quality gates as a whole
 

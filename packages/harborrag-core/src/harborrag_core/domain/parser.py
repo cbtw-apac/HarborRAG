@@ -8,6 +8,8 @@ from typing import Any
 
 from .element import DocumentElement
 
+_MAX_PATH_STRING_LENGTH = 260
+
 
 def _has_bom(data: bytes, encoding: str) -> bool:
     """Return whether ``data`` starts with the byte-order mark for ``encoding``."""
@@ -104,7 +106,7 @@ class ParseInput:
         if self.filename:
             return Path(self.filename).suffix.lower()
         if self.path:
-            return self.path.suffix.lower()
+            return Path(self.path).suffix.lower()
         return ""
 
     def read_bytes(self) -> bytes:
@@ -113,7 +115,7 @@ class ParseInput:
         if isinstance(self.content, str):
             return self.content.encode("utf-8")
         if self.path is not None:
-            return self.path.read_bytes()
+            return Path(self.path).read_bytes()
         raise ValueError("ParseInput has no readable bytes")
 
     def read_text(self, encoding: str | None = None) -> str:
@@ -177,8 +179,8 @@ class ParseInput:
         return name or None
 
     @staticmethod
-    def _path_from_string(value: str) -> Path | None:  # noqa: D401 - see coerce
-        if "\n" in value or len(value) >= 260:
+    def _path_from_string(value: str) -> Path | None:
+        if "\n" in value or len(value) >= _MAX_PATH_STRING_LENGTH:
             return None
         try:
             path = Path(value)

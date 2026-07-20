@@ -1,6 +1,6 @@
 # Getting Started with HarborRAG
 
-HarborRAG is a modular, provider-agnostic RAG framework in its early, framework-skeleton stage: stable contracts and mocks exist for every provider family, but real connectors, parsers, model providers, and repositories are still to be implemented.
+HarborRAG is a modular, provider-agnostic RAG framework under active development. Stable contracts now have real connector, parser, model, and storage implementations, including Redis, FalkorDB, PostgreSQL, Qdrant, SQLite, S3, filesystem, and memory repositories; the end-user orchestration surfaces are still evolving.
 
 ## Start path
 

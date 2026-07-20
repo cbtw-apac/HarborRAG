@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harborrag_core.domain.document import HarborDocument
+from harborrag_core.domain.document import Document
 
 from harborrag_engine.indexing.base import BaseIndexer
 
@@ -11,6 +11,6 @@ from harborrag_engine.indexing.base import BaseIndexer
 class MockIndexer(BaseIndexer):
     indexed: list[str]
 
-    def index(self, documents: list[HarborDocument]) -> int:
+    def index(self, documents: list[Document]) -> int:
         self.indexed.extend(doc.id for doc in documents)
         return len(documents)

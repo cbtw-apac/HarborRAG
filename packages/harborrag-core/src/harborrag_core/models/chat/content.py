@@ -5,13 +5,14 @@ import binascii
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import Field, field_validator
+
+from harborrag_core.base import StrictModel
 
 
-class TextContentPart(BaseModel):
+class TextContentPart(StrictModel):
     """Carry one text segment in a multimodal chat message."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     type: Literal["text"] = "text"
     text: str = Field(min_length=1)
 
@@ -25,10 +26,9 @@ class TextContentPart(BaseModel):
         return value
 
 
-class ImageURL(BaseModel):
+class ImageURL(StrictModel):
     """Describe an image URL and its requested provider detail level."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     url: str = Field(min_length=1)
     detail: Literal["auto", "low", "high"] | None = None
 
@@ -54,26 +54,23 @@ class ImageURL(BaseModel):
         raise ValueError("image URL must be absolute HTTP(S) or a base64 image data URL")
 
 
-class ImageURLContentPart(BaseModel):
+class ImageURLContentPart(StrictModel):
     """Carry an image URL inside a multimodal chat message."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     type: Literal["image_url"] = "image_url"
     image_url: ImageURL
 
 
-class InputAudio(BaseModel):
+class InputAudio(StrictModel):
     """Carry encoded input audio and its declared media format."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     data: str
     format: Literal["wav", "mp3"]
 
 
-class InputAudioContentPart(BaseModel):
+class InputAudioContentPart(StrictModel):
     """Carry audio input inside a multimodal chat message."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
     type: Literal["input_audio"] = "input_audio"
     input_audio: InputAudio
 

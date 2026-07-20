@@ -1,6 +1,6 @@
 # Deployment
 
-The application code (`packages/harborrag-app`, `harborrag-mcp`) currently exposes mock services only — there is nothing production-ready to deploy yet. This page documents the deployment scaffolding that exists today under `deploy/` and `scripts/deployment/`, so the stack is ready once real providers land.
+The application code (`packages/harborrag-app`, `harborrag-mcp`) still exposes limited framework surfaces, but the adapter package now contains real Redis, FalkorDB, PostgreSQL, Qdrant, SQLite, and S3 repository providers. This page documents the service stacks under `deploy/` and `scripts/deployment/` used to exercise those providers.
 
 ## Compose stacks
 
@@ -68,4 +68,4 @@ Location: `deploy/aws/` — reserves infrastructure-as-code entry points (`cdk/`
 ## Related
 
 - [Architecture Overview](../architecture/README.md) — the repositories (vector/graph/cache/object-store/database) this stack backs.
-- [Extending HarborRAG](../extending/README.md) — implementing the repository adapters that will actually talk to Qdrant, FalkorDB, and Redis.
+- [Extending HarborRAG](../extending/README.md) — adding or extending repository providers for these services.

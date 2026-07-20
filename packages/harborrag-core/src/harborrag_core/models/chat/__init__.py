@@ -13,7 +13,7 @@ from .enums import (
     StructuredOutputDegradation,
 )
 from .messages import HarborChatMessage
-from .requests import HarborChatRequest, HarborRAGMetadata, HarborTokenBudget
+from .requests import HarborChatMetadata, HarborChatRequest, HarborTokenBudget
 from .responses import HarborChatResponse, HarborChatStreamChunk, HarborChatUsage
 from .tools import (
     HarborChatTool,
@@ -26,12 +26,12 @@ __all__ = [
     "ContentPart",
     "FinishReason",
     "HarborChatMessage",
+    "HarborChatMetadata",
     "HarborChatRequest",
     "HarborChatResponse",
     "HarborChatStreamChunk",
     "HarborChatTool",
     "HarborChatUsage",
-    "HarborRAGMetadata",
     "HarborTokenBudget",
     "HarborToolCall",
     "HarborToolCallFunction",

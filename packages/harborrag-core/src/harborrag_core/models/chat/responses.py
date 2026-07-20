@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+
+from harborrag_core.base import ExtensibleModel
 
 from ..usage import ModelTokenUsage
 from .enums import FinishReason, StreamEventType
@@ -22,10 +24,8 @@ class HarborChatUsage(ModelTokenUsage):
     reasoning_tokens: int | None = Field(default=None, ge=0)
 
 
-class HarborChatResponse(BaseModel):
+class HarborChatResponse(ExtensibleModel):
     """Represent a normalized, provider-neutral chat response."""
-
-    model_config = ConfigDict(extra="allow", frozen=True)
 
     id: str
     created: int | None = None
@@ -58,10 +58,8 @@ class HarborChatResponse(BaseModel):
         return self.message.tool_calls
 
 
-class HarborChatStreamChunk(BaseModel):
+class HarborChatStreamChunk(ExtensibleModel):
     """Represent one normalized event emitted by a chat response stream."""
-
-    model_config = ConfigDict(extra="allow", frozen=True)
 
     event: StreamEventType
     logical_model: str

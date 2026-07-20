@@ -1,8 +1,8 @@
-"""Run the deterministic mock pipeline end to end.
+"""Run the deterministic local composition check end to end.
 
-Wires the mock connector, parser, normalizer, chunker, embedder, vector
-repository, and retrieval pipeline together so contributors can see the
-framework data flow without any real provider.
+Wires the runtime's in-memory connector and real text parser, builds a small
+retrieval input from the loaded documents, and exercises the deterministic
+retrieval pipeline without an external provider.
 
 Usage:
     python scripts/run_mock_pipeline.py [--json] [--query TEXT] [--top-k N]
@@ -15,7 +15,6 @@ import json
 import sys
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-from harborrag_engine.ingestion.mock import MockChunker
 from harborrag_engine.retrieval.mock import MockRetrievalPipeline
 from harborrag_runtime.composition import CompositionRoot
 
@@ -24,17 +23,15 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
     pipeline = CompositionRoot.local().mock_pipeline()
     documents = pipeline.run_once()
 
-    chunker = MockChunker()
     chunks: list[dict[str, object]] = []
     for document in documents:
-        for idx, chunk_text in enumerate(chunker.chunk(document)):
-            chunks.append(
-                {
-                    "id": f"{document.id}#chunk-{idx}",
-                    "document_id": document.id,
-                    "text": chunk_text,
-                }
-            )
+        chunks.append(
+            {
+                "id": f"{document.id}#chunk-0",
+                "document_id": document.id,
+                "text": document.text(),
+            }
+        )
 
     retrieval_pipeline = MockRetrievalPipeline(
         results=[
@@ -54,9 +51,9 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
         "documents": [
             {
                 "id": document.id,
-                "title": document.title,
-                "source_type": document.source_type,
-                "text": document.text,
+                "source": document.source,
+                "content_type": document.content_type,
+                "text": document.text(),
             }
             for document in documents
         ],

@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+
+from harborrag_core.base import StrictModel
 
 from .headers import ModelHeaderValue, protect_model_headers
 from .metadata import ModelRequestMetadata
@@ -21,10 +23,8 @@ class HarborRerankMetadata(ModelRequestMetadata):
     retrieval_latency_ms: float | None = Field(default=None, ge=0)
 
 
-class HarborRerankDocument(BaseModel):
+class HarborRerankDocument(StrictModel):
     """Represent one text or structured document supplied to a reranker."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     content: RerankDocumentContent
     document_id: str | None = None
@@ -52,10 +52,8 @@ class HarborRerankDocument(BaseModel):
         return cls(content=content, document_id=document_id, metadata=metadata or {})
 
 
-class HarborRerankRequest(BaseModel):
+class HarborRerankRequest(StrictModel):
     """Represent a validated, provider-neutral reranking request."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     query: str = Field(min_length=1)
     documents: tuple[HarborRerankDocument, ...]
@@ -108,10 +106,8 @@ class HarborRerankUsage(ModelTokenUsage):
     output_tokens: int = Field(default=0, ge=0)
 
 
-class HarborRerankResult(BaseModel):
+class HarborRerankResult(StrictModel):
     """Represent one normalized reranking result."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     rank: int = Field(ge=1)
     index: int = Field(ge=0)
@@ -121,10 +117,8 @@ class HarborRerankResult(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class HarborRerankResponse(BaseModel):
+class HarborRerankResponse(StrictModel):
     """Represent a normalized, provider-neutral reranking response."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     results: tuple[HarborRerankResult, ...]
     logical_model: str
