@@ -1,18 +1,19 @@
 # harborrag-core
 
-Owns provider-neutral domain models, protocol contracts, execution primitives, observability sinks, and security helpers.
+Owns provider-neutral domain models, protocol contracts, storage schemas, and security helpers.
 
 ## Team deliverables
 
 - Add only stable, dependency-light contracts here.
 - Keep provider SDKs out of this package.
-- Add Protocols in `harborrag_core.ports.*` when engine code needs a new capability.
+- Add protocols in `harborrag_core.models.protocols` when adapters need a shared model contract.
 - Add domain models in `harborrag_core.domain.*` only when multiple packages need them.
+- Reuse `StrictModel` or `ExtensibleModel` from `harborrag_core.base` for validated models.
+- Add package-wide exceptions to `harborrag_core.errors`; keep subsystem error families near their subsystem.
 
 ## Rule
 
 `harborrag-core` must never import adapters, engine, runtime, app, MCP, or the meta-package.
-
 
 ## Package tests
 

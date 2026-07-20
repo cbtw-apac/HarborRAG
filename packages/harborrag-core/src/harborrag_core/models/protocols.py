@@ -146,7 +146,7 @@ class AsyncHarborEmbedClientProtocol(Protocol):
 
 
 @runtime_checkable
-class HarborRerankingClientProtocol(Protocol):
+class HarborRerankClientProtocol(Protocol):
     """Define the stable synchronous reranking-client boundary."""
 
     def rerank(
@@ -167,7 +167,7 @@ class HarborRerankingClientProtocol(Protocol):
 
 
 @runtime_checkable
-class AsyncHarborRerankingClientProtocol(Protocol):
+class AsyncHarborRerankClientProtocol(Protocol):
     """Define the stable asynchronous reranking-client boundary."""
 
     async def arerank(

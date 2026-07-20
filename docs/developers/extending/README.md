@@ -1,6 +1,6 @@
 # Extending HarborRAG
 
-HarborRAG extends through real implementations of the base classes already defined in `harborrag-adapters`, `harborrag-engine`, and `harborrag-runtime`. Every family below follows the same shape: subclass `base.py`, keep provider SDK imports out of `harborrag-core`, and add a package-local test using a fake client or the deterministic mock — never live credentials in the default test suite. See [Architecture Overview](../architecture/README.md#the-base-mock-pattern) for why this pattern exists.
+HarborRAG extends through implementations of the base classes defined in `harborrag-adapters`, `harborrag-engine`, and `harborrag-runtime`. Subclass the matching `base.py`, keep provider SDK imports out of `harborrag-core`, and add package-local tests using a fake client — never live credentials in the default test suite. See [Architecture Overview](../architecture/README.md#provider-contracts-and-test-doubles).
 
 ## Connectors
 
@@ -71,43 +71,30 @@ def rerank(self, query: str, documents: Sequence[str], top_k: int | None = None)
 
 ## Repositories
 
-Location: `packages/harborrag-adapters/src/harborrag_adapters/repositories/{vector,graph,cache,object_store,database}/`
+Location: `packages/harborrag-adapters/src/harborrag_adapters/repositories/{vector,graph,cache,object_store,database,state}/`
 
 Use `repositories/`, never `stores/` — this is enforced by review convention (see `.coderabbit.yaml`), not currently by an automated check.
 
-Contracts:
-
-```python
-# repositories/vector/base.py -> BaseVectorRepository
-def upsert(self, items: Sequence[dict[str, Any]]) -> None: ...
-def search(self, vector: Sequence[float], top_k: int = 10) -> list[RetrievalResult]: ...
-
-# repositories/graph/base.py -> BaseGraphRepository
-def upsert_graph_hints(self, hints: Sequence[GraphHint]) -> None: ...
-
-# repositories/cache/base.py -> BaseCacheRepository
-def get(self, key: str) -> Any | None: ...
-def set(self, key: str, value: Any, ttl_seconds: int | None = None) -> None: ...
-
-# repositories/object_store/base.py -> BaseObjectRepository
-def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str: ...
-def get_bytes(self, key: str) -> bytes: ...
-
-# repositories/database/base.py -> BaseDatabaseRepository
-def execute(self, statement: str, parameters: Sequence[Any] | None = None) -> list[dict[str, Any]]: ...
-```
+The contracts are `HarborVectorRepository`, `HarborGraphRepository`,
+`HarborCacheStore`/`HarborLockManager`, `HarborObjectStore`,
+`HarborDatabaseBackend`, and the state/checkpoint/lease stores. All I/O methods
+are async and every data operation receives a `StorageOperationContext` so
+tenant isolation is explicit and testable.
 
 Real implementations, matching [deploy/](../deployment/README.md)'s stack:
 
 ```text
-repositories/vector/qdrant.py
-repositories/graph/neo4j.py       # or falkordb.py — see deploy/falkordb/README.md
-repositories/cache/redis.py
-repositories/object_store/s3.py
-repositories/database/postgresql.py
+repositories/vector/qdrant/
+repositories/graph/falkordb/
+repositories/cache/redis/
+repositories/object_store/s3/
+repositories/database/postgresql/
+repositories/database/sqlite/
+repositories/state/redis/
+repositories/state/sqlite/
 ```
 
-Requirements: keep raw provider responses out of public results by default; expose capability metadata (`harborrag_core.contracts.capabilities.CapabilityProfile`) so callers can check what a provider supports before calling it; add mock/fake-client tests for request/response normalization rather than requiring a live database in the default suite.
+Requirements: keep raw provider responses out of public results by default; expose the matching capability schema from `harborrag_core.schemas` so callers can check support before invoking an operation; add mock/fake-client tests for request/response normalization rather than requiring a live database in the default suite.
 
 ## Engine stages
 

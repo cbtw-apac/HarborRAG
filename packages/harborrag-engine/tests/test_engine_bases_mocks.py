@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_core.domain.data_source import DataSourceType, DocumentMetadata
-from harborrag_core.domain.document import HarborDocument
+from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_engine.builder import EngineBuilder
 from harborrag_engine.config import EngineConfig
@@ -97,13 +97,12 @@ def test_mock_evidence_builder_numbers_results_in_order():
 
 def test_mock_indexer_records_indexed_document_ids():
     indexer = MockIndexer(indexed=[])
-    document = HarborDocument(
+    document = Document(
         id="doc-1",
         title="Doc 1",
-        source_system="local_file",
         content=[DocumentElement(id="doc-1:0", type="paragraph", content="body")],
         content_type="page",
-        metadata=DocumentMetadata(source_system=DataSourceType.LOCAL_FILE),
+        provenance=DocumentProvenance(source="local_file"),
     )
 
     count = indexer.index([document])

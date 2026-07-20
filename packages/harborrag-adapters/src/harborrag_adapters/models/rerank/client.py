@@ -5,8 +5,8 @@ from typing import Any, Self
 
 from harborrag_core.models.capabilities import HarborRerankCapabilities
 from harborrag_core.models.protocols import (
-    AsyncHarborRerankingClientProtocol,
-    HarborRerankingClientProtocol,
+    AsyncHarborRerankClientProtocol,
+    HarborRerankClientProtocol,
 )
 from harborrag_core.models.rerank import (
     HarborRerankRequest,
@@ -49,8 +49,8 @@ from .validation import validate_rerank_configuration
 class HarborRerankingClient(
     ModelClientRuntimeMixin,
     ModelClientLifecycleMixin,
-    HarborRerankingClientProtocol,
-    AsyncHarborRerankingClientProtocol,
+    HarborRerankClientProtocol,
+    AsyncHarborRerankClientProtocol,
 ):
     """Provide synchronous and asynchronous provider-neutral reranking."""
 

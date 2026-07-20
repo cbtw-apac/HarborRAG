@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from harborrag_core.domain.document import HarborDocument
+from harborrag_core.domain.document import Document
 
 
 class BaseIndexer(ABC):
@@ -13,5 +13,5 @@ class BaseIndexer(ABC):
     """
 
     @abstractmethod
-    def index(self, documents: list[HarborDocument]) -> int:
+    def index(self, documents: list[Document]) -> int:
         raise NotImplementedError

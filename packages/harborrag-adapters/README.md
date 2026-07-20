@@ -28,9 +28,9 @@ adapter from provider-specific keyword arguments. Both are exported from
   implementations belong in provider or format modules under those packages.
 - Implemented connectors and parsers do not keep production `mock.py` modules;
   their fakes and test doubles belong under `tests/`.
-- Model and repository families that are still scaffolding keep matching
-  `base.py` and `mock.py` files inside their feature directories until real
-  providers replace those mocks.
+- Repository families expose provider-neutral `Harbor*` contracts plus real
+  provider packages. Their deterministic fakes belong under `tests/`; production
+  repository packages do not ship mock backends.
 - Shared adapter construction belongs in `builder.py` and `registry.py`; domain
   schemas must remain in `harborrag-core`, and workflow orchestration must remain
   in `harborrag-runtime`.
@@ -63,6 +63,13 @@ Install advanced PDF backends separately when needed:
 pip install -e "packages/harborrag-adapters[pdf]"
 ```
 
+SQLite database, state, filesystem, and memory repositories are included in the
+base install. Install only the extras needed by deployed services:
+
+```bash
+pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
+```
+
 ## Main Modules
 
 | Module | Purpose |
@@ -71,6 +78,7 @@ pip install -e "packages/harborrag-adapters[pdf]"
 | `harborrag_adapters.AdapterBuilder` | Constructs registered adapters from configuration. |
 | `harborrag_adapters.connectors` | Source connectors that discover `SourceRecord`s and load `RawDocument`s. |
 | `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
+| `harborrag_adapters.repositories` | Tenant-isolated vector, graph, cache, object, database, and workflow-state repositories. |
 
 See the module READMEs for deeper notes:
 
@@ -164,6 +172,29 @@ Default parser support includes:
 | `MarkdownParser` | `.md`, `.markdown`, `.mdx` |
 | `TextParser` | Plain text and common source/config file extensions |
 
+## Repositories
+
+Repository backends are asynchronous context managers and take a
+`StorageOperationContext` on every data operation. The context supplies the
+tenant boundary; callers must not encode tenant IDs into user keys themselves.
+
+| Family | Providers | Main products |
+| --- | --- | --- |
+| Vector | Qdrant | Collections, point CRUD, scan, dense and hybrid search. |
+| Graph | FalkorDB | Node/edge CRUD and bounded subgraph expansion. |
+| Cache | Memory, Redis | JSON values, tags, counters, compare-and-set, fenced locks. |
+| Object store | Memory, filesystem, S3 | Streaming bodies, metadata, list/delete, presigned reads. |
+| Database | SQLite, PostgreSQL | Document/chunk unit of work and transactional outbox. |
+| Workflow state | SQLite, Redis | Versioned state, checkpoints, leases, fencing tokens. |
+
+Use the family clients (`HarborVectorDBClient`, `HarborGraphDBClient`,
+`HarborCacheDBClient`, `HarborObjectStoreDBClient`, `HarborDatabaseClient`, and
+`HarborStateDBClient`) for provider-name construction, or instantiate a
+provider backend directly when configuration is already typed.
+
+Live, non-pytest smoke checks for Redis, FalkorDB, PostgreSQL, Qdrant, and SQLite
+are documented in `tests/smoke/repositories/README.md`.
+
 ## Reliability Boundaries
 
 Adapters should:
@@ -195,6 +226,13 @@ Run from the repository root:
 
 ```bash
 pytest packages/harborrag-adapters/tests
+```
+
+Run the hermetic repository suite and enforce its coverage target with:
+
+```bash
+pytest -n 0 packages/harborrag-adapters/tests/unit/repositories \
+  --cov=harborrag_adapters.repositories --cov-fail-under=90
 ```
 
 Keep connector tests close to provider behavior and parser tests focused on

@@ -1,6 +1,6 @@
 # Quick Start
 
-This walks through installing the workspace and exercising the deterministic mock pipeline — the same data flow a real connector, parser, embedder, and vector repository will run through once they exist. No external services (Qdrant, LLM providers, etc.) are required; everything below runs against in-memory mocks.
+This walks through installing the workspace and exercising the deterministic local ingestion check. No external services are required.
 
 ## 1. Install the workspace
 
@@ -22,20 +22,20 @@ python -m harborrag_app.cli.main doctor --json
 
 This confirms the runtime and engine composition (`harborrag_runtime.composition.CompositionRoot`) wires up correctly.
 
-## 3. Run the mock ingestion + retrieval pipeline
+## 3. Run the local ingestion check
 
 ```bash
 python scripts/run_mock_pipeline.py --json
 ```
 
-This connects `MockConnector` → the real `MarkdownParser` → `MockDocumentNormalizer` → `MockEmbeddingModel` → `MockVectorRepository`, then chunks and retrieves the result with `MockRetrievalPipeline`:
+This connects the runtime's deterministic in-memory source to the real text parser and reports the resulting ingestion summary. It is a composition check, not a live repository smoke test:
 
 ```json
 {
-  "documents": [{"id": "harbor://mock/doc", "title": "Mock Document", "source_type": "mock", "text": "..."}],
-  "chunks": [{"id": "harbor://mock/doc#chunk-0", "document_id": "harbor://mock/doc", "text": "..."}],
-  "retrieval": [{"id": "harbor://mock/doc#chunk-0", "text": "...", "score": 0.0, "metadata": {"document_id": "harbor://mock/doc"}}],
-  "summary": {"discovered": 1, "loaded": 1, "parsed": 1, "indexed": 1}
+  "documents": [{"id": "mock://composition/1", "source": "mock://composition/1", "content_type": "text/plain", "text": "..."}],
+  "chunks": [{"id": "mock://composition/1#chunk-0", "document_id": "mock://composition/1", "text": "..."}],
+  "retrieval": [{"id": "mock://composition/1#chunk-0", "text": "...", "score": 1.0, "metadata": {"document_id": "mock://composition/1"}}],
+  "summary": {"discovered": 1, "loaded": 1, "parsed": 1, "indexed": 0}
 }
 ```
 

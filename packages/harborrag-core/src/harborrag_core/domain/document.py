@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .data_source import DocumentMetadata
 from .element import DocumentElement
+from .provenance import DocumentProvenance
 
 
-@dataclass(kw_only=True)
+@dataclass(slots=True, kw_only=True)
 class DocumentRelation:
     """A structural edge from this document to another, derived directly from source data."""
 
@@ -34,19 +34,14 @@ class DocumentRelation:
     )
 
 
-@dataclass
-class HarborDocument:
-    """The canonical document type flowing out of every connector."""
+@dataclass(slots=True, kw_only=True)
+class Document:
+    """Canonical normalized document passed between ingestion stages."""
 
     id: str = field(
         metadata={"description": "Globally unique document ID, e.g. confluence://SPACE/123"}
     )
     title: str = field(metadata={"description": "Human-readable title of the document"})
-    source_system: str = field(
-        metadata={
-            "description": "Source system identifier, e.g. 'confluence', 'jira', 'local_file', etc."
-        }
-    )
     content: list[DocumentElement] = field(
         metadata={
             "description": "List of structured content elements that make up the document, e.g. headings, paragraphs, tables, images, etc."
@@ -57,10 +52,8 @@ class HarborDocument:
             "description": "Type of content, e.g. 'page', 'blogpost', 'comment', 'attachment', etc."
         }
     )
-    metadata: DocumentMetadata = field(
-        metadata={
-            "description": "Structured metadata about the document, typed against DocumentMetadata base class"
-        }
+    provenance: DocumentProvenance = field(
+        metadata={"description": "Origin, access, and source-timestamp information"}
     )
     relations: list[DocumentRelation] = field(
         default_factory=list,

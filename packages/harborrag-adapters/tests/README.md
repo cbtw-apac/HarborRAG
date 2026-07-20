@@ -26,13 +26,14 @@ type-first layout as every other adapter module.
 
 | Production area | Deterministic test location | Live smoke location |
 | --- | --- | --- |
-| `builder.py`, top-level registries, repository interfaces/test doubles | `unit/adapters/` | No live target until a non-mock repository adapter exists |
+| `builder.py` and top-level registries | `unit/adapters/` | Exercised through provider-family smoke checks |
 | `connectors/` | `unit/connectors/`, `failure/`, `security/` | `smoke/connectors/` |
 | `parsers/` | `unit/parsers/`, `failure/`, `security/`, `performance/` | `smoke/parsers/` |
 | `models/chat/` | `unit/models/chat/`, `contracts/models/chat/` | `smoke/models/chat.py` |
 | `models/embed/` | `unit/models/embed/` | `smoke/models/embed.py` |
 | `models/rerank/` | `unit/models/rerank/` | `smoke/models/rerank.py` |
 | `models/common/` and CLI/runtime composition | `unit/models/`, `chaos/models/`, `performance/models/` | Exercised through each live model family |
+| `repositories/` | `unit/repositories/` | `smoke/repositories/` |
 
 Unit, failure, security, contract, chaos, and performance tests use pytest and
 must be deterministic. Provider tests that use fake clients remain unit tests;

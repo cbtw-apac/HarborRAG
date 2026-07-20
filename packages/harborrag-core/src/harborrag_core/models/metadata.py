@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from harborrag_core.base import ExtensibleModel
 
 
-class ModelRequestMetadata(BaseModel):
+class ModelRequestMetadata(ExtensibleModel):
     """Carry cross-family model request identity and RAG execution context."""
-
-    model_config = ConfigDict(extra="allow", frozen=True)
 
     request_id: str | None = None
     trace_id: str | None = None

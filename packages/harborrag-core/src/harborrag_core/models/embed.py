@@ -5,7 +5,9 @@ from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+
+from harborrag_core.base import StrictModel
 
 from .headers import ModelHeaderValue, protect_model_headers
 from .metadata import ModelRequestMetadata
@@ -42,10 +44,8 @@ class HarborEmbedMetadata(ModelRequestMetadata):
     embedding_purpose: EmbeddingPurpose | None = None
 
 
-class HarborEmbedRequest(BaseModel):
+class HarborEmbedRequest(StrictModel):
     """Represent a validated, provider-neutral embedding request."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     inputs: tuple[EmbeddingInput, ...]
     logical_model: str | None = None
@@ -91,10 +91,8 @@ class HarborEmbedRequest(BaseModel):
         return self
 
 
-class HarborEmbedding(BaseModel):
+class HarborEmbedding(StrictModel):
     """Store one normalized embedding vector and its source input index."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     index: int = Field(ge=0)
     value: EmbeddingValue
@@ -124,10 +122,8 @@ class HarborEmbedUsage(ModelTokenUsage):
         )
 
 
-class HarborEmbedResponse(BaseModel):
+class HarborEmbedResponse(StrictModel):
     """Represent a normalized, provider-neutral embedding response."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     embeddings: tuple[HarborEmbedding, ...]
     logical_model: str

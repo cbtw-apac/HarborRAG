@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from harborrag_core.base import StrictModel
 
 from .embed import EmbeddingPurpose
 
 
-class HarborChatCapabilities(BaseModel):
+class HarborChatCapabilities(StrictModel):
     """Describe stable chat capabilities for one concrete deployment."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     chat: bool = True
     streaming: bool = True
@@ -21,10 +21,8 @@ class HarborChatCapabilities(BaseModel):
     reasoning_content: bool = False
 
 
-class HarborEmbedCapabilities(BaseModel):
+class HarborEmbedCapabilities(StrictModel):
     """Describe stable embedding capabilities for one concrete deployment."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     batch: bool = True
     token_inputs: bool = False
@@ -37,10 +35,8 @@ class HarborEmbedCapabilities(BaseModel):
     default_dimensions: int | None = Field(default=None, gt=0)
 
 
-class HarborRerankCapabilities(BaseModel):
+class HarborRerankCapabilities(StrictModel):
     """Describe stable reranking capabilities for one concrete deployment."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     structured_documents: bool = False
     rank_fields: bool = False

@@ -2,19 +2,22 @@
 
 HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation (RAG) framework for engineering knowledge. It is built around a ports-and-adapters (hexagonal) architecture so that connectors, parsers, model providers, and storage repositories can be implemented and swapped independently, without leaking provider SDKs into orchestration or business logic.
 
-## Status: framework foundation
+## Status: active framework development
 
 HarborRAG is not yet a finished product. The repository currently provides:
 
 - stable core contracts, domain models, and protocol ports (`harborrag-core`);
-- base classes with deterministic mock implementations for every provider family (`harborrag-adapters`);
+- provider contracts plus real connectors, parsers, model adapters, and storage repositories (`harborrag-adapters`);
 - ingestion and retrieval orchestration skeletons (`harborrag-engine`);
 - runtime composition, local job state, and scheduling scaffolding (`harborrag-runtime`);
 - a CLI/API package boundary with a mock application service (`harborrag-app`);
 - an MCP tool facade with policy and audit boundaries, backed by mock tools (`harborrag-mcp`);
 - a meta-package public facade (`harborrag`).
 
-There are no real connectors, parsers, model providers, or vector/graph/cache/object/database repositories implemented yet — those are exactly the areas the framework is designed for teammates to fill in, following the base-class-plus-mock pattern described in [Extending HarborRAG](../developers/extending/README.md).
+The repository layer includes Qdrant, FalkorDB, Redis, S3, PostgreSQL, SQLite,
+filesystem, and memory providers across vector, graph, cache, object, database,
+and workflow-state families. The application and runtime composition remains an
+evolving framework rather than a finished product.
 
 ## Why a ports-and-adapters framework?
 
@@ -25,7 +28,9 @@ Engineering RAG systems accumulate risk when provider SDKs, orchestration logic,
 - CLI, HTTP, and MCP tool code duplicate business rules instead of sharing one service layer;
 - dependency direction erodes until every package imports every other package.
 
-HarborRAG addresses this by giving every capability family (connectors, parsers, chat/embedding/reranker models, vector/graph/cache/object/database repositories) a `base.py` contract and a co-located `mock.py` implementation, and by enforcing a one-directional dependency graph between packages:
+HarborRAG addresses this by giving every capability family a provider-neutral
+contract, isolating concrete providers behind adapter packages, keeping fakes in
+tests, and enforcing a one-directional dependency graph between packages:
 
 ```text
 harborrag-core      (no dependencies on other HarborRAG packages)

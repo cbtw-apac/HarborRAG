@@ -34,10 +34,10 @@ from harborrag_core.models.errors import (
 from harborrag_core.models.protocols import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
-    AsyncHarborRerankingClientProtocol,
+    AsyncHarborRerankClientProtocol,
     HarborChatClientProtocol,
     HarborEmbedClientProtocol,
-    HarborRerankingClientProtocol,
+    HarborRerankClientProtocol,
 )
 from harborrag_core.models.rerank import (
     HarborRerankDocument,
@@ -92,8 +92,8 @@ def test_client_protocols_are_runtime_structural_contracts() -> None:
     assert isinstance(client, AsyncHarborChatClientProtocol)
     assert isinstance(client, HarborEmbedClientProtocol)
     assert isinstance(client, AsyncHarborEmbedClientProtocol)
-    assert isinstance(client, HarborRerankingClientProtocol)
-    assert isinstance(client, AsyncHarborRerankingClientProtocol)
+    assert isinstance(client, HarborRerankClientProtocol)
+    assert isinstance(client, AsyncHarborRerankClientProtocol)
 
 
 def test_request_contracts_validate_and_protect_credentials() -> None:

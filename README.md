@@ -2,7 +2,7 @@
 
 HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It is designed around clear package boundaries: **core** defines stable contracts, **adapters** implement providers, **engine** orchestrates ingestion/retrieval, **runtime** owns jobs and scheduling, **app** exposes CLI/API surfaces, and **MCP** exposes audited agent tools.
 
-> Status: framework foundation. This repository currently provides abstract base classes, protocol contracts, package-local mock implementations, tests, and scripts so teammates can implement real providers without breaking architecture boundaries.
+> Status: active framework development. Provider-neutral contracts are backed by real connectors, parsers, model adapters, and tenant-isolated repositories for Redis, FalkorDB, PostgreSQL, Qdrant, SQLite, S3, filesystem, and memory storage.
 
 ## Why HarborRAG?
 
@@ -31,7 +31,7 @@ The workspace is configured with `pyproject.toml`, package-local `src/` layouts,
 ```text
 packages/
   harborrag-core/      contracts, domain models, ports, execution, security
-  harborrag-adapters/  connectors, parsers, models, repositories, mocks
+  harborrag-adapters/  connectors, parsers, models, and repository providers
   harborrag-engine/    ingestion, retrieval, indexing, graph orchestration
   harborrag-runtime/   jobs, supervision, scheduling, runtime services
   harborrag-app/       application service, API controller, CLI command boundary
@@ -41,7 +41,7 @@ packages/
 
 ## Structure rules
 
-1. Base classes and mocks live inside the matching feature folder.
+1. Provider contracts live in each feature's `base.py`; production providers live in named subpackages and test doubles live under `tests/`.
 2. Storage implementations are called `repositories`, not `stores`.
 3. `harborrag-core` must not import adapters, engine, runtime, app, MCP, or the meta-package.
 4. Engine code depends on core ports/contracts, not provider SDKs.
@@ -49,12 +49,12 @@ packages/
 6. App and MCP call service-level facades; they do not call raw provider clients directly.
 7. TODO comments must tell the next implementer exactly what to build next.
 
-## Current skeleton examples
+## Current adapter examples
 
 ```text
 harborrag_adapters/
   connectors/base.py
-  connectors/mock.py
+  connectors/github/
   parsers/base.py
   parsers/markdown.py
   models/chat/base.py
@@ -64,15 +64,16 @@ harborrag_adapters/
   models/reranker/base.py
   models/reranker/mock.py
   repositories/vector/base.py
-  repositories/vector/mock.py
+  repositories/vector/qdrant/
   repositories/graph/base.py
-  repositories/graph/mock.py
+  repositories/graph/falkordb/
   repositories/cache/base.py
-  repositories/cache/mock.py
+  repositories/cache/redis/
   repositories/object_store/base.py
-  repositories/object_store/mock.py
+  repositories/object_store/s3/
   repositories/database/base.py
-  repositories/database/mock.py
+  repositories/database/postgresql/
+  repositories/state/sqlite/
 ```
 
 Engine, runtime, app, and MCP follow the same rule:
@@ -237,11 +238,12 @@ Implementation requirements:
 Use `repositories/`, not `stores/`:
 
 ```text
-repositories/vector/qdrant.py
-repositories/graph/neo4j.py
-repositories/cache/redis.py
-repositories/object_store/s3.py
-repositories/database/postgresql.py
+repositories/vector/qdrant/
+repositories/graph/falkordb/
+repositories/cache/redis/
+repositories/object_store/s3/
+repositories/database/sqlite/
+repositories/state/sqlite/
 ```
 
 Implementation requirements:
