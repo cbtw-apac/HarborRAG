@@ -93,6 +93,30 @@ def test_oidc_mode_is_a_declared_missing_capability() -> None:
         create_fastapi_app(ApiSettings(auth_mode="oidc"))
 
 
+@pytest.mark.blackbox
+def test_non_string_role_claim_is_401_not_500() -> None:
+    """A JWT whose role claim is not a string (e.g. a list) must be rejected
+    as 401 harbor_auth_error, never crash the lookup into a 500."""
+    bad = jwt.encode(
+        {"sub": "u1", "role": [], "exp": datetime.now(UTC) + timedelta(minutes=5)},
+        SECRET,
+        algorithm="HS256",
+    )
+    with _hmac_client() as client:
+        response = client.get(DIAG, headers={"Authorization": f"Bearer {bad}"})
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "harbor_auth_error"
+
+
+@pytest.mark.blackbox
+def test_prod_env_refuses_disabled_auth() -> None:
+    """Fail closed: env=prod with auth_mode=none must not boot."""
+    from harborrag_core.contracts.errors import HarborConfigurationError
+
+    with pytest.raises(HarborConfigurationError):
+        create_fastapi_app(ApiSettings(env="prod", auth_mode="none"))
+
+
 @pytest.mark.whitebox
 def test_mock_verifier_is_deterministic() -> None:
     """MockTokenVerifier accepts mock-<role> and rejects everything else."""

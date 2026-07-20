@@ -61,6 +61,16 @@ def test_docs_disabled_by_settings() -> None:
 
 
 @pytest.mark.blackbox
+def test_wildcard_cors_origin_is_rejected() -> None:
+    """'*' in cors_origins must fail at factory time — credentialed CORS
+    with a wildcard origin is never allowed."""
+    from harborrag_core.contracts.errors import HarborConfigurationError
+
+    with pytest.raises(HarborConfigurationError):
+        create_fastapi_app(ApiSettings(cors_origins=["*"]))
+
+
+@pytest.mark.blackbox
 def test_cors_honors_configured_origins() -> None:
     """Configured origins get CORS headers; without config no header appears."""
     origin = "http://webui.local"

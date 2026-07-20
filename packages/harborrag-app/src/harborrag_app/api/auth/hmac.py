@@ -7,11 +7,9 @@ BaseTokenVerifier seam.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 import jwt
 from harborrag_core.contracts.errors import HarborAuthError
-from harborrag_core.domain.member import Role
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
@@ -36,6 +34,6 @@ class HmacTokenVerifier(BaseTokenVerifier):
         if not isinstance(subject, str) or not subject:
             raise HarborAuthError("token missing sub claim")
         role = claims.get("role", "reader")
-        if role not in ROLE_ORDER:
+        if not isinstance(role, str) or role not in ROLE_ORDER:
             raise HarborAuthError(f"unknown role {role!r}")
-        return Principal(subject=subject, role=cast(Role, role), token_kind="jwt")
+        return Principal(subject=subject, role=role, token_kind="jwt")

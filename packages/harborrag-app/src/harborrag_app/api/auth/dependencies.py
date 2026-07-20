@@ -27,8 +27,13 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
 
     none -> None (implicit owner principal); hmac -> HS256 against
     HARBORRAG_AUTH_SECRET; oidc -> HarborCapabilityError until M5.
+    Fails closed: auth cannot be disabled when HARBORRAG_ENV=prod.
     """
     if settings.auth_mode == "none":
+        if settings.env == "prod":
+            raise HarborConfigurationError(
+                "auth_mode=none is not allowed when HARBORRAG_ENV=prod"
+            )
         return None
     if settings.auth_mode == "hmac":
         if not settings.auth_secret:
