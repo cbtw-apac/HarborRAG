@@ -25,7 +25,7 @@ jobs:
 
       - name: Install packages
         run: |
-          uv venv
+          uv venv --clear
           uv pip install -e packages/harborrag-core \
             -e "packages/harborrag-adapters[control-plane]" \
             -e packages/harborrag-engine \
