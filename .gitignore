@@ -223,3 +223,9 @@ __marimo__/
 # OS / editor noise
 .DS_Store
 .~lock.*#
+
+# Generated API contract artifact (exported by make openapi)
+openapi.json
+clients/typescript/src/schema.d.ts
+clients/typescript/dist/
+clients/typescript/node_modules/
