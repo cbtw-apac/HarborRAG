@@ -8,6 +8,7 @@ so new HarborError subclasses only need a row in _STATUS_BY_TYPE.
 from __future__ import annotations
 
 import re
+from http import HTTPStatus
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -23,6 +24,7 @@ from harborrag_core.contracts.errors import (
     HarborSecurityError,
     HarborValidationError,
 )
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborValidationError: 422,
@@ -59,7 +61,7 @@ def _status_for(exc: HarborError) -> int:
     return 500
 
 
-def _envelope(
+def error_envelope(
     request: Request,
     code: str,
     message: str,
@@ -93,7 +95,7 @@ def register_error_handlers(app: FastAPI) -> None:
         details = getattr(exc, "details", {})
         return JSONResponse(
             status_code=_status_for(exc),
-            content=_envelope(request, _code_for(exc), str(exc), details),
+            content=error_envelope(request, _code_for(exc), str(exc), details),
         )
 
     @app.exception_handler(RequestValidationError)
@@ -104,9 +106,22 @@ def register_error_handlers(app: FastAPI) -> None:
         details: dict[str, object] = {"errors": exc.errors()}
         return JSONResponse(
             status_code=422,
-            content=_envelope(
+            content=error_envelope(
                 request, "harbor_validation_error", "Request validation failed", details
             ),
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Envelope framework HTTPExceptions (404 no-route, 405, ...) too —
+        no response may bypass the envelope (ST3 DoD)."""
+        code = HTTPStatus(exc.status_code).name.lower()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_envelope(request, code, str(exc.detail), {}),
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)
@@ -114,5 +129,7 @@ def register_error_handlers(app: FastAPI) -> None:
         """Envelope unexpected exceptions as a generic 500."""
         return JSONResponse(
             status_code=500,
-            content=_envelope(request, "internal_error", "Internal server error", {}),
+            content=error_envelope(
+                request, "internal_error", "Internal server error", {}
+            ),
         )
