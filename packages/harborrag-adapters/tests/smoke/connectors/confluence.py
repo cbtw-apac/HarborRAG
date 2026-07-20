@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from bootstrap import env, load_env, print_document
+from bootstrap import (
+    attachment_custom_parsers,
+    attachment_parser,
+    attachments_passed,
+    env,
+    load_env,
+    print_document,
+    print_failure,
+)
 from harborrag_adapters.connectors import HarborConnector
 from harborrag_adapters.connectors.confluence.config import ConfluenceSpaceConfig
 from harborrag_adapters.connectors.schemas import ConnectorQuery
@@ -21,6 +29,7 @@ def _config(*, include_attachments: bool) -> ConfluenceSpaceConfig:
         email=env("CONFLUENCE_EMAIL"),
         include_comments=False,
         include_attachments=include_attachments,
+        custom_parsers=attachment_custom_parsers(),
     )
 
 
@@ -30,6 +39,14 @@ def main() -> int:
         print(f"[confluence] missing env vars: {missing}")
         return 2
 
+    try:
+        return _run()
+    except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code
+        print_failure("confluence", exc)
+        return 1
+
+
+def _run() -> int:
     connector = HarborConnector("confluence", config=_config(include_attachments=False))
     records = list(connector.discover(ConnectorQuery(limit=3)))
     print(f"\n[confluence] discovered {len(records)} record(s)")
@@ -44,10 +61,14 @@ def main() -> int:
     print_document("confluence", document)
 
     print("\n[confluence] === load with attachments ===")
-    with_attachments = HarborConnector("confluence", config=_config(include_attachments=True))
+    with_attachments = HarborConnector(
+        "confluence",
+        config=_config(include_attachments=True),
+        parser=attachment_parser(),
+    )
     document_with_attachments = with_attachments.load(records[0])
     print_document("confluence", document_with_attachments)
-    return 0
+    return 0 if attachments_passed("confluence", document_with_attachments) else 1
 
 
 if __name__ == "__main__":

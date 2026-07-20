@@ -105,6 +105,23 @@ def test_jira_download_bytes_streams_capped_body():
         responses=[FakeResponse(status_code=200, _chunks=[b"hello ", b"world"])]
     )
     assert client.download_bytes("https://ex.atlassian.net/secure/a") == b"hello world"
+    assert client.session.calls[0]["url"] == ("https://ex.atlassian.net/secure/a?redirect=false")
+
+
+def test_jira_cloud_download_disables_redirect_without_losing_query_parameters():
+    client = _jira_client()
+    client.session = FakeSession(responses=[FakeResponse(status_code=200, _chunks=[b"content"])])
+
+    assert (
+        client.download_bytes(
+            "https://ex.atlassian.net/rest/api/3/attachment/content/1"
+            "?version=2&empty=&redirect=true"
+        )
+        == b"content"
+    )
+    assert client.session.calls[0]["url"] == (
+        "https://ex.atlassian.net/rest/api/3/attachment/content/1?version=2&empty=&redirect=false"
+    )
 
 
 def test_jira_download_bytes_returns_none_for_empty_body():

@@ -15,11 +15,24 @@ for source_path in (
         sys.path.insert(0, source)
 
 from harborrag_adapters.parsers import (  # noqa: E402
+    DoclingBackend,
     HarborParser,
+    LiteParseBackend,
+    MinerUBackend,
+    PaddleOcrBackend,
     ParseInput,
     PdfParser,
     PdfParserProfile,
+    PyMuPdfBackend,
 )
+
+PDF_BACKENDS = {
+    "docling": DoclingBackend,
+    "liteparse": LiteParseBackend,
+    "mineru": MinerUBackend,
+    "paddleocr": PaddleOcrBackend,
+    "pymupdf": PyMuPdfBackend,
+}
 
 
 def _arguments() -> argparse.Namespace:
@@ -27,11 +40,18 @@ def _arguments() -> argparse.Namespace:
         description="Parse one real local document without pytest or test doubles."
     )
     parser.add_argument("path", type=Path, help="Real document to parse")
-    parser.add_argument(
+    pdf_selection = parser.add_mutually_exclusive_group()
+    pdf_selection.add_argument(
         "--pdf-profile",
         choices=[profile.value for profile in PdfParserProfile],
         default=None,
         help="Run a specific PDF backend profile instead of automatic routing",
+    )
+    pdf_selection.add_argument(
+        "--pdf-backend",
+        choices=sorted(PDF_BACKENDS),
+        default=None,
+        help="Run exactly one PDF backend instead of automatic routing",
     )
     return parser.parse_args()
 
@@ -42,17 +62,19 @@ def main() -> int:
     if not path.is_file():
         print(f"[parsers] not configured: real input file does not exist: {path}")
         return 2
-    if args.pdf_profile and path.suffix.casefold() != ".pdf":
-        print("[parsers] failed: --pdf-profile can only be used with a PDF file")
+    if (args.pdf_profile or args.pdf_backend) and path.suffix.casefold() != ".pdf":
+        print("[parsers] failed: PDF selection can only be used with a PDF file")
         return 1
 
     try:
         parse_input = ParseInput(path=path)
-        document = (
-            PdfParser(profile=args.pdf_profile).parse(parse_input)
-            if args.pdf_profile
-            else HarborParser().parse(parse_input)
-        )
+        if args.pdf_backend:
+            backend = PDF_BACKENDS[args.pdf_backend]()
+            document = PdfParser(backends=[backend]).parse(parse_input)
+        elif args.pdf_profile:
+            document = PdfParser(profile=args.pdf_profile).parse(parse_input)
+        else:
+            document = HarborParser().parse(parse_input)
         if not document.content.strip():
             raise AssertionError("parser returned empty extracted content")
     except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code

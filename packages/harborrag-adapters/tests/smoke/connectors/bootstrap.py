@@ -6,8 +6,9 @@ import os
 import reprlib
 import sys
 from pathlib import Path
+from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 
 for source_path in (
     REPO_ROOT / "packages" / "harborrag-adapters" / "src",
@@ -54,6 +55,94 @@ def env_path(name: str) -> Path | None:
         return None
     path = Path(value).expanduser()
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def attachment_parser():
+    """Build the real attachment parser stack with an optional exact PDF backend."""
+    from harborrag_adapters.parsers import (
+        DoclingBackend,
+        HarborParser,
+        LiteParseBackend,
+        MinerUBackend,
+        PaddleOcrBackend,
+        PdfParser,
+        PyMuPdfBackend,
+    )
+
+    parser = HarborParser()
+    backend_name = (env("HARBOR_SMOKE_PDF_BACKEND") or "").casefold()
+    if not backend_name:
+        return parser
+
+    backend_factories = {
+        "docling": DoclingBackend,
+        "liteparse": LiteParseBackend,
+        "mineru": MinerUBackend,
+        "paddleocr": PaddleOcrBackend,
+        "pymupdf": PyMuPdfBackend,
+    }
+    try:
+        backend = backend_factories[backend_name]()
+    except KeyError as exc:
+        choices = ", ".join(sorted(backend_factories))
+        raise ValueError(
+            f"Unsupported HARBOR_SMOKE_PDF_BACKEND {backend_name!r}; choose {choices}"
+        ) from exc
+
+    parser.register(PdfParser(backends=[backend]), replace=True)
+    print(f"[attachments] PDF backend={backend_name!r}")
+    if _image_backend_name():
+        print("[attachments] image OCR backend='rapidocr'")
+    return parser
+
+
+def _image_backend_name() -> str:
+    """Resolve image OCR, reusing Docling's RapidOCR runtime by default."""
+    configured = env("HARBOR_SMOKE_IMAGE_BACKEND")
+    if configured:
+        return configured.casefold()
+    if (env("HARBOR_SMOKE_PDF_BACKEND") or "").casefold() == "docling":
+        return "rapidocr"
+    return ""
+
+
+def attachment_custom_parsers():
+    """Return smoke-only attachment overrides selected by environment."""
+    from harborrag_adapters.connectors.shared.attachments import FileType
+
+    backend_name = _image_backend_name()
+    if not backend_name:
+        return {}
+    if backend_name != "rapidocr":
+        raise ValueError(
+            f"Unsupported HARBOR_SMOKE_IMAGE_BACKEND {backend_name!r}; choose rapidocr"
+        )
+    return {FileType.IMAGE: _parse_image_with_rapidocr}
+
+
+_RAPID_OCR_ENGINE: Any | None = None
+
+
+def _rapidocr_engine():
+    """Build one RapidOCR engine and reuse its loaded ONNX models."""
+    global _RAPID_OCR_ENGINE
+    if _RAPID_OCR_ENGINE is None:
+        try:
+            from rapidocr import RapidOCR
+        except ImportError as exc:
+            raise RuntimeError(
+                "RapidOCR image parsing requires `rapidocr` and an inference runtime"
+            ) from exc
+        _RAPID_OCR_ENGINE = RapidOCR()
+    return _RAPID_OCR_ENGINE
+
+
+def _parse_image_with_rapidocr(content: bytes, extension: str) -> str:
+    """Extract ordered text lines from one image attachment with RapidOCR."""
+    _ = extension
+    result = _rapidocr_engine()(content)
+    texts = getattr(result, "txts", None) or ()
+    return "\n".join(str(text).strip() for text in texts if str(text).strip())
 
 
 PREVIEW_CHARS = 200
@@ -127,3 +216,23 @@ def print_attachments(provider: str, document, *, verbose: bool = False) -> None
         print(line)
         if verbose and text:
             print(f"    preview={_preview(text)!r}")
+
+
+def attachments_passed(provider: str, document) -> bool:
+    """Require every attempted attachment to avoid an unsupported/failed state."""
+    attachments = (document.metadata or {}).get("attachments") or []
+    failures = [
+        attachment
+        for attachment in attachments
+        if attachment.get("status") in {"failed", "unsupported"}
+    ]
+    if not failures:
+        return True
+    print(f"[{provider}] attachment smoke failed: {len(failures)} attachment(s) failed")
+    return False
+
+
+def print_failure(provider: str, exc: Exception) -> None:
+    """Print a bounded, redacted smoke failure instead of a traceback."""
+    detail = redact_secrets(str(exc)).replace("\r", " ").replace("\n", " ")[:500]
+    print(f"[{provider}] failed: {type(exc).__name__}: {detail}")

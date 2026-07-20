@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Protocol
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from harborrag_adapters.connectors.shared.atlassian_client import AtlassianRestClient
 
@@ -84,8 +85,20 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
 
     def download_bytes(self, url: str) -> bytes | None:
         """Download attachment bytes only from the configured JIRA origin."""
+        if self.config.deployment_type == JiraDeploymentType.CLOUD:
+            url = _with_query_parameter(url, "redirect", "false")
         return self._download_bytes(url, label="JIRA download")
 
     def _api_url(self, endpoint: str) -> str:
         """Build a JIRA REST API URL from a relative endpoint."""
         return f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
+
+
+def _with_query_parameter(url: str, name: str, value: str) -> str:
+    """Set one URL query parameter while preserving every unrelated value."""
+    parts = urlsplit(url)
+    query = [
+        (key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True) if key != name
+    ]
+    query.append((name, value))
+    return urlunsplit(parts._replace(query=urlencode(query)))

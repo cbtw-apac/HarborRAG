@@ -72,6 +72,10 @@ python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
 
 Success requires at least one discovered record and a successfully normalized
 first document. Confluence and JIRA repeat the load with attachments enabled.
+Set `HARBOR_SMOKE_PDF_BACKEND=docling` to require Docling for PDF attachments;
+this also reuses Docling's RapidOCR runtime for image attachments. Set
+`HARBOR_SMOKE_IMAGE_BACKEND=rapidocr` to select it independently. Other
+attachment types continue to use the normal Harbor parser registry.
 
 ## Model smoke checks
 
@@ -107,6 +111,7 @@ Use representative, non-sensitive source files rather than generated fixtures:
 ```bash
 python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/report.docx
 python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/report.pdf --pdf-profile fast
+python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/report.pdf --pdf-backend docling
 python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/scan.pdf --pdf-profile ocr
 ```
 
