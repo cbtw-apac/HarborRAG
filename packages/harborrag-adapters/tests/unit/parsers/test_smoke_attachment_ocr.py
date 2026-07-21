@@ -70,12 +70,18 @@ def test_smoke_docling_reports_and_pins_the_resolved_accelerator(
 ) -> None:
     from harborrag_adapters.parsers import DoclingBackend
 
+    resolved_backends: list[DoclingBackend] = []
+
+    def _resolve(backend: DoclingBackend) -> str:
+        resolved_backends.append(backend)
+        return "cuda:0"
+
     monkeypatch.setenv("HARBOR_SMOKE_PDF_BACKEND", "docling")
     monkeypatch.setenv("HARBOR_SMOKE_DOCLING_DEVICE", "auto")
     monkeypatch.setattr(
         DoclingBackend,
         "resolved_accelerator_device",
-        lambda _self: "cuda:0",
+        _resolve,
     )
     scope = _bootstrap()
 
@@ -83,3 +89,5 @@ def test_smoke_docling_reports_and_pins_the_resolved_accelerator(
 
     output = capsys.readouterr().out
     assert "requested='auto' resolved='cuda:0'" in output
+    assert len(resolved_backends) == 1
+    assert resolved_backends[0].options.accelerator_device == "cuda:0"

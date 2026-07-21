@@ -13,8 +13,17 @@ uv pip install -e \
   "packages/harborrag-adapters[redis,qdrant,falkordb,postgres]"
 ```
 
-With the local database Compose stack running, load its environment and run all
-five checks:
+Create the local database environment from the tracked template, review its
+credentials and ports, then start the Compose stack:
+
+```bash
+cp env-example/.env.database.example env/.env.database
+export DATABASE_ENV_FILE=env/.env.database
+scripts/deployment/database_up.sh
+```
+
+With the local database Compose stack running, load the same environment and
+run all five checks:
 
 ```bash
 HARBOR_SMOKE_ENV_FILE=env/.env.database \
