@@ -64,7 +64,9 @@ MinerU subprocess environment forwarding maps a target variable to a source vari
     MINERU_VL_API_KEY: OPENAI_API_KEY
 ```
 
-The referenced process variable must exist and be non-empty when the parser is built. `.env.parser.example` lists optional values, but HarborRAG does not load it automatically.
+The referenced process variable must exist and be non-empty when the parser is
+built. `env-example/.env.parser.example` lists optional values, but HarborRAG
+does not load it automatically.
 
 ## Load and build
 

@@ -14,7 +14,7 @@ Deployment assets are at mixed maturity. The database Compose file is suitable f
 Prepare a protected environment file:
 
 ```bash
-cp .env.database.example env/.env.database
+cp env-example/.env.database.example env/.env.database
 export DATABASE_ENV_FILE=env/.env.database
 scripts/deployment/database_up.sh
 ```

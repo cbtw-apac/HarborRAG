@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import sys
+from enum import StrEnum
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -10,6 +12,14 @@ from harborrag_adapters.parsers import DoclingBackend, DoclingBackendOptions
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit
+
+
+class _AcceleratorDevice(StrEnum):
+    AUTO = "auto"
+    CPU = "cpu"
+    CUDA = "cuda"
+    MPS = "mps"
+    XPU = "xpu"
 
 
 def _encrypted_pdf_bytes() -> bytes:
@@ -47,6 +57,55 @@ def test_docling_backend_options_build_convert_kwargs_without_importing_docling(
         "page_range": (1, 2),
         "custom": "value",
     }
+
+
+@pytest.mark.whitebox
+@pytest.mark.parametrize("device", ["auto", "cpu", "cuda", "mps", "xpu"])
+def test_docling_backend_preserves_supported_accelerator_devices(device: str):
+    backend = DoclingBackend(accelerator_device=device)
+
+    assert backend._accelerator_device(_AcceleratorDevice).value == device
+
+
+@pytest.mark.whitebox
+def test_docling_backend_preserves_a_specific_cuda_device():
+    backend = DoclingBackend(accelerator_device="CUDA:2")
+
+    assert backend._accelerator_device(_AcceleratorDevice) == "cuda:2"
+
+
+@pytest.mark.whitebox
+def test_docling_backend_rejects_an_invalid_accelerator_device():
+    backend = DoclingBackend(accelerator_device="gpu")
+
+    with pytest.raises(ValueError, match="Unsupported Docling accelerator device"):
+        backend._accelerator_device(_AcceleratorDevice)
+
+
+@pytest.mark.whitebox
+def test_docling_backend_uses_docling_to_resolve_auto_acceleration(monkeypatch):
+    requested: list[str] = []
+
+    def _resolve(device: str) -> str:
+        requested.append(device)
+        return "xpu"
+
+    docling_module = ModuleType("docling")
+    utils_module = ModuleType("docling.utils")
+    accelerator_module = ModuleType("docling.utils.accelerator_utils")
+    accelerator_module.__dict__["decide_device"] = _resolve
+    utils_module.__dict__["accelerator_utils"] = accelerator_module
+    docling_module.__dict__["utils"] = utils_module
+    monkeypatch.setitem(sys.modules, "docling", docling_module)
+    monkeypatch.setitem(sys.modules, "docling.utils", utils_module)
+    monkeypatch.setitem(
+        sys.modules,
+        "docling.utils.accelerator_utils",
+        accelerator_module,
+    )
+
+    assert DoclingBackend().resolved_accelerator_device() == "xpu"
+    assert requested == ["auto"]
 
 
 @pytest.mark.whitebox

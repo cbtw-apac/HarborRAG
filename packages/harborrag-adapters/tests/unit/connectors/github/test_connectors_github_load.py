@@ -43,6 +43,10 @@ def test_load_decodes_blob_and_builds_metadata():
     assert document.content == b"# Hello"
     assert document.content_type == "text/markdown"
     assert document.source == "https://github.com/acme/harbor-rag/blob/main/README.md"
+    assert document.metadata["source_system"] == "github"
+    assert document.metadata["metadata_schema_version"] == 1
+    assert document.metadata["record_id"] == "README.md"
+    assert document.metadata["title"] == "README.md"
     assert document.metadata["owner"] == "acme"
     assert document.metadata["repo"] == "harbor-rag"
     assert document.metadata["path"] == "README.md"

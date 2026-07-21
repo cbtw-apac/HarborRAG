@@ -75,22 +75,25 @@ def build_document_metadata(
 ) -> SharePointMetadata:
     """Build parsed provenance metadata for a loaded SharePoint file."""
     parent = item.get("parentReference", {})
+    item_id = str(item.get("id") or "")
+    title = item_name(item)
     return SharePointMetadata(
-        source_system="sharepoint",
+        record_id=item_id,
+        title=title,
+        checksum=checksum,
+        created_at=parse_timestamp(item.get("createdDateTime")),
+        updated_at=parse_timestamp(item.get("lastModifiedDateTime")),
         site_id=site.get("id"),
         site_name=site.get("name") or site.get("displayName"),
         drive_id=drive.get("id"),
         drive_name=drive.get("name"),
         drive_type=drive.get("driveType"),
-        item_id=item.get("id"),
-        item_name=item_name(item),
+        item_id=item_id,
+        item_name=title,
         path=item_path(item),
         size=int(item.get("size") or 0),
-        checksum=checksum,
         etag=item.get("eTag"),
         ctag=item.get("cTag"),
-        created_at=parse_timestamp(item.get("createdDateTime")),
-        updated_at=parse_timestamp(item.get("lastModifiedDateTime")),
         created_by=_identity_name(item.get("createdBy")),
         updated_by=_identity_name(item.get("lastModifiedBy")),
         parent=SharePointParentReference(

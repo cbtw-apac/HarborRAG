@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 def _metadata(**overrides) -> ConfluenceMetadata:
     values = {
-        "source_system": "confluence",
+        "record_id": "1",
         "content_id": "1",
         "content_type": "page",
         "title": "Page One",

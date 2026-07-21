@@ -57,7 +57,8 @@ PDFs through the default parser stack:
 pip install -e "packages/harborrag-adapters[parsers]"
 ```
 
-Install advanced PDF backends separately when needed:
+Install advanced PDF backends separately when needed. This extra also includes
+RapidOCR with its default ONNX Runtime CPU engine:
 
 ```bash
 pip install -e "packages/harborrag-adapters[pdf]"

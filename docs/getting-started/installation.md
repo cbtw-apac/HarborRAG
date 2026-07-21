@@ -61,6 +61,9 @@ python -m pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,post
 ```
 
 Install only the families used by your application. Some PDF backends also download models or require platform-specific runtimes.
+The `pdf` extra includes RapidOCR and the CPU `onnxruntime` package; Docling can
+independently use CUDA, MPS, or XPU through an accelerator-enabled PyTorch
+installation.
 
 ## Verify the checkout
 

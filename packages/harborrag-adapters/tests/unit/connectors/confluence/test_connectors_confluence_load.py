@@ -60,6 +60,10 @@ def test_load_builds_raw_document_metadata_comments_and_attachments():
     assert document.content_type == "text/html"
     assert document.content == "<p>Hello <b>World</b></p>"
     assert document.source == f"{CLOUD_BASE}/spaces/ENG/pages/1"
+    assert document.metadata["source_system"] == "confluence"
+    assert document.metadata["metadata_schema_version"] == 1
+    assert document.metadata["record_id"] == "1"
+    assert document.metadata["title"] == "Page One"
     assert document.metadata["author"] == "Alice"
     assert document.metadata["breadcrumb"] == ["Root"]
     assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]

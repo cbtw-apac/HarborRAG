@@ -97,7 +97,10 @@ def build_document_metadata(
     path = normalize_repo_path(str(item.get("path") or ""))
     commit_sha = str(commit.get("sha") or "")
     return GitHubMetadata(
-        source_system="github",
+        record_id=path,
+        title=path.rsplit("/", 1)[-1],
+        checksum=str(item.get("sha") or "") or None,
+        updated_at=commit_timestamp(commit),
         owner=owner,
         repo=repo,
         repository_id=repository.get("id"),

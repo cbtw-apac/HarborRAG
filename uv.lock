@@ -2137,8 +2137,10 @@ pdf = [
     { name = "docling" },
     { name = "liteparse" },
     { name = "mineru", extra = ["all"] },
+    { name = "onnxruntime" },
     { name = "paddleocr" },
     { name = "pymupdf" },
+    { name = "rapidocr" },
 ]
 postgres = [
     { name = "asyncpg" },
@@ -2184,6 +2186,7 @@ requires-dist = [
     { name = "liteparse", marker = "extra == 'pdf'", specifier = ">=2.5.0" },
     { name = "mineru", extras = ["all"], marker = "extra == 'pdf'", specifier = ">=2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.16,<2" },
+    { name = "onnxruntime", marker = "extra == 'pdf'", specifier = ">=1.20,<2" },
     { name = "openpyxl", marker = "extra == 'parsers'", specifier = ">=3.1.0" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.43,<2" },
     { name = "opentelemetry-api", marker = "extra == 'test'", specifier = ">=1.43,<2" },
@@ -2204,6 +2207,7 @@ requires-dist = [
     { name = "python-pptx", marker = "extra == 'parsers'", specifier = ">=1.0.0" },
     { name = "pyyaml", marker = "extra == 'llm'", specifier = ">=6.0,<7" },
     { name = "qdrant-client", marker = "extra == 'qdrant'", specifier = ">=1.10,<2" },
+    { name = "rapidocr", marker = "extra == 'pdf'", specifier = ">=3.1,<4" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5,<6" },
     { name = "requests", specifier = ">=2.28.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },

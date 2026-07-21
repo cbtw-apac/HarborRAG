@@ -76,6 +76,10 @@ def test_load_builds_raw_document_comments_attachments_and_changelog():
     assert "Bob: Looks good" in document.content
     assert "parsed:notes.md" in document.content
     assert document.source == f"{CLOUD_BASE}/browse/ENG-1"
+    assert document.metadata["source_system"] == "jira"
+    assert document.metadata["metadata_schema_version"] == 1
+    assert document.metadata["record_id"] == "10001"
+    assert document.metadata["title"] == "Build parser"
     assert document.metadata["assignee"] == "Ada"
     assert document.metadata["reporter"] == "Grace"
     assert document.metadata["custom_fields"][0]["field_id"] == "customfield_10010"

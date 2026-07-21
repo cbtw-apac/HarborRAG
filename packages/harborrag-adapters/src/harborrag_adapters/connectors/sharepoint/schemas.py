@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, ClassVar
+
+from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 
 @dataclass(slots=True)
@@ -16,11 +17,12 @@ class SharePointParentReference:
     path: Any
 
 
-@dataclass(slots=True)
-class SharePointMetadata:
+@dataclass(slots=True, kw_only=True)
+class SharePointMetadata(ConnectorMetadata):
     """Structured metadata for one loaded SharePoint drive item."""
 
-    source_system: str
+    source_system: ClassVar[str] = "sharepoint"
+
     site_id: Any
     site_name: Any
     drive_id: Any
@@ -30,16 +32,9 @@ class SharePointMetadata:
     item_name: str
     path: str
     size: int
-    checksum: str
     etag: Any
     ctag: Any
-    created_at: datetime | None
-    updated_at: datetime | None
     created_by: str | None
     updated_by: str | None
     parent: SharePointParentReference
     sharepoint_hashes: dict[str, Any]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize metadata for ``RawDocument.metadata``."""
-        return asdict(self)

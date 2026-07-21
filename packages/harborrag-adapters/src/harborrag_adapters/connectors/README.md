@@ -40,9 +40,15 @@ adapters share the same contracts.
 
 Loaded document URLs belong in `RawDocument.source`, content types belong in
 `RawDocument.content_type`, and duplicate copies should not be repeated inside
-provider metadata. Provider-specific loaded metadata should use small typed
-schema classes with a `to_dict()` method before it is attached to
-`RawDocument.metadata`.
+provider metadata. Every loaded metadata schema inherits `ConnectorMetadata`,
+which supplies the normalized `record_id`, `title`, `checksum`, `created_at`,
+and `updated_at` fields. Provider schemas add source-specific fields and inherit
+the JSON-safe `to_dict()` serializer used at the `RawDocument.metadata`
+boundary.
+
+`source_system` and `metadata_schema_version` are fixed class attributes on
+each provider metadata schema. They are included automatically by `to_dict()`
+and are not constructor arguments.
 
 ## Providers
 
@@ -260,11 +266,14 @@ Guidelines:
 - Put reusable provider helpers in `utils.py`.
 - Put schema-to-domain conversion in `mappers.py`.
 - Validate config in `config.py`.
-- Keep loaded metadata typed in `schemas.py`; serialize with `to_dict()` at the
-  connector boundary.
+- Inherit loaded metadata from `ConnectorMetadata` and keep provider-only fields
+  in the provider's `schemas.py`; serialize with the inherited `to_dict()` at
+  the connector boundary.
 - Return `SourceRecord` from discovery and `RawDocument` from load.
-- Do not duplicate `RawDocument.source`, `RawDocument.content_type`,
-  `SourceRecord.updated_at`, or `SourceRecord.checksum` inside metadata.
+- Do not duplicate `RawDocument.source` or `RawDocument.content_type` inside
+  metadata. Discovery timestamps/checksums live on `SourceRecord`; loaded
+  timestamps/checksums use the normalized `ConnectorMetadata` fields because
+  the discovery record does not cross the raw-document boundary.
 - Use shared exceptions from `connectors.exceptions`.
 - Add provider tests under `packages/harborrag-adapters/tests/`.
 - Keep test doubles in tests or fixtures; do not add production `mock`

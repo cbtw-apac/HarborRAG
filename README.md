@@ -120,10 +120,10 @@ See [Architecture](docs/developers/architecture/README.md) for the exact allowed
 | `config/models.example.yaml` | Minimal chat, embedding, and reranking model configuration |
 | `config/models.advance.example.yaml` | More advanced routing and provider examples |
 | `config/advance_chat/*.example.yaml` | Direct SDK, LiteLLM Router, proxy, and distributed chat examples |
-| `.env.connector.example` | Connector and connector-smoke environment template |
-| `.env.parser.example` | Optional parser/OCR environment template |
-| `.env.models.example` | Model and model-smoke environment template |
-| `.env.database.example` | Local repository-stack template |
+| `env-example/.env.connector.example` | Connector and connector-smoke environment template |
+| `env-example/.env.parser.example` | Optional parser/OCR environment template |
+| `env-example/.env.models.example` | Model and model-smoke environment template |
+| `env-example/.env.database.example` | Local repository-stack template |
 
 HarborRAG does not automatically load these environment files. Export variables in the shell or load them through your application, container runtime, or secret manager.
 

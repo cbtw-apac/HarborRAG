@@ -68,6 +68,13 @@ class DoclingBackend(PdfBackend):
             "DoclingParseV2DocumentBackend",
         ),
     }
+    _ACCELERATOR_DEVICES: ClassVar[tuple[str, ...]] = (
+        "auto",
+        "cpu",
+        "cuda",
+        "mps",
+        "xpu",
+    )
 
     def __init__(
         self,
@@ -253,11 +260,16 @@ class DoclingBackend(PdfBackend):
             return AcceleratorOptions(**kwargs)
 
     def _accelerator_device(self, accelerator_device: Any) -> Any | None:
-        """Resolve a configured accelerator string into Docling's device enum."""
+        """Resolve a validated accelerator string into Docling's device type."""
 
-        configured = self.options.accelerator_device.lower().strip()
+        configured = self._configured_accelerator_device()
         if not configured:
             return None
+
+        # Docling accepts a concrete CUDA index as a string even though its
+        # AcceleratorDevice enum only contains the generic ``cuda`` member.
+        if configured.startswith("cuda:"):
+            return configured
 
         enum_name = configured.upper()
         device = getattr(accelerator_device, enum_name, None)
@@ -266,8 +278,43 @@ class DoclingBackend(PdfBackend):
 
         try:
             return accelerator_device(configured)
-        except Exception:  # noqa: BLE001 - enum compatibility boundary
-            return getattr(accelerator_device, "AUTO", None)
+        except (TypeError, ValueError):
+            # Newer Docling versions accept strings in addition to enum
+            # members. This preserves forward compatibility with an older
+            # enum while still rejecting misspelled device names above.
+            return configured
+
+    def resolved_accelerator_device(self) -> str:
+        """Ask Docling which concrete device it will use for inference."""
+
+        configured = self._configured_accelerator_device() or "auto"
+        try:
+            from docling.utils.accelerator_utils import decide_device
+        except ImportError as exc:
+            raise ImportError(
+                "Docling accelerator detection requires `docling`; install "
+                "`harborrag-adapters[pdf]` or `pip install docling`."
+            ) from exc
+        return str(decide_device(configured))
+
+    def _configured_accelerator_device(self) -> str:
+        """Normalize and validate Docling's documented device values."""
+
+        configured = self.options.accelerator_device.lower().strip()
+        if not configured:
+            return ""
+
+        if configured.startswith("cuda:"):
+            _, separator, index = configured.partition(":")
+            if separator and index.isdecimal():
+                return configured
+        elif configured in self._ACCELERATOR_DEVICES:
+            return configured
+
+        supported = ", ".join([*self._ACCELERATOR_DEVICES, "cuda:N"])
+        raise ValueError(
+            f"Unsupported Docling accelerator device {configured!r}: {supported}"
+        )
 
     def _pdf_format_option(self, pdf_format_option: Any, pipeline_options: Any) -> Any:
         """Create PdfFormatOption and fall back when backend selection is unsupported."""
