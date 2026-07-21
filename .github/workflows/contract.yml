@@ -1,0 +1,111 @@
+# API contract pipeline (ST10): export OpenAPI, gate breaking changes, build
+# the TypeScript client. The openapi.json artifact is the published contract;
+# oasdiff blocks merges that break it unless the PR carries the
+# `contract-break-approved` label (requires lead review).
+name: API Contract
+
+on:
+  pull_request:
+    branches: [dev/v2.0.0, main]
+  push:
+    branches: [dev/v2.0.0, main]
+
+permissions:
+  contents: read
+
+jobs:
+  openapi:
+    name: Export OpenAPI + breaking-change gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: |
+          uv venv --clear
+          uv pip install -e packages/harborrag-core \
+            -e "packages/harborrag-adapters[control-plane]" \
+            -e packages/harborrag-engine \
+            -e "packages/harborrag-runtime[production]" \
+            -e "packages/harborrag-app[api]"
+
+      - name: Export OpenAPI (head)
+        run: uv run make openapi
+
+      - name: Upload contract artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: openapi.json
+
+      - name: Export OpenAPI (base)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          git worktree add /tmp/base "origin/${{ github.base_ref }}"
+          if [ -f /tmp/base/packages/harborrag-app/src/harborrag_app/api/export_openapi.py ]; then
+            uv venv /tmp/base-venv
+            VIRTUAL_ENV=/tmp/base-venv uv pip install \
+              -e /tmp/base/packages/harborrag-core \
+              -e "/tmp/base/packages/harborrag-adapters[control-plane]" \
+              -e /tmp/base/packages/harborrag-engine \
+              -e "/tmp/base/packages/harborrag-runtime[production]" \
+              -e "/tmp/base/packages/harborrag-app[api]"
+            /tmp/base-venv/bin/python -m harborrag_app.api.export_openapi > /tmp/openapi-base.json
+          else
+            echo '{}' > /tmp/openapi-base.json
+            echo "base branch has no contract yet — skipping diff baseline"
+          fi
+
+      - name: Breaking-change gate (oasdiff)
+        if: >-
+          github.event_name == 'pull_request' &&
+          !contains(github.event.pull_request.labels.*.name, 'contract-break-approved')
+        run: |
+          if [ "$(cat /tmp/openapi-base.json)" = "{}" ]; then
+            echo "no baseline — gate skipped"
+            exit 0
+          fi
+          docker run --rm \
+            -v /tmp/openapi-base.json:/base.json:ro \
+            -v ${{ github.workspace }}/openapi.json:/head.json:ro \
+            tufin/oasdiff breaking /base.json /head.json --fail-on ERR
+
+  client:
+    name: Generate @harborrag/api-client
+    runs-on: ubuntu-latest
+    needs: openapi
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download contract artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Generate typed schema
+        working-directory: clients/typescript
+        run: |
+          npm ci || npm install
+          npx openapi-typescript ../../openapi.json -o src/schema.d.ts
+          npm run build --if-present
+
+      - name: Upload client artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-client
+          path: clients/typescript
+      # TODO(M0 follow-up): `npm publish` to the internal registry on tags,
+      # version pinned to the backend package version (plan ST10 item 4).

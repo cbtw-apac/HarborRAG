@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html lint format typecheck compile doctor mock-pipeline deps-check provider-matrix clean
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint format typecheck compile doctor mock-pipeline deps-check provider-matrix clean
 
 help:
 	@echo "HarborRAG development targets"
@@ -16,6 +16,7 @@ help:
 	@echo "  make test             Run all root and package-local tests"
 	@echo "  make test-package PACKAGE=harborrag-core"
 	@echo "  make coverage         Run tests with 90% coverage gate"
+	@echo "  make openapi          Export the OpenAPI contract to openapi.json"
 	@echo "  make lint             Run Ruff lint checks"
 	@echo "  make format           Format with Black, isort, then Ruff format"
 	@echo "  make typecheck        Run mypy across packages"
@@ -30,10 +31,10 @@ help:
 
 bootstrap:
 	$(PYTHON) -m pip install -e packages/harborrag-core
-	$(PYTHON) -m pip install -e packages/harborrag-adapters
+	$(PYTHON) -m pip install -e "packages/harborrag-adapters[control-plane]"
 	$(PYTHON) -m pip install -e packages/harborrag-engine
-	$(PYTHON) -m pip install -e packages/harborrag-runtime
-	$(PYTHON) -m pip install -e packages/harborrag-app
+	$(PYTHON) -m pip install -e "packages/harborrag-runtime[production]"
+	$(PYTHON) -m pip install -e "packages/harborrag-app[api]"
 	$(PYTHON) -m pip install -e packages/harborrag-mcp
 	$(PYTHON) -m pip install -e packages/harborrag
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -52,6 +53,10 @@ test-package:
 
 coverage:
 	$(PYTEST) --cov --cov-report=term-missing
+
+openapi:
+	$(PYTHON) -m harborrag_app.api.export_openapi > openapi.json
+	@echo "openapi.json written"
 
 coverage-html:
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html
