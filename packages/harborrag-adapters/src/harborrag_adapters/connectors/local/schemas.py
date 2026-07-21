@@ -2,27 +2,24 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
+from typing import ClassVar
+
+from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 
-@dataclass(slots=True)
-class LocalFileMetadata:
+@dataclass(slots=True, kw_only=True)
+class LocalFileMetadata(ConnectorMetadata):
     """Structured metadata for one loaded local file."""
 
-    source_system: str
+    source_system: ClassVar[str] = "local"
+
     path: str
     relative_path: str
     name: str
     parent_path: str
     suffix: str
     size: int
-    checksum: str
-    created_at: datetime
-    updated_at: datetime
     accessed_at: datetime
     is_symlink: bool
-
-    def to_dict(self) -> dict[str, object]:
-        """Serialize metadata for ``RawDocument.metadata``."""
-        return asdict(self)

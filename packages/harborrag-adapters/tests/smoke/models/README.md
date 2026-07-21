@@ -32,7 +32,7 @@ virtual environment is not activated.
 ## Configure a dotenv file
 
 Copy only the model families you intend to exercise from the repo-root
-`.env.models.example`. Do not commit the populated file.
+`env-example/.env.models.example`. Do not commit the populated file.
 
 The loader checks these sources in this order:
 
@@ -105,7 +105,8 @@ HARBOR_SMOKE_CHAT_ALLOW_AMBIENT_CREDENTIALS=true
 Provider-specific fields are prefixed with the family name. Supported fields
 include `API_BASE`, `API_VERSION`, `DEPLOYMENT_NAME`, `CUSTOM_LLM_PROVIDER`,
 `HEADERS_JSON`, `EXTRA_LITELLM_PARAMS_JSON`, AWS credentials/role fields, and
-Vertex project, location, and credentials fields. See `.env.models.example` for
+Vertex project, location, and credentials fields. See
+`env-example/.env.models.example` for
 the complete list and spelling.
 
 ### Chat backend selection

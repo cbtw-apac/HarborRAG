@@ -58,7 +58,7 @@ def build_source_record(
     commit: dict[str, Any],
 ) -> SourceRecord:
     """Convert a GitHub tree/content item into a source record."""
-    path = normalize_repo_path(str(item.get("path") or ""))
+    path = _required_repo_path(item)
     file_sha = str(item.get("sha") or "")
     mime_type = guess_mime_type(path)
     updated_at = commit_timestamp(commit)
@@ -94,10 +94,13 @@ def build_document_metadata(
     repository: dict[str, Any],
 ) -> GitHubMetadata:
     """Build parsed provenance metadata for a loaded GitHub file."""
-    path = normalize_repo_path(str(item.get("path") or ""))
+    path = _required_repo_path(item)
     commit_sha = str(commit.get("sha") or "")
     return GitHubMetadata(
-        source_system="github",
+        record_id=path,
+        title=path.rsplit("/", 1)[-1],
+        checksum=str(item.get("sha") or "") or None,
+        updated_at=commit_timestamp(commit),
         owner=owner,
         repo=repo,
         repository_id=repository.get("id"),
@@ -114,6 +117,15 @@ def build_document_metadata(
         mode=item.get("mode"),
         size=int(item.get("size") or 0),
     )
+
+
+def _required_repo_path(item: dict[str, Any]) -> str:
+    """Return a normalized GitHub item path or reject malformed items."""
+
+    path = normalize_repo_path(str(item.get("path") or ""))
+    if not path:
+        raise ValueError("GitHub item path must not be empty")
+    return path
 
 
 def _commit_identity(

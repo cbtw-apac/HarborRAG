@@ -52,7 +52,9 @@ Embedding and reranking use `HarborEmbedClientConfig`/`HarborEmbedClient` and `H
 
 `${NAME}` is required. `${NAME:-default}` supplies a default and should be reserved for non-secret operational values. References are expanded while loading, so validation fails before any provider call when a required variable is missing.
 
-Configuration loaders do not read `.env` automatically. `.env.models.example` is a template for shell, application, container, or secret-manager setup.
+Configuration loaders do not read `.env` automatically.
+`env-example/.env.models.example` is a template for shell, application,
+container, or secret-manager setup.
 
 Validated configuration can also be loaded from a Python mapping with `from_dict(...)`. Secret-manager integration can provide a `SecretResolver` rather than storing plaintext values.
 

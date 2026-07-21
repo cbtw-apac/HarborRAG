@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
+from harborrag_adapters.connectors.schemas import ConnectorMetadata
 from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
-
-
-def _dict_factory(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """Convert datetime values to ISO-8601 strings while building dicts.
-
-    Used as ``dataclasses.asdict``'s ``dict_factory`` so nested dataclasses
-    (e.g. comments, changelog entries) are also covered.
-    """
-    return {
-        key: value.isoformat() if isinstance(value, datetime) else value for key, value in pairs
-    }
 
 
 @dataclass(slots=True)
@@ -83,14 +73,14 @@ class JiraCustomFieldMetadata:
     text: str
 
 
-@dataclass(slots=True)
-class JiraMetadata:
+@dataclass(slots=True, kw_only=True)
+class JiraMetadata(ConnectorMetadata):
     """Structured metadata for one loaded JIRA issue."""
 
-    source_system: str
+    source_system: ClassVar[str] = "jira"
+
     issue_id: str
     issue_key: str
-    title: Any
     project_key: Any
     project_name: Any
     issue_type: str | None
@@ -104,11 +94,8 @@ class JiraMetadata:
     components: list[str | None]
     fix_versions: list[str | None]
     affected_versions: list[str | None]
-    created_at: datetime | None
-    updated_at: datetime | None
     resolved_at: datetime | None
     due_date: Any
-    checksum: str
     parent: JiraIssueReference | None
     subtasks: list[JiraIssueReference]
     issue_links: list[JiraIssueLinkMetadata]
@@ -116,7 +103,3 @@ class JiraMetadata:
     attachments: list[AttachmentMetadata]
     changelog: list[JiraChangelogMetadata]
     custom_fields: list[JiraCustomFieldMetadata]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize metadata for ``RawDocument.metadata``."""
-        return asdict(self, dict_factory=_dict_factory)

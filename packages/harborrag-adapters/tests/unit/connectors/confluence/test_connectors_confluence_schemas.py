@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 def _metadata(**overrides) -> ConfluenceMetadata:
     values = {
-        "source_system": "confluence",
+        "record_id": "1",
         "content_id": "1",
         "content_type": "page",
         "title": "Page One",
@@ -41,6 +41,8 @@ def _metadata(**overrides) -> ConfluenceMetadata:
 
 def test_to_dict_isoformats_top_level_datetimes():
     payload = _metadata().to_dict()
+    assert payload["source_system"] == "confluence"
+    assert payload["metadata_schema_version"] == 1
     assert payload["created_at"] == "2024-01-02T00:00:00+00:00"
     assert payload["updated_at"] == "2024-01-03T00:00:00+00:00"
 

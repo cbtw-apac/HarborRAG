@@ -119,17 +119,17 @@ def build_document_metadata(
     ).hexdigest()
 
     return ConfluenceMetadata(
-        source_system="confluence",
+        record_id=content_id,
+        title=title,
+        checksum=checksum,
+        created_at=parse_timestamp(history.get("createdDate") or history.get("createdAt")),
+        updated_at=parse_timestamp(version.get("when")),
         content_id=content_id,
         content_type=content_type,
-        title=title,
         space_key=space_key,
         version=version.get("number"),
         author=_author(content),
-        created_at=parse_timestamp(history.get("createdDate") or history.get("createdAt")),
-        updated_at=parse_timestamp(version.get("when")),
         labels=labels_from_content(content),
-        checksum=checksum,
         comments=[_comment_metadata(comment) for comment in comment_values],
         attachments=attachment_values,
         ancestors=hierarchy.ancestors,

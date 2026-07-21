@@ -45,6 +45,9 @@ def test_load_downloads_file_content_and_builds_metadata():
     assert document.content == b"docx-bytes"
     assert document.content_type.endswith("wordprocessingml.document")
     assert document.metadata["source_system"] == "sharepoint"
+    assert document.metadata["metadata_schema_version"] == 1
+    assert document.metadata["record_id"] == "file1"
+    assert document.metadata["title"] == "Guide.docx"
     assert document.metadata["item_name"] == "Guide.docx"
     assert document.metadata["created_by"] == "Ada"
     assert document.source == f"{SITE_URL}/Shared%20Documents/Guide.docx"

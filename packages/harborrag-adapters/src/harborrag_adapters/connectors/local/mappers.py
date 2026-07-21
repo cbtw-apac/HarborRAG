@@ -73,17 +73,19 @@ def build_document_metadata(
     see :func:`build_source_record`.
     """
     stat = path.stat()
+    relative = relative_path(path, root_path)
     return LocalFileMetadata(
-        source_system="local",
+        record_id=relative,
+        title=path.name,
+        checksum=checksum,
+        created_at=stat_datetime(stat.st_ctime),
+        updated_at=stat_datetime(stat.st_mtime),
         path=str(path),
-        relative_path=relative_path(path, root_path),
+        relative_path=relative,
         name=path.name,
         parent_path=str(path.parent),
         suffix=path.suffix.lower(),
         size=stat.st_size,
-        checksum=checksum,
-        created_at=stat_datetime(stat.st_ctime),
-        updated_at=stat_datetime(stat.st_mtime),
         accessed_at=stat_datetime(stat.st_atime),
         is_symlink=is_symlink,
     )

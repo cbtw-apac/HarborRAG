@@ -22,6 +22,7 @@ from harborrag_adapters.connectors.local import (
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
+    ConnectorMetadata,
     ConnectorQuery,
 )
 from harborrag_adapters.connectors.sharepoint import (

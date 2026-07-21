@@ -111,7 +111,10 @@ HARBOR_SMOKE_ENV_FILE=env/.env.database \
   python packages/harborrag-adapters/tests/smoke/repositories/run_all.py
 ```
 
-Copy `.env.database.example` to the protected path first and adjust ports/credentials. Connector/model templates are `.env.connector.example` and `.env.models.example`. Do not commit populated files.
+Copy `env-example/.env.database.example` to the protected path first and adjust
+ports/credentials. Connector/model templates are
+`env-example/.env.connector.example` and `env-example/.env.models.example`. Do
+not commit populated files.
 
 Smoke exit code 2 means prerequisites are unavailable or not configured; it is not a successful provider check. Read `packages/harborrag-adapters/tests/smoke/README.md` for safety rules and target-specific variables.
 

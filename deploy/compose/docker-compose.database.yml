@@ -1,23 +1,23 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:${QDRANT_VERSION:-v1.18.3}
     restart: unless-stopped
     ports:
-      - 6333:6333
-      - 6334:6334
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
       - harborrag-network
 
   falkordb:
-    image: falkordb/falkordb:latest
+    image: falkordb/falkordb:${FALKORDB_VERSION:-v4.20.1}
     restart: unless-stopped
     environment:
       REDIS_ARGS: "--appendonly yes --appendfsync everysec"
     ports:
-      - 6379:6379
-      - 3000:3000
+      - "${FALKORDB_PORT:-6379}:6379"
+      - "${FALKORDB_BROWSER_PORT:-3000}:3000"
     volumes:
       - falkordb_data:/var/lib/falkordb/data
     healthcheck:
@@ -30,7 +30,7 @@ services:
       - harborrag-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:${REDIS_VERSION:-7-alpine}
     restart: unless-stopped
     command:
       - redis-server
@@ -52,14 +52,14 @@ services:
       - harborrag-network
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:${POSTGRES_VERSION:-15-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-harborrag}
     ports:
-      - 5432:5432
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:

@@ -75,19 +75,28 @@ def attachment_parser():
         return parser
 
     backend_factories = {
-        "docling": DoclingBackend,
         "liteparse": LiteParseBackend,
         "mineru": MinerUBackend,
         "paddleocr": PaddleOcrBackend,
         "pymupdf": PyMuPdfBackend,
     }
-    try:
-        backend = backend_factories[backend_name]()
-    except KeyError as exc:
-        choices = ", ".join(sorted(backend_factories))
-        raise ValueError(
-            f"Unsupported HARBOR_SMOKE_PDF_BACKEND {backend_name!r}; choose {choices}"
-        ) from exc
+    if backend_name == "docling":
+        requested_device = env("HARBOR_SMOKE_DOCLING_DEVICE") or "auto"
+        backend = DoclingBackend(accelerator_device=requested_device)
+        resolved_device = backend.resolved_accelerator_device()
+        backend.options.accelerator_device = resolved_device
+        print(
+            "[attachments] Docling accelerator "
+            f"requested={requested_device!r} resolved={resolved_device!r}"
+        )
+    else:
+        try:
+            backend = backend_factories[backend_name]()
+        except KeyError as exc:
+            choices = ", ".join(sorted([*backend_factories, "docling"]))
+            raise ValueError(
+                f"Unsupported HARBOR_SMOKE_PDF_BACKEND {backend_name!r}; choose {choices}"
+            ) from exc
 
     parser.register(PdfParser(backends=[backend]), replace=True)
     print(f"[attachments] PDF backend={backend_name!r}")
@@ -128,12 +137,19 @@ def _rapidocr_engine():
     global _RAPID_OCR_ENGINE
     if _RAPID_OCR_ENGINE is None:
         try:
+            import onnxruntime
             from rapidocr import RapidOCR
         except ImportError as exc:
             raise RuntimeError(
-                "RapidOCR image parsing requires `rapidocr` and an inference runtime"
+                "RapidOCR image parsing requires `harborrag-adapters[pdf]`, "
+                "which installs both `rapidocr` and `onnxruntime`"
             ) from exc
         _RAPID_OCR_ENGINE = RapidOCR()
+        providers = onnxruntime.get_available_providers()
+        print(
+            "[attachments] RapidOCR runtime='onnxruntime' "
+            f"provider='CPUExecutionProvider' available_providers={providers!r}"
+        )
     return _RAPID_OCR_ENGINE
 
 

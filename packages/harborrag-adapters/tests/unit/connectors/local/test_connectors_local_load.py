@@ -28,6 +28,10 @@ def test_load_reads_file_bytes_and_builds_metadata(tmp_path: Path):
     assert document.source == path.resolve().as_uri()
     assert document.content == b"# Hello"
     assert document.content_type == guess_mime_type(path)
+    assert document.metadata["source_system"] == "local"
+    assert document.metadata["metadata_schema_version"] == 1
+    assert document.metadata["record_id"] == "docs/README.md"
+    assert document.metadata["title"] == "README.md"
     assert document.metadata["relative_path"] == "docs/README.md"
     assert len(document.metadata["checksum"]) == 64
     assert "mime_type" not in document.metadata

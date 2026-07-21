@@ -2,20 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
-
-def _dict_factory(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """Convert datetime values to ISO-8601 strings while building dicts.
-
-    Used as ``dataclasses.asdict``'s ``dict_factory`` so nested dataclasses
-    (e.g. ``commit_author``/``commit_committer``) are also covered.
-    """
-    return {
-        key: value.isoformat() if isinstance(value, datetime) else value for key, value in pairs
-    }
+from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 
 @dataclass(slots=True)
@@ -27,11 +18,12 @@ class GitHubCommitIdentity:
     date: datetime | None
 
 
-@dataclass(slots=True)
-class GitHubMetadata:
+@dataclass(slots=True, kw_only=True)
+class GitHubMetadata(ConnectorMetadata):
     """Structured metadata for one loaded GitHub repository file."""
 
-    source_system: str
+    source_system: ClassVar[str] = "github"
+
     owner: str
     repo: str
     repository_id: Any
@@ -47,7 +39,3 @@ class GitHubMetadata:
     sha: Any
     mode: Any
     size: int
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize metadata for ``RawDocument.metadata``."""
-        return asdict(self, dict_factory=_dict_factory)

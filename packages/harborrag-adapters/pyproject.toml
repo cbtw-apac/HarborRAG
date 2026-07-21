@@ -39,7 +39,9 @@ pdf = [
     "docling>=2.0.0",
     "liteparse>=2.5.0",
     "mineru[all]>=2.0.0",
+    "onnxruntime>=1.20,<2",
     "paddleocr>=3.0.0",
+    "rapidocr>=3.1,<4",
 ]
 llm = [
     "litellm>=1.90.0,<=1.92.0",

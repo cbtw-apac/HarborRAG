@@ -87,10 +87,13 @@ def build_document_metadata(
     project = fields.get("project") or {}
 
     return JiraMetadata(
-        source_system="jira",
+        record_id=str(issue.get("id") or issue_key),
+        title=str(fields.get("summary") or issue_key),
+        checksum=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        created_at=parse_timestamp(fields.get("created")),
+        updated_at=parse_timestamp(fields.get("updated")),
         issue_id=str(issue.get("id") or ""),
         issue_key=issue_key,
-        title=fields.get("summary"),
         project_key=project.get("key"),
         project_name=project.get("name"),
         issue_type=_name(fields.get("issuetype")),
@@ -104,11 +107,8 @@ def build_document_metadata(
         components=[_name(item) for item in fields.get("components") or []],
         fix_versions=[_name(item) for item in fields.get("fixVersions") or []],
         affected_versions=[_name(item) for item in fields.get("versions") or []],
-        created_at=parse_timestamp(fields.get("created")),
-        updated_at=parse_timestamp(fields.get("updated")),
         resolved_at=parse_timestamp(fields.get("resolutiondate")),
         due_date=fields.get("duedate"),
-        checksum=hashlib.sha256(content.encode("utf-8")).hexdigest(),
         parent=_parent(fields.get("parent")),
         subtasks=[_issue_ref(item) for item in fields.get("subtasks") or []],
         issue_links=[_issue_link(link) for link in fields.get("issuelinks") or []],
