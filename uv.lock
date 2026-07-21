@@ -2307,6 +2307,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "types-pyyaml" },
+]
 production = [
     { name = "harborrag-adapters", extra = ["control-plane"] },
     { name = "pydantic-settings" },
@@ -2320,8 +2323,9 @@ requires-dist = [
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "pydantic-settings", marker = "extra == 'production'", specifier = ">=2.2" },
     { name = "pyyaml", specifier = ">=6.0.0" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["production"]
+provides-extras = ["production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"

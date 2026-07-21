@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from .validation import require_id
+
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 JobType = Literal["bulk_ingest", "incremental_pull", "dry_run"]
 
@@ -52,5 +54,4 @@ class Job:
     payload: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.id or any(ch.isspace() for ch in self.id):
-            raise ValueError("Job id must be non-empty and contain no whitespace.")
+        require_id(self.id, label="Job")

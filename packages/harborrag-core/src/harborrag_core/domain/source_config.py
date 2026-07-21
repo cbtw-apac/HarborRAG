@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .validation import require_id
+
 SourceStatus = Literal["active", "paused", "error"]
 
 
@@ -30,5 +32,4 @@ class SourceConfig:
     secret_refs: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if not self.id or any(ch.isspace() for ch in self.id):
-            raise ValueError("SourceConfig id must be non-empty and contain no whitespace.")
+        require_id(self.id, label="SourceConfig")

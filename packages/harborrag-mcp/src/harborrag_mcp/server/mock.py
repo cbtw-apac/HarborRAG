@@ -42,11 +42,11 @@ class MockMcpServer(BaseMcpServer):
     def call_tool(self, name: str, arguments: dict[str, object] | None = None) -> dict[str, object]:
         for tool in self.tools:
             if tool.spec.name == name:
-                result = tool.call(arguments or {})
-                # Audit every invocation of a known tool, whether or not the
-                # policy check below accepts the result, before propagating
-                # any policy rejection to the caller.
+                # Audit every invocation of a known tool before it runs, so a
+                # tool that raises (or a policy check that later rejects the
+                # result) still leaves a record that the call happened.
                 self.audit.record(name)
+                result = tool.call(arguments or {})
                 self.policy.check_results(_result_count(result))
                 return result
         raise ValueError(f"Unknown MCP tool: {name}")

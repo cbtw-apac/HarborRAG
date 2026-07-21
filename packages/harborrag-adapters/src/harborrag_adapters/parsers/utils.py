@@ -93,16 +93,21 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
                 f"Archive member {info.filename!r} claims {info.file_size} "
                 "uncompressed bytes from 0 compressed bytes"
             )
-    # NOTE: this still trusts the zip central directory's `file_size`/
-    # `compress_size` fields rather than verified decompressed bytes. A zip
-    # that forges its central directory to under-report `file_size` while the
-    # actual per-member decompression stream yields far more data would slip
-    # past this guard. Closing that gap fully requires streaming each member
-    # through a capped read (tracking actual bytes produced by
-    # `ZipExtFile.read(chunk)` and aborting once a bound is exceeded) instead
-    # of trusting metadata, which is a larger change than this guard's current
-    # metadata-only scope; callers relying on this function should still treat
-    # it as a first line of defense, not a hard guarantee.
+    # NOTE: this trusts the zip central directory's `file_size`/
+    # `compress_size` fields rather than independently re-verifying
+    # decompressed bytes -- investigated as a possible bypass (a central
+    # directory that under-reports these fields while the real stream
+    # yields more), but it does not hold up: CPython's zipfile.ZipExtFile
+    # physically bounds every read to `min(compress_size, file_size)`
+    # (`ZipExtFile._read1` reads at most `compress_size` compressed bytes
+    # and slices decompressed output to `self._left`, seeded from
+    # `file_size`), so no consumer going through the standard zipfile API
+    # (openpyxl, python-pptx, or this module's own `archive.read()`) can
+    # ever extract more bytes than the declared metadata allows, forged or
+    # not -- under-reporting only truncates output and fails its own CRC
+    # check. A genuinely oversized member is instead caught above by the
+    # total/ratio checks against its (necessarily accurate, since forging
+    # it down just self-truncates) declared size.
     return archive
 
 

@@ -233,4 +233,7 @@ class PaddleOcrBackend(PdfBackend):
                 markdown_pages.append(markdown)
         if not markdown_pages:
             return ""
-        return str(concatenate(markdown_pages))
+        combined = concatenate(markdown_pages)
+        # A combiner that returns None/empty must fall through to `_predict`'s
+        # `markdown or output` fallback, not the literal string "None".
+        return str(combined) if combined else ""

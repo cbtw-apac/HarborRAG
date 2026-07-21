@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import struct
 import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -93,6 +94,68 @@ def build_zip_bomb_bytes(member_size: int = 50 * 1024 * 1024, members: int = 4) 
         for index in range(members):
             archive.writestr(f"member{index}.txt", payload)
     return buffer.getvalue()
+
+
+def build_zero_compressed_size_zip_bytes(
+    filename: str = "bomb.bin", *, claimed_file_size: int = 10_000_000
+) -> bytes:
+    """Forge a ZIP whose central directory claims 0 compressed bytes but a
+    large uncompressed size -- an effectively infinite ratio that a
+    compression-ratio-only check would divide-by-zero around or skip.
+
+    A real ``ZIP_STORED`` member is written first (so the archive is
+    otherwise well-formed), then its local file header and central directory
+    record are patched in place: compressed size -> 0, uncompressed size ->
+    ``claimed_file_size``.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr(filename, b"x")
+    data = bytearray(buffer.getvalue())
+
+    with zipfile.ZipFile(io.BytesIO(bytes(data))) as archive:
+        local_header_offset = archive.infolist()[0].header_offset
+
+    # Local file header: compressed size at +18, uncompressed size at +22.
+    struct.pack_into("<I", data, local_header_offset + 18, 0)
+    struct.pack_into("<I", data, local_header_offset + 22, claimed_file_size)
+
+    # Central directory record: compressed size at +20, uncompressed at +24.
+    central_directory_offset = data.index(b"PK\x01\x02")
+    struct.pack_into("<I", data, central_directory_offset + 20, 0)
+    struct.pack_into("<I", data, central_directory_offset + 24, claimed_file_size)
+
+    return bytes(data)
+
+
+def build_understated_file_size_zip_bytes(
+    real_content: bytes, *, claimed_file_size: int, filename: str = "member.bin"
+) -> bytes:
+    """Forge a ZIP whose central directory UNDER-reports uncompressed size.
+
+    ``compress_size`` is left accurate (a real DEFLATE stream for
+    ``real_content``), so metadata-only checks (total bytes, compression
+    ratio) see a small, unremarkable ``claimed_file_size`` and pass -- only
+    actually decompressing the member reveals it produces far more bytes
+    than the forged metadata claims.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(filename, real_content)
+    data = bytearray(buffer.getvalue())
+
+    with zipfile.ZipFile(io.BytesIO(bytes(data))) as archive:
+        local_header_offset = archive.infolist()[0].header_offset
+
+    # Local file header: uncompressed size at +22 (compressed size at +18 is
+    # left untouched -- it must stay accurate for the real member to decode).
+    struct.pack_into("<I", data, local_header_offset + 22, claimed_file_size)
+
+    # Central directory record: uncompressed size at +24 (+20 untouched).
+    central_directory_offset = data.index(b"PK\x01\x02")
+    struct.pack_into("<I", data, central_directory_offset + 24, claimed_file_size)
+
+    return bytes(data)
 
 
 @dataclass

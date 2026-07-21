@@ -75,6 +75,40 @@ def test_check_once_times_out_on_a_hung_sync_probe_instead_of_blocking_forever()
     monitor.close()
 
 
+def test_check_once_does_not_pile_up_abandoned_probe_threads() -> None:
+    """Repeated check_once() calls against a permanently hung deployment must
+    not spawn a new abandoned thread every time -- at most one in-flight
+    probe thread per deployment should ever exist."""
+    config = SimpleNamespace(
+        deployments=(SimpleNamespace(name="a", enabled=True),),
+    )
+    store = InMemoryRoutingStateStore(clock=lambda: 10.0)
+    release = threading.Event()
+
+    def hung_check(_logical: str, _deployment: Any) -> HealthCheckResult:
+        release.wait(timeout=5.0)
+        return HealthCheckResult(True)
+
+    probe = CallableHealthProbe(hung_check)
+    monitor = ActiveHealthMonitor(
+        {"primary": config},
+        config=ActiveHealthConfig(enabled=True, interval_seconds=0.01, timeout_seconds=0.02),
+        store=store,
+        probe=probe,
+    )
+    try:
+        for _ in range(10):
+            results = monitor.check_once()
+            assert results[0][1].healthy is False
+        probe_threads = [
+            t for t in threading.enumerate() if t.name == "harbor-model-health-probe"
+        ]
+        assert len(probe_threads) == 1
+    finally:
+        release.set()
+        monitor.close()
+
+
 @pytest.mark.asyncio
 async def test_active_health_async_success_failure_and_background() -> None:
     models = {

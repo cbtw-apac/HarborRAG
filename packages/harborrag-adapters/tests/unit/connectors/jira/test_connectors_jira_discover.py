@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.issues import DISCOVERY_FIELDS
 from harborrag_adapters.connectors.schemas import ConnectorQuery
@@ -102,3 +103,15 @@ def test_discover_rejects_unsafe_issue_keys(issue_key):
 
     with pytest.raises(ValueError, match="issue key"):
         list(connector.discover(ConnectorQuery(filters={"issue_keys": [issue_key]})))
+
+
+def test_discover_rejects_out_of_scope_project_from_raw_jql():
+    """A raw ``filters["jql"]`` escape hatch must not bypass project scoping."""
+    out_of_scope = issue("OTHER-1")
+    out_of_scope["fields"]["project"] = {"key": "OTHER", "name": "Other Team"}
+    client = FakeJiraClient()
+    client.add_post("search/jql", {"issues": [out_of_scope], "isLast": True})
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(DocumentProcessingError, match="outside configured projects"):
+        list(connector.discover(ConnectorQuery(filters={"jql": "project = OTHER"})))

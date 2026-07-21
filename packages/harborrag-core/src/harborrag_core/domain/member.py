@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from .validation import require_id
+
 Role = Literal["owner", "admin", "editor", "reader"]
 
 
@@ -21,5 +23,4 @@ class Member:
     role: Role = "reader"
 
     def __post_init__(self) -> None:
-        if not self.id or any(ch.isspace() for ch in self.id):
-            raise ValueError("Member id must be non-empty and contain no whitespace.")
+        require_id(self.id, label="Member")

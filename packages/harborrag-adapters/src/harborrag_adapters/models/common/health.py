@@ -82,6 +82,8 @@ class ActiveHealthMonitor:
         self._task: asyncio.Task[None] | None = None
         self._runner: AsyncLoopRunner | None = None
         self._closed = False
+        self._inflight_probes: dict[str, threading.Thread] = {}
+        self._inflight_lock = threading.Lock()
 
     def check_once(self) -> tuple[tuple[str, HealthCheckResult], ...]:
         """Probe every enabled deployment synchronously and persist results."""
@@ -107,19 +109,31 @@ class ActiveHealthMonitor:
         thread: on timeout this returns promptly and reports the deployment
         unhealthy, while the stuck probe thread is abandoned in the
         background (it cannot block process exit, since it's daemonic).
+
+        At most one abandoned thread accumulates per deployment: if a
+        previous probe for this same deployment is still running when
+        ``check_once()`` is called again, this reports unhealthy immediately
+        instead of piling on another thread that will also be abandoned.
         """
-        outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+        key = deployment_state_key(logical, deployment.name)
+        with self._inflight_lock:
+            previous = self._inflight_probes.get(key)
+            if previous is not None and previous.is_alive():
+                return HealthCheckResult(False, detail="ProbeInProgress")
 
-        def _target() -> None:
-            try:
-                outcome.put((True, self._probe.check(logical, deployment)))
-            except BaseException as exc:  # noqa: BLE001 - reported to the caller below
-                outcome.put((False, exc))
+            outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
 
-        thread = threading.Thread(
-            target=_target, daemon=True, name="harbor-model-health-probe"
-        )
-        thread.start()
+            def _target() -> None:
+                try:
+                    outcome.put((True, self._probe.check(logical, deployment)))
+                except BaseException as exc:  # noqa: BLE001 - reported to the caller below
+                    outcome.put((False, exc))
+
+            thread = threading.Thread(
+                target=_target, daemon=True, name="harbor-model-health-probe"
+            )
+            self._inflight_probes[key] = thread
+            thread.start()
         try:
             ok, value = outcome.get(timeout=self.config.timeout_seconds)
         except queue.Empty:

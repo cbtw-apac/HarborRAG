@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .validation import require_id
+
 ProviderFamily = Literal["chat", "embedding", "reranker"]
 
 
@@ -23,5 +25,4 @@ class Provider:
     secret_ref: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.id or any(ch.isspace() for ch in self.id):
-            raise ValueError("Provider id must be non-empty and contain no whitespace.")
+        require_id(self.id, label="Provider")

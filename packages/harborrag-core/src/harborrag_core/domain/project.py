@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
+from .validation import require_id
+
 ProjectStatus = Literal["active", "archived"]
 
 
@@ -38,5 +40,4 @@ class Project:
     stats: ProjectStats = field(default_factory=ProjectStats)
 
     def __post_init__(self) -> None:
-        if not self.id or any(ch.isspace() for ch in self.id):
-            raise ValueError("Project id must be non-empty and contain no whitespace.")
+        require_id(self.id, label="Project")

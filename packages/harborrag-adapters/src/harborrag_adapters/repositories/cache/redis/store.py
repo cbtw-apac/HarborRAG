@@ -195,15 +195,31 @@ class RedisCacheStore(HarborCacheStore):
                         for value_key in value_keys
                     }
                     await pipe.watch(*tags_keys.values())
+                    # A single per-value SMEMBERS round trip inside the WATCH
+                    # window, repeated for every tagged value, dominates
+                    # latency for large tags. Reading is safe to batch into
+                    # one pipelined round trip (no MULTI/EXEC needed here --
+                    # WATCH already started tracking these keys for the
+                    # optimistic-lock check below) instead of issuing them
+                    # sequentially one at a time.
+                    async with self._repositories.client.pipeline(transaction=False) as batch:
+                        for tags_key in tags_keys.values():
+                            batch.smembers(tags_key)
+                        raw_memberships = await batch.execute()
                     memberships: dict[str, set[str]] = {
-                        value_key: set(await pipe.smembers(tags_key))
-                        for value_key, tags_key in tags_keys.items()
+                        value_key: set(raw)
+                        for value_key, raw in zip(tags_keys.keys(), raw_memberships, strict=True)
                     }
                     pipe.multi()
                     value_delete_indexes: list[int] = []
                     command_index = 0
                     for value_key, tags in memberships.items():
                         for item_tag in tags:
+                            if item_tag == tag:
+                                # tag_key (this exact index) is deleted
+                                # unconditionally below, so removing
+                                # value_key from it here first is wasted work.
+                                continue
                             pipe.srem(self._repositories.tag_key(context, item_tag), value_key)
                             command_index += 1
                         pipe.delete(tags_keys[value_key])

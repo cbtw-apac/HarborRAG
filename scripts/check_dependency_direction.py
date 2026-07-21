@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import ast
 import sys
+import tokenize
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -59,11 +60,45 @@ MODULE_TO_PACKAGE_DIR = {
     "harborrag": "harborrag",
 }
 
-_DYNAMIC_IMPORT_CALLEES = {"import_module", "__import__"}
+def _importlib_bindings(tree: ast.AST) -> tuple[set[str], set[str]]:
+    """Track names bound to the ``importlib`` module and to ``import_module``.
+
+    Handles aliasing (``import importlib as il``, ``from importlib import
+    import_module as load``) so a call site can be matched against the real
+    binding rather than by name alone.
+    """
+    module_aliases = set()
+    function_aliases = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "importlib":
+                    module_aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "importlib" and node.level == 0:
+                for alias in node.names:
+                    if alias.name == "import_module":
+                        function_aliases.add(alias.asname or alias.name)
+    return module_aliases, function_aliases
+
+
+def _module_name_argument(call: ast.Call) -> str | None:
+    """Extract a literal module name from a call's first arg or ``name=`` kwarg."""
+    if call.args:
+        first_arg = call.args[0]
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            return first_arg.value
+        return None
+    for keyword in call.keywords:
+        if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
+            if isinstance(keyword.value.value, str):
+                return keyword.value.value
+    return None
 
 
 def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
     """Yield every top-level module name a file imports, statically or dynamically."""
+    module_aliases, function_aliases = _importlib_bindings(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -73,14 +108,20 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
                 yield node.module.split(".")[0], node.lineno
         elif isinstance(node, ast.Call):
             callee = node.func
-            name = callee.attr if isinstance(callee, ast.Attribute) else (
-                callee.id if isinstance(callee, ast.Name) else None
+            is_real_dynamic_import = (
+                isinstance(callee, ast.Name)
+                and (callee.id == "__import__" or callee.id in function_aliases)
+            ) or (
+                isinstance(callee, ast.Attribute)
+                and callee.attr == "import_module"
+                and isinstance(callee.value, ast.Name)
+                and callee.value.id in module_aliases
             )
-            if name not in _DYNAMIC_IMPORT_CALLEES or not node.args:
+            if not is_real_dynamic_import:
                 continue
-            first_arg = node.args[0]
-            if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                yield first_arg.value.split(".")[0], node.lineno
+            module_name = _module_name_argument(node)
+            if module_name:
+                yield module_name.split(".")[0], node.lineno
 
 
 def _scan_directory(directory: Path, *, module: str, allowed: set[str]) -> list[str]:
@@ -88,10 +129,11 @@ def _scan_directory(directory: Path, *, module: str, allowed: set[str]) -> list[
     if not directory.is_dir():
         return violations
     for path in sorted(directory.rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
         try:
+            with tokenize.open(path) as handle:
+                text = handle.read()
             tree = ast.parse(text, filename=str(path))
-        except SyntaxError as exc:
+        except (SyntaxError, OSError, UnicodeError) as exc:
             relative = path.relative_to(REPO_ROOT)
             violations.append(f"{relative}: could not parse for import analysis ({exc})")
             continue

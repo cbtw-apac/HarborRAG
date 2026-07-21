@@ -85,6 +85,8 @@ class JiraConnector(BaseConnector):
 
         yielded = 0
         for issue in self._issues.search(self._jql_from_query(query)):
+            issue_key = str(issue.get("key") or "")
+            self._validate_issue(issue, issue_key)
             record = build_source_record(issue, base_url=self.base_url)
             record.metadata["include_attachments"] = query.include_attachments
             yield record

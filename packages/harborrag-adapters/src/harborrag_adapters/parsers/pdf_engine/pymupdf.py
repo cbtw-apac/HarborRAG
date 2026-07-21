@@ -7,7 +7,7 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
 from ..exceptions import EncryptedPdfError, ParseError
-from ..utils import compact_text
+from ..utils import compact_text, guard_input_size
 from .base import PdfBackend, PdfParseResult
 from .utils import merge_dataclass_options, page_element
 
@@ -53,8 +53,9 @@ class PyMuPdfBackend(PdfBackend):
         """Extract text directly from PDF pages without OCR."""
 
         pymupdf = self._import_pymupdf()
+        source_bytes = guard_input_size(input.read_bytes())
         try:
-            document = pymupdf.open(stream=input.read_bytes(), filetype="pdf")
+            document = pymupdf.open(stream=source_bytes, filetype="pdf")
         except Exception as exc:  # noqa: BLE001 - external parser boundary
             raise ParseError(f"PyMuPDF could not open PDF: {exc}") from exc
 

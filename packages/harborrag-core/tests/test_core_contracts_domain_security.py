@@ -116,3 +116,13 @@ def test_security_helpers():
         URLPolicy().validate("https://127.0.0.1/admin")
     with pytest.raises(URLPolicyError):
         URLPolicy(denied_hosts={"localhost"}).validate("https://localhost/admin")
+    # "localhost" and its common aliases resolve to loopback and are blocked
+    # by default too, without needing to be added to denied_hosts -- unlike
+    # 127.0.0.1 this is a symbolic name, not a literal IP the ipaddress check
+    # below would catch.
+    with pytest.raises(URLPolicyError):
+        URLPolicy().validate("https://localhost/admin")
+    with pytest.raises(URLPolicyError):
+        URLPolicy().validate("https://LOCALHOST/admin")
+    with pytest.raises(URLPolicyError):
+        URLPolicy().validate("https://localhost.localdomain/admin")

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from harborrag_core.domain.project import Project
 from harborrag_runtime.composition import CompositionRoot
-from harborrag_runtime.settings import RuntimeSettings
+from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
 
 def _production(tmp_path: Path) -> CompositionRoot:
@@ -75,11 +75,15 @@ def test_local_composition_stays_mock() -> None:
 @pytest.mark.whitebox
 def test_prod_env_refuses_default_control_db_url() -> None:
     """Fail closed: env=prod with the default sqlite control_db_url must not
-    boot, mirroring the auth_mode=none-in-prod guard."""
+    boot, mirroring the auth_mode=none-in-prod guard. control_db_url is
+    passed explicitly so the test exercises the intended default regardless
+    of an ambient HARBORRAG_CONTROL_DB_URL in the environment."""
     from harborrag_core.contracts.errors import HarborConfigurationError
 
     with pytest.raises(HarborConfigurationError):
-        CompositionRoot.production(RuntimeSettings(env="prod"))
+        CompositionRoot.production(
+            RuntimeSettings(env="prod", control_db_url=DEFAULT_CONTROL_DB_URL)
+        )
 
 
 @pytest.mark.whitebox
@@ -88,13 +92,19 @@ def test_prod_env_boots_with_explicit_control_db_url(tmp_path: Path) -> None:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     composition = CompositionRoot.production(RuntimeSettings(env="prod", control_db_url=dsn))
     assert composition.mode == "production"
+    assert composition.control_plane is not None
 
 
 @pytest.mark.whitebox
 def test_dev_env_allows_default_control_db_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """env=dev keeps booting against the default sqlite control_db_url."""
+    """env=dev keeps booting against the default sqlite control_db_url.
+    control_db_url is passed explicitly so the test deterministically
+    exercises the intended default regardless of the environment."""
     monkeypatch.chdir(tmp_path)
-    composition = CompositionRoot.production(RuntimeSettings(env="dev"))
+    composition = CompositionRoot.production(
+        RuntimeSettings(env="dev", control_db_url=DEFAULT_CONTROL_DB_URL)
+    )
     assert composition.mode == "production"
+    assert composition.control_plane is not None

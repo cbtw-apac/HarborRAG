@@ -173,6 +173,39 @@ def test_chat_client_routes_budget_exceeded_through_middleware_and_telemetry() -
 
 
 @pytest.mark.asyncio
+async def test_chat_client_routes_budget_exceeded_through_middleware_and_telemetry_async() -> None:
+    """The async counterpart of the sync budget-rejection test: achat() must
+    raise BudgetExceededError, route it through on_error exactly once, and
+    never invoke the provider."""
+    errors: list[Exception] = []
+
+    class Middleware:
+        def before_request(self, request: Any, context: Any) -> Any:
+            return request
+
+        def after_response(self, response: Any, context: Any) -> Any:
+            return response
+
+        def on_error(self, error: Exception, context: Any) -> None:
+            errors.append(error)
+
+    invocation = FakeChatInvocation([raw_chat("unused")])
+    client = HarborChatClient(
+        chat_config(),
+        invocation=invocation,
+        middleware=(Middleware(),),
+        budget=RejectingBudgetPolicy(),
+    )
+
+    with pytest.raises(BudgetExceededError):
+        await client.achat([HarborChatMessage.user("hello")])
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], BudgetExceededError)
+    assert invocation.calls == []
+
+
+@pytest.mark.asyncio
 async def test_chat_client_async_context_closes_owned_resources() -> None:
     invocation = FakeChatInvocation([raw_chat()])
     async with HarborChatClient(chat_config(), invocation=invocation) as client:

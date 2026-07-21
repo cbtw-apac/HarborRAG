@@ -5,6 +5,7 @@ from typing import Any
 
 from .element import DocumentElement
 from .provenance import DocumentProvenance
+from .validation import require_id
 
 
 @dataclass(slots=True, kw_only=True)
@@ -69,5 +70,4 @@ class Document:
     )
 
     def __post_init__(self) -> None:
-        if not self.id or any(ch.isspace() for ch in self.id):
-            raise ValueError("Document id must be non-empty and contain no whitespace.")
+        require_id(self.id, label="Document")

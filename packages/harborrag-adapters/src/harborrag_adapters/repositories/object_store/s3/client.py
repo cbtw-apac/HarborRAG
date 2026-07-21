@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
@@ -8,6 +9,8 @@ try:
     import aioboto3  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
     aioboto3 = None
+
+logger = logging.getLogger("harborrag.storage.s3")
 
 
 class S3DBClient(AsyncLifecycle):
@@ -63,8 +66,8 @@ class S3DBClient(AsyncLifecycle):
             except Exception:
                 # Best-effort cleanup: if connect() failed before __aenter__()
                 # fully completed, the manager may not have a live client to
-                # exit -- swallow that so it doesn't mask the original error.
-                pass
+                # exit -- log and swallow so it doesn't mask the original error.
+                logger.debug("S3 client manager cleanup raised", exc_info=True)
         self._client_manager = None
         self._client = None
 

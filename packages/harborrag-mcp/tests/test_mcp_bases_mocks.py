@@ -107,6 +107,20 @@ def test_call_tool_facade_records_an_audit_entry(monkeypatch: pytest.MonkeyPatch
     assert fresh_audit.entries == [{"tool": "harbor_health_check"}]
 
 
+def test_call_tool_records_audit_entry_even_when_tool_raises() -> None:
+    """A tool that raises mid-call must still leave an audit trail: the audit
+    record happens before tool.call(), not after a successful result."""
+    from harborrag_mcp.audit import McpAuditLog
+    from harborrag_mcp.policy import McpToolPolicy
+
+    server = MockMcpServer(tools=[BrokenTool()], policy=McpToolPolicy(), audit=McpAuditLog())
+
+    with pytest.raises(NotImplementedError):
+        server.call_tool("broken")
+
+    assert server.audit.entries == [{"tool": "broken"}]
+
+
 def test_call_tool_facade_rejects_policy_violation_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
