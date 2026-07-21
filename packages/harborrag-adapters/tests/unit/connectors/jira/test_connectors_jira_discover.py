@@ -115,3 +115,13 @@ def test_discover_rejects_out_of_scope_project_from_raw_jql():
 
     with pytest.raises(DocumentProcessingError, match="outside configured projects"):
         list(connector.discover(ConnectorQuery(filters={"jql": "project = OTHER"})))
+
+
+def test_discover_rejects_out_of_scope_explicit_issue_key():
+    """An explicit ``filters["issue_keys"]`` request must not bypass project
+    scoping either: _record_for_key() derives project_key from the key
+    prefix alone, with no server round trip to validate it against."""
+    connector = JiraConnector(cloud_config(), client=FakeJiraClient())
+
+    with pytest.raises(DocumentProcessingError, match="outside configured projects"):
+        list(connector.discover(ConnectorQuery(filters={"issue_keys": ["OTHER-1"]})))

@@ -86,17 +86,22 @@ def test_prod_env_refuses_default_control_db_url() -> None:
         )
 
 
+@pytest.mark.asyncio
 @pytest.mark.whitebox
-def test_prod_env_boots_with_explicit_control_db_url(tmp_path: Path) -> None:
+async def test_prod_env_boots_with_explicit_control_db_url(tmp_path: Path) -> None:
     """env=prod with a non-default control_db_url composes normally."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     composition = CompositionRoot.production(RuntimeSettings(env="prod", control_db_url=dsn))
-    assert composition.mode == "production"
-    assert composition.control_plane is not None
+    try:
+        assert composition.mode == "production"
+        assert composition.control_plane is not None
+    finally:
+        await composition.aclose()
 
 
+@pytest.mark.asyncio
 @pytest.mark.whitebox
-def test_dev_env_allows_default_control_db_url(
+async def test_dev_env_allows_default_control_db_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """env=dev keeps booting against the default sqlite control_db_url.
@@ -106,5 +111,8 @@ def test_dev_env_allows_default_control_db_url(
     composition = CompositionRoot.production(
         RuntimeSettings(env="dev", control_db_url=DEFAULT_CONTROL_DB_URL)
     )
-    assert composition.mode == "production"
-    assert composition.control_plane is not None
+    try:
+        assert composition.mode == "production"
+        assert composition.control_plane is not None
+    finally:
+        await composition.aclose()

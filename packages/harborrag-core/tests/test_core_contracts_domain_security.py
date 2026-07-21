@@ -3,9 +3,14 @@ from __future__ import annotations
 import pytest
 from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.job import Job
+from harborrag_core.domain.member import Member
+from harborrag_core.domain.project import Project
 from harborrag_core.domain.provenance import DocumentProvenance
+from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
+from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.errors import HarborError, URLPolicyError
 from harborrag_core.security.redaction import redact_secrets
 from harborrag_core.security.url_policy import URLPolicy
@@ -27,6 +32,36 @@ def test_document_rejects_blank_or_whitespace_id(bad_id: str) -> None:
             content_type="page",
             provenance=DocumentProvenance(source="confluence"),
         )
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_job_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        Job(id=bad_id, source_id="src-1", project_id="proj-1", job_type="bulk_ingest")
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_member_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        Member(id=bad_id, subject="user@example.com")
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_project_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        Project(id=bad_id, name="Docs", collection="docs_main")
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_provider_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        Provider(id=bad_id, name="OpenAI", family="chat")
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_source_config_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        SourceConfig(id=bad_id, project_id="proj-1", source_type="confluence", name="Space")
 
 
 def test_domain_dataclasses():
@@ -126,3 +161,7 @@ def test_security_helpers():
         URLPolicy().validate("https://LOCALHOST/admin")
     with pytest.raises(URLPolicyError):
         URLPolicy().validate("https://localhost.localdomain/admin")
+    # A trailing root-zone dot is DNS/HTTP-client equivalent to the bare
+    # name and must not bypass the check on that technicality.
+    with pytest.raises(URLPolicyError):
+        URLPolicy().validate("https://localhost./admin")

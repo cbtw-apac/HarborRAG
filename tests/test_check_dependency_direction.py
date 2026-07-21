@@ -66,6 +66,68 @@ def test_detects_dynamic_import_violation(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert any("harborrag_core must not import harborrag_runtime" in v for v in violations)
 
 
+def test_parameter_shadowing_import_module_is_not_a_dynamic_import(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A function parameter named ``import_module`` must shadow the real
+    ``importlib.import_module`` binding within that function, even though
+    the file also genuinely imports it (and uses it safely) elsewhere."""
+    monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
+    for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
+        _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
+    _write_package(
+        tmp_path,
+        "harborrag-core",
+        "harborrag_core",
+        src_files={
+            "ok.py": (
+                "from importlib import import_module\n"
+                "\n"
+                "def real_loader(name):\n"
+                "    return import_module(name)\n"
+                "\n"
+                "def unrelated(import_module):\n"
+                "    # `import_module` here is just a parameter name, not the\n"
+                "    # real function -- this must not be treated as a dynamic\n"
+                "    # import even though it names a disallowed module.\n"
+                "    return import_module('harborrag_runtime.foo')\n"
+            )
+        },
+    )
+
+    violations = find_violations()
+
+    assert violations == []
+
+
+def test_reassignment_shadowing_import_module_is_not_a_dynamic_import(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A local reassignment of ``import_module`` shadows the real binding
+    for the rest of that function, per ordinary Python scoping rules."""
+    monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
+    for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
+        _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
+    _write_package(
+        tmp_path,
+        "harborrag-core",
+        "harborrag_core",
+        src_files={
+            "ok.py": (
+                "from importlib import import_module\n"
+                "\n"
+                "def fake_loader():\n"
+                "    import_module = lambda name: None  # noqa: E731\n"
+                "    return import_module('harborrag_runtime.foo')\n"
+            )
+        },
+    )
+
+    violations = find_violations()
+
+    assert violations == []
+
+
 def test_unrelated_import_module_method_call_is_not_a_dynamic_import(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

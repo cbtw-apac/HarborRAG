@@ -109,6 +109,43 @@ def test_check_once_does_not_pile_up_abandoned_probe_threads() -> None:
         monitor.close()
 
 
+def test_check_once_does_not_persist_unhealthy_for_probe_in_progress() -> None:
+    """A probe still running from an overlapping call is not a failure -- it
+    may yet succeed. Persisting healthy=False here would flap routing state
+    for a deployment that is merely slower than interval_seconds, not
+    actually down, so the ProbeInProgress result must not be persisted."""
+    config = SimpleNamespace(
+        deployments=(SimpleNamespace(name="a", enabled=True),),
+    )
+    store = InMemoryRoutingStateStore(clock=lambda: 10.0)
+    store.record_active_health("primary:a", healthy=True, latency_ms=5.0)
+
+    probe = CallableHealthProbe(lambda _logical, _deployment: HealthCheckResult(True))
+    monitor = ActiveHealthMonitor(
+        {"primary": config},
+        config=ActiveHealthConfig(enabled=True, interval_seconds=0.01, timeout_seconds=0.05),
+        store=store,
+        probe=probe,
+    )
+    # Simulate an overlapping in-flight probe for this deployment directly,
+    # without waiting through a real timeout first (which would itself be a
+    # legitimate failure, muddying what this test isolates).
+    stuck = threading.Event()
+    still_running = threading.Thread(target=stuck.wait, daemon=True)
+    still_running.start()
+    monitor._inflight_probes["primary:a"] = still_running
+
+    try:
+        results = monitor.check_once()
+        assert results[0][1].detail == "ProbeInProgress"
+        assert results[0][1].healthy is False
+        # The pre-existing healthy=True state must survive untouched.
+        assert store.snapshot("primary:a").active_healthy is True
+    finally:
+        stuck.set()
+        monitor.close()
+
+
 @pytest.mark.asyncio
 async def test_active_health_async_success_failure_and_background() -> None:
     models = {

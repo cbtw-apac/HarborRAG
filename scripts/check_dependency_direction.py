@@ -96,6 +96,100 @@ def _module_name_argument(call: ast.Call) -> str | None:
     return None
 
 
+_FUNCTION_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_NESTED_SCOPE_NODES = (*_FUNCTION_SCOPE_NODES, ast.ClassDef)
+
+
+def _assigned_names(target: ast.AST) -> Iterator[str]:
+    """Yield every name a (possibly destructuring) assignment target binds."""
+    if isinstance(target, ast.Name):
+        yield target.id
+    elif isinstance(target, ast.Starred):
+        yield from _assigned_names(target.value)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for element in target.elts:
+            yield from _assigned_names(element)
+
+
+def _function_local_shadow_names(scope: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> set[str]:
+    """Names a parameter, assignment, for/with/except target, or walrus
+    operator binds directly within this function/lambda's own scope.
+
+    Deliberately excludes names bound by ``import``/``from ... import``: an
+    import statement establishes the real dynamic-import binding this
+    checker looks for, so it must never be treated as shadowing it. Does
+    not descend into nested function/lambda/class scopes, which bind their
+    own names independently (a parameter or reassignment there shadows only
+    within that inner scope, not this one).
+    """
+    names: set[str] = set()
+    args = scope.args
+    for arglist in (args.posonlyargs, args.args, args.kwonlyargs):
+        names.update(arg.arg for arg in arglist)
+    if args.vararg:
+        names.add(args.vararg.arg)
+    if args.kwarg:
+        names.add(args.kwarg.arg)
+
+    def walk(node: ast.AST) -> None:
+        if isinstance(node, _NESTED_SCOPE_NODES):
+            return  # separate scope; its own bindings do not leak out here
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                names.update(_assigned_names(target))
+        elif isinstance(node, ast.AnnAssign):
+            names.update(_assigned_names(node.target))
+        elif isinstance(node, ast.AugAssign):
+            names.update(_assigned_names(node.target))
+        elif isinstance(node, ast.NamedExpr):
+            names.update(_assigned_names(node.target))
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            names.update(_assigned_names(node.target))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    names.update(_assigned_names(item.optional_vars))
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        for child in ast.iter_child_nodes(node):
+            walk(child)
+
+    if isinstance(scope, ast.Lambda):
+        walk(scope.body)
+    else:
+        for stmt in scope.body:
+            walk(stmt)
+    return names
+
+
+def _iter_calls_with_enclosing_scopes(
+    tree: ast.AST,
+) -> Iterator[tuple[ast.Call, list[set[str]]]]:
+    """Yield every Call node paired with the local-shadow-name sets of all
+    its enclosing function/lambda scopes (innermost first).
+
+    A parameter or reassignment inside some unrelated function elsewhere in
+    the file must not make a call inside *this* function look like a real
+    dynamic import (or vice versa): scoping is resolved per call site
+    instead of collecting binding names across the whole file flatly.
+    """
+    scope_stack: list[set[str]] = []
+
+    def visit(node: ast.AST) -> Iterator[tuple[ast.Call, list[set[str]]]]:
+        if isinstance(node, ast.Call):
+            yield node, list(scope_stack)
+        if isinstance(node, _FUNCTION_SCOPE_NODES):
+            scope_stack.append(_function_local_shadow_names(node))
+            for child in ast.iter_child_nodes(node):
+                yield from visit(child)
+            scope_stack.pop()
+        else:
+            for child in ast.iter_child_nodes(node):
+                yield from visit(child)
+
+    yield from visit(tree)
+
+
 def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
     """Yield every top-level module name a file imports, statically or dynamically."""
     module_aliases, function_aliases = _importlib_bindings(tree)
@@ -106,22 +200,35 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
         elif isinstance(node, ast.ImportFrom):
             if node.module and node.level == 0:
                 yield node.module.split(".")[0], node.lineno
-        elif isinstance(node, ast.Call):
-            callee = node.func
-            is_real_dynamic_import = (
-                isinstance(callee, ast.Name)
-                and (callee.id == "__import__" or callee.id in function_aliases)
-            ) or (
-                isinstance(callee, ast.Attribute)
-                and callee.attr == "import_module"
-                and isinstance(callee.value, ast.Name)
-                and callee.value.id in module_aliases
-            )
-            if not is_real_dynamic_import:
-                continue
-            module_name = _module_name_argument(node)
-            if module_name:
-                yield module_name.split(".")[0], node.lineno
+
+    for call, enclosing_scopes in _iter_calls_with_enclosing_scopes(tree):
+        callee = call.func
+        callee_name = (
+            callee.id
+            if isinstance(callee, ast.Name)
+            else callee.value.id
+            if isinstance(callee, ast.Attribute) and isinstance(callee.value, ast.Name)
+            else None
+        )
+        if callee_name is not None and any(callee_name in scope for scope in enclosing_scopes):
+            # Shadowed by a parameter/reassignment in an enclosing function:
+            # this call cannot refer to the real importlib binding, no
+            # matter what the file imports at module scope.
+            continue
+        is_real_dynamic_import = (
+            isinstance(callee, ast.Name)
+            and (callee.id == "__import__" or callee.id in function_aliases)
+        ) or (
+            isinstance(callee, ast.Attribute)
+            and callee.attr == "import_module"
+            and isinstance(callee.value, ast.Name)
+            and callee.value.id in module_aliases
+        )
+        if not is_real_dynamic_import:
+            continue
+        module_name = _module_name_argument(call)
+        if module_name:
+            yield module_name.split(".")[0], call.lineno
 
 
 def _scan_directory(directory: Path, *, module: str, allowed: set[str]) -> list[str]:

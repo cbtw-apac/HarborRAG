@@ -49,7 +49,11 @@ class URLPolicy:
         # resolve to loopback, so this stays a literal-string check (no DNS
         # resolution) while still closing the gap the literal-IP check below
         # can't -- "https://localhost/..." never parses as an IP address.
-        if hostname.lower() in _LOCAL_HOSTNAMES:
+        # Strip a trailing root-zone dot ("localhost.") first: DNS and HTTP
+        # clients treat it identically to the bare name, so it must not slip
+        # past this check on that technicality alone.
+        normalized_hostname = hostname.lower().rstrip(".")
+        if normalized_hostname in _LOCAL_HOSTNAMES:
             raise URLPolicyError(f"URL host is not allowed: {hostname}")
         # Baseline SSRF guard: block literal IPs that target private/
         # loopback/link-local/metadata/reserved ranges by default, on top of

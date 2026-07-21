@@ -190,6 +190,7 @@ class JiraConnector(BaseConnector):
         """Build a direct-load record when discovery is driven by issue keys."""
         issue_key = validate_issue_key(issue_key)
         project_key = issue_key.split("-", 1)[0]
+        self._check_project_scope(project_key, issue_key)
         return SourceRecord(
             id=f"jira://{project_key}/{issue_key}",
             source_type="application/vnd.atlassian.jira.issue+json",
@@ -201,6 +202,22 @@ class JiraConnector(BaseConnector):
                 "include_attachments": query.include_attachments,
             },
         )
+
+    def _check_project_scope(self, project_key: str | None, issue_key: str) -> None:
+        """Reject an issue whose project falls outside configured project_keys.
+
+        Shared by both discovery paths: JQL search results (validated via
+        ``_validate_issue``) and explicitly requested issue keys (validated
+        here in ``_record_for_key``), since an explicit out-of-scope key is
+        just as much an escape hatch around project scoping as a raw JQL
+        override that omits a project filter -- mirrors
+        ConfluenceConnector._validate_content's space check.
+        """
+        if self.config.project_keys and project_key not in self.config.project_keys:
+            raise DocumentProcessingError(
+                f"JIRA issue {issue_key} belongs to project {project_key!r}, "
+                f"outside configured projects {self.config.project_keys!r}"
+            )
 
     def _validate_issue(self, issue: dict[str, Any], issue_key: str) -> None:
         """Fail fast when JIRA omits required fields or is out of project scope."""
@@ -219,11 +236,4 @@ class JiraConnector(BaseConnector):
                 f"JIRA issue {issue_key} missing required fields: {', '.join(missing)}"
             )
         project_key = fields.get("project", {}).get("key")
-        if self.config.project_keys and project_key not in self.config.project_keys:
-            # Defense-in-depth against a raw-JQL override (the explicit
-            # filters["jql"] escape hatch) that omits a project filter --
-            # mirrors ConfluenceConnector._validate_content's space check.
-            raise DocumentProcessingError(
-                f"JIRA issue {issue_key} belongs to project {project_key!r}, "
-                f"outside configured projects {self.config.project_keys!r}"
-            )
+        self._check_project_scope(project_key, issue_key)

@@ -62,6 +62,9 @@ class CallableHealthProbe:
         return await asyncio.to_thread(self._check, logical_model, deployment)
 
 
+_PROBE_IN_PROGRESS_DETAIL = "ProbeInProgress"
+
+
 class ActiveHealthMonitor:
     """Run optional active probes and publish results to shared routing state."""
 
@@ -95,7 +98,12 @@ class ActiveHealthMonitor:
             latency = result.latency_ms or (time.perf_counter() - started) * 1_000
             result = HealthCheckResult(result.healthy, latency, result.detail)
             key = deployment_state_key(logical, deployment.name)
-            self._store.record_active_health(key, healthy=result.healthy, latency_ms=latency)
+            if result.detail != _PROBE_IN_PROGRESS_DETAIL:
+                # A probe still running from a previous, overlapping call is
+                # not a failure -- it may yet succeed. Persisting healthy=False
+                # here would flap routing state for a deployment that is
+                # merely slower than interval_seconds, not actually down.
+                self._store.record_active_health(key, healthy=result.healthy, latency_ms=latency)
             results.append((key, result))
         return tuple(results)
 
@@ -119,7 +127,7 @@ class ActiveHealthMonitor:
         with self._inflight_lock:
             previous = self._inflight_probes.get(key)
             if previous is not None and previous.is_alive():
-                return HealthCheckResult(False, detail="ProbeInProgress")
+                return HealthCheckResult(False, detail=_PROBE_IN_PROGRESS_DETAIL)
 
             outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
 
