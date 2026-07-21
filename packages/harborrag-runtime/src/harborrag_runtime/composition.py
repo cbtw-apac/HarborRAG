@@ -8,13 +8,15 @@ secrets/event fakes are assembled here and exposed as core port types.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from harborrag_adapters.connectors.mock import MockConnector
-from harborrag_adapters.models.embedding.mock import MockEmbeddingModel
-from harborrag_adapters.parsers.mock import MockMarkdownParser
-from harborrag_adapters.repositories.vector.mock import MockVectorRepository
+from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_adapters.parsers.text import TextParser
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
@@ -27,13 +29,67 @@ from harborrag_core.ports.control_plane import (
 from harborrag_core.ports.events import EventBusPort
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.builder import EngineBuilder
-from harborrag_engine.ingestion.mock import MockIngestionPipeline
 
 from harborrag_runtime.services.base import BaseRuntimeService
 from harborrag_runtime.services.mock import MockRuntimeService
 
 if TYPE_CHECKING:
     from harborrag_runtime.settings import RuntimeSettings
+
+
+@dataclass(frozen=True, slots=True)
+class _MockIngestionSummary:
+    """Summary shape for the deterministic composition smoke pipeline."""
+
+    discovered: int
+    loaded: int
+    parsed: int
+    indexed: int
+
+
+class _MockIngestionConnector(BaseConnector):
+    """In-memory connector yielding one canned record for health checks."""
+
+    provider_name = "mock_runtime"
+
+    def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
+        yield SourceRecord(
+            id="mock://composition/1",
+            source_type="text/plain",
+            locator="mock://composition/1",
+        )
+
+    def load(self, record: SourceRecord) -> RawDocument:
+        return RawDocument(
+            id=record.id,
+            source=record.locator,
+            content="HarborRAG mock ingestion content",
+            content_type="text/plain",
+        )
+
+
+@dataclass(slots=True)
+class _MockIngestionShim:
+    """Reduced connector-to-parser pipeline used by local health checks."""
+
+    connector: BaseConnector
+    parser: TextParser
+    _summary: _MockIngestionSummary = field(
+        default_factory=lambda: _MockIngestionSummary(0, 0, 0, 0)
+    )
+
+    def run_once(self) -> list[RawDocument]:
+        documents: list[RawDocument] = []
+        for record in self.connector.discover():
+            raw = self.connector.load(record)
+            self.parser.parse(raw)
+            documents.append(raw)
+        count = len(documents)
+        self._summary = _MockIngestionSummary(count, count, count, 0)
+        return documents
+
+    def summarize(self) -> _MockIngestionSummary:
+        return self._summary
 
 
 @dataclass(slots=True)
@@ -137,20 +193,11 @@ class CompositionRoot:
             mode="production",
         )
 
-    def mock_pipeline(self) -> MockIngestionPipeline:
-        """Build deterministic local pipeline from co-located base/mock packages.
+    def mock_pipeline(self) -> _MockIngestionShim:
+        """Build the connector/parser pair used by the ingest smoke check."""
+        return _MockIngestionShim(connector=_MockIngestionConnector(), parser=TextParser())
 
-        TODO: Replace this hard-coded assembly with configuration-driven composition that
-        validates provider names, required secrets, repository settings, and feature budgets.
-        """
-        return MockIngestionPipeline(
-            MockConnector(),
-            MockMarkdownParser(),
-            embedder=MockEmbeddingModel(),
-            vector_repository=MockVectorRepository(),
-        )
-
-    def sample_pipeline(self) -> MockIngestionPipeline:
+    def sample_pipeline(self) -> _MockIngestionShim:
         """Build a sample pipeline that ingests a small set of documents for testing and demonstration.
 
         TODO: Implement a sample pipeline that ingests a small set of documents for testing and demonstration.

@@ -140,10 +140,10 @@ class WebsiteBuilder:
 
         # Try to load from pyproject.toml
         try:
-            import tomli
+            import tomllib
 
             with open("pyproject.toml", "rb") as f:
-                pyproject = tomli.load(f)
+                pyproject = tomllib.load(f)
                 project_section = pyproject.get("project", {})
                 project_info.update(
                     {
@@ -573,7 +573,7 @@ Sitemap: {site_base}/sitemap.xml
             # Find HTML files in site directory
             if self.output_dir.exists():
                 for html_file in self.output_dir.rglob("*.html"):
-                    rel_path = str(html_file.relative_to(self.output_dir))
+                    rel_path = html_file.relative_to(self.output_dir).as_posix()
                     pages.append(rel_path)
 
         # Use provided date or current date

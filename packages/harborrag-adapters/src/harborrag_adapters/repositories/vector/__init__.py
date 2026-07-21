@@ -1,4 +1,4 @@
-from harborrag_adapters.repositories.vector.base import BaseVectorRepository
-from harborrag_adapters.repositories.vector.mock import MockVectorRepository
+from harborrag_adapters.repositories.vector.base import HarborVectorRepository
+from harborrag_adapters.repositories.vector.client import HarborVectorDBClient
 
-__all__ = ["BaseVectorRepository", "MockVectorRepository"]
+__all__ = ["HarborVectorDBClient", "HarborVectorRepository"]

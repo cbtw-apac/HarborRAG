@@ -1,8 +1,8 @@
-"""Run the deterministic mock pipeline end to end.
+"""Run the deterministic local composition check end to end.
 
-Wires the mock connector, parser, normalizer, chunker, embedder, vector
-repository, and retrieval pipeline together so contributors can see the
-framework data flow without any real provider.
+Wires the runtime's in-memory connector and real text parser, builds a small
+retrieval input from the loaded documents, and exercises the deterministic
+retrieval pipeline without an external provider.
 
 Usage:
     python scripts/run_mock_pipeline.py [--json] [--query TEXT] [--top-k N]
@@ -15,7 +15,6 @@ import json
 import sys
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-from harborrag_engine.ingestion.mock import MockChunker
 from harborrag_engine.retrieval.mock import MockRetrievalPipeline
 from harborrag_runtime.composition import CompositionRoot
 
@@ -24,17 +23,15 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
     pipeline = CompositionRoot.local().mock_pipeline()
     documents = pipeline.run_once()
 
-    chunker = MockChunker()
     chunks: list[dict[str, object]] = []
     for document in documents:
-        for idx, chunk_text in enumerate(chunker.chunk(document)):
-            chunks.append(
-                {
-                    "id": f"{document.id}#chunk-{idx}",
-                    "document_id": document.id,
-                    "text": chunk_text,
-                }
-            )
+        chunks.append(
+            {
+                "id": f"{document.id}#chunk-0",
+                "document_id": document.id,
+                "text": document.text(),
+            }
+        )
 
     retrieval_pipeline = MockRetrievalPipeline(
         results=[
@@ -47,18 +44,16 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
             for chunk in chunks
         ]
     )
-    retrieved = retrieval_pipeline.retrieve(
-        RetrievalQuery(text=query_text, top_k=top_k)
-    )
+    retrieved = retrieval_pipeline.retrieve(RetrievalQuery(text=query_text, top_k=top_k))
 
     summary = pipeline.summarize()
     return {
         "documents": [
             {
                 "id": document.id,
-                "title": document.title,
-                "source_type": document.source_type,
-                "text": document.text,
+                "source": document.source,
+                "content_type": document.content_type,
+                "text": document.text(),
             }
             for document in documents
         ],
@@ -83,13 +78,9 @@ def run_pipeline(query_text: str, top_k: int) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the deterministic mock pipeline.")
-    parser.add_argument(
-        "--json", action="store_true", help="Print the full result as JSON."
-    )
+    parser.add_argument("--json", action="store_true", help="Print the full result as JSON.")
     parser.add_argument("--query", default="HarborRAG", help="Retrieval query text.")
-    parser.add_argument(
-        "--top-k", type=int, default=5, help="Number of retrieval results."
-    )
+    parser.add_argument("--top-k", type=int, default=5, help="Number of retrieval results.")
     args = parser.parse_args()
 
     result = run_pipeline(args.query, args.top_k)
@@ -103,11 +94,7 @@ def main() -> int:
         result["chunks"],
         result["retrieval"],
     )
-    assert (
-        isinstance(documents, list)
-        and isinstance(chunks, list)
-        and isinstance(retrieval, list)
-    )
+    assert isinstance(documents, list) and isinstance(chunks, list) and isinstance(retrieval, list)
     print("Mock pipeline completed:")
     print(f"  documents: {len(documents)}")
     print(f"  chunks:    {len(chunks)}")

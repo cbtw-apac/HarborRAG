@@ -15,9 +15,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ADAPTERS_SRC = (
-    REPO_ROOT / "packages" / "harborrag-adapters" / "src" / "harborrag_adapters"
-)
+ADAPTERS_SRC = REPO_ROOT / "packages" / "harborrag-adapters" / "src" / "harborrag_adapters"
 PACKAGES_DIR = REPO_ROOT / "packages"
 
 FAMILIES = [
@@ -59,9 +57,7 @@ def collect_todos() -> list[tuple[str, str, int, str]]:
             match = TODO_PATTERN.search(line)
             if match:
                 relative = str(path.relative_to(REPO_ROOT))
-                todos.append(
-                    (match.group(1), relative, line_number, match.group(2).strip())
-                )
+                todos.append((match.group(1), relative, line_number, match.group(2).strip()))
     return todos
 
 

@@ -1,0 +1,131 @@
+chat:
+  default_model: production
+  backend:
+    type: litellm_router
+  routing:
+    engine: litellm_router
+    strategy: weighted
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 4
+      recovery_timeout_seconds: 30
+  cache:
+    enabled: false
+  observability:
+    enabled: true
+    privacy:
+      log_inputs: false
+      log_outputs: false
+  security:
+    allowed_providers: [azure_openai, anthropic]
+    allowed_base_url_hosts: [example.openai.azure.com]
+  models:
+    production:
+      aliases: [chat-default]
+      fallbacks: [disaster-recovery]
+      deployments:
+        - name: azure-east
+          provider: azure_openai
+          model: azure/REPLACE_WITH_AZURE_DEPLOYMENT
+          deployment_name: REPLACE_WITH_AZURE_DEPLOYMENT
+          api_key: ${AZURE_OPENAI_API_KEY}
+          api_base: ${AZURE_OPENAI_ENDPOINT}
+          api_version: ${AZURE_OPENAI_API_VERSION}
+          weight: 3
+          capabilities: &chat_capabilities
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+        - name: azure-west
+          provider: azure_openai
+          model: azure/REPLACE_WITH_AZURE_DEPLOYMENT
+          deployment_name: REPLACE_WITH_AZURE_DEPLOYMENT
+          api_key: ${AZURE_OPENAI_API_KEY}
+          api_base: ${AZURE_OPENAI_ENDPOINT}
+          api_version: ${AZURE_OPENAI_API_VERSION}
+          weight: 1
+          capabilities: *chat_capabilities
+    disaster-recovery:
+      deployments:
+        - name: anthropic-dr
+          provider: anthropic
+          model: anthropic/REPLACE_WITH_CHAT_MODEL
+          api_key: ${ANTHROPIC_API_KEY}
+          capabilities: *chat_capabilities
+
+embed:
+  default_model: production
+  routing:
+    engine: harbor
+    strategy: least_busy
+  security:
+    allowed_providers: [azure_openai]
+    allowed_base_url_hosts: [example.openai.azure.com]
+  models:
+    production:
+      embedding_space: harbor-index-v1
+      deployments:
+        - name: azure-embedding-east
+          provider: azure_openai
+          model: azure/REPLACE_WITH_EMBEDDING_DEPLOYMENT
+          deployment_name: REPLACE_WITH_EMBEDDING_DEPLOYMENT
+          api_key: ${AZURE_OPENAI_API_KEY}
+          api_base: ${AZURE_OPENAI_ENDPOINT}
+          api_version: ${AZURE_OPENAI_API_VERSION}
+          expected_dimensions: 1536
+          capabilities: &embed_capabilities
+            batch: true
+            configurable_dimensions: true
+            default_dimensions: 1536
+            encoding_format: true
+        - name: azure-embedding-west
+          provider: azure_openai
+          model: azure/REPLACE_WITH_EMBEDDING_DEPLOYMENT
+          deployment_name: REPLACE_WITH_EMBEDDING_DEPLOYMENT
+          api_key: ${AZURE_OPENAI_API_KEY}
+          api_base: ${AZURE_OPENAI_ENDPOINT}
+          api_version: ${AZURE_OPENAI_API_VERSION}
+          expected_dimensions: 1536
+          capabilities: *embed_capabilities
+
+rerank:
+  default_model: production
+  routing:
+    engine: harbor
+    strategy: ordered
+  security:
+    allowed_providers: [bedrock, cohere]
+  models:
+    production:
+      fallbacks: [disaster-recovery]
+      default_params: &rerank_defaults
+        top_n: 10
+        return_documents: false
+      deployments:
+        - name: bedrock-primary
+          provider: bedrock
+          model: bedrock/REPLACE_WITH_RERANK_MODEL
+          aws_region_name: ${AWS_REGION}
+          allow_ambient_credentials: true
+    disaster-recovery:
+      default_params: *rerank_defaults
+      deployments:
+        - name: cohere-dr
+          provider: cohere
+          model: cohere/REPLACE_WITH_RERANK_MODEL
+          api_key: ${COHERE_API_KEY}
+
+profiles:
+  development:
+    chat:
+      timeout_seconds: 30
+      observability:
+        enabled: false
+  production:
+    chat:
+      timeout_seconds: 90
+    embed:
+      timeout_seconds: 90
+    rerank:
+      timeout_seconds: 90

@@ -1,10 +1,11 @@
 # Configuration
 
-HarborRAG doesn't have a file-based configuration system yet — the two pages below document the actual configuration surface that exists in code today.
+HarborRAG currently has three independent configuration paths:
 
-1. [Configuration Reference](config-file-reference.md) — `EngineConfig` and `EnginePolicy`, the two dataclasses that exist today.
-2. [Workspace / Multi-Tenancy](workspace-mode.md) — `Tenant` and `RequestContext`, the tenant-scoping primitives a future workspace feature would build on.
+1. [Connector Configuration](connector-config.md) — versioned YAML loaded by `harborrag-runtime`.
+2. [Parser Configuration](parser-config.md) — versioned YAML loaded by `harborrag-runtime`.
+3. [Model Configuration](model-config.md) — YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
 
-## Related
+[Engine Configuration](config-file-reference.md) documents the small code-constructed engine dataclasses. [Tenant and Workspace Status](workspace-mode.md) explains tenant-aware repository context and what is not yet available as a workspace feature.
 
-- [Architecture Overview](../../developers/architecture/README.md) — where these types fit in the package structure.
+The checked-in `*.example.yaml` and `.env.*.example` files are references, not automatically loaded runtime files. Copy them for an environment or pass their paths explicitly. HarborRAG does not automatically load dotenv files.

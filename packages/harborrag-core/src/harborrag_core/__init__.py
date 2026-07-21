@@ -1,23 +1,28 @@
-from harborrag_core.contracts.ids import HarborId, stable_hash_id
-from harborrag_core.contracts.result import Result
-from harborrag_core.domain.document import HarborDocument
-from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.graph import GraphHint
-from harborrag_core.domain.metadata import DocumentMetadata
-from harborrag_core.domain.parsed_document import ParsedDocument, ParseQuality
-from harborrag_core.domain.provenance import DocumentProvenance
-from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain import (
+    Document,
+    DocumentElement,
+    DocumentProvenance,
+    DocumentRelation,
+    RawDocument,
+    RetrievalQuery,
+    RetrievalResult,
+    SourceRecord,
+)
+from harborrag_core.errors import HarborError, URLPolicyError
+from harborrag_core.security.redaction import redact_secrets
+from harborrag_core.security.url_policy import URLPolicy
 
 __all__ = [
+    "Document",
     "DocumentElement",
-    "DocumentMetadata",
     "DocumentProvenance",
-    "GraphHint",
-    "HarborDocument",
-    "HarborId",
-    "ParsedDocument",
-    "ParseQuality",
+    "DocumentRelation",
+    "HarborError",
     "RawDocument",
-    "Result",
-    "stable_hash_id",
+    "RetrievalQuery",
+    "RetrievalResult",
+    "SourceRecord",
+    "URLPolicy",
+    "URLPolicyError",
+    "redact_secrets",
 ]

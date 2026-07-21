@@ -8,6 +8,5 @@ from typing import Any
 class Chunk:
     id: str
     document_id: str
-    text: str
-    index: int
+    content: str
     metadata: dict[str, Any] = field(default_factory=dict)

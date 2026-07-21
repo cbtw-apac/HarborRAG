@@ -60,12 +60,16 @@ class AssetManager:
         for file_path in static_files:
             source_path = Path(file_path)
 
-            if ":" in file_path:
-                source, dest = file_path.split(":", 1)
+            if source_path.exists():
+                # Copy to same relative path
+                dest_path = self.output_dir / source_path.name
+            elif ":" in file_path:
+                # Split from the right so a Windows drive letter remains part
+                # of the source path (for example C:\\tmp\\file.txt:docs/file.txt).
+                source, dest = file_path.rsplit(":", 1)
                 source_path = Path(source)
                 dest_path = self.output_dir / dest
             else:
-                # Copy to same relative path
                 dest_path = self.output_dir / source_path.name
 
             # Handle directories and files differently

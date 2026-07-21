@@ -1,68 +1,74 @@
 # Quick Start
 
-This walks through installing the workspace and exercising the deterministic mock pipeline — the same data flow a real connector, parser, embedder, and vector repository will run through once they exist. No external services (Qdrant, LLM providers, etc.) are required; everything below runs against in-memory mocks.
+This path exercises only credential-free local behavior.
 
-## 1. Install the workspace
+## 1. Install
 
 ```bash
 uv sync --all-packages --extra dev
 ```
 
-See [Installation](installation.md) for the pip-based alternative and troubleshooting.
-
-## 2. Run the CLI doctor command
+## 2. Check the local composition
 
 ```bash
-python -m harborrag_app.cli.main doctor --json
+uv run python -m harborrag_app.cli.main doctor --json
 ```
 
-```json
-{"diagnostics": {"engine": {"environment": "local", "max_concurrency": 4, "tenant": "default"}, "runtime": {"provider": "mock_runtime", "ready": true}}, "ok": true}
-```
-
-This confirms the runtime and engine composition (`harborrag_runtime.composition.CompositionRoot`) wires up correctly.
-
-## 3. Run the mock ingestion + retrieval pipeline
-
-```bash
-python scripts/run_mock_pipeline.py --json
-```
-
-This connects `MockConnector` → `MockMarkdownParser` → `MockDocumentNormalizer` → `MockEmbeddingModel` → `MockVectorRepository`, then chunks and retrieves the result with `MockRetrievalPipeline`:
+Expected shape:
 
 ```json
 {
-  "documents": [{"id": "harbor://mock/doc", "title": "Mock Document", "source_type": "mock", "text": "..."}],
-  "chunks": [{"id": "harbor://mock/doc#chunk-0", "document_id": "harbor://mock/doc", "text": "..."}],
-  "retrieval": [{"id": "harbor://mock/doc#chunk-0", "text": "...", "score": 0.0, "metadata": {"document_id": "harbor://mock/doc"}}],
-  "summary": {"discovered": 1, "loaded": 1, "parsed": 1, "indexed": 1}
+  "diagnostics": {
+    "engine": {"environment": "local", "max_concurrency": 4, "tenant": "default"},
+    "runtime": {"provider": "mock_runtime", "ready": true}
+  },
+  "ok": true
 }
 ```
 
-## 4. Call the MCP mock tools
-
-```python
-from harborrag_mcp.server import MockMcpServer
-
-server = MockMcpServer()
-print(server.call_tool("harbor_health_check"))
-print(server.call_tool("harbor_sample_retrieve", {"query": "HarborRAG"}))
-```
-
-See [MCP Mock Tools](../users/detailed-guides/mcp-server/README.md) for the full tool list and [Setup & Integration](../users/detailed-guides/mcp-server/setup-and-integration.md) for wiring a client to the server.
-
-## 5. Run the test suite
+## 3. Run the deterministic pipeline
 
 ```bash
-pytest
-pytest --cov --cov-report=term-missing
+uv run python scripts/run_mock_pipeline.py --json --query HarborRAG --top-k 1
 ```
 
-Every package owns its own `tests/` folder; coverage must stay at or above 95% (`make coverage`).
+The script discovers and parses one in-memory text document, creates one demonstration chunk, and runs deterministic retrieval. Its summary is:
 
-## Where to go next
+```json
+{"discovered": 1, "loaded": 1, "parsed": 1, "indexed": 0}
+```
 
-- [What is HarborRAG?](what-is-harborrag.md) — the framework's architecture and current status.
-- [Architecture Overview](../developers/architecture/README.md) — package map and dependency rules.
-- [Extending HarborRAG](../developers/extending/README.md) — implement a real connector, parser, model, or repository.
-- [CLI Reference](../users/cli-reference/README.md) — current and planned CLI commands.
+`indexed` remains zero because this local check does not persist to a real vector repository.
+
+## 4. Load the example catalogs
+
+The checked-in YAML files are examples. They are not loaded automatically:
+
+```bash
+LOCAL_SOURCE_PATH=docs uv run python -c "from harborrag_runtime.config import load_connector_catalog; c = load_connector_catalog('config/connectors.example.yaml'); print(c.names(enabled_only=True)); print(list(c.build_enabled()))"
+uv run python -c "from harborrag_runtime.config import load_parser_catalog; c = load_parser_catalog('config/parsers.example.yaml'); print(c.names(enabled_only=True))"
+```
+
+The connector command should show `local-docs`; the parser command should show `pdf-default`.
+
+## 5. Call the MCP mock tools
+
+```bash
+uv run python -c "from harborrag_mcp.server import list_tools, call_tool; print(list_tools()); print(call_tool('harbor_health_check'))"
+```
+
+These functions dispatch in process. They do not start an MCP protocol server.
+
+## 6. Run tests
+
+```bash
+uv run pytest
+uv run make coverage
+```
+
+## Continue
+
+- [Connector, parser, and model configuration](../users/configuration/README.md)
+- [CLI Reference](../users/cli-reference/README.md)
+- [Architecture](../developers/architecture/README.md)
+- [Testing](../developers/testing/README.md)

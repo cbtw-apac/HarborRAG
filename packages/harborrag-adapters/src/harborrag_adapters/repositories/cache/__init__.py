@@ -1,4 +1,15 @@
-from harborrag_adapters.repositories.cache.base import BaseCacheRepository
-from harborrag_adapters.repositories.cache.mock import MockCacheRepository
+from harborrag_adapters.repositories.cache.base import (
+    HarborCacheBackend,
+    HarborCacheStore,
+    HarborLockManager,
+)
+from harborrag_adapters.repositories.cache.client import HarborCacheDBClient
+from harborrag_adapters.repositories.cache.memory import MemoryCacheBackend
 
-__all__ = ["BaseCacheRepository", "MockCacheRepository"]
+__all__ = [
+    "HarborCacheBackend",
+    "HarborCacheDBClient",
+    "HarborCacheStore",
+    "HarborLockManager",
+    "MemoryCacheBackend",
+]

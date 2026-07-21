@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, kw_only=True)
 class DocumentProvenance:
-    connector_name: str
-    parser_name: str | None = None
-    connector_version: str | None = None
-    parser_version: str | None = None
+    """Describe where a normalized document came from and who may access it."""
+
+    source: str
+    record_id: str | None = None
+    url: str | None = None
+    author: str | None = None
     checksum: str | None = None
-    ingested_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    raw: dict[str, Any] = field(default_factory=dict)
+    permissions: dict[str, Any] = field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    tags: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)

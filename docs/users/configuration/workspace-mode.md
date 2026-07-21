@@ -1,42 +1,34 @@
-# Workspace / Multi-Tenancy
+# Tenant and Workspace Status
 
-There is no workspace-directory feature (auto-discovered config files, per-project log/metrics folders) in the current codebase. What exists today is a small set of tenant-scoping primitives in `harborrag-core`, which any future workspace or multi-project feature would build on.
+HarborRAG does not currently auto-discover per-project configuration, create a `.harbor` workspace, or switch complete runtime stacks by workspace name.
 
-## `Tenant`
+Tenant-aware storage contracts are implemented and are separate from that future workspace concept.
 
-`packages/harborrag-core/src/harborrag_core/domain/tenant.py`:
+## Tenant identifiers
 
-```python
-@dataclass(frozen=True, slots=True)
-class Tenant:
-    id: str = "default"
-```
+`harborrag_core.schemas.ids.TenantId` is a non-empty, JSON-compatible typed string used by storage records. The older `harborrag_core.domain.tenant.Tenant` value object also validates a non-empty, whitespace-free ID, but repository APIs use `TenantId` through operation context.
 
-Validated in `__post_init__`: `id` must be non-empty and contain no whitespace.
+## `StorageOperationContext`
 
-## `RequestContext`
-
-`packages/harborrag-core/src/harborrag_core/execution/context.py`:
+Every repository data operation receives a context:
 
 ```python
-@dataclass(frozen=True, slots=True)
-class RequestContext:
-    trace_id: str = field(default_factory=lambda: uuid4().hex)
-    tenant: Tenant = field(default_factory=Tenant)
-    deadline_seconds: float | None = None
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.schemas.storage import StorageOperationContext
+
+context = StorageOperationContext(
+    tenant_id=TenantId("tenant-7"),
+    request_id="request-123",
+    trace_id="trace-123",
+)
 ```
 
-`RequestContext` is meant to be threaded through a call chain — `.child()` derives a new context that keeps the same `trace_id` and `tenant` while allowing a narrower `deadline_seconds`. Nothing in the current mock pipeline constructs or threads a `RequestContext` yet; it's a contract for orchestration code (engine/runtime) to adopt as real providers are added.
+The context can also carry workflow, ingestion job, retrieval request, document, chunk, actor, and safe metadata identifiers. Repository implementations use it to namespace or filter data and must reject cross-tenant leakage.
 
-## `EngineConfig.tenant`
+## Model tenancy
 
-The closest thing to workspace selection today is `EngineConfig.tenant` (see [Configuration Reference](config-file-reference.md)) — a single string, defaulting to `"default"`, surfaced in `harbor doctor`'s diagnostics output. It is not yet connected to `Tenant`/`RequestContext`.
+Model requests accept correlation metadata such as `tenant_id`, `request_id`, and `trace_id`. Tenant IDs are required when configured cache, singleflight, or budget policies demand isolation. This model context is not automatically derived from `EngineConfig.tenant` today.
 
-## What's planned
+## Current gaps
 
-A real workspace/multi-tenant feature would need: a `Tenant`-scoped `RequestContext` threaded through ingestion and retrieval calls, tenant-aware repository keys (e.g. per-tenant vector collections), and a budget check (`harborrag_core.execution.budgets.CapabilityBudget`) enforced per tenant. None of that exists yet — see [Extending HarborRAG](../../developers/extending/README.md) for where this kind of orchestration logic belongs.
-
-## Related
-
-- [Architecture Overview](../../developers/architecture/README.md#execution-request-scoped-budgets-and-deadlines) — `RequestContext`, `Deadline`, and `CapabilityBudget` together.
-- [Configuration Reference](config-file-reference.md) — `EngineConfig`/`EnginePolicy`.
+A complete multi-tenant runtime still needs one identity/context boundary threaded across connectors, engine stages, model calls, repositories, app routes, and MCP tools. Authentication, authorization, tenant provisioning, workspace discovery, and per-tenant application composition are not supplied by the default local runtime.

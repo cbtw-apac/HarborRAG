@@ -1,0 +1,177 @@
+chat:
+  default_model: primary
+  backend:
+    type: litellm_proxy
+    proxy:
+      api_base: ${LITELLM_PROXY_API_BASE}
+      api_key: ${LITELLM_PROXY_API_KEY}
+      auth_mode: bearer
+      headers:
+        X-Harbor-Client: models-v0.5
+      metadata:
+        propagate_headers: true
+        request_id_header: X-Harbor-Request-Id
+        trace_id_header: X-Harbor-Trace-Id
+        tenant_id_header: X-Harbor-Tenant-Id
+  redis:
+    url: ${REDIS_URL:-redis://localhost:6379/0}
+    key_prefix: harborrag:models:production
+    max_connections: 200
+  cache:
+    enabled: true
+    backend: redis
+    ttl_seconds: 300
+    require_tenant_id: true
+  singleflight:
+    backend: redis
+    lock_ttl_seconds: 120
+    follower_timeout_seconds: 125
+    poll_interval_seconds: 0.05
+  routing:
+    engine: harbor
+    strategy: least_busy
+    state_backend: redis
+    lease_seconds: 120
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5
+      recovery_timeout_seconds: 30
+    active_health:
+      enabled: true
+      interval_seconds: 30
+      timeout_seconds: 5
+      stale_after_seconds: 90
+      start_automatically: false
+  budget:
+    enabled: true
+    max_request_tokens: 32000
+    max_request_cost_usd: 1.0
+    daily_cost_usd: 100
+    monthly_cost_usd: 2000
+    rpm_limit: 300
+    tpm_limit: 1000000
+    require_tenant_id: true
+  observability:
+    enabled: true
+    include_stream_events: true
+    privacy:
+      log_inputs: false
+      log_outputs: false
+      hash_user_identifiers: true
+      propagate_proxy_metadata: true
+      propagate_user_identifiers: false
+  security:
+    allowed_providers: [litellm_proxy]
+    allowed_base_url_hosts: [proxy.example.test]
+  models:
+    primary:
+      aliases: [assistant]
+      deployments:
+        - name: proxy-primary
+          provider: litellm_proxy
+          model: production-chat
+          max_parallel_requests: 50
+          rpm: 300
+          tpm: 1000000
+          capabilities:
+            streaming: true
+            tools: true
+            structured_output: true
+            json_mode: true
+            reasoning: true
+
+embed:
+  default_model: primary
+  redis:
+    url: ${REDIS_URL:-redis://localhost:6379/0}
+    key_prefix: harborrag:models:production
+    max_connections: 200
+  cache:
+    enabled: true
+    backend: redis
+    ttl_seconds: 86400
+    require_tenant_id: true
+  singleflight:
+    backend: redis
+    lock_ttl_seconds: 120
+    follower_timeout_seconds: 125
+  routing:
+    strategy: least_busy
+    state_backend: redis
+    active_health:
+      enabled: true
+      start_automatically: false
+  budget:
+    enabled: true
+    max_request_tokens: 100000
+    rpm_limit: 600
+    tpm_limit: 5000000
+    require_tenant_id: true
+  observability:
+    enabled: true
+    privacy:
+      log_inputs: false
+      log_outputs: false
+  security:
+    allowed_providers: [openai]
+  models:
+    primary:
+      embedding_space: harbor-production-v1
+      deployments:
+        - name: openai-embedding-primary
+          provider: openai
+          model: openai/REPLACE_WITH_EMBEDDING_MODEL
+          api_key: ${OPENAI_API_KEY}
+          expected_dimensions: 1536
+          max_parallel_requests: 50
+          rpm: 600
+          tpm: 5000000
+          capabilities:
+            batch: true
+            configurable_dimensions: true
+            default_dimensions: 1536
+            encoding_format: true
+
+rerank:
+  default_model: primary
+  redis:
+    url: ${REDIS_URL:-redis://localhost:6379/0}
+    key_prefix: harborrag:models:production
+    max_connections: 200
+  cache:
+    enabled: true
+    backend: redis
+    ttl_seconds: 600
+    require_tenant_id: true
+  singleflight:
+    backend: redis
+    lock_ttl_seconds: 120
+    follower_timeout_seconds: 125
+  routing:
+    strategy: least_busy
+    state_backend: redis
+    active_health:
+      enabled: true
+      start_automatically: false
+  budget:
+    enabled: true
+    rpm_limit: 300
+    tpm_limit: 2000000
+    require_tenant_id: true
+  observability:
+    enabled: true
+    privacy:
+      log_inputs: false
+      log_outputs: false
+  security:
+    allowed_providers: [cohere]
+  models:
+    primary:
+      deployments:
+        - name: cohere-rerank-primary
+          provider: cohere
+          model: cohere/REPLACE_WITH_RERANK_MODEL
+          api_key: ${COHERE_API_KEY}
+          max_parallel_requests: 50
+          rpm: 300
+          tpm: 2000000

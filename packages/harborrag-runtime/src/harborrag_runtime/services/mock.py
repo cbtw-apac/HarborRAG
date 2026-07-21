@@ -10,7 +10,6 @@ class MockRuntimeService(BaseRuntimeService):
         return {"provider": "mock_runtime", "ready": True}
 
     def run_mock_ingestion(self) -> dict[str, object]:
-
         from harborrag_runtime.composition import CompositionRoot
 
         pipeline = CompositionRoot.local().mock_pipeline()

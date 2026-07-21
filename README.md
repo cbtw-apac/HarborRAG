@@ -1,288 +1,161 @@
 # HarborRAG
 
-HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It is designed around clear package boundaries: **core** defines stable contracts, **adapters** implement providers, **engine** orchestrates ingestion/retrieval, **runtime** owns jobs and scheduling, **app** exposes CLI/API surfaces, and **MCP** exposes audited agent tools.
+HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into independently testable Python packages.
 
-> Status: framework foundation. This repository currently provides abstract base classes, protocol contracts, package-local mock implementations, tests, and scripts so teammates can implement real providers without breaking architecture boundaries.
+> **Project status:** alpha. Connectors, document parsers, model clients, and tenant-aware repository adapters are implemented and extensively tested. The default composition, CLI, HTTP API, MCP transport, durable workflows, and public facade are still limited or scaffolded. Use the local mock path to evaluate package wiring; do not treat the repository as a finished application deployment.
 
-## Why HarborRAG?
+## What is implemented
 
-Engineering RAG is not only “put files into a vector database.” A production system needs:
+| Area | Current support |
+| --- | --- |
+| Connectors | Local files, GitHub, Confluence, Jira, and SharePoint |
+| Parsers | Text, Markdown, JSON, CSV/TSV, HTML, EPUB, DOCX, PPTX, Excel, images, and PDF |
+| PDF backends | PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR |
+| Model clients | Chat, embeddings, and reranking through validated provider-neutral clients and LiteLLM-backed transports |
+| Repositories | Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and in-memory implementations across vector, graph, cache, database, state, and object storage |
+| Local surfaces | A deterministic mock pipeline, `doctor` and `sample-ingest` CLI commands, and two in-process MCP mock tools |
 
-- connectors for sources such as GitHub, Jira, Confluence, local files, and web content;
-- parsers for text, Office documents, PDFs, OCR-heavy files, and structured layouts;
-- model adapters for chat, embedding, and reranking providers;
-- repositories for vector, graph, cache, object, database, and state storage;
-- ingestion and retrieval pipelines that remain independent from provider SDKs;
-- runtime services for jobs, supervisors, schedules, and future durable workflows;
-- API/CLI/MCP surfaces that expose safe operations instead of raw provider access.
-
-HarborRAG uses a ports-and-adapters layout so each of these responsibilities can evolve independently.
+The production ingestion/retrieval composition, FastAPI routes, external MCP server transport, and Temporal integration are not complete. See [What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the capability boundary.
 
 ## Requirements
 
-```text
-Python >= 3.12
-```
-
-The workspace is configured with `pyproject.toml`, package-local `src/` layouts, and `uv` workspace members.
-
-## Package map
-
-```text
-packages/
-  harborrag-core/      contracts, domain models, ports, execution, security
-  harborrag-adapters/  connectors, parsers, models, repositories, mocks
-  harborrag-engine/    ingestion, retrieval, indexing, graph orchestration
-  harborrag-runtime/   jobs, supervision, scheduling, runtime services
-  harborrag-app/       application service, API controller, CLI command boundary
-  harborrag-mcp/       MCP tools/server facade with policy and audit boundaries
-  harborrag/           future public facade / meta-package
-```
-
-## Structure rules
-
-1. Base classes and mocks live inside the matching feature folder.
-2. Storage implementations are called `repositories`, not `stores`.
-3. `harborrag-core` must not import adapters, engine, runtime, app, MCP, or the meta-package.
-4. Engine code depends on core ports/contracts, not provider SDKs.
-5. Runtime coordinates jobs and services; it does not contain ingestion/retrieval business logic.
-6. App and MCP call service-level facades; they do not call raw provider clients directly.
-7. TODO comments must tell the next implementer exactly what to build next.
-
-## Current skeleton examples
-
-```text
-harborrag_adapters/
-  connectors/base.py
-  connectors/mock.py
-  parsers/base.py
-  parsers/mock.py
-  models/chat/base.py
-  models/chat/mock.py
-  models/embedding/base.py
-  models/embedding/mock.py
-  models/reranker/base.py
-  models/reranker/mock.py
-  repositories/vector/base.py
-  repositories/vector/mock.py
-  repositories/graph/base.py
-  repositories/graph/mock.py
-  repositories/cache/base.py
-  repositories/cache/mock.py
-  repositories/object_store/base.py
-  repositories/object_store/mock.py
-  repositories/database/base.py
-  repositories/database/mock.py
-```
-
-Engine, runtime, app, and MCP follow the same rule:
-
-```text
-harborrag_engine/ingestion/base.py     harborrag_engine/ingestion/mock.py
-harborrag_runtime/jobs/base.py         harborrag_runtime/jobs/mock.py
-harborrag_app/services/base.py         harborrag_app/services/mock.py
-harborrag_mcp/tools/base.py            harborrag_mcp/tools/mock.py
-```
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) for the recommended workspace workflow, or `pip` for editable installs
+- Docker only for opt-in repository smoke tests
 
 ## Quick start
 
-### Option A — pip editable install
-
-```bash
-python -m pip install -e packages/harborrag-core
-python -m pip install -e packages/harborrag-adapters
-python -m pip install -e packages/harborrag-engine
-python -m pip install -e packages/harborrag-runtime
-python -m pip install -e packages/harborrag-app
-python -m pip install -e packages/harborrag-mcp
-python -m pip install -e packages/harborrag
-python -m pip install -e ".[dev]"
-```
-
-### Option B — uv workspace
+From a local checkout:
 
 ```bash
 uv sync --all-packages --extra dev
+uv run python -m harborrag_app.cli.main doctor --json
+uv run python scripts/run_mock_pipeline.py --json
 uv run pytest
 ```
 
-## Run the mock pipeline
+The doctor command should return an `ok: true` response with local engine and mock-runtime diagnostics. The pipeline loads one in-memory document, parses it with the real text parser, creates one demonstration chunk, and retrieves it without network access.
 
-```bash
-python scripts/run_mock_pipeline.py --json
-```
+For `pip`, platform notes, and optional adapter extras, see [Installation](docs/getting-started/installation.md).
 
-Expected shape:
+## Try the implemented adapters
 
-```json
-{
-  "documents": [...],
-  "chunks": [...],
-  "retrieval": [...]
-}
-```
-
-## CLI
-
-```bash
-python -m harborrag_app.cli.main doctor --json
-python -m harborrag_app.cli.main sample-ingest --json
-```
-
-## MCP mock tools
+### Load and parse local documents
 
 ```python
-from harborrag_mcp.server import call_tool
+from harborrag_adapters.connectors import ConnectorQuery, LocalFileConfig, LocalFileConnector
+from harborrag_adapters.parsers import HarborParser
 
+connector = LocalFileConnector(
+    LocalFileConfig(source_path="docs", allowed_extensions={".md", ".txt", ".pdf"})
+)
+parser = HarborParser()
+
+for raw_document in connector.load_raw_documents(ConnectorQuery(recursive=True)):
+    parsed = parser.parse(raw_document)
+    print(raw_document.source, parsed.parser_name, len(parsed.content))
+```
+
+Connector and parser configuration examples live at [`config/connectors.example.yaml`](config/connectors.example.yaml) and [`config/parsers.example.yaml`](config/parsers.example.yaml). Copy an example before editing it; the examples themselves are safe reference files, not automatically loaded application configuration.
+
+### Configure model clients
+
+Install the model dependencies and provide the environment variables referenced by the selected file:
+
+```bash
+uv sync --all-packages --extra dev
+OPENAI_API_KEY=placeholder \
+  uv run python -m harborrag_adapters.models explain config/models.example.yaml --family chat
+```
+
+Model configuration resolves `${VARIABLE}` references during loading, so missing credentials fail early. The CLI can `validate`, `render`, or `explain` the chat, embedding, and reranking sections. See [Model Configuration](docs/users/configuration/model-config.md).
+
+### Call the in-process MCP facade
+
+```python
+from harborrag_mcp.server import call_tool, list_tools
+
+print(list_tools())
 print(call_tool("harbor_health_check"))
-print(call_tool("harbor_sample_retrieve", {"query": "HarborRAG"}))
+print(call_tool("harbor_sample_retrieve", query="HarborRAG"))
 ```
 
-## Tests
+This is an in-process test facade, not a stdio or HTTP MCP server. See [MCP Mock Tools](docs/users/detailed-guides/mcp-server/README.md).
 
-Every package owns its own `tests/` folder:
+## Workspace packages
 
 ```text
-packages/harborrag-core/tests/
-packages/harborrag-adapters/tests/
-packages/harborrag-engine/tests/
-packages/harborrag-runtime/tests/
-packages/harborrag-app/tests/
-packages/harborrag-mcp/tests/
-packages/harborrag/tests/
+packages/
+  harborrag-core/      domain objects, model contracts, schemas, security
+  harborrag-adapters/  connectors, parsers, model clients, repositories
+  harborrag-engine/    ingestion, retrieval, indexing, graph boundaries
+  harborrag-runtime/   configuration, composition, jobs, scheduling
+  harborrag-app/       application service, CLI, HTTP API boundary
+  harborrag-mcp/       MCP tools/server boundary, policy, audit
+  harborrag/           thin public facade / meta-package
+  harborrag-memory/    reserved placeholder; not a uv workspace member
 ```
 
-Run all tests:
+Dependency direction is enforced by `scripts/check_dependency_direction.py`:
+
+```text
+core
+  └─ adapters
+       └─ engine
+            └─ runtime
+                 ├─ app
+                 └─ mcp
+
+harborrag may re-export stable APIs from the implemented packages.
+```
+
+See [Architecture](docs/developers/architecture/README.md) for the exact allowed-import table and ownership rules.
+
+## Configuration files
+
+| File | Purpose |
+| --- | --- |
+| `config/connectors.example.yaml` | Named connector definitions and environment references |
+| `config/parsers.example.yaml` | Parser profiles and PDF backend chains |
+| `config/models.example.yaml` | Minimal chat, embedding, and reranking model configuration |
+| `config/models.advance.example.yaml` | More advanced routing and provider examples |
+| `config/advance_chat/*.example.yaml` | Direct SDK, LiteLLM Router, proxy, and distributed chat examples |
+| `.env.connector.example` | Connector and connector-smoke environment template |
+| `.env.parser.example` | Optional parser/OCR environment template |
+| `.env.models.example` | Model and model-smoke environment template |
+| `.env.database.example` | Local repository-stack template |
+
+HarborRAG does not automatically load these environment files. Export variables in the shell or load them through your application, container runtime, or secret manager.
+
+## Development commands
+
+When using the uv environment without activating it, run Make targets through `uv run`:
 
 ```bash
-pytest
-pytest --cov --cov-report=term-missing
+uv run make help
+uv run make test
+uv run make test-package PACKAGE=harborrag-adapters
+uv run make coverage
+uv run make lint
+uv run make format
+uv run make typecheck
+uv run make compile
+uv run make deps-check
+uv run make doctor
+uv run make mock-pipeline
 ```
 
-Run one package:
+`make coverage` enforces the repository's 90% coverage threshold. If your virtual environment is already active, the `uv run` prefix is optional. Default tests are hermetic; real connectors, model providers, parser engines, and repository services are exercised only through opt-in smoke scripts.
 
-```bash
-make test-package PACKAGE=harborrag-core
-make test-package PACKAGE=harborrag-adapters
-make test-package PACKAGE=harborrag-engine
-```
+## Documentation
 
-Coverage gate:
-
-```text
-95% minimum
-```
-
-## Makefile commands
-
-```bash
-make help
-make bootstrap
-make test
-make coverage
-make lint
-make format
-make typecheck
-make compile
-make doctor
-make mock-pipeline
-make deps-check
-make provider-matrix
-make clean
-```
-
-## How to implement real providers
-
-### Connector
-
-Create a provider folder under `harborrag_adapters/connectors/`:
-
-```text
-connectors/github/
-  __init__.py
-  client.py
-  connector.py
-  schemas.py
-  mock.py
-```
-
-Implementation requirements:
-
-- subclass `harborrag_adapters.connectors.base.BaseConnector`;
-- return core `SourceRecord` objects from `discover()`;
-- return core `RawDocument` objects from `load()`;
-- keep provider SDK imports out of `harborrag-core`;
-- add provider-local tests under `packages/harborrag-adapters/tests/`.
-
-### Parser
-
-Create a provider folder under `harborrag_adapters/parsers/`:
-
-```text
-parsers/pdf/docling_engine.py
-parsers/pdf/pypdf_engine.py
-parsers/office/docx_engine.py
-```
-
-Implementation requirements:
-
-- subclass `harborrag_adapters.parsers.base.BaseParser`;
-- return core `ParsedDocument` objects;
-- preserve layout/tables/page metadata when available;
-- return warnings instead of silently dropping partial parsing issues;
-- include a deterministic mock or fake-engine path for tests.
-
-### Repository
-
-Use `repositories/`, not `stores/`:
-
-```text
-repositories/vector/qdrant.py
-repositories/graph/neo4j.py
-repositories/cache/redis.py
-repositories/object_store/s3.py
-repositories/database/postgresql.py
-```
-
-Implementation requirements:
-
-- subclass the matching base class in the repository family;
-- keep raw provider responses out of public results by default;
-- expose capability metadata in the provider module;
-- add mock/fake-client tests for request/response normalization.
-
-## TODO comment style
-
-Use TODO comments as direct implementation instructions:
-
-```python
-# TODO(connectors/github): Implement pagination and rate-limit handling for GitHub REST responses.
-# TODO(parsers/pdf): Preserve table bounding boxes when the selected engine exposes layout coordinates.
-# TODO(repositories/vector): Normalize provider-specific scores into HarborRAG retrieval scores.
-```
-
-Avoid vague placeholders such as `TODO(later)` or `TODO(next)` because they do not tell the next implementer what to do.
-
-## Repository quality checks
-
-```bash
-make deps-check
-make compile
-make test
-make coverage
-```
-
-## Documentation files
-
-```text
-README.md              project overview and quickstart
-CONTRIBUTING.md        development workflow and PR rules
-SECURITY.md            vulnerability reporting and security expectations
-CODE_OF_CONDUCT.md     community behavior expectations
-CHANGELOG.md           release notes
-TEST_TUTORIAL.md       test and coverage guide
-```
+- [Documentation index](docs/TOC.md)
+- [Getting started](docs/getting-started/README.md)
+- [User guides](docs/users/README.md)
+- [Developer guides](docs/developers/README.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
-See [LICENSE](LICENSE).
+Licensed under the terms in [LICENSE](LICENSE).

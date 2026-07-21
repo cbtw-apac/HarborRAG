@@ -1,42 +1,37 @@
 # CLI Reference
 
-The `harbor` CLI is defined in `packages/harborrag-app/src/harborrag_app/cli/main.py` and calls `harborrag_app.services.BaseAppService` — never adapters directly.
+The application CLI is implemented in `harborrag_app.cli.main`. No console-script entry point is declared in the package metadata yet, so invoke it as a module.
 
-## Available today
-
-```bash
-python -m harborrag_app.cli.main doctor [--json]
-python -m harborrag_app.cli.main sample-ingest [--json]
-```
-
-| Command | Calls | Behavior |
-|---|---|---|
-| `doctor` | `service.health()` | Returns `{"ok": true, "diagnostics": {...}}` — engine and runtime diagnostics from `CompositionRoot.local().diagnostics()`. |
-| `sample-ingest` | `service.ingest_once()` | Runs the mock ingestion pipeline once and returns `{"ok": true, "documents": [...], "summary": {...}}`. |
-
-Both commands accept `--json` for machine-readable output; without it, the result prints as a Python dict.
-
-Example:
+## `doctor`
 
 ```bash
-$ python -m harborrag_app.cli.main doctor --json
-{"diagnostics": {"engine": {"environment": "local", "max_concurrency": 4, "tenant": "default"}, "runtime": {"provider": "mock_runtime", "ready": true}}, "ok": true}
+uv run python -m harborrag_app.cli.main doctor [--json]
 ```
 
-## Planned commands (stubbed)
+Calls the application service's health method and returns local engine/runtime diagnostics. `--json` emits JSON; without it, the command prints a Python dictionary.
 
-`packages/harborrag-app/src/harborrag_app/cli/commands/` holds one TODO-stub module per future subcommand — these are not wired into `main.py` yet:
+## `sample-ingest`
 
-| Module | Intent |
-|---|---|
-| `doctor.py` | Move the `doctor` command here with clearer exit codes. |
-| `ingest.py` | A full `ingest` command (currently `sample-ingest` is the only ingestion entry point). |
-| `retrieve.py` | A `retrieve` command calling the retrieval pipeline. |
-| `status.py` | Job/schedule status reporting once `harborrag-runtime`'s job store is real. |
+```bash
+uv run python -m harborrag_app.cli.main sample-ingest [--json]
+```
 
-Each stub's docstring is the implementation instruction: JSON output, clear exit codes, no direct provider imports — call the service layer.
+Calls the mock application service's one-shot ingestion method. This is a deterministic application-boundary demonstration, not a configurable source-to-repository ingestion command.
 
-## Related
+## Model configuration CLI
 
-- [Architecture Overview](../../developers/architecture/README.md#harborrag-app-cli-and-api-boundary) — how the CLI fits into the package boundaries.
-- [Quick Start](../../getting-started/quick-start.md) — running these commands as part of the mock pipeline walkthrough.
+The adapter package has a separate configuration utility:
+
+```bash
+uv run python -m harborrag_adapters.models validate FILE --family chat
+uv run python -m harborrag_adapters.models explain FILE --family embed
+uv run python -m harborrag_adapters.models render FILE --family rerank --format json
+```
+
+Families are `chat`, `embed`, and `rerank`. Add `--profile NAME` when the document defines profiles. `render` accepts `--output PATH`; without it, sanitized configuration is printed. Loading resolves environment and secret references, so referenced variables must be set even for validation.
+
+## Stubbed application commands
+
+Modules for `doctor`, `ingest`, `retrieve`, and `status` exist under `harborrag_app/cli/commands/`, but they currently contain implementation TODOs and are not registered with the parser. Only `doctor` and `sample-ingest` above are runnable.
+
+The CLI always exits zero after a successfully dispatched current command; structured nonzero exit handling for future operational commands is not implemented.

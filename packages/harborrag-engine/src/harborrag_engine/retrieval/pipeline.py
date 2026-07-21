@@ -8,6 +8,4 @@ class RetrievalPipeline:
     static_results: list[RetrievalResult]
 
     def retrieve(self, query: RetrievalQuery) -> list[RetrievalResult]:
-        return sorted(self.static_results, key=lambda r: r.score, reverse=True)[
-            : query.top_k
-        ]
+        return sorted(self.static_results, key=lambda r: r.score, reverse=True)[: query.top_k]

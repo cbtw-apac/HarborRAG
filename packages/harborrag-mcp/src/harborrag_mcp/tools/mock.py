@@ -33,7 +33,5 @@ class MockRetrieveTool(BaseMcpTool):
         query = str(arguments.get("query", "HarborRAG"))
         return {
             "ok": True,
-            "results": [
-                asdict(r) for r in self.pipeline.retrieve(RetrievalQuery(query))
-            ],
+            "results": [asdict(r) for r in self.pipeline.retrieve(RetrievalQuery(query))],
         }

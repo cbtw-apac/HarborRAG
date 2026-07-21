@@ -1,148 +1,141 @@
-# Architecture Overview
+# Architecture
 
-HarborRAG uses a ports-and-adapters (hexagonal) layout: each responsibility — contracts, providers, orchestration, runtime, API/CLI, agent tools — lives in its own package, and packages may only depend downward in a fixed direction.
+HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow downward; SDK integrations and operator surfaces stay at the edges.
 
-## Package map
+## Active package map
 
-```text
-packages/
-  harborrag-core/      contracts, domain models, ports, execution, observability, security
-  harborrag-adapters/  connectors, parsers, models, repositories, mocks
-  harborrag-engine/    ingestion, retrieval, indexing, graph orchestration
-  harborrag-runtime/   jobs, supervision, scheduling, runtime services
-  harborrag-app/       application service, API controller, CLI command boundary
-  harborrag-mcp/       MCP tools/server facade with policy and audit boundaries
-  harborrag/           public facade / meta-package
-```
+| Package | Responsibility | Current maturity |
+| --- | --- | --- |
+| `harborrag-core` | Domain objects, validated model/storage schemas, common errors, security | Implemented contracts |
+| `harborrag-adapters` | Connectors, parsers, model clients, repositories | Broadest implemented layer |
+| `harborrag-engine` | Ingestion, retrieval, indexing, graph orchestration | Contracts, mock/static paths, focused utilities |
+| `harborrag-runtime` | Config catalogs, composition, jobs, scheduling, supervision | Catalog loaders and local scaffolding |
+| `harborrag-app` | Application service, CLI, HTTP boundary | Two mock-backed CLI commands; API placeholders |
+| `harborrag-mcp` | Tool/server interfaces, policy, audit | In-process mock facade |
+| `harborrag` | Public re-exports | `Document` and `CompositionRoot` |
+
+`packages/harborrag-memory` reserves a future package boundary but has no public API or tests and is not an active uv workspace member.
 
 ## Dependency direction
 
+`scripts/check_dependency_direction.py` enforces these imports:
+
 ```text
-harborrag_core      -> (no HarborRAG dependencies)
+harborrag_core      -> no HarborRAG package
 harborrag_adapters  -> core
 harborrag_engine    -> core, adapters
 harborrag_runtime   -> core, adapters, engine
 harborrag_app       -> core, engine, runtime
 harborrag_mcp       -> core, engine, runtime
-harborrag           -> any package (public facade)
+harborrag           -> any active package
 ```
 
-This is enforced mechanically, not just by convention:
+Run:
 
 ```bash
-python scripts/check_dependency_direction.py
-make deps-check
+uv run make deps-check
 ```
 
-Any import that violates the table above fails CI (`.github/workflows/quality-gates.yml`).
+The checker scans source imports, not runtime call graphs. Review still needs to catch indirect boundary leaks, provider objects in public schemas, and service layers bypassed through callbacks.
 
-## The base + mock pattern
+## Document flow
 
-Every provider family — connector, parser, chat/embedding/reranker model, vector/graph/cache/object-store/database repository, ingestion/retrieval stage, job store, scheduler, supervisor, runtime service, app service, MCP tool — follows the same shape:
+The core domain types describe the intended ingestion lifecycle:
 
 ```text
-<family>/
-  base.py    abstract class or Protocol defining the contract
-  mock.py    deterministic, dependency-free implementation used by tests and the mock pipeline
+SourceRecord
+   │ connector.load
+   ▼
+RawDocument
+   │ parser.parse
+   ▼
+ParsedDocument
+   │ normalizer
+   ▼
+Document + DocumentElement + DocumentProvenance
+   │ chunk/embed/index
+   ▼
+storage schemas and RetrievalResult
 ```
 
-Tests exercise `base.py` through `mock.py` so the framework's plumbing is verified before any real provider exists. When a teammate implements a real provider, it becomes a sibling module next to `mock.py` (see [Extending HarborRAG](../extending/README.md)) — the base contract does not change.
+- `SourceRecord` is a lightweight discovered locator.
+- `RawDocument` holds loaded text/bytes and source metadata.
+- `ParseInput` safely coerces paths, bytes, text, or raw-document-like objects.
+- `ParsedDocument` holds canonical extracted content, optional structured elements, warnings, metadata, and bounded raw data.
+- `Document` is the normalized domain object with provenance and structural relations.
 
-## `harborrag-core`: contracts, domain, ports
+The local mock script does not implement every arrow: it loads and parses one document, creates a demonstration chunk dictionary, and retrieves from a deterministic list without persistence.
 
-Core has zero dependencies on other HarborRAG packages and no provider SDK imports. It is organized into five areas:
+## Core contracts
 
-### `contracts/` — small, stable, provider-agnostic types
+`harborrag-core` has four major groups:
 
-- `result.py` — `Result[T]`, a success/failure wrapper (`Result.success(value)` / `Result.failure(error)` / `.unwrap()`).
-- `ids.py` — `HarborId` (a validated `harbor://` URI) and `stable_hash_id(namespace, *parts)` for deterministic IDs.
-- `capabilities.py` — `CapabilityProfile`, a declarative flag set (`sync`, `async_`, `streaming`, `batch`, `permissions`, `metadata`) a provider can assert and callers can `.require(...)`.
-- `events.py` — `HarborEvent`, a trace-correlated event envelope.
-- `errors.py` — the error hierarchy: `HarborError`, `HarborConfigurationError`, `HarborCapabilityError`, `HarborSecurityError`, `HarborDeadlineExceeded`.
+- `domain/` — document, source, parser, retrieval, provenance, element, chunk, data-source, and tenant values.
+- `models/` — chat, embedding, reranking, capability, usage, request metadata, protocol, and safe error contracts.
+- `schemas/` — typed IDs plus document, vector, graph, cache, state, object-store, telemetry, and storage-operation schemas.
+- `security/` — secret redaction and URL policy.
 
-### `domain/` — the shapes that flow through ingestion and retrieval
+Most storage schemas derive from strict Pydantic bases; several older/simple domain values are dataclasses. Add a shared concept to core only when more than one higher package needs a provider-neutral form.
 
-`SourceRecord` → `RawDocument` → `ParsedDocument` → `HarborDocument` is the ingestion pipeline's document lifecycle:
+## Adapter layer
 
-- `source.py` (`SourceRecord`) — what a connector discovers before loading.
-- `raw_document.py` (`RawDocument`) — the connector's loaded output.
-- `parsed_document.py` (`ParsedDocument`) — the parser's structured output.
-- `element.py` (`DocumentElement`) — a heading/paragraph/table/image/code/metadata element within a document.
-- `document.py` (`HarborDocument`) — the normalized document the engine embeds and indexes.
-- `metadata.py` (`DocumentMetadata`), `provenance.py` (`DocumentProvenance`) — metadata and connector/parser provenance attached to a document.
-- `graph.py` (`GraphHint`) — a subject/predicate/object hint for graph repositories.
-- `chunk.py` — chunk-level shapes produced during ingestion.
-- `retrieval.py` (`RetrievalQuery`, `RetrievalResult`) — the retrieval-side query/result pair.
-- `tenant.py` (`Tenant`) — a validated tenant identifier (non-empty, no whitespace).
+### Connectors
 
-### `ports/` — `Protocol` contracts adapters must satisfy
+`BaseConnector` defines synchronous discovery and loading. Built-in providers register aliases at `harborrag_adapters.connectors` import time. `HarborConnector` constructs a provider by name.
 
-- `connector.py` — `ConnectorPort` (`discover()` / `load()`).
-- `parser.py` — `ParserPort` (`parse()`).
-- `models.py` — `ChatModelPort`, `EmbeddingModelPort`, `RerankerPort`.
-- `repositories.py` — `VectorRepositoryPort`, `GraphRepositoryPort`, `CacheRepositoryPort`, `ObjectRepositoryPort`, `DatabaseRepositoryPort`.
+Connectors own authentication, provider pagination, filtering, retry hints, safe URL/path handling, source-specific caps, and normalization to `SourceRecord`/`RawDocument`. They do not own workflow scheduling or global ingestion concurrency.
 
-These are `typing.Protocol` definitions, not base classes — `harborrag-adapters`' `base.py` files provide the abstract-class version of the same contracts that adapters actually subclass.
+### Parsers
 
-### `execution/` — request-scoped budgets and deadlines
+`BaseParser` defines metadata-only routing and parsing. `HarborParser` combines the default parser stack and rejects ambiguous non-generic routes. PDF parsing uses ordered backends or named profiles.
 
-- `context.py` (`RequestContext`) — carries `trace_id`, `tenant`, and an optional `deadline_seconds` through a call chain; `.child()` derives a scoped copy.
-- `deadlines.py` (`Deadline`) — wall-clock deadline tracking; `.check()` raises `HarborDeadlineExceeded` once expired.
-- `budgets.py` (`CapabilityBudget`) — caps like `max_documents`, `max_bytes`, `max_tool_calls`.
+Parsers own extraction and warnings. Runtime/engine code owns fan-out, backpressure, persistence, and retry across documents.
 
-### `security/` and `observability/`
+### Models
 
-- `security/redaction.py` — `redact_secrets(text)` masks API keys, tokens, secrets, passwords, and bearer tokens in log/error text.
-- `security/url_policy.py` — `UrlPolicy` validates a URL's scheme against an allow-list and its host against a deny-list before a connector fetches it.
-- `observability/events.py` — `InMemoryEventBus` (publish/collect `HarborEvent`s).
-- `observability/metrics.py` — `InMemoryMetrics` (counters and observations, both label-aware).
+Chat, embedding, and reranking have separate immutable configuration and public clients. Provider request translation stays in adapters; normalized requests, responses, errors, capabilities, and protocols stay in core.
 
-### `testing/fakes.py`
+The shared runtime implements explicit retry/failover stages, routing, caching, singleflight, budgets, health state, security allowlists, and injected telemetry. Configuration may choose direct SDK, LiteLLM Router, or LiteLLM proxy behavior where supported.
 
-`FakeConnector` and `FakeParser` — deterministic fakes for tests that need connector/parser behavior without depending on `harborrag-adapters`.
+### Repositories
 
-## `harborrag-engine`: orchestration
+Repository families are asynchronous and tenant-aware. `StorageOperationContext` is required on data operations.
 
-- `builder.py` (`EngineBuilder`) + `config.py` (`EngineConfig`: `tenant`, `environment`) + `policy.py` (`EnginePolicy`: `max_concurrency`, `retrieval_top_k`) — engine-level configuration and diagnostics.
-- `ingestion/` — `BaseDocumentNormalizer`, `BaseChunker`, `BaseIngestionPipeline` (contracts) and `MockDocumentNormalizer`, `MockChunker`, `MockIngestionPipeline` (mocks). `IngestionRunSummary` reports `discovered`/`loaded`/`parsed`/`indexed` counts.
-- `retrieval/` — `BaseRetrievalPipeline`, `BaseEvidenceBuilder` (contracts) and `MockRetrievalPipeline`, `MockEvidenceBuilder` (mocks), plus `fusion.py` (`reciprocal_rank_fusion`), `reranking.py`, and `rewriting.py` for later hybrid-retrieval stages.
-- `indexing/` and `graph/` — `BaseIndexer`/`MockIndexer` and `BaseGraphMapper`/`MockGraphMapper` for future indexing and graph-hint mapping stages.
+| Family | Providers |
+| --- | --- |
+| Vector | Qdrant |
+| Graph | FalkorDB |
+| Cache | Memory, Redis |
+| Object store | Memory, filesystem, S3 |
+| Database | SQLite, PostgreSQL |
+| Workflow state | SQLite, Redis |
 
-Engine code depends only on `harborrag-core` ports/domain and `harborrag-adapters` base classes — never on a concrete provider.
+Family clients construct backends by provider name. Plugin/config modules isolate optional imports. Public methods return core schemas and sanitized health data rather than raw SDK responses.
 
-## `harborrag-runtime`: composition, jobs, scheduling
+## Engine and runtime
 
-- `composition.py` (`CompositionRoot`) — the single place that wires connector + parser + embedder + vector repository into a pipeline today (`mock_pipeline()`); this hard-coded assembly is meant to become configuration-driven.
-- `job_state.py` (`JobState`, `InMemoryJobStore`) and `jobs/` (`BaseJobStore`/`MockJobStore`) — job persistence contracts.
-- `scheduling/` (`BaseScheduler`/`MockScheduler`) and `schedules.py` (`ScheduleSpec`) — scheduled-job contracts.
-- `supervision/` (`BaseSupervisor`/`MockSupervisor`) and `supervisor.py` (`LocalSupervisor`) — bounded local worker execution.
-- `services/` (`BaseRuntimeService`/`MockRuntimeService`) — the facade `harborrag-app` and `harborrag-mcp` call instead of touching adapters directly.
-- `temporal/` — optional durable-workflow integration; every file is currently a TODO placeholder kept behind this package so Temporal never becomes a hard dependency of core/adapters/engine.
+`harborrag-engine` defines ingestion normalizer/chunker/pipeline interfaces, retrieval/evidence interfaces, indexing interfaces, graph mapping, reciprocal-rank fusion, rewriting, and reranking boundaries. The production, configured pipeline is not assembled yet.
 
-## `harborrag-app`: CLI and API boundary
+`harborrag-runtime` owns:
 
-- `services/` (`BaseAppService`/`MockAppService`) — the only thing the CLI and HTTP layers call.
-- `cli/main.py` — the real `harbor` entry point today (`doctor`, `sample-ingest`); `cli/commands/*.py` are TODO stubs for a future `doctor`/`ingest`/`retrieve`/`status` subcommand split.
-- `api/` — `dependencies.py` (`get_app_service()`), `app.py` (`create_app_state()` placeholder for a future FastAPI app), and `routes/*.py` TODO stubs for HTTP route handlers that will call the service layer, not adapters.
+- versioned connector and parser catalog loaders;
+- `CompositionRoot.local()` and deterministic local diagnostics;
+- in-memory/mock job, schedule, supervisor, and service contracts;
+- placeholder Temporal modules that keep durable workflow SDK concerns out of lower packages.
 
-See [CLI Reference](../../users/cli-reference/README.md) for what's runnable today.
+Complete composition should be added here or in application bootstrap code, not in provider adapters.
 
-## `harborrag-mcp`: audited agent tools
+## App and MCP boundaries
 
-- `tools/` (`BaseMcpTool`/`MockHealthTool`, `MockRetrieveTool`) — each tool declares an `McpToolSpec` (name, description, JSON input schema) and implements `call()`.
-- `server/` (`BaseMcpServer`/`MockMcpServer`) — dispatches `call_tool(name, arguments)` to the matching tool.
-- `policy.py` (`McpToolPolicy`) — result-count budgets (`max_results`) and ingestion allow/deny.
-- `audit.py` (`McpAuditLog`) — records which tools were called.
-- `schemas.py` (`tool_schema`) — the MCP tool-schema envelope shape.
+The app CLI calls `BaseAppService` rather than adapters. Today `doctor` and `sample-ingest` use `MockAppService`; HTTP route files and the FastAPI factory remain placeholders.
 
-See [MCP Mock Tools](../../users/detailed-guides/mcp-server/README.md) for the tool list.
+The MCP facade follows the same rule. `MockMcpServer` provides in-process dispatch for a health tool and deterministic retrieval tool. Policy and audit primitives exist but are not automatically enforced. No protocol transport is implemented.
 
-## `harborrag`: public facade
+## Configuration boundaries
 
-A thin meta-package that re-exports the stable public surface — currently `CompositionRoot`, `HarborDocument`, `HarborId`, and `stable_hash_id` — so downstream code can `import harborrag` instead of reaching into individual packages. New re-exports should only be added once an API is implemented and documented, per the package's own README.
+- Runtime loads strict versioned connector/parser YAML catalogs.
+- Model clients load strict family sections from YAML, JSON, or mappings.
+- Engine config/policy are constructed in Python.
+- There is no unified, auto-discovered application/workspace configuration.
 
-## Related
-
-- [Extending HarborRAG](../extending/README.md) — how to add a real provider without breaking these rules.
-- [Testing](../testing/README.md) — how the base + mock pattern is verified.
-- [Deployment](../deployment/README.md) — the `deploy/` stack this architecture is designed to run against.
+See [Configuration](../../users/configuration/README.md).

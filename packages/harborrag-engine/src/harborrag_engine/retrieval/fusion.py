@@ -13,6 +13,5 @@ def reciprocal_rank_fusion(
             scores[item.id] = scores.get(item.id, 0.0) + 1.0 / (k + rank)
             items[item.id] = item
     return [
-        items[item_id]
-        for item_id, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        items[item_id] for item_id, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
     ]

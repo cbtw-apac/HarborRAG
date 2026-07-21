@@ -1,80 +1,129 @@
 # Testing
 
-Every package owns its own test folder — there is no shared/global test suite that mixes packages:
+## Test ownership
 
 ```text
-tests/                              cross-package + website build tests
-packages/harborrag-core/tests/
-packages/harborrag-adapters/tests/
-packages/harborrag-engine/tests/
-packages/harborrag-runtime/tests/
-packages/harborrag-app/tests/
-packages/harborrag-mcp/tests/
-packages/harborrag/tests/
+tests/                              website and repository-wide tests
+packages/harborrag-core/tests/      core contracts and schemas
+packages/harborrag-adapters/tests/  connectors, parsers, models, repositories
+packages/harborrag-engine/tests/    engine contracts and utilities
+packages/harborrag-runtime/tests/   config loaders and runtime boundaries
+packages/harborrag-app/tests/       CLI/app boundaries
+packages/harborrag-mcp/tests/       MCP boundaries
+packages/harborrag/tests/           meta-package exports
 ```
 
-Add tests next to the package you modify. The root `tests/` folder is reserved for checks that span packages (currently the website build test suite) or repository-wide architecture rules.
+`harborrag-memory` has no tests because it is a reserved placeholder, not an active workspace package.
 
-## Running tests
+## Common commands
 
 ```bash
-pytest                                        # everything
-pytest --cov --cov-report=term-missing        # with coverage
-make test-package PACKAGE=harborrag-core      # a single package
+uv run pytest
+uv run make test
+uv run make test-package PACKAGE=harborrag-adapters
+uv run make coverage
+uv run make coverage-html
 ```
 
-`make test` runs the same as plain `pytest`; both are driven by `[tool.pytest.ini_options]` in the workspace `pyproject.toml`, which lists every package's `tests/` directory under `testpaths`.
-
-## Coverage gate
+Run the narrowest relevant path while developing:
 
 ```bash
-make coverage
+uv run pytest packages/harborrag-adapters/tests/unit/connectors/
+uv run pytest packages/harborrag-runtime/tests/test_connector_config.py
+uv run pytest -m "not slow and not integration"
 ```
 
-`[tool.coverage.report].fail_under = 95` in `pyproject.toml` — coverage below 95% fails the command (and CI's `quality-gates.yml`). `[tool.coverage.run].source` lists every package's `src/` directory, so coverage is measured on implementation code, not test code.
+Pytest settings, discovery paths, markers, warning filters, and the coverage source list are defined in the root `pyproject.toml`.
+
+## Coverage
+
+`make coverage` runs branch coverage over every active package `src/` directory and fails below 90%. Tests, virtual environments, generated caches, and reports are omitted.
+
+Do not add broad `pragma: no cover` exclusions for testable logic. Abstract methods, protocols, type-checking branches, and defensive impossible paths already have targeted policy exclusions.
 
 ## Markers
 
-Defined in `[tool.pytest.ini_options].markers`:
+The registered markers are:
 
-```text
-slow          marks tests as slow (deselect with '-m not slow')
-integration   marks tests that require Docker, cloud credentials, or live services
-unit          marks unit tests
-smoke         fast import and wiring tests
-blackbox      public API behavior tests
-whitebox      internal architecture and contract tests
-requires_deps marks tests requiring optional dependencies
-workflow      marks tests that validate GitHub Actions workflow files
-```
+| Marker | Use |
+| --- | --- |
+| `unit` | Focused unit behavior |
+| `integration` | Environment-dependent or composed external boundary |
+| `slow` | Locally slow test |
+| `smoke` | Fast wiring/import check |
+| `blackbox` | Public behavior only |
+| `graybox` | Public behavior plus observable internal signals |
+| `whitebox` | Internal architecture/contract behavior |
+| `requires_deps` | Requires an optional dependency |
+| `workflow` | GitHub Actions workflow validation |
+| `contract` | Reusable implementation contract |
+| `chaos` | Deterministic fault injection and recovery |
+| `performance` | Bounded local performance/concurrency |
+| `load` | Correctness-oriented micro-load |
 
-Tests requiring Docker, cloud credentials, provider accounts, or live model APIs must be marked `@pytest.mark.integration` and must not run by default — default CI should never require external services.
+Default tests must not require network access, paid APIs, Docker, cloud accounts, ambient credentials, or model downloads.
 
-## Testing the base + mock pattern
+## Adapter test strategy
 
-Because every provider family ships a `base.py` contract and a `mock.py` implementation (see [Architecture Overview](../architecture/README.md#the-base-mock-pattern)), package-local tests typically:
+The adapter suite is organized into unit, contract, failure, security, chaos, performance, and smoke areas. Test a provider implementation with a deterministic fake SDK/HTTP/database dependency:
 
-1. instantiate the mock (e.g. `MockConnector`, `MockEmbeddingModel`, `MockVectorRepository`);
-2. exercise the contract method (`discover()`/`load()`, `embed()`, `upsert()`/`search()`, ...);
-3. assert on the shape and values of the returned core domain object (`SourceRecord`, `RawDocument`, `EmbeddingResponse`, `RetrievalResult`, ...).
+1. construct the real adapter with validated configuration;
+2. exercise its public contract and lifecycle;
+3. assert normalized Harbor outputs;
+4. assert the outbound provider request/query;
+5. cover tenant separation, redaction, retryability, limits, conflicts, and partial failures.
 
-`harborrag-core`'s `testing/fakes.py` (`FakeConnector`, `FakeParser`) exists for tests in other packages that need connector/parser behavior without importing `harborrag-adapters`.
+Avoid asserting private implementation details when a public request/result or telemetry event captures the same invariant.
 
-When you implement a real provider, add its tests using a fake client or fixture data — not live credentials — so the default suite stays hermetic. A provider test suite typically mirrors the mock test's shape, but constructs the real class with a fake/stub of the underlying SDK client.
+## Real-system smoke checks
 
-## Quality gates as a whole
+Standalone scripts under `packages/harborrag-adapters/tests/smoke/` are manual and opt-in. They may access private content, paid providers, local services, or heavyweight models. They are intentionally outside normal pytest discovery.
+
+Connector examples:
 
 ```bash
-make lint          # ruff check .
-make typecheck      # mypy packages
-make compile        # python -m compileall packages scripts
-make deps-check      # scripts/check_dependency_direction.py
-make coverage
+python packages/harborrag-adapters/tests/smoke/connectors/local.py
+python packages/harborrag-adapters/tests/smoke/connectors/jira.py
+python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
 ```
 
-All five run in `.github/workflows/quality-gates.yml` on every push/PR to `main`. `.github/workflows/test.yml` additionally runs each package's test suite in its own matrix job, plus the website build tests.
+Model examples:
 
-## Related
+```bash
+python packages/harborrag-adapters/tests/smoke/models/chat.py
+python packages/harborrag-adapters/tests/smoke/models/embed.py
+python packages/harborrag-adapters/tests/smoke/models/rerank.py
+```
 
-- [Architecture Overview](../architecture/README.md) — the package boundaries these tests protect.
-- [Extending HarborRAG](../extending/README.md) — how to test a real provider you're adding.
+Parser example:
+
+```bash
+python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/report.pdf --pdf-profile fast
+```
+
+Repository stack and runner:
+
+```bash
+export DATABASE_ENV_FILE=env/.env.database
+scripts/deployment/database_up.sh
+
+HARBOR_SMOKE_ENV_FILE=env/.env.database \
+  python packages/harborrag-adapters/tests/smoke/repositories/run_all.py
+```
+
+Copy `.env.database.example` to the protected path first and adjust ports/credentials. Connector/model templates are `.env.connector.example` and `.env.models.example`. Do not commit populated files.
+
+Smoke exit code 2 means prerequisites are unavailable or not configured; it is not a successful provider check. Read `packages/harborrag-adapters/tests/smoke/README.md` for safety rules and target-specific variables.
+
+## Quality and documentation tests
+
+```bash
+uv run make lint
+uv run make typecheck
+uv run make deps-check
+uv run make compile
+uv run python website/build.py --output site --templates website/templates
+uv run pytest tests/
+```
+
+CI runs the full quality set and a package matrix. Website tests are part of the test workflow, so broken document discovery or rendering can fail a documentation-only change.
