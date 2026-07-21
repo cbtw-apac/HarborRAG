@@ -67,3 +67,31 @@ def test_local_composition_stays_mock() -> None:
         "provider": "mock_runtime",
         "ready": True,
     }
+
+
+@pytest.mark.whitebox
+def test_prod_env_refuses_default_control_db_url() -> None:
+    """Fail closed: env=prod with the default sqlite control_db_url must not
+    boot, mirroring the auth_mode=none-in-prod guard."""
+    from harborrag_core.contracts.errors import HarborConfigurationError
+
+    with pytest.raises(HarborConfigurationError):
+        CompositionRoot.production(RuntimeSettings(env="prod"))
+
+
+@pytest.mark.whitebox
+def test_prod_env_boots_with_explicit_control_db_url(tmp_path: Path) -> None:
+    """env=prod with a non-default control_db_url composes normally."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    composition = CompositionRoot.production(RuntimeSettings(env="prod", control_db_url=dsn))
+    assert composition.mode == "production"
+
+
+@pytest.mark.whitebox
+def test_dev_env_allows_default_control_db_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """env=dev keeps booting against the default sqlite control_db_url."""
+    monkeypatch.chdir(tmp_path)
+    composition = CompositionRoot.production(RuntimeSettings(env="dev"))
+    assert composition.mode == "production"

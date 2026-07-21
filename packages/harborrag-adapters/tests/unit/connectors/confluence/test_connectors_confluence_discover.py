@@ -36,6 +36,15 @@ def test_discover_paginates_and_filters_excluded_labels():
     assert client.calls[1][1]["cursor"] == "abc"
 
 
+def test_cql_from_query_treats_pattern_as_safe_text_search_not_raw_cql():
+    connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())
+
+    cql = connector._cql_from_query(ConnectorQuery(pattern='" OR space = "OTHER'))
+
+    assert 'space = "ENG"' in cql
+    assert 'text ~ "\\" OR space = \\"OTHER"' in cql
+
+
 def test_discover_supports_direct_content_ids_without_search():
     client = FakeConfluenceClient()
     client.add("content/1", light_content("1", "Direct"))

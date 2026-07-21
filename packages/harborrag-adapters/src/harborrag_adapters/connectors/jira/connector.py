@@ -163,7 +163,8 @@ class JiraConnector(BaseConnector):
                 default=self.config.labels,
             ),
             updated_after=query.updated_after,
-            raw_jql=filters.get("jql") or query.pattern,
+            text_search=query.pattern,
+            raw_jql=filters.get("jql"),
         )
 
     @staticmethod
@@ -199,19 +200,28 @@ class JiraConnector(BaseConnector):
             },
         )
 
-    @staticmethod
-    def _validate_issue(issue: dict[str, Any], issue_key: str) -> None:
-        """Fail fast when JIRA omits fields required by mappers."""
+    def _validate_issue(self, issue: dict[str, Any], issue_key: str) -> None:
+        """Fail fast when JIRA omits required fields or is out of project scope."""
+        fields = issue.get("fields", {})
         missing = [
             name
             for name, value in (
                 ("id", issue.get("id")),
                 ("key", issue.get("key")),
-                ("fields.summary", issue.get("fields", {}).get("summary")),
+                ("fields.summary", fields.get("summary")),
             )
             if not value
         ]
         if missing:
             raise DocumentProcessingError(
                 f"JIRA issue {issue_key} missing required fields: {', '.join(missing)}"
+            )
+        project_key = fields.get("project", {}).get("key")
+        if self.config.project_keys and project_key not in self.config.project_keys:
+            # Defense-in-depth against a raw-JQL override (the explicit
+            # filters["jql"] escape hatch) that omits a project filter --
+            # mirrors ConfluenceConnector._validate_content's space check.
+            raise DocumentProcessingError(
+                f"JIRA issue {issue_key} belongs to project {project_key!r}, "
+                f"outside configured projects {self.config.project_keys!r}"
             )

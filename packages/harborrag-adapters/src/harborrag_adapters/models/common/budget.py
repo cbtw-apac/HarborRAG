@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
 from collections.abc import Callable
@@ -246,7 +247,25 @@ def estimate_request_tokens(request: BaseModel) -> int:
     if isinstance(explicit, int) and explicit > 0:
         return explicit
     payload = json.dumps(request.model_dump(mode="json"), sort_keys=True, default=str)
-    return max(1, (len(payload) + 3) // 4)
+    return _estimate_tokens_from_text(payload)
+
+
+def _estimate_tokens_from_text(payload: str) -> int:
+    """Estimate a token count that over- rather than under-counts.
+
+    A flat chars-per-4/token ratio approximates English/ASCII text reasonably
+    under typical BPE tokenizers, but drastically undercounts CJK, Cyrillic,
+    and emoji text, where one character routinely costs a full token (or
+    more) rather than a quarter of one -- letting non-ASCII input slip under
+    ``tpm_limit``/``max_request_tokens`` caps that are supposed to bound it.
+    ASCII characters are still amortized at 4 chars/token; every non-ASCII
+    character counts as one full token on its own, which over-counts some
+    scripts but keeps this a safe ceiling for budget enforcement rather than
+    a floor an attacker can exploit.
+    """
+    ascii_chars = sum(1 for char in payload if ord(char) < 128)
+    non_ascii_chars = len(payload) - ascii_chars
+    return max(1, math.ceil(ascii_chars / 4) + non_ascii_chars)
 
 
 def _response_cost(response: BaseModel) -> float | None:

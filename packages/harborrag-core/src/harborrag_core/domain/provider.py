@@ -21,3 +21,7 @@ class Provider:
     family: ProviderFamily
     config: dict[str, Any] = field(default_factory=dict)
     secret_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.id or any(ch.isspace() for ch in self.id):
+            raise ValueError("Provider id must be non-empty and contain no whitespace.")

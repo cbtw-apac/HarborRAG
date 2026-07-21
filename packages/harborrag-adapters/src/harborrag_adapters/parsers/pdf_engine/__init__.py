@@ -18,7 +18,10 @@ from harborrag_adapters.parsers.pdf_engine.paddleocr import (
     PaddleOcrBackendOptions,
 )
 from harborrag_adapters.parsers.pdf_engine.parser import PdfParser, PdfParserProfile
-from harborrag_adapters.parsers.pdf_engine.pymupdf import PyMuPdfBackend
+from harborrag_adapters.parsers.pdf_engine.pymupdf import (
+    PyMuPdfBackend,
+    PyMuPdfBackendOptions,
+)
 
 __all__ = [
     "DoclingBackend",
@@ -34,4 +37,5 @@ __all__ = [
     "PdfParser",
     "PdfParserProfile",
     "PyMuPdfBackend",
+    "PyMuPdfBackendOptions",
 ]

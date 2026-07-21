@@ -50,3 +50,7 @@ class Job:
     counters: JobCounters = field(default_factory=JobCounters)
     last_error: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.id or any(ch.isspace() for ch in self.id):
+            raise ValueError("Job id must be non-empty and contain no whitespace.")

@@ -67,9 +67,18 @@ def build_jql(
     statuses: list[str] | None = None,
     labels: list[str] | None = None,
     updated_after: datetime | None = None,
+    text_search: str | None = None,
     raw_jql: str | None = None,
 ) -> str:
-    """Build a deterministic JQL query from shared connector filters."""
+    """Build a deterministic JQL query from shared connector filters.
+
+    ``text_search`` is a free-text term (e.g. a caller-supplied search
+    string) and is always escaped via ``quote_jql`` into a ``text ~ "..."``
+    clause combined with the other allowlisted filters. It is never treated
+    as raw JQL -- only the explicit ``raw_jql`` escape hatch bypasses
+    escaping and the project/label allowlists entirely, for callers who
+    intentionally need full JQL control.
+    """
     if raw_jql:
         return raw_jql
 
@@ -85,6 +94,8 @@ def build_jql(
         clauses.append(f"labels in ({_quoted_values(labels)})")
     if updated_after:
         clauses.append(f"updated >= {quote_jql(format_query_timestamp(updated_after))}")
+    if text_search:
+        clauses.append(f"text ~ {quote_jql(text_search)}")
 
     prefix = " and ".join(clauses) if clauses else ""
     suffix = "order by updated ASC, key ASC"

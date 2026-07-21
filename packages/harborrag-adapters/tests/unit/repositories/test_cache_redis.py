@@ -122,14 +122,16 @@ class FakePipelineV2:
         self,
         *,
         get_return: str | None = None,
-        smembers_return: set[str] | None = None,
+        smembers_return: set[str] | dict[str, set[str]] | None = None,
         execute_return: list[Any] | None = None,
         watch_error: bool = False,
         response_error: bool = False,
     ) -> None:
         self.commands: list[tuple[str, tuple[Any, ...]]] = []
         self._get_return = get_return
-        self._smembers_return = smembers_return if smembers_return is not None else set()
+        self._smembers_return: set[str] | dict[str, set[str]] = (
+            smembers_return if smembers_return is not None else set()
+        )
         self._execute_return = execute_return if execute_return is not None else [1]
         self._watch_error = watch_error
         self._response_error = response_error
@@ -149,7 +151,8 @@ class FakePipelineV2:
         return self._get_return
 
     async def smembers(self, key: str) -> set[str]:
-        del key
+        if isinstance(self._smembers_return, dict):
+            return self._smembers_return.get(key, set())
         return self._smembers_return
 
     def multi(self) -> None:
@@ -465,21 +468,50 @@ async def test_invalidate_tag_returns_zero_when_no_members() -> None:
 
 @pytest.mark.asyncio
 async def test_invalidate_tag_deletes_all_tagged_values() -> None:
-    pipeline = FakePipelineV2(execute_return=[1, 1, 1, 1])
-    client = FakeRedisClientV2(
-        pipeline,
+    pipeline = FakePipelineV2(
+        execute_return=[1, 1, 1, 1],
         smembers_return={
             "tenant-a:tag:tag-a": {"tenant-a:value:key-1"},
             "tenant-a:tags:key-1": {"tag-a"},
         },
     )
+    client = FakeRedisClientV2(pipeline)
     store = make_store_v2(client)
 
     count = await store.invalidate_tag("tag-a", context=CONTEXT_V2)
 
     assert count == 1
     names = [name for name, _ in pipeline.commands]
-    assert names == ["srem", "delete", "delete", "delete"]
+    assert names == ["multi", "srem", "delete", "delete", "delete"]
+    # Both the tag index and every tagged value's own tag-membership key must
+    # be watched, so a concurrent re-tag between the read and EXEC aborts the
+    # transaction instead of invalidating against stale membership data.
+    assert set(pipeline.watched) == {"tenant-a:tag:tag-a", "tenant-a:tags:key-1"}
+
+
+@pytest.mark.asyncio
+async def test_invalidate_tag_retries_after_concurrent_retag_watch_error() -> None:
+    conflicted = FakePipelineV2(
+        watch_error=True,
+        smembers_return={
+            "tenant-a:tag:tag-a": {"tenant-a:value:key-1"},
+            "tenant-a:tags:key-1": {"tag-a"},
+        },
+    )
+    succeeded = FakePipelineV2(
+        execute_return=[1, 1, 1, 1],
+        smembers_return={
+            "tenant-a:tag:tag-a": {"tenant-a:value:key-1"},
+            "tenant-a:tags:key-1": {"tag-a"},
+        },
+    )
+    client = FakeRedisClientV2([conflicted, succeeded])
+    store = make_store_v2(client)
+
+    count = await store.invalidate_tag("tag-a", context=CONTEXT_V2)
+
+    assert count == 1
+    assert [name for name, _ in succeeded.commands] == ["multi", "srem", "delete", "delete", "delete"]
 
 
 def test_ttl_milliseconds_static_conversion() -> None:

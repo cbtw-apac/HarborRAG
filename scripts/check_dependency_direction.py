@@ -10,14 +10,24 @@ Allowed direction (lower layers never import higher ones):
     harborrag_mcp       -> core, engine, runtime
     harborrag           -> any harborrag package (public facade)
 
+Each package's own ``tests/`` directory is checked against the same rule as
+its ``src/`` tree (a package's tests should not reach into a layer its
+production code isn't allowed to depend on either). Both plain
+``import``/``from`` statements and dynamic imports
+(``importlib.import_module(...)``, ``__import__(...)``) with a literal
+string argument are detected via the AST rather than a line-anchored regex,
+so multi-import statements (``import harborrag_core, harborrag_runtime``),
+multi-line imports, and dynamic imports are all caught.
+
 Usage:
     python scripts/check_dependency_direction.py
 """
 
 from __future__ import annotations
 
-import re
+import ast
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -49,25 +59,60 @@ MODULE_TO_PACKAGE_DIR = {
     "harborrag": "harborrag",
 }
 
-IMPORT_PATTERN = re.compile(r"^\s*(?:from|import)\s+(harborrag(?:_[a-z]+)?)\b", re.MULTILINE)
+_DYNAMIC_IMPORT_CALLEES = {"import_module", "__import__"}
+
+
+def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
+    """Yield every top-level module name a file imports, statically or dynamically."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name.split(".")[0], node.lineno
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.level == 0:
+                yield node.module.split(".")[0], node.lineno
+        elif isinstance(node, ast.Call):
+            callee = node.func
+            name = callee.attr if isinstance(callee, ast.Attribute) else (
+                callee.id if isinstance(callee, ast.Name) else None
+            )
+            if name not in _DYNAMIC_IMPORT_CALLEES or not node.args:
+                continue
+            first_arg = node.args[0]
+            if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                yield first_arg.value.split(".")[0], node.lineno
+
+
+def _scan_directory(directory: Path, *, module: str, allowed: set[str]) -> list[str]:
+    violations: list[str] = []
+    if not directory.is_dir():
+        return violations
+    for path in sorted(directory.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(text, filename=str(path))
+        except SyntaxError as exc:
+            relative = path.relative_to(REPO_ROOT)
+            violations.append(f"{relative}: could not parse for import analysis ({exc})")
+            continue
+        for imported, line in _iter_imported_modules(tree):
+            if imported in MODULE_TO_PACKAGE_DIR and imported not in allowed:
+                relative = path.relative_to(REPO_ROOT)
+                violations.append(f"{relative}:{line}: {module} must not import {imported}")
+    return violations
 
 
 def find_violations() -> list[str]:
     violations: list[str] = []
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
-        src_dir = REPO_ROOT / "packages" / package_dir / "src" / module
+        package_root = REPO_ROOT / "packages" / package_dir
+        src_dir = package_root / "src" / module
         if not src_dir.is_dir():
             violations.append(f"missing package source directory: {src_dir}")
             continue
         allowed = ALLOWED_IMPORTS[module] | {module}
-        for path in sorted(src_dir.rglob("*.py")):
-            text = path.read_text(encoding="utf-8")
-            for match in IMPORT_PATTERN.finditer(text):
-                imported = match.group(1)
-                if imported not in allowed:
-                    line = text.count("\n", 0, match.start()) + 1
-                    relative = path.relative_to(REPO_ROOT)
-                    violations.append(f"{relative}:{line}: {module} must not import {imported}")
+        violations.extend(_scan_directory(src_dir, module=module, allowed=allowed))
+        violations.extend(_scan_directory(package_root / "tests", module=module, allowed=allowed))
     return violations
 
 

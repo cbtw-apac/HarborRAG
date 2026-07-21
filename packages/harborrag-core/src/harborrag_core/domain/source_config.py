@@ -28,3 +28,7 @@ class SourceConfig:
     schedule: str | None = None
     status: SourceStatus = "active"
     secret_refs: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.id or any(ch.isspace() for ch in self.id):
+            raise ValueError("SourceConfig id must be non-empty and contain no whitespace.")

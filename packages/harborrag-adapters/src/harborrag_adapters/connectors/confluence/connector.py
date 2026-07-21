@@ -170,7 +170,8 @@ class ConfluenceConnector(BaseConnector):
                 default=self.config.include_labels,
             ),
             updated_after=query.updated_after,
-            raw_cql=filters.get("cql") or query.pattern,
+            text_search=query.pattern,
+            raw_cql=filters.get("cql"),
         )
 
     @staticmethod

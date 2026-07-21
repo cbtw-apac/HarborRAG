@@ -96,8 +96,15 @@ class SharePointConnector(BaseConnector):
         """Download one SharePoint drive file as a raw document."""
         site = self._drive.resolve_site()
         drive = self._drive.resolve_drive(site)
-        drive_id = str(record.metadata.get("drive_id") or drive.get("id"))
+        expected_drive_id = str(drive.get("id"))
         item_id = drive_item_id_from_record(record)
+        record_drive_id = record.metadata.get("drive_id")
+        drive_id = str(record_drive_id) if record_drive_id is not None else expected_drive_id
+        if drive_id != expected_drive_id:
+            raise DocumentProcessingError(
+                f"SharePoint item {item_id} belongs to drive {drive_id!r}, "
+                f"outside configured drive {expected_drive_id!r}"
+            )
         item = self._drive.get_item(drive_id, item_id)
 
         if not is_drive_file(item):

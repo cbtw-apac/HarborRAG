@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -38,6 +40,38 @@ def test_callable_health_probe_and_monitor_sync() -> None:
     results = monitor.check_once()
     assert results[0][0] == deployment_state_key("primary", "a")
     assert store.snapshot("primary:a").active_healthy is True
+    monitor.close()
+
+
+def test_check_once_times_out_on_a_hung_sync_probe_instead_of_blocking_forever() -> None:
+    config = SimpleNamespace(
+        deployments=(SimpleNamespace(name="a", enabled=True),),
+    )
+    store = InMemoryRoutingStateStore(clock=lambda: 10.0)
+    release = threading.Event()
+
+    def hung_check(_logical: str, _deployment: Any) -> HealthCheckResult:
+        # Simulate a probe blocked on a stalled socket -- it never returns on
+        # its own within the test, so a correct fix must not wait for it.
+        release.wait(timeout=5.0)
+        return HealthCheckResult(True)
+
+    probe = CallableHealthProbe(hung_check)
+    monitor = ActiveHealthMonitor(
+        {"primary": config},
+        config=ActiveHealthConfig(enabled=True, interval_seconds=0.01, timeout_seconds=0.05),
+        store=store,
+        probe=probe,
+    )
+    started = time.perf_counter()
+    results = monitor.check_once()
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0, "check_once() must return promptly on a hung probe, not block on it"
+    assert results[0][1].healthy is False
+    assert results[0][1].detail == "TimeoutError"
+    assert store.snapshot("primary:a").active_healthy is False
+    release.set()
     monitor.close()
 
 

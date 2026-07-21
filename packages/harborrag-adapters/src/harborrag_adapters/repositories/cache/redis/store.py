@@ -177,29 +177,47 @@ class RedisCacheStore(HarborCacheStore):
         context: StorageOperationContext,
     ) -> int:
         tag_key = self._repositories.tag_key(context, tag)
-        value_keys = list(await self._repositories.client.smembers(tag_key))
-        if not value_keys:
-            return 0
-        memberships: dict[str, set[str]] = {}
-        for value_key in value_keys:
-            tags_key = self._repositories.tags_key_for_value_key(value_key)
-            memberships[value_key] = set(await self._repositories.client.smembers(tags_key))
-        value_delete_indexes: list[int] = []
-        command_index = 0
-        async with self._repositories.client.pipeline(transaction=True) as pipe:
-            for value_key, tags in memberships.items():
-                for item_tag in tags:
-                    pipe.srem(self._repositories.tag_key(context, item_tag), value_key)
-                    command_index += 1
-                pipe.delete(self._repositories.tags_key_for_value_key(value_key))
-                command_index += 1
-                pipe.delete(value_key)
-                value_delete_indexes.append(command_index)
-                command_index += 1
-            pipe.delete(tag_key)
-            results = await pipe.execute()
-        # Members may have already expired naturally; only count keys actually deleted here.
-        return sum(int(results[index]) for index in value_delete_indexes)
+        while True:
+            async with self._repositories.client.pipeline(transaction=True) as pipe:
+                try:
+                    # WATCH the tag membership and every tagged value's own tag
+                    # index before reading them, so a concurrent set()/
+                    # compare_and_set() that re-tags one of these values
+                    # between our read and EXEC aborts this transaction
+                    # (WatchError) instead of silently invalidating against
+                    # stale membership data.
+                    await pipe.watch(tag_key)
+                    value_keys = list(await pipe.smembers(tag_key))
+                    if not value_keys:
+                        return 0
+                    tags_keys = {
+                        value_key: self._repositories.tags_key_for_value_key(value_key)
+                        for value_key in value_keys
+                    }
+                    await pipe.watch(*tags_keys.values())
+                    memberships: dict[str, set[str]] = {
+                        value_key: set(await pipe.smembers(tags_key))
+                        for value_key, tags_key in tags_keys.items()
+                    }
+                    pipe.multi()
+                    value_delete_indexes: list[int] = []
+                    command_index = 0
+                    for value_key, tags in memberships.items():
+                        for item_tag in tags:
+                            pipe.srem(self._repositories.tag_key(context, item_tag), value_key)
+                            command_index += 1
+                        pipe.delete(tags_keys[value_key])
+                        command_index += 1
+                        pipe.delete(value_key)
+                        value_delete_indexes.append(command_index)
+                        command_index += 1
+                    pipe.delete(tag_key)
+                    results = await pipe.execute()
+                    # Members may have already expired naturally; only count
+                    # keys actually deleted here.
+                    return sum(int(results[index]) for index in value_delete_indexes)
+                except WatchError:
+                    continue
 
     @staticmethod
     def _ttl_milliseconds(ttl: timedelta | None) -> int | None:

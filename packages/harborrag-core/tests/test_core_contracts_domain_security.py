@@ -17,6 +17,18 @@ def test_error_hierarchy():
         raise URLPolicyError("boom")
 
 
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_document_rejects_blank_or_whitespace_id(bad_id: str) -> None:
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        Document(
+            id=bad_id,
+            title="Doc",
+            content=[],
+            content_type="page",
+            provenance=DocumentProvenance(source="confluence"),
+        )
+
+
 def test_domain_dataclasses():
     provenance = DocumentProvenance(
         source="confluence",
@@ -94,9 +106,13 @@ def test_security_helpers():
         URLPolicy().validate("javascript:alert(1)")
     with pytest.raises(URLPolicyError):
         URLPolicy(denied_hosts={"blocked.local"}).validate("https://blocked.local/a")
+    # Cloud-metadata and RFC1918 addresses are blocked by default, without
+    # needing to be added to denied_hosts.
     with pytest.raises(URLPolicyError):
-        URLPolicy(denied_hosts={"169.254.169.254"}).validate(
-            "https://169.254.169.254/latest/meta-data/"
-        )
+        URLPolicy().validate("https://169.254.169.254/latest/meta-data/")
+    with pytest.raises(URLPolicyError):
+        URLPolicy().validate("https://10.0.0.5/internal")
+    with pytest.raises(URLPolicyError):
+        URLPolicy().validate("https://127.0.0.1/admin")
     with pytest.raises(URLPolicyError):
         URLPolicy(denied_hosts={"localhost"}).validate("https://localhost/admin")

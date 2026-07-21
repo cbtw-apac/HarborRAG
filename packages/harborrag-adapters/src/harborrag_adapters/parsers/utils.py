@@ -82,6 +82,27 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
                     f"Archive member {info.filename!r} compression ratio "
                     f"{ratio:.0f} exceeds {MAX_ARCHIVE_COMPRESSION_RATIO}"
                 )
+        elif info.file_size > 0:
+            # compress_size == 0 with a non-zero claimed uncompressed size is
+            # an effectively infinite ratio (a handful of stored/degenerate
+            # bytes inflating to arbitrary size) and is itself a classic
+            # zip-bomb signature, so it's rejected outright rather than
+            # silently skipping the ratio check as before.
+            archive.close()
+            raise ParseError(
+                f"Archive member {info.filename!r} claims {info.file_size} "
+                "uncompressed bytes from 0 compressed bytes"
+            )
+    # NOTE: this still trusts the zip central directory's `file_size`/
+    # `compress_size` fields rather than verified decompressed bytes. A zip
+    # that forges its central directory to under-report `file_size` while the
+    # actual per-member decompression stream yields far more data would slip
+    # past this guard. Closing that gap fully requires streaming each member
+    # through a capped read (tracking actual bytes produced by
+    # `ZipExtFile.read(chunk)` and aborting once a bound is exceeded) instead
+    # of trusting metadata, which is a larger change than this guard's current
+    # metadata-only scope; callers relying on this function should still treat
+    # it as a first line of defense, not a hard guarantee.
     return archive
 
 

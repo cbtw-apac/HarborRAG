@@ -148,13 +148,20 @@ class CompositionRoot:
             SqlSettingsRepository,
             SqlSourceRepository,
         )
+        from harborrag_core.contracts.errors import HarborConfigurationError
         from harborrag_core.testing.fakes import FakeEventBus, FakeSecrets
 
         from harborrag_runtime.services.runtime_service import ProductionRuntimeService
-        from harborrag_runtime.settings import RuntimeSettings
+        from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url
+        if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
+            raise HarborConfigurationError(
+                "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
+                "boot production composition against the default local SQLite "
+                "database; set HARBORRAG_CONTROL_DB_URL explicitly"
+            )
         try:
             run_migrations(dsn)
         except Exception as exc:  # noqa: BLE001 - boot degraded, readyz reports it

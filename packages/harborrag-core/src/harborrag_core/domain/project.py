@@ -36,3 +36,7 @@ class Project:
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     stats: ProjectStats = field(default_factory=ProjectStats)
+
+    def __post_init__(self) -> None:
+        if not self.id or any(ch.isspace() for ch in self.id):
+            raise ValueError("Project id must be non-empty and contain no whitespace.")

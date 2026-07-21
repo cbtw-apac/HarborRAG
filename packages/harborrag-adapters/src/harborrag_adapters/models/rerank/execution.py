@@ -96,8 +96,8 @@ class RerankExecution:
             operation.complete(response)
             return response
         operation.cache(decision, hit=False)
-        authorization = self.budget.authorize(request, logical_model=logical)
         try:
+            authorization = self.budget.authorize(request, logical_model=logical)
             if decision.key is None:
                 raw = self._produce(logical, request, decision, operation, authorization)
             else:
@@ -150,8 +150,8 @@ class RerankExecution:
             await operation.acomplete(response)
             return response
         await operation.acache(decision, hit=False)
-        authorization = await self.budget.aauthorize(request, logical_model=logical)
         try:
+            authorization = await self.budget.aauthorize(request, logical_model=logical)
             if decision.key is None:
                 raw = await self._aproduce(logical, request, decision, operation, authorization)
             else:

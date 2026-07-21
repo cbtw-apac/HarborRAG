@@ -184,6 +184,17 @@ def test_load_raises_on_missing_required_fields():
         connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
 
 
+def test_load_rejects_issue_outside_configured_projects():
+    out_of_scope = issue()
+    out_of_scope["fields"]["project"] = {"key": "OPS", "name": "Operations"}
+    client = FakeJiraClient()
+    client.add_get("issue/ENG-1", out_of_scope)
+    connector = JiraConnector(cloud_config(project_keys=["ENG"]), client=client)
+
+    with pytest.raises(DocumentProcessingError, match="outside configured projects"):
+        connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
+
+
 def test_load_by_keys_yields_documents_for_each_key():
     client = FakeJiraClient()
     client.add_get("issue/ENG-1", issue("ENG-1"))

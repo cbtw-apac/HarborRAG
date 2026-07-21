@@ -10,7 +10,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import compact_text, guard_input_size, wrap_parse_errors
+from .utils import compact_text, guard_input_size, open_guarded_zip, wrap_parse_errors
 
 parser_logger = get_parser_logger("pptx")
 
@@ -62,6 +62,9 @@ class PptxParser(BaseParser[ParseInput, ParsedDocument]):
         sections: list[str] = []
         elements: list[DocumentElement] = []
         with wrap_parse_errors(self.parser_engine):
+            # PPTX is a zip container: reject decompression-bomb shapes before
+            # handing bytes to python-pptx, exactly like DOCX/EPUB do.
+            open_guarded_zip(source_bytes).close()
             presentation = Presentation(BytesIO(source_bytes))
             for slide_index, slide in enumerate(presentation.slides, start=1):
                 slide_lines = list(self._shape_text(slide.shapes))

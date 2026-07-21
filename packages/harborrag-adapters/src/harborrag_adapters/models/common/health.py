@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import queue
+import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -87,16 +89,45 @@ class ActiveHealthMonitor:
         results: list[tuple[str, HealthCheckResult]] = []
         for logical, deployment in self._deployments():
             started = time.perf_counter()
-            try:
-                result = self._probe.check(logical, deployment)
-            except Exception as exc:
-                result = HealthCheckResult(False, detail=type(exc).__name__)
+            result = self._check_with_timeout(logical, deployment)
             latency = result.latency_ms or (time.perf_counter() - started) * 1_000
             result = HealthCheckResult(result.healthy, latency, result.detail)
             key = deployment_state_key(logical, deployment.name)
             self._store.record_active_health(key, healthy=result.healthy, latency_ms=latency)
             results.append((key, result))
         return tuple(results)
+
+    def _check_with_timeout(self, logical: str, deployment: Any) -> HealthCheckResult:
+        """Run one sync probe bounded by ``config.timeout_seconds``.
+
+        A hung probe (e.g. a health check that blocks on a stalled socket)
+        must not stall ``check_once()`` forever, mirroring the timeout the
+        async path already enforces via ``asyncio.wait_for``. Python cannot
+        forcibly cancel a running thread, so the probe runs on a daemon
+        thread: on timeout this returns promptly and reports the deployment
+        unhealthy, while the stuck probe thread is abandoned in the
+        background (it cannot block process exit, since it's daemonic).
+        """
+        outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+        def _target() -> None:
+            try:
+                outcome.put((True, self._probe.check(logical, deployment)))
+            except BaseException as exc:  # noqa: BLE001 - reported to the caller below
+                outcome.put((False, exc))
+
+        thread = threading.Thread(
+            target=_target, daemon=True, name="harbor-model-health-probe"
+        )
+        thread.start()
+        try:
+            ok, value = outcome.get(timeout=self.config.timeout_seconds)
+        except queue.Empty:
+            return HealthCheckResult(False, detail="TimeoutError")
+        if not ok:
+            return HealthCheckResult(False, detail=type(value).__name__)
+        result: HealthCheckResult = value
+        return result
 
     async def acheck_once(self) -> tuple[tuple[str, HealthCheckResult], ...]:
         """Probe every enabled deployment concurrently and persist results."""

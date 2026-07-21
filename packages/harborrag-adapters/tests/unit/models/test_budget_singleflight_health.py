@@ -128,6 +128,16 @@ def test_noop_budget_and_token_estimation() -> None:
     assert estimate_request_tokens(Request(prompt="a" * 40)) > 1
 
 
+def test_estimate_request_tokens_does_not_undercount_non_ascii_text() -> None:
+    ascii_tokens = estimate_request_tokens(Request(prompt="a" * 40))
+    # Same character count, but CJK text should never estimate to fewer
+    # tokens than the equivalent-length ASCII text -- a flat chars/4 ratio
+    # would undercount this and let it slip under a token-rate budget.
+    cjk_tokens = estimate_request_tokens(Request(prompt="漢" * 40))
+    assert cjk_tokens > ascii_tokens
+    assert cjk_tokens >= 40
+
+
 @pytest.mark.asyncio
 async def test_noop_budget_async() -> None:
     policy = NoopBudgetPolicy()

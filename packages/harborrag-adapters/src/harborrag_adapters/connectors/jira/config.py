@@ -15,6 +15,7 @@ from harborrag_adapters.connectors.shared.attachments import (
 from harborrag_adapters.connectors.utils.helpers import (
     DEFAULT_MAX_NESTED_ITEMS,
     validate_http_tuning,
+    validate_https_url,
     validate_non_negative_limit,
 )
 
@@ -91,6 +92,7 @@ class JiraProjectConfig:
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate query/load limits."""
         self.base_url = str(self.base_url).rstrip("/")
+        validate_https_url("base_url", self.base_url)
         self.token = self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
         self.email = self.email or os.getenv("JIRA_EMAIL")
         self.fields = tuple(

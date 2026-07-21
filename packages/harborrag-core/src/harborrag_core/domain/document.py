@@ -67,3 +67,7 @@ class Document:
             "description": "Raw source data for the document, if needed for debugging or additional processing"
         },
     )
+
+    def __post_init__(self) -> None:
+        if not self.id or any(ch.isspace() for ch in self.id):
+            raise ValueError("Document id must be non-empty and contain no whitespace.")

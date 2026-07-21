@@ -61,6 +61,27 @@ def test_docs_disabled_by_settings() -> None:
 
 
 @pytest.mark.blackbox
+def test_docs_default_to_disabled_in_prod() -> None:
+    """env=prod must not silently expose Swagger docs via the docs_enabled=True default."""
+    settings = ApiSettings(env="prod", auth_mode="hmac", auth_secret="s3cr3t")
+    assert settings.docs_enabled is False
+    with TestClient(
+        create_fastapi_app(settings),
+        raise_server_exceptions=False,
+    ) as client:
+        assert client.get("/api/v1/docs").status_code == 404
+
+
+@pytest.mark.blackbox
+def test_docs_explicit_true_is_respected_even_in_prod() -> None:
+    """An operator who explicitly opts in to docs in prod must still get them."""
+    settings = ApiSettings(
+        env="prod", auth_mode="hmac", auth_secret="s3cr3t", docs_enabled=True
+    )
+    assert settings.docs_enabled is True
+
+
+@pytest.mark.blackbox
 def test_wildcard_cors_origin_is_rejected() -> None:
     """'*' in cors_origins must fail at factory time — credentialed CORS
     with a wildcard origin is never allowed."""

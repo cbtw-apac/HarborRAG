@@ -39,13 +39,15 @@ jobs:
     steps:
       - name: Check release tag
         id: check
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           # Only deploy docs for main harborrag releases, not sub-package releases
-          if [[ "${{ github.event.release.tag_name }}" == harborrag-v* ]]; then
-            echo "✅ Main package release detected: ${{ github.event.release.tag_name }}"
+          if [[ "$TAG_NAME" == harborrag-v* ]]; then
+            echo "✅ Main package release detected: $TAG_NAME"
             echo "should-deploy=true" >> $GITHUB_OUTPUT
           else
-            echo "⏭️  Sub-package or other release detected: ${{ github.event.release.tag_name }}"
+            echo "⏭️  Sub-package or other release detected: $TAG_NAME"
             echo "📋 Skipping documentation deployment to avoid duplicates"
             echo "should-deploy=false" >> $GITHUB_OUTPUT
           fi
