@@ -14,7 +14,8 @@ def test_config_auto_detects_cloud_and_datacenter():
     assert dc_config().deployment_type == JiraDeploymentType.DATACENTER
 
 
-def test_config_requires_cloud_email():
+def test_config_requires_cloud_email(monkeypatch):
+    monkeypatch.delenv("JIRA_EMAIL", raising=False)
     with pytest.raises(ValueError, match="email is required"):
         JiraProjectConfig(base_url=CLOUD_BASE, token="token")
 
@@ -39,3 +40,13 @@ def test_config_rejects_out_of_range_page_size():
 def test_config_requested_fields_returns_explicit_fields_when_not_all():
     config = dc_config(include_all_fields=False, fields=("summary", "status"))
     assert config.requested_fields() == ("summary", "status")
+
+
+def test_config_rejects_non_https_base_url():
+    with pytest.raises(ValueError, match="HTTPS URL"):
+        dc_config(base_url="http://jira.example.com")
+
+
+def test_config_rejects_base_url_with_embedded_credentials():
+    with pytest.raises(ValueError, match="HTTPS URL"):
+        dc_config(base_url="https://user:pass@jira.example.com")

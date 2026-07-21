@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import queue
+import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -60,6 +62,9 @@ class CallableHealthProbe:
         return await asyncio.to_thread(self._check, logical_model, deployment)
 
 
+_PROBE_IN_PROGRESS_DETAIL = "ProbeInProgress"
+
+
 class ActiveHealthMonitor:
     """Run optional active probes and publish results to shared routing state."""
 
@@ -80,6 +85,8 @@ class ActiveHealthMonitor:
         self._task: asyncio.Task[None] | None = None
         self._runner: AsyncLoopRunner | None = None
         self._closed = False
+        self._inflight_probes: dict[str, threading.Thread] = {}
+        self._inflight_lock = threading.Lock()
 
     def check_once(self) -> tuple[tuple[str, HealthCheckResult], ...]:
         """Probe every enabled deployment synchronously and persist results."""
@@ -87,16 +94,62 @@ class ActiveHealthMonitor:
         results: list[tuple[str, HealthCheckResult]] = []
         for logical, deployment in self._deployments():
             started = time.perf_counter()
-            try:
-                result = self._probe.check(logical, deployment)
-            except Exception as exc:
-                result = HealthCheckResult(False, detail=type(exc).__name__)
+            result = self._check_with_timeout(logical, deployment)
             latency = result.latency_ms or (time.perf_counter() - started) * 1_000
             result = HealthCheckResult(result.healthy, latency, result.detail)
             key = deployment_state_key(logical, deployment.name)
-            self._store.record_active_health(key, healthy=result.healthy, latency_ms=latency)
+            if result.detail != _PROBE_IN_PROGRESS_DETAIL:
+                # A probe still running from a previous, overlapping call is
+                # not a failure -- it may yet succeed. Persisting healthy=False
+                # here would flap routing state for a deployment that is
+                # merely slower than interval_seconds, not actually down.
+                self._store.record_active_health(key, healthy=result.healthy, latency_ms=latency)
             results.append((key, result))
         return tuple(results)
+
+    def _check_with_timeout(self, logical: str, deployment: Any) -> HealthCheckResult:
+        """Run one sync probe bounded by ``config.timeout_seconds``.
+
+        A hung probe (e.g. a health check that blocks on a stalled socket)
+        must not stall ``check_once()`` forever, mirroring the timeout the
+        async path already enforces via ``asyncio.wait_for``. Python cannot
+        forcibly cancel a running thread, so the probe runs on a daemon
+        thread: on timeout this returns promptly and reports the deployment
+        unhealthy, while the stuck probe thread is abandoned in the
+        background (it cannot block process exit, since it's daemonic).
+
+        At most one abandoned thread accumulates per deployment: if a
+        previous probe for this same deployment is still running when
+        ``check_once()`` is called again, this reports unhealthy immediately
+        instead of piling on another thread that will also be abandoned.
+        """
+        key = deployment_state_key(logical, deployment.name)
+        with self._inflight_lock:
+            previous = self._inflight_probes.get(key)
+            if previous is not None and previous.is_alive():
+                return HealthCheckResult(False, detail=_PROBE_IN_PROGRESS_DETAIL)
+
+            outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+            def _target() -> None:
+                try:
+                    outcome.put((True, self._probe.check(logical, deployment)))
+                except BaseException as exc:  # noqa: BLE001 - reported to the caller below
+                    outcome.put((False, exc))
+
+            thread = threading.Thread(
+                target=_target, daemon=True, name="harbor-model-health-probe"
+            )
+            self._inflight_probes[key] = thread
+            thread.start()
+        try:
+            ok, value = outcome.get(timeout=self.config.timeout_seconds)
+        except queue.Empty:
+            return HealthCheckResult(False, detail="TimeoutError")
+        if not ok:
+            return HealthCheckResult(False, detail=type(value).__name__)
+        result: HealthCheckResult = value
+        return result
 
     async def acheck_once(self) -> tuple[tuple[str, HealthCheckResult], ...]:
         """Probe every enabled deployment concurrently and persist results."""

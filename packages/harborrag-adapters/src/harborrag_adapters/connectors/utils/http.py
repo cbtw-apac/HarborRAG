@@ -20,7 +20,10 @@ DEFAULT_ERROR_BODY_LIMIT = 500
 class StreamingResponse(Protocol):
     """Minimal response surface required by :func:`read_capped_content`."""
 
-    headers: Mapping[str, str]
+    @property
+    def headers(self) -> Mapping[str, str]:
+        """Response headers, read-only so covariant mappings (e.g. requests') satisfy this Protocol."""
+        ...
 
     def iter_content(self, chunk_size: int) -> Iterator[bytes]:
         """Yield response body chunks."""

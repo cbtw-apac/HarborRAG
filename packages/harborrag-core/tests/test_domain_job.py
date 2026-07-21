@@ -64,3 +64,14 @@ def test_source_config_defaults() -> None:
     assert source.schedule is None
     assert source.config == {}
     assert source.secret_refs == []
+
+
+@pytest.mark.whitebox
+@pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
+def test_job_and_source_config_reject_blank_or_whitespace_ids(bad_id: str) -> None:
+    """A blank/whitespace id must never construct a Job or SourceConfig --
+    it would otherwise flow uncaught into the queue/repository layers."""
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        Job(id=bad_id, source_id="s1", project_id="p1", job_type="bulk_ingest")
+    with pytest.raises(ValueError, match="id must be non-empty"):
+        SourceConfig(id=bad_id, project_id="p1", source_type="local_file", name="docs")

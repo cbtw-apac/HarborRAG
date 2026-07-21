@@ -9,7 +9,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 from .base import BaseParser
 from .exceptions import ParseError
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import guard_input_size, wrap_parse_errors
+from .utils import guard_input_size, open_guarded_zip, wrap_parse_errors
 
 parser_logger = get_parser_logger("excel")
 
@@ -111,6 +111,9 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
             ),
         )
         with wrap_parse_errors("openpyxl"):
+            # XLSX is a zip container: reject decompression-bomb shapes before
+            # handing bytes to openpyxl, exactly like DOCX/EPUB/PPTX do.
+            open_guarded_zip(source_bytes).close()
             workbook = load_workbook(
                 BytesIO(source_bytes),
                 read_only=True,
@@ -279,7 +282,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
             return ""
         isoformat = getattr(value, "isoformat", None)
         if callable(isoformat):
-            return isoformat()
+            return str(isoformat())
         return str(value)
 
     @staticmethod
@@ -290,7 +293,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
             return ""
         if cell.ctype == xlrd.XL_CELL_DATE:
             try:
-                return xlrd.xldate_as_datetime(cell.value, datemode).isoformat()
+                return str(xlrd.xldate_as_datetime(cell.value, datemode).isoformat())
             except (OverflowError, ValueError):
                 return str(cell.value)
         if cell.ctype == xlrd.XL_CELL_NUMBER:

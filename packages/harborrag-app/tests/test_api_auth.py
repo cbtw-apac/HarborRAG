@@ -12,7 +12,7 @@ from harborrag_app.api.auth.mock import MockTokenVerifier
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
-SECRET = "test-secret"
+SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 DIAG = "/api/v1/diagnostics"
 
 
@@ -45,7 +45,10 @@ def test_none_mode_grants_implicit_owner() -> None:
         ({}, 401),  # missing token
         ({"Authorization": "Bearer garbage"}, 401),  # unparseable
         ({"Authorization": f"Bearer {_token('admin', expired=True)}"}, 401),
-        ({"Authorization": f"Bearer {_token('admin', secret='wrong')}"}, 401),
+        (
+            {"Authorization": f"Bearer {_token('admin', secret='wrong-secret-also-32-bytes-long!!')}"},
+            401,
+        ),
         ({"Authorization": f"Bearer {_token('reader')}"}, 403),  # authned, low role
         ({"Authorization": f"Bearer {_token('editor')}"}, 403),
         ({"Authorization": f"Bearer {_token('admin')}"}, 200),

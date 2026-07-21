@@ -81,9 +81,18 @@ def build_cql(
     content_types: list[str] | None = None,
     labels: list[str] | None = None,
     updated_after: datetime | None = None,
+    text_search: str | None = None,
     raw_cql: str | None = None,
 ) -> str:
-    """Build a conservative CQL search expression from shared filters."""
+    """Build a conservative CQL search expression from shared filters.
+
+    ``text_search`` is a free-text term (e.g. a caller-supplied search
+    string) and is always escaped via ``quote_cql`` into a ``text ~ "..."``
+    clause combined with the other allowlisted filters. It is never treated
+    as raw CQL -- only the explicit ``raw_cql`` escape hatch bypasses
+    escaping and the space/label allowlists entirely, for callers who
+    intentionally need full CQL control.
+    """
     if raw_cql:
         return raw_cql
 
@@ -101,6 +110,8 @@ def build_cql(
         clauses.append(f"label in ({','.join(safe_labels)})")
     if updated_after:
         clauses.append(f"lastmodified >= {quote_cql(format_query_timestamp(updated_after))}")
+    if text_search:
+        clauses.append(f"text ~ {quote_cql(text_search)}")
 
     return " and ".join(clauses) or 'type in ("page","blogpost")'
 

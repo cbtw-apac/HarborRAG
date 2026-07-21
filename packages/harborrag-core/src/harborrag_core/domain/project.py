@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
+from .validation import require_id
+
 ProjectStatus = Literal["active", "archived"]
 
 
@@ -36,3 +38,6 @@ class Project:
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     stats: ProjectStats = field(default_factory=ProjectStats)
+
+    def __post_init__(self) -> None:
+        require_id(self.id, label="Project")

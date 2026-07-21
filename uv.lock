@@ -2101,7 +2101,11 @@ control-plane = [
 dev = [
     { name = "mypy" },
     { name = "ruff" },
+    { name = "types-defusedxml" },
+    { name = "types-hvac" },
+    { name = "types-openpyxl" },
     { name = "types-pyyaml" },
+    { name = "types-xlrd" },
 ]
 falkordb = [
     { name = "falkordb" },
@@ -2205,7 +2209,11 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12,<1" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'control-plane'", specifier = ">=2.0,<3" },
+    { name = "types-defusedxml", marker = "extra == 'dev'", specifier = ">=0.7,<1" },
+    { name = "types-hvac", marker = "extra == 'dev'", specifier = ">=2.3,<3" },
+    { name = "types-openpyxl", marker = "extra == 'dev'", specifier = ">=3.1,<4" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
+    { name = "types-xlrd", marker = "extra == 'dev'", specifier = ">=2.0,<3" },
     { name = "xlrd", marker = "extra == 'parsers'", specifier = ">=2.0.1" },
 ]
 provides-extras = ["control-plane", "redis", "s3", "qdrant", "falkordb", "postgres", "parsers", "pdf", "llm", "langfuse", "opentelemetry", "test", "dev"]
@@ -2299,6 +2307,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "types-pyyaml" },
+]
 production = [
     { name = "harborrag-adapters", extra = ["control-plane"] },
     { name = "pydantic-settings" },
@@ -2312,8 +2323,9 @@ requires-dist = [
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "pydantic-settings", marker = "extra == 'production'", specifier = ">=2.2" },
     { name = "pyyaml", specifier = ">=6.0.0" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["production"]
+provides-extras = ["production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"
@@ -2987,7 +2999,6 @@ dependencies = [
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
-    { name = "triton", marker = "python_version < '0'" },
     { name = "uvicorn" },
     { name = "xgrammar" },
 ]
@@ -6864,12 +6875,51 @@ wheels = [
 ]
 
 [[package]]
+name = "types-defusedxml"
+version = "0.7.0.20260504"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/d2/4553c8fa9cdebfe1e84b950cf790a4d2376a97fa016e43f7c65323fa6c7d/types_defusedxml-0.7.0.20260504.tar.gz", hash = "sha256:2ab2828a3f97111ba1c16cee273ad4124a831fc9198c41bf8368ff6ea48ad300", size = 10729, upload-time = "2026-05-04T05:22:50.192Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/2d/8a4b5ba1d732b8bc691f0efbb1c6f77cb5f6f473b2afe181d83d910773c5/types_defusedxml-0.7.0.20260504-py3-none-any.whl", hash = "sha256:a959e3a0a43b93e464bd625d91ec9193a2703ddc10443bdd627792485fae0b10", size = 13467, upload-time = "2026-05-04T05:22:49.319Z" },
+]
+
+[[package]]
+name = "types-hvac"
+version = "2.4.0.20260718"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/14/2b908471c2c0d61a2e8d21ec837b7dd02a3e0f9d99fbf840ad8ac724c268/types_hvac-2.4.0.20260718.tar.gz", hash = "sha256:cebadb8a733015e7497756c138c0c9ac1f51fe7b1daa9aaba6d8c4a4f239ea60", size = 24766, upload-time = "2026-07-18T04:36:11.067Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/35/bcec28247fc02f0e1f039d00da915446759e67007b3391cfa77f9a30937f/types_hvac-2.4.0.20260718-py3-none-any.whl", hash = "sha256:05ddb66d9b4bf0ced98f8e5240409f41828605d035781c580bf227ff1d98d728", size = 42645, upload-time = "2026-07-18T04:36:10.037Z" },
+]
+
+[[package]]
+name = "types-openpyxl"
+version = "3.1.5.20260518"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/d1/a1e23040a758746ad5bb6b8849a011c3c901775618bc7e1fec3a1a8b7142/types_openpyxl-3.1.5.20260518.tar.gz", hash = "sha256:da9cd644e4e80215a3f60a8c2c2c8e980e941a9b581cffa3876285aa791ca5af", size = 101550, upload-time = "2026-05-18T06:03:57.59Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/0e/d745ce95fc74e34df802010fd0387e33db468179e6ff42b708280ab268c7/types_openpyxl-3.1.5.20260518-py3-none-any.whl", hash = "sha256:e6ca4b116c8b979ed57f3045edcd3d49c25917d6dae99e90358f41322a19d375", size = 165744, upload-time = "2026-05-18T06:03:56.036Z" },
+]
+
+[[package]]
 name = "types-pyyaml"
 version = "6.0.12.20260518"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b8/83/4a1afc3fbfcf5b8d46fc390cd95ed6b0dc9010a265f4e9f46314efffa37a/types_pyyaml-6.0.12.20260518.tar.gz", hash = "sha256:d917f83fb38462550338c1297faedd860b3ec83912b96b1e3d73255f7473e466", size = 17850, upload-time = "2026-05-18T06:01:58.675Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/06/a2/c01db32be2ae7d6a1689972f3c492b149ee4e164b12fdfd9f64b50888215/types_pyyaml-6.0.12.20260518-py3-none-any.whl", hash = "sha256:d2150f75a231c9fe9c7463bd29487d93e60bac90400287351384bc2284eba7cd", size = 20312, upload-time = "2026-05-18T06:01:57.368Z" },
+]
+
+[[package]]
+name = "types-xlrd"
+version = "2.0.0.20260518"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/a8/2e0cff3a842f4f32dc5b1bec6e29fd13fc64124f7ea92368c2997e62738d/types_xlrd-2.0.0.20260518.tar.gz", hash = "sha256:238031699230d0bc3dbcf3b67fc440e6c3b56cccae82a512ad1b748e1a2eaf91", size = 14017, upload-time = "2026-05-18T06:04:27.086Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/f4/927ae5a8ba20f996ab26e83166207176ef19cf029d9a6b50150713725a42/types_xlrd-2.0.0.20260518-py3-none-any.whl", hash = "sha256:710c97c0a2dae288504a7c7037397b7a639563681b53890529c2342dd5194b42", size = 16891, upload-time = "2026-05-18T06:04:26.259Z" },
 ]
 
 [[package]]
@@ -7371,7 +7421,6 @@ name = "xgrammar"
 version = "0.1.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mlx-lm", marker = "python_version < '0'" },
     { name = "ninja" },
     { name = "numpy" },
     { name = "pydantic" },

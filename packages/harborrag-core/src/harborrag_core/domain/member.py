@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from .validation import require_id
+
 Role = Literal["owner", "admin", "editor", "reader"]
 
 
@@ -19,3 +21,6 @@ class Member:
     id: str
     subject: str
     role: Role = "reader"
+
+    def __post_init__(self) -> None:
+        require_id(self.id, label="Member")

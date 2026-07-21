@@ -72,6 +72,26 @@ def test_build_jql_supports_filters_without_project_keys():
     assert "project in" not in jql
 
 
+def test_build_jql_escapes_text_search_instead_of_treating_it_as_raw_jql():
+    jql = build_jql(project_keys=["ENG"], text_search='" OR project = "OPS')
+
+    assert 'project in ("ENG")' in jql
+    assert 'text ~ "\\" OR project = \\"OPS"' in jql
+    # The malicious payload must never appear unescaped/unquoted.
+    assert 'OR project = "OPS"' not in jql.replace('\\"', "")
+
+
+def test_jql_from_query_treats_pattern_as_safe_text_search_not_raw_jql():
+    connector = JiraConnector(cloud_config(), client=FakeJiraClient())
+
+    jql = connector._jql_from_query(
+        ConnectorQuery(pattern='" OR project = "OPS')
+    )
+
+    assert 'project in ("ENG")' in jql
+    assert 'text ~ "\\" OR project = \\"OPS"' in jql
+
+
 def test_search_body_omits_expand_when_not_provided():
     body = search_body(jql="x", start_at=0, max_results=10, fields=("summary",))
     assert "expand" not in body

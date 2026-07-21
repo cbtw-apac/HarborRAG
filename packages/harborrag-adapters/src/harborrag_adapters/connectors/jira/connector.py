@@ -85,6 +85,8 @@ class JiraConnector(BaseConnector):
 
         yielded = 0
         for issue in self._issues.search(self._jql_from_query(query)):
+            issue_key = str(issue.get("key") or "")
+            self._validate_issue(issue, issue_key)
             record = build_source_record(issue, base_url=self.base_url)
             record.metadata["include_attachments"] = query.include_attachments
             yield record
@@ -163,7 +165,8 @@ class JiraConnector(BaseConnector):
                 default=self.config.labels,
             ),
             updated_after=query.updated_after,
-            raw_jql=filters.get("jql") or query.pattern,
+            text_search=query.pattern,
+            raw_jql=filters.get("jql"),
         )
 
     @staticmethod
@@ -187,6 +190,7 @@ class JiraConnector(BaseConnector):
         """Build a direct-load record when discovery is driven by issue keys."""
         issue_key = validate_issue_key(issue_key)
         project_key = issue_key.split("-", 1)[0]
+        self._check_project_scope(project_key, issue_key)
         return SourceRecord(
             id=f"jira://{project_key}/{issue_key}",
             source_type="application/vnd.atlassian.jira.issue+json",
@@ -199,15 +203,31 @@ class JiraConnector(BaseConnector):
             },
         )
 
-    @staticmethod
-    def _validate_issue(issue: dict[str, Any], issue_key: str) -> None:
-        """Fail fast when JIRA omits fields required by mappers."""
+    def _check_project_scope(self, project_key: str | None, issue_key: str) -> None:
+        """Reject an issue whose project falls outside configured project_keys.
+
+        Shared by both discovery paths: JQL search results (validated via
+        ``_validate_issue``) and explicitly requested issue keys (validated
+        here in ``_record_for_key``), since an explicit out-of-scope key is
+        just as much an escape hatch around project scoping as a raw JQL
+        override that omits a project filter -- mirrors
+        ConfluenceConnector._validate_content's space check.
+        """
+        if self.config.project_keys and project_key not in self.config.project_keys:
+            raise DocumentProcessingError(
+                f"JIRA issue {issue_key} belongs to project {project_key!r}, "
+                f"outside configured projects {self.config.project_keys!r}"
+            )
+
+    def _validate_issue(self, issue: dict[str, Any], issue_key: str) -> None:
+        """Fail fast when JIRA omits required fields or is out of project scope."""
+        fields = issue.get("fields", {})
         missing = [
             name
             for name, value in (
                 ("id", issue.get("id")),
                 ("key", issue.get("key")),
-                ("fields.summary", issue.get("fields", {}).get("summary")),
+                ("fields.summary", fields.get("summary")),
             )
             if not value
         ]
@@ -215,3 +235,5 @@ class JiraConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"JIRA issue {issue_key} missing required fields: {', '.join(missing)}"
             )
+        project_key = fields.get("project", {}).get("key")
+        self._check_project_scope(project_key, issue_key)

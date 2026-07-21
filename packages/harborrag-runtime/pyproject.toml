@@ -16,6 +16,9 @@ production = [
     "pydantic-settings>=2.2",
     "harborrag-adapters[control-plane]==0.1.0",
 ]
+dev = [
+    "types-PyYAML>=6.0,<7",
+]
 
 [build-system]
 requires = ["hatchling"]

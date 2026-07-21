@@ -5,6 +5,7 @@ from typing import Any
 
 from .element import DocumentElement
 from .provenance import DocumentProvenance
+from .validation import require_id
 
 
 @dataclass(slots=True, kw_only=True)
@@ -67,3 +68,6 @@ class Document:
             "description": "Raw source data for the document, if needed for debugging or additional processing"
         },
     )
+
+    def __post_init__(self) -> None:
+        require_id(self.id, label="Document")

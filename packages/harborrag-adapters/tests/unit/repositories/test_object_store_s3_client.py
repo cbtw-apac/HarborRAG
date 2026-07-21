@@ -43,6 +43,22 @@ class FakeSession:
         return self.manager
 
 
+class FailingEnterClientManager(FakeClientManager):
+    """A client manager whose __aenter__ fails, like a transient handshake error."""
+
+    async def __aenter__(self) -> FakeRawClient:
+        self.entered = True
+        raise ConnectionError("simulated handshake failure")
+
+
+class FakeFailingSession(FakeSession):
+    def client(self, service_name: str, **kwargs: Any) -> FakeClientManager:
+        assert service_name == "s3"
+        self.client_kwargs = kwargs
+        self.manager = FailingEnterClientManager(FakeRawClient())
+        return self.manager
+
+
 def make_client() -> S3DBClient:
     return S3DBClient(
         endpoint_url="http://localhost:9000",
@@ -138,3 +154,33 @@ async def test_close_without_connect_is_a_no_op(monkeypatch: pytest.MonkeyPatch)
 
     with pytest.raises(RuntimeError):
         _ = db.raw
+
+
+@pytest.mark.asyncio
+async def test_connect_cleans_up_client_manager_when_aenter_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed handshake must not leak the underlying client-manager/session."""
+    fake_session = FakeFailingSession()
+    monkeypatch.setattr(
+        client_module, "aioboto3", types.SimpleNamespace(Session=lambda: fake_session)
+    )
+    db = make_client()
+
+    with pytest.raises(ConnectionError, match="simulated handshake failure"):
+        await db.connect()
+
+    # connect() must have called close() on itself so the manager reference
+    # (and whatever aiohttp session it opened internally) isn't retained.
+    assert db._client_manager is None
+    assert db._client is None
+    with pytest.raises(RuntimeError, match="not connected"):
+        _ = db.raw
+
+    # A subsequent connect() attempt must be possible (not stuck thinking a
+    # stale manager is still live) and should succeed against a healthy session.
+    fake_session.manager = None
+    healthy_manager = FakeClientManager(FakeRawClient())
+    fake_session.client = lambda service_name, **kwargs: healthy_manager  # type: ignore[method-assign]
+    await db.connect()
+    assert db.raw is healthy_manager._client

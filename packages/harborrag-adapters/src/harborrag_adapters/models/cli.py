@@ -39,7 +39,6 @@ class ModelConfigCli:
             print(f"configuration error: {exc}", file=sys.stderr)
             return 2
         parser.error(f"unknown command: {args.command}")
-        return 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:

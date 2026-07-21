@@ -81,6 +81,32 @@ def test_load_rejects_oversized_files_before_download():
     assert client.byte_calls == []
 
 
+def test_load_rejects_record_drive_id_outside_configured_drive():
+    client = FakeGraphClient()
+    connector = SharePointConnector(
+        SharePointSiteConfig(
+            site_id="site1",
+            drive_id="drive1",
+            access_token="token",
+            requests_per_minute=6000,
+        ),
+        client=client,
+    )
+
+    with pytest.raises(DocumentProcessingError, match="outside configured drive"):
+        connector.load(
+            SourceRecord(
+                "sharepoint://site1/other-drive/file1",
+                "application/octet-stream",
+                "file1",
+                metadata={"drive_id": "other-drive", "item_id": "file1"},
+            )
+        )
+    # The scope check must reject before any Graph call is made for the item.
+    assert client.calls == []
+    assert client.byte_calls == []
+
+
 def test_load_rejects_folders():
     client = FakeGraphClient()
     client.add("drives/drive1/items/folder1", folder_item())

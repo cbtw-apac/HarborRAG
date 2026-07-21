@@ -82,6 +82,32 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
                     f"Archive member {info.filename!r} compression ratio "
                     f"{ratio:.0f} exceeds {MAX_ARCHIVE_COMPRESSION_RATIO}"
                 )
+        elif info.file_size > 0:
+            # compress_size == 0 with a non-zero claimed uncompressed size is
+            # an effectively infinite ratio (a handful of stored/degenerate
+            # bytes inflating to arbitrary size) and is itself a classic
+            # zip-bomb signature, so it's rejected outright rather than
+            # silently skipping the ratio check as before.
+            archive.close()
+            raise ParseError(
+                f"Archive member {info.filename!r} claims {info.file_size} "
+                "uncompressed bytes from 0 compressed bytes"
+            )
+    # NOTE: this trusts the zip central directory's `file_size`/
+    # `compress_size` fields rather than independently re-verifying
+    # decompressed bytes -- investigated as a possible bypass (a central
+    # directory that under-reports these fields while the real stream
+    # yields more), but it does not hold up: CPython's zipfile.ZipExtFile
+    # physically bounds every read to `min(compress_size, file_size)`
+    # (`ZipExtFile._read1` reads at most `compress_size` compressed bytes
+    # and slices decompressed output to `self._left`, seeded from
+    # `file_size`), so no consumer going through the standard zipfile API
+    # (openpyxl, python-pptx, or this module's own `archive.read()`) can
+    # ever extract more bytes than the declared metadata allows, forged or
+    # not -- under-reporting only truncates output and fails its own CRC
+    # check. A genuinely oversized member is instead caught above by the
+    # total/ratio checks against its (necessarily accurate, since forging
+    # it down just self-truncates) declared size.
     return archive
 
 

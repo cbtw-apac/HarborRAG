@@ -60,6 +60,25 @@ async def sessions(tmp_path: Path) -> AsyncIterator[SessionFactory]:
     await engine.dispose()
 
 
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_in_memory_engine_keeps_data_alive_across_connections() -> None:
+    """In-memory SQLite must use a shared pool: each new connection off a
+    NullPool engine opens its own private, empty `:memory:` database, so a
+    session after the first would silently see no data at all."""
+    engine = create_control_plane_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(sa.text("CREATE TABLE t (id INTEGER)"))
+            await connection.execute(sa.text("INSERT INTO t VALUES (1)"))
+
+        async with engine.connect() as connection:
+            result = await connection.execute(sa.text("SELECT COUNT(*) FROM t"))
+            assert result.scalar() == 1
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.whitebox
 def test_migrations_create_all_tables_and_are_idempotent(tmp_path: Path) -> None:
     """0001 creates the 12 plan §6 tables; a second run is a no-op."""

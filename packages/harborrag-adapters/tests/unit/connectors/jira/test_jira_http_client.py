@@ -46,6 +46,43 @@ def test_jira_api_version_by_deployment():
     assert dc._api_url("search").endswith("/rest/api/2/search")
 
 
+def test_jira_session_uses_basic_auth_for_cloud():
+    from harborrag_adapters.connectors.jira.config import (
+        JiraDeploymentType,
+        JiraProjectConfig,
+    )
+    from harborrag_adapters.connectors.jira.connector import _RequestsJiraClient
+
+    cfg = JiraProjectConfig(
+        base_url="https://ex.atlassian.net",
+        email="a@b.c",
+        token="t",
+        deployment_type=JiraDeploymentType.CLOUD,
+        requests_per_minute=6000,
+    )
+    client = _RequestsJiraClient(cfg)
+    assert client.session.auth == ("a@b.c", "t")
+    assert "Authorization" not in client.session.headers
+
+
+def test_jira_session_uses_bearer_auth_for_datacenter():
+    from harborrag_adapters.connectors.jira.config import (
+        JiraDeploymentType,
+        JiraProjectConfig,
+    )
+    from harborrag_adapters.connectors.jira.connector import _RequestsJiraClient
+
+    cfg = JiraProjectConfig(
+        base_url="https://jira.local",
+        token="pat",
+        deployment_type=JiraDeploymentType.DATACENTER,
+        requests_per_minute=6000,
+    )
+    client = _RequestsJiraClient(cfg)
+    assert client.session.auth is None
+    assert client.session.headers["Authorization"] == "Bearer pat"
+
+
 def test_jira_get_json_decodes_and_rejects_non_json():
     from harborrag_adapters.connectors.exceptions import FetchError
 

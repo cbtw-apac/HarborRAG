@@ -75,6 +75,28 @@ def test_confluence_download_bytes_raises_fetch_error_when_body_too_large():
         client.download_bytes("https://ex.atlassian.net/wiki/download/a")
 
 
+def test_confluence_session_uses_basic_auth_for_cloud():
+    from harborrag_adapters.connectors.confluence.config import (
+        ConfluenceDeploymentType,
+        ConfluenceSpaceConfig,
+    )
+    from harborrag_adapters.connectors.confluence.connector import (
+        _RequestsConfluenceClient,
+    )
+
+    cfg = ConfluenceSpaceConfig(
+        space_key="ENG",
+        base_url="https://ex.atlassian.net/wiki",
+        token="t",
+        email="a@b.c",
+        deployment_type=ConfluenceDeploymentType.CLOUD,
+        requests_per_minute=6000,
+    )
+    client = _RequestsConfluenceClient(cfg)
+    assert client.session.auth == ("a@b.c", "t")
+    assert "Authorization" not in client.session.headers
+
+
 def test_confluence_session_uses_bearer_auth_for_datacenter():
     from harborrag_adapters.connectors.confluence.config import (
         ConfluenceDeploymentType,

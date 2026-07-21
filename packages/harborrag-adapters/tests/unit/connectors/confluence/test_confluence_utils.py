@@ -59,6 +59,14 @@ def test_build_cql_without_space_key_or_content_types():
     assert cql == 'label in ("runbook")'
 
 
+def test_build_cql_escapes_text_search_instead_of_treating_it_as_raw_cql():
+    cql = build_cql(space_key="ENG", text_search='" OR space = "OTHER')
+
+    assert 'space = "ENG"' in cql
+    assert 'text ~ "\\" OR space = \\"OTHER"' in cql
+    assert 'OR space = "OTHER"' not in cql.replace('\\"', "")
+
+
 def test_build_search_params_without_cursor_or_start():
     params = build_search_params(cql="type=page")
     assert "cursor" not in params

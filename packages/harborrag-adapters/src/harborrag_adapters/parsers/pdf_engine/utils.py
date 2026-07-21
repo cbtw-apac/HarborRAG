@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from dataclasses import fields, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
@@ -13,8 +13,11 @@ from harborrag_core.domain.parser import ParseInput
 from ..exceptions import EncryptedPdfError
 from ..utils import compact_text
 
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
 
-def merge_dataclass_options[OptionT](
+
+def merge_dataclass_options[OptionT: "DataclassInstance"](
     options: OptionT | None,
     option_type: type[OptionT],
     overrides: dict[str, Any],

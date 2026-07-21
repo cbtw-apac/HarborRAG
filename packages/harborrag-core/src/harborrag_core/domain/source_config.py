@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .validation import require_id
+
 SourceStatus = Literal["active", "paused", "error"]
 
 
@@ -28,3 +30,6 @@ class SourceConfig:
     schedule: str | None = None
     status: SourceStatus = "active"
     secret_refs: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        require_id(self.id, label="SourceConfig")

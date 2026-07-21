@@ -22,3 +22,6 @@ class RuntimeSettings(BaseSettings):
     qdrant_url: str | None = None
     redis_url: str | None = None
     secrets_backend: Literal["env", "file"] = "env"
+
+
+DEFAULT_CONTROL_DB_URL = RuntimeSettings.model_fields["control_db_url"].default

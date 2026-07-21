@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from harborrag_adapters.connectors.shared.attachments import (
     AttachmentMetadata,
@@ -73,4 +73,4 @@ class ConfluenceMetadata:
         JSON serialization. Walk the whole payload instead of just the
         top-level keys.
         """
-        return _isoformat_datetimes(asdict(self))
+        return cast("dict[str, Any]", _isoformat_datetimes(asdict(self)))

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.parsers.text import TextParser
+from harborrag_core.domain.parser import ParseInput
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ports.control_plane import (
@@ -34,6 +36,8 @@ from harborrag_runtime.services.base import BaseRuntimeService
 from harborrag_runtime.services.mock import MockRuntimeService
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
     from harborrag_runtime.settings import RuntimeSettings
 
 
@@ -82,7 +86,7 @@ class _MockIngestionShim:
         documents: list[RawDocument] = []
         for record in self.connector.discover():
             raw = self.connector.load(record)
-            self.parser.parse(raw)
+            self.parser.parse(ParseInput.coerce(raw))
             documents.append(raw)
         count = len(documents)
         self._summary = _MockIngestionSummary(count, count, count, 0)
@@ -117,6 +121,12 @@ class CompositionRoot:
     secrets: SecretsPort | None = None
     events: EventBusPort | None = None
     mode: str = "local"
+    _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
+
+    async def aclose(self) -> None:
+        """Dispose the control-plane DB engine created by :meth:`production`, if any."""
+        if self._control_db_engine is not None:
+            await self._control_db_engine.dispose()
 
     @classmethod
     def local(cls) -> CompositionRoot:
@@ -148,13 +158,20 @@ class CompositionRoot:
             SqlSettingsRepository,
             SqlSourceRepository,
         )
+        from harborrag_core.contracts.errors import HarborConfigurationError
         from harborrag_core.testing.fakes import FakeEventBus, FakeSecrets
 
         from harborrag_runtime.services.runtime_service import ProductionRuntimeService
-        from harborrag_runtime.settings import RuntimeSettings
+        from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url
+        if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
+            raise HarborConfigurationError(
+                "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
+                "boot production composition against the default local SQLite "
+                "database; set HARBORRAG_CONTROL_DB_URL explicitly"
+            )
         try:
             run_migrations(dsn)
         except Exception as exc:  # noqa: BLE001 - boot degraded, readyz reports it
@@ -191,6 +208,7 @@ class CompositionRoot:
             secrets=FakeSecrets(),
             events=FakeEventBus(),
             mode="production",
+            _control_db_engine=engine,
         )
 
     def mock_pipeline(self) -> _MockIngestionShim:
@@ -223,7 +241,10 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
     """Boot-time probe: ping the control DB and read the migration stamp.
 
     Runs its own short-lived engine + event loop and disposes it, so the
-    connections never leak across loops (asyncpg pools are loop-bound).
+    connections never leak across loops (asyncpg pools are loop-bound). Safe
+    to call from sync code and from within a running event loop, mirroring
+    ``run_migrations``: the loop case hops to a worker thread so this probe's
+    own ``asyncio.run`` gets a clean thread instead of failing outright.
     """
     import sqlalchemy as sa
     from sqlalchemy.ext.asyncio import create_async_engine
@@ -241,7 +262,15 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
         finally:
             await engine.dispose()
 
+    def _run() -> dict[str, Any]:
+        try:
+            return asyncio.run(_probe())
+        except Exception as exc:  # noqa: BLE001 - boot probe reports, never raises
+            return {"ping": "failed", "error": str(exc), "scheme": dsn.split(":", 1)[0]}
+
     try:
-        return asyncio.run(_probe())
-    except Exception as exc:  # noqa: BLE001 - boot probe reports, never raises
-        return {"ping": "failed", "error": str(exc), "scheme": dsn.split(":", 1)[0]}
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_run).result()

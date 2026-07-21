@@ -7,7 +7,6 @@ defense on top of explicit field scrubbing).
 
 from __future__ import annotations
 
-import json
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -21,13 +20,32 @@ from harborrag_app.services.base import BaseAppService
 router = APIRouter(tags=["diagnostics"])
 
 
+def _sweep_secrets(value: Any) -> Any:
+    """Recursively apply redact_secrets to string leaves only.
+
+    redact_secrets rewrites "label: value" text into "label=<redacted>",
+    which is not JSON-safe -- running it over a json.dumps()'d blob (as this
+    used to do) can turn a valid `"auth_secret":"<redacted>"` pair into
+    `"auth_secret=<redacted>` and break re-parsing, since "secret" matches
+    inside the key name itself. Sweeping only leaf string values keeps keys
+    and JSON structure untouched.
+    """
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {key: _sweep_secrets(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sweep_secrets(item) for item in value]
+    return value
+
+
 def _redacted_settings_echo(settings: ApiSettings) -> dict[str, Any]:
-    """Dump settings with secret fields scrubbed, then sweep the rendered
-    JSON through redact_secrets for any pattern-shaped stragglers."""
+    """Dump settings with secret fields scrubbed, then sweep every remaining
+    string value through redact_secrets for any pattern-shaped stragglers."""
     echo = settings.model_dump()
     if echo.get("auth_secret"):
         echo["auth_secret"] = "<redacted>"
-    swept: dict[str, Any] = json.loads(redact_secrets(json.dumps(echo)))
+    swept: dict[str, Any] = _sweep_secrets(echo)
     return swept
 
 

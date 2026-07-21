@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from .validation import require_id
+
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 JobType = Literal["bulk_ingest", "incremental_pull", "dry_run"]
 
@@ -50,3 +52,6 @@ class Job:
     counters: JobCounters = field(default_factory=JobCounters)
     last_error: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        require_id(self.id, label="Job")

@@ -2,9 +2,13 @@ name: Quality Gates
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev/* ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev/* ]
+
+concurrency:
+  group: quality-gates-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
