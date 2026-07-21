@@ -24,6 +24,7 @@ reviews:
     base_branches:
       - main
       - develop
+      - develop/v2.0.0
       - release/.*
     ignore_title_keywords:
       - "WIP"
