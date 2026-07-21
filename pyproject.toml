@@ -137,6 +137,24 @@ mypy_path = "packages/harborrag-core/src:packages/harborrag-adapters/src:package
 # and index into loosely-typed diagnostics payloads; keep strictness for src only.
 exclude = "packages/[^/]+/tests/"
 
+# Optional, lazily-imported provider integrations (secrets backends, OCR/PDF
+# engines) with no usable stubs. Each import site already fails closed with a
+# friendly error when the library isn't installed; ignore_missing_imports just
+# keeps that intentional optionality from failing the type check.
+[[tool.mypy.overrides]]
+module = [
+    "fitz",
+    "paddleocr",
+    "pytesseract",
+    "docx2txt",
+    "boto3",
+    "google.cloud",
+    "google.cloud.*",
+    "azure.identity",
+    "azure.keyvault.secrets",
+]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
@@ -191,6 +209,12 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    # aiosqlite's background connection thread occasionally reports its result
+    # back via call_soon_threadsafe just as a short-lived pytest-asyncio loop
+    # is closing; the query already succeeded, only the after-the-fact
+    # callback races the loop teardown. Harmless and specific to aiosqlite's
+    # worker thread, not a blanket suppression of unrelated thread crashes.
+    "ignore:Exception in thread.*_connection_worker_thread:pytest.PytestUnhandledThreadExceptionWarning",
 ]
 
 [tool.coverage.run]

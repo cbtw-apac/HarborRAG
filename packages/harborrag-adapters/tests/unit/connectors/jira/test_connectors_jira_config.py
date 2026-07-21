@@ -14,7 +14,8 @@ def test_config_auto_detects_cloud_and_datacenter():
     assert dc_config().deployment_type == JiraDeploymentType.DATACENTER
 
 
-def test_config_requires_cloud_email():
+def test_config_requires_cloud_email(monkeypatch):
+    monkeypatch.delenv("JIRA_EMAIL", raising=False)
     with pytest.raises(ValueError, match="email is required"):
         JiraProjectConfig(base_url=CLOUD_BASE, token="token")
 

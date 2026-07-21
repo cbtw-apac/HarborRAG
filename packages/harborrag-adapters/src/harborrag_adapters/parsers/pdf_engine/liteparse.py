@@ -228,6 +228,8 @@ class LiteParseBackend(PdfBackend):
                 or getattr(page, "page_number", None)
                 or getattr(page, "page", None)
             )
+        if value is None:
+            return fallback
         try:
             return int(value)
         except (TypeError, ValueError):

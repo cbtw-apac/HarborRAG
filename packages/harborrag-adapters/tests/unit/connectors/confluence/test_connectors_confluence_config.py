@@ -17,14 +17,16 @@ def test_config_auto_detects_cloud_and_datacenter():
     assert dc_config().deployment_type == ConfluenceDeploymentType.DATACENTER
 
 
-def test_config_requires_cloud_email_and_rejects_bad_content_type():
+def test_config_requires_cloud_email_and_rejects_bad_content_type(monkeypatch):
+    monkeypatch.delenv("CONFLUENCE_EMAIL", raising=False)
     with pytest.raises(ValueError, match="email is required"):
         ConfluenceSpaceConfig(space_key="ENG", base_url=CLOUD_BASE, token="token")
     with pytest.raises(ValueError, match="content_types"):
         cloud_config(content_types=["page", "comment"])
 
 
-def test_config_rejects_missing_token():
+def test_config_rejects_missing_token(monkeypatch):
+    monkeypatch.delenv("CONFLUENCE_TOKEN", raising=False)
     with pytest.raises(ValueError, match="token is required"):
         ConfluenceSpaceConfig(space_key="ENG", base_url=DC_BASE, token=None, email=None)
 

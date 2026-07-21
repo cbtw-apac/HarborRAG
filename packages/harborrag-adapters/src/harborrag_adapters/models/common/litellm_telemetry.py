@@ -27,7 +27,7 @@ else:
                 """Accept the initialization shape of LiteLLM's optional base class."""
 
 
-class LiteLLMTelemetryCallback(LiteLLMCustomLogger):  # type: ignore[misc]
+class LiteLLMTelemetryCallback(LiteLLMCustomLogger):
     """Bridge LiteLLM provider callbacks into the sanitized Harbor dispatcher."""
 
     def __init__(self, dispatcher: TelemetryDispatcher) -> None:

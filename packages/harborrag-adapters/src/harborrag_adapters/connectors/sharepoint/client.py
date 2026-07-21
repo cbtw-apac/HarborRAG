@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Any, Protocol
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,

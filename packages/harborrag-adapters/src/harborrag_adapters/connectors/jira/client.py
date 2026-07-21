@@ -51,6 +51,8 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
         )
         self.api_version = "3" if config.deployment_type == JiraDeploymentType.CLOUD else "2"
         if config.deployment_type == JiraDeploymentType.CLOUD:
+            if config.email is None or config.token is None:
+                raise ValueError("email and token are required for JIRA Cloud API token auth")
             self.session.auth = (config.email, config.token)
         else:
             self.session.headers.update({"Authorization": f"Bearer {config.token}"})

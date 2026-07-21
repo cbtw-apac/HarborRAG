@@ -183,7 +183,7 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
             if cls._local_name(node.tag) == "rootfile":
                 path = node.attrib.get("full-path")
                 if path:
-                    return path
+                    return str(path)
         return None
 
     @staticmethod

@@ -233,4 +233,4 @@ class PaddleOcrBackend(PdfBackend):
                 markdown_pages.append(markdown)
         if not markdown_pages:
             return ""
-        return concatenate(markdown_pages)
+        return str(concatenate(markdown_pages))

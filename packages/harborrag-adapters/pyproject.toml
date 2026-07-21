@@ -66,6 +66,10 @@ dev = [
     "ruff>=0.12,<1",
     "mypy>=1.16,<2",
     "types-PyYAML>=6.0,<7",
+    "types-openpyxl>=3.1,<4",
+    "types-xlrd>=2.0,<3",
+    "types-defusedxml>=0.7,<1",
+    "types-hvac>=2.3,<3",
 ]
 
 [build-system]

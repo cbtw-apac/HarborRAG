@@ -40,11 +40,14 @@ async def test_production_repositories_hit_the_real_database(
 ) -> None:
     """The composed port-typed repositories read/write the migrated DB."""
     composition = _production(tmp_path)
-    assert composition.control_plane is not None
-    projects = composition.control_plane.projects
-    await projects.create(Project(id="p1", name="Docs", collection="docs_main"))
-    fetched = await projects.get("p1")
-    assert fetched is not None and fetched.name == "Docs"
+    try:
+        assert composition.control_plane is not None
+        projects = composition.control_plane.projects
+        await projects.create(Project(id="p1", name="Docs", collection="docs_main"))
+        fetched = await projects.get("p1")
+        assert fetched is not None and fetched.name == "Docs"
+    finally:
+        await composition.aclose()
 
 
 @pytest.mark.whitebox

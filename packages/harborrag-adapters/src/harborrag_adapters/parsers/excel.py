@@ -282,7 +282,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
             return ""
         isoformat = getattr(value, "isoformat", None)
         if callable(isoformat):
-            return isoformat()
+            return str(isoformat())
         return str(value)
 
     @staticmethod
@@ -293,7 +293,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
             return ""
         if cell.ctype == xlrd.XL_CELL_DATE:
             try:
-                return xlrd.xldate_as_datetime(cell.value, datemode).isoformat()
+                return str(xlrd.xldate_as_datetime(cell.value, datemode).isoformat())
             except (OverflowError, ValueError):
                 return str(cell.value)
         if cell.ctype == xlrd.XL_CELL_NUMBER:
