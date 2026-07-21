@@ -8,7 +8,7 @@ from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
-from harborrag_core.domain.parsed_document import ParsedDocument
+from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
@@ -42,9 +42,9 @@ class FakeParser:
     def parse(self, raw: RawDocument) -> ParsedDocument:
         text = raw.text()
         return ParsedDocument(
-            text=text,
+            content=text,
             parser_name=self.parser_name,
-            elements=[DocumentElement(id=f"{raw.id}:0", type="paragraph", text=text)],
+            elements=[DocumentElement(id=f"{raw.id}:0", type="paragraph", content=text)],
         )
 
 
