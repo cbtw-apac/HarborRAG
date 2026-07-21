@@ -1,71 +1,63 @@
 # Deployment
 
-The application code (`packages/harborrag-app`, `harborrag-mcp`) still exposes limited framework surfaces, but the adapter package now contains real Redis, FalkorDB, PostgreSQL, Qdrant, SQLite, and S3 repository providers. This page documents the service stacks under `deploy/` and `scripts/deployment/` used to exercise those providers.
+Deployment assets are at mixed maturity. The database Compose file is suitable for local adapter smoke tests. Application, MCP, and Temporal images are design scaffolding and reference package extras or entry points that do not exist yet.
 
-## Compose stacks
+## Local repository services
 
-Location: `deploy/compose/`
+`deploy/compose/docker-compose.database.yml` defines:
 
-```text
-docker-compose.yml               api + cli + qdrant + redis
-docker-compose.dev.yml           dev variant (harborrag-dev project name), mounts packages/ live
-docker-compose.prod.yml          api + qdrant + redis, production-oriented
-docker-compose.database.yml      qdrant + falkordb + redis only
-docker-compose.monitoring.yml    prometheus + grafana + loki
-docker-compose.temporal.yml      temporal + temporal-ui + temporal-worker
-docker-compose.all.yml           everything combined
-```
+- Qdrant on ports 6333/6334;
+- FalkorDB on ports 6379/3000;
+- Redis on host port 6380 by default;
+- PostgreSQL on port 5432.
 
-Images referenced by the `api` and `cli` services build from `deploy/docker/Dockerfile.api` and `deploy/docker/Dockerfile.cli`. `deploy/docker/Dockerfile.temporal-worker` builds the optional Temporal worker.
-
-## Helper scripts
-
-Location: `scripts/deployment/`
+Prepare a protected environment file:
 
 ```bash
-scripts/deployment/dev_up.sh          # docker-compose.dev.yml, builds and starts
-scripts/deployment/dev_down.sh        # docker-compose.dev.yml down
-scripts/deployment/database_up.sh     # docker-compose.database.yml (qdrant + falkordb + redis)
-scripts/deployment/monitoring_up.sh   # docker-compose.monitoring.yml
-scripts/deployment/prod_up.sh         # docker-compose.prod.yml, builds and starts detached
-scripts/deployment/temporal_up.sh     # docker-compose.temporal.yml, builds and starts detached
+cp .env.database.example env/.env.database
+export DATABASE_ENV_FILE=env/.env.database
+scripts/deployment/database_up.sh
 ```
 
-Every script except `database_up.sh` copies `.env.example` to `.env` if `.env` doesn't exist yet. **`.env.example` does not exist in this repository yet** — create one (matching the `HARBORRAG_*` variables referenced in `deploy/compose/docker-compose.dev.yml`, e.g. `HARBORRAG_ENV`, `HARBORRAG_QDRANT_URL`, `HARBORRAG_REDIS_URL`) before running a script that depends on it, or the copy step will fail.
+The script requires `DATABASE_ENV_FILE` and passes it to Docker Compose. It does not create the file automatically. Change the example password before using the stack outside an isolated developer machine.
 
-## Model asset scripts
+Use the repository smoke runner in [Testing](../testing/README.md#real-system-smoke-checks) to verify adapters through their public APIs.
 
-Location: `scripts/models/` — all three are TODO placeholders today:
+## Monitoring stack
 
-```text
-download_docling_models.py     TODO: download/prepare Docling model assets for offline PDF parsing
-download_fastembed_models.py   TODO: download/prepare FastEmbed model assets for local embedding/reranking
-warmup_models.py               TODO: warm configured model providers before serving traffic
-```
+`docker-compose.monitoring.yml` defines Prometheus, Grafana, and Loki using files under `deploy/prometheus`, `deploy/grafana`, and `deploy/loki`. It is infrastructure scaffolding: the current application does not expose a production metrics/logging integration wired to this stack.
 
-## Storage providers
-
-- **Qdrant** (`deploy/qdrant/`) — the recommended first vector store for the online golden path. Default local endpoint `http://localhost:6333`; the collection name should come from HarborRAG runtime configuration once that exists, not be hard-coded.
-- **FalkorDB** (`deploy/falkordb/`) — an optional graph-store choice for graph expansion and cross-source linking. Add it only after the vector-only golden path is stable; it is not required for the initial milestone.
-- **Redis** — used both as a cache repository target and (in `docker-compose.database.yml`) alongside FalkorDB.
-
-## Temporal (optional)
-
-Location: `deploy/temporal/`
-
-Use Temporal when ingestion/retrieval jobs need durable workflow history, retries, visibility, and worker scaling. The default HarborRAG runtime stays dependency-free and local-friendly without it — see `harborrag_runtime.temporal.*`'s TODO placeholders in [Architecture Overview](../architecture/README.md#harborrag-runtime-composition-jobs-scheduling).
+The helper script expects a root `.env` or tries to copy a missing `.env.example`, so create `.env` explicitly before using it:
 
 ```bash
-scripts/deployment/temporal_up.sh
+touch .env
+scripts/deployment/monitoring_up.sh
 ```
 
-Files: `dynamicconfig/development-sql.yaml` (local dev dynamic config), `namespaces/harborrag.json` (namespace metadata placeholder for scripted setup).
+Set non-default Grafana credentials in that environment for any non-local use.
 
-## AWS (placeholder)
+## Application Compose files
 
-Location: `deploy/aws/` — reserves infrastructure-as-code entry points (`cdk/`, `terraform/`, `step-functions/`) for a future cloud deployment path. Validate the local Docker Compose path before implementing cloud infrastructure.
+The following files describe intended topology but are not runnable application deployments at the current revision:
 
-## Related
+| File | Current blocker |
+| --- | --- |
+| `docker-compose.yml` | Refers to qdrant/redis services not defined in the file and builds unfinished app images |
+| `docker-compose.dev.yml` | Builds the unfinished API image and expects root `.env` |
+| `docker-compose.prod.yml` | Depends on qdrant/redis services not defined in the file and builds the unfinished API image |
+| `docker-compose.temporal.yml` | Builds a worker around placeholder Temporal modules |
+| `docker-compose.all.yml` | Includes the incomplete dev and Temporal stacks |
 
-- [Architecture Overview](../architecture/README.md) — the repositories (vector/graph/cache/object-store/database) this stack backs.
-- [Extending HarborRAG](../extending/README.md) — adding or extending repository providers for these services.
+Current Dockerfile gaps include a missing FastAPI factory, undeclared `api`/`mcp`/`temporal` extras, a missing `harbor` console script, and a missing MCP server factory. Resolve and test those package entry points before presenting the images as deployable.
+
+## Model assets
+
+`scripts/models/` contains helpers for Docling/FastEmbed downloads, warmup, and local-model smoke checks. Inspect each script before use: provider/model downloads may require network access, substantial disk space, and platform-specific runtimes. Keep caches outside container layers when they need independent lifecycle management.
+
+## Temporal and cloud directories
+
+`deploy/temporal/` contains local dynamic configuration and namespace metadata, but runtime workflow/activity/client modules remain placeholders. `deploy/aws/` reserves cloud deployment directions and does not provide complete infrastructure-as-code.
+
+## Production readiness checklist
+
+Before an application deployment can be considered production-ready, the repository still needs implemented service entry points, unified configuration/composition, authentication and authorization, tenant context propagation, migrations, health/readiness semantics, secret management, TLS/network policy, backup/restore, observability wiring, resource limits, and end-to-end tests against pinned service versions.

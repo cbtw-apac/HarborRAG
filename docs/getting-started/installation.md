@@ -1,27 +1,42 @@
 # Installation
 
-This page covers platform-specific notes and install troubleshooting. For the shortest path from zero to a running mock pipeline, use [Quick Start](quick-start.md).
-
 ## Requirements
 
-```text
-Python >= 3.12
-```
+- Python 3.12 or newer
+- `uv` for the recommended workflow, or a recent `pip`
+- Native libraries required by any optional parser/provider you select
 
-HarborRAG is organized as a `uv` workspace with seven package-local `src/` projects under `packages/`. There is no single installable "harborrag" wheel to pull from PyPI yet — install from a local checkout.
+HarborRAG is a workspace of seven active packages under `packages/`. The adjacent `harborrag-memory` directory is a placeholder and is not included in the uv workspace.
 
-## Option A — uv workspace (recommended)
+## uv workspace
 
-[uv](https://docs.astral.sh/uv/) resolves the whole workspace and its dev extras in one step:
+Install the active packages and root development tools:
 
 ```bash
 uv sync --all-packages --extra dev
+```
+
+Run tools through the managed environment:
+
+```bash
+uv run python -m harborrag_app.cli.main doctor --json
 uv run pytest
 ```
 
-## Option B — pip editable installs
+CI uses `uv sync --all-packages --all-extras`, which installs heavy and provider-specific extras. Prefer the smaller development install unless you need every PDF engine, repository SDK, and telemetry integration.
 
-Install each package in dependency order, then the dev extras from the workspace root:
+## pip editable install
+
+The Makefile installs packages in dependency order:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+make bootstrap
+```
+
+The equivalent explicit sequence is:
 
 ```bash
 python -m pip install -e packages/harborrag-core
@@ -34,20 +49,34 @@ python -m pip install -e packages/harborrag
 python -m pip install -e ".[dev]"
 ```
 
-`make bootstrap` (or `make install-dev`) runs the same sequence.
+## Adapter extras
 
-## Verifying the install
+`harborrag-adapters` keeps heavyweight dependencies optional:
 
 ```bash
-python -m harborrag_app.cli.main doctor --json
-python scripts/run_mock_pipeline.py --json
+python -m pip install -e "packages/harborrag-adapters[parsers]"
+python -m pip install -e "packages/harborrag-adapters[pdf]"
+python -m pip install -e "packages/harborrag-adapters[llm]"
+python -m pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 ```
 
-Both commands should print `"ok": true` and exit 0 without any external services running — the default composition uses in-memory mocks end to end.
+Install only the families used by your application. Some PDF backends also download models or require platform-specific runtimes.
 
-## Troubleshooting
+## Verify the checkout
 
-- **`ModuleNotFoundError: harborrag_core`** — a package was not installed in dependency order, or your virtualenv is stale. Re-run `make bootstrap` or `uv sync --all-packages --extra dev`.
-- **`uv sync` picks up stale versions** — delete `uv.lock` only if you intend to regenerate it (`uv lock`); otherwise a stale lock usually means a package's `pyproject.toml` version was bumped without a `uv lock` run.
-- **Coverage gate fails locally** — `make coverage` enforces a 90% minimum (`pyproject.toml`'s `[tool.coverage.report].fail_under`). Run `make coverage` after any change under `packages/*/src`.
-- **`scripts/check_dependency_direction.py` fails** — a package imported another package outside the allowed direction described in [Architecture Overview](../developers/architecture/README.md#dependency-direction). Move the shared code down to `harborrag-core`, or restructure the import.
+```bash
+uv run python -m harborrag_app.cli.main doctor --json
+uv run python scripts/run_mock_pipeline.py --json
+uv run python scripts/check_dependency_direction.py
+```
+
+These commands do not require network access or external services once dependencies are installed.
+
+## Common install issues
+
+- `ModuleNotFoundError: harborrag_*`: run commands through `uv run`, activate the expected virtual environment, or reinstall editable packages.
+- Optional parser import error: install the matching adapter extra and any native/model prerequisites documented by that backend.
+- Model configuration fails while loading: referenced environment variables are resolved eagerly and must be non-empty.
+- `uv` uses an unwritable global cache in a restricted environment: set `UV_CACHE_DIR` to a writable project or temporary directory before running `uv`.
+
+See [Troubleshooting](../users/troubleshooting/README.md) for runtime and quality-gate issues.

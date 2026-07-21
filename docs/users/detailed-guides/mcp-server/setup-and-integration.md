@@ -1,40 +1,32 @@
-# Setup & Integration
+# MCP Setup and Integration
 
-There is no MCP transport (stdio/HTTP) implementation yet — `BaseMcpServer` only defines `list_tools()`/`call_tool()`, and `MockMcpServer` is meant to be called in-process. Wiring an IDE like Cursor or Claude Desktop to a real, running MCP server is future work; this page documents what you can do today.
+## Use in Python today
 
-## Calling tools directly
+Instantiate the mock server when tests need direct control:
 
 ```python
 from harborrag_mcp.server import MockMcpServer
 
 server = MockMcpServer()
-print(server.list_tools())
-print(server.call_tool("harbor_health_check"))
-print(server.call_tool("harbor_sample_retrieve", {"query": "HarborRAG"}))
+for spec in server.list_tools():
+    print(spec.name, spec.input_schema)
+
+result = server.call_tool("harbor_sample_retrieve", {"query": "HarborRAG"})
 ```
 
-Or via the package-level convenience functions:
+Or use the package-level convenience functions shown in [MCP Mock Tools](README.md).
 
-```python
-from harborrag_mcp.server import call_tool, list_tools
+## External clients
 
-print(list_tools())
-print(call_tool("harbor_sample_retrieve", query="HarborRAG"))
-```
+There is no command to add to an IDE or desktop MCP configuration yet. `BaseMcpServer` defines only Python `list_tools()` and `call_tool()` methods, and `MockMcpServer` dispatches them in process.
 
-`call_tool()` accepts either a single `arguments` dict or keyword arguments, which it merges before dispatching.
+An external integration still needs:
 
-## What a real integration needs
+1. a protocol transport translating MCP `tools/list` and `tools/call` messages;
+2. real service-backed tools instead of the fixed mock retrieval result;
+3. JSON-schema input validation and normalized protocol errors;
+4. identity, tenant, permission, and budget enforcement;
+5. automatic audit recording and safe observability;
+6. lifecycle and shutdown handling.
 
-To make these tools reachable from an MCP client (Cursor, Claude Desktop, etc.), `harborrag-mcp` needs:
-
-1. A transport implementation of `BaseMcpServer` (stdio or HTTP) that speaks the MCP wire protocol, translating `list_tools()`/`call_tool()` into MCP's `tools/list`/`tools/call` messages.
-2. Real tools implementing `BaseMcpTool`, following the same pattern as `MockHealthTool`/`MockRetrieveTool` but calling `harborrag_runtime.services.BaseRuntimeService` for real data instead of returning a fixed mock result set.
-3. Policy and audit enforcement wired into `call_tool()` — see [MCP Mock Tools](README.md#policy-and-audit).
-
-See [Extending HarborRAG](../../../developers/extending/README.md#app-and-mcp-surfaces) for the base classes to implement against.
-
-## Related
-
-- [MCP Mock Tools](README.md) — the tool list and current policy/audit primitives.
-- [Quick Start](../../../getting-started/quick-start.md) — the same calls as part of the mock pipeline walkthrough.
+Keep the transport in `harborrag-mcp` and call runtime/service interfaces rather than provider clients. See [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces).

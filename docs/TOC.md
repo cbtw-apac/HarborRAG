@@ -1,27 +1,37 @@
-# Documentation Table of Contents
+# HarborRAG Documentation
 
-1. **Getting Started**
-   - What is HarborRAG? (`docs/getting-started/what-is-harborrag.md`)
-   - Quick Start (`docs/getting-started/quick-start.md`)
-   - Installation (`docs/getting-started/installation.md`)
+## Getting started
 
-1. **User Guides**
-   - CLI Reference (`docs/users/cli-reference/`)
-   - Configuration (`docs/users/configuration/`)
-   - MCP Mock Tools (`docs/users/detailed-guides/mcp-server/`)
-   - Troubleshooting (`docs/users/troubleshooting/`)
+- [Getting Started](getting-started/README.md)
+- [What is HarborRAG?](getting-started/what-is-harborrag.md)
+- [Installation](getting-started/installation.md)
+- [Quick Start](getting-started/quick-start.md)
 
-1. **Developer Docs**
-   - Architecture (`docs/developers/architecture/`)
-   - Extending HarborRAG (`docs/developers/extending/`)
-   - Testing (`docs/developers/testing/`)
-   - Deployment (`docs/developers/deployment/`)
+## User guides
 
-1. **Project & Community**
-   - Contributing (`CONTRIBUTING.md`)
-   - Changelog (`CHANGELOG.md`)
+- [User Documentation](users/README.md)
+- [CLI Reference](users/cli-reference/README.md)
+- [Configuration](users/configuration/README.md)
+  - [Connector Configuration](users/configuration/connector-config.md)
+  - [Parser Configuration](users/configuration/parser-config.md)
+  - [Model Configuration](users/configuration/model-config.md)
+  - [Engine Configuration](users/configuration/config-file-reference.md)
+  - [Tenant and Workspace Status](users/configuration/workspace-mode.md)
+- [MCP Mock Tools](users/detailed-guides/mcp-server/README.md)
+- [Troubleshooting](users/troubleshooting/README.md)
 
----
+## Developer guides
 
-Last Updated: 2026-07-07
-Maintainer: HarborRAG Team
+- [Developer Documentation](developers/README.md)
+- [Architecture](developers/architecture/README.md)
+- [Extending HarborRAG](developers/extending/README.md)
+- [Testing](developers/testing/README.md)
+- [Deployment](developers/deployment/README.md)
+
+## Project
+
+- [Contributing](../CONTRIBUTING.md)
+- [Changelog](../CHANGELOG.md)
+- [License](../LICENSE)
+
+Last reviewed: 2026-07-21

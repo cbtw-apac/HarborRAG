@@ -1,19 +1,11 @@
 # Configuration
 
-HarborRAG supports versioned YAML configuration for named connector instances
-and parser profiles. Engine and complete pipeline composition settings are still
-constructed in code.
+HarborRAG currently has three independent configuration paths:
 
-1. [Connector Configuration](connector-config.md) — configure local, GitHub,
-   Confluence, JIRA, and SharePoint sources without putting secrets in YAML.
-2. [Parser Configuration](parser-config.md) — select PDF profiles or explicit
-   PDF backend chains while retaining the default parser registry.
-3. [Configuration Reference](config-file-reference.md) — `EngineConfig` and
-   `EnginePolicy`.
-4. [Workspace / Multi-Tenancy](workspace-mode.md) — `Tenant` and
-   `RequestContext`.
+1. [Connector Configuration](connector-config.md) — versioned YAML loaded by `harborrag-runtime`.
+2. [Parser Configuration](parser-config.md) — versioned YAML loaded by `harborrag-runtime`.
+3. [Model Configuration](model-config.md) — YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
 
-## Related
+[Engine Configuration](config-file-reference.md) documents the small code-constructed engine dataclasses. [Tenant and Workspace Status](workspace-mode.md) explains tenant-aware repository context and what is not yet available as a workspace feature.
 
-- [Architecture Overview](../../developers/architecture/README.md) — where
-  configuration and composition fit in the package structure.
+The checked-in `*.example.yaml` and `.env.*.example` files are references, not automatically loaded runtime files. Copy them for an environment or pass their paths explicitly. HarborRAG does not automatically load dotenv files.

@@ -1,16 +1,11 @@
-# Getting Started with HarborRAG
+# Getting Started
 
-HarborRAG is a modular, provider-agnostic RAG framework under active development. Stable contracts now have real connector, parser, model, and storage implementations, including Redis, FalkorDB, PostgreSQL, Qdrant, SQLite, S3, filesystem, and memory repositories; the end-user orchestration surfaces are still evolving.
+HarborRAG is an alpha, multi-package RAG framework. Its adapter layer already contains real connectors, parsers, model clients, and storage providers; its default end-user composition remains a deterministic local demonstration.
 
-## Start path
+Follow this path:
 
-1. Understand the project: [What is HarborRAG?](what-is-harborrag.md)
-2. Install the workspace and run the mock pipeline: [Quick Start](quick-start.md)
-3. Platform-specific notes and troubleshooting: [Installation](installation.md)
+1. [What is HarborRAG?](what-is-harborrag.md) explains implemented and scaffolded capabilities.
+2. [Installation](installation.md) sets up the Python workspace and optional extras.
+3. [Quick Start](quick-start.md) runs the local doctor, pipeline, configuration loader, and MCP facade.
 
-## After getting started
-
-- [Architecture Overview](../developers/architecture/README.md) — package map, dependency direction, core contracts.
-- [Extending HarborRAG](../developers/extending/README.md) — implement a real connector, parser, model, or repository.
-- [CLI Reference](../users/cli-reference/README.md) — the `harbor` command today and what's stubbed for later.
-- [MCP Mock Tools](../users/detailed-guides/mcp-server/README.md) — the audited agent-tool facade.
+Next, use [Configuration](../users/configuration/README.md) for connector, parser, and model examples, or [Architecture](../developers/architecture/README.md) before contributing code.
