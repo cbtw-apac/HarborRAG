@@ -27,6 +27,14 @@ class HarborConnector:
         """Proxy discovery to the selected provider."""
         return self.provider.discover(query)
 
+    def connect(self) -> None:
+        """Open resources owned by the selected provider."""
+        self.provider.connect()
+
+    def close(self) -> None:
+        """Release resources owned by the selected provider."""
+        self.provider.close()
+
     def load(self, record: SourceRecord) -> RawDocument:
         """Proxy one-record loading to the selected provider."""
         return self.provider.load(record)

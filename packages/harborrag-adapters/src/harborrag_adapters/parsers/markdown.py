@@ -48,6 +48,7 @@ class MarkdownParser(BaseParser[ParseInput, ParsedDocument]):
             parser_name=self.parser_name,
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input),
+            raw={"markdown": markdown},
         )
 
     @classmethod

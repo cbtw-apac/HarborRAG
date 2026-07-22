@@ -17,7 +17,7 @@ from harborrag_core.schemas.storage import StorageOperationContext
 
 
 class HarborGraphRepository(RepositoryLifecycle):
-    """Defines portable graph operations used by HarborRAG retrieval workflows."""
+    """Defines portable graph persistence and read operations used by HarborRAG."""
 
     @property
     @abstractmethod
@@ -50,6 +50,15 @@ class HarborGraphRepository(RepositoryLifecycle):
         context: StorageOperationContext,
     ) -> list[GraphNode]:
         """Load graph nodes by stable HarborRAG identifiers."""
+
+    @abstractmethod
+    async def get_edges(
+        self,
+        ids: Sequence[RelationshipId],
+        *,
+        context: StorageOperationContext,
+    ) -> list[GraphEdge]:
+        """Load graph edges by stable HarborRAG identifiers."""
 
     @abstractmethod
     async def delete_nodes(

@@ -58,4 +58,5 @@ class HtmlParser(BaseParser[ParseInput, ParsedDocument]):
             parser_name=self.parser_name,
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input, text_engine=text_engine),
+            raw={"html": html},
         )

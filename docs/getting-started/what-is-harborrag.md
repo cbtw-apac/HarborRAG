@@ -13,11 +13,11 @@ HarborRAG is under active alpha development. The distinction between implemented
 | Document parsers | Implemented for common text, structured, Office, image, ebook, and PDF formats |
 | Model adapters | Implemented chat, embedding, and reranking clients with validation, routing, retries, caching, budgets, and telemetry boundaries |
 | Repository adapters | Implemented backends for Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and memory |
-| Engine and runtime | Contracts and focused utilities exist; the default composition is a local mock/smoke path rather than a production ingestion service |
-| CLI | `doctor` and `sample-ingest` work; full ingest, retrieve, and status commands are stubs |
+| Engine and runtime | Engine stages plus durable Temporal workflows, activities, clients, and worker lifecycle are implemented; application dependency assembly remains external |
+| CLI | `doctor` plus Temporal-backed ingestion start, status, wait, pause, resume, retry, and cancel commands |
 | HTTP API | Controller contracts and route placeholders exist; there is no FastAPI application factory yet |
 | MCP | In-process mock tools work; there is no stdio or HTTP transport yet |
-| Temporal and memory package | Reserved scaffolding, not operational subsystems |
+| Temporal deployment | PostgreSQL-backed local development stack; production deployment remains application/operator work |
 
 ## Why the package boundaries exist
 
@@ -31,7 +31,11 @@ The package dependency direction is checked in CI. See [Architecture](../develop
 
 ## Intended use today
 
-Use the repository to develop and test adapters, schemas, and orchestration boundaries; evaluate local behavior through the mock pipeline; and run opt-in real-system smoke checks in a controlled environment. A production application still needs composition, service endpoints, authentication/authorization, and operational hardening around these packages.
+Use the repository to develop and test adapters, schemas, and orchestration
+boundaries; run the PostgreSQL-backed Temporal stack locally; and execute
+opt-in real-system smoke checks in a controlled environment. A production
+application still needs a concrete runtime dependency provider, service
+endpoints, authentication/authorization, and operational hardening.
 
 ## Next steps
 

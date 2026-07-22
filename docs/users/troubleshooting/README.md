@@ -21,12 +21,19 @@
 
 Example files are not loaded automatically. HarborRAG reads the process environment; use your shell, application bootstrap, container runtime, or secret manager.
 
-## CLI and local pipeline
+## CLI and Temporal runtime
 
-- `doctor` reports `mock_runtime`: expected; the current default composition is deliberately local.
-- The pipeline reports `indexed: 0`: expected; it demonstrates parsing and retrieval without repository persistence.
-- `harbor` is not found: use `python -m harborrag_app.cli.main`; no console script is declared yet.
-- `ingest`, `retrieve`, or `status` is rejected: these command modules are stubs and are not registered.
+- `doctor` reports `app_test_double` in an unconfigured development checkout:
+  expected; production composition requires a control database.
+- The Temporal worker exits at startup: verify the connector, parser, and model
+  config paths, model credentials, and Qdrant/FalkorDB endpoints. A custom
+  dependency provider is optional.
+- Temporal starts but no HarborRAG worker appears: set `TEMPORAL_START_WORKER=1`
+  in `env/.env.temporal` after configuring the worker files and credentials.
+- `harbor` is not found: use `uv run --package harborrag-app harbor` from the
+  workspace or reinstall `harborrag-app` so its console script is registered.
+- An ingestion command cannot connect: set `HARBORRAG_TEMPORAL_TARGET` to a
+  reachable Temporal frontend (normally `localhost:7233` from the host).
 
 ## Connectors and real services
 
@@ -49,4 +56,8 @@ See the [smoke-test section](../../developers/testing/README.md#real-system-smok
 
 ## Deployment surprises
 
-Only the database Compose stack is documented as a usable local provider stack. API, CLI, MCP, and Temporal Dockerfiles reference entry points or extras that are not implemented in the current packages. See [Deployment](../../developers/deployment/README.md) before attempting an application image.
+The database and PostgreSQL-backed Temporal Compose stacks are usable for local
+development. The Temporal stack is not a production topology; use Temporal
+Cloud or the official Helm chart with managed persistence. See
+[Deployment](../../developers/deployment/README.md) before building an
+application image.

@@ -1,28 +1,71 @@
+"""HarborRAG command-line entry point."""
+
 from __future__ import annotations
 
-import argparse
-import json
+from typing import Annotated, Any
 
-from harborrag_app.api.dependencies import get_app_service
+import typer
+
+from harborrag_app.cli.commands import doctor, ingest, status
+from harborrag_app.cli.runner import CliState
+
+app = typer.Typer(
+    name="harbor",
+    help="[bold cyan]Operate HarborRAG ingestion workflows.[/bold cyan]",
+    epilog="[dim]Use 'harbor ingest ACTION --help' for action-specific options.[/dim]",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+    pretty_exceptions_enable=False,
+    context_settings={"help_option_names": ["-h", "--help"], "max_content_width": 120},
+)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="harbor")
-    sub = parser.add_subparsers(dest="command", required=True)
-    doctor = sub.add_parser("doctor")
-    doctor.add_argument("--json", action="store_true", dest="as_json")
-    sample = sub.add_parser("sample-ingest")
-    sample.add_argument("--json", action="store_true", dest="as_json")
-    return parser
+@app.callback()
+def configure(
+    context: typer.Context,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color",
+            help="Disable ANSI color in one-shot command output.",
+        ),
+    ] = False,
+) -> None:
+    """Configure presentation shared by all HarborRAG commands."""
+
+    context.obj = CliState(no_color=no_color)
+
+
+app.command(
+    "doctor",
+    help="Check Temporal runtime readiness.",
+    rich_help_panel="Operations",
+)(doctor.command)
+app.command(
+    "status",
+    help="Query an ingestion run (short alias).",
+    rich_help_panel="Operations",
+)(status.command)
+app.add_typer(
+    ingest.app,
+    name="ingest",
+    help="Submit, observe, and control ingestion runs.",
+    rich_help_panel="Ingestion",
+)
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    service = get_app_service()
-    response = service.health() if args.command == "doctor" else service.ingest_once()
-    payload = {"ok": response.ok, **response.data}
-    print(json.dumps(payload, sort_keys=True) if args.as_json else payload)
+    """Run the Typer application and expose a test-friendly integer exit code."""
+
+    try:
+        app(args=argv, prog_name="harbor")
+    except SystemExit as exc:
+        return _exit_code(exc.code)
     return 0
+
+
+def _exit_code(value: Any) -> int:
+    return value if isinstance(value, int) else 1
 
 
 if __name__ == "__main__":

@@ -46,6 +46,16 @@ class DoclingBackendOptions:
     extra_convert_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Normalize collection values produced by YAML configuration."""
+
+        self.ocr_lang = tuple(self.ocr_lang)
+        if self.page_range is not None:
+            page_range = tuple(self.page_range)
+            if len(page_range) != 2:
+                raise ValueError("page_range must contain exactly two page numbers")
+            self.page_range = (page_range[0], page_range[1])
+
+    def __post_init__(self) -> None:
         """Coerce list-typed YAML values into the tuples Docling requires."""
         ocr_lang: Any = self.ocr_lang
         if ocr_lang is not None and not isinstance(ocr_lang, tuple):

@@ -9,6 +9,7 @@ lifespan builds the app service through runtime composition.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -36,7 +37,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     service, mode = await asyncio.to_thread(select_app_service)
     app.state.app_service = service
     app.state.composition_mode = mode
-    yield
+    try:
+        yield
+    finally:
+        close = getattr(service, "aclose", None)
+        if close is not None:
+            result = close()
+            if inspect.isawaitable(result):
+                await result
 
 
 def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:

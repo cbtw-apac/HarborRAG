@@ -28,7 +28,7 @@ uv run make coverage-html
 Run the narrowest relevant path while developing:
 
 ```bash
-uv run pytest packages/harborrag-adapters/tests/unit/connectors/
+uv run pytest packages/harborrag-adapters/tests/connectors/unit/
 uv run pytest packages/harborrag-runtime/tests/test_connector_config.py
 uv run pytest -m "not slow and not integration"
 ```
@@ -65,7 +65,10 @@ Default tests must not require network access, paid APIs, Docker, cloud accounts
 
 ## Adapter test strategy
 
-The adapter suite is organized into unit, contract, failure, security, chaos, performance, and smoke areas. Test a provider implementation with a deterministic fake SDK/HTTP/database dependency:
+The adapter suite is organized by production module first, then by unit,
+integration, contract, failure, security, chaos, performance, or smoke type.
+Test a provider implementation with a deterministic fake SDK/HTTP/database
+dependency:
 
 1. construct the real adapter with validated configuration;
 2. exercise its public contract and lifecycle;
@@ -77,28 +80,31 @@ Avoid asserting private implementation details when a public request/result or t
 
 ## Real-system smoke checks
 
-Standalone scripts under `packages/harborrag-adapters/tests/smoke/` are manual and opt-in. They may access private content, paid providers, local services, or heavyweight models. They are intentionally outside normal pytest discovery.
+Standalone scripts under each
+`packages/harborrag-adapters/tests/<module>/smoke/` directory are manual and
+opt-in. They may access private content, paid providers, local services, or
+heavyweight models. They are intentionally outside normal pytest discovery.
 
 Connector examples:
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/connectors/local.py
-python packages/harborrag-adapters/tests/smoke/connectors/jira.py
-python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
+python packages/harborrag-adapters/tests/connectors/smoke/local.py
+python packages/harborrag-adapters/tests/connectors/smoke/jira.py
+python packages/harborrag-adapters/tests/connectors/smoke/run_all.py
 ```
 
 Model examples:
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/models/chat.py
-python packages/harborrag-adapters/tests/smoke/models/embed.py
-python packages/harborrag-adapters/tests/smoke/models/rerank.py
+python packages/harborrag-adapters/tests/models/smoke/chat.py
+python packages/harborrag-adapters/tests/models/smoke/embed.py
+python packages/harborrag-adapters/tests/models/smoke/rerank.py
 ```
 
 Parser example:
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/parsers/parse_file.py samples/report.pdf --pdf-profile fast
+python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/report.pdf --pdf-profile fast
 ```
 
 Repository stack and runner:
@@ -108,7 +114,7 @@ export DATABASE_ENV_FILE=env/.env.database
 scripts/deployment/database_up.sh
 
 HARBOR_SMOKE_ENV_FILE=env/.env.database \
-  python packages/harborrag-adapters/tests/smoke/repositories/run_all.py
+  python packages/harborrag-adapters/tests/repositories/smoke/run_all.py
 ```
 
 Copy `env-example/.env.database.example` to the protected path first and adjust
@@ -116,7 +122,11 @@ ports/credentials. Connector/model templates are
 `env-example/.env.connector.example` and `env-example/.env.models.example`. Do
 not commit populated files.
 
-Smoke exit code 2 means prerequisites are unavailable or not configured; it is not a successful provider check. Read `packages/harborrag-adapters/tests/smoke/README.md` for safety rules and target-specific variables.
+Smoke exit code 2 means prerequisites are unavailable or not configured; it is
+not a successful provider check. Start with the
+[`harborrag-adapters` test index](../../../packages/harborrag-adapters/tests/README.md),
+then follow the owning module's `smoke/README.md` for advanced setup, safety
+rules, and target-specific variables.
 
 ## Quality and documentation tests
 

@@ -4,7 +4,6 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
     load_connector_catalog,
@@ -181,6 +180,36 @@ def test_resolves_non_secret_settings_from_environment(tmp_path: Path) -> None:
 
     assert connector.provider.config.owner == "example"
     assert connector.provider.config.repo == "docs"
+
+
+def test_build_passes_runtime_parser_to_attachment_connector(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          jira:
+            provider: jira
+            environment:
+              base_url: TEST_JIRA_BASE_URL
+              email: TEST_JIRA_EMAIL
+            secrets:
+              token_env: TEST_JIRA_TOKEN
+        """,
+    )
+    parser = object()
+
+    connector = load_connector_catalog(config_path).build(
+        "jira",
+        environment={
+            "TEST_JIRA_BASE_URL": "https://example.atlassian.net",
+            "TEST_JIRA_EMAIL": "user@example.test",
+            "TEST_JIRA_TOKEN": "secret",
+        },
+        connector_kwargs={"parser": parser},
+    )
+
+    assert connector.provider._attachments.parser is parser
 
 
 def test_missing_referenced_secret_fails_before_provider_construction(

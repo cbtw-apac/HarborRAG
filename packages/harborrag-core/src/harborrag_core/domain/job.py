@@ -1,9 +1,4 @@
-"""Job aggregate: the domain-level view of an ingestion job.
-
-Promoted from harborrag_runtime.job_state (arch plan target domain/job.py)
-so core ports can type against it; the runtime JobState remains the thin
-runner-side projection and re-exports JobStatus from here.
-"""
+"""Framework-independent ingestion job aggregate used by core ports."""
 
 from __future__ import annotations
 

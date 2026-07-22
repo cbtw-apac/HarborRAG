@@ -86,6 +86,7 @@ class ConnectorDefinition:
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, Any] | None = None,
+        connector_kwargs: Mapping[str, Any] | None = None,
     ) -> HarborConnector:
         """Resolve settings, run provider validation, and build the connector.
 
@@ -102,7 +103,11 @@ class ConnectorDefinition:
         values = self.resolve_settings(environment=environment, overrides=overrides)
         try:
             provider_config = factory(**values)
-            return HarborConnector(self.provider, config=provider_config)
+            return HarborConnector(
+                self.provider,
+                config=provider_config,
+                **dict(connector_kwargs or {}),
+            )
         except (TypeError, ValueError) as exc:
             raise ConnectorConfigurationError(
                 f"Connector {self.name!r} ({self.provider}) is invalid: {exc}"
@@ -163,9 +168,14 @@ class ConnectorCatalog:
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, Any] | None = None,
+        connector_kwargs: Mapping[str, Any] | None = None,
     ) -> HarborConnector:
         """Build one configured connector by application-level name."""
-        return self.get(name).build(environment=environment, overrides=overrides)
+        return self.get(name).build(
+            environment=environment,
+            overrides=overrides,
+            connector_kwargs=connector_kwargs,
+        )
 
     def build_enabled(
         self,

@@ -99,11 +99,14 @@ Useful commands:
 uv run make test
 uv run make test-package PACKAGE=harborrag-core
 uv run make coverage
-uv run pytest packages/harborrag-adapters/tests/unit/connectors/
+uv run pytest packages/harborrag-adapters/tests/connectors/unit/
 uv run pytest -m "not integration and not slow"
 ```
 
-The default suite must be deterministic and work without Docker, network access, cloud accounts, or paid APIs. Tests needing those boundaries must be opt-in and marked `integration`, or implemented as a standalone script under `packages/harborrag-adapters/tests/smoke/`.
+The default suite must be deterministic and work without Docker, network
+access, cloud accounts, or paid APIs. Tests needing those boundaries must be
+opt-in and marked `integration`, or implemented as a standalone script under
+the owning `packages/harborrag-adapters/tests/<module>/smoke/` directory.
 
 See [Testing](docs/developers/testing/README.md) for markers and real-system smoke commands.
 

@@ -8,8 +8,6 @@
 # (on both sides) part of one hierarchy.
 from harborrag_core.contracts.errors import HarborError
 
-__all__ = ["HarborError", "URLPolicyError"]
-
 
 class URLPolicyError(HarborError):
     """Raised when a URL violates the configured outbound-access policy."""

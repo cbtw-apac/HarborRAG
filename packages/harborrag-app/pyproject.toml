@@ -4,7 +4,17 @@ version = "0.1.0"
 description = "CLI and API package boundary for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
-dependencies = ["harborrag-core==0.1.0", "harborrag-runtime==0.1.0"]
+dependencies = [
+    "harborrag-core==0.1.0",
+    "harborrag-runtime==0.1.0",
+    "pydantic>=2.13,<3",
+    "rich>=14,<16",
+    "textual>=8.2,<9",
+    "typer>=0.24,<0.27",
+]
+
+[project.scripts]
+harbor = "harborrag_app.cli.main:main"
 
 [project.optional-dependencies]
 api = [

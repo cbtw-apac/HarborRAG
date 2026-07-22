@@ -9,7 +9,7 @@ HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow down
 | `harborrag-core` | Domain objects, validated model/storage schemas, common errors, security | Implemented contracts |
 | `harborrag-adapters` | Connectors, parsers, model clients, repositories | Broadest implemented layer |
 | `harborrag-engine` | Ingestion, retrieval, indexing, graph orchestration | Contracts, mock/static paths, focused utilities |
-| `harborrag-runtime` | Config catalogs, composition, jobs, scheduling, supervision | Catalog loaders and local scaffolding |
+| `harborrag-runtime` | Config catalogs, production composition, Temporal orchestration | Durable workflows and application integration boundary |
 | `harborrag-app` | Application service, CLI, HTTP boundary | Two mock-backed CLI commands; API placeholders |
 | `harborrag-mcp` | Tool/server interfaces, policy, audit | In-process mock facade |
 | `harborrag` | Public re-exports | `Document` and `CompositionRoot` |
@@ -114,20 +114,27 @@ Family clients construct backends by provider name. Plugin/config modules isolat
 
 ## Engine and runtime
 
-`harborrag-engine` defines ingestion normalizer/chunker/pipeline interfaces, retrieval/evidence interfaces, indexing interfaces, graph mapping, reciprocal-rank fusion, rewriting, and reranking boundaries. The production, configured pipeline is not assembled yet.
+`harborrag-engine` defines normalization, chunking, indexing, retrieval/evidence,
+graph mapping, reciprocal-rank fusion, rewriting, and reranking boundaries. The
+runtime composes its ingestion services without moving provider logic into the
+engine.
 
 `harborrag-runtime` owns:
 
 - versioned connector and parser catalog loaders;
-- `CompositionRoot.local()` and deterministic local diagnostics;
-- in-memory/mock job, schedule, supervisor, and service contracts;
-- placeholder Temporal modules that keep durable workflow SDK concerns out of lower packages.
+- production control-plane composition and health diagnostics;
+- versioned Temporal contracts, workflows, activities, clients, and worker lifecycle;
+- the runtime dependency graph that connects adapters and engine services.
 
-Complete composition should be added here or in application bootstrap code, not in provider adapters.
+Framework-independent lifecycle/observer interfaces and job/repository ports live
+in `harborrag-core`. Provider-specific assembly belongs here or in application
+bootstrap code, not in provider adapters.
 
 ## App and MCP boundaries
 
-The app CLI calls `BaseAppService` rather than adapters. Today `doctor` and `sample-ingest` use `MockAppService`; HTTP route files and the FastAPI factory remain placeholders.
+The app CLI calls `BaseAppService` rather than adapters. Production ingestion
+commands delegate to `TemporalRuntimeClient`. HTTP ingestion routes remain
+future work.
 
 The MCP facade follows the same rule. `MockMcpServer` provides in-process dispatch for a health tool and deterministic retrieval tool. Policy and audit primitives exist but are not automatically enforced. No protocol transport is implemented.
 

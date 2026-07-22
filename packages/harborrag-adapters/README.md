@@ -57,11 +57,34 @@ PDFs through the default parser stack:
 pip install -e "packages/harborrag-adapters[parsers]"
 ```
 
+Install the optional third-party chunking providers used for oversized text
+refinement and Markdown, HTML, or JSON structure recovery:
+
+```bash
+pip install -e "packages/harborrag-adapters[chunking]"
+```
+
+The provider implementations live directly under `chunking/` in capability-
+named modules: `recursive.py`, `markdownsplitter.py`, `htmlsplitter.py`, and
+`jsonsplitter.py`.
+Use `HarborChunk` to construct one by its registered name (`recursive`,
+`markdown`, `html`, or `json`). Every implementation derives from
+`HarborBaseChunk` and returns HarborRAG-owned `TextSplit` values; engine policy
+never depends on framework-owned types. `HarborChunk.available(name)` checks an
+optional provider without importing it, allowing ingestion composition to use
+normalized parser elements when a structural splitter is not installed.
+
 Install advanced PDF backends separately when needed. This extra also includes
 RapidOCR with its default ONNX Runtime CPU engine:
 
 ```bash
 pip install -e "packages/harborrag-adapters[pdf]"
+```
+
+For a Docling/RapidOCR-only deployment, use the narrower extra:
+
+```bash
+pip install -e "packages/harborrag-adapters[pdf-docling]"
 ```
 
 SQLite database, state, filesystem, and memory repositories are included in the
@@ -194,7 +217,7 @@ Use the family clients (`HarborVectorDBClient`, `HarborGraphDBClient`,
 provider backend directly when configuration is already typed.
 
 Live, non-pytest smoke checks for Redis, FalkorDB, PostgreSQL, Qdrant, and SQLite
-are documented in `tests/smoke/repositories/README.md`.
+are documented in `tests/repositories/smoke/README.md`.
 
 ## Reliability Boundaries
 
@@ -232,7 +255,7 @@ pytest packages/harborrag-adapters/tests
 Run the hermetic repository suite and enforce its coverage target with:
 
 ```bash
-pytest -n 0 packages/harborrag-adapters/tests/unit/repositories \
+pytest -n 0 packages/harborrag-adapters/tests/repositories/unit \
   --cov=harborrag_adapters.repositories --cov-fail-under=90
 ```
 

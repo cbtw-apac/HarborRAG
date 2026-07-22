@@ -166,7 +166,7 @@ reviews:
         provider dependencies, no mutation of input results unless documented,
         and tests for empty, duplicate, tie-score, and low-score cases.
 
-    - path: "packages/harborrag-engine/src/harborrag_engine/indexing/**"
+    - path: "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/**"
       instructions: >
         Indexing should coordinate embedding and repository writes through ports.
         Check batch-size handling, partial-failure reporting, idempotency,

@@ -1,33 +1,220 @@
 name: harborrag-temporal
 
 services:
-  temporal:
-    image: temporalio/auto-setup:latest
-    ports:
-      - "7233:7233"
+  postgresql:
+    image: postgres:15-alpine
     environment:
-      DB: sqlite
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      POSTGRES_DB: postgres
+    volumes:
+      - temporal_postgresql_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    restart: unless-stopped
+
+  temporal-schema:
+    image: temporalio/admin-tools:1.31.2
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgresql
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      SQL_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        echo "Waiting for PostgreSQL..."
+
+        until nc -z -w 5 "$${POSTGRES_SEEDS}" "$${DB_PORT}"
+        do
+          sleep 2
+        done
+
+        setup_database() {
+          database_name="$$1"
+          schema_directory="$$2"
+
+          echo "Preparing database '$${database_name}'..."
+
+          temporal-sql-tool \
+            --plugin postgres12 \
+            --ep "$${POSTGRES_SEEDS}" \
+            -u "$${POSTGRES_USER}" \
+            -p "$${DB_PORT}" \
+            --db "$${database_name}" \
+            create || true
+
+          temporal-sql-tool \
+            --plugin postgres12 \
+            --ep "$${POSTGRES_SEEDS}" \
+            -u "$${POSTGRES_USER}" \
+            -p "$${DB_PORT}" \
+            --db "$${database_name}" \
+            setup-schema \
+            -v 0.0 || true
+
+          temporal-sql-tool \
+            --plugin postgres12 \
+            --ep "$${POSTGRES_SEEDS}" \
+            -u "$${POSTGRES_USER}" \
+            -p "$${DB_PORT}" \
+            --db "$${database_name}" \
+            update-schema \
+            -d "$${schema_directory}"
+        }
+
+        setup_database \
+          temporal \
+          /etc/temporal/schema/postgresql/v12/temporal/versioned
+
+        setup_database \
+          temporal_visibility \
+          /etc/temporal/schema/postgresql/v12/visibility/versioned
+
+        echo "Temporal PostgreSQL schemas are ready."
+    restart: "no"
+
+  temporal:
+    image: temporalio/server:1.31.2
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+
+      POSTGRES_SEEDS: postgresql
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+
+      BIND_ON_IP: 0.0.0.0
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
     volumes:
       - ../temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    restart: unless-stopped
 
-  temporal-ui:
-    image: temporalio/ui:latest
-    ports:
-      - "8080:8080"
+  temporal-namespace:
+    image: temporalio/admin-tools:1.31.2
+    depends_on:
+      temporal:
+        condition: service_started
     environment:
       TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
+      TEMPORAL_NAMESPACE_RETENTION: ${TEMPORAL_NAMESPACE_RETENTION:-7d}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        echo "Waiting for Temporal..."
+
+        until temporal operator cluster health \
+          --address "$${TEMPORAL_ADDRESS}" >/dev/null 2>&1
+        do
+          sleep 2
+        done
+
+        echo "Temporal is ready."
+
+        if temporal operator namespace describe \
+          --address "$${TEMPORAL_ADDRESS}" \
+          --namespace "$${TEMPORAL_NAMESPACE}" >/dev/null 2>&1
+        then
+          echo "Namespace '$${TEMPORAL_NAMESPACE}' already exists."
+        else
+          echo "Creating namespace '$${TEMPORAL_NAMESPACE}'..."
+
+          temporal operator namespace create \
+            --address "$${TEMPORAL_ADDRESS}" \
+            --namespace "$${TEMPORAL_NAMESPACE}" \
+            --retention "$${TEMPORAL_NAMESPACE_RETENTION}"
+        fi
+
+        echo "Temporal namespace is ready."
+    restart: "no"
+
+  temporal-ui:
+    image: temporalio/ui:2.52.0
     depends_on:
-      - temporal
+      temporal-namespace:
+        condition: service_completed_successfully
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: "http://localhost:${TEMPORAL_UI_PORT:-8080}"
+    ports:
+      - "${TEMPORAL_UI_PORT:-8080}:8080"
+    restart: unless-stopped
 
   temporal-worker:
+    profiles:
+      - worker
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.temporal-worker
-    env_file:
-      - ../../.env
-    environment:
-      TEMPORAL_ADDRESS: temporal:7233
-      HARBORRAG_TEMPORAL_TASK_QUEUE: harborrag
     depends_on:
-      - temporal
+      temporal-namespace:
+        condition: service_completed_successfully
+    env_file:
+      - path: ../../env/.env.connector
+        required: false
+      - path: ../../env/.env.parser
+        required: false
+      - path: ../../env/.env.models
+        required: false
+    environment:
+      HARBORRAG_TEMPORAL_TARGET: temporal:7233
+      HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
+      HARBORRAG_TEMPORAL_IDENTITY: ${HARBORRAG_TEMPORAL_IDENTITY:-harborrag-runtime}
+      HARBORRAG_TEMPORAL_WORKER_GROUPS: ${HARBORRAG_TEMPORAL_WORKER_GROUPS:-discovery,processing,indexing,maintenance}
+      HARBORRAG_CONNECTOR_CONFIG_PATH: ${HARBORRAG_CONNECTOR_CONFIG_PATH:-config/connectors.yaml}
+      HARBORRAG_PARSER_CONFIG_PATH: ${HARBORRAG_PARSER_CONFIG_PATH:-config/parsers.yaml}
+      HARBORRAG_MODEL_CONFIG_PATH: ${HARBORRAG_MODEL_CONFIG_PATH:-config/models.yaml}
+      LOCAL_SOURCE_PATH: /data/sources
+      HARBORRAG_INGESTION_STATE_DATABASE: /var/lib/harborrag/ingestion-state.db
+      HARBORRAG_INGESTION_OBJECT_ROOT: /var/lib/harborrag/objects
+      HARBORRAG_QDRANT_URL: ${HARBORRAG_QDRANT_URL:-http://qdrant:6333}
+      HARBORRAG_FALKORDB_HOST: ${HARBORRAG_FALKORDB_HOST:-falkordb}
+      HARBORRAG_FALKORDB_PORT: ${HARBORRAG_FALKORDB_PORT:-6379}
+    volumes:
+      - harborrag_ingestion_data:/var/lib/harborrag
+      - harborrag_model_cache:/root/.cache/huggingface
+      - ${HARBORRAG_LOCAL_SOURCE_MOUNT:-../../docs}:/data/sources:ro
+    init: true
+    # Leave enough time beyond the SDK's 30s activity grace window to report
+    # cancellations, drain worker tasks, and close shared dependencies.
+    stop_grace_period: 90s
+    networks:
+      - default
+      - harborrag-data-network
+    restart: unless-stopped
+
+networks:
+  harborrag-data-network:
+    name: harborrag-data-network
+    external: true
+
+volumes:
+  temporal_postgresql_data:
+    name: harborrag-temporal-postgresql-data
+    external: true
+  harborrag_ingestion_data:
+    name: harborrag-ingestion-data
+  harborrag_model_cache:
+    name: harborrag-model-cache
+    external: true

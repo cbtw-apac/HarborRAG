@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from html.parser import HTMLParser as StdlibHTMLParser
 from io import BytesIO
@@ -22,7 +22,7 @@ MAX_ARCHIVE_COMPRESSION_RATIO = 200  # per-member uncompressed / compressed
 
 
 @contextmanager
-def wrap_parse_errors(engine: str) -> Iterator[None]:
+def wrap_parse_errors(engine: str) -> Generator[None, None, None]:
     """Normalize third-party parsing failures into :class:`ParseError`.
 
     Concrete parsers wrap the library call so that malformed/corrupt/encrypted

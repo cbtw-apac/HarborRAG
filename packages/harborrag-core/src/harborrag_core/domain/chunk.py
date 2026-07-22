@@ -1,12 +1,5 @@
-from __future__ import annotations
+from harborrag_core.schemas.documents import ChunkContext as ChunkContext
+from harborrag_core.schemas.documents import ChunkRecord
+from harborrag_core.schemas.documents import ChunkSourceSpan as ChunkSourceSpan
 
-from dataclasses import dataclass, field
-from typing import Any
-
-
-@dataclass(slots=True)
-class Chunk:
-    id: str
-    document_id: str
-    content: str
-    metadata: dict[str, Any] = field(default_factory=dict)
+Chunk = ChunkRecord

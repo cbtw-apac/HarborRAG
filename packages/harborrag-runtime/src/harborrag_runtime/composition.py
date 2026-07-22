@@ -1,24 +1,18 @@
-"""Composition roots: mock/local wiring and env-driven production wiring (ST8).
+"""Production composition for control-plane repositories and engine services.
 
-Runtime is the only layer allowed to construct adapters (deps-check enforces
-app -> {core, engine, runtime} only), so control-plane repositories and the
-secrets/event fakes are assembled here and exposed as core port types.
+Runtime is the only layer allowed to construct adapters.  The composition root
+therefore owns database migration, repository wiring, health state, and resource
+disposal; test doubles belong in tests or in an application development layer.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_adapters.parsers.text import TextParser
-from harborrag_core.domain.parser import ParseInput
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
@@ -28,80 +22,55 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
-from harborrag_core.ports.events import EventBusPort
-from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.builder import EngineBuilder
-from harborrag_runtime.services.base import BaseRuntimeService
-from harborrag_runtime.services.mock import MockRuntimeService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from harborrag_runtime.settings import RuntimeSettings
+    from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_runtime.temporal.dependencies import RuntimeDependencies
+
+
+@dataclass(slots=True)
+class RepositoryResource:
+    """Adapt repository connect/close lifecycles to the runtime lifecycle port."""
+
+    connect: Callable[[], Awaitable[None]]
+    dispose: Callable[[], Awaitable[None]]
+
+    async def start(self) -> None:
+        task: asyncio.Future[None] = asyncio.ensure_future(self.connect())
+        while not task.done():
+            await asyncio.sleep(0.01)
+        await task
+
+    async def close(self) -> None:
+        await self.dispose()
+
+
+@dataclass(slots=True)
+class AsyncCloseResource:
+    """Own an async-close-only resource in a runtime dependency graph."""
+
+    dispose: Callable[[], Awaitable[None]]
+
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        await self.dispose()
+
+
+class Utf8TokenCounter:
+    """Use UTF-8 bytes as a conservative, provider-neutral token upper bound."""
+
+    def count(self, text: str) -> int:
+        return len(text.encode("utf-8"))
 
 
 @dataclass(frozen=True, slots=True)
-class _MockIngestionSummary:
-    """Summary shape for the deterministic composition smoke pipeline."""
-
-    discovered: int
-    loaded: int
-    parsed: int
-    indexed: int
-
-
-class _MockIngestionConnector(BaseConnector):
-    """In-memory connector yielding one canned record for health checks."""
-
-    provider_name = "mock_runtime"
-
-    def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        yield SourceRecord(
-            id="mock://composition/1",
-            source_type="text/plain",
-            locator="mock://composition/1",
-        )
-
-    def load(self, record: SourceRecord) -> RawDocument:
-        return RawDocument(
-            id=record.id,
-            source=record.locator,
-            content="HarborRAG mock ingestion content",
-            content_type="text/plain",
-        )
-
-
-@dataclass(slots=True)
-class _MockIngestionShim:
-    """Reduced connector-to-parser pipeline used by local health checks."""
-
-    connector: BaseConnector
-    parser: TextParser
-    _summary: _MockIngestionSummary = field(
-        default_factory=lambda: _MockIngestionSummary(0, 0, 0, 0)
-    )
-
-    def run_once(self) -> list[RawDocument]:
-        documents: list[RawDocument] = []
-        for record in self.connector.discover():
-            raw = self.connector.load(record)
-            self.parser.parse(ParseInput.coerce(raw))
-            documents.append(raw)
-        count = len(documents)
-        self._summary = _MockIngestionSummary(count, count, count, 0)
-        return documents
-
-    def summarize(self) -> _MockIngestionSummary:
-        return self._summary
-
-
-@dataclass(slots=True)
 class ControlPlaneRepositories:
-    """Port-typed bundle of control-plane repositories.
-
-    Typing these fields as the core Protocols makes mypy verify that the
-    SQLAlchemy implementations conform (ST5 DoD).
-    """
+    """Core-port view of the configured control-plane repositories."""
 
     projects: ProjectRepositoryPort
     sources: SourceRepositoryPort
@@ -114,33 +83,25 @@ class ControlPlaneRepositories:
 
 @dataclass(slots=True)
 class CompositionRoot:
-    engine_builder: EngineBuilder
-    runtime_service: BaseRuntimeService = field(default_factory=MockRuntimeService)
+    """Resources assembled for one production runtime process."""
+
+    engine_builder: EngineBuilder = field(default_factory=EngineBuilder)
     control_plane: ControlPlaneRepositories | None = None
-    secrets: SecretsPort | None = None
-    events: EventBusPort | None = None
-    mode: str = "local"
+    control_db: dict[str, Any] = field(default_factory=dict)
+    mode: str = "production"
     _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
 
     async def aclose(self) -> None:
-        """Dispose the control-plane DB engine created by :meth:`production`, if any."""
+        """Dispose resources created by :meth:`production`."""
+
         if self._control_db_engine is not None:
             await self._control_db_engine.dispose()
-
-    @classmethod
-    def local(cls) -> CompositionRoot:
-        return cls(engine_builder=EngineBuilder())
+            self._control_db_engine = None
 
     @classmethod
     def production(cls, settings: RuntimeSettings | None = None) -> CompositionRoot:
-        """Env-driven composition: control-plane DB (migrated), repositories,
-        dev secrets/event fakes, and the production runtime service.
+        """Migrate, probe, and assemble the configured control-plane database."""
 
-        Heavy imports stay inside the method so the bare CLI install (no
-        [production]/[control-plane] extras) never pays for them. Callers in
-        an event loop should invoke this via asyncio.to_thread (migrations
-        and the boot probe drive their own loops).
-        """
         from harborrag_adapters.repositories.database.control_plane.engine import (
             create_control_plane_engine,
             create_session_factory,
@@ -158,34 +119,27 @@ class CompositionRoot:
             SqlSourceRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_core.testing.fakes import FakeEventBus, FakeSecrets
-        from harborrag_runtime.services.runtime_service import ProductionRuntimeService
-        from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
+
+        from harborrag_runtime.config.settings import (
+            DEFAULT_CONTROL_DB_URL,
+            RuntimeSettings,
+        )
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url
         if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
             raise HarborConfigurationError(
                 "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
-                "boot production composition against the default local SQLite "
-                "database; set HARBORRAG_CONTROL_DB_URL explicitly"
+                "boot against the default local SQLite database; set "
+                "HARBORRAG_CONTROL_DB_URL explicitly"
             )
+
         try:
             run_migrations(dsn)
-        except Exception as exc:  # noqa: BLE001 - boot degraded, readyz reports it
-            return cls(
-                engine_builder=EngineBuilder(),
-                runtime_service=ProductionRuntimeService(
-                    control_db={
-                        "ping": "failed",
-                        "error": f"migrations failed: {exc}",
-                        "scheme": dsn.split(":", 1)[0],
-                    }
-                ),
-                mode="production",
-            )
-        control_db = _probe_control_db(dsn)
+        except Exception as exc:  # noqa: BLE001 - health reports boot degradation
+            return cls(control_db=_failed_database_status(dsn, f"migrations failed: {exc}"))
 
+        control_db = _probe_control_db(dsn)
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
         repositories = ControlPlaneRepositories(
@@ -198,52 +152,205 @@ class CompositionRoot:
             members=SqlMemberRepository(sessions),
         )
         return cls(
-            engine_builder=EngineBuilder(),
-            runtime_service=ProductionRuntimeService(control_db=control_db),
             control_plane=repositories,
-            # TODO(M2): env/file-backed SecretsPort + Redis EventBusPort replace
-            # these deterministic fakes; the port seams are already final.
-            secrets=FakeSecrets(),
-            events=FakeEventBus(),
-            mode="production",
+            control_db=control_db,
             _control_db_engine=engine,
         )
 
-    def mock_pipeline(self) -> _MockIngestionShim:
-        """Build the connector/parser pair used by the ingest smoke check."""
-        return _MockIngestionShim(connector=_MockIngestionConnector(), parser=TextParser())
-
-    def sample_pipeline(self) -> _MockIngestionShim:
-        """Build a sample pipeline that ingests a small set of documents for testing and demonstration.
-
-        TODO: Implement a sample pipeline that ingests a small set of documents for testing and demonstration.
-        """
-        return self.mock_pipeline()
-
     def diagnostics(self) -> dict[str, object]:
+        """Return process-safe component health without exposing adapter objects."""
+
         return {
             "mode": self.mode,
-            "runtime": self.runtime_service.diagnostics(),
+            "runtime": {
+                "provider": "production_runtime",
+                "ready": self.control_db.get("ping") == "ok",
+                "control_db": dict(self.control_db),
+            },
             "engine": self.engine_builder.diagnostics(),
         }
 
-    def run_mock_ingestion(self) -> dict[str, object]:
-        """Run a mock ingestion pipeline that ingests a small set of documents for testing and demonstration.
 
-        TODO: Implement a mock ingestion pipeline that ingests a small set of documents for testing and demonstration.
-        """
-        return self.runtime_service.run_mock_ingestion()
+def build_ingestion_dependencies(
+    settings: RuntimeSettings | None = None,
+) -> RuntimeDependencies:
+    """Assemble the production connector-to-index worker dependency graph."""
+
+    from harborrag_adapters.chunking import HarborChunk
+    from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
+    from harborrag_adapters.repositories.graph import HarborGraphDBClient
+    from harborrag_adapters.repositories.graph.falkordb import FalkorDBGraphConfig
+    from harborrag_adapters.repositories.object_store.filesystem import (
+        FilesystemObjectStore,
+        FilesystemObjectStoreConfig,
+    )
+    from harborrag_adapters.repositories.state.sqlite import (
+        SQLiteStateBackend,
+        SQLiteStateConfig,
+    )
+    from harborrag_adapters.repositories.vector import HarborVectorDBClient
+    from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
+    from harborrag_core.ports.indexing import (
+        GraphGenerationRepositoryPort,
+        VectorGenerationRepositoryPort,
+    )
+    from harborrag_engine.ingestion import (
+        ChunkingConfig,
+        ChunkPersistenceService,
+        DocumentNormalizer,
+        build_default_chunking_service,
+    )
+    from harborrag_engine.ingestion.indexing import (
+        GraphIndexService,
+        IndexGenerationActivationService,
+        IndexingConfig,
+        IndexingService,
+        VectorIndexService,
+    )
+    from pydantic import SecretStr
+
+    from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
+    from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_runtime.temporal.dependencies import RuntimeDependencies
+    from harborrag_runtime.temporal.ingestionstate import (
+        IngestionObjectRepository,
+        ObjectChunkRepository,
+        ObjectManifestRepository,
+        RepositoryRuntimeIngestionState,
+    )
+
+    settings = settings or RuntimeSettings()
+    parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
+    connector_catalog = load_connector_catalog(settings.connector_config_path)
+    connectors = {
+        name: connector_catalog.build(
+            name,
+            connector_kwargs=(
+                {"parser": parser}
+                if connector_catalog.get(name).provider in {"confluence", "jira"}
+                else None
+            ),
+        )
+        for name in connector_catalog.names(enabled_only=True)
+    }
+    embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
+    embedding_model = settings.embedding_model or embed_config.default_model
+    dimensions = settings.embedding_dimensions or _embedding_dimensions(
+        embed_config,
+        embedding_model,
+    )
+
+    token_counter = Utf8TokenCounter()
+    refiner = HarborChunk("recursive", token_counter)
+    chunking_config = ChunkingConfig()
+    chunker = build_default_chunking_service(
+        config=chunking_config,
+        token_counter=token_counter,
+        refiner=refiner,
+    )
+
+    state_backend = SQLiteStateBackend(
+        SQLiteStateConfig(
+            database=str(settings.ingestion_state_database),
+            create_schema=True,
+        )
+    )
+    object_store = FilesystemObjectStore(
+        FilesystemObjectStoreConfig(root=settings.ingestion_object_root)
+    )
+    objects = IngestionObjectRepository(object_store)
+    chunks = ObjectChunkRepository(objects)
+    manifests = ObjectManifestRepository(objects)
+
+    embed_client = HarborEmbedClient.from_config(embed_config)
+    vector_repository = HarborVectorDBClient.default().create_from_config(
+        QdrantVectorConfig(
+            url=settings.qdrant_url,
+            api_key=(SecretStr(settings.qdrant_api_key) if settings.qdrant_api_key else None),
+            prefer_grpc=settings.qdrant_prefer_grpc,
+            collection_prefix=settings.qdrant_collection_prefix,
+        )
+    )
+    graph_repository = HarborGraphDBClient.default().create_from_config(
+        FalkorDBGraphConfig(
+            host=settings.falkordb_host,
+            port=settings.falkordb_port,
+            username=settings.falkordb_username,
+            password=(
+                SecretStr(settings.falkordb_password) if settings.falkordb_password else None
+            ),
+            graph_name=settings.falkordb_graph,
+            ssl=settings.falkordb_ssl,
+        )
+    )
+    indexing_config = IndexingConfig(
+        embedding_model=embedding_model,
+        embedding_dimensions=dimensions,
+        vector_collection=settings.vector_collection,
+        graph_namespace=settings.graph_namespace,
+    )
+    activator = IndexGenerationActivationService(
+        cast(VectorGenerationRepositoryPort, vector_repository),
+        cast(GraphGenerationRepositoryPort, graph_repository),
+    )
+    state = RepositoryRuntimeIngestionState(
+        state_backend,
+        objects,
+        indexing_config,
+        activator,
+        chunking_configuration_version=chunking_config.configuration_version,
+    )
+    indexer = IndexingService(
+        vector_service=VectorIndexService(
+            embed_client=embed_client,
+            vector_repository=vector_repository,
+            token_counter=token_counter,
+        ),
+        graph_service=GraphIndexService(graph_repository=graph_repository),
+    )
+    resources = (
+        RepositoryResource(state_backend.connect, state_backend.close),
+        RepositoryResource(object_store.connect, object_store.close),
+        RepositoryResource(vector_repository.connect, vector_repository.close),
+        RepositoryResource(graph_repository.connect, graph_repository.close),
+        AsyncCloseResource(embed_client.aclose),
+    )
+    return RuntimeDependencies(
+        connectors=connectors,
+        parser=parser,
+        normalizer=DocumentNormalizer(),
+        chunker=chunker,
+        chunk_persistence=ChunkPersistenceService(chunks, manifests),
+        indexer=indexer,
+        state=state,
+        resources=resources,
+    )
+
+
+def _embedding_dimensions(config: Any, model_name: str) -> int:
+    _, model = config.model_for(model_name)
+    expected = {
+        deployment.expected_dimensions
+        for deployment in model.deployments
+        if deployment.expected_dimensions is not None
+    }
+    if len(expected) == 1:
+        return int(expected.pop())
+    if model.default_params.dimensions is not None:
+        return int(model.default_params.dimensions)
+    raise ValueError(
+        f"embedding model {model_name!r} has no unambiguous expected_dimensions; "
+        "set HARBORRAG_EMBEDDING_DIMENSIONS"
+    )
+
+
+def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:
+    return {"ping": "failed", "error": error, "scheme": dsn.split(":", 1)[0]}
 
 
 def _probe_control_db(dsn: str) -> dict[str, Any]:
-    """Boot-time probe: ping the control DB and read the migration stamp.
+    """Probe connectivity and the migration stamp using a short-lived engine."""
 
-    Runs its own short-lived engine + event loop and disposes it, so the
-    connections never leak across loops (asyncpg pools are loop-bound). Safe
-    to call from sync code and from within a running event loop, mirroring
-    ``run_migrations``: the loop case hops to a worker thread so this probe's
-    own ``asyncio.run`` gets a clean thread instead of failing outright.
-    """
     import sqlalchemy as sa
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -254,15 +361,19 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
                 version = (
                     await connection.execute(sa.text("SELECT version_num FROM alembic_version"))
                 ).scalar()
-            return {"ping": "ok", "migrations": version, "scheme": dsn.split(":", 1)[0]}
+            return {
+                "ping": "ok",
+                "migrations": version,
+                "scheme": dsn.split(":", 1)[0],
+            }
         finally:
             await engine.dispose()
 
     def _run() -> dict[str, Any]:
         try:
             return asyncio.run(_probe())
-        except Exception as exc:  # noqa: BLE001 - boot probe reports, never raises
-            return {"ping": "failed", "error": str(exc), "scheme": dsn.split(":", 1)[0]}
+        except Exception as exc:  # noqa: BLE001 - diagnostics must remain available
+            return _failed_database_status(dsn, str(exc))
 
     try:
         asyncio.get_running_loop()

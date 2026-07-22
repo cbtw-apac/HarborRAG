@@ -12,6 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+chunking = ["langchain-text-splitters>=1.1,<2"]
 control-plane = [
     "sqlalchemy[asyncio]>=2.0,<3",
     "alembic>=1.13",
@@ -42,6 +43,11 @@ pdf = [
     "mineru[all]>=2.0.0",
     "onnxruntime>=1.20,<2",
     "paddleocr>=3.0.0",
+    "rapidocr>=3.1,<4",
+]
+pdf-docling = [
+    "docling>=2.0.0",
+    "onnxruntime>=1.20,<2",
     "rapidocr>=3.1,<4",
 ]
 llm = [

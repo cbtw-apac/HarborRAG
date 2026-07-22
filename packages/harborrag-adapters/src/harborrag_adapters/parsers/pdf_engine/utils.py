@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import fields, replace
 from pathlib import Path
@@ -37,7 +37,7 @@ def merge_dataclass_options[OptionT: "DataclassInstance"](
 
 
 @contextmanager
-def materialized_pdf_path(input: ParseInput) -> Iterator[Path]:
+def materialized_pdf_path(input: ParseInput) -> Generator[Path, None, None]:
     """Yield a real PDF path for engines that cannot parse in-memory bytes."""
 
     if input.path is not None:

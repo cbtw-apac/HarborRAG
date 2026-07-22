@@ -33,6 +33,22 @@ from harborrag_core.schemas.storage import (
     StorageOperationContext,
 )
 
+from harborrag_adapters.repositories.errors import (
+    HarborUnsafeQueryError,
+    StorageErrorContext,
+)
+from harborrag_adapters.repositories.graph.base import HarborGraphRepository
+from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
+from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
+from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
+from harborrag_adapters.repositories.graph.falkordb.reader import FalkorDBGraphReader
+from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.telemetry import (
+    RepositoryTelemetry,
+    StorageTelemetryHook,
+    traced_repository_operation,
+)
+
 
 class FalkorDBGraphRepository(HarborGraphRepository):
     """Persists tenant-scoped graph records through FalkorDB openCypher queries."""
@@ -61,6 +77,7 @@ class FalkorDBGraphRepository(HarborGraphRepository):
             connect_timeout_seconds=config.connect_timeout_seconds,
             operation_timeout_seconds=config.operation_timeout_seconds,
         )
+        self._reader = FalkorDBGraphReader(self._database)
 
     @property
     def capabilities(self) -> GraphStoreCapabilities:
@@ -186,6 +203,33 @@ class FalkorDBGraphRepository(HarborGraphRepository):
                 {"rows": rows},
             )
 
+    @traced_repository_operation("activate_generation")
+    async def activate_generation(
+        self,
+        *,
+        artifact_id: str,
+        generation_id: str,
+        previous_generation_id: str | None,
+        context: StorageOperationContext,
+    ) -> None:
+        """Expose a complete graph projection and retire its predecessor."""
+
+        if previous_generation_id is not None:
+            await self._set_generation_state(
+                artifact_id,
+                previous_generation_id,
+                index_state="retired",
+                is_active=False,
+                context=context,
+            )
+        await self._set_generation_state(
+            artifact_id,
+            generation_id,
+            index_state="active",
+            is_active=True,
+            context=context,
+        )
+
     @traced_repository_operation("get_nodes")
     async def get_nodes(
         self,
@@ -193,15 +237,16 @@ class FalkorDBGraphRepository(HarborGraphRepository):
         *,
         context: StorageOperationContext,
     ) -> list[GraphNode]:
-        rows = await self._read(
-            """
-            MATCH (n:HarborEntity)
-            WHERE n.tenant_id = $tenant_id AND n.id IN $ids
-            RETURN n AS node
-            """,
-            {"tenant_id": str(context.tenant_id), "ids": [str(item) for item in ids]},
-        )
-        return [FalkorDBMapper.node(row["node"], context.tenant_id) for row in rows]
+        return await self._reader.get_nodes(ids, context)
+
+    @traced_repository_operation("get_edges")
+    async def get_edges(
+        self,
+        ids: Sequence[RelationshipId],
+        *,
+        context: StorageOperationContext,
+    ) -> list[GraphEdge]:
+        return await self._reader.get_edges(ids, context)
 
     @traced_repository_operation("delete_nodes")
     async def delete_nodes(
@@ -242,49 +287,7 @@ class FalkorDBGraphRepository(HarborGraphRepository):
         *,
         context: StorageOperationContext,
     ) -> GraphSubgraph:
-        selector = self._relationship_selector(query.relationship_types)
-        left, right = GraphTraversalSyntax.arrows(query.direction)
-        path_limit = query.max_nodes * 4
-        rows = await self._read(
-            f"""
-            MATCH p=(start:HarborEntity){left}[r{selector}*1..{query.max_depth}]
-                  {right}(node:HarborEntity)
-            WHERE start.tenant_id = $tenant_id
-              AND start.id IN $start_ids
-              AND all(n IN nodes(p) WHERE n.tenant_id = $tenant_id)
-            RETURN nodes(p) AS path_nodes, relationships(p) AS path_edges
-            LIMIT $path_limit
-            """,
-            {
-                "tenant_id": str(context.tenant_id),
-                "start_ids": [str(item) for item in query.start_nodes],
-                "path_limit": path_limit + 1,
-            },
-        )
-        nodes: dict[str, GraphNode] = {}
-        edges: dict[str, GraphEdge] = {}
-        truncated = len(rows) > path_limit
-        for row in rows[:path_limit]:
-            for raw_node in row["path_nodes"]:
-                node = FalkorDBMapper.node(raw_node, context.tenant_id)
-                nodes[str(node.id)] = node
-                if len(nodes) >= query.max_nodes:
-                    truncated = True
-                    break
-            for raw_edge in row["path_edges"]:
-                edge = FalkorDBMapper.edge(raw_edge, context.tenant_id)
-                edges[str(edge.id)] = edge
-            if truncated:
-                break
-        return GraphSubgraph(
-            nodes=list(nodes.values()),
-            edges=[
-                edge
-                for edge in edges.values()
-                if str(edge.source_id) in nodes and str(edge.target_id) in nodes
-            ],
-            truncated=truncated,
-        )
+        return await self._reader.expand(query, context)
 
     @traced_repository_operation("advanced_query")
     async def advanced_query(
@@ -305,6 +308,9 @@ class FalkorDBGraphRepository(HarborGraphRepository):
         for statement in (
             "CREATE INDEX FOR (n:HarborEntity) ON (n.tenant_id)",
             "CREATE INDEX FOR (n:HarborEntity) ON (n.id)",
+            "CREATE INDEX FOR (n:HarborEntity) ON (n.artifact_id)",
+            "CREATE INDEX FOR (n:HarborEntity) ON (n.generation_id)",
+            "CREATE INDEX FOR (n:HarborEntity) ON (n.is_active)",
         ):
             try:
                 await self._write(statement, {})
@@ -312,20 +318,45 @@ class FalkorDBGraphRepository(HarborGraphRepository):
                 if "already" not in str(exc).lower() and "exist" not in str(exc).lower():
                     raise
 
+    async def _set_generation_state(
+        self,
+        artifact_id: str,
+        generation_id: str,
+        *,
+        index_state: str,
+        is_active: bool,
+        context: StorageOperationContext,
+    ) -> None:
+        parameters = {
+            "tenant_id": str(context.tenant_id),
+            "artifact_id": artifact_id,
+            "generation_id": generation_id,
+            "index_state": index_state,
+            "is_active": is_active,
+        }
+        await self._write(
+            """
+            MATCH (n:HarborEntity)
+            WHERE n.tenant_id = $tenant_id
+              AND n.artifact_id = $artifact_id
+              AND n.generation_id = $generation_id
+            SET n.index_state = $index_state, n.is_active = $is_active
+            """,
+            parameters,
+        )
+        await self._write(
+            """
+            MATCH ()-[r]->()
+            WHERE r.tenant_id = $tenant_id
+              AND r.artifact_id = $artifact_id
+              AND r.generation_id = $generation_id
+            SET r.index_state = $index_state, r.is_active = $is_active
+            """,
+            parameters,
+        )
+
     async def _write(self, statement: str, parameters: Mapping[str, Any]) -> None:
         await self._database.write(statement, parameters)
-
-    async def _read(
-        self,
-        statement: str,
-        parameters: Mapping[str, Any],
-    ) -> list[dict[str, Any]]:
-        return FalkorDBMapper.rows(await self._database.read(statement, parameters))
-
-    def _relationship_selector(self, relationship_types: Sequence[str]) -> str:
-        if not relationship_types:
-            return ""
-        return ":" + "|".join(FalkorDBMapper.safe_identifier(item) for item in relationship_types)
 
     def _error_context(
         self,

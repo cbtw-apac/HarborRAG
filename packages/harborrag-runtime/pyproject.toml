@@ -1,7 +1,7 @@
 [project]
 name = "harborrag-runtime"
 version = "0.1.0"
-description = "Runtime composition, local job state, schedules, and future durable workflows for HarborRAG."
+description = "Production composition and durable Temporal ingestion workflows for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
@@ -9,12 +9,14 @@ dependencies = [
     "harborrag-engine==0.1.0",
     "harborrag-adapters==0.1.0",
     "PyYAML>=6.0.0",
+    "pydantic>=2.13,<3",
+    "pydantic-settings>=2.2",
+    "temporalio>=1.30,<2",
 ]
 
 [project.optional-dependencies]
 production = [
-    "pydantic-settings>=2.2",
-    "harborrag-adapters[control-plane]==0.1.0",
+    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf,qdrant]==0.1.0",
 ]
 dev = [
     "types-PyYAML>=6.0,<7",

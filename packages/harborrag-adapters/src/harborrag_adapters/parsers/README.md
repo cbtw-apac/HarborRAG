@@ -81,7 +81,7 @@ parser.register(markdown, replace=True)
 | `ExcelParser` | `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` | `openpyxl`, `xlrd` |
 | `PdfParser` | `.pdf` | PyMuPDF, Docling, LiteParse, MinerU, PaddleOCR |
 | `CsvParser` | `.csv`, `.tsv` | Python `csv` |
-| `ImageParser` | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.gif`, `.webp` | `pytesseract`, Pillow |
+| `ImageParser` | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.gif`, `.webp` | RapidOCR or `pytesseract`, Pillow |
 | `HtmlParser` | `.html`, `.htm`, `.xhtml` | Beautiful Soup or stdlib HTML fallback |
 | `EpubParser` | `.epub` | Python `zipfile` and XML parsing |
 | `JsonParser` | `.json`, `.jsonl`, `.ndjson` | Python `json` |
@@ -94,7 +94,7 @@ Install common parser dependencies:
 pip install -e "packages/harborrag-adapters[parsers]"
 ```
 
-Install advanced PDF dependencies:
+Install advanced PDF dependencies, including RapidOCR and its ONNX runtime:
 
 ```bash
 pip install -e "packages/harborrag-adapters[pdf]"
@@ -187,11 +187,11 @@ Prefer structured counters such as `input_bytes`, `content_chars`, `elements`,
 Parser tests live in:
 
 ```text
-packages/harborrag-adapters/tests/unit/parsers/
-packages/harborrag-adapters/tests/failure/test_parsers_failure.py
-packages/harborrag-adapters/tests/security/
-packages/harborrag-adapters/tests/performance/
-packages/harborrag-adapters/tests/smoke/parsers/
+packages/harborrag-adapters/tests/parsers/unit/
+packages/harborrag-adapters/tests/parsers/failure/
+packages/harborrag-adapters/tests/parsers/security/
+packages/harborrag-adapters/tests/parsers/performance/
+packages/harborrag-adapters/tests/parsers/smoke/
 ```
 
 Useful test levels:

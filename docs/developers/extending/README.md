@@ -91,7 +91,7 @@ Use `repositories/`, not a new `stores/` family. Do not return raw provider resp
 Put provider-independent RAG orchestration in `harborrag-engine`:
 
 - normalizers and chunkers under `ingestion/`;
-- vector/index writing under `indexing/`;
+- vector/index writing under `ingestion/indexing/`;
 - query rewrite, retrieval, fusion, reranking, and evidence under `retrieval/`;
 - document-to-graph mapping under `graph/`.
 
@@ -99,11 +99,15 @@ Inject connector/parser/model/repository contracts. Production stages should pre
 
 ## Runtime services
 
-Put configuration loading, provider composition, jobs, scheduling, supervision, checkpoint coordination, and optional durable workflows in `harborrag-runtime`.
+Put configuration loading, provider composition, checkpoint coordination, and
+durable workflow implementation in `harborrag-runtime`. Reuse the core job,
+repository, lifecycle, and observation ports instead of adding runtime-owned
+copies.
 
 The existing connector/parser catalogs demonstrate strict versioning and environment references. A unified composition must retain explicit construction and avoid importing optional providers until selected.
 
-Temporal integration belongs behind runtime-owned optional dependencies. It must not become a core, adapter, or engine dependency.
+Temporal SDK integration belongs in `harborrag-runtime.temporal`. It must not
+become a core, adapter, or engine dependency.
 
 ## Application and MCP surfaces
 

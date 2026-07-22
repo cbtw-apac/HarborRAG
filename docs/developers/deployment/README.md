@@ -1,6 +1,9 @@
 # Deployment
 
-Deployment assets are at mixed maturity. The database Compose file is suitable for local adapter smoke tests. Application, MCP, and Temporal images are design scaffolding and reference package extras or entry points that do not exist yet.
+Deployment assets are at mixed maturity. The database Compose file supports
+local adapter smoke tests, and the Temporal Compose file provides a runnable
+PostgreSQL-backed development server. Application and MCP images still require
+application-specific composition.
 
 ## Local repository services
 
@@ -11,6 +14,9 @@ Deployment assets are at mixed maturity. The database Compose file is suitable f
 - Redis on host port 6380 by default;
 - PostgreSQL on port 5432.
 
+The service image tags are pinned directly in the Compose file. The environment
+template only controls ports, credentials, and startup behavior.
+
 Prepare a protected environment file:
 
 ```bash
@@ -20,6 +26,11 @@ scripts/deployment/database_up.sh
 ```
 
 The script requires `DATABASE_ENV_FILE` and passes it to Docker Compose. It does not create the file automatically. Change the example password before using the stack outside an isolated developer machine.
+
+The stack owns the stable `harborrag-data-network`. Application containers and
+the Temporal worker may join this network, but Temporal control-plane services
+remain on their separate `harborrag-temporal-network`. Start the database stack
+before enabling the Temporal worker profile.
 
 Use the repository smoke runner in [Testing](../testing/README.md#real-system-smoke-checks) to verify adapters through their public APIs.
 
@@ -45,10 +56,10 @@ The following files describe intended topology but are not runnable application 
 | `docker-compose.yml` | Refers to qdrant/redis services not defined in the file and builds unfinished app images |
 | `docker-compose.dev.yml` | Builds the unfinished API image and expects root `.env` |
 | `docker-compose.prod.yml` | Depends on qdrant/redis services not defined in the file and builds the unfinished API image |
-| `docker-compose.temporal.yml` | Builds a worker around placeholder Temporal modules |
+| `docker-compose.temporal.yml` | Runnable local server; worker profile requires a dependency provider |
 | `docker-compose.all.yml` | Includes the incomplete dev and Temporal stacks |
 
-Current Dockerfile gaps include a missing FastAPI factory, undeclared `api`/`mcp`/`temporal` extras, a missing `harbor` console script, and a missing MCP server factory. Resolve and test those package entry points before presenting the images as deployable.
+Resolve and test application/MCP entry points before presenting those images as deployable.
 
 ## Model assets
 
@@ -56,7 +67,11 @@ Current Dockerfile gaps include a missing FastAPI factory, undeclared `api`/`mcp
 
 ## Temporal and cloud directories
 
-`deploy/temporal/` contains local dynamic configuration and namespace metadata, but runtime workflow/activity/client modules remain placeholders. `deploy/aws/` reserves cloud deployment directions and does not provide complete infrastructure-as-code.
+`deploy/temporal/` contains PostgreSQL schema setup, dynamic configuration, and
+namespace initialization for local development. It is not a production
+topology; see its README for the Temporal Cloud/Helm boundary. `deploy/aws/`
+reserves cloud deployment directions and does not provide complete
+infrastructure-as-code.
 
 ## Production readiness checklist
 

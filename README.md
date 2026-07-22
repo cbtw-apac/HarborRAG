@@ -2,7 +2,12 @@
 
 HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into independently testable Python packages.
 
-> **Project status:** alpha. Connectors, document parsers, model clients, and tenant-aware repository adapters are implemented and extensively tested. The default composition, CLI, HTTP API, MCP transport, durable workflows, and public facade are still limited or scaffolded. Use the local mock path to evaluate package wiring; do not treat the repository as a finished application deployment.
+> **Project status:** alpha. Connectors, parsers, model clients, repositories,
+> and a repository-backed Temporal ingestion pipeline are implemented.
+> The Docker Compose ingestion topology is validated for local development,
+> integration testing, and controlled internal staging. Production API/MCP
+> surfaces, distributed state storage, security hardening, and a public
+> production topology remain incomplete.
 
 ## What is implemented
 
@@ -13,15 +18,18 @@ HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framewo
 | PDF backends | PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR |
 | Model clients | Chat, embeddings, and reranking through validated provider-neutral clients and LiteLLM-backed transports |
 | Repositories | Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and in-memory implementations across vector, graph, cache, database, state, and object storage |
-| Local surfaces | A deterministic mock pipeline, `doctor` and `sample-ingest` CLI commands, and two in-process MCP mock tools |
+| Runtime | PostgreSQL-backed local Temporal deployment, durable stage state, rolling artifact fan-out, graceful worker shutdown, activities, workers, and client controls |
+| Local surfaces | `doctor` and Temporal-backed ingestion commands, plus two in-process MCP test tools |
 
-The production ingestion/retrieval composition, FastAPI routes, external MCP server transport, and Temporal integration are not complete. See [What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the capability boundary.
+The runtime supplies a default dependency graph; deployments may override it
+with a custom provider. External MCP server transport is not supplied. See
+[What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the boundary.
 
 ## Requirements
 
 - Python 3.12 or newer
 - [`uv`](https://docs.astral.sh/uv/) for the recommended workspace workflow, or `pip` for editable installs
-- Docker only for opt-in repository smoke tests
+- Docker Engine with Docker Compose v2 for the local data and Temporal stacks
 
 ## Quick start
 
@@ -30,10 +38,12 @@ From a local checkout:
 ```bash
 uv sync --all-packages --extra dev
 uv run python -m harborrag_app.cli.main doctor --json
-uv run python scripts/run_mock_pipeline.py --json
+uv run pytest
 ```
 
-The doctor command should return an `ok: true` response with local engine and mock-runtime diagnostics. The pipeline loads one in-memory document, parses it with the real text parser, creates one demonstration chunk, and retrieves it without network access.
+The doctor command returns an `ok: true` response from the development app
+service. To run the PostgreSQL-backed Temporal server, follow
+[the Temporal deployment guide](deploy/temporal/README.md).
 
 `--extra dev` is enough for the commands above, but not for the full test suite: several packages gate optional adapters (Redis, Alembic/control-plane, `pydantic-settings`, the FastAPI/JWT API surface) behind their own extras that `--extra dev` doesn't pull in. To run `uv run pytest` the way CI does, sync with every extra first:
 
@@ -43,6 +53,153 @@ uv run pytest
 ```
 
 For `pip`, platform notes, and optional adapter extras, see [Installation](docs/getting-started/installation.md).
+
+## Run durable ingestion locally
+
+The verified local topology runs PostgreSQL-backed Temporal, Qdrant,
+FalkorDB, Redis, and two HarborRAG worker replicas. Artifact workflows use a
+rolling pool with a default concurrency of 16, so a slow artifact does not
+hold a completed batch slot idle. Both replicas share persistent ingestion and
+model-cache volumes.
+
+### 1. Create protected environment files
+
+```bash
+install -m 700 -d env
+
+test -f env/.env.database || \
+  cp env-example/.env.database.example env/.env.database
+test -f env/.env.temporal || \
+  cp env-example/.env.temporal.example env/.env.temporal
+test -f env/.env.connector || \
+  cp env-example/.env.connector.example env/.env.connector
+test -f env/.env.parser || \
+  cp env-example/.env.parser.example env/.env.parser
+test -f env/.env.models || \
+  cp env-example/.env.models.example env/.env.models
+
+chmod 600 env/.env.*
+```
+
+Replace every placeholder credential. The enabled Jira connector in
+[`config/connectors.yaml`](config/connectors.yaml) requires these values in
+`env/.env.connector`:
+
+```dotenv
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_PROJECT_KEY=ENG
+JIRA_EMAIL=service-account@example.com
+JIRA_TOKEN=replace-with-a-least-privilege-token
+```
+
+The active model catalog in [`config/models.yaml`](config/models.yaml) requires
+the `HARBOR_CHAT_*` and `HARBOR_EMBED_*` values from `env/.env.models`. Set a
+strong `POSTGRES_PASSWORD` in `env/.env.database`, and configure the Temporal
+worker in `env/.env.temporal`:
+
+```dotenv
+TEMPORAL_POSTGRES_PASSWORD=replace-with-a-long-random-password
+TEMPORAL_START_WORKER=1
+HARBORRAG_TEMPORAL_WORKER_REPLICAS=2
+```
+
+Do not change `TEMPORAL_POSTGRES_PASSWORD` after the PostgreSQL volume has been
+initialized unless the stored PostgreSQL role password is rotated at the same
+time. Changing only the environment file causes `temporal-schema` authentication
+to fail.
+
+### 2. Start data services, Temporal, and workers
+
+Start the data stack first because it creates the external network used by the
+workers:
+
+```bash
+DATABASE_ENV_FILE=env/.env.database scripts/deployment/database_up.sh
+TEMPORAL_ENV_FILE=env/.env.temporal scripts/deployment/temporal_up.sh
+```
+
+The first worker build installs the selected parser/model dependencies and can
+take several minutes. Downloaded Hugging Face assets persist in the shared
+`harborrag-model-cache` volume and are reused after container replacement.
+
+### 3. Verify the deployment
+
+```bash
+docker compose \
+  --env-file env/.env.database \
+  --file deploy/compose/docker-compose.database.yml \
+  ps
+
+docker compose \
+  --env-file env/.env.temporal \
+  --file deploy/compose/docker-compose.temporal.yml \
+  --profile worker \
+  ps -a
+
+HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
+  uv run python -m harborrag_app.cli.main doctor --json
+```
+
+`postgresql`, `temporal`, `temporal-ui`, and both `temporal-worker` replicas
+should be running. `temporal-schema` and `temporal-namespace` are successful
+one-shot jobs and should show `Exited (0)`. The Temporal UI is available at
+<http://localhost:8080> for local use.
+
+### 4. Submit and observe Jira ingestion
+
+```bash
+export HARBORRAG_TEMPORAL_TARGET=localhost:7233
+
+uv run --package harborrag-app harbor ingest start \
+  --tenant tenant-1 \
+  --connector jira \
+  --wait
+```
+
+For automation, add `--json`. Save the returned run ID and use it with the
+operator commands:
+
+```bash
+uv run --package harborrag-app harbor ingest status RUN_ID --json
+uv run --package harborrag-app harbor ingest watch RUN_ID
+uv run --package harborrag-app harbor ingest pause RUN_ID
+uv run --package harborrag-app harbor ingest resume RUN_ID
+uv run --package harborrag-app harbor ingest cancel RUN_ID
+```
+
+Cancellation is graceful unless `--force` is supplied. A later ingestion may
+report artifacts as `unchanged`; this is the expected revision-based fast path.
+
+Follow worker logs during a run:
+
+```bash
+docker compose \
+  --env-file env/.env.temporal \
+  --file deploy/compose/docker-compose.temporal.yml \
+  --profile worker \
+  logs --follow --tail=200 temporal-worker
+```
+
+See the [Temporal deployment guide](deploy/temporal/README.md) and
+[CLI reference](docs/users/cli-reference/README.md) for persistence, worker
+controls, and troubleshooting details.
+
+## Deployment boundary
+
+| Target | Status |
+| --- | --- |
+| Local development | Supported by the checked-in Compose stacks |
+| Integration testing | Supported |
+| Controlled single-host staging | Supported with protected ports and secrets |
+| Public or multi-tenant production | Not yet supplied as a complete topology |
+
+Before a public production launch, replace local SQLite/filesystem ingestion
+state with concurrency-safe managed storage, use Temporal Cloud or a hardened
+self-hosted Temporal deployment, build immutable worker images, add TLS and
+network policies, integrate a secret manager, implement API authentication and
+authorization, wire production observability, and test backup/restore. See
+[Deployment](docs/developers/deployment/README.md) for the complete readiness
+boundary.
 
 ## Try the implemented adapters
 
@@ -62,7 +219,9 @@ for raw_document in connector.load_raw_documents(ConnectorQuery(recursive=True))
     print(raw_document.source, parsed.parser_name, len(parsed.content))
 ```
 
-Connector and parser configuration examples live at [`config/connectors.example.yaml`](config/connectors.example.yaml) and [`config/parsers.example.yaml`](config/parsers.example.yaml). Copy an example before editing it; the examples themselves are safe reference files, not automatically loaded application configuration.
+The active connector catalog is [`config/connectors.yaml`](config/connectors.yaml).
+The active parser catalog is [`config/parsers.yaml`](config/parsers.yaml), with
+unused parser alternatives retained as commented blocks.
 
 ### Configure model clients
 
@@ -70,8 +229,8 @@ Install the model dependencies and provide the environment variables referenced 
 
 ```bash
 uv sync --all-packages --extra dev
-OPENAI_API_KEY=placeholder \
-  uv run python -m harborrag_adapters.models explain config/models.example.yaml --family chat
+uv run --env-file env/.env.models \
+  python -m harborrag_adapters.models explain config/models.yaml --family chat
 ```
 
 Model configuration resolves `${VARIABLE}` references during loading, so missing credentials fail early. The CLI can `validate`, `render`, or `explain` the chat, embedding, and reranking sections. See [Model Configuration](docs/users/configuration/model-config.md).
@@ -95,7 +254,7 @@ packages/
   harborrag-core/      domain objects, model contracts, schemas, security
   harborrag-adapters/  connectors, parsers, model clients, repositories
   harborrag-engine/    ingestion, retrieval, indexing, graph boundaries
-  harborrag-runtime/   configuration, composition, jobs, scheduling
+  harborrag-runtime/   production composition and Temporal orchestration
   harborrag-app/       application service, CLI, HTTP API boundary
   harborrag-mcp/       MCP tools/server boundary, policy, audit
   harborrag/           thin public facade / meta-package
@@ -121,17 +280,52 @@ See [Architecture](docs/developers/architecture/README.md) for the exact allowed
 
 | File | Purpose |
 | --- | --- |
-| `config/connectors.example.yaml` | Named connector definitions and environment references |
-| `config/parsers.example.yaml` | Parser profiles and PDF backend chains |
-| `config/models.example.yaml` | Minimal chat, embedding, and reranking model configuration |
+| `config/connectors.yaml` | Active named connector definitions and environment references |
+| `config/parsers.yaml` | Active parser definitions and commented backend alternatives |
+| `config/models.yaml` | Active chat and embedding model configuration |
 | `config/models.advance.example.yaml` | More advanced routing and provider examples |
 | `config/advance_chat/*.example.yaml` | Direct SDK, LiteLLM Router, proxy, and distributed chat examples |
 | `env-example/.env.connector.example` | Connector and connector-smoke environment template |
 | `env-example/.env.parser.example` | Optional parser/OCR environment template |
 | `env-example/.env.models.example` | Model and model-smoke environment template |
 | `env-example/.env.database.example` | Local repository-stack template |
+| `env-example/.env.temporal.example` | Local PostgreSQL/Temporal-stack template |
 
-HarborRAG does not automatically load these environment files. Export variables in the shell or load them through your application, container runtime, or secret manager.
+Catalog loaders do not automatically load environment files. Export variables
+in the shell, pass an environment file to `uv run`, or load them through your
+application or secret manager. The checked-in Compose worker explicitly loads
+`env/.env.connector`, `env/.env.parser`, and `env/.env.models`.
+
+## Release checklist
+
+Release only from a reviewed, clean commit. The full local gate mirrors the
+repository CI:
+
+```bash
+uv sync --all-packages --all-extras
+uv run make lint
+uv run make typecheck
+uv run make deps-check
+uv run make compile
+uv run make coverage
+```
+
+After merging to `main` and confirming GitHub Actions are green, simulate the
+coordinated package release before allowing it to write commits, tags, and
+GitHub releases:
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+uv run python release.py --dry-run --verbose
+uv run python release.py --verbose
+```
+
+The real release command requires a clean `main`, synchronized package
+versions, an updated changelog, no unpushed commits, passing workflows, and a
+`GITHUB_TOKEN` authorized for this repository. See [Contributing](CONTRIBUTING.md)
+for the pull-request and release gates.
 
 ## Development commands
 
@@ -148,7 +342,6 @@ uv run make typecheck
 uv run make compile
 uv run make deps-check
 uv run make doctor
-uv run make mock-pipeline
 ```
 
 `make coverage` enforces the repository's 90% coverage threshold. If your virtual environment is already active, the `uv run` prefix is optional. Default tests are hermetic; real connectors, model providers, parser engines, and repository services are exercised only through opt-in smoke scripts.

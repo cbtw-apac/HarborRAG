@@ -4,15 +4,21 @@ from dataclasses import asdict, dataclass, field
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_engine.retrieval.mock import MockRetrievalPipeline
+
 from harborrag_mcp.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_runtime.composition import CompositionRoot
 
 
 class MockHealthTool(BaseMcpTool):
     spec = McpToolSpec("harbor_health_check", "Return HarborRAG health diagnostics.")
 
     def call(self, arguments: dict[str, object]) -> dict[str, object]:
-        return {"ok": True, "diagnostics": CompositionRoot.local().diagnostics()}
+        return {
+            "ok": True,
+            "diagnostics": {
+                "mode": "development",
+                "runtime": {"provider": "mcp_test_double", "ready": True},
+            },
+        }
 
 
 @dataclass(slots=True)

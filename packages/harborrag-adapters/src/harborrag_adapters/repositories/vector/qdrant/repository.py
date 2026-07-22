@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from harborrag_adapters.repositories.errors import (
@@ -67,6 +68,7 @@ class QdrantVectorRepository(HarborVectorRepository):
             operation_timeout_seconds=config.operation_timeout_seconds,
         )
         self._specs: dict[tuple[str, str], VectorCollectionSpec] = {}
+        self._collection_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._queries = QdrantQueryExecutor(
             client=self._database,
             config=config,
@@ -137,25 +139,46 @@ class QdrantVectorRepository(HarborVectorRepository):
                     "ensure_collection", spec.name, context=context
                 ),
             )
+        key = self._queries.spec_key(spec.name, context)
+        lock = self._collection_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            await self._ensure_collection(spec, context=context)
+
+    async def _ensure_collection(
+        self,
+        spec: VectorCollectionSpec,
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        """Create or validate one collection while its local lock is held."""
+
         name = self._queries.collection_name(spec.name, context)
         client = self._database.raw
         if not await client.collection_exists(name):
-            await client.create_collection(
-                collection_name=name,
-                vectors_config=qm.VectorParams(
-                    size=spec.dimension,
-                    distance=QdrantMapper.distance(spec.distance, qm),
-                ),
-            )
-            for field in spec.metadata_indexes:
-                await client.create_payload_index(
+            try:
+                await client.create_collection(
                     collection_name=name,
-                    field_name=field,
-                    field_schema=qm.PayloadSchemaType.KEYWORD,
-                    wait=True,
+                    vectors_config=qm.VectorParams(
+                        size=spec.dimension,
+                        distance=QdrantMapper.distance(spec.distance, qm),
+                    ),
                 )
-            self._specs[self._queries.spec_key(spec.name, context)] = spec
-            return
+            except Exception:
+                # Another worker may create the tenant collection after our
+                # existence check. Treat that race as success only when the
+                # collection can now be observed; its schema is validated below.
+                if not await client.collection_exists(name):
+                    raise
+            else:
+                for field in spec.metadata_indexes:
+                    await client.create_payload_index(
+                        collection_name=name,
+                        field_name=field,
+                        field_schema=self._payload_schema(field),
+                        wait=True,
+                    )
+                self._specs[self._queries.spec_key(spec.name, context)] = spec
+                return
         persisted = await self._queries.require_spec(spec.name, context)
         if (persisted.dimension, persisted.distance) != (spec.dimension, spec.distance):
             raise HarborStorageValidationError(
@@ -164,17 +187,48 @@ class QdrantVectorRepository(HarborVectorRepository):
                 context=self._queries.error_context("ensure_collection", spec.name),
             )
         info = await client.get_collection(name)
-        existing_indexes = set(getattr(info, "payload_schema", {}) or {})
+        existing_indexes = getattr(info, "payload_schema", {}) or {}
         for field in spec.metadata_indexes:
-            if field in existing_indexes:
+            existing = existing_indexes.get(field)
+            if existing is not None and self._payload_schema_matches(field, existing):
                 continue
+            if existing is not None:
+                await client.delete_payload_index(
+                    collection_name=name,
+                    field_name=field,
+                    wait=True,
+                )
             await client.create_payload_index(
                 collection_name=name,
                 field_name=field,
-                field_schema=qm.PayloadSchemaType.KEYWORD,
+                field_schema=self._payload_schema(field),
                 wait=True,
             )
         self._specs[self._queries.spec_key(spec.name, context)] = spec
+
+    @staticmethod
+    def _payload_schema(field: str) -> Any:
+        """Map Harbor lifecycle fields to their native Qdrant payload type."""
+
+        if field == "is_active":
+            return qm.PayloadSchemaType.BOOL
+        return qm.PayloadSchemaType.KEYWORD
+
+    @classmethod
+    def _payload_schema_matches(cls, field: str, existing: object) -> bool:
+        """Return whether a known provider schema matches Harbor's field contract."""
+
+        if isinstance(existing, Mapping):
+            current = existing.get("data_type")
+        else:
+            current = getattr(existing, "data_type", None)
+        if current is None:
+            # Older clients and test doubles may expose only index presence.
+            return True
+        expected = cls._payload_schema(field)
+        current_value = getattr(current, "value", current)
+        expected_value = getattr(expected, "value", expected)
+        return str(current_value).lower() == str(expected_value).lower()
 
     @traced_repository_operation("collection_exists")
     async def collection_exists(
@@ -232,6 +286,57 @@ class QdrantVectorRepository(HarborVectorRepository):
             points=qdrant_points,
             wait=True,
         )
+
+    @traced_repository_operation("activate_generation")
+    async def activate_generation(
+        self,
+        collection: str,
+        *,
+        artifact_id: str,
+        generation_id: str,
+        activate_ids: Sequence[str],
+        retire_ids: Sequence[str],
+        delete_ids: Sequence[str],
+        tombstone_ids: Sequence[str],
+        context: StorageOperationContext,
+    ) -> None:
+        """Apply a validated, idempotent vector visibility plan."""
+
+        physical_name = self._queries.collection_name(collection, context)
+        client = self._database.raw
+        await self._set_index_state(
+            client,
+            physical_name,
+            activate_ids,
+            artifact_id=artifact_id,
+            generation_id=generation_id,
+            index_state="active",
+            is_active=True,
+            context=context,
+        )
+        await self._set_index_state(
+            client,
+            physical_name,
+            retire_ids,
+            artifact_id=artifact_id,
+            generation_id=None,
+            index_state="retired",
+            is_active=False,
+            context=context,
+        )
+        await self._set_index_state(
+            client,
+            physical_name,
+            tombstone_ids,
+            artifact_id=artifact_id,
+            generation_id=None,
+            index_state="tombstoned",
+            is_active=False,
+            context=context,
+            extra_payload={"tombstone": True},
+        )
+        if delete_ids:
+            await self.delete(collection, delete_ids, context=context)
 
     @traced_repository_operation("get")
     async def get(
@@ -308,4 +413,53 @@ class QdrantVectorRepository(HarborVectorRepository):
             "this baseline Qdrant adapter exposes dense search only; add named sparse vectors "
             "to the collection schema before enabling provider-native fusion",
             context=self._queries.error_context("hybrid_search"),
+        )
+
+    async def _set_index_state(
+        self,
+        client: Any,
+        collection: str,
+        point_ids: Sequence[str],
+        *,
+        artifact_id: str,
+        generation_id: str | None,
+        index_state: str,
+        is_active: bool,
+        context: StorageOperationContext,
+        extra_payload: dict[str, Any] | None = None,
+    ) -> None:
+        if not point_ids:
+            return
+        must: list[Any] = [
+            qm.HasIdCondition(
+                has_id=[
+                    QdrantMapper.point_id(str(context.tenant_id), identity)
+                    for identity in point_ids
+                ]
+            ),
+            qm.FieldCondition(
+                key="_harbor_tenant_id",
+                match=qm.MatchValue(value=str(context.tenant_id)),
+            ),
+            qm.FieldCondition(
+                key="artifact_id",
+                match=qm.MatchValue(value=artifact_id),
+            ),
+        ]
+        if generation_id is not None:
+            must.append(
+                qm.FieldCondition(
+                    key="generation_id",
+                    match=qm.MatchValue(value=generation_id),
+                )
+            )
+        await client.set_payload(
+            collection_name=collection,
+            payload={
+                "index_state": index_state,
+                "is_active": is_active,
+                **(extra_payload or {}),
+            },
+            points=qm.Filter(must=must),
+            wait=True,
         )

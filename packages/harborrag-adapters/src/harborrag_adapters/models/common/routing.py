@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
+from collections.abc import AsyncIterator, Generator, Iterable, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from threading import BoundedSemaphore, RLock
@@ -168,7 +168,7 @@ class DeploymentSelector[D: DeploymentLike]:
         *,
         logical_model: str | None = None,
         token_cost: int = 0,
-    ) -> Iterator[None]:
+    ) -> Generator[None, None, None]:
         """Acquire local and distributed concurrency and rate-limit admission."""
 
         if state.sync_semaphore is not None:

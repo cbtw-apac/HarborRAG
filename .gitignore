@@ -220,6 +220,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 .claude/**
+.agents/
+
 examples/
 
 # OS / editor noise

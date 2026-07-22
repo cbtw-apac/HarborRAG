@@ -1,10 +1,6 @@
-"""App-service selection shared by the CLI and the API lifespan (ST8).
+"""FastAPI-free application service selection shared with the CLI."""
 
-Selection rule (plan ST8): HARBORRAG_ENV=dev with no HARBORRAG_CONTROL_DB_URL
--> mock composition; anything else -> CompositionRoot.production(). This
-module must stay import-light and fastapi-free so the bare CLI keeps working
-without the [api] extra.
-"""
+from harborrag_app.services.selection import get_app_service, select_app_service
 
 from __future__ import annotations
 

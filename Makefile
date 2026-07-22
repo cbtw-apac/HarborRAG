@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint format typecheck compile doctor mock-pipeline deps-check provider-matrix clean
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint format typecheck compile doctor deps-check provider-matrix clean
 
 help:
 	@echo "HarborRAG development targets"
@@ -24,7 +24,6 @@ help:
 	@echo ""
 	@echo "Diagnostics:"
 	@echo "  make doctor           Run CLI doctor as JSON"
-	@echo "  make mock-pipeline    Run deterministic mock pipeline"
 	@echo "  make deps-check       Check package dependency direction"
 	@echo "  make provider-matrix  Print provider/repository TODO matrix"
 	@echo "  make clean            Remove Python build/test caches"
@@ -76,9 +75,6 @@ compile:
 
 doctor:
 	$(PYTHON) -m harborrag_app.cli.main doctor --json
-
-mock-pipeline:
-	$(PYTHON) scripts/run_mock_pipeline.py --json
 
 deps-check:
 	$(PYTHON) scripts/check_dependency_direction.py

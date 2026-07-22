@@ -112,14 +112,17 @@ module = [
     "fitz",
     "paddleocr",
     "pytesseract",
+    "rapidocr",
     "docx2txt",
     "odf",
     "odf.*",
     "boto3",
     "google.cloud",
     "google.cloud.*",
+    "langchain_text_splitters",
     "azure.identity",
     "azure.keyvault.secrets",
+    "falkordb.asyncio",
 ]
 ignore_missing_imports = true
 

@@ -56,11 +56,14 @@ python -m pip install -e ".[dev]"
 ```bash
 python -m pip install -e "packages/harborrag-adapters[parsers]"
 python -m pip install -e "packages/harborrag-adapters[pdf]"
+python -m pip install -e "packages/harborrag-adapters[pdf-docling]"
 python -m pip install -e "packages/harborrag-adapters[llm]"
 python -m pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 ```
 
 Install only the families used by your application. Some PDF backends also download models or require platform-specific runtimes.
+Use `pdf-docling` when the deployment only needs Docling with RapidOCR; the
+aggregate `pdf` extra installs every supported PDF backend.
 The `pdf` extra includes RapidOCR and the CPU `onnxruntime` package; Docling can
 independently use CUDA, MPS, or XPU through an accelerator-enabled PyTorch
 installation.
@@ -69,7 +72,6 @@ installation.
 
 ```bash
 uv run python -m harborrag_app.cli.main doctor --json
-uv run python scripts/run_mock_pipeline.py --json
 uv run python scripts/check_dependency_direction.py
 ```
 

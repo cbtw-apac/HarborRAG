@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -19,10 +19,10 @@ DEFAULT_MAX_IMAGE_PIXELS = 100_000_000  # 100 megapixels decoded
 
 @dataclass(slots=True)
 class ImageParser(BaseParser[ParseInput, ParsedDocument]):
-    """Run OCR over raster images using pytesseract."""
+    """Run OCR over raster images using a selectable local OCR engine."""
 
     parser_name: ClassVar[str] = "image"
-    parser_engine: ClassVar[str] = "pytesseract"
+    parser_engine: ClassVar[str] = "rapidocr/pytesseract"
     suffixes: ClassVar[frozenset[str]] = frozenset(
         {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"}
     )
@@ -38,31 +38,50 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
         }
     )
 
+    ocr_engine: str = "pytesseract"
     lang: str | None = None
     config: str = ""
     timeout: int | float | None = 60
     max_pixels: int | None = DEFAULT_MAX_IMAGE_PIXELS
+    _rapidocr_engine: Any | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Normalize and validate the configured OCR engine."""
+
+        if not isinstance(self.ocr_engine, str):
+            raise ValueError("Image OCR engine must be a string")
+        self.ocr_engine = self.ocr_engine.lower().strip()
+        if self.ocr_engine not in {"pytesseract", "rapidocr"}:
+            raise ValueError(
+                f"Unsupported image OCR engine {self.ocr_engine!r}: "
+                "pytesseract, rapidocr"
+            )
+        if self.max_pixels is not None and (
+            not isinstance(self.max_pixels, int)
+            or isinstance(self.max_pixels, bool)
+            or self.max_pixels <= 0
+        ):
+            raise ValueError("Image max_pixels must be a positive integer or null")
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         """Decode the image with Pillow, OCR it, and return extracted text."""
 
         parse_input = self.coerce_input(input)
         try:
-            import pytesseract
             from PIL import Image
         except ImportError as exc:
             parser_logger.error(
                 "Image OCR dependencies are missing for %s",
-                self.parser_name,
+                self.ocr_engine,
                 extra=parser_log_extra(
                     input=parse_input,
                     parser_name=self.parser_name,
-                    parser_engine=self.parser_engine,
+                    parser_engine=self.ocr_engine,
                 ),
             )
             raise ParseError(
-                "Image OCR requires `pytesseract` and `Pillow`; install "
-                "`harborrag-adapters[parsers]` or `pip install pytesseract Pillow`."
+                "Image OCR requires `Pillow`; install "
+                "`harborrag-adapters[parsers]` or `pip install Pillow`."
             ) from exc
 
         try:
@@ -72,7 +91,7 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
                 extra=parser_log_extra(
                     input=parse_input,
                     parser_name=self.parser_name,
-                    parser_engine=self.parser_engine,
+                    parser_engine=self.ocr_engine,
                     ocr_lang=self.lang,
                 ),
             )
@@ -91,12 +110,7 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
                         f"max_pixels {self.max_pixels}"
                     )
                 image.load()
-                content = pytesseract.image_to_string(
-                    image,
-                    lang=self.lang,
-                    config=self.config,
-                    timeout=self.timeout,
-                ).strip()
+                content = self._extract_text(data, image)
         except ParseError:
             raise
         except (RuntimeError, OSError, ValueError) as exc:
@@ -107,7 +121,7 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
                 extra=parser_log_extra(
                     input=parse_input,
                     parser_name=self.parser_name,
-                    parser_engine=self.parser_engine,
+                    parser_engine=self.ocr_engine,
                     ocr_lang=self.lang,
                 ),
             )
@@ -130,5 +144,54 @@ class ImageParser(BaseParser[ParseInput, ParsedDocument]):
             elements=elements,
             parser_name=self.parser_name,
             parser_version=self.parser_version,
-            metadata=self.metadata_for(parse_input, lang=self.lang),
+            metadata=self.metadata_for(
+                parse_input,
+                ocr_engine=self.ocr_engine,
+                lang=self.lang,
+            ),
+        )
+
+    def _extract_text(self, data: bytes, image: Any) -> str:
+        """Dispatch OCR while keeping optional dependencies lazy."""
+
+        if self.ocr_engine == "rapidocr":
+            return self._extract_with_rapidocr(data)
+        return self._extract_with_pytesseract(image)
+
+    def _extract_with_pytesseract(self, image: Any) -> str:
+        """Extract text with the legacy Tesseract adapter."""
+
+        try:
+            import pytesseract
+        except ImportError as exc:
+            raise ParseError(
+                "Image OCR with pytesseract requires `pytesseract`; install "
+                "`harborrag-adapters[parsers]` or `pip install pytesseract`."
+            ) from exc
+
+        content = pytesseract.image_to_string(
+            image,
+            lang=self.lang,
+            config=self.config,
+            timeout=self.timeout,
+        )
+        return str(content).strip()
+
+    def _extract_with_rapidocr(self, data: bytes) -> str:
+        """Extract ordered text lines with a memoized RapidOCR engine."""
+
+        if self._rapidocr_engine is None:
+            try:
+                from rapidocr import RapidOCR
+            except ImportError as exc:
+                raise ParseError(
+                    "Image OCR with RapidOCR requires `rapidocr` and an inference "
+                    "runtime; install `harborrag-adapters[pdf]`."
+                ) from exc
+            self._rapidocr_engine = RapidOCR()
+
+        result = self._rapidocr_engine(data)
+        texts = getattr(result, "txts", None) or ()
+        return "\n".join(
+            text for value in texts if (text := str(value).strip())
         )

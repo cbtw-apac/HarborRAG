@@ -69,7 +69,14 @@ _PARSER_FACTORIES: Mapping[str, ParserFactory] = {
     "text": TextParser,
 }
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
-    **{name: frozenset() for name in _PARSER_FACTORIES if name != "pdf"},
+    **{
+        name: frozenset()
+        for name in _PARSER_FACTORIES
+        if name not in {"image", "pdf"}
+    },
+    "image": frozenset(
+        {"config", "lang", "max_pixels", "ocr_engine", "timeout"}
+    ),
     "pdf": frozenset({"min_content_chars", "profile"}),
 }
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {

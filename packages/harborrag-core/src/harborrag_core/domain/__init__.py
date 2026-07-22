@@ -1,3 +1,4 @@
+from .chunk import Chunk, ChunkContext, ChunkRecord, ChunkSourceSpan
 from .document import Document, DocumentRelation
 from .element import DocumentElement
 from .parser import ParsedDocument, ParseInput, ParserFormat
@@ -7,6 +8,10 @@ from .retrieval import RetrievalQuery, RetrievalResult
 from .source import SourceRecord
 
 __all__ = [
+    "Chunk",
+    "ChunkContext",
+    "ChunkRecord",
+    "ChunkSourceSpan",
     "Document",
     "DocumentElement",
     "DocumentProvenance",
