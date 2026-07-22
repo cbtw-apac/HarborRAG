@@ -31,10 +31,16 @@ From a local checkout:
 uv sync --all-packages --extra dev
 uv run python -m harborrag_app.cli.main doctor --json
 uv run python scripts/run_mock_pipeline.py --json
-uv run pytest
 ```
 
 The doctor command should return an `ok: true` response with local engine and mock-runtime diagnostics. The pipeline loads one in-memory document, parses it with the real text parser, creates one demonstration chunk, and retrieves it without network access.
+
+`--extra dev` is enough for the commands above, but not for the full test suite: several packages gate optional adapters (Redis, Alembic/control-plane, `pydantic-settings`, the FastAPI/JWT API surface) behind their own extras that `--extra dev` doesn't pull in. To run `uv run pytest` the way CI does, sync with every extra first:
+
+```bash
+uv sync --all-packages --all-extras
+uv run pytest
+```
 
 For `pip`, platform notes, and optional adapter extras, see [Installation](docs/getting-started/installation.md).
 

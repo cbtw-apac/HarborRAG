@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import requests
 
@@ -19,9 +20,26 @@ from harborrag_adapters.connectors.utils.http import (
     require_same_origin_url,
     retry_delay_seconds,
     safe_error_detail,
+    same_origin,
 )
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Confluence/Jira Cloud attachment downloads redirect once to Atlassian's
+# media platform with a short-lived, file-scoped signed URL baked into the
+# query string. That single hop is safe to follow without our own Atlassian
+# credentials; every other cross-origin redirect target stays refused.
+_TRUSTED_MEDIA_REDIRECT_HOSTS = frozenset({"api.media.atlassian.com"})
+
+
+def _is_trusted_redirect(location: str, base_url: str) -> bool:
+    """Return whether a redirect target is safe to follow."""
+    parsed = urlparse(location)
+    if parsed.scheme.lower() != "https":
+        return False
+    if (parsed.hostname or "").lower() in _TRUSTED_MEDIA_REDIRECT_HOSTS:
+        return True
+    return same_origin(location, base_url)
 
 
 class AtlassianHttpConfig(Protocol):
@@ -76,7 +94,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         return payload
 
     def _download_bytes(self, url: str, *, label: str) -> bytes | None:
-        """Download a capped body without following redirects off origin."""
+        """Download a capped body, following at most one trusted media redirect."""
         try:
             safe_url = require_same_origin_url(url, self.base_url, label=label)
         except ValueError as exc:
@@ -89,7 +107,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             allow_redirects=False,
         )
         if 300 <= response.status_code < 400:
-            raise FetchError(f"{label} refused HTTP redirect {response.status_code}")
+            response = self._follow_trusted_redirect(response, label=label)
         try:
             content = read_capped_content(
                 response,
@@ -98,6 +116,41 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         except ResponseTooLargeError as exc:
             raise FetchError(str(exc)) from exc
         return content or None
+
+    def _follow_trusted_redirect(
+        self,
+        response: requests.Response,
+        *,
+        label: str,
+    ) -> requests.Response:
+        """Follow a single validated redirect hop without forwarding our credentials.
+
+        The initial request already proved the origin trustworthy; the redirect
+        Location is server-issued, not attacker-supplied. Untrusted targets
+        (anything but the same origin or Atlassian's media platform) are still
+        refused, and the fetch to the trusted target is anonymous so our
+        session's Confluence/Jira credentials never reach a different origin.
+        """
+        location = response.headers.get("Location") or ""
+        response.close()
+        if not location or not _is_trusted_redirect(location, self.base_url):
+            raise FetchError(f"{label} refused HTTP redirect {response.status_code}")
+        try:
+            follow_up = requests.get(
+                location,
+                headers={"Accept": "*/*"},
+                timeout=self.config.request_timeout_seconds,
+                stream=True,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise FetchError(str(exc)) from exc
+        if follow_up.status_code >= 400:
+            detail = safe_error_detail(follow_up.text)
+            raise FetchError(f"{label} redirect target failed with HTTP {follow_up.status_code}: {detail}")
+        if 300 <= follow_up.status_code < 400:
+            raise FetchError(f"{label} refused chained HTTP redirect {follow_up.status_code}")
+        return follow_up
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Send one HTTP request with rate limiting and retry handling."""

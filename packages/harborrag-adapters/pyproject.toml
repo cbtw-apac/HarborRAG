@@ -44,7 +44,7 @@ pdf = [
     "rapidocr>=3.1,<4",
 ]
 llm = [
-    "litellm>=1.90.0,<=1.92.0",
+    "litellm>=1.90.0,<1.92.0",
     "pydantic>=2.13,<3",
     "PyYAML>=6.0,<7",
 ]
@@ -54,7 +54,7 @@ opentelemetry = [
     "opentelemetry-sdk>=1.43,<2",
 ]
 test = [
-    "litellm>=1.90.0,<=1.92.0",
+    "litellm>=1.90.0,<1.92.0",
     "opentelemetry-api>=1.43,<2",
     "opentelemetry-sdk>=1.43,<2",
     "Pillow>=10.0.0",
