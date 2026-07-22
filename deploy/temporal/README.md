@@ -30,7 +30,9 @@ UI at <http://localhost:8080>.
 The PostgreSQL data is retained in the named
 `harborrag-temporal-postgresql-data` volume. A regular Compose stop or
 down does not delete it. The startup script creates this external volume when
-it is missing.
+it is missing. It also updates the persisted PostgreSQL role password from
+`TEMPORAL_POSTGRES_PASSWORD` before running schema migrations, so changing the
+local development credential does not require deleting the volume.
 
 ## Start HarborRAG workers
 

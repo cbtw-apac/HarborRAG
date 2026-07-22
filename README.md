@@ -103,10 +103,10 @@ TEMPORAL_START_WORKER=1
 HARBORRAG_TEMPORAL_WORKER_REPLICAS=2
 ```
 
-Do not change `TEMPORAL_POSTGRES_PASSWORD` after the PostgreSQL volume has been
-initialized unless the stored PostgreSQL role password is rotated at the same
-time. Changing only the environment file causes `temporal-schema` authentication
-to fail.
+`temporal_up.sh` keeps the stored PostgreSQL role password synchronized with
+`TEMPORAL_POSTGRES_PASSWORD` when the existing development volume is reused.
+Use the script after changing the password; invoking Compose directly does not
+perform that synchronization.
 
 ### 2. Start data services, Temporal, and workers
 

@@ -19,6 +19,22 @@ ensure_volume() {
     fi
 }
 
+sync_postgresql_password() {
+    # The postgres image only applies POSTGRES_PASSWORD when it initializes an
+    # empty data directory. Keep the existing role aligned with the env file
+    # when the external volume survives a container recreation.
+    docker compose "${compose_args[@]}" up --detach --wait postgresql
+    docker compose "${compose_args[@]}" exec -T -u postgres postgresql \
+        sh -ec 'psql \
+            -v ON_ERROR_STOP=1 \
+            -U "$POSTGRES_USER" \
+            -d postgres \
+            -v role_name="$POSTGRES_USER" \
+            -v role_password="$POSTGRES_PASSWORD" <<'"'"'SQL'"'"'
+ALTER ROLE :"role_name" PASSWORD :'"'"'role_password'"'"';
+SQL'
+}
+
 ensure_volume harborrag-temporal-postgresql-data
 
 compose_args=(
@@ -61,5 +77,7 @@ if [[ "${start_worker:-0}" == "1" ]]; then
     fi
     worker_scale_args+=(--scale "temporal-worker=${worker_replicas}")
 fi
+
+sync_postgresql_password
 
 docker compose "${compose_args[@]}" up --build --detach "${worker_scale_args[@]}"
