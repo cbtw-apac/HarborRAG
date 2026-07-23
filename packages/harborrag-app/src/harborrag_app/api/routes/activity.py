@@ -1,0 +1,47 @@
+"""Read-side activity (audit feed) endpoint (ML1/M1)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query, Request
+from harborrag_core.domain.activity import ActivityEntry
+from pydantic import BaseModel
+
+from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.services.base import BaseAppService
+
+router = APIRouter(tags=["activity"], dependencies=[Depends(require_role("reader"))])
+
+
+class ActivityEntryOut(BaseModel):
+    id: str
+    actor: str
+    verb: str
+    entity_type: str
+    entity_id: str
+    summary: str
+    created_at: datetime
+
+    @classmethod
+    def from_domain(cls, entry: ActivityEntry) -> ActivityEntryOut:
+        return cls(
+            id=entry.id,
+            actor=entry.actor,
+            verb=entry.verb,
+            entity_type=entry.entity_type,
+            entity_id=entry.entity_id,
+            summary=entry.summary,
+            created_at=entry.created_at,
+        )
+
+
+@router.get("/activity", response_model=list[ActivityEntryOut])
+async def list_activity(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+) -> list[ActivityEntryOut]:
+    """Most recent audit entries, newest first."""
+    service: BaseAppService = request.app.state.app_service
+    response = await service.list_activity(limit)
+    return [ActivityEntryOut.from_domain(entry) for entry in response.data["activity"]]

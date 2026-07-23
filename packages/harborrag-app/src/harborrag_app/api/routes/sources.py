@@ -1,0 +1,61 @@
+"""Read-side source endpoints (ML1/M1).
+
+Thin HTTP wrapper over BaseAppService.{list_sources,get_source}; write
+operations (create/update/delete, secrets handling) land with ML2.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
+from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.domain.source_config import SourceConfig
+from pydantic import BaseModel
+
+from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.services.base import BaseAppService
+
+router = APIRouter(tags=["sources"], dependencies=[Depends(require_role("reader"))])
+
+
+class SourceOut(BaseModel):
+    id: str
+    project_id: str
+    source_type: str
+    name: str
+    config: dict[str, Any]
+    secret_refs: list[str]
+    schedule: str | None
+    status: str
+
+    @classmethod
+    def from_domain(cls, source: SourceConfig) -> SourceOut:
+        return cls(
+            id=source.id,
+            project_id=source.project_id,
+            source_type=source.source_type,
+            name=source.name,
+            config=source.config,
+            secret_refs=source.secret_refs,
+            schedule=source.schedule,
+            status=source.status,
+        )
+
+
+@router.get("/sources", response_model=list[SourceOut])
+async def list_sources(request: Request, project_id: str | None = None) -> list[SourceOut]:
+    """Sources, optionally filtered to one project."""
+    service: BaseAppService = request.app.state.app_service
+    response = await service.list_sources(project_id)
+    return [SourceOut.from_domain(source) for source in response.data["sources"]]
+
+
+@router.get("/sources/{source_id}", response_model=SourceOut)
+async def get_source(source_id: str, request: Request) -> SourceOut:
+    """One source by id; 404 (enveloped) when it does not exist."""
+    service: BaseAppService = request.app.state.app_service
+    response = await service.get_source(source_id)
+    if not response.ok:
+        raise HarborNotFoundError(f"source {source_id!r} not found")
+    return SourceOut.from_domain(response.data["source"])

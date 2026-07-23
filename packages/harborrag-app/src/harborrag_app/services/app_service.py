@@ -9,6 +9,7 @@ from __future__ import annotations
 from harborrag_runtime.composition import CompositionRoot
 
 from harborrag_app.services.base import AppResponse, BaseAppService
+from harborrag_app.services.metrics import summarize_metrics
 
 
 class AppService(BaseAppService):
@@ -32,3 +33,45 @@ class AppService(BaseAppService):
     def ingest_once(self) -> AppResponse:
         """Run the deterministic mock ingestion (real submission lands in M2)."""
         return AppResponse(True, self._composition.run_mock_ingestion())
+
+    async def list_projects(self) -> AppResponse:
+        """All projects from the control-plane DB (ML1 read side)."""
+        projects = await self._composition.control_plane.projects.list()
+        return AppResponse(True, {"projects": projects})
+
+    async def get_project(self, project_id: str) -> AppResponse:
+        """One project by id; ok=False, error="not_found" when missing."""
+        project = await self._composition.control_plane.projects.get(project_id)
+        if project is None:
+            return AppResponse(False, error="not_found")
+        return AppResponse(True, {"project": project})
+
+    async def list_sources(self, project_id: str | None = None) -> AppResponse:
+        """Sources from the control-plane DB, optionally scoped to a project."""
+        sources = await self._composition.control_plane.sources.list(project_id)
+        return AppResponse(True, {"sources": sources})
+
+    async def get_source(self, source_id: str) -> AppResponse:
+        """One source by id; ok=False, error="not_found" when missing."""
+        source = await self._composition.control_plane.sources.get(source_id)
+        if source is None:
+            return AppResponse(False, error="not_found")
+        return AppResponse(True, {"source": source})
+
+    async def list_activity(self, limit: int = 50) -> AppResponse:
+        """Most recent audit entries from the control-plane DB."""
+        activity = await self._composition.control_plane.activity.list(limit)
+        return AppResponse(True, {"activity": activity})
+
+    async def get_settings(self) -> AppResponse:
+        """The workspace settings document (empty document if never written)."""
+        settings = await self._composition.control_plane.settings.get()
+        return AppResponse(True, {"settings": settings})
+
+    async def get_metrics(self) -> AppResponse:
+        """Dashboard summary counters aggregated from the control-plane DB."""
+        control_plane = self._composition.control_plane
+        projects = await control_plane.projects.list()
+        sources = await control_plane.sources.list()
+        jobs = await control_plane.jobs.list()
+        return AppResponse(True, summarize_metrics(projects, sources, jobs))
