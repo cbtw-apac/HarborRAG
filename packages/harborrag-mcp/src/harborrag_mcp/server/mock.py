@@ -7,6 +7,7 @@ from harborrag_mcp.policy import McpToolPolicy
 from harborrag_mcp.server.base import BaseMcpServer
 from harborrag_mcp.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp.tools.mock import MockHealthTool, MockRetrieveTool
+from harborrag_mcp.tools.vector_search import VectorSearchTool
 
 # Shared, process-wide default policy/audit singletons. The module-level
 # call_tool/list_tools facade in harborrag_mcp.server.__init__ constructs a
@@ -32,7 +33,9 @@ def _result_count(result: dict[str, object]) -> int:
 
 @dataclass(slots=True)
 class MockMcpServer(BaseMcpServer):
-    tools: list[BaseMcpTool] = field(default_factory=lambda: [MockHealthTool(), MockRetrieveTool()])
+    tools: list[BaseMcpTool] = field(
+        default_factory=lambda: [MockHealthTool(), MockRetrieveTool(), VectorSearchTool()]
+    )
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
 
