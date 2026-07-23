@@ -9,13 +9,13 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from harborrag_app.api.routes import (
-    health,
-    diagnostics,
-    projects,
-    sources,
     activity,
-    settings,
+    diagnostics,
+    health,
     metrics,
+    projects,
+    settings,
+    sources,
 )
 
 
