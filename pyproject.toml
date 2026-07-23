@@ -152,6 +152,13 @@ module = [
     "google.cloud.*",
     "azure.identity",
     "azure.keyvault.secrets",
+    "redis",
+    "redis.*",
+    "falkordb.*",
+    "langfuse",
+    "qdrant_client",
+    "liteparse",
+    "docling.*",
 ]
 ignore_missing_imports = true
 

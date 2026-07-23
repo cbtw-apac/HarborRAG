@@ -9,7 +9,7 @@ from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeploymen
 try:
     from qdrant_client import AsyncQdrantClient
 except ImportError:  # pragma: no cover - optional dependency
-    AsyncQdrantClient = None  # type: ignore[assignment,misc]
+    AsyncQdrantClient = None
 
 
 class QdrantDBClient(AsyncLifecycle):

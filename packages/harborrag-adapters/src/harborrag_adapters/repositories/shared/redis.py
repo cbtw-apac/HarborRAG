@@ -7,7 +7,7 @@ from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 try:
     import redis.asyncio as redis
 except ImportError:  # pragma: no cover - optional dependency
-    redis = None  # type: ignore[assignment]
+    redis = None
 
 
 class RedisClientProtocol(Protocol):

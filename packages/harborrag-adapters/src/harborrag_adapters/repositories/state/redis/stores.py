@@ -28,7 +28,7 @@ from harborrag_adapters.repositories.telemetry import traced_repository_operatio
 try:
     from redis.exceptions import WatchError
 except ImportError:  # pragma: no cover - optional dependency
-    WatchError = RuntimeError  # type: ignore[assignment,misc]
+    WatchError = RuntimeError
 
 if TYPE_CHECKING:
     from harborrag_adapters.repositories.state.redis.repository import RedisStateBackend

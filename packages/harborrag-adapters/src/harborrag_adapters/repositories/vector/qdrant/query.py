@@ -26,7 +26,7 @@ from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 try:
     from qdrant_client import models as qm
 except ImportError:  # pragma: no cover - optional dependency
-    qm = None  # type: ignore[assignment]
+    qm = None
 
 
 class QdrantQueryExecutor:

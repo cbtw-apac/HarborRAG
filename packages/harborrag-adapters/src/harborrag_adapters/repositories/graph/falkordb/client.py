@@ -7,7 +7,7 @@ from typing import Any
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
 try:
-    from falkordb.asyncio import FalkorDB  # type: ignore[import-untyped]
+    from falkordb.asyncio import FalkorDB
 except ImportError:  # pragma: no cover - optional dependency
     FalkorDB = None
 

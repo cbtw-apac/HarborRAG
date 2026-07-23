@@ -38,7 +38,7 @@ from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecu
 try:
     from qdrant_client import models as qm
 except ImportError:  # pragma: no cover - optional dependency
-    qm = None  # type: ignore[assignment]
+    qm = None
 
 
 class QdrantVectorRepository(HarborVectorRepository):
