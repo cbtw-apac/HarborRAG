@@ -100,10 +100,9 @@ def test_vector_search_score_threshold_zero_keeps_all():
     )
     tool = VectorSearchTool(pipeline=pipeline)
 
-    no_threshold = tool.call({"query": "doc"})
     with_zero = tool.call({"query": "doc", "score_threshold": 0.0})
 
-    assert with_zero["results"] == no_threshold["results"]
+    assert len(with_zero["results"]) == 5
 
 
 def test_vector_search_score_threshold_default_is_applied():

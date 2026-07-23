@@ -19,7 +19,7 @@ from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_engine.retrieval.mock import MockRetrievalPipeline
 from harborrag_mcp.tools.vector_search import VectorSearchTool
 
-from .qdrant_pipeline import QdrantRetrievalPipeline, deterministic_embed
+from .qdrant_pipeline import QdrantRetrievalPipeline
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -237,10 +237,9 @@ def test_vector_search_tool_score_threshold_zero_returns_all(
     mock_pipeline = MockRetrievalPipeline(live_results)
     tool = VectorSearchTool(pipeline=mock_pipeline)
 
-    no_threshold = tool.call({"query": "HarborRAG", "top_k": 10, "score_threshold": 0.0})
     with_zero = tool.call({"query": "HarborRAG", "top_k": 10, "score_threshold": 0.0})
 
-    assert with_zero["results"] == no_threshold["results"]
+    assert len(with_zero["results"]) == len(live_results)
 
 
 def test_vector_search_tool_default_threshold_matches_explicit_03(
