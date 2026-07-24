@@ -13,11 +13,25 @@ from bootstrap import (
     output_path_for,
     print_document,
     print_failure,
+    render_metadata_section,
     save_attachment_asset,
     save_output,
 )
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
+
+CONFLUENCE_METADATA_FIELDS: list[tuple[str, str]] = [
+    ("Content ID", "content_id"),
+    ("Content type", "content_type"),
+    ("Space", "space_key"),
+    ("Version", "version"),
+    ("Author", "author"),
+    ("Labels", "labels"),
+    ("Created", "created_at"),
+    ("Updated", "updated_at"),
+    ("Breadcrumb", "breadcrumb"),
+    ("Depth", "depth"),
+]
 
 
 def _save_image_attachments(
@@ -69,7 +83,8 @@ def _render_confluence_output(
                 text += f"\n\n--- attachment: {attachment.get('title')} ---\n{attachment_text}"
         return text
 
-    title = (document.metadata or {}).get("title") or record.id
+    metadata = document.metadata or {}
+    title = metadata.get("title") or record.id
     lines = [
         f"# {title}",
         "",
@@ -77,6 +92,7 @@ def _render_confluence_output(
         f"- **source**: `{record.id}`",
         f"- **content_type**: `{document.content_type}`",
         "",
+        *render_metadata_section(metadata, CONFLUENCE_METADATA_FIELDS),
         body,
     ]
     if attachments:

@@ -13,11 +13,33 @@ from bootstrap import (
     output_path_for,
     print_document,
     print_failure,
+    render_metadata_section,
     save_attachment_asset,
     save_output,
 )
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
+
+JIRA_METADATA_FIELDS: list[tuple[str, str]] = [
+    ("Issue key", "issue_key"),
+    ("Project", "project_name"),
+    ("Project key", "project_key"),
+    ("Issue type", "issue_type"),
+    ("Status", "status"),
+    ("Status category", "status_category"),
+    ("Priority", "priority"),
+    ("Assignee", "assignee"),
+    ("Reporter", "reporter"),
+    ("Creator", "creator"),
+    ("Labels", "labels"),
+    ("Components", "components"),
+    ("Fix versions", "fix_versions"),
+    ("Affected versions", "affected_versions"),
+    ("Created", "created_at"),
+    ("Updated", "updated_at"),
+    ("Resolved", "resolved_at"),
+    ("Due date", "due_date"),
+]
 
 
 def _save_image_attachments(
@@ -69,7 +91,8 @@ def _render_jira_output(
                 text += f"\n\n--- attachment: {attachment.get('title')} ---\n{attachment_text}"
         return text
 
-    title = (document.metadata or {}).get("title") or record.id
+    metadata = document.metadata or {}
+    title = metadata.get("title") or record.id
     lines = [
         f"# {title}",
         "",
@@ -77,6 +100,7 @@ def _render_jira_output(
         f"- **source**: `{record.id}`",
         f"- **content_type**: `{document.content_type}`",
         "",
+        *render_metadata_section(metadata, JIRA_METADATA_FIELDS),
         body,
     ]
     if attachments:

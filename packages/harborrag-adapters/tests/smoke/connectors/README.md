@@ -99,14 +99,29 @@ python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector jir
 
 `txt` saves a flat concatenation of the body and every parsed attachment's
 text. `md` saves a structured Markdown document instead: a `#` title, a
-metadata list (source, content type), the body, and each parsed attachment
-under its own `###` heading.
+short header list (source, content type), a `## Metadata` section with a
+curated set of provider-specific fields (Jira: issue key, status, assignee,
+priority, labels, ...; Confluence: space, version, author, labels, breadcrumb,
+...; Local: parser, page count, OCR settings, figures extracted, warnings —
+whichever fields have a value), the body, and each parsed attachment under
+its own `###` heading.
 
-`md` output also makes images actually viewable: image attachments
-(Confluence/JIRA) are downloaded into a `<output-file-stem>.assets/` sibling
-directory and embedded with `![title](stem.assets/filename)`; a local image
-file is embedded with a `file://` link to its original path. `txt` output has
-no such folder — it's OCR text only, since plain text can't reference a file.
+`md` output also makes images actually viewable:
+
+- Image attachments (Confluence/JIRA) are downloaded into a
+  `<output-file-stem>.assets/` sibling directory and embedded with
+  `![title](stem.assets/filename)`.
+- A local image *file* (the discovered record itself, e.g. a `.png`) is
+  embedded with a `file://` link to its original path.
+- Figures embedded *inside* a locally parsed PDF (via Docling) are copied into
+  the same `<output-file-stem>.assets/` convention and listed under a
+  `## Figures` heading — this requires `pdf-docling.image_output_dir` to be
+  set in `config/parsers.yaml` (see [Parser selection](#parser-selection));
+  full-page renders and table crops Docling can also produce are intentionally
+  skipped to keep output focused on actual figures.
+
+`txt` output has no such folder — it's OCR text only, since plain text can't
+reference a file.
 
 For Confluence/JIRA this covers the page/issue body plus every parsed
 attachment's text. For Local it saves the real parsed content of the
