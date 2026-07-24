@@ -1,3 +1,5 @@
+"""Parser configuration data shapes and construction recipes."""
+
 from __future__ import annotations
 
 import os

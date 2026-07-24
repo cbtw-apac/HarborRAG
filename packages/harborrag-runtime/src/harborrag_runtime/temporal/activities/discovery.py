@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 from itertools import islice
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_core.domain.source import SourceRecord
 from temporalio import activity
 
+from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.domain.source import SourceRecord
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     DiscoveryInput,
     DiscoveryResult,
     HeartbeatProgress,

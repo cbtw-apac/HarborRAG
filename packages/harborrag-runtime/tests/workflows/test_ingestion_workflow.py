@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from harborrag_runtime.temporal.models import (
+
+from harborrag_runtime.temporal.schemas import (
     ArtifactReference,
     ConcurrencyUpdate,
     DiscoveryResult,

@@ -16,7 +16,7 @@ from typing import cast
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from harborrag_adapters.repositories.database.control_plane.models import (
+from harborrag_adapters.repositories.database.control_plane.schemas import (
     ActivityRow,
     JobEventRow,
     JobRow,

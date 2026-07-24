@@ -1,10 +1,11 @@
+"""Validate declarative connector configuration and produce typed definitions."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from harborrag_runtime.config.connectors.models import ConnectorDefinition
 from harborrag_runtime.config.connectors.providers import (
     PYTHON_ONLY_CONFIG_FIELDS,
     SECRET_CONFIG_FIELDS,
@@ -13,6 +14,7 @@ from harborrag_runtime.config.connectors.providers import (
     config_field_names,
     supported_provider_names,
 )
+from harborrag_runtime.config.connectors.schemas import ConnectorDefinition
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.utils import (
     parse_environment_references,

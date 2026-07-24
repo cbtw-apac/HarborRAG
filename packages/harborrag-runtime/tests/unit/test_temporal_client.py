@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import pytest
+from temporalio.service import RPCError, RPCStatusCode
+
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import WorkflowOperationError
 from harborrag_runtime.temporal.client import TemporalRuntimeClient
 from harborrag_runtime.temporal.identity import ingestion_workflow_id
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactStage,
     IngestionRunInput,
     ResolutionDecision,
@@ -14,7 +16,6 @@ from harborrag_runtime.temporal.models import (
     RunStatus,
     WorkflowStatusView,
 )
-from temporalio.service import RPCError, RPCStatusCode
 
 
 class _Handle:

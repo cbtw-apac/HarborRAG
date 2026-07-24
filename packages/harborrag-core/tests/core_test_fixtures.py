@@ -1,3 +1,5 @@
+"""Core port fakes used only by the test suite."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable

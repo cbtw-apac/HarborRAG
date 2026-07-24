@@ -4,6 +4,8 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+
+from harborrag_adapters.parsers import ImageParser
 from harborrag_adapters.parsers.pdf_engine import (
     DoclingBackend,
     LiteParseBackend,
@@ -16,7 +18,7 @@ from harborrag_runtime.config import (
     ParserConfigurationError,
     load_parser_catalog,
 )
-from harborrag_runtime.config.parsers.models import (
+from harborrag_runtime.config.parsers.schemas import (
     ParserDefinition,
     PdfBackendDefinition,
 )

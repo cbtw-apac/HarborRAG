@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from harborrag_runtime.errors import RuntimeConfigurationError
-from harborrag_runtime.temporal.models import WorkflowOptions
 from harborrag_runtime.temporal.retry import ActivityRetryConfig
+from harborrag_runtime.temporal.schemas import WorkflowOptions
 from harborrag_runtime.temporal.task_queues import TaskQueueConfig
 
 if TYPE_CHECKING:

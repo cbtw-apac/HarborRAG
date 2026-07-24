@@ -22,8 +22,8 @@ def test_health_and_openapi_served() -> None:
 
 
 @pytest.mark.blackbox
-def test_readyz_ready_with_mock_composition() -> None:
-    """/readyz reports ready when the (mock) app service is healthy."""
+def test_readyz_ready_with_development_composition() -> None:
+    """/readyz reports ready when the development app service is healthy."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:
         response = client.get("/api/v1/readyz")
         assert response.status_code == 200

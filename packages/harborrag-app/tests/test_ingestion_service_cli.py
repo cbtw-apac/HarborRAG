@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 
 import pytest
+from app_test_fixtures import MockAppService
+
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.services.app_service import AppService
-from harborrag_app.services.mock import MockAppService
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     IngestionSummary,
     RunProgress,
     RunStatus,

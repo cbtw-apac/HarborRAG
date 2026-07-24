@@ -4,7 +4,9 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-from harborrag_runtime.temporal.models import (
+from temporalio.exceptions import ChildWorkflowError
+
+from harborrag_runtime.temporal.schemas import (
     ArtifactReference,
     ArtifactResult,
     ArtifactStatus,
@@ -13,7 +15,6 @@ from harborrag_runtime.temporal.models import (
     WorkflowOptions,
 )
 from harborrag_runtime.temporal.workflows.partition import IngestionPartitionWorkflow
-from temporalio.exceptions import ChildWorkflowError
 
 
 @pytest.fixture(autouse=True)

@@ -7,6 +7,8 @@ from hashlib import sha256
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
+from pydantic_core import to_jsonable_python
+
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageCheckpointConflictError,
@@ -35,8 +37,6 @@ from harborrag_engine.ingestion.indexing.schemas import (
     IndexingResult,
     IndexingStatus,
 )
-from pydantic_core import to_jsonable_python
-
 from harborrag_runtime.temporal.ingestioncodec import (
     dump_parsed_document,
     dump_payload,
@@ -51,7 +51,7 @@ from harborrag_runtime.temporal.ingestioncodec import (
     load_raw_document,
     load_source_record,
 )
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactReference,

@@ -6,7 +6,7 @@ Owns RAG orchestration using core contracts and adapter implementations.
 
 ```text
 ingestion/base.py + ingestion/chunking/
-retrieval/base.py + retrieval/mock.py
+retrieval/base.py + retrieval/evidence.py + retrieval/pipeline.py
 ingestion/indexing/{config,schemas,diff,preparation,batching,embedding,service}.py
 ingestion/indexing/vector/ + ingestion/indexing/graph/
 graph/base.py + graph/mock.py

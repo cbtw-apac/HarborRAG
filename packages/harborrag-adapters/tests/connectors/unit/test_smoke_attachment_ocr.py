@@ -14,7 +14,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
 def _bootstrap() -> dict[str, object]:
-    path = Path(__file__).parents[1] / "smoke" / "bootstrap.py"
+    path = Path(__file__).parents[2] / "smoke" / "connectors" / "bootstrap.py"
     return runpy.run_path(str(path))
 
 

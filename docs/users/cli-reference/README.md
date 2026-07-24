@@ -1,7 +1,7 @@
 # CLI reference
 
-The installed command is `harbor`. Run
-`uv run --package harborrag-app harbor ...` from a source checkout or
+The installed command is `harborrag`. Run
+`uv run --package harborrag-app harborrag ...` from a source checkout or
 `harbor ...` from an installed package.
 
 Typer provides grouped Rich help pages, validation, typo-friendly errors, and
@@ -10,12 +10,12 @@ summaries, and actionable artifact lists. The status and final-result views
 include the full ingestion stage sequence from discovery through reconciliation.
 While artifacts are processed concurrently, their preflight-through-finalize
 stages are marked `in flight` instead of presenting one misleading global
-current stage. Disable one-shot output color with `harbor --no-color ...`.
+current stage. Disable one-shot output color with `harborrag --no-color ...`.
 
 ## Diagnostics
 
 ```bash
-harbor doctor [--json]
+harborrag doctor [--json]
 ```
 
 `doctor` performs a live Temporal connection and workflow-service health check.
@@ -23,7 +23,7 @@ harbor doctor [--json]
 ## Ingestion
 
 ```bash
-harbor ingest start \
+harborrag ingest start \
   --tenant TENANT_ID \
   --connector CONNECTOR_NAME \
   [--run-id RUN_ID] \
@@ -31,14 +31,14 @@ harbor ingest start \
   [--generation-id GENERATION_ID] \
   [--wait] [--json]
 
-harbor ingest status RUN_ID [--json]
-harbor status RUN_ID [--json]
-harbor ingest wait RUN_ID [--json]
-harbor ingest watch RUN_ID [--refresh SECONDS]
-harbor ingest pause RUN_ID [--json]
-harbor ingest resume RUN_ID [--json]
-harbor ingest cancel RUN_ID [--force] [--json]
-harbor ingest retry RUN_ID --artifact ARTIFACT_ID [--artifact ARTIFACT_ID ...] [--json]
+harborrag ingest status RUN_ID [--json]
+harborrag status RUN_ID [--json]
+harborrag ingest wait RUN_ID [--json]
+harborrag ingest watch RUN_ID [--refresh SECONDS]
+harborrag ingest pause RUN_ID [--json]
+harborrag ingest resume RUN_ID [--json]
+harborrag ingest cancel RUN_ID [--force] [--json]
+harborrag ingest retry RUN_ID --artifact ARTIFACT_ID [--artifact ARTIFACT_ID ...] [--json]
 ```
 
 `start` generates omitted run, manifest, and generation IDs. `--wait` submits
@@ -47,7 +47,7 @@ the workflow and waits for its final result. `cancel` is graceful unless
 
 ### Live dashboard
 
-`harbor ingest watch RUN_ID` launches a full-screen Textual control room. It
+`harborrag ingest watch RUN_ID` launches a full-screen Textual control room. It
 polls Temporal without blocking terminal input and presents the run overview,
 pipeline stages, artifact progress, aggregate metrics, and artifacts requiring
 attention. The dashboard pauses automatic polling when the run reaches a

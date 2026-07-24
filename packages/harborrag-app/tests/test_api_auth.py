@@ -6,10 +6,10 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from app_test_fixtures import MockTokenVerifier
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.mock import MockTokenVerifier
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 

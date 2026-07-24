@@ -5,30 +5,38 @@ from __future__ import annotations
 import os
 
 from harborrag_app.services.base import BaseAppService
-from harborrag_app.services.mock import MockAppService
 
 
 def select_app_service() -> tuple[BaseAppService, str]:
     env = os.getenv("HARBORRAG_ENV", "dev")
     control_db_url = os.getenv("HARBORRAG_CONTROL_DB_URL", "")
     if env == "dev" and not control_db_url:
-        return MockAppService(), "mock"
+        return development_app_service(), "development"
     return runtime_app_service(), "production"
 
 
-def runtime_app_service() -> BaseAppService:
+def development_app_service() -> BaseAppService:
+    """Build a real AppService without provisioning a control-plane database."""
+
+    from harborrag_app.services.app_service import AppService
     from harborrag_runtime.composition import CompositionRoot
     from harborrag_runtime.config.settings import RuntimeSettings
 
-    from harborrag_app.services.app_service import AppService
-
     settings = RuntimeSettings()
     composition = CompositionRoot(
-        control_db={
-            "ping": "ok",
-            "scheme": "temporal-client",
-        }
+        control_db={"ping": "ok", "scheme": "development"},
+        mode="development",
     )
+    return AppService(composition, settings)
+
+
+def runtime_app_service() -> BaseAppService:
+    from harborrag_app.services.app_service import AppService
+    from harborrag_runtime.composition import CompositionRoot
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    settings = RuntimeSettings()
+    composition = CompositionRoot.production(settings)
     return AppService(composition, settings)
 
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_runtime.config.temporal import (
     TemporalRuntimeConfig,
     TemporalTLSConfig,
 )
 from harborrag_runtime.errors import RuntimeConfigurationError
-from harborrag_runtime.temporal.models import ArtifactReference, WorkflowOptions
+from harborrag_runtime.temporal.schemas import ArtifactReference, WorkflowOptions
 from harborrag_runtime.temporal.task_queues import ActivityClass, TaskQueueConfig
 
 

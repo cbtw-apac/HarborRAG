@@ -1,4 +1,4 @@
 from harborrag_mcp.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp.tools.mock import MockHealthTool, MockRetrieveTool
+from harborrag_mcp.tools.health import HealthTool
 
-__all__ = ["BaseMcpTool", "McpToolSpec", "MockHealthTool", "MockRetrieveTool"]
+__all__ = ["BaseMcpTool", "HealthTool", "McpToolSpec"]

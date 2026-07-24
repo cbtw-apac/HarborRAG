@@ -10,9 +10,9 @@ from harborrag_app.cli.commands import doctor, ingest, status
 from harborrag_app.cli.runner import CliState
 
 app = typer.Typer(
-    name="harbor",
+    name="harborrag",
     help="[bold cyan]Operate HarborRAG ingestion workflows.[/bold cyan]",
-    epilog="[dim]Use 'harbor ingest ACTION --help' for action-specific options.[/dim]",
+    epilog="[dim]Use 'harborrag ingest ACTION --help' for action-specific options.[/dim]",
     no_args_is_help=True,
     rich_markup_mode="rich",
     pretty_exceptions_enable=False,
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run the Typer application and expose a test-friendly integer exit code."""
 
     try:
-        app(args=argv, prog_name="harbor")
+        app(args=argv, prog_name="harborrag")
     except SystemExit as exc:
         return _exit_code(exc.code)
     return 0

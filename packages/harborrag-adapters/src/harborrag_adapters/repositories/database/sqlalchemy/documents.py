@@ -3,9 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from harborrag_core.schemas.documents import DocumentRecord, DocumentStatus
-from harborrag_core.schemas.ids import DocumentId
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 from sqlalchemy import insert as sa_insert
 from sqlalchemy import or_ as sa_or
 from sqlalchemy import select as sa_select
@@ -23,8 +20,11 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     traced_repository_operation,
 )
+from harborrag_core.schemas.documents import DocumentRecord, DocumentStatus
+from harborrag_core.schemas.ids import DocumentId
+from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 
-from .schema import DOCUMENTS, VECTOR_COLLECTIONS_KEY, document_from_row
+from .schemas import DOCUMENTS, VECTOR_COLLECTIONS_KEY, document_from_row
 
 
 class SQLDocumentRepository(DocumentRepository):

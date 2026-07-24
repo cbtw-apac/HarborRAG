@@ -7,6 +7,8 @@ import json
 from datetime import datetime
 from typing import Any
 
+from pydantic_core import to_jsonable_python
+
 from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument
@@ -27,9 +29,7 @@ from harborrag_engine.ingestion.indexing.schemas import (
     IndexingResult,
     IndexingStatus,
 )
-from pydantic_core import to_jsonable_python
-
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityResult,
     ArtifactReference,
     ArtifactStage,

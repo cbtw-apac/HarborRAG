@@ -6,14 +6,12 @@ from harborrag_mcp.audit import McpAuditLog
 from harborrag_mcp.policy import McpToolPolicy
 from harborrag_mcp.server.base import BaseMcpServer
 from harborrag_mcp.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp.tools.mock import MockHealthTool, MockRetrieveTool
+from harborrag_mcp.tools.health import HealthTool
 
 # Shared, process-wide default policy/audit singletons. The module-level
-# call_tool/list_tools facade in harborrag_mcp.server.__init__ constructs a
-# fresh MockMcpServer per invocation, so these live outside the dataclass
-# defaults (referenced via a lambda, not instantiated per-instance) to give
-# every facade call a durable audit trail and a consistent policy instead of
-# a policy/audit object that is discarded immediately after each call.
+# call_tool/list_tools facade constructs a fresh McpServer per invocation, so
+# these live outside the dataclass defaults to retain one audit trail and
+# policy across facade calls.
 _default_policy = McpToolPolicy()
 _default_audit_log = McpAuditLog()
 
@@ -31,8 +29,10 @@ def _result_count(result: dict[str, object]) -> int:
 
 
 @dataclass(slots=True)
-class MockMcpServer(BaseMcpServer):
-    tools: list[BaseMcpTool] = field(default_factory=lambda: [MockHealthTool(), MockRetrieveTool()])
+class McpServer(BaseMcpServer):
+    """In-process MCP transport enforcing policy and audit boundaries."""
+
+    tools: list[BaseMcpTool] = field(default_factory=lambda: [HealthTool()])
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
 

@@ -22,7 +22,8 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
-from harborrag_engine.builder import EngineBuilder
+from harborrag_engine.config import EngineConfig
+from harborrag_engine.policy import EnginePolicy
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -85,7 +86,8 @@ class ControlPlaneRepositories:
 class CompositionRoot:
     """Resources assembled for one production runtime process."""
 
-    engine_builder: EngineBuilder = field(default_factory=EngineBuilder)
+    engine_config: EngineConfig = field(default_factory=EngineConfig)
+    engine_policy: EnginePolicy = field(default_factory=EnginePolicy)
     control_plane: ControlPlaneRepositories | None = None
     control_db: dict[str, Any] = field(default_factory=dict)
     mode: str = "production"
@@ -119,7 +121,6 @@ class CompositionRoot:
             SqlSourceRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
-
         from harborrag_runtime.config.settings import (
             DEFAULT_CONTROL_DB_URL,
             RuntimeSettings,
@@ -167,7 +168,11 @@ class CompositionRoot:
                 "ready": self.control_db.get("ping") == "ok",
                 "control_db": dict(self.control_db),
             },
-            "engine": self.engine_builder.diagnostics(),
+            "engine": {
+                "tenant": self.engine_config.tenant,
+                "environment": self.engine_config.environment,
+                "max_concurrency": self.engine_policy.max_concurrency,
+            },
         }
 
 
@@ -175,6 +180,8 @@ def build_ingestion_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
     """Assemble the production connector-to-index worker dependency graph."""
+
+    from pydantic import SecretStr
 
     from harborrag_adapters.chunking import HarborChunk
     from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
@@ -207,8 +214,6 @@ def build_ingestion_dependencies(
         IndexingService,
         VectorIndexService,
     )
-    from pydantic import SecretStr
-
     from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.temporal.dependencies import RuntimeDependencies

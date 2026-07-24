@@ -22,7 +22,7 @@ from harborrag_runtime.temporal.identity import (
     artifact_workflow_id,
     ingestion_workflow_id,
 )
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ConcurrencyUpdate,
     IngestionRunInput,
     IngestionSummary,

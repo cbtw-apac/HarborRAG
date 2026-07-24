@@ -136,7 +136,9 @@ The app CLI calls `BaseAppService` rather than adapters. Production ingestion
 commands delegate to `TemporalRuntimeClient`. HTTP ingestion routes remain
 future work.
 
-The MCP facade follows the same rule. `MockMcpServer` provides in-process dispatch for a health tool and deterministic retrieval tool. Policy and audit primitives exist but are not automatically enforced. No protocol transport is implemented.
+The MCP facade follows the same rule. `McpServer` provides audited,
+policy-checked in-process dispatch for the health tool. No external protocol
+transport is implemented yet.
 
 ## Configuration boundaries
 

@@ -13,11 +13,7 @@ class McpToolSpec:
 
 
 class BaseMcpTool(ABC):
-    """Base class for MCP tools.
-
-    TODO: Implement service-only tools that enforce identity, tenant, capability budgets,
-    input validation, audit logging, and permission checks before calling runtime services.
-    """
+    """Contract for a service-level MCP tool."""
 
     spec: McpToolSpec
 

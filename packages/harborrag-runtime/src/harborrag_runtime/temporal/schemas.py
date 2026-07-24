@@ -1,4 +1,4 @@
-"""Versioned, compact contracts stored in Temporal workflow history."""
+"""Versioned, compact schemas stored in Temporal workflow history."""
 
 from __future__ import annotations
 

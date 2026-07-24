@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.repositories.object_store.memory import MemoryObjectStore
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument
@@ -24,7 +25,7 @@ from harborrag_runtime.temporal.ingestionstate import (
     IngestionObjectRepository,
     RepositoryRuntimeIngestionState,
 )
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactStage,
     ArtifactStageState,

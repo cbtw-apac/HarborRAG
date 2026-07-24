@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 
 import pytest
+from app_test_fixtures import MockAppService
+
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.services.base import BaseAppService
-from harborrag_app.services.mock import MockAppService
 
 
 class BrokenService(BaseAppService):

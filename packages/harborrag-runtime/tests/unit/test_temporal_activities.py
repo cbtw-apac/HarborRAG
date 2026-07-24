@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from temporalio.testing import ActivityEnvironment
+
 from harborrag_adapters.connectors.exceptions import AuthenticationError
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
@@ -15,7 +17,7 @@ from harborrag_runtime.temporal.activities.chunking import ChunkingActivities
 from harborrag_runtime.temporal.activities.discovery import DiscoveryActivities
 from harborrag_runtime.temporal.activities.indexing import IndexingActivities
 from harborrag_runtime.temporal.activities.processing import ProcessingActivities
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactReference,
@@ -25,7 +27,6 @@ from harborrag_runtime.temporal.models import (
     DiscoveryInput,
     DiscoveryResult,
 )
-from temporalio.testing import ActivityEnvironment
 
 
 class _Observer:

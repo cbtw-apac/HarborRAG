@@ -150,7 +150,7 @@ one-shot jobs and should show `Exited (0)`. The Temporal UI is available at
 ```bash
 export HARBORRAG_TEMPORAL_TARGET=localhost:7233
 
-uv run --package harborrag-app harbor ingest start \
+uv run --package harborrag-app harborrag ingest start \
   --tenant tenant-1 \
   --connector jira \
   --wait
@@ -160,11 +160,11 @@ For automation, add `--json`. Save the returned run ID and use it with the
 operator commands:
 
 ```bash
-uv run --package harborrag-app harbor ingest status RUN_ID --json
-uv run --package harborrag-app harbor ingest watch RUN_ID
-uv run --package harborrag-app harbor ingest pause RUN_ID
-uv run --package harborrag-app harbor ingest resume RUN_ID
-uv run --package harborrag-app harbor ingest cancel RUN_ID
+uv run --package harborrag-app harborrag ingest status RUN_ID --json
+uv run --package harborrag-app harborrag ingest watch RUN_ID
+uv run --package harborrag-app harborrag ingest pause RUN_ID
+uv run --package harborrag-app harborrag ingest resume RUN_ID
+uv run --package harborrag-app harborrag ingest cancel RUN_ID
 ```
 
 Cancellation is graceful unless `--force` is supplied. A later ingestion may

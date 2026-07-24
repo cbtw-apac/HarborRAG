@@ -95,7 +95,7 @@ private content, spend paid API quota, download models, or require Docker,
 native libraries, network routes, and credentials. Every module with smoke
 checks therefore owns an advanced setup runbook:
 
-- [Connector smoke setup](connectors/smoke/README.md)
+- [Connector smoke setup](smoke/connectors/README.md)
 - [Model smoke setup](models/smoke/README.md)
 - [Parser smoke setup](parsers/smoke/README.md)
 - [Repository smoke setup](repositories/smoke/README.md)

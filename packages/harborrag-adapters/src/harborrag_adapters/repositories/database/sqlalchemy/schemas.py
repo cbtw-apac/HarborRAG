@@ -1,11 +1,13 @@
+"""SQLAlchemy table schemas and row-to-domain mappings."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, Text
 
 from harborrag_adapters.repositories.shared.sqlalchemy import UTCDateTime
+from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord
 
 METADATA = MetaData()
 

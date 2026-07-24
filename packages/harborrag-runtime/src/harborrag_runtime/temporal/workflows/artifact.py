@@ -8,7 +8,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from harborrag_runtime.temporal.identity import artifact_workflow_id
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactResult,

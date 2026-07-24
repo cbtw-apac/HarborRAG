@@ -28,7 +28,9 @@ policy = EnginePolicy(max_concurrency=4, retrieval_top_k=10)
 | `max_concurrency` | `4` | Engine concurrency policy; must be at least one |
 | `retrieval_top_k` | `10` | Default retrieval result count |
 
-`EngineBuilder(config=config, policy=policy).diagnostics()` exposes the environment, tenant, and concurrency values. `CompositionRoot.production()` constructs the default builder while assembling control-plane repositories.
+`CompositionRoot.diagnostics()` exposes the configured engine environment,
+tenant, and concurrency values. `CompositionRoot.production()` assembles those
+engine settings alongside the control-plane repositories.
 
 ## Ingestion runtime environment
 

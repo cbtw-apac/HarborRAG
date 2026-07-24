@@ -19,5 +19,5 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -e packages/harborrag-mcp \
     && python -m pip install -e packages/harborrag
 
-ENTRYPOINT ["harbor"]
+ENTRYPOINT ["harborrag"]
 CMD ["doctor", "--json"]

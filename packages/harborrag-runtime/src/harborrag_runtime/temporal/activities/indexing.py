@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from harborrag_engine.ingestion.indexing.schemas import IndexingStatus
 from temporalio import activity
 
+from harborrag_engine.ingestion.indexing.schemas import IndexingStatus
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactStage,

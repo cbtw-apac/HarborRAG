@@ -1,13 +1,11 @@
+"""Validate declarative parser configuration and produce typed definitions."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
 from harborrag_runtime.config.errors import ParserConfigurationError
-from harborrag_runtime.config.parsers.models import (
-    ParserDefinition,
-    PdfBackendDefinition,
-)
 from harborrag_runtime.config.parsers.providers import (
     PDF_BACKEND_PYTHON_ONLY_FIELDS,
     PDF_BACKEND_SECRET_FIELDS,
@@ -16,6 +14,10 @@ from harborrag_runtime.config.parsers.providers import (
     pdf_backend_spec,
     supported_parser_names,
     supported_pdf_backend_names,
+)
+from harborrag_runtime.config.parsers.schemas import (
+    ParserDefinition,
+    PdfBackendDefinition,
 )
 from harborrag_runtime.config.utils import (
     parse_environment_references,

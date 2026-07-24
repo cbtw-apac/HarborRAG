@@ -1,4 +1,4 @@
-"""ST8 selection rule: mock in bare dev, production once a control DB is set."""
+"""ST8 selection rule: lightweight development composition or production."""
 
 from __future__ import annotations
 
@@ -8,22 +8,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.dependencies import select_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.services.app_service import AppService
-from harborrag_app.services.mock import MockAppService
+from harborrag_app.services.selection import select_app_service
 
 
 @pytest.mark.blackbox
-def test_dev_without_control_db_selects_mock(
+def test_dev_without_control_db_selects_development_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """HARBORRAG_ENV=dev with no control DB -> mock composition."""
+    """Bare development uses the real app service without database provisioning."""
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
     monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
     service, mode = select_app_service()
-    assert isinstance(service, MockAppService)
-    assert mode == "mock"
+    assert isinstance(service, AppService)
+    assert mode == "development"
+    assert service.health().data["diagnostics"]["mode"] == "development"
 
 
 @pytest.mark.blackbox

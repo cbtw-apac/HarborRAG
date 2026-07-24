@@ -17,11 +17,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from harborrag_app.api.auth.dependencies import build_token_verifier
-from harborrag_app.api.dependencies import select_app_service
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.middleware import TraceIdMiddleware
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.services.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
 
 API_PREFIX = "/api/v1"

@@ -6,11 +6,7 @@ from harborrag_mcp.tools.base import McpToolSpec
 
 
 class BaseMcpServer(ABC):
-    """Base class for an MCP server transport.
-
-    TODO: Implement the real MCP transport by exposing only BaseMcpTool instances, adding audit
-    logs for every call, and rejecting raw database/provider operations.
-    """
+    """Contract for an MCP server exposing only audited service-level tools."""
 
     @abstractmethod
     def list_tools(self) -> list[McpToolSpec]:

@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
-from harborrag_engine.ingestion.chunking.schemas import ChunkingRequest
 from temporalio import activity
 
+from harborrag_engine.ingestion.chunking.schemas import ChunkingRequest
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactStage,

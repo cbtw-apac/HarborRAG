@@ -1,4 +1,4 @@
-"""Control-plane ORM models: the 12 tables from the HTTP-backend plan §6 (ST5).
+"""Control-plane ORM schemas: the 12 tables from the HTTP-backend plan §6 (ST5).
 
 Conventions: TEXT ids (stable_hash_id output), JSON payload columns (JSONB on
 Postgres via variant), timezone-aware UTC datetimes (UTCDateTime restores

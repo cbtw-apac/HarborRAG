@@ -1,7 +1,7 @@
 """Temporal-specific ingestion contracts, workflows, activities, and workers."""
 
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     IngestionRunInput,
     IngestionSummary,
     ResolutionDecision,

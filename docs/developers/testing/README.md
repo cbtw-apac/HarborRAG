@@ -88,9 +88,9 @@ heavyweight models. They are intentionally outside normal pytest discovery.
 Connector examples:
 
 ```bash
-python packages/harborrag-adapters/tests/connectors/smoke/local.py
-python packages/harborrag-adapters/tests/connectors/smoke/jira.py
-python packages/harborrag-adapters/tests/connectors/smoke/run_all.py
+python packages/harborrag-adapters/tests/smoke/connectors/local.py
+python packages/harborrag-adapters/tests/smoke/connectors/jira.py
+python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
 ```
 
 Model examples:

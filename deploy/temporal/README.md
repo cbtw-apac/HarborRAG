@@ -89,7 +89,7 @@ Submit a run from the host:
 
 ```bash
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-  uv run --package harborrag-app harbor ingest start \
+  uv run --package harborrag-app harborrag ingest start \
   --tenant tenant-1 \
   --connector local-docs \
   --wait

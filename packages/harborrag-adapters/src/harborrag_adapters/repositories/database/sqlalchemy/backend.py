@@ -2,12 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-)
-
 from harborrag_adapters.repositories.database.base import (
     HarborDatabaseBackend,
     HarborUnitOfWork,
@@ -18,10 +12,15 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
 )
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+)
 
 from .chunks import SQLChunkRepository, SQLOutboxRepository
 from .documents import SQLDocumentRepository
-from .schema import METADATA
+from .schemas import METADATA
 
 
 class SQLAlchemyUnitOfWork(HarborUnitOfWork):

@@ -10,7 +10,7 @@ from dataclasses import replace
 from temporalio import activity
 
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactStage,

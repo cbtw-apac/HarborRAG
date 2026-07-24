@@ -6,15 +6,14 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
-from harborrag_runtime.composition import CompositionRoot
-from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.temporal.client import TemporalRuntimeClient
-from harborrag_runtime.temporal.models import IngestionRunInput
 from pydantic_core import to_jsonable_python
 
 from harborrag_app.services.base import AppResponse, BaseAppService
 from harborrag_runtime.composition import CompositionRoot
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.temporal.client import TemporalRuntimeClient
+from harborrag_runtime.temporal.schemas import IngestionRunInput
 
 type ClientFactory = Callable[
     [TemporalRuntimeConfig],
@@ -52,7 +51,7 @@ class AppService(BaseAppService):
     def ingest_once(self) -> AppResponse:
         return AppResponse(
             False,
-            error="use 'harbor ingest start' to submit the Temporal ingestion workflow",
+            error="use 'harborrag ingest start' to submit the Temporal ingestion workflow",
         )
 
     async def runtime_health(self) -> AppResponse:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
-from harborrag_runtime.temporal.models import PAYLOAD_VERSION
+from harborrag_runtime.temporal.schemas import PAYLOAD_VERSION
 
 
 @dataclass(frozen=True, slots=True)

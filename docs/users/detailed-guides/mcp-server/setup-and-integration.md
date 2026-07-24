@@ -5,9 +5,9 @@
 Instantiate the mock server when tests need direct control:
 
 ```python
-from harborrag_mcp.server import MockMcpServer
+from harborrag_mcp.server import McpServer
 
-server = MockMcpServer()
+server = McpServer()
 for spec in server.list_tools():
     print(spec.name, spec.input_schema)
 
@@ -18,7 +18,10 @@ Or use the package-level convenience functions shown in [MCP Mock Tools](README.
 
 ## External clients
 
-There is no command to add to an IDE or desktop MCP configuration yet. `BaseMcpServer` defines only Python `list_tools()` and `call_tool()` methods, and `MockMcpServer` dispatches them in process.
+There is no command to add to an IDE or desktop MCP configuration yet.
+`BaseMcpServer` defines the Python `list_tools()` and `call_tool()` boundary,
+and `McpServer` dispatches the health tool in process with audit and policy
+checks.
 
 An external integration still needs:
 

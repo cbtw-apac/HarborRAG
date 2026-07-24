@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-harbor = "harborrag_app.cli.main:main"
+harborrag = "harborrag_app.cli.main:main"
 
 [project.optional-dependencies]
 api = [

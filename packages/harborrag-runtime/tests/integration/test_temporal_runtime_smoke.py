@@ -4,7 +4,11 @@ import os
 from dataclasses import replace
 
 import pytest
-from harborrag_runtime.temporal.models import (
+from temporalio import activity
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Worker
+
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ArtifactReference,
@@ -19,9 +23,6 @@ from harborrag_runtime.temporal.models import (
     RunStatus,
 )
 from harborrag_runtime.temporal.workflows import IngestionRunWorkflow
-from temporalio import activity
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
 
 
 @activity.defn(name="harborrag.discover_artifacts")

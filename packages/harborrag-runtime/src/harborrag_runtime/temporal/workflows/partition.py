@@ -10,7 +10,7 @@ from temporalio.exceptions import ChildWorkflowError
 from temporalio.workflow import ChildWorkflowHandle, ParentClosePolicy
 
 from harborrag_runtime.temporal.identity import artifact_workflow_id
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactReference,
     ArtifactResult,
     ArtifactStatus,

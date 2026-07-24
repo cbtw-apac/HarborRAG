@@ -65,19 +65,19 @@ override for deployments that need a custom service graph.
 The normal operator path is the app CLI:
 
 ```bash
-harbor ingest start --tenant tenant-1 --connector local-docs --wait
-harbor ingest status RUN_ID --json
-harbor ingest pause RUN_ID
-harbor ingest resume RUN_ID
-harbor ingest retry RUN_ID --artifact ARTIFACT_ID
-harbor ingest cancel RUN_ID
+harborrag ingest start --tenant tenant-1 --connector local-docs --wait
+harborrag ingest status RUN_ID --json
+harborrag ingest pause RUN_ID
+harborrag ingest resume RUN_ID
+harborrag ingest retry RUN_ID --artifact ARTIFACT_ID
+harborrag ingest cancel RUN_ID
 ```
 
 Applications can also use the framework-owned client directly:
 
 ```python
 from harborrag_runtime import RuntimeLifecycle
-from harborrag_runtime.temporal.models import IngestionRunInput
+from harborrag_runtime.temporal.schemas import IngestionRunInput
 
 runtime = await RuntimeLifecycle.open(config, dependencies)
 reference = await runtime.client.start_ingestion(

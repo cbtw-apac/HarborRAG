@@ -5,8 +5,8 @@ Owns audited MCP tools and server boundary.
 ## Folder ownership
 
 ```text
-tools/base.py + tools/mock.py
-server/base.py + server/mock.py
+tools/base.py + tools/health.py
+server/base.py + server/server.py
 ```
 
 ## Team deliverables

@@ -4,9 +4,6 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from harborrag_core.schemas.documents import ChunkRecord
-from harborrag_core.schemas.ids import DocumentId
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import insert as sa_insert
 from sqlalchemy import select as sa_select
@@ -21,8 +18,11 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     traced_repository_operation,
 )
+from harborrag_core.schemas.documents import ChunkRecord
+from harborrag_core.schemas.ids import DocumentId
+from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 
-from .schema import CHUNKS, OUTBOX, chunk_from_row, chunk_metadata
+from .schemas import CHUNKS, OUTBOX, chunk_from_row, chunk_metadata
 
 
 class SQLChunkRepository(ChunkRepository):

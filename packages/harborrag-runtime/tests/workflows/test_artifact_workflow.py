@@ -4,7 +4,8 @@ from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
-from harborrag_runtime.temporal.models import (
+
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityResult,
     ArtifactReference,
     ArtifactStage,

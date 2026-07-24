@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from harborrag_adapters.repositories.database.sqlalchemy.schema import (
+
+from harborrag_adapters.repositories.database.sqlalchemy.schemas import (
     chunk_from_row,
     chunk_metadata,
 )

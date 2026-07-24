@@ -81,7 +81,7 @@ After individual checks pass, run every configured provider (including GitHub
 and SharePoint):
 
 ```bash
-python packages/harborrag-adapters/tests/connectors/smoke/run_all.py
+python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
 ```
 
 `run_all.py` skips providers returning `2`, fails when any configured provider
@@ -153,7 +153,7 @@ declarative parser catalog, so the smoke bootstrap wires it directly.
 
 ```bash
 HARBOR_SMOKE_PDF_BACKEND=docling \
-  python packages/harborrag-adapters/tests/connectors/smoke/confluence.py
+  python packages/harborrag-adapters/tests/smoke/connectors/confluence.py
 ```
 
 Docling defaults to `auto`, asks Docling's accelerator resolver for the best
@@ -163,7 +163,7 @@ smoke check. Override it with `auto`, `cpu`, `cuda`, `cuda:N`, `mps`, or `xpu`:
 ```bash
 HARBOR_SMOKE_PDF_BACKEND=docling \
 HARBOR_SMOKE_DOCLING_DEVICE=xpu \
-  python packages/harborrag-adapters/tests/connectors/smoke/confluence.py
+  python packages/harborrag-adapters/tests/smoke/connectors/confluence.py
 ```
 
 CUDA and XPU require a matching accelerator-enabled PyTorch build; MPS requires

@@ -7,7 +7,7 @@ from typing import cast
 from temporalio import workflow
 from temporalio.workflow import ActivityCancellationType
 
-from harborrag_runtime.temporal.models import (
+from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
     ReconciliationInput,
