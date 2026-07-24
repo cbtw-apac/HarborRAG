@@ -52,6 +52,7 @@ dev = [
     "Pillow>=10.0.0",
     "pytesseract>=0.3.13",
     "cairosvg>=2.7.0",
+    "import-linter>=2.13,<3",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
     "pre-commit>=3.5.0",
@@ -161,18 +162,21 @@ addopts = [
     "--strict-config",
     "-v",
     "--tb=short",
+    "-m",
+    "not integration and not e2e and not smoke",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-    "smoke: fast import and wiring tests",
+    "unit: fast, isolated, no I/O",
+    "contract: port/protocol conformance suite",
+    "integration: real adapter against a real backend",
+    "smoke: minimal post-deploy liveness check",
+    "e2e: full-stack scenario test",
     "blackbox: public API behavior tests",
     "graybox: public behavior tests that assert observable internal signals",
     "whitebox: internal architecture and contract tests",
     "requires_deps: marks tests requiring optional dependencies",
     "workflow: marks tests that validate GitHub Actions workflow",
-    "contract: reusable behavioral contracts shared by adapter implementations",
     "chaos: deterministic fault-injection and recovery tests",
     "performance: bounded local performance and concurrency tests",
     "load: correctness-oriented local micro-load tests",
@@ -251,16 +255,20 @@ select = [
     "F",
     "I",
     "B",
+    "C90",
     "C4",
+    "PLR0913",
     "UP",
 ]
 ignore = [
     "E501",
     "B008",
-    "C901",
     "B017",
     "B904",
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.isort]
 known-first-party = [
