@@ -6,13 +6,13 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     ObservabilityConfig,
     TelemetryFailureMode,
 )
-from harborrag_adapters.models.common.litellm_telemetry import LiteLLMTelemetryCallback
-from harborrag_adapters.models.common.security import PrivacyConfig
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.litellm_telemetry import LiteLLMTelemetryCallback
+from harborrag_adapters.models.runtime.security import PrivacyConfig
+from harborrag_adapters.models.runtime.telemetry import (
     OperationStatus,
     TelemetryDispatcher,
     TelemetryDispatchError,
@@ -21,7 +21,7 @@ from harborrag_adapters.models.common.telemetry import (
     disabled_telemetry,
     litellm_telemetry_metadata,
 )
-from harborrag_adapters.models.common.telemetry_adapters import (
+from harborrag_adapters.models.runtime.telemetry_adapters import (
     LangfuseTelemetry,
     OpenTelemetryTelemetry,
     StructuredLoggingTelemetry,

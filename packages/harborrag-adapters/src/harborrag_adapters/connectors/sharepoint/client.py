@@ -14,7 +14,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     RateLimitError,
 )
-from harborrag_adapters.connectors.utils.http import (
+from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
     require_same_origin_url,

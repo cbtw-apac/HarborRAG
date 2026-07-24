@@ -8,12 +8,12 @@ from dataclasses import dataclass
 
 import pytest
 
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     CircuitBreakerConfig,
     RetryPolicyConfig,
     RoutingStrategy,
 )
-from harborrag_adapters.models.common.lifecycle import (
+from harborrag_adapters.models.runtime.lifecycle import (
     AsyncLifecycleResource,
     LifecycleResource,
     ResourceOwnership,
@@ -22,9 +22,9 @@ from harborrag_adapters.models.common.lifecycle import (
     close_callbacks,
     close_resources,
 )
-from harborrag_adapters.models.common.retry import RetryController
-from harborrag_adapters.models.common.routing import DeploymentSelector
-from harborrag_adapters.models.common.sync import (
+from harborrag_adapters.models.runtime.retry import RetryController
+from harborrag_adapters.models.runtime.routing import DeploymentSelector
+from harborrag_adapters.models.runtime.sync import (
     AsyncLoopRunner,
     run_awaitable_synchronously,
 )

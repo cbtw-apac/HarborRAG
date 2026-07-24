@@ -7,7 +7,6 @@ from enum import StrEnum
 
 from harborrag_core.schemas.documents import ChunkRecord
 from harborrag_core.schemas.storage import StorageOperationContext
-
 from harborrag_engine.ingestion.chunking.schemas import (
     ChunkingResult,
     ChunkManifest,

@@ -16,6 +16,7 @@ from .manifest import (
     ChunkManifestRepository,
     ChunkPersistenceService,
 )
+from .pipeline import ChunkingService, build_default_chunking_service
 from .registry import ChunkStrategyRegistry
 from .router import ChunkingRouter, SelectedChunkRoute
 from .schemas import (
@@ -28,7 +29,6 @@ from .schemas import (
     ChunkUnit,
     ChunkValidationResult,
 )
-from .service import ChunkingService, build_default_chunking_service
 from .strategies import ChunkStrategy
 from .validation import ChunkValidator
 

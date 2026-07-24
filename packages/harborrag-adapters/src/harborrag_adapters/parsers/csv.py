@@ -7,10 +7,15 @@ from typing import ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .archive_safety import guard_input_size
 from .base import BaseParser
 from .exceptions import ParseError
+from .input_loading import (
+    parse_input_suffix,
+    read_parse_input_bytes,
+    read_parse_input_text,
+)
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import guard_input_size
 
 parser_logger = get_parser_logger("csv")
 
@@ -36,16 +41,18 @@ class CsvParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        guard_input_size(parse_input.read_bytes())
+        guard_input_size(read_parse_input_bytes(parse_input))
         try:
-            text = parse_input.read_text()
+            text = read_parse_input_text(parse_input)
         except UnicodeDecodeError as exc:
             raise ParseError(f"Could not decode CSV input: {exc}") from exc
         sample = text[:4096]
         try:
             dialect = csv.Sniffer().sniff(sample)
         except csv.Error:
-            dialect = csv.excel_tab if parse_input.suffix == ".tsv" else csv.excel
+            dialect = (
+                csv.excel_tab if parse_input_suffix(parse_input) == ".tsv" else csv.excel
+            )
 
         try:
             rows = list(csv.reader(StringIO(text), dialect=dialect))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from temporalio import activity
 
+from harborrag_runtime.temporal.activities.schemas import ActivityTelemetryContext
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
 from harborrag_runtime.temporal.schemas import (
@@ -40,10 +41,12 @@ class MaintenanceActivities:
         record_activity(
             self._dependencies,
             "runtime.artifact.finalized",
-            run_id=request.run_id,
-            artifact_id=request.state.artifact.artifact_id,
-            artifact_revision_id=request.state.artifact_revision_id,
-            generation_id=request.state.generation_id,
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                artifact_id=request.state.artifact.artifact_id,
+                artifact_revision_id=request.state.artifact_revision_id,
+                generation_id=request.state.generation_id,
+            ),
         )
         return completed
 
@@ -65,13 +68,15 @@ class MaintenanceActivities:
         record_activity(
             self._dependencies,
             "runtime.ingestion.reconciled",
-            run_id=request.run_id,
-            generation_id=request.generation_id,
-            measurements={
-                "processed": request.progress.processed,
-                "failed": request.progress.failed,
-                "quarantined": request.progress.quarantined,
-            },
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                generation_id=request.generation_id,
+                measurements={
+                    "processed": request.progress.processed,
+                    "failed": request.progress.failed,
+                    "quarantined": request.progress.quarantined,
+                },
+            ),
         )
         return result
 
@@ -94,9 +99,11 @@ class MaintenanceActivities:
         record_activity(
             self._dependencies,
             "runtime.resolution.applied",
-            run_id=request.run_id,
-            artifact_id=request.state.artifact.artifact_id,
-            artifact_revision_id=request.state.artifact_revision_id,
-            generation_id=request.state.generation_id,
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                artifact_id=request.state.artifact.artifact_id,
+                artifact_revision_id=request.state.artifact_revision_id,
+                generation_id=request.state.generation_id,
+            ),
         )
         return receipt

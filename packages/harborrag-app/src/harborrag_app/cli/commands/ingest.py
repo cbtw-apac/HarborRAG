@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from harborrag_app.cli.runner import invoke, invoke_dashboard
-from harborrag_app.services.base import AppResponse, BaseAppService
+from harborrag_app.workflow_control import AppResponse, BaseAppService
 
 app = typer.Typer(
     help="Start, inspect, and control durable Temporal ingestion workflows.",

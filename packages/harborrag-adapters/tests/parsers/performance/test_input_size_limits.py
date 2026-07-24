@@ -7,9 +7,9 @@ import pytest
 from harborrag_adapters.parsers import csv as csv_parser_module
 from harborrag_adapters.parsers import html_engine as html_parser_module
 from harborrag_adapters.parsers import markdown as markdown_parser_module
+from harborrag_adapters.parsers.archive_safety import DEFAULT_MAX_INPUT_BYTES, guard_input_size
 from harborrag_adapters.parsers.engine import HarborParser
 from harborrag_adapters.parsers.exceptions import ParseError
-from harborrag_adapters.parsers.utils import DEFAULT_MAX_INPUT_BYTES, guard_input_size
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]

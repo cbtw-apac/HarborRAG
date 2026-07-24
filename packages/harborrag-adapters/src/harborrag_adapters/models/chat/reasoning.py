@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from harborrag_adapters.models.common.responses import (
+from harborrag_adapters.models.runtime.responses import (
     coerce_sdk_mapping as coerce_mapping,
 )
 from harborrag_core.models.errors import HarborChatProviderError

@@ -6,36 +6,48 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.parsers.input_loading import (
+    coerce_parse_input,
+    parse_input_suffix,
+    parse_input_supports,
+    read_parse_input_bytes,
+    read_parse_input_text,
+)
 from harborrag_core.domain.parser import ParsedDocument, ParseInput, ParserFormat
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_read_text_prefers_bom_encodings() -> None:
-    assert ParseInput(content="cafe".encode("utf-8-sig")).read_text() == "cafe"
-    assert ParseInput(content="cafe".encode("utf-16")).read_text() == "cafe"
+    assert read_parse_input_text(ParseInput(content="cafe".encode("utf-8-sig"))) == "cafe"
+    assert read_parse_input_text(ParseInput(content="cafe".encode("utf-16"))) == "cafe"
 
 
 def test_read_text_plain_utf8_and_explicit_encoding() -> None:
-    assert ParseInput(content=b"hello").read_text() == "hello"
-    assert ParseInput(content="ne".encode("latin-1")).read_text(encoding="latin-1") == "ne"
+    assert read_parse_input_text(ParseInput(content=b"hello")) == "hello"
+    assert (
+        read_parse_input_text(
+            ParseInput(content="ne".encode("latin-1")), encoding="latin-1"
+        )
+        == "ne"
+    )
 
 
 def test_read_text_uses_confidence_detection_not_cp1252_mojibake() -> None:
     text = "Grüße — こんにちは"
-    assert ParseInput(content=text.encode("utf-8")).read_text() == text
+    assert read_parse_input_text(ParseInput(content=text.encode("utf-8"))) == text
 
 
 def test_read_text_raises_on_undecodable_bytes_instead_of_replacing() -> None:
     with pytest.raises(UnicodeDecodeError):
-        ParseInput(content=b"\xff\xfe\x00bad\x81").read_text()
+        read_parse_input_text(ParseInput(content=b"\xff\xfe\x00bad\x81"))
 
 
 def test_coerce_shapes() -> None:
     pi = ParseInput(content="x")
-    assert ParseInput.coerce(pi) is pi
-    assert ParseInput.coerce(b"bytes").content == b"bytes"
-    assert ParseInput.coerce("plain string").content == "plain string"
+    assert coerce_parse_input(pi) is pi
+    assert coerce_parse_input(b"bytes").content == b"bytes"
+    assert coerce_parse_input("plain string").content == "plain string"
 
     class Rawish:
         source = "docs/report.pdf"
@@ -45,7 +57,7 @@ def test_coerce_shapes() -> None:
         def text(self) -> str:
             return "body"
 
-    coerced = ParseInput.coerce(Rawish())
+    coerced = coerce_parse_input(Rawish())
     assert coerced.content == "body"
     assert coerced.filename == "report.pdf"
     assert coerced.metadata == {"k": "v"}
@@ -54,9 +66,9 @@ def test_coerce_shapes() -> None:
 def test_coerce_path_object_reads_from_disk(tmp_path: Path) -> None:
     target = tmp_path / "d.txt"
     target.write_text("disk body", encoding="utf-8")
-    coerced = ParseInput.coerce(target)
+    coerced = coerce_parse_input(target)
     assert coerced.path == target
-    assert coerced.read_text() == "disk body"
+    assert read_parse_input_text(coerced) == "disk body"
 
 
 def test_parse_input_requires_path_or_content() -> None:
@@ -65,21 +77,21 @@ def test_parse_input_requires_path_or_content() -> None:
 
 
 def test_suffix_and_repr() -> None:
-    assert ParseInput(content="x", filename="A.PDF").suffix == ".pdf"
-    assert ParseInput(content="x", path=Path("/tmp/z.MD")).suffix == ".md"
+    assert parse_input_suffix(ParseInput(content="x", filename="A.PDF")) == ".pdf"
+    assert parse_input_suffix(ParseInput(content="x", path=Path("/tmp/z.MD"))) == ".md"
     assert "content_type" in repr(ParseInput(content="x", filename="a.txt"))
     assert "path=" in repr(ParseInput(content=b"x", path=Path("/tmp/a.txt")))
 
 
 def test_is_supported_matches_suffix_and_content_type() -> None:
     pi = ParseInput(content="x", filename="a.json", content_type="application/json")
-    assert pi.is_supported([ParserFormat.JSON])
-    assert pi.is_supported(["json"])
-    assert not pi.is_supported([ParserFormat.PDF])
+    assert parse_input_supports(pi, [ParserFormat.JSON])
+    assert parse_input_supports(pi, ["json"])
+    assert not parse_input_supports(pi, [ParserFormat.PDF])
 
 
 def test_read_bytes_from_str_and_missing() -> None:
-    assert ParseInput(content="abc").read_bytes() == b"abc"
+    assert read_parse_input_bytes(ParseInput(content="abc")) == b"abc"
 
 
 def test_parsed_document_defaults() -> None:

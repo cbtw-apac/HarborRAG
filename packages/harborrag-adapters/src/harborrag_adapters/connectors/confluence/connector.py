@@ -7,10 +7,10 @@ from collections.abc import Iterator
 from itertools import islice
 from typing import Any
 
+from harborrag_adapters.connectors.attachments.processing import AttachmentProcessor
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
-from harborrag_adapters.connectors.shared.attachments import AttachmentProcessor
 from harborrag_adapters.parsers import HarborParser
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -25,7 +25,7 @@ from .mappers import (
     content_id_from_record,
     display_url,
 )
-from .utils import build_cql, validate_content_id
+from .query import build_cql, validate_content_id
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 

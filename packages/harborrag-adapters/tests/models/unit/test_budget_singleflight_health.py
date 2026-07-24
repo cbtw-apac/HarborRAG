@@ -9,19 +9,19 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from harborrag_adapters.models.common.budget import (
+from harborrag_adapters.models.runtime.budget import (
     BudgetEstimationError,
     BudgetExceededError,
     InMemoryBudgetPolicy,
     NoopBudgetPolicy,
     estimate_request_tokens,
 )
-from harborrag_adapters.models.common.distributed_config import (
+from harborrag_adapters.models.runtime.distributed_config import (
     BudgetPolicyConfig,
 )
-from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
-from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
-from harborrag_adapters.models.common.singleflight import (
+from harborrag_adapters.models.runtime.redis_client import RedisConnectionLifecycle
+from harborrag_adapters.models.runtime.redis_config import RedisConnectionConfig
+from harborrag_adapters.models.runtime.singleflight import (
     InMemorySingleFlight,
     NoopSingleFlight,
     RedisSingleFlight,

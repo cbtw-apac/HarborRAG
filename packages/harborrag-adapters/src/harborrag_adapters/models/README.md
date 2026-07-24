@@ -144,7 +144,7 @@ import logging
 import litellm
 
 from harborrag_adapters.models.chat import HarborChatClient
-from harborrag_adapters.models.common import (
+from harborrag_adapters.models.runtime import (
     LangfuseTelemetry,
     LiteLLMTelemetryCallback,
     OpenTelemetryTelemetry,

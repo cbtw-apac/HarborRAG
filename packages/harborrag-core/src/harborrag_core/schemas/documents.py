@@ -266,7 +266,6 @@ class ChunkRecord(StrictModel):
     @model_validator(mode="after")
     def validate_ranges(self) -> ChunkRecord:
         """Require canonical and compatibility location fields to agree."""
-
         _validate_range("offset", self.start_offset, self.end_offset)
         _validate_range("page", self.page_start, self.page_end)
         _validate_range("line", self.start_line, self.end_line)
@@ -274,27 +273,8 @@ class ChunkRecord(StrictModel):
             raise ValueError("structural_path parts must be non-empty")
         if any(not element_id.strip() for element_id in self.source_element_ids):
             raise ValueError("source_element_ids must be non-empty")
-        if self.source_span is not None:
-            if self.source_span.start_offset != self.start_offset:
-                raise ValueError("source_span start_offset does not match flat field")
-            if self.source_span.end_offset != self.end_offset:
-                raise ValueError("source_span end_offset does not match flat field")
-            if self.source_span.start_line != self.start_line:
-                raise ValueError("source_span start_line does not match flat field")
-            if self.source_span.end_line != self.end_line:
-                raise ValueError("source_span end_line does not match flat field")
-            if self.source_span.page_start != self.page_start:
-                raise ValueError("source_span page_start does not match flat field")
-            if self.source_span.page_end != self.page_end:
-                raise ValueError("source_span page_end does not match flat field")
-            if self.source_span.source_element_ids != self.source_element_ids:
-                raise ValueError("source_span element IDs do not match flat field")
-        if self.context.structural_path != self.structural_path:
-            raise ValueError("context structural_path does not match flat field")
-        if self.context.previous_chunk_id != self.previous_chunk_id:
-            raise ValueError("context previous_chunk_id does not match flat field")
-        if self.context.next_chunk_id != self.next_chunk_id:
-            raise ValueError("context next_chunk_id does not match flat field")
+        _validate_source_span(self)
+        _validate_context(self)
         return self
 
 
@@ -303,3 +283,33 @@ def _validate_range(label: str, start: int | None, end: int | None) -> None:
         raise ValueError(f"{label} bounds must be provided together")
     if start is not None and end is not None and end < start:
         raise ValueError(f"{label} end must not precede start")
+
+
+def _validate_source_span(chunk: ChunkRecord) -> None:
+    span = chunk.source_span
+    if span is None:
+        return
+    expected = {
+        "start_offset": chunk.start_offset,
+        "end_offset": chunk.end_offset,
+        "start_line": chunk.start_line,
+        "end_line": chunk.end_line,
+        "page_start": chunk.page_start,
+        "page_end": chunk.page_end,
+        "source_element_ids": chunk.source_element_ids,
+    }
+    for name, value in expected.items():
+        if getattr(span, name) != value:
+            label = "element IDs" if name == "source_element_ids" else name
+            raise ValueError(f"source_span {label} does not match flat field")
+
+
+def _validate_context(chunk: ChunkRecord) -> None:
+    expected = {
+        "structural_path": chunk.structural_path,
+        "previous_chunk_id": chunk.previous_chunk_id,
+        "next_chunk_id": chunk.next_chunk_id,
+    }
+    for name, value in expected.items():
+        if getattr(chunk.context, name) != value:
+            raise ValueError(f"context {name} does not match flat field")

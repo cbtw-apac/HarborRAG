@@ -1,11 +1,11 @@
 # Top-level adapter tests
 
-This module covers `AdapterBuilder`, `AdapterRegistry`, package-level provider
-slots, and the minimal cross-family composition exposed by the adapter package.
+This module covers adapter base contracts and the minimal cross-family
+composition exposed by the adapter package.
 
 ```text
 adapters/
-  unit/       deterministic builder, registry, base-contract, and test-double checks
+  unit/       deterministic base-contract and cross-family checks
   README.md
 ```
 

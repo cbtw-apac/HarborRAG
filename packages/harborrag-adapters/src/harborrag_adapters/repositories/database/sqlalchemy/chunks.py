@@ -13,7 +13,7 @@ from harborrag_adapters.repositories.database.base import (
     OutboxRepository,
 )
 from harborrag_adapters.repositories.errors import StorageErrorContext
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     traced_repository_operation,

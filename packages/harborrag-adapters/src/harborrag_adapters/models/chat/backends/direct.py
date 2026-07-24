@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 
 from ..backend_config import ChatBackendType
 from .base import BaseLiteLLMChatBackend

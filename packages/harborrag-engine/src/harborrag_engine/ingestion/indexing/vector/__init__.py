@@ -1,3 +1,4 @@
+from .indexer import VectorIndexService
 from .planner import VectorMutationPlanner, deterministic_vector_point_id
 from .schemas import (
     VectorIndexResult,
@@ -6,7 +7,6 @@ from .schemas import (
     VectorMutationPlan,
     VectorValidationResult,
 )
-from .service import VectorIndexService
 from .validation import VectorValidationService
 
 __all__ = [

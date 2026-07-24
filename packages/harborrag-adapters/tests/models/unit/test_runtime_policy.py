@@ -6,11 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from harborrag_adapters.models.chat import HarborChatClient, HarborChatClientConfig
-from harborrag_adapters.models.common.cache import (
+from harborrag_adapters.models.runtime.cache import (
     InMemoryModelCache,
     deterministic_cache_key,
 )
-from harborrag_adapters.models.common.litellm_router import build_litellm_router
+from harborrag_adapters.models.runtime.litellm_router import build_litellm_router
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.models.errors import (
     HarborChatAuthenticationError,

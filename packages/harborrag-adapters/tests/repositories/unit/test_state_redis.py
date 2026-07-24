@@ -19,7 +19,6 @@ from harborrag_adapters.repositories.state.redis.stores import (
     RedisCheckpointStore,
     RedisLeaseStore,
     RedisStateStore,
-    WatchError,
 )
 from harborrag_adapters.repositories.telemetry import RepositoryTelemetry
 from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState

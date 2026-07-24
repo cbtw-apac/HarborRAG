@@ -6,7 +6,7 @@ from harborrag_adapters.models.chat import (
     HarborChatClient,
     HarborChatClientConfig,
 )
-from harborrag_adapters.models.common.config import RoutingEngine
+from harborrag_adapters.models.runtime.config import RoutingEngine
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatMessage,

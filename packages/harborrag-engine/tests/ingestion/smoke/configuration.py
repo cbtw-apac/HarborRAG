@@ -11,11 +11,12 @@ from bootstrap import (
     env_int,
     require_env,
 )
+from pydantic import SecretStr
+
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_adapters.repositories.graph.falkordb import FalkorDBGraphConfig
 from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
 from harborrag_engine.ingestion.indexing import IndexingConfig
-from pydantic import SecretStr
 
 
 def embedding_config() -> HarborEmbedClientConfig:

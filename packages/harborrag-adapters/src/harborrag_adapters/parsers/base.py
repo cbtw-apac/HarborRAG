@@ -5,7 +5,8 @@ from typing import Any, ClassVar
 
 from harborrag_core.domain.parser import ParseInput
 
-from .utils import input_content_type, input_suffix, normalize_suffix, parse_metadata
+from .input_loading import coerce_parse_input
+from .routing import input_content_type, input_suffix, normalize_suffix, parse_metadata
 
 
 class BaseParser[ParserInput, ParserOutput](ABC):
@@ -59,7 +60,7 @@ class BaseParser[ParserInput, ParserOutput](ABC):
 
     def coerce_input(self, input: Any) -> ParseInput:
         """Convert a raw-doc-like object into the parser input contract."""
-        return ParseInput.coerce(input)
+        return coerce_parse_input(input)
 
     def metadata_for(self, input: ParseInput, **extra: Any) -> dict[str, Any]:
         """Build common parser metadata without repeating boilerplate."""

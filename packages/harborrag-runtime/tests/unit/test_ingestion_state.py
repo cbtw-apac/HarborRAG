@@ -21,10 +21,8 @@ from harborrag_engine.ingestion.indexing import (
     IndexingResult,
     IndexingStatus,
 )
-from harborrag_runtime.temporal.ingestionstate import (
-    IngestionObjectRepository,
-    RepositoryRuntimeIngestionState,
-)
+from harborrag_runtime.temporal.artifact_objects import IngestionObjectRepository
+from harborrag_runtime.temporal.ingestionstate import RepositoryRuntimeIngestionState
 from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactStage,

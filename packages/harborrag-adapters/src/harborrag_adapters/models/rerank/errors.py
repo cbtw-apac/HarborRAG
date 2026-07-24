@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harborrag_adapters.models.common.errors import (
+from harborrag_adapters.models.runtime.errors import (
     ModelErrorCategory,
     normalize_model_exception,
 )

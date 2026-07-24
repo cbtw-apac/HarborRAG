@@ -6,14 +6,14 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.common.litellm_telemetry import LiteLLMTelemetryCallback
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.litellm_telemetry import LiteLLMTelemetryCallback
+from harborrag_adapters.models.runtime.telemetry import (
     OperationStatus,
     TelemetryDispatcher,
     TelemetryEvent,
     TelemetryEventType,
 )
-from harborrag_adapters.models.common.telemetry_adapters import (
+from harborrag_adapters.models.runtime.telemetry_adapters import (
     LangfuseTelemetry,
     OpenTelemetryTelemetry,
     StructuredLoggingTelemetry,

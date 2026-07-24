@@ -5,8 +5,8 @@ from typing import Any
 import pytest
 
 from harborrag_adapters.repositories.cache.client import HarborCacheDBClient
+from harborrag_adapters.repositories.cache.memory.backend import MemoryCacheBackend
 from harborrag_adapters.repositories.cache.memory.config import MemoryCacheConfig
-from harborrag_adapters.repositories.cache.memory.repository import MemoryCacheBackend
 from harborrag_adapters.repositories.database.client import HarborDatabaseClient
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.database.sqlite.repository import (

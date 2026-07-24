@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.repositories.shared import sqlalchemy as sqlalchemy_module
-from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient
-from harborrag_adapters.repositories.shared.sqlite import sqlite_url
+
+from harborrag_adapters.repositories.backends import sqlalchemy as sqlalchemy_module
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlite import sqlite_url
 
 
 def make_client(

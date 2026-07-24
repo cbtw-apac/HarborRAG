@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
-from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
-from harborrag_adapters.models.common.secrets import (
+from harborrag_adapters.models.runtime.redis_client import RedisConnectionLifecycle
+from harborrag_adapters.models.runtime.redis_config import RedisConnectionConfig
+from harborrag_adapters.models.runtime.secrets import (
     AwsSecretsManagerResolver,
     AzureKeyVaultResolver,
     CompositeSecretResolver,
@@ -15,8 +15,8 @@ from harborrag_adapters.models.common.secrets import (
     GoogleSecretManagerResolver,
     VaultSecretResolver,
 )
-from harborrag_adapters.models.common.secrets.base import parse_secret_reference
-from harborrag_adapters.models.common.security import SecretReference
+from harborrag_adapters.models.runtime.secrets.base import parse_secret_reference
+from harborrag_adapters.models.runtime.security import SecretReference
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

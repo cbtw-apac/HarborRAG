@@ -20,6 +20,7 @@ from harborrag_engine.ingestion.indexing.graph import (
     GraphValidationService,
     UniversalGraphProjector,
 )
+from harborrag_engine.ingestion.indexing.pipeline import IndexingService
 from harborrag_engine.ingestion.indexing.preparation import EmbeddingInputPreparer
 from harborrag_engine.ingestion.indexing.schemas import (
     ChunkDiffEntry,
@@ -36,7 +37,6 @@ from harborrag_engine.ingestion.indexing.schemas import (
     IndexingStatus,
     PreparedEmbeddingInput,
 )
-from harborrag_engine.ingestion.indexing.service import IndexingService
 from harborrag_engine.ingestion.indexing.vector import (
     VectorIndexResult,
     VectorIndexService,

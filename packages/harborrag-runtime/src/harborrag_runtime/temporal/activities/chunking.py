@@ -8,6 +8,7 @@ from dataclasses import replace
 from temporalio import activity
 
 from harborrag_engine.ingestion.chunking.schemas import ChunkingRequest
+from harborrag_runtime.temporal.activities.schemas import ActivityTelemetryContext
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
 from harborrag_runtime.temporal.schemas import (
@@ -69,10 +70,12 @@ class ChunkingActivities:
         record_activity(
             self._dependencies,
             "runtime.chunking.completed",
-            run_id=request.run_id,
-            artifact_id=request.state.artifact.artifact_id,
-            artifact_revision_id=revision_id,
-            generation_id=request.state.generation_id,
-            measurements={"chunks": result.manifest.total_chunk_count},
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                artifact_id=request.state.artifact.artifact_id,
+                artifact_revision_id=revision_id,
+                generation_id=request.state.generation_id,
+                measurements={"chunks": result.manifest.total_chunk_count},
+            ),
         )
         return completed

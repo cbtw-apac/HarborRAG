@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.connectors.utils.http import require_same_origin_url
+from harborrag_adapters.connectors.policies.http import require_same_origin_url
 
 pytestmark = pytest.mark.blackbox
 

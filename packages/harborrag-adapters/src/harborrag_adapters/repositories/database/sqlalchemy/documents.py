@@ -15,7 +15,7 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageCheckpointConflictError,
     StorageErrorContext,
 )
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     traced_repository_operation,

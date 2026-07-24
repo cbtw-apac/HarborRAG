@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from types import MappingProxyType
 
-from harborrag_adapters.models.common.provider import (
+from harborrag_adapters.models.runtime.provider import (
     ImmutableProviderRegistry,
     ProviderMetadata,
 )

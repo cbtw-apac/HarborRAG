@@ -1,5 +1,9 @@
 """Confluence connector public API."""
 
+from harborrag_adapters.connectors.attachments.processing import (
+    AttachmentMetadata,
+    FileType,
+)
 from harborrag_adapters.connectors.confluence.config import (
     ConfluenceDeploymentType,
     ConfluenceSpaceConfig,
@@ -10,8 +14,4 @@ from harborrag_adapters.connectors.confluence.schemas import (
     ConfluenceHierarchyMetadata,
     ConfluenceMetadata,
     ConfluencePageReference,
-)
-from harborrag_adapters.connectors.shared.attachments import (
-    AttachmentMetadata,
-    FileType,
 )

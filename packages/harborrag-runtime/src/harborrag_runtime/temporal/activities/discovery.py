@@ -9,6 +9,7 @@ from temporalio import activity
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_runtime.temporal.activities.schemas import ActivityTelemetryContext
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
 from harborrag_runtime.temporal.schemas import (
@@ -92,8 +93,10 @@ class DiscoveryActivities:
         record_activity(
             self._dependencies,
             "runtime.discovery.completed",
-            run_id=request.run_id,
-            measurements={"discovered": len(references)},
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                measurements={"discovered": len(references)},
+            ),
         )
         return DiscoveryResult(
             artifacts=tuple(references),

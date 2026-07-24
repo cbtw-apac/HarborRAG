@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.schemas.documents import ChunkRecord
 from harborrag_engine.ingestion.chunking import (

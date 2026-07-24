@@ -2,30 +2,30 @@ from __future__ import annotations
 
 from typing import cast
 
-from harborrag_adapters.models.common.budget import (
+from harborrag_adapters.models.runtime.budget import (
     BudgetAuthorization,
     ModelBudgetPolicy,
 )
-from harborrag_adapters.models.common.cache import (
+from harborrag_adapters.models.runtime.cache import (
     CacheDecision,
     ModelResponseCache,
     ResponseCacheController,
 )
-from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.execution import RoutedModelExecutor
-from harborrag_adapters.models.common.litellm_router import router_model_name
-from harborrag_adapters.models.common.middleware import (
+from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.execution import RoutedModelExecutor
+from harborrag_adapters.models.runtime.litellm_router import router_model_name
+from harborrag_adapters.models.runtime.middleware import (
     MiddlewarePipeline,
     middleware_context,
 )
-from harborrag_adapters.models.common.routing_state import RoutingStateStore
-from harborrag_adapters.models.common.routing_types import RoutedAttempt
-from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.routing_state import RoutingStateStore
+from harborrag_adapters.models.runtime.routing_types import RoutedAttempt
+from harborrag_adapters.models.runtime.singleflight import SingleFlightCoordinator
+from harborrag_adapters.models.runtime.telemetry import (
     TelemetryDispatcher,
     litellm_telemetry_metadata,
 )
-from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_adapters.models.runtime.telemetry_operation import ModelTelemetryOperation
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig

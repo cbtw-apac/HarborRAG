@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient
-from harborrag_adapters.repositories.shared.sqlite import sqlite_url
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlite import sqlite_url
 
 
 class SQLiteStateDBClient(SQLAlchemyDBClient):

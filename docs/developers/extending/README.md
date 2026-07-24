@@ -47,7 +47,9 @@ Register ordinary parsers in `HarborParser.default_parsers()` when they should b
 
 ## Model providers and behavior
 
-Model code lives under `models/chat`, `models/embed`, `models/rerank`, and shared `models/common` helpers. Core request/response/error types live in `harborrag_core.models`.
+Model code lives under `models/chat`, `models/embed`, `models/rerank`, and
+provider runtime capabilities under `models/runtime`. Core request, response,
+and error shapes live in the corresponding `harborrag_core` schema modules.
 
 When adding provider support:
 

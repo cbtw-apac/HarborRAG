@@ -6,15 +6,15 @@ from collections.abc import Iterator
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_adapters.connectors.utils.helpers import (
+from harborrag_adapters.connectors.policies.validation import (
     enforce_collection_limit,
     extend_with_limit,
 )
+from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .client import ConfluenceClient
 from .config import ConfluenceSpaceConfig
-from .utils import (
+from .query import (
     COMMENT_EXPAND,
     CONTENT_EXPAND,
     LIGHT_EXPAND,

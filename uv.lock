@@ -2326,15 +2326,11 @@ name = "harborrag-engine"
 version = "0.1.0"
 source = { editable = "packages/harborrag-engine" }
 dependencies = [
-    { name = "harborrag-adapters" },
     { name = "harborrag-core" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
-    { name = "harborrag-core", editable = "packages/harborrag-core" },
-]
+requires-dist = [{ name = "harborrag-core", editable = "packages/harborrag-core" }]
 
 [[package]]
 name = "harborrag-mcp"

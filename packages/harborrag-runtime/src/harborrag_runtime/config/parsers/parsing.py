@@ -6,6 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from harborrag_runtime.config.errors import ParserConfigurationError
+from harborrag_runtime.config.loading import (
+    parse_environment_references,
+    reject_unknown_keys,
+    require_boolean,
+    require_string_mapping,
+)
 from harborrag_runtime.config.parsers.providers import (
     PDF_BACKEND_PYTHON_ONLY_FIELDS,
     PDF_BACKEND_SECRET_FIELDS,
@@ -18,12 +24,6 @@ from harborrag_runtime.config.parsers.providers import (
 from harborrag_runtime.config.parsers.schemas import (
     ParserDefinition,
     PdfBackendDefinition,
-)
-from harborrag_runtime.config.utils import (
-    parse_environment_references,
-    reject_unknown_keys,
-    require_boolean,
-    require_string_mapping,
 )
 
 _PARSER_KEYS = frozenset({"enabled", "engines", "parser", "settings"})

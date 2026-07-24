@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageCapabilityError,
-    HarborStorageValidationError,
 )
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
@@ -16,6 +14,9 @@ from harborrag_adapters.repositories.telemetry import (
 )
 from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
+from harborrag_adapters.repositories.vector.qdrant.collections import (
+    QdrantCollectionMixin,
+)
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
@@ -41,7 +42,7 @@ except ImportError:  # pragma: no cover - optional dependency
     qm = None  # type: ignore[assignment]
 
 
-class QdrantVectorRepository(HarborVectorRepository):
+class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
     """Stores and searches tenant-scoped dense vectors through Qdrant."""
 
     def __init__(
@@ -68,7 +69,7 @@ class QdrantVectorRepository(HarborVectorRepository):
             operation_timeout_seconds=config.operation_timeout_seconds,
         )
         self._specs: dict[tuple[str, str], VectorCollectionSpec] = {}
-        self._collection_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._collection_locks = {}
         self._queries = QdrantQueryExecutor(
             client=self._database,
             config=config,
@@ -124,134 +125,6 @@ class QdrantVectorRepository(HarborVectorRepository):
                 "storage": self._database.storage,
             },
         )
-
-    @traced_repository_operation("ensure_collection")
-    async def ensure_collection(
-        self,
-        spec: VectorCollectionSpec,
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        if not spec.tenant_scoped:
-            raise HarborStorageValidationError(
-                "the Qdrant adapter requires tenant_scoped=True",
-                context=self._queries.error_context(
-                    "ensure_collection", spec.name, context=context
-                ),
-            )
-        key = self._queries.spec_key(spec.name, context)
-        lock = self._collection_locks.setdefault(key, asyncio.Lock())
-        async with lock:
-            await self._ensure_collection(spec, context=context)
-
-    async def _ensure_collection(
-        self,
-        spec: VectorCollectionSpec,
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        """Create or validate one collection while its local lock is held."""
-
-        name = self._queries.collection_name(spec.name, context)
-        client = self._database.raw
-        if not await client.collection_exists(name):
-            try:
-                await client.create_collection(
-                    collection_name=name,
-                    vectors_config=qm.VectorParams(
-                        size=spec.dimension,
-                        distance=QdrantMapper.distance(spec.distance, qm),
-                    ),
-                )
-            except Exception:
-                # Another worker may create the tenant collection after our
-                # existence check. Treat that race as success only when the
-                # collection can now be observed; its schema is validated below.
-                if not await client.collection_exists(name):
-                    raise
-            else:
-                for field in spec.metadata_indexes:
-                    await client.create_payload_index(
-                        collection_name=name,
-                        field_name=field,
-                        field_schema=self._payload_schema(field),
-                        wait=True,
-                    )
-                self._specs[self._queries.spec_key(spec.name, context)] = spec
-                return
-        persisted = await self._queries.require_spec(spec.name, context)
-        if (persisted.dimension, persisted.distance) != (spec.dimension, spec.distance):
-            raise HarborStorageValidationError(
-                f"collection {spec.name!r} already exists with dimension "
-                f"{persisted.dimension} and distance {persisted.distance}",
-                context=self._queries.error_context("ensure_collection", spec.name),
-            )
-        info = await client.get_collection(name)
-        existing_indexes = getattr(info, "payload_schema", {}) or {}
-        for field in spec.metadata_indexes:
-            existing = existing_indexes.get(field)
-            if existing is not None and self._payload_schema_matches(field, existing):
-                continue
-            if existing is not None:
-                await client.delete_payload_index(
-                    collection_name=name,
-                    field_name=field,
-                    wait=True,
-                )
-            await client.create_payload_index(
-                collection_name=name,
-                field_name=field,
-                field_schema=self._payload_schema(field),
-                wait=True,
-            )
-        self._specs[self._queries.spec_key(spec.name, context)] = spec
-
-    @staticmethod
-    def _payload_schema(field: str) -> Any:
-        """Map Harbor lifecycle fields to their native Qdrant payload type."""
-
-        if field == "is_active":
-            return qm.PayloadSchemaType.BOOL
-        return qm.PayloadSchemaType.KEYWORD
-
-    @classmethod
-    def _payload_schema_matches(cls, field: str, existing: object) -> bool:
-        """Return whether a known provider schema matches Harbor's field contract."""
-
-        if isinstance(existing, Mapping):
-            current = existing.get("data_type")
-        else:
-            current = getattr(existing, "data_type", None)
-        if current is None:
-            # Older clients and test doubles may expose only index presence.
-            return True
-        expected = cls._payload_schema(field)
-        current_value = getattr(current, "value", current)
-        expected_value = getattr(expected, "value", expected)
-        return str(current_value).lower() == str(expected_value).lower()
-
-    @traced_repository_operation("collection_exists")
-    async def collection_exists(
-        self,
-        name: str,
-        *,
-        context: StorageOperationContext,
-    ) -> bool:
-        return bool(
-            await self._database.raw.collection_exists(self._queries.collection_name(name, context))
-        )
-
-    @traced_repository_operation("delete_collection")
-    async def delete_collection(
-        self,
-        name: str,
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        physical_name = self._queries.collection_name(name, context)
-        if await self._database.raw.collection_exists(physical_name):
-            await self._database.raw.delete_collection(collection_name=physical_name)
-        self._specs.pop(self._queries.spec_key(name, context), None)
 
     @traced_repository_operation("upsert")
     async def upsert(

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_adapters.repositories.backends import redis as shared_redis_module
 from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
 from harborrag_adapters.repositories.cache.redis.plugin import RedisCachePlugin
 from harborrag_adapters.repositories.cache.redis.repository import RedisCacheBackend
@@ -44,7 +45,6 @@ from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStore
 from harborrag_adapters.repositories.object_store.s3.plugin import S3ObjectStorePlugin
 from harborrag_adapters.repositories.object_store.s3.repository import S3ObjectStore
 from harborrag_adapters.repositories.plugin import RepositoryDependencies
-from harborrag_adapters.repositories.shared import redis as shared_redis_module
 from harborrag_adapters.repositories.state.redis.config import RedisStateConfig
 from harborrag_adapters.repositories.state.redis.plugin import RedisStatePlugin
 from harborrag_adapters.repositories.state.redis.repository import RedisStateBackend

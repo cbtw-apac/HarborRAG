@@ -18,9 +18,9 @@ from harborrag_adapters.models.chat.backend_config import (
 from harborrag_adapters.models.chat.backends.direct import LiteLLMDirectBackend
 from harborrag_adapters.models.chat.backends.proxy import LiteLLMProxyBackend
 from harborrag_adapters.models.chat.backends.router import LiteLLMRouterBackend
-from harborrag_adapters.models.common.config import ConnectionPoolConfig
-from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.config import ConnectionPoolConfig
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 
 pytestmark = pytest.mark.contract
 

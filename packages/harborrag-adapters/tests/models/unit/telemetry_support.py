@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
-from harborrag_adapters.models.common.config import ObservabilityConfig
-from harborrag_adapters.models.common.security import PrivacyConfig
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.config import ObservabilityConfig
+from harborrag_adapters.models.runtime.security import PrivacyConfig
+from harborrag_adapters.models.runtime.telemetry import (
     TelemetryDispatcher,
     TelemetryEvent,
     TelemetryEventType,

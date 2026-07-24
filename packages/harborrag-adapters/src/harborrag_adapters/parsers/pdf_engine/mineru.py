@@ -13,14 +13,11 @@ from typing import Any, ClassVar
 from harborrag_core.domain.parser import ParseInput
 
 from ..exceptions import ParseError
-from ..utils import compact_text
+from ..text_extraction import compact_text
 from .base import PdfBackend, PdfParseResult
-from .utils import (
-    content_element,
-    content_from_any,
-    materialized_pdf_path,
-    merge_dataclass_options,
-)
+from .content_extraction import content_element, content_from_any
+from .file_access import materialized_pdf_path
+from .options import merge_dataclass_options
 
 
 @dataclass(slots=True)

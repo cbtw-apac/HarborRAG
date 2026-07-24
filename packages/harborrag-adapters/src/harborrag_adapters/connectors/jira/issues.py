@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.utils.helpers import extend_with_limit
+from harborrag_adapters.connectors.policies.validation import extend_with_limit
 
 from .client import JiraClient
 from .config import JiraDeploymentType, JiraProjectConfig
 from .mappers import changelog_histories
-from .utils import search_body, search_jql_body, validate_issue_key
+from .query import search_body, search_jql_body, validate_issue_key
 
 DISCOVERY_FIELDS = (
     "summary",

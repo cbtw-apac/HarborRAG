@@ -14,27 +14,27 @@ from harborrag_adapters.models.chat import (
     HarborProvider,
     ProviderRegistry,
 )
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     BudgetLimitConfig,
     RetryPolicyConfig,
     TimeoutConfig,
 )
-from harborrag_adapters.models.common.environment import expand_environment
-from harborrag_adapters.models.common.loading import (
+from harborrag_adapters.models.runtime.environment import expand_environment
+from harborrag_adapters.models.runtime.loading import (
     load_config_document,
     merge_config_mappings,
     prepare_config_section,
 )
-from harborrag_adapters.models.common.provider import (
+from harborrag_adapters.models.runtime.provider import (
     ImmutableProviderRegistry,
     ProviderDeploymentConfig,
     ProviderMetadata,
 )
-from harborrag_adapters.models.common.provider_validation import (
+from harborrag_adapters.models.runtime.provider_validation import (
     validate_extension_parameters,
     validate_request_headers,
 )
-from harborrag_adapters.models.common.security import (
+from harborrag_adapters.models.runtime.security import (
     PrivacyConfig,
     PrivacySanitizer,
     SecretReference,
@@ -42,7 +42,7 @@ from harborrag_adapters.models.common.security import (
     reveal_secret,
     sanitize_configuration,
 )
-from harborrag_adapters.models.common.transport import (
+from harborrag_adapters.models.runtime.transport import (
     protect_sensitive_headers,
     reveal_headers,
     validate_base_url,

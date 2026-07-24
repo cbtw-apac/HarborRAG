@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from harborrag_app.api.errors import error_envelope
-from harborrag_app.services.base import BaseAppService
+from harborrag_app.workflow_control import BaseAppService
 
 router = APIRouter(tags=["health"])
 

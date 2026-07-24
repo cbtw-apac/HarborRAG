@@ -14,6 +14,9 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageValidationError,
     HarborVectorDimensionError,
 )
+from harborrag_adapters.repositories.vector.qdrant import (
+    collections as collections_module,
+)
 from harborrag_adapters.repositories.vector.qdrant import query as query_module
 from harborrag_adapters.repositories.vector.qdrant import (
     repository as repository_module,
@@ -103,6 +106,7 @@ class FakeQdrantClient:
 @pytest.fixture(autouse=True)
 def fake_qdrant_models(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(repository_module, "qm", FakeModels)
+    monkeypatch.setattr(collections_module, "qm", FakeModels)
     monkeypatch.setattr(query_module, "qm", FakeModels)
 
 
@@ -288,6 +292,7 @@ async def test_activate_generation_applies_exact_vector_lifecycle_actions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     repository = QdrantVectorRepository(
         make_config(),
@@ -710,6 +715,7 @@ def test_assert_dimension_rejects_mismatched_vector_length() -> None:
 
 def test_repository_requires_qm_installed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(repository_module, "qm", None)
+    monkeypatch.setattr(collections_module, "qm", None)
     with pytest.raises(ImportError):
         QdrantVectorRepository(make_config())
 
@@ -789,6 +795,7 @@ async def test_ensure_collection_creates_new_collection_with_metadata_indexes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     raw.exists = False
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
@@ -809,6 +816,7 @@ async def test_ensure_collection_accepts_concurrent_creator_and_validates_schema
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
 
     class RacingRawQdrant(ExtendedRawQdrant):
         async def create_collection(self, **kwargs: Any) -> None:
@@ -837,6 +845,7 @@ async def test_ensure_collection_uses_boolean_index_for_active_lifecycle_field(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     raw.exists = False
     repository = QdrantVectorRepository(
@@ -866,6 +875,7 @@ async def test_ensure_collection_repairs_legacy_active_keyword_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     raw.exists = True
     raw.existing_payload_schema = {
@@ -898,6 +908,7 @@ async def test_ensure_collection_matches_existing_and_only_adds_missing_indexes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     raw.exists = True
     raw.existing_dimension = 3
@@ -960,6 +971,7 @@ async def test_upsert_sends_points_with_harbor_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
     context = StorageOperationContext(tenant_id="tenant-a")
@@ -1013,6 +1025,7 @@ async def test_delete_sends_tenant_scoped_filter_selector(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
     context = StorageOperationContext(tenant_id="tenant-a")

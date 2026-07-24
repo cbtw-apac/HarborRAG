@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.provider_validation import (
+from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.provider_validation import (
     validate_extension_parameters,
     validate_provider_deployment,
     validate_request_headers,

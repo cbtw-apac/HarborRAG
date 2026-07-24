@@ -6,13 +6,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
-from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
-from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
-from harborrag_adapters.models.common.routing_state_memory import (
+from harborrag_adapters.models.runtime.redis_client import RedisConnectionLifecycle
+from harborrag_adapters.models.runtime.redis_config import RedisConnectionConfig
+from harborrag_adapters.models.runtime.routing_state import RoutingAdmissionError
+from harborrag_adapters.models.runtime.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
-from harborrag_adapters.models.common.singleflight import RedisSingleFlight
+from harborrag_adapters.models.runtime.singleflight import RedisSingleFlight
 
 pytestmark = pytest.mark.chaos
 

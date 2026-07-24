@@ -39,7 +39,7 @@ from harborrag_runtime.config.connectors.providers import config_factory  # noqa
 
 if TYPE_CHECKING:
     from harborrag_adapters.connectors import HarborConnector
-    from harborrag_adapters.connectors.shared.attachments import CustomAttachmentParser
+    from harborrag_adapters.connectors.attachments.processing import CustomAttachmentParser
     from harborrag_adapters.parsers import HarborParser
 
 CONFIG_DIR = REPO_ROOT / "config"
@@ -187,7 +187,15 @@ class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         parse_input = self.coerce_input(input)
-        text = _parse_image_with_rapidocr(parse_input.read_bytes(), parse_input.suffix)
+        from harborrag_adapters.parsers.input_loading import (
+            parse_input_suffix,
+            read_parse_input_bytes,
+        )
+
+        text = _parse_image_with_rapidocr(
+            read_parse_input_bytes(parse_input),
+            parse_input_suffix(parse_input),
+        )
         elements = (
             [
                 DocumentElement(
@@ -222,7 +230,7 @@ def build_harbor_parser() -> HarborParser:
 
 def attachment_custom_parsers() -> dict[Any, CustomAttachmentParser]:
     """Route image attachments (Confluence/JIRA) to RapidOCR."""
-    from harborrag_adapters.connectors.shared.attachments import FileType
+    from harborrag_adapters.connectors.attachments.processing import FileType
 
     return {FileType.IMAGE: _parse_image_with_rapidocr}
 

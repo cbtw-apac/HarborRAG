@@ -81,7 +81,8 @@ still import when optional packages are absent.
 
 - Keep each third-party integration in its own backend file.
 - Keep backend-specific helpers inside the backend class.
-- Put shared PDF helpers in `pdf_engine/utils.py`.
+- Put PDF option merging, safe file access, and content extraction in their
+  named capability modules.
 - Do not import optional PDF dependencies at module import time.
 - Avoid shell interpolation. CLI backends must pass command arguments as a list.
 - Use `materialized_pdf_path()` for libraries that require a filesystem path.

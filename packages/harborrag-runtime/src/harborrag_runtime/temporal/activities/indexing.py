@@ -7,6 +7,7 @@ from dataclasses import replace
 from temporalio import activity
 
 from harborrag_engine.ingestion.indexing.schemas import IndexingStatus
+from harborrag_runtime.temporal.activities.schemas import ActivityTelemetryContext
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
 from harborrag_runtime.temporal.schemas import (
@@ -85,10 +86,12 @@ class IndexingActivities:
         record_activity(
             self._dependencies,
             "runtime.indexing.completed",
-            run_id=request.run_id,
-            artifact_id=request.state.artifact.artifact_id,
-            artifact_revision_id=request.state.artifact_revision_id,
-            generation_id=request.state.generation_id,
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                artifact_id=request.state.artifact.artifact_id,
+                artifact_revision_id=request.state.artifact_revision_id,
+                generation_id=request.state.generation_id,
+            ),
         )
         return completed
 
@@ -110,9 +113,11 @@ class IndexingActivities:
         record_activity(
             self._dependencies,
             "runtime.validation.completed",
-            run_id=request.run_id,
-            artifact_id=request.state.artifact.artifact_id,
-            artifact_revision_id=request.state.artifact_revision_id,
-            generation_id=request.state.generation_id,
+            ActivityTelemetryContext(
+                run_id=request.run_id,
+                artifact_id=request.state.artifact.artifact_id,
+                artifact_revision_id=request.state.artifact_revision_id,
+                generation_id=request.state.generation_id,
+            ),
         )
         return completed

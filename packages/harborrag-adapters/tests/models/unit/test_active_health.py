@@ -8,14 +8,14 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.common.distributed_config import ActiveHealthConfig
-from harborrag_adapters.models.common.health import (
+from harborrag_adapters.models.runtime.distributed_config import ActiveHealthConfig
+from harborrag_adapters.models.runtime.health import (
     ActiveHealthMonitor,
     CallableHealthProbe,
     HealthCheckResult,
     deployment_state_key,
 )
-from harborrag_adapters.models.common.routing_state_memory import (
+from harborrag_adapters.models.runtime.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
 

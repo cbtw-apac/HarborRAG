@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from sharepoint_test_helpers import folder_item
 
-from harborrag_adapters.connectors.sharepoint.utils import (
+from harborrag_adapters.connectors.sharepoint.drive_paths import (
     children_endpoint,
     item_extension,
     item_mime_type,

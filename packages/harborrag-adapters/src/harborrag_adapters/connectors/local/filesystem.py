@@ -11,9 +11,7 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
-from .filters import extension_filter, file_paths_from_query, path_filter
-from .mappers import build_source_record
-from .utils import (
+from .filesystem_paths import (
     file_extension,
     guess_mime_type,
     is_hidden_path,
@@ -27,6 +25,8 @@ from .utils import (
     stat_datetime,
     stat_signature,
 )
+from .filters import extension_filter, file_paths_from_query, path_filter
+from .mappers import build_source_record
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 

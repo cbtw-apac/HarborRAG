@@ -9,7 +9,7 @@ from local_test_helpers import config, write_file
 
 from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.local.utils import guess_mime_type
+from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]

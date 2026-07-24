@@ -10,23 +10,23 @@ from harborrag_adapters.models.chat.invocation import (
     LiteLLMChatInvocation,
     LiteLLMChatRouterInvocation,
 )
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.embed.invocation import (
+    LiteLLMEmbeddingInvocation,
+    LiteLLMEmbeddingRouterInvocation,
+)
+from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
+from harborrag_adapters.models.runtime.config import (
     BudgetLimitConfig,
     CacheBackend,
     CacheConfig,
     RoutingConfig,
     RoutingStrategy,
 )
-from harborrag_adapters.models.common.litellm_backend import litellm_routing_strategy
-from harborrag_adapters.models.common.litellm_router import (
+from harborrag_adapters.models.runtime.litellm_backend import litellm_routing_strategy
+from harborrag_adapters.models.runtime.litellm_router import (
     build_litellm_router,
     router_model_name,
 )
-from harborrag_adapters.models.embed.invocation import (
-    LiteLLMEmbeddingInvocation,
-    LiteLLMEmbeddingRouterInvocation,
-)
-from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

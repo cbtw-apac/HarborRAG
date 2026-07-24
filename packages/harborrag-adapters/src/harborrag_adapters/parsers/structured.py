@@ -6,10 +6,15 @@ from typing import Any, ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .archive_safety import guard_input_size
 from .base import BaseParser
 from .exceptions import ParseError
+from .input_loading import (
+    parse_input_suffix,
+    read_parse_input_bytes,
+    read_parse_input_text,
+)
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import guard_input_size
 
 parser_logger = get_parser_logger("json")
 
@@ -37,11 +42,11 @@ class JsonParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        guard_input_size(parse_input.read_bytes())
+        guard_input_size(read_parse_input_bytes(parse_input))
         data: Any
         try:
-            source = parse_input.read_text()
-            if parse_input.suffix in {".jsonl", ".ndjson"}:
+            source = read_parse_input_text(parse_input)
+            if parse_input_suffix(parse_input) in {".jsonl", ".ndjson"}:
                 data = [json.loads(line) for line in source.splitlines() if line.strip()]
             else:
                 data = json.loads(source)

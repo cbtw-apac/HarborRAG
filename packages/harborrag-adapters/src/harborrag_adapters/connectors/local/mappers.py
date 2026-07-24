@@ -6,12 +6,12 @@ from pathlib import Path
 
 from harborrag_core.domain.source import SourceRecord
 
-from .schemas import LocalFileMetadata
-from .utils import (
+from .filesystem_paths import (
     guess_mime_type,
     relative_path,
     stat_datetime,
 )
+from .schemas import LocalFileMetadata
 
 
 def path_from_record(record: SourceRecord) -> Path:

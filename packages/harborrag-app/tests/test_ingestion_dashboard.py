@@ -5,7 +5,7 @@ from app_test_fixtures import MockAppService
 from textual.widgets import DataTable, ProgressBar
 
 from harborrag_app.cli.dashboard import DashboardSnapshot, IngestionDashboard
-from harborrag_app.services.base import AppResponse
+from harborrag_app.workflow_control import AppResponse
 
 
 class DashboardService(MockAppService):

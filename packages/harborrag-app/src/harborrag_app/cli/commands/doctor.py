@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from harborrag_app.cli.runner import invoke
-from harborrag_app.services.base import AppResponse, BaseAppService
+from harborrag_app.workflow_control import AppResponse, BaseAppService
 
 
 def command(

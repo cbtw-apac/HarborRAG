@@ -28,7 +28,7 @@ def _no_sleep(monkeypatch):
     """Neutralize retry/backoff sleeps in every connector client module."""
     for module in (
         "harborrag_adapters.connectors.github.client",
-        "harborrag_adapters.connectors.shared.atlassian_client",
+        "harborrag_adapters.connectors.atlassian.client",
         "harborrag_adapters.connectors.sharepoint.client",
         "harborrag_adapters.connectors.sharepoint.connector",
     ):

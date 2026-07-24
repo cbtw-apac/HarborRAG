@@ -6,7 +6,7 @@ import pytest
 from github_test_helpers import FakeGitHubClient, config
 
 from harborrag_adapters.connectors import GitHubConnector, GitHubRepositoryConfig
-from harborrag_adapters.connectors.github.utils import parse_github_repository_url
+from harborrag_adapters.connectors.github.repository_paths import parse_github_repository_url
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

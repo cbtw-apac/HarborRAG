@@ -11,8 +11,8 @@ from dataclasses import dataclass
 import typer
 
 from harborrag_app.cli.rendering import CliRenderer
-from harborrag_app.services.base import AppResponse, BaseAppService
-from harborrag_app.services.selection import runtime_app_service
+from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.workflow_control.selection import runtime_app_service
 
 type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
 

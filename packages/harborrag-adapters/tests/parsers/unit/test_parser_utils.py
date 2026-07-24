@@ -8,7 +8,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_html_to_text_bytes_and_entities() -> None:
-    from harborrag_adapters.parsers.utils import html_to_text
+    from harborrag_adapters.parsers.text_extraction import html_to_text
 
     out = html_to_text(b"<p>Hello&amp;bye</p><script>x()</script>")
     assert "Hello&bye" in out
@@ -19,12 +19,12 @@ def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
     import builtins
     from typing import Any
 
-    from harborrag_adapters.parsers import utils
+    from harborrag_adapters.parsers import text_extraction
 
     real_import = builtins.__import__
     fallback_closed = False
 
-    class TrackingFallbackParser(utils._FallbackHTMLTextParser):
+    class TrackingFallbackParser(text_extraction._FallbackHTMLTextParser):
         def close(self) -> None:
             nonlocal fallback_closed
             fallback_closed = True
@@ -36,8 +36,12 @@ def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    monkeypatch.setattr(utils, "_FallbackHTMLTextParser", TrackingFallbackParser)
-    text, engine = utils.html_to_text_with_engine("<div>A</div><p>B</p><script>hide()</script>")
+    monkeypatch.setattr(
+        text_extraction, "_FallbackHTMLTextParser", TrackingFallbackParser
+    )
+    text, engine = text_extraction.html_to_text_with_engine(
+        "<div>A</div><p>B</p><script>hide()</script>"
+    )
     assert engine == "python/html.parser"
     assert "A" in text
     assert "B" in text
@@ -46,8 +50,8 @@ def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
 
 
 def test_wrap_parse_errors_passthrough_and_normalize() -> None:
+    from harborrag_adapters.parsers.archive_safety import wrap_parse_errors
     from harborrag_adapters.parsers.exceptions import ParseError
-    from harborrag_adapters.parsers.utils import wrap_parse_errors
 
     with pytest.raises(ParseError, match="already"), wrap_parse_errors("eng"):
         raise ParseError("already")
@@ -57,8 +61,8 @@ def test_wrap_parse_errors_passthrough_and_normalize() -> None:
 
 
 def test_guard_input_size_ok_and_over() -> None:
+    from harborrag_adapters.parsers.archive_safety import guard_input_size
     from harborrag_adapters.parsers.exceptions import ParseError
-    from harborrag_adapters.parsers.utils import guard_input_size
 
     assert guard_input_size(b"abc", max_bytes=10) == b"abc"
     with pytest.raises(ParseError, match="max_input_bytes"):
@@ -69,13 +73,13 @@ def test_open_guarded_zip_member_count_limit(monkeypatch) -> None:
     import io
     import zipfile
 
-    from harborrag_adapters.parsers import utils
+    from harborrag_adapters.parsers import archive_safety
     from harborrag_adapters.parsers.exceptions import ParseError
 
-    monkeypatch.setattr(utils, "MAX_ARCHIVE_MEMBERS", 2)
+    monkeypatch.setattr(archive_safety, "MAX_ARCHIVE_MEMBERS", 2)
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         for i in range(3):
             archive.writestr(f"f{i}.txt", "hi")
     with pytest.raises(ParseError, match="members"):
-        utils.open_guarded_zip(buffer.getvalue())
+        archive_safety.open_guarded_zip(buffer.getvalue())

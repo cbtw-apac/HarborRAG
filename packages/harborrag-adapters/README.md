@@ -16,11 +16,10 @@ errors for missing optional dependencies.
 
 ## Public extension API
 
-`AdapterRegistry` registers connector, parser, model, and repository classes by
-provider name. `AdapterBuilder` resolves those registrations and constructs an
-adapter from provider-specific keyword arguments. Both are exported from
-`harborrag_adapters`; built-in connectors are also available through
-`HarborConnector` and its provider registry.
+Each adapter family owns its registry and factory at the variation point:
+connectors, parsers, model providers, and repository backends are registered
+independently. There is intentionally no cross-family registry because adding
+one provider must not require editing unrelated adapter families.
 
 ## File ownership and test doubles
 
@@ -31,9 +30,9 @@ adapter from provider-specific keyword arguments. Both are exported from
 - Repository families expose provider-neutral `Harbor*` contracts plus real
   provider packages. Their deterministic fakes belong under `tests/`; production
   repository packages do not ship mock backends.
-- Shared adapter construction belongs in `builder.py` and `registry.py`; domain
-  schemas must remain in `harborrag-core`, and workflow orchestration must remain
-  in `harborrag-runtime`.
+- Provider construction belongs to the registry or factory in that capability;
+  domain schemas remain in `harborrag-core`, and workflow orchestration remains
+  outside adapters.
 
 ## Contributor and teammate deliverables
 
@@ -98,8 +97,6 @@ pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 
 | Module | Purpose |
 | --- | --- |
-| `harborrag_adapters.AdapterRegistry` | Registers adapter classes by family and provider name. |
-| `harborrag_adapters.AdapterBuilder` | Constructs registered adapters from configuration. |
 | `harborrag_adapters.connectors` | Source connectors that discover `SourceRecord`s and load `RawDocument`s. |
 | `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
 | `harborrag_adapters.repositories` | Tenant-isolated vector, graph, cache, object, database, and workflow-state repositories. |

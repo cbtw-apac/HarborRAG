@@ -5,6 +5,8 @@ from typing import Any
 
 from harborrag_core.domain.parser import ParseInput
 
+from .input_loading import parse_input_suffix
+
 PARSER_LOGGER_NAME = "harborrag.adapters.parsers"
 
 
@@ -56,7 +58,7 @@ def parser_log_extra(
 
     if input is not None:
         extra["harbor_input"] = input_label(input)
-        extra["harbor_suffix"] = input.suffix or None
+        extra["harbor_suffix"] = parse_input_suffix(input) or None
         extra["harbor_content_type"] = input.content_type
 
     for key, value in values.items():

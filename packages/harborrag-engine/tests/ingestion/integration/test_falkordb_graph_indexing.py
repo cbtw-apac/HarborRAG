@@ -4,6 +4,7 @@ import os
 from uuid import uuid4
 
 import pytest
+
 from harborrag_adapters.repositories.graph import HarborGraphDBClient
 from harborrag_engine.ingestion.indexing import GraphIndexService
 

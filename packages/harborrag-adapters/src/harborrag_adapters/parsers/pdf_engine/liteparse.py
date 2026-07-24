@@ -8,14 +8,12 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
 from ..exceptions import ParseError
-from ..utils import compact_text
+from ..input_loading import read_parse_input_bytes
+from ..text_extraction import compact_text
 from .base import PdfBackend, PdfParseResult
-from .utils import (
-    content_element,
-    content_from_any,
-    materialized_pdf_path,
-    merge_dataclass_options,
-)
+from .content_extraction import content_element, content_from_any
+from .file_access import materialized_pdf_path
+from .options import merge_dataclass_options
 
 
 @dataclass(slots=True)
@@ -149,7 +147,7 @@ class LiteParseBackend(PdfBackend):
 
         input_mode = self.options.input_mode.lower().strip()
         if input_mode == "bytes":
-            return parse(input.read_bytes())
+            return parse(read_parse_input_bytes(input))
         if input_mode != "path":
             raise ValueError("LiteParse input_mode must be `path` or `bytes`.")
 

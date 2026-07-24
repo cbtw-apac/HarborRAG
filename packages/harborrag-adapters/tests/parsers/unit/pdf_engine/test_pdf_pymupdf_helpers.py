@@ -99,7 +99,7 @@ def test_pymupdf_backend_default_max_pages_is_bounded() -> None:
 
 def test_pdf_parser_end_to_end_and_materialized_path_from_disk(tmp_path: Path) -> None:
     from harborrag_adapters.parsers.pdf_engine import PdfParser
-    from harborrag_adapters.parsers.pdf_engine.utils import materialized_pdf_path
+    from harborrag_adapters.parsers.pdf_engine.file_access import materialized_pdf_path
 
     pdf = tmp_path / "real.pdf"
     pdf.write_bytes(_one_page_pdf())
@@ -112,7 +112,7 @@ def test_pdf_parser_end_to_end_and_materialized_path_from_disk(tmp_path: Path) -
 
 
 def test_content_from_any_variants() -> None:
-    from harborrag_adapters.parsers.pdf_engine.utils import content_from_any
+    from harborrag_adapters.parsers.pdf_engine.content_extraction import content_from_any
 
     assert content_from_any(None) == ""
     assert content_from_any("  hi  ") == "hi"
@@ -128,7 +128,7 @@ def test_content_from_any_variants() -> None:
 
 
 def test_walk_text_no_duplicate_and_depth_guard() -> None:
-    from harborrag_adapters.parsers.pdf_engine.utils import _walk_text
+    from harborrag_adapters.parsers.pdf_engine.content_extraction import _walk_text
 
     assert list(_walk_text({"text": "A", "nested": {"text": "B"}})) == ["A", "B"]
     cyclic: dict = {}

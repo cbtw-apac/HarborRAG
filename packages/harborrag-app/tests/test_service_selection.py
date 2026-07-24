@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.services.app_service import AppService
-from harborrag_app.services.selection import select_app_service
+from harborrag_app.workflow_control.client import AppService
+from harborrag_app.workflow_control.selection import select_app_service
 
 
 @pytest.mark.blackbox

@@ -16,7 +16,8 @@ from harborrag_adapters.parsers import (
     get_parser_logger,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.pdf_engine.utils import content_from_any
+from harborrag_adapters.parsers.input_loading import read_parse_input_text
+from harborrag_adapters.parsers.pdf_engine.content_extraction import content_from_any
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
@@ -31,7 +32,7 @@ class FakeParser(BaseParser[ParseInput, ParsedDocument]):
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         parse_input = self.coerce_input(input)
-        content = parse_input.read_text()
+        content = read_parse_input_text(parse_input)
         return ParsedDocument(
             content=content,
             parser_name=self.parser_name,

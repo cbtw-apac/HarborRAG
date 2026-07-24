@@ -13,18 +13,22 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
     create_session_factory,
 )
+from harborrag_adapters.repositories.database.control_plane.jobs import (
+    SqlActivityRepository,
+    SqlJobRepository,
+)
 from harborrag_adapters.repositories.database.control_plane.migrations import (
     run_migrations,
 )
-from harborrag_adapters.repositories.database.control_plane.repositories import (
-    SessionFactory,
-    SqlActivityRepository,
-    SqlJobRepository,
-    SqlMemberRepository,
+from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
+    SqlSourceRepository,
+)
+from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
+from harborrag_adapters.repositories.database.control_plane.workspace import (
+    SqlMemberRepository,
     SqlProviderRepository,
     SqlSettingsRepository,
-    SqlSourceRepository,
 )
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry

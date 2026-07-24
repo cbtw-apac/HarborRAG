@@ -10,21 +10,21 @@ from harborrag_adapters.models.chat.invocation import (
     LiteLLMChatInvocation,
     LiteLLMChatRouterInvocation,
 )
-from harborrag_adapters.models.common.config import RetryPolicyConfig
-from harborrag_adapters.models.common.responses import (
-    coerce_sdk_mapping,
-    sdk_hidden_parameters,
-)
-from harborrag_adapters.models.common.retry import RetryController
-from harborrag_adapters.models.common.sync import (
-    AsyncLoopRunner,
-    run_awaitable_synchronously,
-)
 from harborrag_adapters.models.embed.invocation import (
     LiteLLMEmbeddingInvocation,
     LiteLLMEmbeddingRouterInvocation,
 )
 from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
+from harborrag_adapters.models.runtime.config import RetryPolicyConfig
+from harborrag_adapters.models.runtime.responses import (
+    coerce_sdk_mapping,
+    sdk_hidden_parameters,
+)
+from harborrag_adapters.models.runtime.retry import RetryController
+from harborrag_adapters.models.runtime.sync import (
+    AsyncLoopRunner,
+    run_awaitable_synchronously,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -240,12 +240,12 @@ async def test_retry_controller_sync_and_async_sleep(
     sync_delays: list[float] = []
     async_delays: list[float] = []
 
-    monkeypatch.setattr("harborrag_adapters.models.common.retry.time.sleep", sync_delays.append)
+    monkeypatch.setattr("harborrag_adapters.models.runtime.retry.time.sleep", sync_delays.append)
 
     async def record_sleep(delay: float) -> None:
         async_delays.append(delay)
 
-    monkeypatch.setattr("harborrag_adapters.models.common.retry.asyncio.sleep", record_sleep)
+    monkeypatch.setattr("harborrag_adapters.models.runtime.retry.asyncio.sleep", record_sleep)
     assert controller.delay_seconds(-1) == 1
     assert controller.delay_seconds(3) == 2
     controller.sleep_sync(1)

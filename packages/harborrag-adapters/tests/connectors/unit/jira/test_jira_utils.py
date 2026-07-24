@@ -8,7 +8,7 @@ import pytest
 from jira_test_helpers import FakeJiraClient, cloud_config
 
 from harborrag_adapters.connectors.jira import JiraConnector
-from harborrag_adapters.connectors.jira.utils import (
+from harborrag_adapters.connectors.jira.query import (
     build_jql,
     format_query_timestamp,
     is_cloud_hostname,

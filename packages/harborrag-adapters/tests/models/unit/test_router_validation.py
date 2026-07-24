@@ -7,12 +7,12 @@ import pytest
 from model_runtime_support import chat_config, embed_config
 
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.embed.validation import validate_embed_configuration
+from harborrag_adapters.models.runtime.config import (
     RoutingConfig,
     RoutingEngine,
     RoutingStrategy,
 )
-from harborrag_adapters.models.embed.validation import validate_embed_configuration
 from harborrag_core.models.errors import (
     HarborChatConfigurationError,
     HarborEmbedConfigurationError,

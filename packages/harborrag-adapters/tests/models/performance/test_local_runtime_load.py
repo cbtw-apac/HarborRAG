@@ -5,11 +5,11 @@ import asyncio
 import pytest
 from pydantic import BaseModel
 
-from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
-from harborrag_adapters.models.common.routing_state_memory import (
+from harborrag_adapters.models.runtime.routing_state import RoutingAdmissionError
+from harborrag_adapters.models.runtime.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
-from harborrag_adapters.models.common.singleflight import InMemorySingleFlight
+from harborrag_adapters.models.runtime.singleflight import InMemorySingleFlight
 
 pytestmark = [pytest.mark.performance, pytest.mark.load]
 

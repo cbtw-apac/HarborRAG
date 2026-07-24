@@ -15,7 +15,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from harborrag_app.cli.stages import build_stage_table
-from harborrag_app.services.base import AppResponse
+from harborrag_app.workflow_control import AppResponse
 
 _STATUS_STYLES = {
     "pending": "yellow",

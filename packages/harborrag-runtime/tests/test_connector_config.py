@@ -4,6 +4,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
     load_connector_catalog,

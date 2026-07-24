@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 
 import pytest
 
+from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.connectors.confluence.schemas import (
     ConfluenceCommentMetadata,
     ConfluenceMetadata,
 )
-from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

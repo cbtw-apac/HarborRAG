@@ -7,8 +7,8 @@ from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
 
+from .repository_paths import guess_mime_type, normalize_repo_path
 from .schemas import GitHubCommitIdentity, GitHubMetadata
-from .utils import guess_mime_type, normalize_repo_path
 
 
 def parse_timestamp(value: str | None) -> datetime | None:

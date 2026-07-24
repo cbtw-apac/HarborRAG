@@ -140,6 +140,7 @@ Keep a parser self-contained:
 from typing import ClassVar
 
 from harborrag_adapters.parsers import BaseParser, ParseInput, ParsedDocument
+from harborrag_adapters.parsers.input_loading import read_parse_input_text
 
 
 class MyParser(BaseParser[ParseInput, ParsedDocument]):
@@ -150,7 +151,7 @@ class MyParser(BaseParser[ParseInput, ParsedDocument]):
 
     def parse(self, input: ParseInput) -> ParsedDocument:
         parse_input = self.coerce_input(input)
-        content = parse_input.read_text()
+        content = read_parse_input_text(parse_input)
         return ParsedDocument(
             content=content,
             parser_name=self.parser_name,
@@ -162,7 +163,8 @@ class MyParser(BaseParser[ParseInput, ParsedDocument]):
 Guidelines:
 
 - Put helpers used only by one parser inside that parser class.
-- Put helpers shared across parser files in `parsers/utils.py`.
+- Put archive safety, routing, input loading, and text extraction in their
+  named capability modules.
 - Keep optional dependency imports inside `parse()` or backend methods.
 - Raise `ParseError` for expected dependency or malformed-input failures.
 - Do not duplicate content fields. `ParsedDocument.content` is the canonical

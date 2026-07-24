@@ -16,41 +16,41 @@ from model_runtime_support import (
 
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.cli import ModelConfigCli, main
-from harborrag_adapters.models.common.budget import (
+from harborrag_adapters.models.embed import HarborEmbedClient
+from harborrag_adapters.models.rerank import HarborRerankingClient
+from harborrag_adapters.models.runtime.budget import (
     InMemoryBudgetPolicy,
     NoopBudgetPolicy,
 )
-from harborrag_adapters.models.common.cache import InMemoryModelCache
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.cache import InMemoryModelCache
+from harborrag_adapters.models.runtime.config import (
     CacheBackend,
     CacheConfig,
     RoutingConfig,
     RoutingStrategy,
 )
-from harborrag_adapters.models.common.distributed_config import (
+from harborrag_adapters.models.runtime.distributed_config import (
     BudgetPolicyConfig,
     RoutingStateBackend,
     SingleFlightBackend,
     SingleFlightConfig,
 )
-from harborrag_adapters.models.common.introspection import ModelRuntimeIntrospector
-from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
-from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
-from harborrag_adapters.models.common.routing_state import RoutingStateSnapshot
-from harborrag_adapters.models.common.routing_state_memory import (
+from harborrag_adapters.models.runtime.introspection import ModelRuntimeIntrospector
+from harborrag_adapters.models.runtime.redis_client import RedisConnectionLifecycle
+from harborrag_adapters.models.runtime.redis_config import RedisConnectionConfig
+from harborrag_adapters.models.runtime.routing_state import RoutingStateSnapshot
+from harborrag_adapters.models.runtime.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
-from harborrag_adapters.models.common.routing_state_redis import RedisRoutingStateStore
-from harborrag_adapters.models.common.runtime_services import (
+from harborrag_adapters.models.runtime.routing_state_redis import RedisRoutingStateStore
+from harborrag_adapters.models.runtime.runtime_services import (
     ModelRuntimeServices,
     build_runtime_services,
 )
-from harborrag_adapters.models.common.singleflight import (
+from harborrag_adapters.models.runtime.singleflight import (
     InMemorySingleFlight,
     RedisSingleFlight,
 )
-from harborrag_adapters.models.embed import HarborEmbedClient
-from harborrag_adapters.models.rerank import HarborRerankingClient
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

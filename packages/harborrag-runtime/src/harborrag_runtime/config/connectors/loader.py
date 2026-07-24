@@ -5,7 +5,7 @@ from pathlib import Path
 from harborrag_runtime.config.connectors.parsing import parse_connector_definitions
 from harborrag_runtime.config.connectors.schemas import ConnectorCatalog
 from harborrag_runtime.config.errors import ConnectorConfigurationError
-from harborrag_runtime.config.utils import (
+from harborrag_runtime.config.loading import (
     read_yaml_file,
     reject_unknown_keys,
     require_schema_version,

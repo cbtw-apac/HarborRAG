@@ -21,14 +21,14 @@ from harborrag_adapters.models.chat import (
 )
 from harborrag_adapters.models.chat.backends.factory import build_chat_backend
 from harborrag_adapters.models.chat.registry import ProviderRegistry
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     ConnectionPoolConfig,
     ObservabilityConfig,
     RoutingConfig,
     RoutingEngine,
     RoutingStrategy,
 )
-from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.errors import HarborChatConfigurationError
 

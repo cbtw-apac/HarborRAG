@@ -9,13 +9,6 @@ from harborrag_adapters.models.chat import (
     HarborChatProviderConfig,
     HarborProvider,
 )
-from harborrag_adapters.models.common.config import (
-    CacheConfig,
-    ObservabilityConfig,
-    RetryPolicyConfig,
-    RoutingConfig,
-    RoutingStrategy,
-)
 from harborrag_adapters.models.embed import (
     HarborEmbedClientConfig,
     HarborEmbedModelConfig,
@@ -27,6 +20,13 @@ from harborrag_adapters.models.rerank import (
     HarborRerankModelConfig,
     HarborRerankProvider,
     HarborRerankProviderConfig,
+)
+from harborrag_adapters.models.runtime.config import (
+    CacheConfig,
+    ObservabilityConfig,
+    RetryPolicyConfig,
+    RoutingConfig,
+    RoutingStrategy,
 )
 from harborrag_core.models.capabilities import (
     HarborChatCapabilities,

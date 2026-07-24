@@ -18,13 +18,13 @@ from telemetry_support import recorded_event as _event
 from telemetry_support import telemetry_dispatcher as _dispatcher
 
 from harborrag_adapters.models.chat import HarborChatClient
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     ObservabilityConfig,
     TelemetryFailureMode,
 )
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
-from harborrag_adapters.models.common.security import PrivacyConfig
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.security import PrivacyConfig
+from harborrag_adapters.models.runtime.telemetry import (
     TelemetryDispatcher,
     TelemetryDispatchError,
     TelemetryEventType,

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers.exceptions import ParseError
-from harborrag_adapters.parsers.utils import (
+from harborrag_adapters.parsers.archive_safety import (
     DEFAULT_MAX_INPUT_BYTES,
-    compact_text,
     guard_input_size,
+)
+from harborrag_adapters.parsers.exceptions import ParseError
+from harborrag_adapters.parsers.text_extraction import (
+    compact_text,
     html_to_text_with_engine,
 )
 

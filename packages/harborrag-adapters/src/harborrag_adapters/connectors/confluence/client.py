@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
-from harborrag_adapters.connectors.shared.atlassian_client import AtlassianRestClient
+from harborrag_adapters.connectors.atlassian.client import AtlassianRestClient
 
 from .config import ConfluenceDeploymentType, ConfluenceSpaceConfig
 

@@ -6,19 +6,19 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from harborrag_adapters.models.common.environment import expand_environment
-from harborrag_adapters.models.common.loading import (
+from harborrag_adapters.models.runtime.environment import expand_environment
+from harborrag_adapters.models.runtime.loading import (
     load_config_document,
     prepare_config_section,
 )
-from harborrag_adapters.models.common.security import (
+from harborrag_adapters.models.runtime.security import (
     PrivacyConfig,
     PrivacySanitizer,
     SecretReference,
     resolve_secret_references,
     reveal_secret,
 )
-from harborrag_adapters.models.common.transport import (
+from harborrag_adapters.models.runtime.transport import (
     protect_sensitive_headers,
     reveal_headers,
     validate_base_url,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.cache.redis.store import (
     RedisCacheStore,
     ResponseError,
@@ -107,14 +108,6 @@ from datetime import timedelta  # noqa: E402
 
 from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig  # noqa: E402
 from harborrag_adapters.repositories.cache.redis.repository import RedisCacheBackend  # noqa: E402
-from harborrag_core.schemas.storage import HealthStatus  # noqa: E402
-
-from harborrag_adapters.repositories.cache.redis.config import (  # noqa: E402
-    RedisCacheConfig,
-)
-from harborrag_adapters.repositories.cache.redis.repository import (  # noqa: E402
-    RedisCacheBackend,
-)
 from harborrag_core.schemas.storage import HealthStatus  # noqa: E402
 
 CONTEXT_V2 = StorageOperationContext(tenant_id="tenant-a")

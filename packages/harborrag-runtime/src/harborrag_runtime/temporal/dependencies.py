@@ -19,8 +19,8 @@ from harborrag_core.ports.runtime import AsyncLifecyclePort, RuntimeObserverPort
 from harborrag_engine.ingestion.base import BaseChunker, BaseDocumentNormalizer
 from harborrag_engine.ingestion.chunking.manifest import ChunkPersistenceService
 from harborrag_engine.ingestion.chunking.schemas import ChunkingResult
+from harborrag_engine.ingestion.indexing.pipeline import IndexingService
 from harborrag_engine.ingestion.indexing.schemas import IndexingRequest, IndexingResult
-from harborrag_engine.ingestion.indexing.service import IndexingService
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,

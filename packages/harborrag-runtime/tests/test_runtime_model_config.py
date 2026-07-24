@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_core.models.embed import EmbeddingPurpose
 

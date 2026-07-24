@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.connectors.utils.http import safe_error_detail
+from harborrag_adapters.connectors.policies.http import safe_error_detail
 from harborrag_core.domain.raw_document import RawDocument
 
 pytestmark = pytest.mark.blackbox

@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.repositories.shared import redis as redis_module
-from harborrag_adapters.repositories.shared.redis import RedisDBClient
+from harborrag_adapters.repositories.backends import redis as redis_module
+from harborrag_adapters.repositories.backends.redis import RedisDBClient
 
 
 class FakeAsyncRedisClient:

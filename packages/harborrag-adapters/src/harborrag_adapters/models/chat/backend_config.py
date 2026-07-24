@@ -6,13 +6,13 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.security import (
+from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.security import (
     HeaderValue,
     SecretReference,
     SecretValue,
 )
-from harborrag_adapters.models.common.transport import protect_sensitive_headers
+from harborrag_adapters.models.runtime.transport import protect_sensitive_headers
 
 
 class ChatBackendType(StrEnum):

@@ -16,29 +16,29 @@ from harborrag_adapters.models.chat.registry import (
     ProviderRegistry,
 )
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.embed import HarborEmbedClientConfig
+from harborrag_adapters.models.embed.validation import validate_embed_configuration
+from harborrag_adapters.models.rerank import HarborRerankClientConfig
+from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
+from harborrag_adapters.models.runtime.config import (
     CircuitBreakerConfig,
     RoutingEngine,
     RoutingStrategy,
     TelemetryFailureMode,
 )
-from harborrag_adapters.models.common.health import deployment_state_key
-from harborrag_adapters.models.common.lifecycle import close_async_callbacks
-from harborrag_adapters.models.common.litellm_backend import litellm_routing_strategy
-from harborrag_adapters.models.common.routing import (
+from harborrag_adapters.models.runtime.health import deployment_state_key
+from harborrag_adapters.models.runtime.lifecycle import close_async_callbacks
+from harborrag_adapters.models.runtime.litellm_backend import litellm_routing_strategy
+from harborrag_adapters.models.runtime.routing import (
     DeploymentSelector,
     NoHealthyDeploymentError,
 )
-from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
-from harborrag_adapters.models.common.routing_state_memory import (
+from harborrag_adapters.models.runtime.routing_state import RoutingAdmissionError
+from harborrag_adapters.models.runtime.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
-from harborrag_adapters.models.common.security import PrivacyConfig, PrivacySanitizer
-from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
-from harborrag_adapters.models.embed import HarborEmbedClientConfig
-from harborrag_adapters.models.embed.validation import validate_embed_configuration
-from harborrag_adapters.models.rerank import HarborRerankClientConfig
-from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
+from harborrag_adapters.models.runtime.security import PrivacyConfig, PrivacySanitizer
+from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.errors import (
     HarborChatError,
     HarborChatProviderError,

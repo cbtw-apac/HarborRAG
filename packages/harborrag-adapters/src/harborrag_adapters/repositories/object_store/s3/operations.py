@@ -21,6 +21,10 @@ from harborrag_adapters.repositories.object_store.keys import (
     validate_object_key,
 )
 from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
+from harborrag_adapters.repositories.object_store.s3.object_metadata import (
+    ClientError,
+    S3ObjectMetadataMixin,
+)
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     traced_repository_operation,
@@ -32,13 +36,8 @@ from harborrag_core.schemas.object_store import (
 )
 from harborrag_core.schemas.storage import StorageOperationContext
 
-try:
-    from botocore.exceptions import ClientError  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    ClientError = Exception
 
-
-class S3ObjectOperationsMixin:
+class S3ObjectOperationsMixin(S3ObjectMetadataMixin):
     """Implements tenant-authorized S3 object reads, writes, listing, and deletion.
 
     Composed onto ``S3ObjectStore``, which supplies the ``_config``, ``client``,
@@ -308,17 +307,6 @@ class S3ObjectOperationsMixin:
         )
         return url
 
-    async def _existing_head(self, bucket: str, key: str) -> dict[str, Any] | None:
-        """Return current object metadata used to build an atomic write condition."""
-        try:
-            response: dict[str, Any] = await self.client.head_object(Bucket=bucket, Key=key)
-        except ClientError as exc:
-            code = self._client_error_code(exc)
-            if code in {"404", "NoSuchKey", "NotFound"}:
-                return None
-            raise
-        return response
-
     async def _spool_body(
         self,
         request: PutObjectRequest,
@@ -348,8 +336,3 @@ class S3ObjectOperationsMixin:
         except BaseException:
             await asyncio.to_thread(handle.close)
             raise
-
-    @staticmethod
-    def _client_error_code(exc: Exception) -> str:
-        response = getattr(exc, "response", {})
-        return str(response.get("Error", {}).get("Code", ""))

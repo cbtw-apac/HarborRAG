@@ -5,14 +5,14 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, Field
 
-from harborrag_adapters.models.common.cache import (
+from harborrag_adapters.models.runtime.cache import (
     CacheDecision,
     InMemoryModelCache,
     ResponseCacheController,
     deterministic_cache_key,
 )
-from harborrag_adapters.models.common.config import CacheBackend, CacheConfig
-from harborrag_adapters.models.common.middleware import (
+from harborrag_adapters.models.runtime.config import CacheBackend, CacheConfig
+from harborrag_adapters.models.runtime.middleware import (
     MiddlewarePipeline,
     middleware_context,
 )

@@ -13,6 +13,7 @@ from .excel import ExcelParser
 from .exceptions import ParseError, UnsupportedFormatError
 from .html_engine import HtmlParser
 from .image import ImageParser
+from .input_loading import coerce_parse_input, parse_input_suffix
 from .markdown import MarkdownParser
 from .odt import OdtParser
 from .parser_logging import get_parser_logger, input_label
@@ -129,7 +130,7 @@ class HarborParser:
 
     def parse(self, input: Any) -> ParsedDocument:
         """Coerce input, resolve a parser route, and parse one document."""
-        parse_input = ParseInput.coerce(input)
+        parse_input = coerce_parse_input(input)
         route = self._route_for(parse_input)
         if route is not None:
             parser_logger.debug(
@@ -160,7 +161,7 @@ class HarborParser:
             )
             return document
 
-        suffix = parse_input.suffix or "<none>"
+        suffix = parse_input_suffix(parse_input) or "<none>"
         content_type = parse_input.content_type or "<none>"
         detail = f" suffix={suffix!r} content_type={content_type!r}"
         parser_logger.warning(
@@ -205,17 +206,18 @@ class HarborParser:
 
     def parser_for(self, input: Any) -> BaseParser[ParseInput, ParsedDocument] | None:
         """Return the parser that would handle input, without parsing it."""
-        route = self._route_for(ParseInput.coerce(input))
+        route = self._route_for(coerce_parse_input(input))
         return route.parser if route is not None else None
 
     def _route_for(self, parse_input: ParseInput) -> _ParserRoute | None:
         """Resolve suffix/content-type routes and reject ambiguous matches."""
+        suffix = parse_input_suffix(parse_input)
         suffix_route = None
-        if parse_input.suffix in self._by_suffix:
+        if suffix in self._by_suffix:
             suffix_route = _ParserRoute(
-                parser=self._by_suffix[parse_input.suffix],
+                parser=self._by_suffix[suffix],
                 kind="suffix",
-                key=parse_input.suffix,
+                key=suffix,
             )
 
         content_type = BaseParser.content_type_of(parse_input)
@@ -234,7 +236,7 @@ class HarborParser:
         ):
             if content_type in _GENERIC_CONTENT_TYPES:
                 return suffix_route
-            if parse_input.suffix in ("", None):
+            if not suffix:
                 return content_type_route
             parser_logger.warning(
                 "Conflicting parser routes for %s suffix=%s parser=%s content_type=%s parser=%s",

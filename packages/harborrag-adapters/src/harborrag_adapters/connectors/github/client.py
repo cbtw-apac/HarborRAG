@@ -13,7 +13,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     RateLimitError,
 )
-from harborrag_adapters.connectors.utils.http import (
+from harborrag_adapters.connectors.policies.http import (
     require_same_origin_url,
     retry_delay_seconds,
     safe_error_detail,

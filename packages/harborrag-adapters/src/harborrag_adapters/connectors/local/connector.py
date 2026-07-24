@@ -17,8 +17,8 @@ from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
 from .filesystem import LocalFileSystem
+from .filesystem_paths import guess_mime_type, sha256_file
 from .mappers import build_document_metadata, path_from_record
-from .utils import guess_mime_type, sha256_file
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 

@@ -1,4 +1,4 @@
-from harborrag_app.services.base import AppResponse, BaseAppService
+from harborrag_app.workflow_control import AppResponse, BaseAppService
 
 __all__ = [
     "AppResponse",

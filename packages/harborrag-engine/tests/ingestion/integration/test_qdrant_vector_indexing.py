@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.repositories.vector import HarborVectorDBClient
 from harborrag_engine.ingestion.indexing import VectorIndexService
 

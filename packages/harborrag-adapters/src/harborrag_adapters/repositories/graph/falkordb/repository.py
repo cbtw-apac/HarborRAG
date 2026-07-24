@@ -10,9 +10,12 @@ from harborrag_adapters.repositories.errors import (
 from harborrag_adapters.repositories.graph.base import HarborGraphRepository
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
+from harborrag_adapters.repositories.graph.falkordb.generation import (
+    FalkorGenerationMixin,
+)
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
-from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.graph.falkordb.reader import FalkorDBGraphReader
+from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
@@ -33,24 +36,8 @@ from harborrag_core.schemas.storage import (
     StorageOperationContext,
 )
 
-from harborrag_adapters.repositories.errors import (
-    HarborUnsafeQueryError,
-    StorageErrorContext,
-)
-from harborrag_adapters.repositories.graph.base import HarborGraphRepository
-from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
-from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
-from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
-from harborrag_adapters.repositories.graph.falkordb.reader import FalkorDBGraphReader
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
-from harborrag_adapters.repositories.telemetry import (
-    RepositoryTelemetry,
-    StorageTelemetryHook,
-    traced_repository_operation,
-)
 
-
-class FalkorDBGraphRepository(HarborGraphRepository):
+class FalkorDBGraphRepository(FalkorGenerationMixin, HarborGraphRepository):
     """Persists tenant-scoped graph records through FalkorDB openCypher queries."""
 
     def __init__(
@@ -317,43 +304,6 @@ class FalkorDBGraphRepository(HarborGraphRepository):
             except Exception as exc:  # pragma: no cover - provider version behavior
                 if "already" not in str(exc).lower() and "exist" not in str(exc).lower():
                     raise
-
-    async def _set_generation_state(
-        self,
-        artifact_id: str,
-        generation_id: str,
-        *,
-        index_state: str,
-        is_active: bool,
-        context: StorageOperationContext,
-    ) -> None:
-        parameters = {
-            "tenant_id": str(context.tenant_id),
-            "artifact_id": artifact_id,
-            "generation_id": generation_id,
-            "index_state": index_state,
-            "is_active": is_active,
-        }
-        await self._write(
-            """
-            MATCH (n:HarborEntity)
-            WHERE n.tenant_id = $tenant_id
-              AND n.artifact_id = $artifact_id
-              AND n.generation_id = $generation_id
-            SET n.index_state = $index_state, n.is_active = $is_active
-            """,
-            parameters,
-        )
-        await self._write(
-            """
-            MATCH ()-[r]->()
-            WHERE r.tenant_id = $tenant_id
-              AND r.artifact_id = $artifact_id
-              AND r.generation_id = $generation_id
-            SET r.index_state = $index_state, r.is_active = $is_active
-            """,
-            parameters,
-        )
 
     async def _write(self, statement: str, parameters: Mapping[str, Any]) -> None:
         await self._database.write(statement, parameters)

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 import pytest
 from harbor_test_builders import FakeResponse
 
-from harborrag_adapters.connectors.utils.http import (
+from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
 )

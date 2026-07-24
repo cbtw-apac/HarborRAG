@@ -6,7 +6,6 @@ import pytest
 from model_runtime_support import rerank_config
 from pydantic import SecretStr
 
-from harborrag_adapters.models.common.config import RoutingConfig, RoutingEngine
 from harborrag_adapters.models.rerank.configs import (
     HarborRerankDefaults,
     HarborRerankProviderConfig,
@@ -28,6 +27,7 @@ from harborrag_adapters.models.rerank.validation import (
     validate_rerank_configuration,
     validate_rerank_request,
 )
+from harborrag_adapters.models.runtime.config import RoutingConfig, RoutingEngine
 from harborrag_core.models.capabilities import HarborRerankCapabilities
 from harborrag_core.models.errors import (
     HarborRerankCapabilityError,

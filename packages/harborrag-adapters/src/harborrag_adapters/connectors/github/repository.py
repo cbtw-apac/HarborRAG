@@ -16,7 +16,7 @@ from .client import GitHubClient
 from .config import GitHubRepositoryConfig
 from .filters import should_process_file
 from .mappers import build_source_record, tree_sha_from_commit
-from .utils import (
+from .repository_paths import (
     GITHUB_BLOB_LIMIT_BYTES,
     blob_endpoint,
     commit_endpoint,

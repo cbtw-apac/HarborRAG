@@ -21,8 +21,8 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_adapters.repositories.shared.provider_map import ProviderMap
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
+from harborrag_adapters.repositories.registry import ProviderMap
 from harborrag_adapters.repositories.state.sqlite.config import SQLiteStateConfig
 from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 

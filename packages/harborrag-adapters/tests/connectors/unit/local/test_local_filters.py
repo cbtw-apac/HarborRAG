@@ -7,18 +7,18 @@ from pathlib import Path
 import pytest
 from local_test_helpers import config
 
+from harborrag_adapters.connectors.local.filesystem_paths import (
+    matches_globs,
+    matches_pattern,
+    path_in_scope,
+    relative_path,
+)
 from harborrag_adapters.connectors.local.filters import (
     extension_filter,
     file_paths_from_query,
     path_filter,
 )
 from harborrag_adapters.connectors.local.mappers import path_from_record
-from harborrag_adapters.connectors.local.utils import (
-    matches_globs,
-    matches_pattern,
-    path_in_scope,
-    relative_path,
-)
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 

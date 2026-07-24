@@ -11,7 +11,6 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument
-
 from harborrag_engine.ingestion.base import BaseDocumentNormalizer
 
 

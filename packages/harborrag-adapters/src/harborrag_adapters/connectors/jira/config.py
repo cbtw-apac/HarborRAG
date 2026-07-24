@@ -7,19 +7,19 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from harborrag_adapters.connectors.shared.attachments import (
+from harborrag_adapters.connectors.attachments.processing import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
     CustomAttachmentParser,
     FileType,
 )
-from harborrag_adapters.connectors.utils.helpers import (
+from harborrag_adapters.connectors.policies.validation import (
     DEFAULT_MAX_NESTED_ITEMS,
     validate_http_tuning,
     validate_https_url,
     validate_non_negative_limit,
 )
 
-from .utils import is_cloud_hostname
+from .query import is_cloud_hostname
 
 
 class JiraDeploymentType(StrEnum):

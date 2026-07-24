@@ -12,7 +12,7 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_adapters.repositories.shared.provider_map import ProviderMap
+from harborrag_adapters.repositories.registry import ProviderMap
 from harborrag_core.schemas.storage import StorageFamily
 
 

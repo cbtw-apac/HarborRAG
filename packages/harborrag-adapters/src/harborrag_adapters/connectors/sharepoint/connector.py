@@ -16,8 +16,8 @@ from harborrag_core.domain.source import SourceRecord
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig
 from .drive import SharePointDriveAPI
+from .drive_paths import is_drive_file, item_mime_type, item_name
 from .mappers import build_document_metadata, drive_item_id_from_record
-from .utils import is_drive_file, item_mime_type, item_name
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _TIME_FOR_SHAREPOINT_CONNECTOR_TESTS = time

@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
-from harborrag_adapters.models.common.litellm_router import build_litellm_router
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.litellm_router import build_litellm_router
 
 from ..backend import ChatBackend
 from ..backend_config import ChatBackendType

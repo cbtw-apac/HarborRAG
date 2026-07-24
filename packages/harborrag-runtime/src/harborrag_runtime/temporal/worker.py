@@ -69,7 +69,9 @@ async def _configured_main(stop_event: asyncio.Event | None = None) -> None:
     provider_path = settings.temporal_dependency_provider
     provider: Callable[[RuntimeSettings], object]
     if provider_path is None:
-        from harborrag_runtime.composition import build_ingestion_dependencies
+        from harborrag_runtime.ingestion_dependencies import (
+            build_ingestion_dependencies,
+        )
 
         provider = build_ingestion_dependencies
     else:

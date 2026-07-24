@@ -6,10 +6,12 @@ from typing import Any, ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .archive_safety import guard_input_size, open_guarded_zip, wrap_parse_errors
 from .base import BaseParser
 from .exceptions import ParseError
+from .input_loading import read_parse_input_bytes
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import compact_text, guard_input_size, open_guarded_zip, wrap_parse_errors
+from .text_extraction import compact_text
 
 parser_logger = get_parser_logger("odt")
 
@@ -55,7 +57,7 @@ class OdtParser(BaseParser[ParseInput, ParsedDocument]):
                 "or `pip install odfpy`."
             ) from exc
 
-        source_bytes = guard_input_size(parse_input.read_bytes())
+        source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
         parser_logger.debug(
             "Extracting ODT text from %s",
             input_label(parse_input),

@@ -8,10 +8,12 @@ from typing import Any, ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .archive_safety import guard_input_size, open_guarded_zip
 from .base import BaseParser
 from .exceptions import ParseError
+from .input_loading import read_parse_input_bytes
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import guard_input_size, html_to_text, open_guarded_zip
+from .text_extraction import html_to_text
 
 parser_logger = get_parser_logger("epub")
 
@@ -66,7 +68,7 @@ class EpubParser(BaseParser[ParseInput, ParsedDocument]):
                 ),
             )
             warnings: list[str] = []
-            with open_guarded_zip(guard_input_size(parse_input.read_bytes())) as archive:
+            with open_guarded_zip(guard_input_size(read_parse_input_bytes(parse_input))) as archive:
                 document_paths = self._document_paths(archive)
                 sections: list[str] = []
                 elements: list[DocumentElement] = []

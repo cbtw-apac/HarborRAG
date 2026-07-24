@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
-from harborrag_app.services.base import AppResponse, BaseAppService
+from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_core.contracts.errors import HarborAuthError
 
 

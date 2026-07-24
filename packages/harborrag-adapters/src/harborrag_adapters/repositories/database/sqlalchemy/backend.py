@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database.base import (
     HarborDatabaseBackend,
     HarborUnitOfWork,
     HarborUnitOfWorkFactory,
 )
-from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,

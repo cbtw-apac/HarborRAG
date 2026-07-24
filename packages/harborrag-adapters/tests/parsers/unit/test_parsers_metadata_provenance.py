@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers.utils import parse_metadata
+from harborrag_adapters.parsers.routing import parse_metadata
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

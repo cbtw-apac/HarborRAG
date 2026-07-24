@@ -6,10 +6,13 @@ from typing import Any, ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
+from ..archive_safety import guard_input_size
 from ..exceptions import EncryptedPdfError, ParseError
-from ..utils import compact_text, guard_input_size
+from ..input_loading import read_parse_input_bytes
+from ..text_extraction import compact_text
 from .base import PdfBackend, PdfParseResult
-from .utils import merge_dataclass_options, page_element
+from .content_extraction import page_element
+from .options import merge_dataclass_options
 
 # PyMuPDF runs fully in-process (unlike the subprocess-based MinerU backend,
 # which bounds itself with `timeout_seconds`), so there is no wall-clock
@@ -53,7 +56,7 @@ class PyMuPdfBackend(PdfBackend):
         """Extract text directly from PDF pages without OCR."""
 
         pymupdf = self._import_pymupdf()
-        source_bytes = guard_input_size(input.read_bytes())
+        source_bytes = guard_input_size(read_parse_input_bytes(input))
         try:
             document = pymupdf.open(stream=source_bytes, filetype="pdf")
         except Exception as exc:  # noqa: BLE001 - external parser boundary

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
 from harborrag_adapters.repositories.graph.falkordb.repository import (
     FalkorDBGraphRepository,

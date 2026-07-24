@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.models.common.security import SecretReference
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
     HarborRerankProvider,
 )
 from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
+from harborrag_adapters.models.runtime.security import SecretReference
 from harborrag_core.models.errors import HarborRerankConfigurationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

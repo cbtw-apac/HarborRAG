@@ -10,15 +10,15 @@ from pydantic import BaseModel
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.chat.configs import HarborChatProviderConfig
 from harborrag_adapters.models.chat.registry import HarborProvider
-from harborrag_adapters.models.common.budget import (
+from harborrag_adapters.models.runtime.budget import (
     BudgetAuthorization,
     BudgetExceededError,
 )
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     CacheConfig,
     RetryPolicyConfig,
 )
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import (
     HarborChatMessage,

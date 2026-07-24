@@ -6,10 +6,11 @@ from typing import Any, ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .archive_safety import guard_input_size, open_guarded_zip, wrap_parse_errors
 from .base import BaseParser
 from .exceptions import ParseError
+from .input_loading import parse_input_suffix, read_parse_input_bytes
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import guard_input_size, open_guarded_zip, wrap_parse_errors
 
 parser_logger = get_parser_logger("excel")
 
@@ -34,7 +35,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
         """Route legacy `.xls` through xlrd and OpenXML workbooks through openpyxl."""
 
         parse_input = self.coerce_input(input)
-        source_bytes = guard_input_size(parse_input.read_bytes())
+        source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
         parser_logger.debug(
             "Starting Excel parse for %s",
             input_label(parse_input),
@@ -46,7 +47,7 @@ class ExcelParser(BaseParser[ParseInput, ParsedDocument]):
             ),
         )
 
-        if parse_input.suffix == ".xls":
+        if parse_input_suffix(parse_input) == ".xls":
             content, elements, sheet_names = self._parse_xls(parse_input, source_bytes)
         else:
             content, elements, sheet_names = self._parse_openxml(

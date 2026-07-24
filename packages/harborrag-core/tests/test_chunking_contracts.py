@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_core.contracts.chunking import (
     JsonStructureSplitRequest,
     SourceSpan,

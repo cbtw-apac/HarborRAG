@@ -5,9 +5,10 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
+
 from harborrag_adapters.parsers import ImageParser
 from harborrag_core.domain.parser import ParseInput
-from PIL import Image
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

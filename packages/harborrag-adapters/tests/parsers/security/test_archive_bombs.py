@@ -13,8 +13,8 @@ from harbor_test_builders import (
 )
 
 from harborrag_adapters.parsers import HarborParser
+from harborrag_adapters.parsers.archive_safety import open_guarded_zip
 from harborrag_adapters.parsers.exceptions import ParseError
-from harborrag_adapters.parsers.utils import open_guarded_zip
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.blackbox

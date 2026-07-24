@@ -19,7 +19,7 @@ from harborrag_adapters.parsers import (
     TextParser,
 )
 from harborrag_adapters.parsers.base import BaseParser
-from harborrag_adapters.parsers.utils import normalize_suffix
+from harborrag_adapters.parsers.routing import normalize_suffix
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

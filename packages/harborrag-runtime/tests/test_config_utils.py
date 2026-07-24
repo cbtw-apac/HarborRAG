@@ -5,7 +5,7 @@ from collections.abc import Iterator, Mapping
 import pytest
 
 from harborrag_runtime.config.errors import ConfigurationError
-from harborrag_runtime.config.utils import parse_environment_references
+from harborrag_runtime.config.loading import parse_environment_references
 
 
 def test_parse_environment_references_rejects_key_whitespace() -> None:

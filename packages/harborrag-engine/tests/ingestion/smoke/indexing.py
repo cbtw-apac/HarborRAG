@@ -32,6 +32,8 @@ async def run_smoke() -> SmokeSummary:
         indexing_config,
         qdrant_config,
     )
+    from records import CharacterTokenCounter, build_indexing_request
+
     from harborrag_adapters.models.embed import HarborEmbedClient
     from harborrag_adapters.repositories.graph import HarborGraphDBClient
     from harborrag_adapters.repositories.vector import HarborVectorDBClient
@@ -42,7 +44,6 @@ async def run_smoke() -> SmokeSummary:
         VectorIndexService,
         deterministic_vector_point_id,
     )
-    from records import CharacterTokenCounter, build_indexing_request
 
     config = indexing_config()
     request = build_indexing_request(config)

@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, Text
 
-from harborrag_adapters.repositories.shared.sqlalchemy import UTCDateTime
+from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord
 
 METADATA = MetaData()

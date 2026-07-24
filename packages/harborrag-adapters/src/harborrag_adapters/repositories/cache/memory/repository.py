@@ -2,55 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
 
 from harborrag_adapters.repositories.cache.base import (
-    HarborCacheBackend,
     HarborCacheStore,
-    HarborLockManager,
 )
-from harborrag_adapters.repositories.errors import (
-    HarborStorageLeaseError,
-    StorageErrorContext,
-)
-from harborrag_adapters.repositories.shared.keys import escape_key_part
-from harborrag_adapters.repositories.telemetry import (
-    RepositoryTelemetry,
-    StorageTelemetryHook,
-    traced_repository_operation,
-)
-from harborrag_core.schemas.cache import CacheEntry, LockHandle
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
-)
-
-
-@dataclass(slots=True)
-class MemoryCacheState:
-    """Process-local cache data owned by exactly one backend instance."""
-
-    instance_name: str
-    key_prefix: str
-    telemetry: RepositoryTelemetry
-    entries: dict[str, CacheEntry] = field(default_factory=dict)
-    tags: dict[str, set[str]] = field(default_factory=dict)
-    locks: dict[str, LockHandle] = field(default_factory=dict)
-    fencing_tokens: dict[str, int] = field(default_factory=dict)
-    mutex: asyncio.Lock = field(default_factory=asyncio.Lock)
-    connected: bool = False
-
-    def key(self, context: StorageOperationContext, value: str) -> str:
-        return f"{self.key_prefix}:{context.tenant_id}:{escape_key_part(value)}"
-
-    @staticmethod
-    def tag(context: StorageOperationContext, value: str) -> str:
-        return f"{context.tenant_id}:{escape_key_part(value)}"
+from harborrag_adapters.repositories.cache.memory.state import MemoryCacheState
+from harborrag_adapters.repositories.telemetry import traced_repository_operation
+from harborrag_core.schemas.cache import CacheEntry
+from harborrag_core.schemas.storage import StorageOperationContext
 
 
 class MemoryCacheRepository(HarborCacheStore):
@@ -228,140 +189,3 @@ class MemoryCacheRepository(HarborCacheStore):
             members.discard(scoped)
             if not members:
                 self._state.tags.pop(scoped_tag, None)
-
-
-class MemoryLockManager(HarborLockManager):
-    """Coordinates process-local leases with ownership and fencing tokens."""
-
-    def __init__(self, state: MemoryCacheState) -> None:
-        self._state = state
-        self._telemetry = state.telemetry
-
-    @traced_repository_operation("lock_acquire")
-    async def acquire(
-        self,
-        key: str,
-        *,
-        lease_duration: timedelta,
-        wait_timeout: timedelta | None,
-        context: StorageOperationContext,
-    ) -> LockHandle | None:
-        self._validate_duration(lease_duration, "lease_duration")
-        if wait_timeout is not None and wait_timeout < timedelta(0):
-            raise ValueError("wait_timeout must not be negative")
-        scoped = self._state.key(context, f"lock:{key}")
-        deadline = datetime.now(UTC) + wait_timeout if wait_timeout else None
-        while True:
-            now = datetime.now(UTC)
-            async with self._state.mutex:
-                current = self._state.locks.get(scoped)
-                if current is None or current.expires_at <= now:
-                    fencing = self._state.fencing_tokens.get(scoped, 0) + 1
-                    self._state.fencing_tokens[scoped] = fencing
-                    handle = LockHandle(
-                        key=scoped,
-                        owner_token=str(uuid4()),
-                        fencing_token=fencing,
-                        expires_at=now + lease_duration,
-                    )
-                    self._state.locks[scoped] = handle
-                    return handle
-            if deadline is None or now >= deadline:
-                return None
-            await asyncio.sleep(min(0.05, max(0.0, (deadline - now).total_seconds())))
-
-    @traced_repository_operation("lock_renew")
-    async def renew(
-        self,
-        handle: LockHandle,
-        *,
-        lease_duration: timedelta,
-        context: StorageOperationContext,
-    ) -> LockHandle:
-        self._validate_duration(lease_duration, "lease_duration")
-        now = datetime.now(UTC)
-        async with self._state.mutex:
-            current = self._state.locks.get(handle.key)
-            if (
-                current is None
-                or current.owner_token != handle.owner_token
-                or current.expires_at <= now
-            ):
-                raise HarborStorageLeaseError(
-                    f"lock {handle.key!r} is not owned or has expired",
-                    context=self._error_context("lock_renew", handle.key),
-                )
-            renewed = current.model_copy(update={"expires_at": now + lease_duration})
-            self._state.locks[handle.key] = renewed
-            return renewed
-
-    @traced_repository_operation("lock_release")
-    async def release(
-        self,
-        handle: LockHandle,
-        *,
-        context: StorageOperationContext,
-    ) -> bool:
-        async with self._state.mutex:
-            current = self._state.locks.get(handle.key)
-            if current is None or current.owner_token != handle.owner_token:
-                return False
-            self._state.locks.pop(handle.key)
-            return True
-
-    @staticmethod
-    def _validate_duration(value: timedelta, name: str) -> None:
-        if value <= timedelta(0):
-            raise ValueError(f"{name} must be positive")
-
-    def _error_context(self, operation: str, resource: str) -> StorageErrorContext:
-        return StorageErrorContext(
-            family=StorageFamily.CACHE,
-            backend="memory",
-            instance_name=self._state.instance_name,
-            operation=operation,
-            resource_name=resource,
-        )
-
-
-class MemoryCacheBackend(HarborCacheBackend):
-    """Owns a native process-local cache without Redis emulation."""
-
-    def __init__(
-        self,
-        *,
-        instance_name: str = "default",
-        key_prefix: str = "harborrag:v1",
-        telemetry: StorageTelemetryHook | None = None,
-    ) -> None:
-        self._telemetry = RepositoryTelemetry(
-            telemetry,
-            family=StorageFamily.CACHE,
-            backend="memory",
-        )
-        self._state = MemoryCacheState(
-            instance_name=instance_name,
-            key_prefix=key_prefix,
-            telemetry=self._telemetry,
-        )
-        self.cache = MemoryCacheRepository(self._state)
-        self.locks = MemoryLockManager(self._state)
-
-    async def connect(self) -> None:
-        self._state.connected = True
-
-    async def close(self) -> None:
-        self._state.connected = False
-
-    async def health(self) -> RepositoryHealth:
-        return RepositoryHealth(
-            family=StorageFamily.CACHE,
-            backend="memory",
-            instance_name=self._state.instance_name,
-            status=(HealthStatus.HEALTHY if self._state.connected else HealthStatus.UNKNOWN),
-            details={
-                "entries": len(self._state.entries),
-                "locks": len(self._state.locks),
-                "distributed": False,
-            },
-        )

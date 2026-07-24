@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_adapters.models.common.lifecycle import (
+from harborrag_adapters.models.runtime.lifecycle import (
     AsyncLifecycleResource,
     LifecycleResource,
     ResourceOwnership,

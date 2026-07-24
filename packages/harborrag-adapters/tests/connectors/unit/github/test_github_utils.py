@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.connectors.github.utils import (
+from harborrag_adapters.connectors.github.repository_paths import (
     content_endpoint,
     file_extension,
     github_raw_url,

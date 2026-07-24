@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from io import StringIO
 
+from rich.console import Console
+
 from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.cli.stages import stage_views
-from harborrag_app.services.base import AppResponse
-from rich.console import Console
+from harborrag_app.workflow_control import AppResponse
 
 
 def make_renderer() -> tuple[CliRenderer, StringIO, StringIO]:

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.chunking.recursive import RecursiveTextRefiner
 from harborrag_core.contracts.chunking import SourceSpan, TextRefinementRequest
 

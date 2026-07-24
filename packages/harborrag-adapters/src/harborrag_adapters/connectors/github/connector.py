@@ -22,7 +22,7 @@ from .mappers import (
     tree_sha_from_commit,
 )
 from .repository import GitHubRepositoryAPI
-from .utils import (
+from .repository_paths import (
     github_blob_url,
     guess_mime_type,
     is_blob,

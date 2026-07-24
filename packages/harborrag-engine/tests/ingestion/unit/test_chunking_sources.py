@@ -1,4 +1,3 @@
-from harborrag_adapters.chunking import HarborChunk
 from harborrag_core.domain.element import DocumentElement
 from harborrag_engine.ingestion.chunking import (
     ChunkingConfig,
@@ -299,16 +298,7 @@ def test_empty_json_structure_fallback_keeps_normalized_elements() -> None:
     assert result.chunks[0].metadata["json_path"] == "$"
 
 
-def test_default_builder_only_constructs_available_optional_adapters(
-    monkeypatch,
-) -> None:
-    checked: list[str] = []
-
-    def unavailable(name: str) -> bool:
-        checked.append(name)
-        return False
-
-    monkeypatch.setattr(HarborChunk, "available", staticmethod(unavailable))
+def test_default_builder_does_not_discover_optional_adapters() -> None:
     profile = make_profile(name="json", strategy="json", target=40, maximum=50)
     document = make_document(
         [
@@ -333,7 +323,6 @@ def test_default_builder_only_constructs_available_optional_adapters(
         refiner=CharacterRefiner(),
     ).chunk(make_request(document))
 
-    assert checked == ["markdown", "html", "json"]
     assert [chunk.content for chunk in result.chunks] == ["Normalized JSON"]
 
 

@@ -1,8 +1,8 @@
 from .capsule import ContextCapsuleBuilder
+from .indexer import GraphIndexService
 from .planner import GraphMutationPlanner
 from .projection import UniversalGraphProjector
 from .schemas import GraphIndexResult, GraphMutationPlan, GraphValidationResult
-from .service import GraphIndexService
 from .validation import GraphValidationService
 
 __all__ = [

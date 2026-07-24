@@ -15,7 +15,7 @@ from harborrag_adapters.connectors.confluence.mappers import (
 from harborrag_adapters.connectors.confluence.mappers import (
     parse_timestamp as mapper_parse_timestamp,
 )
-from harborrag_adapters.connectors.confluence.utils import (
+from harborrag_adapters.connectors.confluence.query import (
     build_cql,
     build_search_params,
     format_query_timestamp,

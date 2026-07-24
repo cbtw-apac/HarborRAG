@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database.postgresql.config import (
     PostgreSQLDatabaseConfig,
 )
 from harborrag_adapters.repositories.database.sqlalchemy import (
     SQLAlchemyDatabaseBackend,
 )
-from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.telemetry import StorageTelemetryHook
 
 

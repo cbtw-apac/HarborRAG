@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ChildWorkflowError
 from temporalio.workflow import ChildWorkflowHandle, ParentClosePolicy
 
 from harborrag_runtime.temporal.identity import partition_workflow_id
@@ -18,7 +17,6 @@ from harborrag_runtime.temporal.schemas import (
     DiscoveryResult,
     IngestionRunInput,
     IngestionSummary,
-    PartitionInput,
     PartitionResult,
     PendingResolution,
     ReconciliationInput,
@@ -31,6 +29,10 @@ from harborrag_runtime.temporal.workflows.execution import (
     execute_activity,
     execute_reconciliation,
 )
+
+from .partition_inputs import build_partition_input
+from .partition_results import partition_result
+from .run_state import cancellation_received, record_pending
 
 
 @workflow.defn(name="harborrag.ingestion_run")
@@ -65,7 +67,7 @@ class IngestionRunWorkflow:
 
         while True:
             await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
-            if self._cancellation_received():
+            if cancellation_received(self._cancel_requested):
                 return await self._finish(request, cancelled=True)
 
             discovery = await self._discover(request, cursor)
@@ -88,7 +90,7 @@ class IngestionRunWorkflow:
             partition_offset = 0
             while partition_offset < len(partitions):
                 await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
-                if self._cancellation_received():
+                if cancellation_received(self._cancel_requested):
                     return await self._finish(request, cancelled=True)
                 batch = partitions[
                     partition_offset : partition_offset + self._partition_concurrency
@@ -102,7 +104,7 @@ class IngestionRunWorkflow:
                 self._active_partition_handles = [
                     await workflow.start_child_workflow(
                         "harborrag.ingestion_partition",
-                        _build_partition_input(
+                        build_partition_input(
                             request,
                             number,
                             items,
@@ -117,7 +119,7 @@ class IngestionRunWorkflow:
                 ]
                 results = await asyncio.gather(
                     *(
-                        self._partition_result(handle, number, items)
+                        partition_result(handle, number, items)
                         for handle, (number, items) in zip(
                             self._active_partition_handles,
                             numbered,
@@ -132,23 +134,16 @@ class IngestionRunWorkflow:
                     segment_artifacts += result.progress.processed
 
             await workflow.sleep(0)
-            if self._retry_requested:
-                retry_refs = tuple(
-                    references[artifact_id]
-                    for artifact_id in self._retry_requested
-                    if artifact_id in references
-                )
-                self._retry_requested = []
-                if retry_refs:
-                    retry_result = await self._retry_partition(
-                        request,
-                        next_partition,
-                        retry_refs,
-                    )
-                    next_partition += 1
-                    self._aggregate(retry_result)
-                    segment_partitions += 1
-                    segment_artifacts += retry_result.progress.processed
+            retry_result = await self._run_requested_retry(
+                request,
+                next_partition,
+                references,
+            )
+            if retry_result is not None:
+                next_partition += 1
+                self._aggregate(retry_result)
+                segment_partitions += 1
+                segment_artifacts += retry_result.progress.processed
 
             cursor = discovery.next_cursor
             self._current_partition = None
@@ -198,7 +193,7 @@ class IngestionRunWorkflow:
     ) -> PartitionResult:
         handle = await workflow.start_child_workflow(
             "harborrag.ingestion_partition",
-            _build_partition_input(
+            build_partition_input(
                 request,
                 number,
                 artifacts,
@@ -211,24 +206,31 @@ class IngestionRunWorkflow:
             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
         )
         self._active_partition_handles = [handle]
-        result = await self._partition_result(handle, number, artifacts)
+        result = await partition_result(handle, number, artifacts)
         self._active_partition_handles = []
         return result
 
-    @staticmethod
-    async def _partition_result(
-        handle: ChildWorkflowHandle[PartitionResult, Any],
-        number: int,
-        artifacts: tuple[ArtifactReference, ...],
-    ) -> PartitionResult:
-        try:
-            return cast("PartitionResult", await handle)
-        except ChildWorkflowError:
-            return PartitionResult(
-                partition_number=number,
-                progress=RunProgress(processed=len(artifacts), failed=len(artifacts)),
-                failed_artifacts=tuple(item.artifact_id for item in artifacts),
-            )
+    async def _run_requested_retry(
+        self,
+        request: IngestionRunInput,
+        partition_number: int,
+        references: dict[str, ArtifactReference],
+    ) -> PartitionResult | None:
+        if not self._retry_requested:
+            return None
+        retry_refs = tuple(
+            references[artifact_id]
+            for artifact_id in self._retry_requested
+            if artifact_id in references
+        )
+        self._retry_requested = []
+        if not retry_refs:
+            return None
+        return await self._retry_partition(
+            request,
+            partition_number,
+            retry_refs,
+        )
 
     def _aggregate(self, result: PartitionResult) -> None:
         progress = replace(result.progress, partitions=result.progress.partitions + 1)
@@ -236,7 +238,7 @@ class IngestionRunWorkflow:
         self._failed = list(dict.fromkeys((*self._failed, *result.failed_artifacts)))
         self._quarantined = list(dict.fromkeys((*self._quarantined, *result.quarantined_artifacts)))
         for pending in result.pending_resolutions:
-            self._record_pending(pending)
+            self._pending = record_pending(self._pending, pending)
 
     async def _finish(
         self,
@@ -264,15 +266,6 @@ class IngestionRunWorkflow:
             progress=self._progress,
             reconciliation_ref=reconciliation.reconciliation_ref,
         )
-
-    def _record_pending(self, pending: PendingResolution) -> None:
-        self._pending = [item for item in self._pending if item.artifact_id != pending.artifact_id]
-        self._pending.append(pending)
-
-    def _cancellation_received(self) -> bool:
-        """Read signal-mutated state without invalid static narrowing across awaits."""
-
-        return self._cancel_requested
 
     @workflow.query
     def get_status(self) -> WorkflowStatusView:
@@ -332,7 +325,7 @@ class IngestionRunWorkflow:
 
     @workflow.signal
     def artifact_waiting(self, pending: PendingResolution) -> None:
-        self._record_pending(pending)
+        self._pending = record_pending(self._pending, pending)
 
     @workflow.signal
     def artifact_resolution_completed(self, artifact_id: str) -> None:
@@ -350,24 +343,3 @@ class IngestionRunWorkflow:
     def validate_concurrency(self, update: ConcurrencyUpdate) -> None:
         if update.partition_concurrency < 1 or update.artifact_concurrency < 1:
             raise ValueError("partition and artifact concurrency must be positive")
-
-
-def _build_partition_input(
-    request: IngestionRunInput,
-    number: int,
-    artifacts: tuple[ArtifactReference, ...],
-    artifact_concurrency: int,
-    *,
-    attempt: int = 0,
-) -> PartitionInput:
-    options = replace(request.options, artifact_concurrency=artifact_concurrency)
-    return PartitionInput(
-        run_id=request.run_id,
-        tenant_id=request.tenant_id,
-        manifest_id=request.manifest_id,
-        partition_number=number,
-        artifacts=artifacts,
-        generation_id=request.generation_id,
-        options=options,
-        attempt=attempt,
-    )

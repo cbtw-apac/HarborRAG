@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from harborrag_adapters.repositories.state.sql import SQLLeaseStore
+from harborrag_adapters.repositories.state.sql_lease_store import SQLLeaseStore
 from harborrag_core.schemas.storage import StorageOperationContext
 
 

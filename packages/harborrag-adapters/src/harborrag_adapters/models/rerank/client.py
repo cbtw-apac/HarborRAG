@@ -3,29 +3,29 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Self
 
-from harborrag_adapters.models.common.budget import ModelBudgetPolicy
-from harborrag_adapters.models.common.cache import ModelResponseCache
-from harborrag_adapters.models.common.client_lifecycle import ModelClientLifecycleMixin
-from harborrag_adapters.models.common.client_runtime import ModelClientRuntimeMixin
-from harborrag_adapters.models.common.health import (
+from harborrag_adapters.models.runtime.budget import ModelBudgetPolicy
+from harborrag_adapters.models.runtime.cache import ModelResponseCache
+from harborrag_adapters.models.runtime.client_lifecycle import ModelClientLifecycleMixin
+from harborrag_adapters.models.runtime.client_runtime import ModelClientRuntimeMixin
+from harborrag_adapters.models.runtime.health import (
     ActiveHealthMonitor,
     DeploymentHealthProbe,
 )
-from harborrag_adapters.models.common.introspection import ModelRuntimeIntrospector
-from harborrag_adapters.models.common.lifecycle import (
+from harborrag_adapters.models.runtime.introspection import ModelRuntimeIntrospector
+from harborrag_adapters.models.runtime.lifecycle import (
     AsyncLifecycleResource,
     LifecycleResource,
     ResourceOwnership,
 )
-from harborrag_adapters.models.common.middleware import MiddlewarePipeline
-from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
-from harborrag_adapters.models.common.routing_state import RoutingStateStore
-from harborrag_adapters.models.common.runtime_services import (
+from harborrag_adapters.models.runtime.middleware import MiddlewarePipeline
+from harborrag_adapters.models.runtime.redis_client import RedisConnectionLifecycle
+from harborrag_adapters.models.runtime.routing_state import RoutingStateStore
+from harborrag_adapters.models.runtime.runtime_services import (
     ModelRuntimeServices,
     build_runtime_services,
 )
-from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
-from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
+from harborrag_adapters.models.runtime.singleflight import SingleFlightCoordinator
+from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.capabilities import HarborRerankCapabilities
 from harborrag_core.models.protocols import (
     AsyncHarborRerankClientProtocol,

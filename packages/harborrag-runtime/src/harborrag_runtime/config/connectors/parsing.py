@@ -16,7 +16,7 @@ from harborrag_runtime.config.connectors.providers import (
 )
 from harborrag_runtime.config.connectors.schemas import ConnectorDefinition
 from harborrag_runtime.config.errors import ConnectorConfigurationError
-from harborrag_runtime.config.utils import (
+from harborrag_runtime.config.loading import (
     parse_environment_references,
     reject_unknown_keys,
     require_boolean,

@@ -4,11 +4,11 @@ import pytest
 from model_invocation_support import FakeRerankInvocation, rerank_response
 from pydantic import ValidationError
 
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
     HarborRerankingClient,
 )
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_core.models.errors import (
     HarborRerankCapabilityError,
     HarborRerankInvalidRequestError,

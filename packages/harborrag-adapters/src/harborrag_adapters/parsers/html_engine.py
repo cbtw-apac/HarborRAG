@@ -5,10 +5,12 @@ from typing import ClassVar
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .archive_safety import guard_input_size
 from .base import BaseParser
 from .exceptions import ParseError
+from .input_loading import read_parse_input_bytes, read_parse_input_text
 from .parser_logging import get_parser_logger, input_label, parser_log_extra
-from .utils import guard_input_size, html_to_text_with_engine
+from .text_extraction import html_to_text_with_engine
 
 parser_logger = get_parser_logger("html")
 
@@ -34,9 +36,9 @@ class HtmlParser(BaseParser[ParseInput, ParsedDocument]):
                 parser_engine=self.parser_engine,
             ),
         )
-        data = guard_input_size(parse_input.read_bytes())
+        data = guard_input_size(read_parse_input_bytes(parse_input))
         try:
-            html = ParseInput(content=data).read_text()
+            html = read_parse_input_text(ParseInput(content=data))
         except UnicodeDecodeError as exc:
             raise ParseError(f"Could not decode HTML input: {exc}") from exc
         content, text_engine = html_to_text_with_engine(html)

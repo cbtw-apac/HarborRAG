@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from harborrag_adapters.repositories.cache.memory.repository import MemoryCacheBackend
+from harborrag_adapters.repositories.cache.memory.backend import MemoryCacheBackend
 from harborrag_adapters.repositories.errors import HarborStorageLeaseError
 from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
 
