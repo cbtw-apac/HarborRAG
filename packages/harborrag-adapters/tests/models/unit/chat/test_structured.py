@@ -5,7 +5,6 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel, Field
 
-from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import HarborChatMessage, StructuredOutputDegradation
 from harborrag_core.models.errors import (
@@ -14,7 +13,12 @@ from harborrag_core.models.errors import (
     HarborChatStructuredOutputError,
 )
 
-from .chat_client_support import FakeInvocation, response_dict
+from .chat_client_support import (
+    FakeInvocation,
+    async_client,
+    response_dict,
+    sync_client,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -58,7 +62,7 @@ def test_native_structured_output_returns_validated_pydantic_model(base_config) 
     )
     invocation = FakeInvocation([response_dict('{"answer":"yes","confidence":0.9}')])
 
-    result = HarborChatClient(config, invocation=invocation).chat_structured(
+    result = sync_client(config, invocation=invocation).chat_structured(
         [HarborChatMessage.user("question")],
         response_model=TypedAnswer,
     )
@@ -78,7 +82,7 @@ async def test_async_structured_output_uses_the_same_validation_path(
     config = _configured(base_config, HarborChatCapabilities(structured_output=True))
     invocation = FakeInvocation([response_dict('{"answer":"async","confidence":0.7}')])
 
-    result = await HarborChatClient(config, invocation=invocation).achat_structured(
+    result = await async_client(config, invocation=invocation).achat_structured(
         [HarborChatMessage.user("question")],
         response_model=TypedAnswer,
     )
@@ -89,7 +93,7 @@ async def test_async_structured_output_uses_the_same_validation_path(
 
 def test_invalid_json_raises_explicit_structured_output_error(base_config) -> None:
     config = _configured(base_config, HarborChatCapabilities(structured_output=True), repairs=0)
-    client = HarborChatClient(config, invocation=FakeInvocation([response_dict("not-json")]))
+    client = sync_client(config, invocation=FakeInvocation([response_dict("not-json")]))
 
     with pytest.raises(HarborChatStructuredOutputError) as captured:
         client.chat_structured(
@@ -105,7 +109,7 @@ def test_invalid_json_raises_explicit_structured_output_error(base_config) -> No
 
 def test_schema_mismatch_is_never_returned_as_valid_data(base_config) -> None:
     config = _configured(base_config, HarborChatCapabilities(structured_output=True), repairs=0)
-    client = HarborChatClient(
+    client = sync_client(
         config,
         invocation=FakeInvocation([response_dict('{"answer":"missing confidence"}')]),
     )
@@ -126,7 +130,7 @@ def test_one_bounded_repair_can_recover_invalid_output(base_config) -> None:
         ]
     )
 
-    result = HarborChatClient(config, invocation=invocation).chat_structured(
+    result = sync_client(config, invocation=invocation).chat_structured(
         [HarborChatMessage.user("question")],
         response_model=TypedAnswer,
     )
@@ -144,7 +148,7 @@ def test_repair_exhaustion_raises_after_the_configured_bound(base_config) -> Non
     invocation = FakeInvocation([response_dict("invalid-1"), response_dict("invalid-2")])
 
     with pytest.raises(HarborChatStructuredOutputError) as captured:
-        HarborChatClient(config, invocation=invocation).chat_structured(
+        sync_client(config, invocation=invocation).chat_structured(
             [HarborChatMessage.user("question")],
             response_model=TypedAnswer,
         )
@@ -157,7 +161,7 @@ def test_json_mode_is_used_when_native_schema_is_not_declared(base_config) -> No
     config = _configured(base_config, HarborChatCapabilities(json_mode=True))
     invocation = FakeInvocation([response_dict('{"answer":"json","confidence":0.6}')])
 
-    HarborChatClient(config, invocation=invocation).chat_structured(
+    sync_client(config, invocation=invocation).chat_structured(
         [HarborChatMessage.user("question")],
         response_model=TypedAnswer,
     )
@@ -173,7 +177,7 @@ def test_prompt_fallback_requires_explicit_policy(base_config) -> None:
     )
     invocation = FakeInvocation([response_dict('{"answer":"prompt","confidence":0.5}')])
 
-    HarborChatClient(config, invocation=invocation).chat_structured(
+    sync_client(config, invocation=invocation).chat_structured(
         [HarborChatMessage.user("question")],
         response_model=TypedAnswer,
     )
@@ -189,7 +193,7 @@ def test_unsupported_structured_output_stops_before_invocation(base_config) -> N
     invocation = FakeInvocation([response_dict()])
 
     with pytest.raises(HarborChatCapabilityError, match="structured-output strategy"):
-        HarborChatClient(config, invocation=invocation).chat_structured(
+        sync_client(config, invocation=invocation).chat_structured(
             [HarborChatMessage.user("question")],
             response_model=TypedAnswer,
         )
@@ -202,7 +206,7 @@ def test_unrepresentable_response_schema_raises_structured_error(base_config) ->
     invocation = FakeInvocation([response_dict()])
 
     with pytest.raises(HarborChatStructuredOutputError, match="JSON Schema"):
-        HarborChatClient(config, invocation=invocation).chat_structured(
+        sync_client(config, invocation=invocation).chat_structured(
             [HarborChatMessage.user("question")],
             response_model=InvalidSchemaModel,
         )
@@ -212,7 +216,7 @@ def test_unrepresentable_response_schema_raises_structured_error(base_config) ->
 
 def test_repair_override_is_strictly_bounded(base_config) -> None:
     config = _configured(base_config, HarborChatCapabilities(structured_output=True))
-    client = HarborChatClient(config, invocation=FakeInvocation())
+    client = sync_client(config, invocation=FakeInvocation())
 
     with pytest.raises(HarborChatInvalidRequestError, match="max_repair_attempts"):
         client.chat_structured(

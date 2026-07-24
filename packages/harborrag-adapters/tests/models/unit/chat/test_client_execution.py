@@ -7,7 +7,6 @@ import pytest
 from model_runtime_support import FakeChatInvocation, chat_config
 from pydantic import BaseModel
 
-from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.chat.configs import HarborChatProviderConfig
 from harborrag_adapters.models.chat.registry import HarborProvider
 from harborrag_adapters.models.runtime.budget import (
@@ -30,6 +29,8 @@ from harborrag_core.models.errors import (
     HarborChatStructuredOutputError,
     HarborChatTimeoutError,
 )
+
+from .chat_client_support import async_client, sync_client
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -81,7 +82,7 @@ def deployment(name: str, *, order: int = 0) -> HarborChatProviderConfig:
     )
 
 
-def test_chat_client_sync_async_cache_middleware_and_lifecycle() -> None:
+def test_chat_client_sync_cache_middleware_and_lifecycle() -> None:
     events: list[str] = []
 
     class Middleware:
@@ -93,9 +94,9 @@ def test_chat_client_sync_async_cache_middleware_and_lifecycle() -> None:
             events.append("after")
             return response
 
-    invocation = FakeChatInvocation([raw_chat("sync"), raw_chat("async")])
+    invocation = FakeChatInvocation([raw_chat("sync")])
     config = chat_config(cache=CacheConfig(enabled=True, ttl_seconds=30))
-    client = HarborChatClient.from_config(config, invocation=invocation, middleware=(Middleware(),))
+    client = sync_client(config, invocation=invocation, middleware=(Middleware(),))
     request = HarborChatRequest(
         messages=(HarborChatMessage.user("hello"),),
         metadata={"tenant_id": "tenant"},
@@ -107,13 +108,6 @@ def test_chat_client_sync_async_cache_middleware_and_lifecycle() -> None:
     assert len(invocation.calls) == 1
     assert events == ["before", "after", "before", "after"]
 
-    async def run() -> None:
-        response = await client.achat([HarborChatMessage.user("other")])
-        assert response.text == "async"
-
-    import asyncio
-
-    asyncio.run(run())
     assert invocation.calls[-1]["metadata"]["harborrag"]["operation"] == "chat"
     assert client is client.__enter__()
     client.close()
@@ -156,7 +150,7 @@ def test_chat_client_routes_budget_exceeded_through_middleware_and_telemetry() -
             errors.append(error)
 
     invocation = FakeChatInvocation([raw_chat("unused")])
-    client = HarborChatClient(
+    client = sync_client(
         chat_config(),
         invocation=invocation,
         middleware=(Middleware(),),
@@ -191,7 +185,7 @@ async def test_chat_client_routes_budget_exceeded_through_middleware_and_telemet
             errors.append(error)
 
     invocation = FakeChatInvocation([raw_chat("unused")])
-    client = HarborChatClient(
+    client = async_client(
         chat_config(),
         invocation=invocation,
         middleware=(Middleware(),),
@@ -209,7 +203,7 @@ async def test_chat_client_routes_budget_exceeded_through_middleware_and_telemet
 @pytest.mark.asyncio
 async def test_chat_client_async_context_closes_owned_resources() -> None:
     invocation = FakeChatInvocation([raw_chat()])
-    async with HarborChatClient(chat_config(), invocation=invocation) as client:
+    async with async_client(chat_config(), invocation=invocation) as client:
         assert (await client.achat([HarborChatMessage.user("x")])).text == "ok"
     assert invocation.closed == 1
     with pytest.raises(RuntimeError, match="closed"):
@@ -226,7 +220,7 @@ def test_chat_retry_deployment_failover_and_model_fallback() -> None:
     )
     deployments = (deployment("first", order=0), deployment("second", order=1))
     invocation = FakeChatInvocation([TimeoutError("secret prompt"), raw_chat("second")])
-    response = HarborChatClient(
+    response = sync_client(
         chat_config(deployments=deployments, retry=retry), invocation=invocation
     ).chat([HarborChatMessage.user("x")])
     assert response.text == "second"
@@ -235,7 +229,7 @@ def test_chat_retry_deployment_failover_and_model_fallback() -> None:
     assert invocation.calls[1]["model"] == "openai/second"
 
     fallback_invocation = FakeChatInvocation([TimeoutError(), raw_chat("fallback")])
-    fallback = HarborChatClient(
+    fallback = sync_client(
         chat_config(deployments=(deployment("only"),), retry=retry, fallbacks=("fallback",)),
         invocation=fallback_invocation,
     ).chat([HarborChatMessage.user("x")])
@@ -252,14 +246,14 @@ def test_chat_same_deployment_retry_and_nonretryable_error() -> None:
         max_delay_seconds=0,
     )
     invocation = FakeChatInvocation([TimeoutError(), raw_chat("retried")])
-    response = HarborChatClient(chat_config(retry=retry), invocation=invocation).chat(
+    response = sync_client(chat_config(retry=retry), invocation=invocation).chat(
         [HarborChatMessage.user("x")]
     )
     assert response.text == "retried" and response.retry_count == 1
     error = HarborChatProviderError("safe", retryable=False)
     failed = FakeChatInvocation([error, raw_chat("unused")])
     with pytest.raises(HarborChatProviderError):
-        HarborChatClient(chat_config(retry=retry), invocation=failed).chat(
+        sync_client(chat_config(retry=retry), invocation=failed).chat(
             [HarborChatMessage.user("x")]
         )
     assert len(failed.calls) == 1
@@ -277,7 +271,7 @@ def test_stream_retries_before_first_event_and_commits_after_output() -> None:
         ]
     )
     events = list(
-        HarborChatClient(chat_config(), invocation=invocation).stream([HarborChatMessage.user("x")])
+        sync_client(chat_config(), invocation=invocation).stream([HarborChatMessage.user("x")])
     )
     assert [event.event for event in events] == [
         StreamEventType.METADATA,
@@ -295,7 +289,7 @@ def test_stream_retries_before_first_event_and_commits_after_output() -> None:
         raise TimeoutError("disconnect")
 
     partial_invocation = FakeChatInvocation([partial(), [chunk("must-not-run")]])
-    iterator = HarborChatClient(chat_config(), invocation=partial_invocation).stream(
+    iterator = sync_client(chat_config(), invocation=partial_invocation).stream(
         [HarborChatMessage.user("x")]
     )
     assert next(iterator).event is StreamEventType.METADATA
@@ -310,7 +304,7 @@ def test_stream_retries_before_first_event_and_commits_after_output() -> None:
 @pytest.mark.asyncio
 async def test_async_stream_normalization_and_cleanup() -> None:
     invocation = FakeChatInvocation([[chunk("a"), chunk("b", finish="stop")]])
-    client = HarborChatClient(chat_config(), invocation=invocation)
+    client = async_client(chat_config(), invocation=invocation)
     events = [event async for event in client.astream([HarborChatMessage.user("x")])]
     assert "".join(event.text_delta or "" for event in events) == "ab"
     assert events[-1].event is StreamEventType.COMPLETED
@@ -318,20 +312,20 @@ async def test_async_stream_normalization_and_cleanup() -> None:
 
 
 def test_structured_output_success_repair_and_terminal_failure() -> None:
-    direct = HarborChatClient(
+    direct = sync_client(
         chat_config(), invocation=FakeChatInvocation([raw_chat('{"answer":"yes"}')])
     )
     assert (
         direct.chat_structured([HarborChatMessage.user("x")], response_model=Answer).answer == "yes"
     )
     repairing = FakeChatInvocation([raw_chat("not json"), raw_chat('{"answer":"fixed"}')])
-    fixed = HarborChatClient(chat_config(), invocation=repairing).chat_structured(
+    fixed = sync_client(chat_config(), invocation=repairing).chat_structured(
         [HarborChatMessage.user("x")], response_model=Answer, max_repair_attempts=1
     )
     assert fixed.answer == "fixed"
     assert len(repairing.calls[1]["messages"]) > len(repairing.calls[0]["messages"])
     with pytest.raises(HarborChatStructuredOutputError):
-        HarborChatClient(
+        sync_client(
             chat_config(), invocation=FakeChatInvocation([raw_chat("bad")])
         ).chat_structured(
             [HarborChatMessage.user("x")], response_model=Answer, max_repair_attempts=0
@@ -341,7 +335,7 @@ def test_structured_output_success_repair_and_terminal_failure() -> None:
 @pytest.mark.asyncio
 async def test_async_structured_output_and_borrowed_invocation() -> None:
     invocation = FakeChatInvocation([raw_chat('{"answer":"async"}')])
-    client = HarborChatClient(
+    client = async_client(
         chat_config(),
         invocation=invocation,
         resource_ownership=ResourceOwnership.BORROWED,

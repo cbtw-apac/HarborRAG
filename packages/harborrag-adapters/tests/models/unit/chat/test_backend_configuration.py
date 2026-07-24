@@ -5,22 +5,27 @@ from typing import Any
 import pytest
 
 from harborrag_adapters.models.chat import (
-    ChatBackendConfig,
     ChatBackendType,
     HarborChatClient,
     HarborChatClientConfig,
-    HarborChatModelConfig,
-    HarborChatProviderConfig,
-    HarborProvider,
-    LiteLLMDirectBackend,
-    LiteLLMProxyBackend,
+)
+from harborrag_adapters.models.chat.backend_config import (
+    ChatBackendConfig,
     LiteLLMProxyConfig,
-    LiteLLMRouterBackend,
     ProxyAuthMode,
     ProxyMetadataConfig,
 )
+from harborrag_adapters.models.chat.backends import (
+    LiteLLMDirectBackend,
+    LiteLLMProxyBackend,
+    LiteLLMRouterBackend,
+)
 from harborrag_adapters.models.chat.backends.factory import build_chat_backend
-from harborrag_adapters.models.chat.registry import ProviderRegistry
+from harborrag_adapters.models.chat.configs import (
+    HarborChatModelConfig,
+    HarborChatProviderConfig,
+)
+from harborrag_adapters.models.chat.registry import HarborProvider, ProviderRegistry
 from harborrag_adapters.models.runtime.config import (
     ConnectionPoolConfig,
     ObservabilityConfig,

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from chat.chat_client_support import sync_client
 from model_runtime_support import (
     FakeChatInvocation,
     FakeEmbeddingInvocation,
@@ -14,7 +15,6 @@ from model_runtime_support import (
     rerank_config,
 )
 
-from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.cli import ModelConfigCli, main
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.models.rerank import HarborRerankingClient
@@ -271,7 +271,7 @@ def test_config_cli_validate_render_explain_and_errors(tmp_path: Path, capsys: A
 @pytest.mark.asyncio
 async def test_public_clients_expose_one_runtime_introspection_api() -> None:
     clients = (
-        HarborChatClient(chat_config(), invocation=FakeChatInvocation([])),
+        sync_client(chat_config(), invocation=FakeChatInvocation([])),
         HarborEmbedClient(embed_config(), invocation=FakeEmbeddingInvocation([])),
         HarborRerankingClient(rerank_config(), invocation=FakeRerankInvocation([])),
     )

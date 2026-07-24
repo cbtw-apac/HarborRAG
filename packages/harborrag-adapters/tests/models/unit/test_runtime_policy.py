@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from chat.chat_client_support import async_client, sync_client
 from pydantic import ValidationError
 
-from harborrag_adapters.models.chat import HarborChatClient, HarborChatClientConfig
+from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.runtime.cache import (
     InMemoryModelCache,
     deterministic_cache_key,
@@ -111,7 +112,7 @@ def runtime_config(
 def test_same_deployment_retry_is_distinct_from_fallback() -> None:
     invocation = Invocation([HarborChatRateLimitError("limited"), response()])
 
-    result = HarborChatClient(runtime_config(attempts=2), invocation=invocation).chat(
+    result = sync_client(runtime_config(attempts=2), invocation=invocation).chat(
         [HarborChatMessage.user("hello")]
     )
 
@@ -128,7 +129,7 @@ def test_non_retryable_failure_stops_immediately() -> None:
     invocation = Invocation([HarborChatAuthenticationError("bad credentials")])
 
     with pytest.raises(HarborChatAuthenticationError):
-        HarborChatClient(runtime_config(attempts=3), invocation=invocation).chat(
+        sync_client(runtime_config(attempts=3), invocation=invocation).chat(
             [HarborChatMessage.user("hello")]
         )
 
@@ -138,7 +139,7 @@ def test_non_retryable_failure_stops_immediately() -> None:
 def test_deployment_failover_is_reported_separately() -> None:
     invocation = Invocation([TimeoutError("slow"), response()])
 
-    result = HarborChatClient(runtime_config(deployments=2), invocation=invocation).chat(
+    result = sync_client(runtime_config(deployments=2), invocation=invocation).chat(
         [HarborChatMessage.user("hello")]
     )
 
@@ -155,7 +156,7 @@ def test_deployment_failover_is_reported_separately() -> None:
 async def test_async_logical_model_fallback() -> None:
     invocation = Invocation([TimeoutError("slow"), response("fallback")])
 
-    result = await HarborChatClient(runtime_config(fallback=True), invocation=invocation).achat(
+    result = await async_client(runtime_config(fallback=True), invocation=invocation).achat(
         [HarborChatMessage.user("hello")]
     )
 
@@ -168,7 +169,7 @@ def test_maximum_retry_exhaustion_preserves_timeout_error() -> None:
     invocation = Invocation([TimeoutError("slow"), TimeoutError("still slow")])
 
     with pytest.raises(HarborChatTimeoutError):
-        HarborChatClient(runtime_config(attempts=2), invocation=invocation).chat(
+        sync_client(runtime_config(attempts=2), invocation=invocation).chat(
             [HarborChatMessage.user("hello")]
         )
 
@@ -177,7 +178,7 @@ def test_maximum_retry_exhaustion_preserves_timeout_error() -> None:
 
 def test_cache_hit_miss_and_request_id_refresh() -> None:
     invocation = Invocation([response("cached")])
-    client = HarborChatClient(runtime_config(cache=True), invocation=invocation)
+    client = sync_client(runtime_config(cache=True), invocation=invocation)
     kwargs = {"cacheable": True, "metadata": {"tenant_id": "tenant-a"}}
 
     first = client.chat([HarborChatMessage.user("hello")], **kwargs)
@@ -191,7 +192,7 @@ def test_cache_hit_miss_and_request_id_refresh() -> None:
 
 def test_cache_bypass_and_sensitive_default() -> None:
     invocation = Invocation([response("one"), response("two"), response("three")])
-    client = HarborChatClient(runtime_config(cache=True), invocation=invocation)
+    client = sync_client(runtime_config(cache=True), invocation=invocation)
 
     client.chat([HarborChatMessage.user("hello")], metadata={"tenant_id": "tenant"})
     client.chat(
@@ -234,7 +235,7 @@ def test_singleflight_engages_only_for_cache_eligible_requests() -> None:
 
     spy = SpyCoordinator()
     invocation = Invocation([response("direct"), response("deduplicated")])
-    client = HarborChatClient(runtime_config(cache=True), invocation=invocation, singleflight=spy)
+    client = sync_client(runtime_config(cache=True), invocation=invocation, singleflight=spy)
 
     direct = client.chat(
         [HarborChatMessage.user("hello")],
@@ -256,7 +257,7 @@ def test_cache_ttl_and_tenant_isolation() -> None:
     clock = Clock()
     backend = InMemoryModelCache(clock=clock)
     invocation = Invocation([response("a"), response("b"), response("expired")])
-    client = HarborChatClient(
+    client = sync_client(
         runtime_config(cache=True, ttl=1), invocation=invocation, cache=backend
     )
     request = [HarborChatMessage.user("hello")]

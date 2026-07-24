@@ -1,6 +1,11 @@
-# Chat backend contract suite
+# Chat contract suites
 
-Every chat transport backend must be exercised through `BackendContractHarness` and `exercise_backend_contract`.
+Every public client is exercised through `ChatClientContractSuite`. The same
+completion, streaming, structured-output, protocol-surface, and lifecycle checks run
+against `HarborChatClient` and `AsyncHarborChatClient`.
+
+Every chat transport backend is separately exercised through
+`BackendContractHarness` and `exercise_backend_contract`.
 
 The shared contract verifies:
 

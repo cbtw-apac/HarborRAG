@@ -143,7 +143,7 @@ application enables.
 import logging
 import litellm
 
-from harborrag_adapters.models.chat import HarborChatClient
+from harborrag_adapters.models.chat import ChatClientDependencies, ChatClientFactory
 from harborrag_adapters.models.runtime import (
     LangfuseTelemetry,
     LiteLLMTelemetryCallback,
@@ -160,13 +160,17 @@ telemetry = TelemetryDispatcher(
     ],
     config=chat_config.observability,
 )
-client = HarborChatClient(chat_config, telemetry=telemetry)
+client = ChatClientFactory.create(
+    chat_config,
+    ChatClientDependencies(telemetry=telemetry),
+)
 litellm.callbacks.append(LiteLLMTelemetryCallback(telemetry))
 ```
 
 Injected telemetry is borrowed by default. Set
-`telemetry_ownership=ResourceOwnership.OWNED` when one client should close and flush
-it, or close the shared dispatcher at the application boundary. The privacy defaults
+`ChatClientDependencies(telemetry_ownership=ResourceOwnership.OWNED, ...)` when one
+client should close and flush it, or close the shared dispatcher at the application
+boundary. The privacy defaults
 disable prompt and response logging, hash tenant and user identifiers, allowlist
 metadata, redact credential-shaped fields, and bound logged content.
 `failure_mode: raise` is available only for applications that intentionally require
@@ -217,16 +221,17 @@ flags must match the actual deployment. Reranking is never emulated through chat
 ## Chat
 
 ```python
-from harborrag_adapters.models.chat import HarborChatClient, HarborChatClientConfig
+from harborrag_adapters.models.chat import ChatClientFactory, HarborChatClientConfig
 
 config = HarborChatClientConfig.from_file("models.example.yaml")
-with HarborChatClient.from_config(config) as client:
+with ChatClientFactory.create(config) as client:
     response = client.chat([{"role": "user", "content": "Summarize HarborRAG."}])
     print(response.text)
 ```
 
-The same client supports asynchronous calls with `await client.achat(...)`.
-Use `client.stream(...)` or `client.astream(...)` for normalized text, tool-call,
+Use `ChatClientFactory.create_async(config)` for asynchronous calls with
+`await client.achat(...)`. The synchronous client exposes `stream(...)`; the
+asynchronous client exposes `astream(...)`. Both return normalized text, tool-call,
 usage, and completion events. Tool definitions use the core `HarborChatTool` schema;
 complete responses and completion events expose parsed tool calls. Applications own
 tool execution and submit any results as tool messages in a later request.
@@ -237,9 +242,9 @@ native-schema, JSON-mode, and multimodal capabilities. The structured-output pol
 may allow JSON degradation or opt into prompt fallback, and repair attempts are
 strictly bounded. Image and text parts use the provider-neutral core content schemas.
 
-Each family exposes one concrete client. The client provides both synchronous and
-asynchronous methods, so no duplicate `AsyncHarbor*` alias is exported. Each logical
-model may contain multiple enabled deployments and ordered fallback references.
+Chat exposes distinct synchronous and asynchronous clients through one narrow
+factory. Each logical model may contain multiple enabled deployments and ordered
+fallback references.
 
 ## Embeddings
 

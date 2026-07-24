@@ -5,62 +5,52 @@ from typing import Protocol
 
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
 
-from .batch import (
-    BatchFailureMode,
-    ChatBatchExecutor,
-    HarborChatBatchResult,
-)
+from .batch import AsyncChatBatchExecutor, SyncChatBatchExecutor
+from .schemas import BatchFailureMode, HarborChatBatchResult
 
 
-class ChatBatchClientBoundary(Protocol):
-    """Describe the methods consumed by the public chat batch mixin."""
+class SyncChatBatchBoundary(Protocol):
+    def chat(self, *, request: HarborChatRequest) -> HarborChatResponse: ...
 
-    def chat(self, *, request: HarborChatRequest) -> HarborChatResponse:
-        """Generate one synchronous response."""
-
-        ...
-
-    async def achat(self, *, request: HarborChatRequest) -> HarborChatResponse:
-        """Generate one asynchronous response."""
-
-        ...
-
-    def _ensure_open(self) -> None:
-        """Reject operations after client shutdown."""
-
-        ...
+    def _ensure_open(self) -> None: ...
 
 
-class HarborChatBatchMixin:
-    """Add bounded ordered batch operations to a concrete Harbor chat client."""
+class AsyncChatBatchBoundary(Protocol):
+    async def achat(self, *, request: HarborChatRequest) -> HarborChatResponse: ...
+
+    def _ensure_open(self) -> None: ...
+
+
+class SyncChatBatchMixin:
+    """Add bounded ordered batch operations to the synchronous client."""
 
     def chat_many(
-        self: ChatBatchClientBoundary,
+        self: SyncChatBatchBoundary,
         requests: Sequence[HarborChatRequest],
         *,
         concurrency: int = 8,
         failure_mode: BatchFailureMode = BatchFailureMode.COLLECT,
     ) -> HarborChatBatchResult:
-        """Execute independent synchronous chat requests with bounded concurrency."""
-
         self._ensure_open()
-        return ChatBatchExecutor(self).run(
+        return SyncChatBatchExecutor(self).run(
             tuple(requests),
             concurrency=concurrency,
             failure_mode=failure_mode,
         )
 
+
+class AsyncChatBatchMixin:
+    """Add bounded ordered batch operations to the asynchronous client."""
+
     async def achat_many(
-        self: ChatBatchClientBoundary,
+        self: AsyncChatBatchBoundary,
         requests: Sequence[HarborChatRequest],
         *,
         concurrency: int = 8,
         failure_mode: BatchFailureMode = BatchFailureMode.COLLECT,
     ) -> HarborChatBatchResult:
-        """Execute independent asynchronous chat requests with bounded concurrency."""
-
         self._ensure_open()
-        return await ChatBatchExecutor(self).arun(
+        return await AsyncChatBatchExecutor(self).run(
             tuple(requests),
             concurrency=concurrency,
             failure_mode=failure_mode,

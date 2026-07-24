@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.models.chat import LiteLLMChatInvocation
+from harborrag_adapters.models.chat.invocation import LiteLLMChatInvocation
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

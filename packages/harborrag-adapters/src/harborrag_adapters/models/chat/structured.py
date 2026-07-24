@@ -31,12 +31,16 @@ from .structured_validation import (
 StructuredResponseT = TypeVar("StructuredResponseT", bound=BaseModel)
 
 
-class StructuredChatClient(Protocol):
-    """Define the minimal completion boundary used by structured execution."""
+class SyncStructuredChatClient(Protocol):
+    """Define the synchronous completion boundary used by structured execution."""
 
     def chat(self, *, request: HarborChatRequest) -> HarborChatResponse:
         """Generate one synchronous response."""
         ...
+
+
+class AsyncStructuredChatClient(Protocol):
+    """Define the asynchronous completion boundary used by structured execution."""
 
     async def achat(self, *, request: HarborChatRequest) -> HarborChatResponse:
         """Generate one asynchronous response."""
@@ -73,72 +77,13 @@ class StructuredOutputAttemptState[ResponseT: BaseModel]:
             return None
 
 
-class StructuredOutputExecutor:
-    """Execute typed chat responses with capability-aware bounded repair."""
+class StructuredOutputPolicy:
+    """Prepare typed response requests with capability-aware repair policy."""
 
-    def __init__(self, client: StructuredChatClient, config: HarborChatClientConfig) -> None:
-        """Store the client boundary and its validated policy configuration."""
-
-        self._client = client
+    def __init__(self, config: HarborChatClientConfig) -> None:
         self._config = config
 
-    def chat(
-        self,
-        messages: Sequence[ChatMessageInput] | None,
-        *,
-        response_model: type[StructuredResponseT],
-        request: HarborChatRequest | None,
-        model: str | None,
-        max_repair_attempts: int | None,
-        strategy: StructuredOutputStrategy | None,
-        request_kwargs: Mapping[str, Any],
-    ) -> StructuredResponseT:
-        """Generate a synchronous response and return only validated model data."""
-
-        state = self._prepare(
-            messages,
-            response_model=response_model,
-            request=request,
-            model=model,
-            max_repair_attempts=max_repair_attempts,
-            strategy=strategy,
-            request_kwargs=request_kwargs,
-        )
-        while True:
-            response = self._client.chat(request=state.request)
-            result = state.validate_or_prepare_repair(response.text)
-            if result is not None:
-                return result
-
-    async def achat(
-        self,
-        messages: Sequence[ChatMessageInput] | None,
-        *,
-        response_model: type[StructuredResponseT],
-        request: HarborChatRequest | None,
-        model: str | None,
-        max_repair_attempts: int | None,
-        strategy: StructuredOutputStrategy | None,
-        request_kwargs: Mapping[str, Any],
-    ) -> StructuredResponseT:
-        """Generate an asynchronous response and return only validated model data."""
-
-        state = self._prepare(
-            messages,
-            response_model=response_model,
-            request=request,
-            model=model,
-            max_repair_attempts=max_repair_attempts,
-            strategy=strategy,
-            request_kwargs=request_kwargs,
-        )
-        while True:
-            response = await self._client.achat(request=state.request)
-            result = state.validate_or_prepare_repair(response.text)
-            if result is not None:
-                return result
-
-    def _prepare(
+    def prepare(
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,
@@ -173,6 +118,82 @@ class StructuredOutputExecutor:
             schema=schema,
             max_repair_attempts=repairs,
         )
+
+
+class SyncStructuredOutputExecutor:
+    """Execute synchronous typed chat responses."""
+
+    def __init__(
+        self,
+        client: SyncStructuredChatClient,
+        config: HarborChatClientConfig,
+    ) -> None:
+        self._client = client
+        self._policy = StructuredOutputPolicy(config)
+
+    def chat(
+        self,
+        messages: Sequence[ChatMessageInput] | None,
+        *,
+        response_model: type[StructuredResponseT],
+        request: HarborChatRequest | None,
+        model: str | None,
+        max_repair_attempts: int | None,
+        strategy: StructuredOutputStrategy | None,
+        request_kwargs: Mapping[str, Any],
+    ) -> StructuredResponseT:
+        state = self._policy.prepare(
+            messages,
+            response_model=response_model,
+            request=request,
+            model=model,
+            max_repair_attempts=max_repair_attempts,
+            strategy=strategy,
+            request_kwargs=request_kwargs,
+        )
+        while True:
+            response = self._client.chat(request=state.request)
+            result = state.validate_or_prepare_repair(response.text)
+            if result is not None:
+                return result
+
+
+class AsyncStructuredOutputExecutor:
+    """Execute asynchronous typed chat responses."""
+
+    def __init__(
+        self,
+        client: AsyncStructuredChatClient,
+        config: HarborChatClientConfig,
+    ) -> None:
+        self._client = client
+        self._policy = StructuredOutputPolicy(config)
+
+    async def achat(
+        self,
+        messages: Sequence[ChatMessageInput] | None,
+        *,
+        response_model: type[StructuredResponseT],
+        request: HarborChatRequest | None,
+        model: str | None,
+        max_repair_attempts: int | None,
+        strategy: StructuredOutputStrategy | None,
+        request_kwargs: Mapping[str, Any],
+    ) -> StructuredResponseT:
+        state = self._policy.prepare(
+            messages,
+            response_model=response_model,
+            request=request,
+            model=model,
+            max_repair_attempts=max_repair_attempts,
+            strategy=strategy,
+            request_kwargs=request_kwargs,
+        )
+        while True:
+            response = await self._client.achat(request=state.request)
+            result = state.validate_or_prepare_repair(response.text)
+            if result is not None:
+                return result
 
 
 def _validate_response_model(response_model: object) -> None:

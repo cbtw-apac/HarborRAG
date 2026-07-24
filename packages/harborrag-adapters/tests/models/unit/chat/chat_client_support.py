@@ -4,6 +4,27 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
+from harborrag_adapters.models.chat import (
+    AsyncHarborChatClient,
+    ChatClientDependencies,
+    HarborChatClient,
+)
+from harborrag_adapters.models.chat.configs import HarborChatClientConfig
+
+
+def sync_client(
+    config: HarborChatClientConfig,
+    **dependencies: Any,
+) -> HarborChatClient:
+    return HarborChatClient(config, ChatClientDependencies(**dependencies))
+
+
+def async_client(
+    config: HarborChatClientConfig,
+    **dependencies: Any,
+) -> AsyncHarborChatClient:
+    return AsyncHarborChatClient(config, ChatClientDependencies(**dependencies))
+
 
 class FakeInvocation:
     def __init__(

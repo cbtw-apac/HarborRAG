@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 
-from harborrag_adapters.models.chat import HarborChatClient, HarborChatClientConfig
+from harborrag_adapters.models.chat import ChatClientFactory, HarborChatClientConfig
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_core.models.chat import HarborChatMessage, StreamEventType
 
@@ -52,7 +52,7 @@ EMBED_CONFIG = {
 
 async def check_chat() -> None:
     config = HarborChatClientConfig.from_dict(CHAT_CONFIG)
-    async with HarborChatClient.from_config(config) as client:
+    async with ChatClientFactory.create_async(config) as client:
         response = await client.achat(
             [
                 HarborChatMessage.system("Return a brief plain-text answer."),
@@ -68,7 +68,7 @@ async def check_chat() -> None:
 async def check_chat_stream() -> None:
     config = HarborChatClientConfig.from_dict(CHAT_CONFIG)
     text_chunks: list[str] = []
-    async with HarborChatClient.from_config(config) as client:
+    async with ChatClientFactory.create_async(config) as client:
         async for chunk in client.astream(
             [
                 HarborChatMessage.system("Return a brief plain-text answer."),

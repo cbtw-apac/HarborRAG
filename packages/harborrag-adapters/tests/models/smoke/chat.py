@@ -5,12 +5,12 @@ import asyncio
 from bootstrap import load_env, safe_error
 from config import SmokeNotConfigured, chat_config
 
-from harborrag_adapters.models.chat import HarborChatClient
+from harborrag_adapters.models.chat import ChatClientFactory
 from harborrag_core.models.chat import HarborChatMessage
 
 
 async def _run() -> None:
-    async with HarborChatClient.from_config(chat_config()) as client:
+    async with ChatClientFactory.create_async(chat_config()) as client:
         response = await client.achat(
             [
                 HarborChatMessage.system("Return a brief plain-text answer."),

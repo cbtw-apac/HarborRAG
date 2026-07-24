@@ -8,12 +8,11 @@ import pytest
 from model_runtime_support import chat_config
 from pydantic import SecretStr, ValidationError
 
-from harborrag_adapters.models.chat import (
+from harborrag_adapters.models.chat.configs import (
     HarborChatProviderConfig,
     HarborChatSecurityConfig,
-    HarborProvider,
-    ProviderRegistry,
 )
+from harborrag_adapters.models.chat.registry import HarborProvider, ProviderRegistry
 from harborrag_adapters.models.runtime.config import (
     BudgetLimitConfig,
     RetryPolicyConfig,

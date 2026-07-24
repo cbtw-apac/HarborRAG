@@ -3,12 +3,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
-from harborrag_adapters.models.chat import (
-    HarborChatClientConfig,
+from harborrag_adapters.models.chat import HarborChatClientConfig
+from harborrag_adapters.models.chat.configs import (
     HarborChatModelConfig,
     HarborChatProviderConfig,
-    HarborProvider,
 )
+from harborrag_adapters.models.chat.registry import HarborProvider
 from harborrag_adapters.models.embed import (
     HarborEmbedClientConfig,
     HarborEmbedModelConfig,
