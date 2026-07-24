@@ -3,9 +3,6 @@ from __future__ import annotations
 import time
 from typing import cast
 
-from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
-from harborrag_core.models.errors import HarborEmbedError
-
 from harborrag_adapters.models.common.budget import (
     BudgetAuthorization,
     ModelBudgetPolicy,
@@ -30,6 +27,8 @@ from harborrag_adapters.models.common.telemetry import (
     litellm_telemetry_metadata,
 )
 from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
+from harborrag_core.models.errors import HarborEmbedError
 
 from .batching import EmbeddingBatchAccumulator
 from .configs import HarborEmbedClientConfig, HarborEmbedProviderConfig

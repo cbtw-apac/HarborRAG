@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 
 from _database import exercise_database
 from bootstrap import dependency_available, load_env, safe_error
+
 from harborrag_adapters.repositories.database.sqlite import (
     SQLiteDatabaseBackend,
     SQLiteDatabaseConfig,

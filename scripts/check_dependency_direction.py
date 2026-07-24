@@ -19,6 +19,12 @@ string argument are detected via the AST rather than a line-anchored regex,
 so multi-import statements (``import harborrag_core, harborrag_runtime``),
 multi-line imports, and dynamic imports are all caught.
 
+``tests/smoke/`` trees are exempt from this rule. Unlike ordinary pytest
+suites, those scripts are manual, opt-in integration checks that
+deliberately wire up the real application stack (real declarative config
+via `harborrag_runtime`, real credentials) exactly like `harborrag_app`
+would -- see each package's `tests/smoke/README.md`.
+
 Usage:
     python scripts/check_dependency_direction.py
 """
@@ -59,6 +65,12 @@ MODULE_TO_PACKAGE_DIR = {
     "harborrag_mcp": "harborrag-mcp",
     "harborrag": "harborrag",
 }
+
+# Manual, opt-in integration scripts (see tests/smoke/README.md in each
+# package) intentionally wire up the full application stack and are exempt
+# from the layering rule that applies to ordinary pytest suites.
+EXEMPT_TEST_SUBDIRS = frozenset({"smoke"})
+
 
 def _importlib_bindings(tree: ast.AST) -> tuple[set[str], set[str]]:
     """Track names bound to the ``importlib`` module and to ``import_module``.
@@ -111,7 +123,9 @@ def _assigned_names(target: ast.AST) -> Iterator[str]:
             yield from _assigned_names(element)
 
 
-def _function_local_shadow_names(scope: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> set[str]:
+def _function_local_shadow_names(
+    scope: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+) -> set[str]:
     """Names a parameter, assignment, for/with/except target, or walrus
     operator binds directly within this function/lambda's own scope.
 
@@ -206,9 +220,11 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
         callee_name = (
             callee.id
             if isinstance(callee, ast.Name)
-            else callee.value.id
-            if isinstance(callee, ast.Attribute) and isinstance(callee.value, ast.Name)
-            else None
+            else (
+                callee.value.id
+                if isinstance(callee, ast.Attribute) and isinstance(callee.value, ast.Name)
+                else None
+            )
         )
         if callee_name is not None and any(callee_name in scope for scope in enclosing_scopes):
             # Shadowed by a parameter/reassignment in an enclosing function:
@@ -231,11 +247,19 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
             yield module_name.split(".")[0], call.lineno
 
 
-def _scan_directory(directory: Path, *, module: str, allowed: set[str]) -> list[str]:
+def _scan_directory(
+    directory: Path,
+    *,
+    module: str,
+    allowed: set[str],
+    exempt_subdirs: frozenset[str] = frozenset(),
+) -> list[str]:
     violations: list[str] = []
     if not directory.is_dir():
         return violations
     for path in sorted(directory.rglob("*.py")):
+        if exempt_subdirs and path.relative_to(directory).parts[0] in exempt_subdirs:
+            continue
         try:
             with tokenize.open(path) as handle:
                 text = handle.read()
@@ -261,7 +285,14 @@ def find_violations() -> list[str]:
             continue
         allowed = ALLOWED_IMPORTS[module] | {module}
         violations.extend(_scan_directory(src_dir, module=module, allowed=allowed))
-        violations.extend(_scan_directory(package_root / "tests", module=module, allowed=allowed))
+        violations.extend(
+            _scan_directory(
+                package_root / "tests",
+                module=module,
+                allowed=allowed,
+                exempt_subdirs=EXEMPT_TEST_SUBDIRS,
+            )
+        )
     return violations
 
 

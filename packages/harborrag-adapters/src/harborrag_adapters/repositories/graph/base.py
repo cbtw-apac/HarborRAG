@@ -4,6 +4,7 @@ from abc import abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.graph import (
     GraphEdge,
     GraphExpansionQuery,
@@ -13,8 +14,6 @@ from harborrag_core.schemas.graph import (
 )
 from harborrag_core.schemas.ids import EntityId, RelationshipId
 from harborrag_core.schemas.storage import StorageOperationContext
-
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 
 
 class HarborGraphRepository(RepositoryLifecycle):

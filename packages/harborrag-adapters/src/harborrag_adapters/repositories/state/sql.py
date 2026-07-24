@@ -5,15 +5,16 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from harborrag_core.schemas.ids import WorkflowId
-from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
 )
-from sqlalchemy import JSON, Boolean, Column, Integer, MetaData, String, Table, UniqueConstraint
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import insert as sa_insert
 from sqlalchemy import select as sa_select
@@ -26,7 +27,10 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageLeaseError,
     StorageErrorContext,
 )
-from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient, UTCDateTime
+from harborrag_adapters.repositories.shared.sqlalchemy import (
+    SQLAlchemyDBClient,
+    UTCDateTime,
+)
 from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
 from harborrag_adapters.repositories.state.base import (
     HarborCheckpointStore,
@@ -38,6 +42,14 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
     traced_repository_operation,
+)
+from harborrag_core.schemas.ids import WorkflowId
+from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
 )
 
 _METADATA = MetaData()
@@ -366,7 +378,10 @@ class SQLCheckpointStore(SQLStoreBase, HarborCheckpointStore):
         actual: int | None,
     ) -> HarborStorageCheckpointConflictError:
         error_context = self._backend.error_context("checkpoint_save", context, str(workflow_id))
-        error_context.metadata = {"expected_version": expected, "actual_version": actual}
+        error_context.metadata = {
+            "expected_version": expected,
+            "actual_version": actual,
+        }
         return HarborStorageCheckpointConflictError(
             f"checkpoint stream {workflow_id!r} version conflict",
             context=error_context,

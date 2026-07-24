@@ -3,17 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Self
 
-from harborrag_core.models.capabilities import HarborRerankCapabilities
-from harborrag_core.models.protocols import (
-    AsyncHarborRerankClientProtocol,
-    HarborRerankClientProtocol,
-)
-from harborrag_core.models.rerank import (
-    HarborRerankRequest,
-    HarborRerankResponse,
-    RawRerankDocument,
-)
-
 from harborrag_adapters.models.common.budget import ModelBudgetPolicy
 from harborrag_adapters.models.common.cache import ModelResponseCache
 from harborrag_adapters.models.common.client_lifecycle import ModelClientLifecycleMixin
@@ -37,6 +26,16 @@ from harborrag_adapters.models.common.runtime_services import (
 )
 from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
 from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
+from harborrag_core.models.capabilities import HarborRerankCapabilities
+from harborrag_core.models.protocols import (
+    AsyncHarborRerankClientProtocol,
+    HarborRerankClientProtocol,
+)
+from harborrag_core.models.rerank import (
+    HarborRerankRequest,
+    HarborRerankResponse,
+    RawRerankDocument,
+)
 
 from .configs import HarborRerankClientConfig
 from .execution import RerankExecution

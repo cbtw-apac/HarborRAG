@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 import pytest
+
 from harborrag_adapters.connectors.confluence.schemas import ConfluenceMetadata
 from harborrag_adapters.connectors.github.schemas import GitHubMetadata
 from harborrag_adapters.connectors.jira.schemas import JiraMetadata

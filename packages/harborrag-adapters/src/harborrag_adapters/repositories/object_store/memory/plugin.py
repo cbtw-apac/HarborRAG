@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
-from harborrag_adapters.repositories.object_store.memory.config import MemoryObjectStoreConfig
-from harborrag_adapters.repositories.object_store.memory.repository import MemoryObjectStore
+from harborrag_adapters.repositories.object_store.memory.config import (
+    MemoryObjectStoreConfig,
+)
+from harborrag_adapters.repositories.object_store.memory.repository import (
+    MemoryObjectStore,
+)
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class MemoryObjectStorePlugin(RepositoryPlugin[MemoryObjectStoreConfig, MemoryObjectStore]):

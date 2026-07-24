@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from model_runtime_support import rerank_config
+from pydantic import SecretStr
+
 from harborrag_adapters.models.common.config import RoutingConfig, RoutingEngine
 from harborrag_adapters.models.rerank.configs import (
     HarborRerankDefaults,
@@ -36,8 +39,6 @@ from harborrag_core.models.rerank import (
     HarborRerankDocument,
     HarborRerankRequest,
 )
-from model_runtime_support import rerank_config
-from pydantic import SecretStr
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

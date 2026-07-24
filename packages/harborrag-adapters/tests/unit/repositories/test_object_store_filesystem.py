@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageError,
@@ -14,7 +15,9 @@ from harborrag_adapters.repositories.errors import (
 from harborrag_adapters.repositories.object_store.filesystem import (
     repository as filesystem_module,
 )
-from harborrag_adapters.repositories.object_store.filesystem.repository import FilesystemObjectStore
+from harborrag_adapters.repositories.object_store.filesystem.repository import (
+    FilesystemObjectStore,
+)
 from harborrag_core.schemas.object_store import PutObjectRequest
 from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
 
@@ -39,7 +42,8 @@ async def test_put_get_delete_round_trip(tmp_path: Path) -> None:
     async with store:
         context = make_context()
         await store.put(
-            PutObjectRequest(bucket="bkt", key="a/b.txt", body=b"hello"), context=context
+            PutObjectRequest(bucket="bkt", key="a/b.txt", body=b"hello"),
+            context=context,
         )
         assert await store.get_bytes("bkt", "a/b.txt", byte_range=None, context=context) == b"hello"
         assert await store.delete("bkt", "a/b.txt", context=context) is True
@@ -73,7 +77,9 @@ async def test_checksum_mismatch_leaves_no_temp_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_put_does_not_collide_with_existing_object(tmp_path: Path) -> None:
+async def test_cross_tenant_put_does_not_collide_with_existing_object(
+    tmp_path: Path,
+) -> None:
     store = FilesystemObjectStore(root=tmp_path)
     async with store:
         owner = make_context("tenant-a")
@@ -172,7 +178,9 @@ async def test_get_bytes_with_valid_byte_range(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_bytes_with_invalid_byte_range_raises_validation_error(tmp_path: Path) -> None:
+async def test_get_bytes_with_invalid_byte_range_raises_validation_error(
+    tmp_path: Path,
+) -> None:
     store = FilesystemObjectStore(root=tmp_path)
     async with store:
         context = make_context()
@@ -241,7 +249,9 @@ async def test_cross_tenant_get_is_not_found(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_returns_false_when_bucket_directory_missing(tmp_path: Path) -> None:
+async def test_delete_returns_false_when_bucket_directory_missing(
+    tmp_path: Path,
+) -> None:
     store = FilesystemObjectStore(root=tmp_path)
     async with store:
         context = make_context()
@@ -249,7 +259,9 @@ async def test_delete_returns_false_when_bucket_directory_missing(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_delete_returns_false_when_key_missing_but_bucket_exists(tmp_path: Path) -> None:
+async def test_delete_returns_false_when_key_missing_but_bucket_exists(
+    tmp_path: Path,
+) -> None:
     store = FilesystemObjectStore(root=tmp_path)
     async with store:
         context = make_context()
@@ -299,7 +311,8 @@ async def test_invalid_bucket_name_on_put_raises_value_error(tmp_path: Path) -> 
         context = make_context()
         with pytest.raises(ValueError, match="invalid filesystem bucket name"):
             await store.put(
-                PutObjectRequest(bucket="bad bucket!", key="k", body=b"x"), context=context
+                PutObjectRequest(bucket="bad bucket!", key="k", body=b"x"),
+                context=context,
             )
 
 
@@ -566,7 +579,9 @@ async def test_list_wraps_corrupt_metadata_as_io_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_authorized_path_wraps_corrupt_metadata_as_not_found(tmp_path: Path) -> None:
+async def test_authorized_path_wraps_corrupt_metadata_as_not_found(
+    tmp_path: Path,
+) -> None:
     store = FilesystemObjectStore(root=tmp_path)
     async with store:
         context = make_context()
@@ -580,7 +595,9 @@ async def test_authorized_path_wraps_corrupt_metadata_as_not_found(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_list_skips_object_with_mismatched_tenant_metadata(tmp_path: Path) -> None:
+async def test_list_skips_object_with_mismatched_tenant_metadata(
+    tmp_path: Path,
+) -> None:
     """Defensive check: even if a meta file inside a tenant's own directory
     tree somehow carried a different tenant_id, list() must still exclude
     it rather than trust the directory partitioning alone."""
@@ -604,7 +621,9 @@ async def test_list_skips_object_with_mismatched_tenant_metadata(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_authorized_path_rejects_mismatched_tenant_metadata(tmp_path: Path) -> None:
+async def test_authorized_path_rejects_mismatched_tenant_metadata(
+    tmp_path: Path,
+) -> None:
     """Defensive check mirroring the list() case above, for direct reads."""
     store = FilesystemObjectStore(root=tmp_path)
     async with store:

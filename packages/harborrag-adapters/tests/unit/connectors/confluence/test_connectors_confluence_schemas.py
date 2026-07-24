@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+
 from harborrag_adapters.connectors.confluence.schemas import (
     ConfluenceCommentMetadata,
     ConfluenceMetadata,

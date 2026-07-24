@@ -6,6 +6,7 @@ from pathlib import Path
 
 import fitz
 import pytest
+
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

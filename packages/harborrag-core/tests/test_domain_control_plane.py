@@ -4,6 +4,7 @@ from datetime import UTC
 from typing import get_args
 
 import pytest
+
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.member import Member, Role
 from harborrag_core.domain.project import Project, ProjectStats

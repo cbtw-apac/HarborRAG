@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from sharepoint_test_helpers import folder_item
+
 from harborrag_adapters.connectors.sharepoint.utils import (
     children_endpoint,
     item_extension,
@@ -12,7 +14,6 @@ from harborrag_adapters.connectors.sharepoint.utils import (
     parse_sharepoint_site_url,
     site_path_endpoint,
 )
-from sharepoint_test_helpers import folder_item
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

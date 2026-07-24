@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import (
@@ -10,7 +12,6 @@ from harborrag_core.models.chat import (
     TextContentPart,
 )
 from harborrag_core.models.errors import HarborChatCapabilityError
-from pydantic import ValidationError
 
 from .chat_client_support import FakeInvocation, response_dict
 

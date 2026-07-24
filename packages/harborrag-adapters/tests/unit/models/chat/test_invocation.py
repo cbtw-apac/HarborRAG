@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.models.chat import LiteLLMChatInvocation
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

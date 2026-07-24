@@ -5,6 +5,8 @@ import types
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
+
 from harborrag_adapters.models.common.cache_redis import (
     PydanticResponseCodec,
     RedisModelCache,
@@ -20,7 +22,6 @@ from harborrag_adapters.models.common.routing_state_memory import (
     InMemoryRoutingStateStore,
 )
 from harborrag_adapters.models.common.routing_state_redis import RedisRoutingStateStore
-from pydantic import BaseModel
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

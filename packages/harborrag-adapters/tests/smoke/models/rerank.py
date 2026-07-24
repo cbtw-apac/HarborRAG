@@ -5,6 +5,7 @@ import math
 
 from bootstrap import load_env, safe_error
 from config import SmokeNotConfigured, rerank_config
+
 from harborrag_adapters.models.rerank import HarborRerankingClient
 
 DOCUMENTS = [

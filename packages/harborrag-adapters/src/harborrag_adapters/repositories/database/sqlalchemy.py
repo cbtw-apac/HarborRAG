@@ -4,14 +4,6 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord, DocumentStatus
-from harborrag_core.schemas.ids import DocumentId
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
-)
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, Text
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import insert as sa_insert
@@ -33,12 +25,23 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageCheckpointConflictError,
     StorageErrorContext,
 )
-from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient, UTCDateTime
+from harborrag_adapters.repositories.shared.sqlalchemy import (
+    SQLAlchemyDBClient,
+    UTCDateTime,
+)
 from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
     traced_repository_operation,
+)
+from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord, DocumentStatus
+from harborrag_core.schemas.ids import DocumentId
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
 )
 
 _METADATA = MetaData()
@@ -165,7 +168,7 @@ class SQLDocumentRepository(DocumentRepository):
                 sa_insert(_DOCUMENTS).values(
                     tenant_id=str(record.tenant_id),
                     id=str(record.id),
-                    data_source_id=str(record.data_source_id) if record.data_source_id else None,
+                    data_source_id=(str(record.data_source_id) if record.data_source_id else None),
                     current_version_id=str(record.current_version_id),
                     external_id=record.external_id,
                     title=record.title,
@@ -230,7 +233,7 @@ class SQLDocumentRepository(DocumentRepository):
                 _DOCUMENTS.c.version == expected_version,
             )
             .values(
-                data_source_id=str(record.data_source_id) if record.data_source_id else None,
+                data_source_id=(str(record.data_source_id) if record.data_source_id else None),
                 current_version_id=str(record.current_version_id),
                 external_id=record.external_id,
                 title=record.title,
@@ -324,7 +327,9 @@ class SQLDocumentRepository(DocumentRepository):
             operation=operation,
             tenant_id=str(context.tenant_id),
             resource_name=resource,
-            metadata={"expected_version": expected_version} if expected_version is not None else {},
+            metadata=(
+                {"expected_version": expected_version} if expected_version is not None else {}
+            ),
         )
 
 

@@ -3,15 +3,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any, Self, cast
 
-from harborrag_core.models.chat import (
-    HarborChatRequest,
-    HarborChatResponse,
-    HarborChatStreamChunk,
-)
-from harborrag_core.models.protocols import (
-    AsyncHarborChatClientProtocol,
-    HarborChatClientProtocol,
-)
 from pydantic import BaseModel
 
 from harborrag_adapters.models.common.budget import ModelBudgetPolicy
@@ -34,6 +25,15 @@ from harborrag_adapters.models.common.runtime_services import (
 )
 from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
 from harborrag_adapters.models.common.telemetry import TelemetryDispatcher
+from harborrag_core.models.chat import (
+    HarborChatRequest,
+    HarborChatResponse,
+    HarborChatStreamChunk,
+)
+from harborrag_core.models.protocols import (
+    AsyncHarborChatClientProtocol,
+    HarborChatClientProtocol,
+)
 
 from .backend import ChatBackend
 from .backend_config import ChatBackendType

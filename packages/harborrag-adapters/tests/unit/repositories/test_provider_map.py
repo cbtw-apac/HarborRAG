@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
+from pydantic import BaseModel
+
 from harborrag_adapters.repositories.errors import HarborStorageConfigurationError
 from harborrag_adapters.repositories.plugin import (
     RepositoryConfig,
@@ -11,7 +13,6 @@ from harborrag_adapters.repositories.plugin import (
 )
 from harborrag_adapters.repositories.shared.provider_map import ProviderMap
 from harborrag_core.schemas.storage import StorageFamily
-from pydantic import BaseModel
 
 
 class _ExampleConfig(RepositoryConfig):

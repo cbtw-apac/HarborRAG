@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Self
 
-from harborrag_core.models.capabilities import HarborRerankCapabilities
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harborrag_adapters.models.common.config import (
@@ -18,6 +17,7 @@ from harborrag_adapters.models.common.model_config import (
     validate_unique_deployments,
 )
 from harborrag_adapters.models.common.provider import ProviderDeploymentConfig
+from harborrag_core.models.capabilities import HarborRerankCapabilities
 
 from .registry import HarborRerankProvider
 

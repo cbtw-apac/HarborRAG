@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.cache.redis.store import RedisCacheStore
 from harborrag_adapters.repositories.telemetry import RepositoryTelemetry
 from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
@@ -107,10 +108,15 @@ async def test_compare_and_set_preserves_redis_tag_index() -> None:
 
 from datetime import timedelta  # noqa: E402
 
-from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig  # noqa: E402
-from harborrag_adapters.repositories.cache.redis.repository import RedisCacheBackend  # noqa: E402
-from harborrag_core.schemas.storage import HealthStatus  # noqa: E402
 from redis.exceptions import ResponseError, WatchError  # noqa: E402
+
+from harborrag_adapters.repositories.cache.redis.config import (  # noqa: E402
+    RedisCacheConfig,
+)
+from harborrag_adapters.repositories.cache.redis.repository import (  # noqa: E402
+    RedisCacheBackend,
+)
+from harborrag_core.schemas.storage import HealthStatus  # noqa: E402
 
 CONTEXT_V2 = StorageOperationContext(tenant_id="tenant-a")
 
@@ -541,7 +547,10 @@ async def test_invalidate_tag_srems_only_other_tags_not_the_invalidated_one() ->
 
     assert count == 1
     assert ("srem", ("tenant-a:tag:tag-b", "tenant-a:value:key-1")) in pipeline.commands
-    assert ("srem", ("tenant-a:tag:tag-a", "tenant-a:value:key-1")) not in pipeline.commands
+    assert (
+        "srem",
+        ("tenant-a:tag:tag-a", "tenant-a:value:key-1"),
+    ) not in pipeline.commands
 
 
 @pytest.mark.asyncio
@@ -591,7 +600,12 @@ async def test_invalidate_tag_retries_after_concurrent_retag_watch_error() -> No
     count = await store.invalidate_tag("tag-a", context=CONTEXT_V2)
 
     assert count == 1
-    assert [name for name, _ in succeeded.commands] == ["multi", "delete", "delete", "delete"]
+    assert [name for name, _ in succeeded.commands] == [
+        "multi",
+        "delete",
+        "delete",
+        "delete",
+    ]
 
 
 def test_ttl_milliseconds_static_conversion() -> None:

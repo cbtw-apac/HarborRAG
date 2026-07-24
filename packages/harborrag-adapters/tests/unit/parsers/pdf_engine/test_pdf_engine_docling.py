@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import sys
 from enum import StrEnum
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.parsers import DoclingBackend, DoclingBackendOptions
 from harborrag_core.domain.parser import ParseInput
 
@@ -167,6 +169,133 @@ def test_docling_backend_surfaces_partial_failures_as_warnings():
     result = backend.parse(ParseInput(content=content, filename="doc.pdf"))
 
     assert result.warnings == ["page 3 failed to parse"]
+
+
+@pytest.mark.whitebox
+def test_docling_backend_pipeline_options_enable_image_generation_when_output_dir_set(
+    tmp_path,
+):
+    backend = DoclingBackend(image_output_dir=tmp_path, images_scale=1.5)
+
+    pipeline_options = backend._pipeline_options()
+
+    assert pipeline_options.generate_page_images is True
+    assert pipeline_options.generate_picture_images is True
+    assert pipeline_options.generate_table_images is True
+    assert pipeline_options.images_scale == 1.5
+
+
+@pytest.mark.whitebox
+def test_docling_backend_leaves_image_generation_off_by_default():
+    backend = DoclingBackend()
+
+    pipeline_options = backend._pipeline_options()
+
+    assert pipeline_options.generate_page_images is False
+    assert pipeline_options.generate_picture_images is False
+    assert pipeline_options.generate_table_images is False
+
+
+class _FakeImage:
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.saved_to: Any = None
+
+    def save(self, path: Any) -> None:
+        self.saved_to = path
+        Path(path).write_text(self.label)
+
+
+class _FakeElement:
+    def __init__(self, image: _FakeImage | None) -> None:
+        self._image = image
+
+    def get_image(self, document: Any) -> _FakeImage | None:
+        return self._image
+
+
+@pytest.mark.whitebox
+def test_docling_backend_saves_page_picture_and_table_images(tmp_path):
+    document = SimpleNamespace(
+        pages={1: SimpleNamespace(image=SimpleNamespace(pil_image=_FakeImage("page-1")))},
+        pictures=[_FakeElement(_FakeImage("picture-1"))],
+        tables=[_FakeElement(_FakeImage("table-1"))],
+    )
+    backend = DoclingBackend(image_output_dir=tmp_path)
+
+    saved = backend._save_images(document)
+
+    assert len(saved) == 3
+    names = {Path(path).name for path in saved}
+    assert names == {"page-1.png", "picture-1.png", "table-1.png"}
+    for path in saved:
+        assert Path(path).exists()
+        assert Path(path).parent.parent == tmp_path
+
+
+@pytest.mark.whitebox
+def test_docling_backend_skips_elements_with_no_renderable_image(tmp_path):
+    document = SimpleNamespace(
+        pages={1: SimpleNamespace(image=None)},
+        pictures=[_FakeElement(None)],
+        tables=[],
+    )
+    backend = DoclingBackend(image_output_dir=tmp_path)
+
+    assert backend._save_images(document) == []
+
+
+@pytest.mark.whitebox
+def test_docling_backend_parse_populates_image_paths_metadata(tmp_path):
+    document = SimpleNamespace(
+        pages={},
+        pictures=[_FakeElement(_FakeImage("picture-1"))],
+        tables=[],
+    )
+
+    class _RecordingConverter:
+        def convert(self, *args: Any, **kwargs: Any) -> Any:
+            return SimpleNamespace(document=document)
+
+    backend = DoclingBackend(
+        DoclingBackendOptions(converter=_RecordingConverter(), image_output_dir=tmp_path)
+    )
+    import fitz
+
+    plain_pdf = fitz.open()
+    try:
+        plain_pdf.new_page().insert_text((72, 72), "not secret")
+        content = plain_pdf.tobytes()
+    finally:
+        plain_pdf.close()
+
+    result = backend.parse(ParseInput(content=content, filename="plain.pdf"))
+
+    assert len(result.metadata["docling_image_paths"]) == 1
+    assert Path(result.metadata["docling_image_paths"][0]).name == "picture-1.png"
+
+
+@pytest.mark.whitebox
+def test_docling_backend_parse_omits_image_paths_metadata_by_default():
+    document = SimpleNamespace(pages={}, pictures=[], tables=[])
+
+    class _RecordingConverter:
+        def convert(self, *args: Any, **kwargs: Any) -> Any:
+            return SimpleNamespace(document=document)
+
+    backend = DoclingBackend(DoclingBackendOptions(converter=_RecordingConverter()))
+    import fitz
+
+    plain_pdf = fitz.open()
+    try:
+        plain_pdf.new_page().insert_text((72, 72), "not secret")
+        content = plain_pdf.tobytes()
+    finally:
+        plain_pdf.close()
+
+    result = backend.parse(ParseInput(content=content, filename="plain.pdf"))
+
+    assert "docling_image_paths" not in result.metadata
 
 
 @pytest.mark.whitebox

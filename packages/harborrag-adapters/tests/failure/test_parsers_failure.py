@@ -12,6 +12,7 @@ import csv
 
 import pytest
 from harbor_test_builders import build_zip_bomb_bytes
+
 from harborrag_adapters.parsers import (
     DocxParser,
     EpubParser,

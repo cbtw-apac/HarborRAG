@@ -6,9 +6,8 @@ per-resource use-case methods grow with the M1+ routes.
 
 from __future__ import annotations
 
-from harborrag_runtime.composition import CompositionRoot
-
 from harborrag_app.services.base import AppResponse, BaseAppService
+from harborrag_runtime.composition import CompositionRoot
 
 
 class AppService(BaseAppService):

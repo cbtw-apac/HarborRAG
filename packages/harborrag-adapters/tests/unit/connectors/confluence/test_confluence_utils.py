@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 from confluence_test_helpers import DC_BASE
+
 from harborrag_adapters.connectors.confluence import ConfluenceDeploymentType
 from harborrag_adapters.connectors.confluence.mappers import (
     content_id_from_record,

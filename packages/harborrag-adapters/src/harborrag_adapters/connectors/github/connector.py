@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
-
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
 
 from .client import GitHubClient, _RequestsGitHubClient
 from .config import GitHubRepositoryConfig

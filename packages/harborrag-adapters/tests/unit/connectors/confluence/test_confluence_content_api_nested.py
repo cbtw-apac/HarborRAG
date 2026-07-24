@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from confluence_test_helpers import FakeConfluenceClient, cloud_config
+
 from harborrag_adapters.connectors.confluence.content import ConfluenceContentAPI
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 

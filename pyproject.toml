@@ -51,9 +51,7 @@ dev = [
     "opentelemetry-sdk>=1.43,<2",
     "Pillow>=10.0.0",
     "pytesseract>=0.3.13",
-    "black>=23.0.0",
     "cairosvg>=2.7.0",
-    "isort>=5.12.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
     "pre-commit>=3.5.0",
@@ -85,38 +83,6 @@ docs = [
 [tool.setuptools]
 py-modules = []
 
-[tool.black]
-line-length = 88
-target-version = ["py312"]
-include = "\\.pyi?$"
-extend-exclude = '''
-/(
-  # directories
-  \\.eggs
-  | \\.git
-  | \\.hg
-  | \\.mypy_cache
-  | \\.tox
-  | \\.venv
-  | build
-  | dist
-)/
-'''
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-line_length = 88
-known_first_party = [
-    "harborrag",
-    "harborrag_core",
-    "harborrag_adapters",
-    "harborrag_engine",
-    "harborrag_runtime",
-    "harborrag_app",
-    "harborrag_mcp",
-]
-
 [tool.mypy]
 python_version = "3.12"
 warn_return_any = true
@@ -147,6 +113,8 @@ module = [
     "paddleocr",
     "pytesseract",
     "docx2txt",
+    "odf",
+    "odf.*",
     "boto3",
     "google.cloud",
     "google.cloud.*",
@@ -289,6 +257,17 @@ ignore = [
     "C901",
     "B017",
     "B904",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "harborrag",
+    "harborrag_core",
+    "harborrag_adapters",
+    "harborrag_engine",
+    "harborrag_runtime",
+    "harborrag_app",
+    "harborrag_mcp",
 ]
 
 [tool.ruff.lint.per-file-ignores]

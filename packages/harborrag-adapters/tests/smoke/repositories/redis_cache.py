@@ -12,7 +12,11 @@ from bootstrap import (
     require_healthy,
     safe_error,
 )
-from harborrag_adapters.repositories.cache.redis import RedisCacheBackend, RedisCacheConfig
+
+from harborrag_adapters.repositories.cache.redis import (
+    RedisCacheBackend,
+    RedisCacheConfig,
+)
 from harborrag_core.schemas.storage import StorageOperationContext
 
 

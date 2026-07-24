@@ -1,0 +1,77 @@
+version: 1
+
+connectors:
+  local:
+    provider: local
+    enabled: true
+    environment:
+      source_path: LOCAL_SOURCE_PATH
+    settings:
+      allowed_extensions: [md, markdown, txt, pdf, docx, odt, pptx, csv, xlsx, png, jpg, jpeg]
+      excluded_extensions: []
+      include_paths: []
+      exclude_paths: []
+      include_globs: []
+      exclude_globs: []
+      include_hidden: false
+      follow_symlinks: false
+      max_depth: null
+      max_file_size_bytes: 104857600
+      checksum_mode: stat
+      fail_on_error: false
+
+  confluence:
+    provider: confluence
+    enabled: true
+    environment:
+      base_url: CONFLUENCE_BASE_URL
+      space_key: CONFLUENCE_SPACE_KEY
+    settings:
+      deployment_type: cloud
+      content_types: [page]
+      include_labels: []
+      exclude_labels: []
+      include_comments: false
+      include_attachments: false
+      max_attachment_size_bytes: 26214400
+      max_comments: 1000
+      max_attachments: 1000
+      max_child_pages: 1000
+      fail_on_error: false
+      requests_per_minute: 60
+      page_size: 25
+      request_timeout_seconds: 30
+      max_retries: 3
+      backoff_factor: 0.5
+    secrets:
+      token_env: CONFLUENCE_TOKEN
+      email_env: CONFLUENCE_EMAIL
+
+  jira:
+    provider: jira
+    enabled: true
+    environment:
+      base_url: JIRA_BASE_URL
+    settings:
+      deployment_type: cloud
+      project_keys: []
+      issue_types: []
+      statuses: []
+      labels: []
+      include_comments: false
+      include_attachments: false
+      include_changelog: false
+      include_attachment_text_in_content: true
+      max_attachment_size_bytes: 26214400
+      max_comments: 1000
+      max_attachments: 1000
+      max_changelog_items: 1000
+      fail_on_error: false
+      requests_per_minute: 60
+      page_size: 50
+      request_timeout_seconds: 30
+      max_retries: 3
+      backoff_factor: 0.5
+    secrets:
+      token_env: JIRA_TOKEN
+      email_env: JIRA_EMAIL

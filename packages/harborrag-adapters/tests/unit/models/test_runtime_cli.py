@@ -5,6 +5,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from model_runtime_support import (
+    FakeChatInvocation,
+    FakeEmbeddingInvocation,
+    FakeRerankInvocation,
+    chat_config,
+    embed_config,
+    rerank_config,
+)
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.cli import ModelConfigCli, main
 from harborrag_adapters.models.common.budget import (
@@ -42,14 +51,6 @@ from harborrag_adapters.models.common.singleflight import (
 )
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.models.rerank import HarborRerankingClient
-from model_runtime_support import (
-    FakeChatInvocation,
-    FakeEmbeddingInvocation,
-    FakeRerankInvocation,
-    chat_config,
-    embed_config,
-    rerank_config,
-)
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

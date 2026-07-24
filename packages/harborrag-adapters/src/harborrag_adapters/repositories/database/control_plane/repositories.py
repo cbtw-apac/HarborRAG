@@ -14,14 +14,6 @@ from datetime import UTC, datetime
 from typing import cast
 
 import sqlalchemy as sa
-from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.domain.activity import ActivityEntry
-from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
-from harborrag_core.domain.member import Member, Role
-from harborrag_core.domain.project import Project, ProjectStats, ProjectStatus
-from harborrag_core.domain.provider import Provider, ProviderFamily
-from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.domain.source_config import SourceConfig, SourceStatus
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from harborrag_adapters.repositories.database.control_plane.models import (
@@ -34,6 +26,14 @@ from harborrag_adapters.repositories.database.control_plane.models import (
     SourceRow,
     WorkspaceSettingsRow,
 )
+from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
+from harborrag_core.domain.member import Member, Role
+from harborrag_core.domain.project import Project, ProjectStats, ProjectStatus
+from harborrag_core.domain.provider import Provider, ProviderFamily
+from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.domain.source_config import SourceConfig, SourceStatus
 
 SessionFactory = async_sessionmaker[AsyncSession]
 
@@ -108,9 +108,7 @@ class SqlProjectRepository:
     async def list(self) -> list[Project]:
         """All projects ordered by creation time."""
         async with self.sessions() as session:
-            rows = await session.scalars(
-                sa.select(ProjectRow).order_by(ProjectRow.created_at)
-            )
+            rows = await session.scalars(sa.select(ProjectRow).order_by(ProjectRow.created_at))
             return [_project_to_domain(row) for row in rows]
 
     async def get(self, project_id: str) -> Project | None:
@@ -159,9 +157,7 @@ class SqlProjectRepository:
     async def delete(self, project_id: str) -> None:
         """Delete the project row (index tombstones are the engine's job)."""
         async with self.sessions.begin() as session:
-            await session.execute(
-                sa.delete(ProjectRow).where(ProjectRow.id == project_id)
-            )
+            await session.execute(sa.delete(ProjectRow).where(ProjectRow.id == project_id))
 
 
 @dataclass(slots=True)
@@ -317,9 +313,7 @@ class SqlActivityRepository:
         """Newest entries first, bounded by limit."""
         async with self.sessions() as session:
             rows = await session.scalars(
-                sa.select(ActivityRow)
-                .order_by(ActivityRow.created_at.desc())
-                .limit(limit)
+                sa.select(ActivityRow).order_by(ActivityRow.created_at.desc()).limit(limit)
             )
             return [
                 ActivityEntry(
@@ -345,9 +339,7 @@ class SqlSettingsRepository:
         """The settings document; empty document when never written."""
         async with self.sessions() as session:
             row = await session.get(WorkspaceSettingsRow, 1)
-            return (
-                WorkspaceSettings(data=dict(row.data)) if row else WorkspaceSettings()
-            )
+            return WorkspaceSettings(data=dict(row.data)) if row else WorkspaceSettings()
 
     async def put(self, settings: WorkspaceSettings) -> WorkspaceSettings:
         """Upsert the settings document."""
@@ -370,9 +362,7 @@ class SqlProviderRepository:
     async def list(self) -> list[Provider]:
         """All providers ordered by id."""
         async with self.sessions() as session:
-            rows = await session.scalars(
-                sa.select(ProviderRow).order_by(ProviderRow.id)
-            )
+            rows = await session.scalars(sa.select(ProviderRow).order_by(ProviderRow.id))
             return [self._to_domain(row) for row in rows]
 
     async def get(self, provider_id: str) -> Provider | None:
@@ -397,9 +387,7 @@ class SqlProviderRepository:
     async def delete(self, provider_id: str) -> None:
         """Delete the provider row."""
         async with self.sessions.begin() as session:
-            await session.execute(
-                sa.delete(ProviderRow).where(ProviderRow.id == provider_id)
-            )
+            await session.execute(sa.delete(ProviderRow).where(ProviderRow.id == provider_id))
 
     @staticmethod
     def _to_domain(row: ProviderRow) -> Provider:
@@ -422,17 +410,13 @@ class SqlMemberRepository:
     async def list(self) -> list[Member]:
         """All members ordered by subject."""
         async with self.sessions() as session:
-            rows = await session.scalars(
-                sa.select(MemberRow).order_by(MemberRow.subject)
-            )
+            rows = await session.scalars(sa.select(MemberRow).order_by(MemberRow.subject))
             return [self._to_domain(row) for row in rows]
 
     async def get_by_subject(self, subject: str) -> Member | None:
         """Member by auth subject (unique), or None."""
         async with self.sessions() as session:
-            row = await session.scalar(
-                sa.select(MemberRow).where(MemberRow.subject == subject)
-            )
+            row = await session.scalar(sa.select(MemberRow).where(MemberRow.subject == subject))
             return self._to_domain(row) if row else None
 
     async def save(self, member: Member) -> Member:

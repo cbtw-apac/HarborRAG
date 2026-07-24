@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.registry import ConnectorRegistry
 from harborrag_core.domain.raw_document import RawDocument

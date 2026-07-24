@@ -8,7 +8,6 @@ from types import MappingProxyType
 from typing import Any
 
 from harborrag_adapters.connectors import HarborConnector
-
 from harborrag_runtime.config.connectors.providers import config_factory
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 

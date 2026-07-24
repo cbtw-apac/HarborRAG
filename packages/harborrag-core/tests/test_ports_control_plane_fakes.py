@@ -1,6 +1,7 @@
 """Fakes for the control-plane/jobs/secrets/events ports behave like real impls (ST6)."""
 
 import pytest
+
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project

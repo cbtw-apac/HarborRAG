@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.repositories.lifecycle import AsyncLifecycle, RepositoryLifecycle
+
+from harborrag_adapters.repositories.lifecycle import (
+    AsyncLifecycle,
+    RepositoryLifecycle,
+)
 from harborrag_core.schemas.storage import HealthStatus, RepositoryHealth, StorageFamily
 
 

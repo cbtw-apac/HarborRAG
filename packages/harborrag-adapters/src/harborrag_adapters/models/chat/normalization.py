@@ -4,6 +4,12 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_adapters.models.common.responses import (
+    coerce_sdk_mapping as coerce_mapping,
+)
+from harborrag_adapters.models.common.responses import (
+    sdk_hidden_parameters,
+)
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatMessage,
@@ -14,11 +20,6 @@ from harborrag_core.models.chat import (
     MessageRole,
 )
 from harborrag_core.models.errors import HarborChatProviderError
-
-from harborrag_adapters.models.common.responses import (
-    coerce_sdk_mapping as coerce_mapping,
-)
-from harborrag_adapters.models.common.responses import sdk_hidden_parameters
 
 from .configs import HarborChatProviderConfig
 from .reasoning import normalize_reasoning_content, reasoning_metadata

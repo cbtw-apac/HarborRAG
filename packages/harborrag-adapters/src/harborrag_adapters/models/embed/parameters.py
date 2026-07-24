@@ -4,6 +4,11 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 from uuid import uuid4
 
+from pydantic import ValidationError
+
+from harborrag_adapters.models.common.litellm_backend import build_provider_params
+from harborrag_adapters.models.common.security import HeaderValue
+from harborrag_adapters.models.common.transport import reveal_headers
 from harborrag_core.models.embed import (
     EmbeddingInput,
     EmbeddingPurpose,
@@ -16,11 +21,6 @@ from harborrag_core.models.errors import (
     HarborEmbedError,
     HarborEmbedInvalidRequestError,
 )
-from pydantic import ValidationError
-
-from harborrag_adapters.models.common.litellm_backend import build_provider_params
-from harborrag_adapters.models.common.security import HeaderValue
-from harborrag_adapters.models.common.transport import reveal_headers
 
 from .configs import (
     HarborEmbedClientConfig,

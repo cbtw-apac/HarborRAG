@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-
 from harborrag_engine.retrieval.base import BaseEvidenceBuilder, BaseRetrievalPipeline
 
 

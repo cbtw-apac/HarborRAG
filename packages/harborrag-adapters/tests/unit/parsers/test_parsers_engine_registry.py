@@ -6,6 +6,7 @@ import logging
 from typing import Any, ClassVar
 
 import pytest
+
 from harborrag_adapters.parsers import (
     PARSER_LOGGER_NAME,
     BaseParser,

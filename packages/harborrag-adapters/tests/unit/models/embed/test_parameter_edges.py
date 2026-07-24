@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_adapters.models.embed.parameters import (
     apply_embed_defaults,

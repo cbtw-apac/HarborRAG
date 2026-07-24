@@ -13,6 +13,7 @@ from bootstrap import (
     require_healthy,
     safe_error,
 )
+
 from harborrag_adapters.repositories.vector.qdrant import (
     QdrantVectorConfig,
     QdrantVectorRepository,

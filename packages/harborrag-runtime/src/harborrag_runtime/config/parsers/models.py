@@ -10,7 +10,6 @@ from typing import Any
 from harborrag_adapters.parsers.base import BaseParser
 from harborrag_adapters.parsers.engine import HarborParser
 from harborrag_adapters.parsers.pdf_engine import PdfBackend
-
 from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.parsers.providers import (
     parser_factory,

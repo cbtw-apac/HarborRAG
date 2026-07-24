@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.connectors.jira.issues import JiraIssueAPI
 from jira_test_helpers import FakeJiraClient, cloud_config, dc_config, issue
+
+from harborrag_adapters.connectors.jira.issues import JiraIssueAPI
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

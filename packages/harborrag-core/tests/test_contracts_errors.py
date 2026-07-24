@@ -1,6 +1,7 @@
 """API-facing HarborError subclasses"""
 
 import pytest
+
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborConflictError,

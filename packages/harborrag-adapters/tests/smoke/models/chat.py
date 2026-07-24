@@ -4,6 +4,7 @@ import asyncio
 
 from bootstrap import load_env, safe_error
 from config import SmokeNotConfigured, chat_config
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_core.models.chat import HarborChatMessage
 

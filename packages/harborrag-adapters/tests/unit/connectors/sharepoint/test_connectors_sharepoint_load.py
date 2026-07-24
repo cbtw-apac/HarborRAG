@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.connectors import SharePointConnector, SharePointSiteConfig
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_core.domain.source import SourceRecord
 from sharepoint_test_helpers import (
     SITE_URL,
     FakeGraphClient,
@@ -14,6 +11,10 @@ from sharepoint_test_helpers import (
     file_item,
     folder_item,
 )
+
+from harborrag_adapters.connectors import SharePointConnector, SharePointSiteConfig
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_core.domain.source import SourceRecord
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

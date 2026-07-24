@@ -1,10 +1,22 @@
-"""White-box unit tests for the docx/pptx/excel/epub parsers."""
+"""White-box unit tests for the docx/pptx/excel/epub/odt parsers."""
 
 from __future__ import annotations
 
 import pytest
-from harbor_test_builders import build_epub_bytes, build_pptx_bytes, build_xlsx_bytes
-from harborrag_adapters.parsers import DocxParser, EpubParser, ExcelParser, PptxParser
+from harbor_test_builders import (
+    build_epub_bytes,
+    build_odt_bytes,
+    build_pptx_bytes,
+    build_xlsx_bytes,
+)
+
+from harborrag_adapters.parsers import (
+    DocxParser,
+    EpubParser,
+    ExcelParser,
+    OdtParser,
+    PptxParser,
+)
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -15,6 +27,34 @@ def test_docx_parser_extracts_text(docx_bytes):
     assert document.parser_name == "docx"
     assert "Hello Harbor" in document.content
     assert document.metadata["filename"] == "report.docx"
+
+
+def test_odt_parser_extracts_text(odt_bytes):
+    document = OdtParser().parse(ParseInput(content=odt_bytes, filename="report.odt"))
+    assert document.parser_name == "odt"
+    assert "Hello Harbor" in document.content
+    assert document.metadata["filename"] == "report.odt"
+
+
+def test_odt_parser_preserves_heading_and_paragraph_order():
+    odt = build_odt_bytes(["First paragraph.", "Second paragraph."], heading="Title Heading")
+    document = OdtParser().parse(ParseInput(content=odt, filename="ordered.odt"))
+    assert document.content == "Title Heading\nFirst paragraph.\nSecond paragraph."
+    assert document.elements[0].type == "paragraph"
+
+
+def test_odt_parser_returns_empty_content_for_a_blank_document():
+    odt = build_odt_bytes([])
+    document = OdtParser().parse(ParseInput(content=odt, filename="empty.odt"))
+    assert document.content == ""
+    assert document.elements == []
+
+
+def test_odt_parser_advertises_its_route():
+    assert OdtParser().can_parse(ParseInput(content=b"x", filename="report.odt"))
+    assert OdtParser().can_parse(
+        ParseInput(content=b"x", content_type="application/vnd.oasis.opendocument.text")
+    )
 
 
 def test_pptx_parser_extracts_slide_text_and_count():

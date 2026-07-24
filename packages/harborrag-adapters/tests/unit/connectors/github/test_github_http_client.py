@@ -200,6 +200,7 @@ def test_github_request_retries_connection_errors_then_succeeds():
 
 def test_github_request_raises_fetch_error_after_exhausting_connection_errors():
     import requests
+
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _github_client(max_retries=0)

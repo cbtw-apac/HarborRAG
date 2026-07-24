@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from _database import exercise_database
 from bootstrap import dependency_available, env, env_int, load_env, safe_error
+
 from harborrag_adapters.repositories.database.postgresql import (
     PostgreSQLDatabaseBackend,
     PostgreSQLDatabaseConfig,

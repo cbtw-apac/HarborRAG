@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.object_store import (
     ObjectMetadata,
     ObjectReference,
@@ -10,8 +11,6 @@ from harborrag_core.schemas.object_store import (
     PutObjectRequest,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
-
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 
 
 class HarborObjectStore(RepositoryLifecycle):

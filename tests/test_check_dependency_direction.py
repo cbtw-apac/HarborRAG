@@ -27,7 +27,9 @@ def _write_package(
         (src_dir / name).write_text(content, encoding="utf-8")
 
 
-def test_detects_comma_separated_import_violation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_detects_comma_separated_import_violation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
         _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
@@ -54,10 +56,7 @@ def test_detects_dynamic_import_violation(monkeypatch: pytest.MonkeyPatch, tmp_p
         "harborrag-core",
         "harborrag_core",
         src_files={
-            "bad.py": (
-                "import importlib\n"
-                "importlib.import_module('harborrag_runtime.foo')\n"
-            )
+            "bad.py": ("import importlib\nimportlib.import_module('harborrag_runtime.foo')\n")
         },
     )
 
@@ -163,8 +162,7 @@ def test_detects_aliased_import_module_binding(
         "harborrag_core",
         src_files={
             "bad.py": (
-                "from importlib import import_module as load\n"
-                "load('harborrag_runtime.foo')\n"
+                "from importlib import import_module as load\nload('harborrag_runtime.foo')\n"
             )
         },
     )
@@ -186,10 +184,7 @@ def test_detects_dynamic_import_via_keyword_name_argument(
         "harborrag-core",
         "harborrag_core",
         src_files={
-            "bad.py": (
-                "import importlib\n"
-                "importlib.import_module(name='harborrag_runtime.foo')\n"
-            )
+            "bad.py": ("import importlib\nimportlib.import_module(name='harborrag_runtime.foo')\n")
         },
     )
 
@@ -211,12 +206,15 @@ def test_detects_violation_in_packages_own_tests_directory(
     violations = find_violations()
 
     assert any(
-        "packages/harborrag-core/tests/test_bad.py" in v and "must not import harborrag_adapters" in v
+        "packages/harborrag-core/tests/test_bad.py" in v
+        and "must not import harborrag_adapters" in v
         for v in violations
     )
 
 
-def test_allowed_imports_do_not_trigger_violations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_allowed_imports_do_not_trigger_violations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
         _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
@@ -236,6 +234,45 @@ def test_allowed_imports_table_matches_module_to_package_dir_keys() -> None:
     assert set(ALLOWED_IMPORTS) == set(MODULE_TO_PACKAGE_DIR)
 
 
+def test_smoke_test_directory_is_exempt_from_layering_rule(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Manual, opt-in scripts under `tests/smoke/` intentionally wire up the
+    full application stack and must not be flagged like ordinary tests."""
+    monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
+    for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
+        _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
+    smoke_dir = tmp_path / "packages" / "harborrag-adapters" / "tests" / "smoke" / "connectors"
+    smoke_dir.mkdir(parents=True)
+    (smoke_dir / "bootstrap.py").write_text(
+        "from harborrag_runtime.config import load_connector_catalog\n",
+        encoding="utf-8",
+    )
+
+    violations = find_violations()
+
+    assert violations == []
+
+
+def test_non_smoke_test_directory_is_still_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The `tests/smoke/` exemption must not blanket-exempt all of `tests/`."""
+    monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
+    for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
+        _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
+    tests_dir = tmp_path / "packages" / "harborrag-adapters" / "tests" / "unit"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_bad.py").write_text(
+        "from harborrag_runtime.config import load_connector_catalog\n",
+        encoding="utf-8",
+    )
+
+    violations = find_violations()
+
+    assert any("harborrag_adapters must not import harborrag_runtime" in v for v in violations)
+
+
 def test_non_utf8_declared_encoding_is_honored_not_crashed_on(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -245,7 +282,7 @@ def test_non_utf8_declared_encoding_is_honored_not_crashed_on(
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
         _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
     src_dir = tmp_path / "packages" / "harborrag-core" / "src" / "harborrag_core"
-    content = "# -*- coding: latin-1 -*-\n" "# café\n" "import harborrag_adapters\n"
+    content = "# -*- coding: latin-1 -*-\n# café\nimport harborrag_adapters\n"
     (src_dir / "bad.py").write_bytes(content.encode("latin-1"))
 
     violations = find_violations()

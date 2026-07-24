@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.connectors.github.utils import (
     content_endpoint,
     file_extension,

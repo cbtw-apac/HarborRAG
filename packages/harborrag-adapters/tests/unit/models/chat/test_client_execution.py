@@ -4,6 +4,9 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from model_runtime_support import FakeChatInvocation, chat_config
+from pydantic import BaseModel
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.chat.configs import HarborChatProviderConfig
 from harborrag_adapters.models.chat.registry import HarborProvider
@@ -27,8 +30,6 @@ from harborrag_core.models.errors import (
     HarborChatStructuredOutputError,
     HarborChatTimeoutError,
 )
-from model_runtime_support import FakeChatInvocation, chat_config
-from pydantic import BaseModel
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

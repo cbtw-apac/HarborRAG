@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_mcp.server import call_tool, list_tools
 from harborrag_mcp.server.base import BaseMcpServer
 from harborrag_mcp.server.mock import MockMcpServer
@@ -91,7 +92,9 @@ def test_tool_schema_builds_input_schema_stub():
     }
 
 
-def test_call_tool_facade_records_an_audit_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_call_tool_facade_records_an_audit_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The real call_tool facade (not McpAuditLog called in isolation) must
     leave an audit trail: MockMcpServer.call_tool wires McpAuditLog.record
     into the actual call path exercised by the module-level facade."""

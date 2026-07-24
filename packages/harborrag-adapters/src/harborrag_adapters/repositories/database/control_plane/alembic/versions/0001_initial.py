@@ -140,9 +140,7 @@ def upgrade() -> None:
         sa.Column(
             "provider_id",
             sa.Text(),
-            sa.ForeignKey(
-                "providers.id", name="fk_routing_rules_provider_id_providers"
-            ),
+            sa.ForeignKey("providers.id", name="fk_routing_rules_provider_id_providers"),
             nullable=False,
         ),
         sa.Column("rule_json", _JSON, nullable=False),

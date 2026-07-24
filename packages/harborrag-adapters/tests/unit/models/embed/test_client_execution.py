@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from model_runtime_support import FakeEmbeddingInvocation, embed_config
+
 from harborrag_adapters.models.common.config import CacheConfig, RetryPolicyConfig
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.embed import HarborEmbedClient
@@ -11,7 +13,6 @@ from harborrag_adapters.models.embed.registry import HarborEmbedProvider
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
 from harborrag_core.models.embed import HarborEmbedRequest
 from harborrag_core.models.errors import HarborEmbedProviderError
-from model_runtime_support import FakeEmbeddingInvocation, embed_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

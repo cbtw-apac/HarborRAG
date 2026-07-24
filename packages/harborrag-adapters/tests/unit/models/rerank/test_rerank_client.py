@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from model_invocation_support import FakeRerankInvocation, rerank_response
+from pydantic import ValidationError
+
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
@@ -14,8 +17,6 @@ from harborrag_core.models.errors import (
     HarborRerankTimeoutError,
 )
 from harborrag_core.models.rerank import HarborRerankDocument
-from model_invocation_support import FakeRerankInvocation, rerank_response
-from pydantic import ValidationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

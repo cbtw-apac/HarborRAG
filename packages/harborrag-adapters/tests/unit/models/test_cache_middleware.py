@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, Field
+
 from harborrag_adapters.models.common.cache import (
     CacheDecision,
     InMemoryModelCache,
@@ -15,7 +17,6 @@ from harborrag_adapters.models.common.middleware import (
     middleware_context,
 )
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
-from pydantic import BaseModel, Field
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

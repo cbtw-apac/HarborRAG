@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.repositories.object_store.keys import (
     logical_object_key,
     physical_object_key,

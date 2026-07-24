@@ -4,6 +4,9 @@ import math
 from typing import Any
 
 import pytest
+from model_runtime_support import embed_config
+from pydantic import SecretStr
+
 from harborrag_adapters.models.embed.batching import EmbeddingBatchAccumulator
 from harborrag_adapters.models.embed.configs import (
     HarborEmbedDefaults,
@@ -40,8 +43,6 @@ from harborrag_core.models.errors import (
     HarborEmbedPartialBatchError,
     HarborEmbedProviderError,
 )
-from model_runtime_support import embed_config
-from pydantic import SecretStr
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

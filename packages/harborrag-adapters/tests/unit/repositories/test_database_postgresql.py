@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.repositories.database.postgresql import repository as pg_repository_module
-from harborrag_adapters.repositories.database.postgresql.config import PostgreSQLDatabaseConfig
-from harborrag_adapters.repositories.database.postgresql.plugin import PostgreSQLDatabasePlugin
+from pydantic import ValidationError
+
+from harborrag_adapters.repositories.database.postgresql import (
+    repository as pg_repository_module,
+)
+from harborrag_adapters.repositories.database.postgresql.config import (
+    PostgreSQLDatabaseConfig,
+)
+from harborrag_adapters.repositories.database.postgresql.plugin import (
+    PostgreSQLDatabasePlugin,
+)
 from harborrag_adapters.repositories.database.postgresql.repository import (
     PostgreSQLDatabaseBackend,
 )
 from harborrag_adapters.repositories.plugin import RepositoryDependencies
-from pydantic import ValidationError
 
 
 def test_config_accepts_a_valid_asyncpg_url() -> None:

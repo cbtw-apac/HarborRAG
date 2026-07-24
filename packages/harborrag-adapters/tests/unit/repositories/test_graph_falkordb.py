@@ -3,12 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.errors import HarborStorageAuthorizationError
-from harborrag_adapters.repositories.graph.falkordb import client as falkordb_client_module
+from harborrag_adapters.repositories.graph.falkordb import (
+    client as falkordb_client_module,
+)
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
-from harborrag_adapters.repositories.graph.falkordb.repository import FalkorDBGraphRepository
+from harborrag_adapters.repositories.graph.falkordb.repository import (
+    FalkorDBGraphRepository,
+)
 from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
 from harborrag_core.schemas.graph import GraphEdge, GraphExpansionQuery, GraphNode
 from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
@@ -282,7 +287,9 @@ class _FalkorDBPingFails:
 
 
 @pytest.mark.asyncio
-async def test_connect_failure_closes_and_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_connect_failure_closes_and_reraises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(falkordb_client_module, "FalkorDB", _FalkorDBPingFails)
     client = FalkorDBClient(**_client_kwargs())
 
@@ -312,7 +319,9 @@ class _FalkorDBDirectClose:
 
 
 @pytest.mark.asyncio
-async def test_close_prefers_database_level_aclose(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_close_prefers_database_level_aclose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(falkordb_client_module, "FalkorDB", _FalkorDBDirectClose)
     client = FalkorDBClient(**_client_kwargs())
     await client.connect()
@@ -714,7 +723,9 @@ async def test_expand_with_no_relationship_types_omits_the_selector() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_falkordb_client_requires_sdk_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_falkordb_client_requires_sdk_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(falkordb_client_module, "FalkorDB", None)
 
     with pytest.raises(ImportError, match="FalkorDB is not installed"):

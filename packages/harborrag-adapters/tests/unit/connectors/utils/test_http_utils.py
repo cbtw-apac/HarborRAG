@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from harbor_test_builders import FakeResponse
+
 from harborrag_adapters.connectors.utils.http import (
     ResponseTooLargeError,
     read_capped_content,

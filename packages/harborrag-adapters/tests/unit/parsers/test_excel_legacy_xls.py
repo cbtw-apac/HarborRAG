@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 
 import pytest
+
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]

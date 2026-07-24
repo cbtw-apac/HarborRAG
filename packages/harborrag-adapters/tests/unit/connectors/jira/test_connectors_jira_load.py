@@ -5,9 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.jira import JiraConnector
-from harborrag_core.domain.source import SourceRecord
 from jira_test_helpers import (
     CLOUD_BASE,
     FakeAttachmentParser,
@@ -15,6 +12,10 @@ from jira_test_helpers import (
     cloud_config,
     issue,
 )
+
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.jira import JiraConnector
+from harborrag_core.domain.source import SourceRecord
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

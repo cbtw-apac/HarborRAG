@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.models.rerank import HarborRerankClientConfig
 from harborrag_adapters.models.rerank.validation import (
     validate_rerank_configuration,

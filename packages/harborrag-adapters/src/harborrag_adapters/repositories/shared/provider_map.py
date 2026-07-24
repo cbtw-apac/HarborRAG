@@ -4,7 +4,6 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from harborrag_core.schemas.storage import StorageFamily
 from pydantic import BaseModel
 
 from harborrag_adapters.repositories.errors import (
@@ -16,6 +15,7 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class ProviderMap[ProductT]:
@@ -53,7 +53,11 @@ class ProviderMap[ProductT]:
     ) -> ProductT:
         """Validate provider-owned options and create one unconnected product."""
         plugin = self._require(backend)
-        payload = {"backend": backend, "instance_name": instance_name, **dict(options or {})}
+        payload = {
+            "backend": backend,
+            "instance_name": instance_name,
+            **dict(options or {}),
+        }
         config: RepositoryConfig = plugin.config_type.model_validate(payload)
         try:
             return plugin.create(config, dependencies or RepositoryDependencies())

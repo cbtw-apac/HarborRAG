@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from model_runtime_support import FakeRerankInvocation, rerank_config
+
 from harborrag_adapters.models.common.config import CacheConfig, RetryPolicyConfig
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.rerank import HarborRerankingClient
@@ -11,7 +13,6 @@ from harborrag_adapters.models.rerank.registry import HarborRerankProvider
 from harborrag_core.models.capabilities import HarborRerankCapabilities
 from harborrag_core.models.errors import HarborRerankProviderError
 from harborrag_core.models.rerank import HarborRerankRequest
-from model_runtime_support import FakeRerankInvocation, rerank_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

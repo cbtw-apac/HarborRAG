@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, Field
+
 from harborrag_adapters.models.common.budget import (
     BudgetEstimationError,
     BudgetExceededError,
@@ -25,7 +27,6 @@ from harborrag_adapters.models.common.singleflight import (
     RedisSingleFlight,
     SingleFlightTimeoutError,
 )
-from pydantic import BaseModel, Field
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

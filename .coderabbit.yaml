@@ -254,8 +254,8 @@ reviews:
         Root pyproject is the workspace/tooling source of truth. Check Python
         requires-python is >=3.12, uv workspace members include every package,
         dev/docs dependencies are not placed in main dependencies, coverage omit
-        excludes tests/build artifacts, Ruff/Black/isort/mypy agree on Python
-        version and line length, and pytest discovers package-local tests.
+        excludes tests/build artifacts, Ruff/mypy agree on Python version and
+        line length, and pytest discovers package-local tests.
 
     - path: "packages/*/pyproject.toml"
       instructions: >

@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_core.models.chat import HarborChatMessage, StreamEventType
 from harborrag_core.models.errors import (

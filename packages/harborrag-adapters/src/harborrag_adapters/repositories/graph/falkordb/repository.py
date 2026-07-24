@@ -3,6 +3,21 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_adapters.repositories.errors import (
+    HarborUnsafeQueryError,
+    StorageErrorContext,
+)
+from harborrag_adapters.repositories.graph.base import HarborGraphRepository
+from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
+from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
+from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
+from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
+from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.telemetry import (
+    RepositoryTelemetry,
+    StorageTelemetryHook,
+    traced_repository_operation,
+)
 from harborrag_core.schemas.graph import (
     GraphEdge,
     GraphExpansionQuery,
@@ -16,19 +31,6 @@ from harborrag_core.schemas.storage import (
     RepositoryHealth,
     StorageFamily,
     StorageOperationContext,
-)
-
-from harborrag_adapters.repositories.errors import HarborUnsafeQueryError, StorageErrorContext
-from harborrag_adapters.repositories.graph.base import HarborGraphRepository
-from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
-from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
-from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
-from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
-from harborrag_adapters.repositories.telemetry import (
-    RepositoryTelemetry,
-    StorageTelemetryHook,
-    traced_repository_operation,
 )
 
 
@@ -119,7 +121,7 @@ class FalkorDBGraphRepository(HarborGraphRepository):
                         {
                             **node.properties,
                             "valid_from": node.valid_from.isoformat(),
-                            "valid_to": node.valid_to.isoformat() if node.valid_to else None,
+                            "valid_to": (node.valid_to.isoformat() if node.valid_to else None),
                             "confidence": node.confidence,
                             "provenance": node.provenance,
                         }
@@ -163,7 +165,7 @@ class FalkorDBGraphRepository(HarborGraphRepository):
                             "source_id": str(edge.source_id),
                             "target_id": str(edge.target_id),
                             "valid_from": edge.valid_from.isoformat(),
-                            "valid_to": edge.valid_to.isoformat() if edge.valid_to else None,
+                            "valid_to": (edge.valid_to.isoformat() if edge.valid_to else None),
                             "confidence": edge.confidence,
                             "provenance": edge.provenance,
                         }

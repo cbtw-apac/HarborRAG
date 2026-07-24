@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
-from harborrag_adapters.repositories.database.sqlite.repository import SQLiteDatabaseBackend
+from harborrag_adapters.repositories.database.sqlite.repository import (
+    SQLiteDatabaseBackend,
+)
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageCheckpointConflictError,
@@ -61,7 +64,10 @@ async def test_document_create_rejects_duplicate_id(tmp_path: Path) -> None:
     async with backend:
         context = make_context()
         record = DocumentRecord(
-            id="doc-1", tenant_id=context.tenant_id, current_version_id="v1", content_hash="abc"
+            id="doc-1",
+            tenant_id=context.tenant_id,
+            current_version_id="v1",
+            content_hash="abc",
         )
         async with backend.unit_of_work_factory() as uow:
             await uow.documents.create(record, context=context)
@@ -79,7 +85,10 @@ async def test_document_save_detects_version_conflict(tmp_path: Path) -> None:
     async with backend:
         context = make_context()
         record = DocumentRecord(
-            id="doc-1", tenant_id=context.tenant_id, current_version_id="v1", content_hash="abc"
+            id="doc-1",
+            tenant_id=context.tenant_id,
+            current_version_id="v1",
+            content_hash="abc",
         )
         async with backend.unit_of_work_factory() as uow:
             await uow.documents.create(record, context=context)
@@ -97,7 +106,10 @@ async def test_uncommitted_unit_of_work_rolls_back(tmp_path: Path) -> None:
     async with backend:
         context = make_context()
         record = DocumentRecord(
-            id="doc-1", tenant_id=context.tenant_id, current_version_id="v1", content_hash="abc"
+            id="doc-1",
+            tenant_id=context.tenant_id,
+            current_version_id="v1",
+            content_hash="abc",
         )
         async with backend.unit_of_work_factory() as uow:
             await uow.documents.create(record, context=context)
@@ -186,7 +198,10 @@ async def test_explicit_rollback_discards_uncommitted_writes(tmp_path: Path) -> 
     async with backend:
         context = make_context()
         record = DocumentRecord(
-            id="doc-1", tenant_id=context.tenant_id, current_version_id="v1", content_hash="abc"
+            id="doc-1",
+            tenant_id=context.tenant_id,
+            current_version_id="v1",
+            content_hash="abc",
         )
         async with backend.unit_of_work_factory() as uow:
             await uow.documents.create(record, context=context)

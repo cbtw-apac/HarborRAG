@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from github_test_helpers import repo, tree_item
+
 from harborrag_adapters.connectors.github.mappers import (
     build_document_metadata,
     build_source_record,

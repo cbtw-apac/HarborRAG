@@ -4,6 +4,7 @@ from datetime import UTC
 from typing import get_args
 
 import pytest
+
 from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
 from harborrag_core.domain.source_config import SourceConfig
 
@@ -57,9 +58,7 @@ def test_job_counters_default_to_zero() -> None:
 def test_source_config_defaults() -> None:
     """A fresh SourceConfig is active, unscheduled, and carries only
     secret_ref placeholders (never secret values)."""
-    source = SourceConfig(
-        id="s1", project_id="p1", source_type="local_file", name="docs"
-    )
+    source = SourceConfig(id="s1", project_id="p1", source_type="local_file", name="docs")
     assert source.status == "active"
     assert source.schedule is None
     assert source.config == {}

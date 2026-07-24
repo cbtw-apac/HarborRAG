@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from github_test_helpers import FakeGitHubClient, config
+
 from harborrag_adapters.connectors import GitHubConnector, GitHubRepositoryConfig
 from harborrag_adapters.connectors.github.utils import parse_github_repository_url
 

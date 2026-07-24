@@ -4,9 +4,8 @@ from dataclasses import asdict, dataclass, field
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_engine.retrieval.mock import MockRetrievalPipeline
-from harborrag_runtime.composition import CompositionRoot
-
 from harborrag_mcp.tools.base import BaseMcpTool, McpToolSpec
+from harborrag_runtime.composition import CompositionRoot
 
 
 class MockHealthTool(BaseMcpTool):

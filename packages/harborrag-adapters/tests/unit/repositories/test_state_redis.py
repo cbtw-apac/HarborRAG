@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from redis.exceptions import WatchError
+
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageAuthorizationError,
@@ -20,8 +22,11 @@ from harborrag_adapters.repositories.state.redis.stores import (
 )
 from harborrag_adapters.repositories.telemetry import RepositoryTelemetry
 from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
-from harborrag_core.schemas.storage import HealthStatus, StorageFamily, StorageOperationContext
-from redis.exceptions import WatchError
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    StorageFamily,
+    StorageOperationContext,
+)
 
 CONTEXT = StorageOperationContext(tenant_id="tenant-a")
 

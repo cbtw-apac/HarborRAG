@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from model_runtime_support import chat_config
+
 from harborrag_adapters.models.chat.streaming import ChatStreamNormalizer
 from harborrag_core.models.chat import StreamEventType
-from model_runtime_support import chat_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

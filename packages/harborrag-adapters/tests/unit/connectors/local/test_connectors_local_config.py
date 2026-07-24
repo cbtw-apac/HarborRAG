@@ -6,8 +6,9 @@ import os
 from pathlib import Path
 
 import pytest
-from harborrag_adapters.connectors import LocalFileConfig
 from local_test_helpers import config
+
+from harborrag_adapters.connectors import LocalFileConfig
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.job import Job

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
 from harborrag_adapters.repositories.object_store.s3.repository import S3ObjectStore
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class S3ObjectStorePlugin(RepositoryPlugin[S3ObjectStoreConfig, S3ObjectStore]):

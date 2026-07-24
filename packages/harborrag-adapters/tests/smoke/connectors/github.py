@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from bootstrap import env, load_env, print_document
+
 from harborrag_adapters.connectors import HarborConnector
 from harborrag_adapters.connectors.github.config import GitHubRepositoryConfig
 from harborrag_adapters.connectors.schemas import ConnectorQuery

@@ -4,6 +4,9 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_adapters.models.common.responses import (
+    coerce_sdk_mapping as coerce_mapping,
+)
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatStreamChunk,
@@ -11,10 +14,6 @@ from harborrag_core.models.chat import (
     StreamEventType,
 )
 from harborrag_core.models.errors import HarborChatProviderError, HarborModelError
-
-from harborrag_adapters.models.common.responses import (
-    coerce_sdk_mapping as coerce_mapping,
-)
 
 from .configs import HarborChatProviderConfig
 from .normalization import (

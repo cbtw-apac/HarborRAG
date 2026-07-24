@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 from github_test_helpers import FakeGitHubClient, add_repo_and_commit, config
+
 from harborrag_adapters.connectors import GitHubConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_core.domain.source import SourceRecord

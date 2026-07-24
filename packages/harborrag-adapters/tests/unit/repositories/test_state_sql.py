@@ -5,9 +5,10 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from sqlalchemy.exc import IntegrityError
+
 from harborrag_adapters.repositories.state.sql import SQLLeaseStore
 from harborrag_core.schemas.storage import StorageOperationContext
-from sqlalchemy.exc import IntegrityError
 
 
 class FakeResult:

@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from harborrag_core.contracts.errors import HarborConfigurationError
 
 from harborrag_app.api.auth.dependencies import build_token_verifier
 from harborrag_app.api.dependencies import select_app_service
@@ -22,6 +21,7 @@ from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.middleware import TraceIdMiddleware
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.settings import ApiSettings
+from harborrag_core.contracts.errors import HarborConfigurationError
 
 API_PREFIX = "/api/v1"
 
@@ -56,8 +56,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     if settings.cors_origins:
         if "*" in settings.cors_origins:
             raise HarborConfigurationError(
-                "wildcard cors_origins is not allowed with credentialed CORS; "
-                "list explicit origins"
+                "wildcard cors_origins is not allowed with credentialed CORS; list explicit origins"
             )
         app.add_middleware(
             CORSMiddleware,

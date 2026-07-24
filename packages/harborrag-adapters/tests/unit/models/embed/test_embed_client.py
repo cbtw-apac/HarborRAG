@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 
 import pytest
+from model_invocation_support import FakeEmbeddingInvocation, embedding_response
+
 from harborrag_adapters.models.common.lifecycle import ResourceOwnership
 from harborrag_adapters.models.embed import (
     HarborEmbedClient,
@@ -16,7 +18,6 @@ from harborrag_core.models.errors import (
     HarborEmbedProviderError,
     HarborEmbedTimeoutError,
 )
-from model_invocation_support import FakeEmbeddingInvocation, embedding_response
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

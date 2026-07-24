@@ -147,7 +147,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             raise FetchError(str(exc)) from exc
         if follow_up.status_code >= 400:
             detail = safe_error_detail(follow_up.text)
-            raise FetchError(f"{label} redirect target failed with HTTP {follow_up.status_code}: {detail}")
+            raise FetchError(
+                f"{label} redirect target failed with HTTP {follow_up.status_code}: {detail}"
+            )
         if 300 <= follow_up.status_code < 400:
             raise FetchError(f"{label} refused chained HTTP redirect {follow_up.status_code}")
         return follow_up

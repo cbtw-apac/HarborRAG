@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harborrag_core.contracts.errors import HarborAuthError
-
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
+from harborrag_core.contracts.errors import HarborAuthError
 
 
 @dataclass(slots=True)

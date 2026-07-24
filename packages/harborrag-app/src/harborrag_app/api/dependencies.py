@@ -25,9 +25,8 @@ def select_app_service() -> tuple[BaseAppService, str]:
     if env == "dev" and not control_db_url:
         return MockAppService(), "mock"
 
-    from harborrag_runtime.composition import CompositionRoot
-
     from harborrag_app.services.app_service import AppService
+    from harborrag_runtime.composition import CompositionRoot
 
     return AppService(CompositionRoot.production()), "production"
 

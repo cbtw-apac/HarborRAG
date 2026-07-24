@@ -3,11 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import timedelta
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.ids import WorkflowId
 from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
 from harborrag_core.schemas.storage import StorageOperationContext
-
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 
 
 class HarborStateStore(ABC):

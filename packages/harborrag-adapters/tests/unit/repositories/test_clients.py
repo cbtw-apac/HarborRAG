@@ -3,26 +3,41 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.cache.client import HarborCacheDBClient
 from harborrag_adapters.repositories.cache.memory.config import MemoryCacheConfig
 from harborrag_adapters.repositories.cache.memory.repository import MemoryCacheBackend
 from harborrag_adapters.repositories.database.client import HarborDatabaseClient
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
-from harborrag_adapters.repositories.database.sqlite.repository import SQLiteDatabaseBackend
+from harborrag_adapters.repositories.database.sqlite.repository import (
+    SQLiteDatabaseBackend,
+)
 from harborrag_adapters.repositories.graph.client import HarborGraphDBClient
-from harborrag_adapters.repositories.graph.falkordb import client as falkordb_client_module
+from harborrag_adapters.repositories.graph.falkordb import (
+    client as falkordb_client_module,
+)
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
-from harborrag_adapters.repositories.graph.falkordb.repository import FalkorDBGraphRepository
-from harborrag_adapters.repositories.object_store.client import HarborObjectStoreDBClient
-from harborrag_adapters.repositories.object_store.memory.config import MemoryObjectStoreConfig
-from harborrag_adapters.repositories.object_store.memory.repository import MemoryObjectStore
+from harborrag_adapters.repositories.graph.falkordb.repository import (
+    FalkorDBGraphRepository,
+)
+from harborrag_adapters.repositories.object_store.client import (
+    HarborObjectStoreDBClient,
+)
+from harborrag_adapters.repositories.object_store.memory.config import (
+    MemoryObjectStoreConfig,
+)
+from harborrag_adapters.repositories.object_store.memory.repository import (
+    MemoryObjectStore,
+)
 from harborrag_adapters.repositories.state.client import HarborStateDBClient
 from harborrag_adapters.repositories.state.sqlite.config import SQLiteStateConfig
 from harborrag_adapters.repositories.state.sqlite.repository import SQLiteStateBackend
 from harborrag_adapters.repositories.vector.client import HarborVectorDBClient
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
-from harborrag_adapters.repositories.vector.qdrant.repository import QdrantVectorRepository
+from harborrag_adapters.repositories.vector.qdrant.repository import (
+    QdrantVectorRepository,
+)
 
 
 def test_default_clients_register_only_supported_backends() -> None:
@@ -54,7 +69,9 @@ class _FalkorDBWithoutDirectClose:
 
 
 @pytest.mark.asyncio
-async def test_falkordb_client_closes_sdk_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_falkordb_client_closes_sdk_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         falkordb_client_module,
         "FalkorDB",
@@ -106,7 +123,8 @@ def test_vector_client_capabilities_create_and_create_from_config() -> None:
     assert client.capabilities("qdrant") is None
 
     created = client.create(
-        backend="qdrant", options={"deployment": "embedded", "path": "/tmp/qdrant-client-test"}
+        backend="qdrant",
+        options={"deployment": "embedded", "path": "/tmp/qdrant-client-test"},
     )
     assert isinstance(created, QdrantVectorRepository)
 
@@ -154,8 +172,12 @@ def test_object_store_client_capabilities_create_and_create_from_config() -> Non
 # --- Additional coverage: QdrantDBClient (added without touching existing tests) ---
 
 
-def test_qdrant_client_requires_async_client_installed(monkeypatch: pytest.MonkeyPatch) -> None:
-    from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
+def test_qdrant_client_requires_async_client_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from harborrag_adapters.repositories.vector.qdrant import (
+        client as qdrant_client_module,
+    )
     from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
     from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
@@ -190,7 +212,9 @@ class _FakeAsyncQdrantClient:
 async def test_qdrant_client_embedded_disk_connect_passes_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
+    from harborrag_adapters.repositories.vector.qdrant import (
+        client as qdrant_client_module,
+    )
     from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
     from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
@@ -221,7 +245,9 @@ async def test_qdrant_client_embedded_disk_connect_passes_path(
 async def test_qdrant_client_embedded_memory_connect_uses_memory_location(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
+    from harborrag_adapters.repositories.vector.qdrant import (
+        client as qdrant_client_module,
+    )
     from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
     from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
@@ -245,7 +271,9 @@ async def test_qdrant_client_embedded_memory_connect_uses_memory_location(
 async def test_qdrant_client_remote_connect_passes_url_and_rounded_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
+    from harborrag_adapters.repositories.vector.qdrant import (
+        client as qdrant_client_module,
+    )
     from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
     from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
@@ -271,8 +299,12 @@ async def test_qdrant_client_remote_connect_passes_url_and_rounded_timeout(
 
 
 @pytest.mark.asyncio
-async def test_qdrant_client_connect_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
-    from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
+async def test_qdrant_client_connect_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from harborrag_adapters.repositories.vector.qdrant import (
+        client as qdrant_client_module,
+    )
     from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
     from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
@@ -309,7 +341,9 @@ async def test_qdrant_client_connect_is_idempotent(monkeypatch: pytest.MonkeyPat
 async def test_qdrant_client_connect_failure_closes_underlying_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
+    from harborrag_adapters.repositories.vector.qdrant import (
+        client as qdrant_client_module,
+    )
     from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
     from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 

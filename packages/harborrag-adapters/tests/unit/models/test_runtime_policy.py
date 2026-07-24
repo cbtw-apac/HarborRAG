@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
+
 from harborrag_adapters.models.chat import HarborChatClient, HarborChatClientConfig
 from harborrag_adapters.models.common.cache import (
     InMemoryModelCache,
@@ -15,7 +17,6 @@ from harborrag_core.models.errors import (
     HarborChatRateLimitError,
     HarborChatTimeoutError,
 )
-from pydantic import ValidationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

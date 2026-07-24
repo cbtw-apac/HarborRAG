@@ -14,6 +14,7 @@ from .exceptions import ParseError, UnsupportedFormatError
 from .html_engine import HtmlParser
 from .image import ImageParser
 from .markdown import MarkdownParser
+from .odt import OdtParser
 from .parser_logging import get_parser_logger, input_label
 from .pdf_engine import PdfParser
 from .pptx import PptxParser
@@ -63,6 +64,7 @@ class HarborParser:
         return [
             PptxParser(),
             DocxParser(),
+            OdtParser(),
             ExcelParser(),
             PdfParser(),
             CsvParser(),

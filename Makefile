@@ -18,7 +18,7 @@ help:
 	@echo "  make coverage         Run tests with 90% coverage gate"
 	@echo "  make openapi          Export the OpenAPI contract to openapi.json"
 	@echo "  make lint             Run Ruff lint checks"
-	@echo "  make format           Format with Black, isort, then Ruff format"
+	@echo "  make format           Format and fix imports with Ruff"
 	@echo "  make typecheck        Run mypy across packages"
 	@echo "  make compile          Compile package and script Python files"
 	@echo ""
@@ -65,9 +65,8 @@ lint:
 	ruff check .
 
 format:
-	black packages tests scripts
-	isort packages tests scripts
 	ruff format packages tests scripts
+	ruff check --fix packages tests scripts
 
 typecheck:
 	mypy packages

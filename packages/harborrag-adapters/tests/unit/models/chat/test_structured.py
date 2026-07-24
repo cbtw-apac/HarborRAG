@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from pydantic import BaseModel, Field
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import HarborChatMessage, StructuredOutputDegradation
@@ -11,7 +13,6 @@ from harborrag_core.models.errors import (
     HarborChatInvalidRequestError,
     HarborChatStructuredOutputError,
 )
-from pydantic import BaseModel, Field
 
 from .chat_client_support import FakeInvocation, response_dict
 

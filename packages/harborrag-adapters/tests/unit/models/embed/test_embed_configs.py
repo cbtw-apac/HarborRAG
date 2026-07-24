@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
+
 from harborrag_adapters.models.common.security import SecretReference
 from harborrag_adapters.models.embed import (
     HarborEmbedClientConfig,
@@ -8,7 +10,6 @@ from harborrag_adapters.models.embed import (
 )
 from harborrag_adapters.models.embed.validation import validate_embed_configuration
 from harborrag_core.models.errors import HarborEmbedConfigurationError
-from pydantic import ValidationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

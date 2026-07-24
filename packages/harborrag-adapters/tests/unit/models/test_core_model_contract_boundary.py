@@ -1,4 +1,5 @@
 import pytest
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.models.rerank import HarborRerankingClient

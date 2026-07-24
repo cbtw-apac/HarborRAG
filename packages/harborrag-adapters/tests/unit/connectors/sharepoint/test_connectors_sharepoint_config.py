@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from sharepoint_test_helpers import SITE_URL, config
+
 from harborrag_adapters.connectors import SharePointSiteConfig
 from harborrag_adapters.connectors.sharepoint.utils import parse_sharepoint_site_url
-from sharepoint_test_helpers import SITE_URL, config
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

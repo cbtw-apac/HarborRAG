@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.parsers.exceptions import ParseError
 from harborrag_adapters.parsers.utils import (
     DEFAULT_MAX_INPUT_BYTES,

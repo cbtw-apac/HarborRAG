@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from harborrag_core.models.errors import HarborRerankError
-from harborrag_core.models.rerank import HarborRerankRequest, HarborRerankResponse
-
 from harborrag_adapters.models.common.budget import (
     BudgetAuthorization,
     ModelBudgetPolicy,
@@ -27,6 +24,8 @@ from harborrag_adapters.models.common.telemetry import (
     litellm_telemetry_metadata,
 )
 from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_core.models.errors import HarborRerankError
+from harborrag_core.models.rerank import HarborRerankRequest, HarborRerankResponse
 
 from .configs import HarborRerankClientConfig, HarborRerankProviderConfig
 from .errors import normalize_exception

@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+
 from harborrag_adapters.parsers.engine import HarborParser
 from harborrag_core.domain.parser import ParseInput
 

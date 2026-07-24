@@ -2,10 +2,11 @@ from datetime import UTC
 from math import inf
 
 import pytest
+from pydantic import ValidationError
+
 from harborrag_core.schemas.cache import CacheEntry
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorPoint, VectorSearchQuery
-from pydantic import ValidationError
 
 
 def test_storage_schemas_are_strict_frozen_and_use_utc_timestamps() -> None:

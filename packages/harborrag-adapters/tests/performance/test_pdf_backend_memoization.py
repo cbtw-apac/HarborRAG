@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.parsers.pdf_engine.base import PdfBackend, PdfParseResult
 from harborrag_adapters.parsers.pdf_engine.docling import (
     DoclingBackend,

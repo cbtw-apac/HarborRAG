@@ -31,7 +31,6 @@ from harborrag_core.ports.control_plane import (
 from harborrag_core.ports.events import EventBusPort
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.builder import EngineBuilder
-
 from harborrag_runtime.services.base import BaseRuntimeService
 from harborrag_runtime.services.mock import MockRuntimeService
 
@@ -160,7 +159,6 @@ class CompositionRoot:
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
         from harborrag_core.testing.fakes import FakeEventBus, FakeSecrets
-
         from harborrag_runtime.services.runtime_service import ProductionRuntimeService
         from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
@@ -254,9 +252,7 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
         try:
             async with engine.connect() as connection:
                 version = (
-                    await connection.execute(
-                        sa.text("SELECT version_num FROM alembic_version")
-                    )
+                    await connection.execute(sa.text("SELECT version_num FROM alembic_version"))
                 ).scalar()
             return {"ping": "ok", "migrations": version, "scheme": dsn.split(":", 1)[0]}
         finally:

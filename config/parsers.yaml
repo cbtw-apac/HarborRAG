@@ -1,0 +1,31 @@
+version: 1
+
+parsers:
+  pdf-docling:
+    parser: pdf
+    enabled: true
+    settings:
+      min_content_chars: 20
+    engines:
+      - backend: docling
+        settings:
+          do_ocr: true
+          ocr_engine: rapidocr
+          ocr_lang: [en]
+          force_full_page_ocr: false
+          bitmap_area_threshold: 0.05
+          do_table_structure: true
+          table_do_cell_matching: true
+          accelerator_device: auto
+          accelerator_threads: 4
+          pdf_backend: dlparse_v1
+          max_num_pages: 500
+          max_file_size: 104857600
+          page_range: [1, 500]
+          raises_on_error: true
+          export_format: markdown
+          strict_text: false
+          include_raw_document: false
+          image_output_dir: ./data/docling-images
+          images_scale: 2.0
+          extra_convert_options: {}

@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageCheckpointConflictError,
@@ -70,7 +71,9 @@ async def test_workflow_state_save_detects_version_conflict(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_append_only_with_optimistic_versioning(tmp_path: Path) -> None:
+async def test_checkpoint_append_only_with_optimistic_versioning(
+    tmp_path: Path,
+) -> None:
     backend = make_backend(tmp_path)
     async with backend:
         context = make_context()
@@ -132,7 +135,9 @@ async def test_lease_acquire_renew_release_with_fencing(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_lease_acquisition_has_exactly_one_winner(tmp_path: Path) -> None:
+async def test_concurrent_lease_acquisition_has_exactly_one_winner(
+    tmp_path: Path,
+) -> None:
     backend = make_backend(tmp_path)
     async with backend:
         context = make_context()

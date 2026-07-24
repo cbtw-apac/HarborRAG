@@ -4,10 +4,9 @@ from abc import ABC, abstractmethod
 from datetime import timedelta
 from typing import Any
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.cache import LockHandle
 from harborrag_core.schemas.storage import StorageOperationContext
-
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 
 
 class HarborCacheStore(ABC):

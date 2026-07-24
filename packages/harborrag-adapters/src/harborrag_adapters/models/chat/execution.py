@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
-
 from harborrag_adapters.models.common.budget import (
     BudgetAuthorization,
     ModelBudgetPolicy,
@@ -28,6 +26,7 @@ from harborrag_adapters.models.common.telemetry import (
     litellm_telemetry_metadata,
 )
 from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .errors import normalize_exception

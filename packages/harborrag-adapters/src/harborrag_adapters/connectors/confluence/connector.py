@@ -7,14 +7,13 @@ from collections.abc import Iterator
 from itertools import islice
 from typing import Any
 
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
-
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_adapters.connectors.shared.attachments import AttachmentProcessor
 from harborrag_adapters.parsers import HarborParser
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
 
 from .client import ConfluenceClient, _RequestsConfluenceClient
 from .config import ConfluenceSpaceConfig

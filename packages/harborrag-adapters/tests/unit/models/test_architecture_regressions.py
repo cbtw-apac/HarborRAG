@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
 from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.chat.errors import normalize_exception
 from harborrag_adapters.models.chat.registry import (

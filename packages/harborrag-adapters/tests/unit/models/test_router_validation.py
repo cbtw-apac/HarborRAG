@@ -4,6 +4,8 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from model_runtime_support import chat_config, embed_config
+
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
 from harborrag_adapters.models.common.config import (
     RoutingConfig,
@@ -15,7 +17,6 @@ from harborrag_core.models.errors import (
     HarborChatConfigurationError,
     HarborEmbedConfigurationError,
 )
-from model_runtime_support import chat_config, embed_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

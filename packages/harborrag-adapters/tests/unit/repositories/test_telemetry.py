@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.telemetry import (
     LoggingStorageTelemetryHook,
     NullStorageTelemetryHook,
@@ -57,7 +58,10 @@ async def test_null_storage_telemetry_hook_accepts_all_events_without_error() ->
     await hook.on_operation_end(StorageOperationCompleted(**started.model_dump(), duration_ms=1.0))
     await hook.on_operation_error(
         StorageOperationFailed(
-            **started.model_dump(), duration_ms=1.0, error_type="RuntimeError", retryable=False
+            **started.model_dump(),
+            duration_ms=1.0,
+            error_type="RuntimeError",
+            retryable=False,
         )
     )
 

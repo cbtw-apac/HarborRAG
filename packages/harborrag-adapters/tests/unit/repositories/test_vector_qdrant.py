@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
+
 from harborrag_adapters.repositories.errors import (
     HarborStorageAuthorizationError,
     HarborStorageCapabilityError,
@@ -13,14 +15,18 @@ from harborrag_adapters.repositories.errors import (
     HarborVectorDimensionError,
 )
 from harborrag_adapters.repositories.vector.qdrant import query as query_module
-from harborrag_adapters.repositories.vector.qdrant import repository as repository_module
+from harborrag_adapters.repositories.vector.qdrant import (
+    repository as repository_module,
+)
 from harborrag_adapters.repositories.vector.qdrant.config import (
     QdrantDeployment,
     QdrantVectorConfig,
 )
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
-from harborrag_adapters.repositories.vector.qdrant.repository import QdrantVectorRepository
+from harborrag_adapters.repositories.vector.qdrant.repository import (
+    QdrantVectorRepository,
+)
 from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
 from harborrag_core.schemas.vector import (
     FilterOperator,
@@ -33,7 +39,6 @@ from harborrag_core.schemas.vector import (
     VectorPoint,
     VectorSearchQuery,
 )
-from pydantic import ValidationError
 
 
 class ModelValue:
@@ -384,17 +389,20 @@ def test_condition_covers_every_supported_filter_operator() -> None:
     assert in_condition.match.any == [1, 2]
 
     exists_true = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.EXISTS, value=True), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.EXISTS, value=True),
+        ExtendedModels,
     )
     assert exists_true.must_not[0].is_null.key == "a"
 
     exists_false = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.EXISTS, value=False), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.EXISTS, value=False),
+        ExtendedModels,
     )
     assert exists_false.is_null.key == "a"
 
     greater_than = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.GREATER_THAN, value=5), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.GREATER_THAN, value=5),
+        ExtendedModels,
     )
     assert greater_than.range.gt == 5
 
@@ -405,22 +413,26 @@ def test_condition_covers_every_supported_filter_operator() -> None:
     assert greater_or_equal.range.gte == 5
 
     less_than = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.LESS_THAN, value=5), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.LESS_THAN, value=5),
+        ExtendedModels,
     )
     assert less_than.range.lt == 5
 
     less_or_equal = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.LESS_THAN_OR_EQUAL, value=5), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.LESS_THAN_OR_EQUAL, value=5),
+        ExtendedModels,
     )
     assert less_or_equal.range.lte == 5
 
     not_equals = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.NOT_EQUALS, value=1), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.NOT_EQUALS, value=1),
+        ExtendedModels,
     )
     assert not_equals.must_not[0].match.value == 1
 
     not_in = QdrantMapper.condition(
-        _Condition(field="a", operator=FilterOperator.NOT_IN, value=[1, 2]), ExtendedModels
+        _Condition(field="a", operator=FilterOperator.NOT_IN, value=[1, 2]),
+        ExtendedModels,
     )
     assert not_in.must_not[0].match.any == [1, 2]
 
@@ -458,7 +470,11 @@ async def test_get_filters_cross_tenant_records_and_defaults_missing_logical_id(
     raw.retrieve_records = [
         SimpleNamespace(
             id="p1",
-            payload={"_harbor_tenant_id": "tenant-a", "_harbor_point_id": "point-1", "field": "x"},
+            payload={
+                "_harbor_tenant_id": "tenant-a",
+                "_harbor_point_id": "point-1",
+                "field": "x",
+            },
             vector=[1.0, 0.0, 0.0],
         ),
         SimpleNamespace(
@@ -530,7 +546,10 @@ async def test_search_without_threshold_uses_a_single_query_points_call() -> Non
     raw = FakeRawQdrant()
     raw.points = [
         SimpleNamespace(
-            id=str(i), score=0.9, payload={"_harbor_point_id": f"point-{i}"}, vector=None
+            id=str(i),
+            score=0.9,
+            payload={"_harbor_point_id": f"point-{i}"},
+            vector=None,
         )
         for i in range(3)
     ]
@@ -806,7 +825,9 @@ async def test_delete_collection_when_absent_only_clears_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upsert_sends_points_with_harbor_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_upsert_sends_points_with_harbor_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
@@ -817,7 +838,14 @@ async def test_upsert_sends_points_with_harbor_metadata(monkeypatch: pytest.Monk
 
     await repository.upsert(
         "docs",
-        [VectorPoint(id="p1", tenant_id="tenant-a", vector=[1.0, 0.0, 0.0], payload={"k": "v"})],
+        [
+            VectorPoint(
+                id="p1",
+                tenant_id="tenant-a",
+                vector=[1.0, 0.0, 0.0],
+                payload={"k": "v"},
+            )
+        ],
         context=context,
     )
 
@@ -850,7 +878,9 @@ async def test_repository_get_delegates_to_query_executor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_sends_tenant_scoped_filter_selector(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_delete_sends_tenant_scoped_filter_selector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
     raw = ExtendedRawQdrant()
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]

@@ -5,6 +5,9 @@ from pathlib import Path
 from types import MappingProxyType
 
 import pytest
+from model_runtime_support import chat_config
+from pydantic import SecretStr, ValidationError
+
 from harborrag_adapters.models.chat import (
     HarborChatProviderConfig,
     HarborChatSecurityConfig,
@@ -44,8 +47,6 @@ from harborrag_adapters.models.common.transport import (
     reveal_headers,
     validate_base_url,
 )
-from model_runtime_support import chat_config
-from pydantic import SecretStr, ValidationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

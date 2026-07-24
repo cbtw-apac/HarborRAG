@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.connectors.jira.mappers import (
     build_document_metadata,
     issue_key_from_record,

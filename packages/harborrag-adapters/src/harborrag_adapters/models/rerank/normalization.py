@@ -4,6 +4,10 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_adapters.models.common.responses import (
+    coerce_sdk_mapping,
+    sdk_hidden_parameters,
+)
 from harborrag_core.models.errors import HarborRerankMalformedResponseError
 from harborrag_core.models.rerank import (
     HarborRerankRequest,
@@ -11,11 +15,6 @@ from harborrag_core.models.rerank import (
     HarborRerankResult,
     HarborRerankUsage,
     RerankDocumentContent,
-)
-
-from harborrag_adapters.models.common.responses import (
-    coerce_sdk_mapping,
-    sdk_hidden_parameters,
 )
 
 from .configs import HarborRerankProviderConfig

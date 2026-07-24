@@ -4,6 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
+
 from harborrag_adapters.builder import AdapterBuilder
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery

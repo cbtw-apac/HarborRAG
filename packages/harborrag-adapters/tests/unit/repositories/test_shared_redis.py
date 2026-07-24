@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.shared import redis as redis_module
 from harborrag_adapters.repositories.shared.redis import RedisDBClient
 
@@ -36,7 +37,9 @@ def _install_fake_redis(
     return calls
 
 
-def test_missing_redis_dependency_raises_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_redis_dependency_raises_import_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(redis_module, "redis", None)
 
     with pytest.raises(ImportError):
@@ -82,7 +85,9 @@ async def test_ping_raises_when_not_connected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_connect_creates_client_and_pings_once(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_connect_creates_client_and_pings_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake_client = FakeAsyncRedisClient()
     calls = _install_fake_redis(monkeypatch, fake_client)
     client = RedisDBClient(

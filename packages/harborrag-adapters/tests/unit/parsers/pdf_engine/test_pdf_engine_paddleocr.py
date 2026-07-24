@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.parsers import PaddleOcrBackend, PaddleOcrBackendOptions
 
 pytestmark = pytest.mark.unit

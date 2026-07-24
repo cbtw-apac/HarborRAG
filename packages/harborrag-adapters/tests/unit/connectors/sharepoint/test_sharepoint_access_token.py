@@ -62,6 +62,7 @@ def test_sharepoint_access_token_refreshes_when_expired():
 
 def test_sharepoint_access_token_raises_on_request_exception():
     import requests
+
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 
     # max_retries=1 means two total attempts before the error propagates.

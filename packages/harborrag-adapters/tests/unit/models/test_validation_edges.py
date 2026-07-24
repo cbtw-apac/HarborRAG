@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
+
 from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.chat.validation import (
     validate_chat_configuration,
@@ -32,7 +34,6 @@ from harborrag_core.models.errors import (
     HarborEmbedConfigurationError,
     HarborEmbedInvalidRequestError,
 )
-from pydantic import BaseModel
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

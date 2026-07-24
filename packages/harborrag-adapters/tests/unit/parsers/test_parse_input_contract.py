@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from harborrag_core.domain.parser import ParsedDocument, ParseInput, ParserFormat
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

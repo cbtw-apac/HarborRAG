@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.errors import (
     HarborObjectTooLargeError,
     HarborStorageAlreadyExistsError,
@@ -10,8 +11,12 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageValidationError,
 )
 from harborrag_adapters.repositories.object_store.keys import physical_object_key
-from harborrag_adapters.repositories.object_store.s3 import operations as operations_module
-from harborrag_adapters.repositories.object_store.s3 import repository as repository_module
+from harborrag_adapters.repositories.object_store.s3 import (
+    operations as operations_module,
+)
+from harborrag_adapters.repositories.object_store.s3 import (
+    repository as repository_module,
+)
 from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
 from harborrag_adapters.repositories.object_store.s3.repository import S3ObjectStore
 from harborrag_core.schemas.object_store import PutObjectRequest
@@ -359,7 +364,10 @@ async def test_get_bytes_without_range_reads_entire_object() -> None:
     store = make_extended_store(raw)
 
     data = await store.get_bytes(
-        "bucket", "key", byte_range=None, context=StorageOperationContext(tenant_id="tenant-a")
+        "bucket",
+        "key",
+        byte_range=None,
+        context=StorageOperationContext(tenant_id="tenant-a"),
     )
 
     assert data == b"hello world"
@@ -373,7 +381,10 @@ async def test_get_bytes_with_byte_range_sets_range_header() -> None:
     store = make_extended_store(raw)
 
     await store.get_bytes(
-        "bucket", "key", byte_range=(0, 4), context=StorageOperationContext(tenant_id="tenant-a")
+        "bucket",
+        "key",
+        byte_range=(0, 4),
+        context=StorageOperationContext(tenant_id="tenant-a"),
     )
 
     assert raw.get_object_calls[0]["Range"] == "bytes=0-4"
@@ -485,7 +496,10 @@ async def test_presign_download_includes_version_id_when_present() -> None:
     store = make_extended_store(raw)
 
     url = await store.presign_download(
-        "bucket", "key", expires_seconds=60, context=StorageOperationContext(tenant_id="tenant-a")
+        "bucket",
+        "key",
+        expires_seconds=60,
+        context=StorageOperationContext(tenant_id="tenant-a"),
     )
 
     assert url.startswith("https://example.test/bucket/")
@@ -499,7 +513,10 @@ async def test_presign_download_omits_version_id_when_absent() -> None:
     store = make_extended_store(raw)
 
     await store.presign_download(
-        "bucket", "key", expires_seconds=60, context=StorageOperationContext(tenant_id="tenant-a")
+        "bucket",
+        "key",
+        expires_seconds=60,
+        context=StorageOperationContext(tenant_id="tenant-a"),
     )
 
     assert "VersionId" not in raw.presign_calls[0][1]

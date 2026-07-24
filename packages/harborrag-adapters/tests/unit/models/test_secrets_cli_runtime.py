@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.models.common.redis_client import RedisConnectionLifecycle
 from harborrag_adapters.models.common.redis_config import RedisConnectionConfig
 from harborrag_adapters.models.common.secrets import (

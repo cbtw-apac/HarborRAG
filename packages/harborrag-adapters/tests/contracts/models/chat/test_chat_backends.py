@@ -10,6 +10,7 @@ from chat_backend_contract import (
     FakeSession,
     exercise_backend_contract,
 )
+
 from harborrag_adapters.models.chat.backend_config import (
     ChatBackendType,
     LiteLLMProxyConfig,

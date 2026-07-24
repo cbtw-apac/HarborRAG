@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from local_test_helpers import config
+
 from harborrag_adapters.connectors.local.filters import (
     extension_filter,
     file_paths_from_query,
@@ -19,7 +21,6 @@ from harborrag_adapters.connectors.local.utils import (
 )
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
-from local_test_helpers import config
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

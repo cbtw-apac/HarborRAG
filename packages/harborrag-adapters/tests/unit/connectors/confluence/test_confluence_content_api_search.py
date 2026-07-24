@@ -8,6 +8,7 @@ from confluence_test_helpers import (
     cloud_config,
     light_content,
 )
+
 from harborrag_adapters.connectors.confluence.content import ConfluenceContentAPI
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

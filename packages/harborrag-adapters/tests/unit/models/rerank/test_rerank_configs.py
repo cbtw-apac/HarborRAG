@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.models.common.security import SecretReference
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,

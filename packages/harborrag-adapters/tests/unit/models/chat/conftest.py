@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.models.chat import HarborChatClientConfig
 
 

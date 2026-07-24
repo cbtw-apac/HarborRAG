@@ -11,6 +11,7 @@ from harbor_test_builders import (
     build_zero_compressed_size_zip_bytes,
     build_zip_bomb_bytes,
 )
+
 from harborrag_adapters.parsers import HarborParser
 from harborrag_adapters.parsers.exceptions import ParseError
 from harborrag_adapters.parsers.utils import open_guarded_zip
@@ -50,17 +51,13 @@ def test_open_guarded_zip_forged_file_size_cannot_smuggle_more_real_bytes() -> N
 def test_pptx_parser_rejects_zero_compressed_size_bomb_via_public_api() -> None:
     parser = HarborParser()
     with pytest.raises(ParseError):
-        parser.parse(
-            ParseInput(content=build_zero_compressed_size_zip_bytes(), filename="b.pptx")
-        )
+        parser.parse(ParseInput(content=build_zero_compressed_size_zip_bytes(), filename="b.pptx"))
 
 
 def test_xlsx_parser_rejects_zero_compressed_size_bomb_via_public_api() -> None:
     parser = HarborParser()
     with pytest.raises(ParseError):
-        parser.parse(
-            ParseInput(content=build_zero_compressed_size_zip_bytes(), filename="b.xlsx")
-        )
+        parser.parse(ParseInput(content=build_zero_compressed_size_zip_bytes(), filename="b.xlsx"))
 
 
 def test_epub_parser_rejects_bomb_via_public_api() -> None:

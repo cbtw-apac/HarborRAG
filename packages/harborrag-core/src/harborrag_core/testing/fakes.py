@@ -24,9 +24,7 @@ class FakeConnector:
 
     def discover(self) -> Iterable[SourceRecord]:
         for raw in self.documents:
-            yield SourceRecord(
-                id=raw.id, source_type=raw.content_type, locator=raw.source
-            )
+            yield SourceRecord(id=raw.id, source_type=raw.content_type, locator=raw.source)
 
     def load(self, record: SourceRecord) -> RawDocument:
         for raw in self.documents:

@@ -219,7 +219,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-.claude/
+.claude/**
 examples/
 
 # OS / editor noise
@@ -234,3 +234,6 @@ clients/typescript/node_modules/
 
 # Internal architecture working notes (kept out of the repo per team decision)
 docs/developers/architecture/http_backend/
+
+# Docling image output (config/parsers.yaml pdf-docling.image_output_dir)
+/data/docling-images/

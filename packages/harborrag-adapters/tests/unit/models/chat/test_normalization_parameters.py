@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from model_runtime_support import chat_config
+from pydantic import BaseModel, SecretStr
+
 from harborrag_adapters.models.chat.configs import (
     GenerationDefaults,
     HarborChatModelConfig,
@@ -46,8 +49,6 @@ from harborrag_core.models.errors import (
     HarborChatInvalidRequestError,
     HarborChatProviderError,
 )
-from model_runtime_support import chat_config
-from pydantic import BaseModel, SecretStr
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

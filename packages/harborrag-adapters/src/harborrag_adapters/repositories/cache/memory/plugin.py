@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.cache.memory.config import MemoryCacheConfig
 from harborrag_adapters.repositories.cache.memory.repository import MemoryCacheBackend
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class MemoryCachePlugin(RepositoryPlugin[MemoryCacheConfig, MemoryCacheBackend]):

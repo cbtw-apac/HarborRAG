@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar
 
 from harborrag_core.domain.parser import ParseInput
@@ -37,9 +39,20 @@ class DoclingBackendOptions:
     export_format: str = "markdown"
     strict_text: bool = False
     include_raw_document: bool = False
+    image_output_dir: Path | str | None = None
+    images_scale: float = 2.0
     pipeline_options: Any | None = None
     converter: Any | None = None
     extra_convert_options: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Coerce list-typed YAML values into the tuples Docling requires."""
+        ocr_lang: Any = self.ocr_lang
+        if ocr_lang is not None and not isinstance(ocr_lang, tuple):
+            self.ocr_lang = tuple(ocr_lang)
+        page_range: Any = self.page_range
+        if page_range is not None and not isinstance(page_range, tuple):
+            self.page_range = tuple(page_range)
 
 
 class DoclingBackend(PdfBackend):
@@ -109,6 +122,8 @@ class DoclingBackend(PdfBackend):
         document = getattr(result, "document", result)
         content = self._export_document(document)
         metadata = self._metadata(result)
+        if self.options.image_output_dir is not None:
+            metadata["docling_image_paths"] = self._save_images(document)
         warnings = metadata.get("docling_errors") or []
         return PdfParseResult(
             content=content,
@@ -189,6 +204,12 @@ class DoclingBackend(PdfBackend):
                 "accelerator_options",
                 accelerator_options,
             )
+
+        if self.options.image_output_dir is not None:
+            self._set_supported(pipeline_options, "images_scale", self.options.images_scale)
+            self._set_supported(pipeline_options, "generate_page_images", True)
+            self._set_supported(pipeline_options, "generate_picture_images", True)
+            self._set_supported(pipeline_options, "generate_table_images", True)
 
         return pipeline_options
 
@@ -312,9 +333,7 @@ class DoclingBackend(PdfBackend):
             return configured
 
         supported = ", ".join([*self._ACCELERATOR_DEVICES, "cuda:N"])
-        raise ValueError(
-            f"Unsupported Docling accelerator device {configured!r}: {supported}"
-        )
+        raise ValueError(f"Unsupported Docling accelerator device {configured!r}: {supported}")
 
     def _pdf_format_option(self, pdf_format_option: Any, pipeline_options: Any) -> Any:
         """Create PdfFormatOption and fall back when backend selection is unsupported."""
@@ -412,6 +431,67 @@ class DoclingBackend(PdfBackend):
             metadata["docling_errors"] = [str(error) for error in errors]
 
         return metadata
+
+    def _save_images(self, document: Any) -> list[str]:
+        """Save page, picture, and table images to a fresh per-document subfolder.
+
+        A per-document subfolder (rather than writing straight into
+        ``image_output_dir``) is required: two documents converted against the
+        same configured directory would otherwise overwrite each other's
+        ``page-1.png``, ``picture-1.png``, etc.
+        """
+
+        image_output_dir = self.options.image_output_dir
+        if image_output_dir is None:
+            return []
+
+        doc_dir = Path(image_output_dir) / uuid.uuid4().hex
+        doc_dir.mkdir(parents=True, exist_ok=True)
+
+        saved: list[str] = []
+        for page_no, page in (getattr(document, "pages", None) or {}).items():
+            self._save_pil_image(
+                getattr(getattr(page, "image", None), "pil_image", None),
+                doc_dir / f"page-{page_no}.png",
+                saved,
+            )
+        for index, picture in enumerate(getattr(document, "pictures", None) or [], start=1):
+            self._save_pil_image(
+                self._element_image(picture, document),
+                doc_dir / f"picture-{index}.png",
+                saved,
+            )
+        for index, table in enumerate(getattr(document, "tables", None) or [], start=1):
+            self._save_pil_image(
+                self._element_image(table, document),
+                doc_dir / f"table-{index}.png",
+                saved,
+            )
+        return saved
+
+    @staticmethod
+    def _element_image(element: Any, document: Any) -> Any | None:
+        """Render a picture/table element to a PIL image, tolerating API drift."""
+
+        get_image = getattr(element, "get_image", None)
+        if not callable(get_image):
+            return None
+        try:
+            return get_image(document)
+        except Exception:  # noqa: BLE001 - third-party config object boundary
+            return None
+
+    @staticmethod
+    def _save_pil_image(pil_image: Any, path: Path, saved: list[str]) -> None:
+        """Write a PIL image to disk and record its path, skipping missing images."""
+
+        if pil_image is None:
+            return
+        try:
+            pil_image.save(path)
+        except Exception:  # noqa: BLE001 - third-party config object boundary
+            return
+        saved.append(str(path))
 
     def _raw(self, document: Any) -> dict[str, Any] | None:
         """Return a raw Docling payload only when explicitly requested."""

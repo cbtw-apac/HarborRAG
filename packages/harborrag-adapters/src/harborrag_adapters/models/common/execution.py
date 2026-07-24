@@ -5,8 +5,9 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from harborrag_core.models.errors import HarborModelError
 from pydantic import BaseModel
+
+from harborrag_core.models.errors import HarborModelError
 
 from .config import RetryPolicyConfig, RoutingConfig
 from .errors import HarborNoHealthyDeploymentError

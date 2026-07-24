@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.repositories.shared.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.shared.sqlite import sqlite_url
 

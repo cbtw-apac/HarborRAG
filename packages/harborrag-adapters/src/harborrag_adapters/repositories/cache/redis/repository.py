@@ -2,13 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
-)
-
 from harborrag_adapters.repositories.cache.base import HarborCacheBackend
 from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
 from harborrag_adapters.repositories.cache.redis.lock import RedisLockManager
@@ -19,7 +12,16 @@ from harborrag_adapters.repositories.shared.redis import (
     RedisClientProtocol,
     RedisDBClient,
 )
-from harborrag_adapters.repositories.telemetry import RepositoryTelemetry, StorageTelemetryHook
+from harborrag_adapters.repositories.telemetry import (
+    RepositoryTelemetry,
+    StorageTelemetryHook,
+)
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
+)
 
 
 class RedisCacheBackend(HarborCacheBackend):

@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from harborrag_adapters.connectors.shared.attachments import FileType
+from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -16,9 +18,7 @@ def _bootstrap() -> dict[str, object]:
     return runpy.run_path(str(path))
 
 
-def test_docling_selection_reuses_rapidocr_for_image_attachments(monkeypatch) -> None:
-    monkeypatch.setenv("HARBOR_SMOKE_PDF_BACKEND", "docling")
-    monkeypatch.delenv("HARBOR_SMOKE_IMAGE_BACKEND", raising=False)
+def test_attachment_custom_parsers_routes_images_to_rapidocr() -> None:
     scope = _bootstrap()
 
     custom_parsers = scope["attachment_custom_parsers"]()
@@ -30,17 +30,22 @@ def test_docling_selection_reuses_rapidocr_for_image_attachments(monkeypatch) ->
     assert image_parser(b"image bytes", "png") == "first line\nsecond line"
 
 
-def test_smoke_image_backend_rejects_unknown_values(monkeypatch) -> None:
-    monkeypatch.setenv("HARBOR_SMOKE_IMAGE_BACKEND", "unknown")
+def test_rapid_ocr_image_parser_returns_a_parsed_document() -> None:
     scope = _bootstrap()
 
-    with pytest.raises(ValueError, match="choose rapidocr"):
-        scope["attachment_custom_parsers"]()
+    parser = scope["RapidOcrImageParser"]()
+    parser.parse.__globals__["_rapidocr_engine"] = lambda: (
+        lambda _content: SimpleNamespace(txts=("hello", "world"))
+    )
+
+    document = parser.parse(ParseInput(content=b"image bytes", filename="scan.png"))
+
+    assert document.content == "hello\nworld"
+    assert document.parser_name == "image"
+    assert document.elements and document.elements[0].type == "image"
 
 
-def test_smoke_rapidocr_uses_the_explicit_onnxruntime_dependency(
-    monkeypatch, capsys
-) -> None:
+def test_smoke_rapidocr_uses_the_explicit_onnxruntime_dependency(monkeypatch, capsys) -> None:
     created: list[object] = []
 
     class _RapidOCR:
@@ -65,29 +70,35 @@ def test_smoke_rapidocr_uses_the_explicit_onnxruntime_dependency(
     assert "runtime='onnxruntime'" in capsys.readouterr().out
 
 
-def test_smoke_docling_reports_and_pins_the_resolved_accelerator(
-    monkeypatch, capsys
-) -> None:
-    from harborrag_adapters.parsers import DoclingBackend
-
-    resolved_backends: list[DoclingBackend] = []
-
-    def _resolve(backend: DoclingBackend) -> str:
-        resolved_backends.append(backend)
-        return "cuda:0"
-
-    monkeypatch.setenv("HARBOR_SMOKE_PDF_BACKEND", "docling")
-    monkeypatch.setenv("HARBOR_SMOKE_DOCLING_DEVICE", "auto")
-    monkeypatch.setattr(
-        DoclingBackend,
-        "resolved_accelerator_device",
-        _resolve,
-    )
+def test_build_harbor_parser_uses_docling_for_pdf_and_rapidocr_for_images() -> None:
     scope = _bootstrap()
 
-    scope["attachment_parser"]()
+    harbor_parser = scope["build_harbor_parser"]()
 
-    output = capsys.readouterr().out
-    assert "requested='auto' resolved='cuda:0'" in output
-    assert len(resolved_backends) == 1
-    assert resolved_backends[0].options.accelerator_device == "cuda:0"
+    pdf_parser = harbor_parser.create("pdf")
+    assert [backend.name for backend in pdf_parser.backends] == ["docling"]
+
+    image_parser = harbor_parser.create("image")
+    assert image_parser.parser_engine == "rapidocr"
+
+
+def test_rapid_ocr_image_parser_normalizes_suffixes_for_route_matching() -> None:
+    # Regression guard: a plain (non-BaseParser) class keeps dot-less suffixes
+    # like "png", but `ParseInput.suffix` is always dotted (".png"). Local
+    # files have no content_type, so suffix routing is the only way they ever
+    # reach this parser — silently dropping the dot breaks it with no error
+    # until someone runs a real local image through `HarborParser.parse`.
+    scope = _bootstrap()
+    parser = scope["RapidOcrImageParser"]()
+    assert all(suffix.startswith(".") for suffix in parser.suffixes)
+
+
+def test_build_harbor_parser_routes_a_local_image_by_suffix_alone() -> None:
+    scope = _bootstrap()
+    harbor_parser = scope["build_harbor_parser"]()
+
+    resolved = harbor_parser.parser_for(ParseInput(content=b"image bytes", filename="scan.png"))
+
+    assert resolved is not None
+    assert resolved.name == "image"
+    assert resolved.parser_engine == "rapidocr"

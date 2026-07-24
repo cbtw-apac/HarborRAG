@@ -13,13 +13,14 @@ from bootstrap import (
     require_healthy,
     safe_error,
 )
+from pydantic import SecretStr
+
 from harborrag_adapters.repositories.graph.falkordb import (
     FalkorDBGraphConfig,
     FalkorDBGraphRepository,
 )
 from harborrag_core.schemas.graph import GraphEdge, GraphExpansionQuery, GraphNode
 from harborrag_core.schemas.storage import StorageOperationContext
-from pydantic import SecretStr
 
 
 async def _run() -> tuple[str, str]:

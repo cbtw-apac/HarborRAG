@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 import pytest
+from pydantic import SecretStr, ValidationError
+
 from harborrag_core.models.capabilities import (
     HarborChatCapabilities,
     HarborEmbedCapabilities,
@@ -45,7 +47,6 @@ from harborrag_core.models.rerank import (
     HarborRerankUsage,
 )
 from harborrag_core.models.usage import ModelTokenUsage
-from pydantic import SecretStr, ValidationError
 
 
 class ContractClient:

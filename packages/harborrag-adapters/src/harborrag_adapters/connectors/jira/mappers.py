@@ -7,9 +7,8 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin
 
-from harborrag_core.domain.source import SourceRecord
-
 from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
+from harborrag_core.domain.source import SourceRecord
 
 from .content import custom_field_metadata, field_text
 from .schemas import (

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
+
 from harborrag_adapters.models.common.environment import expand_environment
 from harborrag_adapters.models.common.loading import (
     load_config_document,
@@ -21,7 +23,6 @@ from harborrag_adapters.models.common.transport import (
     reveal_headers,
     validate_base_url,
 )
-from pydantic import SecretStr
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

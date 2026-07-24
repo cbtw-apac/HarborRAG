@@ -13,6 +13,8 @@ from http import HTTPStatus
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
@@ -24,7 +26,6 @@ from harborrag_core.contracts.errors import (
     HarborSecurityError,
     HarborValidationError,
 )
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborValidationError: 422,
@@ -99,9 +100,7 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def _validation(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
         """Envelope FastAPI request-validation failures as 422."""
         details: dict[str, object] = {"errors": exc.errors()}
         return JSONResponse(
@@ -112,9 +111,7 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def _http_exception(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def _http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         """Envelope framework HTTPExceptions (404 no-route, 405, ...) too —
         no response may bypass the envelope (ST3 DoD)."""
         code = HTTPStatus(exc.status_code).name.lower()
@@ -129,7 +126,5 @@ def register_error_handlers(app: FastAPI) -> None:
         """Envelope unexpected exceptions as a generic 500."""
         return JSONResponse(
             status_code=500,
-            content=error_envelope(
-                request, "internal_error", "Internal server error", {}
-            ),
+            content=error_envelope(request, "internal_error", "Internal server error", {}),
         )

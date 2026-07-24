@@ -4,6 +4,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+
 from harborrag_adapters.parsers.pdf_engine import (
     DoclingBackend,
     LiteParseBackend,

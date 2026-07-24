@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Sequence
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import (
     HybridSearchQuery,
@@ -13,8 +14,6 @@ from harborrag_core.schemas.vector import (
     VectorSearchResult,
     VectorStoreCapabilities,
 )
-
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 
 
 class HarborVectorRepository(RepositoryLifecycle):

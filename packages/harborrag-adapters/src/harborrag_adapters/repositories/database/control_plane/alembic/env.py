@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 
 from alembic import context
-from harborrag_adapters.repositories.database.control_plane.models import Base
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from harborrag_adapters.repositories.database.control_plane.models import Base
 
 target_metadata = Base.metadata
 
@@ -22,9 +23,7 @@ def _database_url() -> str:
 
 def run_migrations_offline() -> None:
     """Emit SQL to stdout without a live connection (--sql mode)."""
-    context.configure(
-        url=_database_url(), target_metadata=target_metadata, literal_binds=True
-    )
+    context.configure(url=_database_url(), target_metadata=target_metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 

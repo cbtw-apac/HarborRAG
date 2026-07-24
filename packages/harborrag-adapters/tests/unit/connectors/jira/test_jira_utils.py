@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from jira_test_helpers import FakeJiraClient, cloud_config
+
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.utils import (
     build_jql,
@@ -13,7 +15,6 @@ from harborrag_adapters.connectors.jira.utils import (
     search_body,
 )
 from harborrag_adapters.connectors.schemas import ConnectorQuery
-from jira_test_helpers import FakeJiraClient, cloud_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -84,9 +85,7 @@ def test_build_jql_escapes_text_search_instead_of_treating_it_as_raw_jql():
 def test_jql_from_query_treats_pattern_as_safe_text_search_not_raw_jql():
     connector = JiraConnector(cloud_config(), client=FakeJiraClient())
 
-    jql = connector._jql_from_query(
-        ConnectorQuery(pattern='" OR project = "OPS')
-    )
+    jql = connector._jql_from_query(ConnectorQuery(pattern='" OR project = "OPS'))
 
     assert 'project in ("ENG")' in jql
     assert 'text ~ "\\" OR project = \\"OPS"' in jql

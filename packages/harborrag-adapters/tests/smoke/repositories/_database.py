@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bootstrap import probe_suffix, require_healthy
+
 from harborrag_adapters.repositories.database.base import HarborDatabaseBackend
 from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord, DocumentStatus
 from harborrag_core.schemas.ids import DocumentId

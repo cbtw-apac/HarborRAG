@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+from pydantic import BaseModel, ValidationError
+
 from harborrag_core.models.chat import (
     HarborChatRequest,
     HarborChatResponse,
@@ -12,7 +14,6 @@ from harborrag_core.models.errors import (
     HarborChatInvalidRequestError,
     HarborChatStructuredOutputError,
 )
-from pydantic import BaseModel, ValidationError
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .parameters import ChatMessageInput, prepare_chat_request

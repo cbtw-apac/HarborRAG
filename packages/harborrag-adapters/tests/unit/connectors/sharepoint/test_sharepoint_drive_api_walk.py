@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_adapters.connectors.sharepoint.drive import SharePointDriveAPI
 from sharepoint_test_helpers import (
     FakeGraphClient,
     add_site_and_default_drive,
@@ -14,6 +12,9 @@ from sharepoint_test_helpers import (
     folder_item,
     site,
 )
+
+from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_adapters.connectors.sharepoint.drive import SharePointDriveAPI
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
+
 from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
     create_session_factory,
@@ -130,9 +131,7 @@ async def test_source_repository_roundtrip_and_project_filter(
         secret_refs=["secret://x"],
     )
     await repo.create(source)
-    await repo.create(
-        SourceConfig(id="s2", project_id="p2", source_type="github", name="repo")
-    )
+    await repo.create(SourceConfig(id="s2", project_id="p2", source_type="github", name="repo"))
     assert await repo.get("s1") == source
     assert [s.id for s in await repo.list(project_id="p1")] == ["s1"]
     assert len(await repo.list()) == 2
@@ -203,9 +202,7 @@ async def test_activity_settings_provider_member_roundtrips(
     assert (await settings.get()).data == {"theme": "light"}
 
     providers = SqlProviderRepository(sessions)
-    provider = Provider(
-        id="pr1", name="OpenAI", family="chat", secret_ref="secret://key"
-    )
+    provider = Provider(id="pr1", name="OpenAI", family="chat", secret_ref="secret://key")
     await providers.save(provider)
     assert await providers.get("pr1") == provider
     provider.name = "OpenAI EU"

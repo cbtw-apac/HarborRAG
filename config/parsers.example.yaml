@@ -73,6 +73,12 @@ parsers:
   #         export_format: markdown
   #         strict_text: false
   #         include_raw_document: false
+  #         # Set to a directory to save page, figure, and table images
+  #         # extracted by Docling. Each document gets its own randomly named
+  #         # subfolder (page-N.png, picture-N.png, table-N.png). Leave null
+  #         # (default) to skip image generation entirely.
+  #         image_output_dir: null
+  #         images_scale: 2.0
   #         extra_convert_options: {}
 
   # Local LiteParse with an optional external OCR service. Configure the

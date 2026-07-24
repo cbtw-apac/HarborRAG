@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from harborrag_core.models.errors import HarborModelError
 from pydantic import BaseModel
+
+from harborrag_core.models.errors import HarborModelError
 
 from .routing import DeploymentLike
 

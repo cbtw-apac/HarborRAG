@@ -7,14 +7,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from harborrag_core.schemas.cache import CacheEntry, LockHandle
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
-)
-
 from harborrag_adapters.repositories.cache.base import (
     HarborCacheBackend,
     HarborCacheStore,
@@ -29,6 +21,13 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
     traced_repository_operation,
+)
+from harborrag_core.schemas.cache import CacheEntry, LockHandle
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
 )
 
 
@@ -359,7 +358,7 @@ class MemoryCacheBackend(HarborCacheBackend):
             family=StorageFamily.CACHE,
             backend="memory",
             instance_name=self._state.instance_name,
-            status=HealthStatus.HEALTHY if self._state.connected else HealthStatus.UNKNOWN,
+            status=(HealthStatus.HEALTHY if self._state.connected else HealthStatus.UNKNOWN),
             details={
                 "entries": len(self._state.entries),
                 "locks": len(self._state.locks),

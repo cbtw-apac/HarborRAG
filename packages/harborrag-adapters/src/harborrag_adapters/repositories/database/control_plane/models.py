@@ -38,9 +38,7 @@ class UTCDateTime(TypeDecorator[datetime]):
     impl = sa.DateTime(timezone=True)
     cache_ok = True
 
-    def process_bind_param(
-        self, value: datetime | None, dialect: Dialect
-    ) -> datetime | None:
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         """Normalize incoming values to UTC (naive input is rejected)."""
         if value is None:
             return None
@@ -48,9 +46,7 @@ class UTCDateTime(TypeDecorator[datetime]):
             raise ValueError("control-plane datetimes must be timezone-aware")
         return value.astimezone(UTC)
 
-    def process_result_value(
-        self, value: datetime | None, dialect: Dialect
-    ) -> datetime | None:
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         """Re-attach UTC on drivers (SQLite) that return naive datetimes."""
         if value is not None and value.tzinfo is None:
             return value.replace(tzinfo=UTC)
@@ -92,12 +88,8 @@ class SourceRow(Base):
     )
     source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    config_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONVariant, default=dict, nullable=False
-    )
-    secret_refs: Mapped[list[str]] = mapped_column(
-        JSONVariant, default=list, nullable=False
-    )
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    secret_refs: Mapped[list[str]] = mapped_column(JSONVariant, default=list, nullable=False)
     schedule: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(sa.Text, default="active", nullable=False)
     last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -126,23 +118,15 @@ class JobRow(Base):
     source_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     project_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     job_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    status: Mapped[str] = mapped_column(
-        sa.Text, default="queued", nullable=False, index=True
-    )
+    status: Mapped[str] = mapped_column(sa.Text, default="queued", nullable=False, index=True)
     dry_run: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False)
     attempts: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONVariant, default=dict, nullable=False
-    )
-    visibility_deadline: Mapped[datetime | None] = mapped_column(
-        UTCDateTime(), nullable=True
-    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    visibility_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     enqueued_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-    documents_processed: Mapped[int] = mapped_column(
-        sa.Integer, default=0, nullable=False
-    )
+    documents_processed: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     chunks_created: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     errors: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     last_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
@@ -157,9 +141,7 @@ class JobEventRow(Base):
     seq: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     trace_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONVariant, default=dict, nullable=False
-    )
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -195,9 +177,7 @@ class ActivityRow(Base):
     entity_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     entity_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
     summary: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(), nullable=False, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
 class ProviderRow(Base):
@@ -208,9 +188,7 @@ class ProviderRow(Base):
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    config_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONVariant, default=dict, nullable=False
-    )
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
@@ -221,12 +199,8 @@ class RoutingRuleRow(Base):
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    provider_id: Mapped[str] = mapped_column(
-        sa.Text, sa.ForeignKey("providers.id"), nullable=False
-    )
-    rule_json: Mapped[dict[str, Any]] = mapped_column(
-        JSONVariant, default=dict, nullable=False
-    )
+    provider_id: Mapped[str] = mapped_column(sa.Text, sa.ForeignKey("providers.id"), nullable=False)
+    rule_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -236,9 +210,7 @@ class WorkspaceSettingsRow(Base):
     __tablename__ = "workspace_settings"
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
-    data: Mapped[dict[str, Any]] = mapped_column(
-        JSONVariant, default=dict, nullable=False
-    )
+    data: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -248,9 +220,7 @@ class MemberRow(Base):
     __tablename__ = "members"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    subject: Mapped[str] = mapped_column(
-        sa.Text, nullable=False, unique=True, index=True
-    )
+    subject: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(sa.Text, default="reader", nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -264,6 +234,4 @@ class McpQueryLogRow(Base):
     tool: Mapped[str] = mapped_column(sa.Text, nullable=False)
     client: Mapped[str] = mapped_column(sa.Text, nullable=False)
     latency_ms: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(), nullable=False, index=True
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)

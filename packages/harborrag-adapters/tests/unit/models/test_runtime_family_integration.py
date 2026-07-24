@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
-from harborrag_adapters.models.rerank import (
-    HarborRerankClientConfig,
-    HarborRerankingClient,
-)
 from model_invocation_support import (
     FakeEmbeddingInvocation,
     FakeRerankInvocation,
     embedding_response,
     rerank_response,
+)
+
+from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
+from harborrag_adapters.models.rerank import (
+    HarborRerankClientConfig,
+    HarborRerankingClient,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]

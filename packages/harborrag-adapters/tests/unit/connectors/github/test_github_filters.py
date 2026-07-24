@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from github_test_helpers import commit, config, tree_item
+
 from harborrag_adapters.connectors.github import filters as github_filters
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 

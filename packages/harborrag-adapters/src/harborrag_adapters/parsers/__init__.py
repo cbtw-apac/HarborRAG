@@ -1,7 +1,5 @@
 """Public parser factory, concrete parsers, PDF backends, and parser schemas."""
 
-from harborrag_core.domain.parser import ParsedDocument, ParseInput, ParserFormat
-
 from harborrag_adapters.parsers.base import BaseParser
 from harborrag_adapters.parsers.csv import CsvParser
 from harborrag_adapters.parsers.docx import DocxParser
@@ -12,6 +10,7 @@ from harborrag_adapters.parsers.exceptions import ParseError, UnsupportedFormatE
 from harborrag_adapters.parsers.html_engine import HtmlParser
 from harborrag_adapters.parsers.image import ImageParser
 from harborrag_adapters.parsers.markdown import MarkdownParser
+from harborrag_adapters.parsers.odt import OdtParser
 from harborrag_adapters.parsers.parser_logging import (
     PARSER_LOGGER_NAME,
     get_parser_logger,
@@ -35,6 +34,7 @@ from harborrag_adapters.parsers.pdf_engine import (
 from harborrag_adapters.parsers.pptx import PptxParser
 from harborrag_adapters.parsers.structured import JsonParser
 from harborrag_adapters.parsers.text import TextParser
+from harborrag_core.domain.parser import ParsedDocument, ParseInput, ParserFormat
 
 __all__ = [
     "PARSER_LOGGER_NAME",
@@ -54,6 +54,7 @@ __all__ = [
     "MarkdownParser",
     "MinerUBackend",
     "MinerUBackendOptions",
+    "OdtParser",
     "PaddleOcrBackend",
     "PaddleOcrBackendOptions",
     "ParseError",

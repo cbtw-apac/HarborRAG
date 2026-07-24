@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from confluence_test_helpers import CLOUD_BASE, DC_BASE, cloud_config, dc_config
+
 from harborrag_adapters.connectors.confluence import (
     ConfluenceDeploymentType,
     ConfluenceSpaceConfig,

@@ -137,9 +137,7 @@ class ActiveHealthMonitor:
                 except BaseException as exc:  # noqa: BLE001 - reported to the caller below
                     outcome.put((False, exc))
 
-            thread = threading.Thread(
-                target=_target, daemon=True, name="harbor-model-health-probe"
-            )
+            thread = threading.Thread(target=_target, daemon=True, name="harbor-model-health-probe")
             self._inflight_probes[key] = thread
             thread.start()
         try:

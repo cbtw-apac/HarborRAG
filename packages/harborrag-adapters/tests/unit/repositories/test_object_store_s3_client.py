@@ -4,6 +4,7 @@ import types
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.repositories.object_store.s3 import client as client_module
 from harborrag_adapters.repositories.object_store.s3.client import S3DBClient
 
@@ -76,7 +77,9 @@ def test_missing_aioboto3_raises_import_error(monkeypatch: pytest.MonkeyPatch) -
         make_client()
 
 
-def test_raw_before_connect_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_raw_before_connect_raises_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(client_module, "aioboto3", types.SimpleNamespace(Session=FakeSession))
     db = make_client()
 
@@ -146,7 +149,9 @@ async def test_close_after_connect_exits_the_client_manager(
 
 
 @pytest.mark.asyncio
-async def test_close_without_connect_is_a_no_op(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_close_without_connect_is_a_no_op(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(client_module, "aioboto3", types.SimpleNamespace(Session=FakeSession))
     db = make_client()
 

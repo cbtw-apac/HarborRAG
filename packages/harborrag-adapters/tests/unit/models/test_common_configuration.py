@@ -5,6 +5,8 @@ from enum import StrEnum
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
+
 from harborrag_adapters.models.chat.configs import (
     HarborChatClientConfig,
     HarborChatModelConfig,
@@ -26,7 +28,6 @@ from harborrag_adapters.models.common.provider import (
 from harborrag_adapters.models.common.security import SecretReference
 from harborrag_core.models.context import ModelOperationContext
 from harborrag_core.models.errors import HarborChatConfigurationError
-from pydantic import ValidationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

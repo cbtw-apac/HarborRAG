@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from jira_test_helpers import CLOUD_BASE, FakeJiraClient, cloud_config, dc_config, issue
+
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.issues import DISCOVERY_FIELDS
 from harborrag_adapters.connectors.schemas import ConnectorQuery
-from jira_test_helpers import CLOUD_BASE, FakeJiraClient, cloud_config, dc_config, issue
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

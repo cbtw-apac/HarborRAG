@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
 from harborrag_adapters.models.common.distributed_config import ActiveHealthConfig
 from harborrag_adapters.models.common.health import (
     ActiveHealthMonitor,
@@ -100,9 +101,7 @@ def test_check_once_does_not_pile_up_abandoned_probe_threads() -> None:
         for _ in range(10):
             results = monitor.check_once()
             assert results[0][1].healthy is False
-        probe_threads = [
-            t for t in threading.enumerate() if t.name == "harbor-model-health-probe"
-        ]
+        probe_threads = [t for t in threading.enumerate() if t.name == "harbor-model-health-probe"]
         assert len(probe_threads) == 1
     finally:
         release.set()

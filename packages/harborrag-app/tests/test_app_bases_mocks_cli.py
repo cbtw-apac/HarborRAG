@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from harborrag_app.cli.base import BaseCliCommand
 from harborrag_app.cli.main import main
 from harborrag_app.cli.mock import MockDoctorCommand

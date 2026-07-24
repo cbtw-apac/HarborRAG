@@ -44,20 +44,14 @@ class DocumentMetadata:
         default=None,
         metadata={"description": "Canonical, clickable link back to the source"},
     )
-    author: str | None = field(
-        default=None, metadata={"description": "Author of the document"}
-    )
+    author: str | None = field(default=None, metadata={"description": "Author of the document"})
     checksum: str | None = field(
         default=None,
-        metadata={
-            "description": "Checksum or hash of the document content for change detection"
-        },
+        metadata={"description": "Checksum or hash of the document content for change detection"},
     )
     permissions: dict[str, Any] = field(
         default_factory=dict,
-        metadata={
-            "description": "Permissions or access control information for the document"
-        },
+        metadata={"description": "Permissions or access control information for the document"},
     )
     created_at: datetime | None = field(
         default=None,
@@ -69,9 +63,7 @@ class DocumentMetadata:
     )
     tags: list[str] = field(
         default_factory=list,
-        metadata={
-            "description": "Labels/topics, wherever the source has an equivalent concept"
-        },
+        metadata={"description": "Labels/topics, wherever the source has an equivalent concept"},
     )
     extra: dict[str, Any] = field(
         default_factory=dict,

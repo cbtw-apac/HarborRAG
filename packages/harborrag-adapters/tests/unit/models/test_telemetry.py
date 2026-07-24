@@ -9,6 +9,14 @@ from chat.chat_client_support import (
     response_dict,
     stream_chunk,
 )
+from telemetry_support import (
+    FailingTelemetry,
+    RecordingTelemetry,
+)
+from telemetry_support import chat_config as _config
+from telemetry_support import recorded_event as _event
+from telemetry_support import telemetry_dispatcher as _dispatcher
+
 from harborrag_adapters.models.chat import HarborChatClient
 from harborrag_adapters.models.common.config import (
     ObservabilityConfig,
@@ -25,19 +33,6 @@ from harborrag_core.models.chat import HarborChatMessage
 from harborrag_core.models.errors import (
     HarborChatConnectionError,
     HarborChatProviderError,
-)
-from telemetry_support import (
-    FailingTelemetry,
-    RecordingTelemetry,
-)
-from telemetry_support import (
-    chat_config as _config,
-)
-from telemetry_support import (
-    recorded_event as _event,
-)
-from telemetry_support import (
-    telemetry_dispatcher as _dispatcher,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]

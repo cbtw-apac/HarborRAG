@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from local_test_helpers import config, write_file
+
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.local.filesystem import LocalFileSystem
-from local_test_helpers import config, write_file
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

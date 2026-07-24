@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import pytest
+
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.errors import (
     HarborStorageAuthorizationError,

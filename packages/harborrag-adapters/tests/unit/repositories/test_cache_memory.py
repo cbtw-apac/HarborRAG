@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
 from harborrag_adapters.repositories.cache.memory.repository import MemoryCacheBackend
 from harborrag_adapters.repositories.errors import HarborStorageLeaseError
 from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
@@ -107,7 +108,11 @@ async def test_tenants_do_not_share_cache_entries() -> None:
     backend = MemoryCacheBackend()
     async with backend:
         await backend.cache.set(
-            "shared-key", "tenant-a-value", ttl=None, tags=None, context=make_context("tenant-a")
+            "shared-key",
+            "tenant-a-value",
+            ttl=None,
+            tags=None,
+            context=make_context("tenant-a"),
         )
         assert await backend.cache.get("shared-key", context=make_context("tenant-b")) is None
 
@@ -265,7 +270,11 @@ async def test_get_expires_entry_naturally_after_ttl_elapses() -> None:
     async with backend:
         context = make_context()
         await backend.cache.set(
-            "short-lived", "value", ttl=timedelta(milliseconds=1), tags=None, context=context
+            "short-lived",
+            "value",
+            ttl=timedelta(milliseconds=1),
+            tags=None,
+            context=context,
         )
         await asyncio.sleep(0.05)
         assert await backend.cache.get("short-lived", context=context) is None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.shared.attachments import (
     AttachmentProcessor,
@@ -56,6 +57,20 @@ def test_classify_pdf_suffix():
     )
 
 
+def test_classify_odt_suffix():
+    assert classify_attachment("application/octet-stream", "notes.odt") == (
+        FileType.DOCUMENT,
+        "odt",
+    )
+
+
+def test_classify_odt_media_type():
+    assert classify_attachment("application/vnd.oasis.opendocument.text", "notes") == (
+        FileType.DOCUMENT,
+        "odt",
+    )
+
+
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
@@ -64,6 +79,7 @@ def test_classify_pdf_suffix():
         ("image.png", (FileType.IMAGE, "png")),
         ("data.json", (FileType.TEXT, "json")),
         ("book.epub", (FileType.DOCUMENT, "epub")),
+        ("notes.odt", (FileType.DOCUMENT, "odt")),
     ],
 )
 def test_classify_routes_generic_mime_attachments_by_suffix(title, expected):

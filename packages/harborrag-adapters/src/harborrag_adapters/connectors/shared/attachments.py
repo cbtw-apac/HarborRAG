@@ -7,10 +7,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from harborrag_core.security.redaction import redact_secrets
-
 from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.parsers import ParseInput
+from harborrag_core.security.redaction import redact_secrets
 
 if TYPE_CHECKING:
     from harborrag_adapters.parsers import HarborParser
@@ -63,6 +62,7 @@ MEDIA_TYPE_MAP: dict[str, tuple[FileType, str]] = {
         FileType.DOCUMENT,
         "docx",
     ),
+    "application/vnd.oasis.opendocument.text": (FileType.DOCUMENT, "odt"),
     "application/vnd.ms-excel": (FileType.SPREADSHEET, "xls"),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (
         FileType.SPREADSHEET,
@@ -91,6 +91,7 @@ _SUFFIX_TYPE_MAP: dict[str, tuple[FileType, str]] = {
     "ppt": (FileType.PRESENTATION, "ppt"),
     "docx": (FileType.DOCUMENT, "docx"),
     "doc": (FileType.DOCUMENT, "doc"),
+    "odt": (FileType.DOCUMENT, "odt"),
     "epub": (FileType.DOCUMENT, "epub"),
     "xlsx": (FileType.SPREADSHEET, "xlsx"),
     "xls": (FileType.SPREADSHEET, "xls"),

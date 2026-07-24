@@ -4,6 +4,8 @@ from collections.abc import Awaitable
 from typing import Any
 
 import pytest
+from model_runtime_support import chat_config
+
 from harborrag_adapters.models.chat.invocation import (
     LiteLLMChatInvocation,
     LiteLLMChatRouterInvocation,
@@ -25,7 +27,6 @@ from harborrag_adapters.models.embed.invocation import (
     LiteLLMEmbeddingRouterInvocation,
 )
 from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
-from model_runtime_support import chat_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

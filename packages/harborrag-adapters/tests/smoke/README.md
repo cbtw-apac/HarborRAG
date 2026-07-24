@@ -27,11 +27,17 @@ has one `parse_file.py` entry point instead of a group runner.
 
 ## Shared environment behavior
 
-Connector, model, and repository scripts load configuration in this order:
+Model and repository scripts load configuration in this order:
 
 1. Variables already exported by the process.
 2. The dotenv file selected by `HARBOR_SMOKE_ENV_FILE`.
 3. The repo-root `.env` when no explicit file is selected.
+
+Connector scripts load the same way, except step 3 defaults to
+`env/.env.connector` and `env/.env.parser` (both, if present) instead of a
+single repo-root `.env`. Connector scripts also build connectors/parsers from
+`config/connectors.yaml` and `config/parsers.yaml` (falling back to their
+`.example.yaml` templates); see [connectors/README.md](connectors/README.md).
 
 Exported variables are never overwritten. Parser smoke checks take their input
 and PDF selection from command-line arguments and do not load a dotenv file.

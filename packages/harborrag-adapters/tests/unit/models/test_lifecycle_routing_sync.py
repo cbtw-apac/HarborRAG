@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 
 import pytest
+
 from harborrag_adapters.models.common.config import (
     CircuitBreakerConfig,
     RetryPolicyConfig,

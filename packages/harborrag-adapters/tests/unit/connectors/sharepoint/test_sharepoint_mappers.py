@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from sharepoint_test_helpers import drive, site
+
 from harborrag_adapters.connectors.sharepoint.mappers import (
     build_document_metadata,
     drive_item_id_from_record,
@@ -11,7 +13,6 @@ from harborrag_adapters.connectors.sharepoint.mappers import (
     parse_timestamp as mapper_parse_timestamp,
 )
 from harborrag_core.domain.source import SourceRecord
-from sharepoint_test_helpers import drive, site
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
