@@ -240,7 +240,7 @@ def test_jira_request_raises_fetch_error_after_exhausting_connection_errors():
 
     client = _jira_client(max_retries=0)
     client.session = FakeSession(responses=[requests.ConnectionError("boom")])
-    with pytest.raises(FetchError, match="boom"):
+    with pytest.raises(FetchError, match="JIRA request failed"):
         client.get_json("issue/ENG-1")
 
 

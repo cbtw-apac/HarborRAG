@@ -40,6 +40,13 @@ class _Handle:
 
     async def query(self, name, **kwargs):
         self.queries.append(name)
+        # retry_failed validates against the attention queues before signalling,
+        # so those queries must answer with artifact IDs rather than the status
+        # view every other query returns.
+        if name == "get_failed_artifacts":
+            return ("artifact-1",)
+        if name == "get_quarantined_artifacts":
+            return ()
         return self.query_result
 
     async def execute_update(self, name, arg, **kwargs):

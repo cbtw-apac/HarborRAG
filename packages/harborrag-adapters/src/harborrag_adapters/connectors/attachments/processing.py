@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.parsers import ParseInput
+from harborrag_core.domain.parser import ParseInput
 from harborrag_core.security.redaction import redact_secrets
 
 if TYPE_CHECKING:
-    from harborrag_adapters.parsers import HarborParser
+    from harborrag_adapters.parsers import HarborParserRegistry
 
 from ..policies.http import require_same_origin_url
 
@@ -144,7 +144,7 @@ class AttachmentProcessor:
         *,
         download_fn: Callable[[str], bytes | None],
         base_url: str,
-        parser: HarborParser | None = None,
+        parser: HarborParserRegistry | None = None,
         custom_parsers: dict[FileType, CustomAttachmentParser] | None = None,
         process_attachment_callback: (Callable[[str, int, str], tuple[bool, str]] | None) = None,
         max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
@@ -153,7 +153,7 @@ class AttachmentProcessor:
     ) -> None:
         """Configure attachment download, parsing, limits, and error policy.
 
-        ``parser`` should be an explicitly constructed/injected ``HarborParser``
+        ``parser`` should be an explicitly constructed/injected parser registry
         (e.g. the runtime's profile-configured instance). This class never
         constructs a default parser itself, since a silent default would
         bypass runtime-configured PDF backends and parser policies. Passing

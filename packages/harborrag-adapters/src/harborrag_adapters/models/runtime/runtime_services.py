@@ -8,6 +8,7 @@ from .cache_redis import RedisModelCache
 from .config import CacheBackend, ModelClientConfig
 from .distributed_config import RoutingStateBackend, SingleFlightBackend
 from .redis_client import RedisConnectionLifecycle
+from .redis_config import RedisConnectionConfig
 from .routing_state import RoutingStateStore
 from .routing_state_memory import InMemoryRoutingStateStore
 from .routing_state_redis import RedisRoutingStateStore
@@ -70,10 +71,10 @@ def build_runtime_services(
         lifecycle = RedisConnectionLifecycle(config.redis)
     resolved_cache = cache
     if resolved_cache is None and config.cache.backend is CacheBackend.REDIS:
-        assert lifecycle is not None
+        lifecycle, redis_config = _require_redis(config, lifecycle)
         resolved_cache = RedisModelCache(
             lifecycle,
-            key_prefix=config.redis.key_prefix if config.redis else "harborrag:models",
+            key_prefix=redis_config.key_prefix,
         )
     resolved_routing = routing_state or _routing_state(config, lifecycle)
     resolved_singleflight = singleflight or _singleflight(config, lifecycle)
@@ -94,8 +95,8 @@ def _routing_state(
 ) -> RoutingStateStore:
     if config.routing.state_backend is RoutingStateBackend.MEMORY:
         return InMemoryRoutingStateStore()
-    assert lifecycle is not None and config.redis is not None
-    return RedisRoutingStateStore(lifecycle, key_prefix=config.redis.key_prefix)
+    lifecycle, redis_config = _require_redis(config, lifecycle)
+    return RedisRoutingStateStore(lifecycle, key_prefix=redis_config.key_prefix)
 
 
 def _singleflight(
@@ -106,11 +107,20 @@ def _singleflight(
         return NoopSingleFlight()
     if settings.backend is SingleFlightBackend.MEMORY:
         return InMemorySingleFlight(follower_timeout_seconds=settings.follower_timeout_seconds)
-    assert lifecycle is not None and config.redis is not None
+    lifecycle, redis_config = _require_redis(config, lifecycle)
     return RedisSingleFlight(
         lifecycle,
-        key_prefix=config.redis.key_prefix,
+        key_prefix=redis_config.key_prefix,
         lock_ttl_seconds=settings.lock_ttl_seconds,
         follower_timeout_seconds=settings.follower_timeout_seconds,
         poll_interval_seconds=settings.poll_interval_seconds,
     )
+
+
+def _require_redis(
+    config: ModelClientConfig,
+    lifecycle: RedisConnectionLifecycle | None,
+) -> tuple[RedisConnectionLifecycle, RedisConnectionConfig]:
+    if lifecycle is None or config.redis is None:
+        raise RuntimeError("Redis-backed model runtime service is missing its Redis lifecycle")
+    return lifecycle, config.redis

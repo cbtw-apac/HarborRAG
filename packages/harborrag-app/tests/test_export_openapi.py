@@ -18,6 +18,14 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     assert schema["info"]["title"] == "HarborRAG Control Plane API"
     assert schema["info"]["version"] == "1.0.0-draft"
     paths = schema["paths"]
-    assert {"/api/v1/health", "/api/v1/readyz", "/api/v1/diagnostics"} <= set(paths)
+    assert {
+        "/api/v1/health",
+        "/api/v1/readyz",
+        "/api/v1/diagnostics",
+        "/api/v1/ingestions",
+        "/api/v1/ingestions/{run_id}",
+        "/api/v1/ingestions/{run_id}/result",
+        "/api/v1/ingestions/{run_id}/actions",
+    } <= set(paths)
     assert "HTTPBearer" in schema["components"]["securitySchemes"]
     assert rendered == export_openapi()

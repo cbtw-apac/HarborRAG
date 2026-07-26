@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from .tokenization import ApproximateTokenCounter
+
 if TYPE_CHECKING:
     from .config.settings import RuntimeSettings
     from .temporal.dependencies import RuntimeDependencies
+
+logger = logging.getLogger("harborrag.runtime.ingestion_dependencies")
 
 
 @dataclass(slots=True)
@@ -42,13 +47,6 @@ class AsyncCloseResource:
         await self.dispose()
 
 
-class Utf8TokenCounter:
-    """Use UTF-8 bytes as a conservative, provider-neutral token upper bound."""
-
-    def count(self, text: str) -> int:
-        return len(text.encode("utf-8"))
-
-
 def build_ingestion_dependencies(
     settings: RuntimeSettings | None = None,
 ) -> RuntimeDependencies:
@@ -64,9 +62,9 @@ def build_ingestion_dependencies(
         FilesystemObjectStore,
         FilesystemObjectStoreConfig,
     )
-    from harborrag_adapters.repositories.state.sqlite import (
-        SQLiteStateBackend,
-        SQLiteStateConfig,
+    from harborrag_adapters.repositories.state.postgresql import (
+        PostgreSQLStateBackend,
+        PostgreSQLStateConfig,
     )
     from harborrag_adapters.repositories.vector import HarborVectorDBClient
     from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
@@ -97,15 +95,18 @@ def build_ingestion_dependencies(
     )
     from .temporal.dependencies import RuntimeDependencies
     from .temporal.ingestionstate import RepositoryRuntimeIngestionState
+    from .temporal.process_isolation import IsolatedProcessRunner, ProcessLimits
 
     settings = settings or RuntimeSettings()
-    parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
+    parser_catalog = load_parser_catalog(settings.parser_config_path)
+    parser = parser_catalog.build_harbor_parser()
+    attachment_parser = parser_catalog.build_harbor_parser()
     connector_catalog = load_connector_catalog(settings.connector_config_path)
     connectors = {
         name: connector_catalog.build(
             name,
             connector_kwargs=(
-                {"parser": parser}
+                {"parser": attachment_parser}
                 if connector_catalog.get(name).provider in {"confluence", "jira"}
                 else None
             ),
@@ -119,19 +120,17 @@ def build_ingestion_dependencies(
         embedding_model,
     )
 
-    token_counter = Utf8TokenCounter()
+    token_counter = ApproximateTokenCounter()
+    logger.info(
+        "Configured ingestion token estimation",
+        extra={"counter": type(token_counter).__name__},
+    )
     refiner = HarborChunk("recursive", token_counter)
     markdown_splitter = (
-        HarborChunk("markdown", token_counter)
-        if HarborChunk.available("markdown")
-        else None
+        HarborChunk("markdown", token_counter) if HarborChunk.available("markdown") else None
     )
-    html_splitter = (
-        HarborChunk("html", token_counter) if HarborChunk.available("html") else None
-    )
-    json_splitter = (
-        HarborChunk("json", token_counter) if HarborChunk.available("json") else None
-    )
+    html_splitter = HarborChunk("html", token_counter) if HarborChunk.available("html") else None
+    json_splitter = HarborChunk("json", token_counter) if HarborChunk.available("json") else None
     chunking_config = ChunkingConfig()
     chunker = build_default_chunking_service(
         config=chunking_config,
@@ -142,10 +141,13 @@ def build_ingestion_dependencies(
         json_splitter=json_splitter,
     )
 
-    state_backend = SQLiteStateBackend(
-        SQLiteStateConfig(
-            database=str(settings.ingestion_state_database),
+    state_backend = PostgreSQLStateBackend(
+        PostgreSQLStateConfig(
+            url=settings.require_postgresql_ingestion_state(),
+            pool_size=settings.ingestion_state_pool_size,
+            max_overflow=settings.ingestion_state_max_overflow,
             create_schema=True,
+            allow_insecure_remote=settings.ingestion_state_allow_insecure_remote,
         )
     )
     object_store = FilesystemObjectStore(
@@ -159,13 +161,10 @@ def build_ingestion_dependencies(
     vector_repository = HarborVectorDBClient.default().create_from_config(
         QdrantVectorConfig(
             url=settings.qdrant_url,
-            api_key=(
-                SecretStr(settings.qdrant_api_key)
-                if settings.qdrant_api_key
-                else None
-            ),
+            api_key=(SecretStr(settings.qdrant_api_key) if settings.qdrant_api_key else None),
             prefer_grpc=settings.qdrant_prefer_grpc,
             collection_prefix=settings.qdrant_collection_prefix,
+            allow_insecure_remote=settings.qdrant_allow_insecure_remote,
         )
     )
     graph_repository = HarborGraphDBClient.default().create_from_config(
@@ -174,12 +173,11 @@ def build_ingestion_dependencies(
             port=settings.falkordb_port,
             username=settings.falkordb_username,
             password=(
-                SecretStr(settings.falkordb_password)
-                if settings.falkordb_password
-                else None
+                SecretStr(settings.falkordb_password) if settings.falkordb_password else None
             ),
             graph_name=settings.falkordb_graph,
             ssl=settings.falkordb_ssl,
+            allow_insecure_remote=settings.falkordb_allow_insecure_remote,
         )
     )
     indexing_config = IndexingConfig(
@@ -222,6 +220,15 @@ def build_ingestion_dependencies(
         chunk_persistence=ChunkPersistenceService(chunks, manifests),
         indexer=indexer,
         state=state,
+        process_runner=IsolatedProcessRunner(
+            limits=ProcessLimits(
+                wall_seconds=settings.isolated_process_wall_seconds,
+                cpu_seconds=settings.isolated_process_cpu_seconds,
+                address_space_bytes=settings.isolated_process_memory_bytes,
+                file_size_bytes=settings.isolated_process_file_bytes,
+            ),
+            max_concurrency=settings.isolated_process_concurrency,
+        ),
         resources=resources,
     )
 

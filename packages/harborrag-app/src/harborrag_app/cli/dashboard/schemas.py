@@ -4,13 +4,22 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from harborrag_app.cli.stages import headline_status
+
 
 @dataclass(frozen=True, slots=True)
 class DashboardSnapshot:
-    """Normalized dashboard view of the public ingestion status response."""
+    """Normalized dashboard view of the public ingestion status response.
+
+    ``status`` is reconciled against Temporal's execution status so a run whose
+    workflow crashed settles instead of reporting itself as running forever.
+    ``workflow_status`` keeps the workflow's own unreconciled view for display.
+    """
 
     run_id: str
     status: str
+    workflow_status: str
+    execution_status: str
     current_partition: int | None
     paused: bool
     cancel_requested: bool
@@ -27,12 +36,14 @@ class DashboardSnapshot:
         fallback_run_id: str,
     ) -> DashboardSnapshot:
         status = as_mapping(payload.get("status"))
-        progress = as_mapping(payload.get("progress")) or as_mapping(
-            status.get("progress")
-        )
+        progress = as_mapping(payload.get("progress")) or as_mapping(status.get("progress"))
+        workflow_status = as_string(status.get("status"), fallback="unknown").lower()
+        execution_status = as_string(payload.get("execution_status"), fallback="").lower()
         return cls(
             run_id=as_string(status.get("run_id"), fallback=fallback_run_id),
-            status=as_string(status.get("status"), fallback="unknown").lower(),
+            status=headline_status(workflow_status, execution_status),
+            workflow_status=workflow_status,
+            execution_status=execution_status,
             current_partition=as_optional_integer(status.get("current_partition")),
             paused=bool(status.get("paused", False)),
             cancel_requested=bool(status.get("cancel_requested", False)),
@@ -40,8 +51,7 @@ class DashboardSnapshot:
             failed_artifacts=as_strings(payload.get("failed_artifacts")),
             quarantined_artifacts=as_strings(payload.get("quarantined_artifacts")),
             pending_resolutions=tuple(
-                as_mapping(item)
-                for item in as_sequence(payload.get("pending_resolutions"))
+                as_mapping(item) for item in as_sequence(payload.get("pending_resolutions"))
             ),
         )
 

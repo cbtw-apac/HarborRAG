@@ -43,10 +43,12 @@ class ChunkValidator:
 
         for expected_ordinal, record in enumerate(records):
             label = f"chunk[{expected_ordinal}]"
+            source_span = record.source_span
+            source_element_ids = source_span.source_element_ids if source_span is not None else ()
             if not record.content or not record.content.strip():
                 errors.append(f"{label} content is blank")
-            if record.ordinal != expected_ordinal or record.chunk_index != expected_ordinal:
-                errors.append(f"{label} ordinal/index is not contiguous")
+            if record.ordinal != expected_ordinal:
+                errors.append(f"{label} ordinal is not contiguous")
             exact_count = self._token_counter.count(record.content)
             if record.token_count != exact_count:
                 errors.append(f"{label} token_count is not exact")
@@ -58,8 +60,6 @@ class ChunkValidator:
                 warnings.append(f"{label} is below preferred minimum_tokens")
             if content_fingerprint(record.content) != record.content_hash:
                 errors.append(f"{label} content_hash does not match")
-            if str(record.id) != str(record.chunk_revision_id):
-                errors.append(f"{label} storage id is not its revision id")
             if str(record.tenant_id) != request.tenant_id:
                 errors.append(f"{label} tenant provenance does not match request")
             if str(record.document_id) != request.document.id:
@@ -68,7 +68,7 @@ class ChunkValidator:
                 errors.append(f"{label} artifact provenance does not match request")
             if record.artifact_revision_id != request.artifact_revision_id:
                 errors.append(f"{label} artifact revision does not match request")
-            if not record.source_element_ids:
+            if not source_element_ids:
                 errors.append(f"{label} has no parser source element IDs")
 
             try:
@@ -83,10 +83,10 @@ class ChunkValidator:
 
             source_indices = [
                 element_order[element_id]
-                for element_id in record.source_element_ids
+                for element_id in source_element_ids
                 if element_id in element_order
             ]
-            if len(source_indices) != len(record.source_element_ids):
+            if len(source_indices) != len(source_element_ids):
                 errors.append(f"{label} references unknown source element IDs")
             elif source_indices:
                 current_source_index = min(source_indices)
@@ -110,9 +110,9 @@ class ChunkValidator:
                 if expected_ordinal + 1 < len(records)
                 else None
             )
-            if self._optional_id(record.previous_chunk_id) != expected_previous:
+            if self._optional_id(record.context.previous_chunk_id) != expected_previous:
                 errors.append(f"{label} previous_chunk_id is inconsistent")
-            if self._optional_id(record.next_chunk_id) != expected_next:
+            if self._optional_id(record.context.next_chunk_id) != expected_next:
                 errors.append(f"{label} next_chunk_id is inconsistent")
 
             self._validate_source_specific(
@@ -135,12 +135,15 @@ class ChunkValidator:
         errors: list[str],
         label: str,
     ) -> None:
+        span = record.source_span
+        if span is None:
+            return
         location = (
-            record.page_start if record.page_start is not None else -1,
-            record.start_line if record.start_line is not None else -1,
-            record.start_offset if record.start_offset is not None else -1,
+            span.page_start if span.page_start is not None else -1,
+            span.start_line if span.start_line is not None else -1,
+            span.start_offset if span.start_offset is not None else -1,
         )
-        for element_id in record.source_element_ids:
+        for element_id in span.source_element_ids:
             earlier = previous.get(element_id)
             if earlier is not None and location < earlier:
                 errors.append(f"{label} source location moved backward")

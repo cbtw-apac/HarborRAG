@@ -10,8 +10,36 @@ from .chunking import (
     TextSplit,
     TokenCounter,
 )
+from .errors import (
+    HarborAuthError,
+    HarborCapabilityError,
+    HarborConfigurationError,
+    HarborConflictError,
+    HarborConnectionError,
+    HarborDeadlineExceeded,
+    HarborError,
+    HarborImportError,
+    HarborNotFoundError,
+    HarborNotSupportedError,
+    HarborSecurityError,
+    HarborValidationError,
+)
+from .events import HarborEvent
 
 __all__ = [
+    "HarborAuthError",
+    "HarborCapabilityError",
+    "HarborConfigurationError",
+    "HarborConflictError",
+    "HarborConnectionError",
+    "HarborDeadlineExceeded",
+    "HarborError",
+    "HarborEvent",
+    "HarborImportError",
+    "HarborNotFoundError",
+    "HarborNotSupportedError",
+    "HarborSecurityError",
+    "HarborValidationError",
     "JsonStructureSplitter",
     "JsonStructureSplitRequest",
     "SourceSpan",

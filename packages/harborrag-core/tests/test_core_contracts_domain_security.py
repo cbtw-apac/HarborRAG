@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_core.domain.document import Document, DocumentRelation
+from harborrag_core.contracts.errors import HarborError
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
+from harborrag_core.domain.normalized_document import Document, DocumentRelation
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.errors import HarborError, URLPolicyError
 from harborrag_core.security.redaction import redact_secrets
-from harborrag_core.security.url_policy import URLPolicy
+from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
 
 def test_error_hierarchy():

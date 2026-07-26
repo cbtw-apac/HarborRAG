@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers import csv as csv_parser_module
-from harborrag_adapters.parsers import html_engine as html_parser_module
-from harborrag_adapters.parsers import markdown as markdown_parser_module
-from harborrag_adapters.parsers.archive_safety import DEFAULT_MAX_INPUT_BYTES, guard_input_size
-from harborrag_adapters.parsers.engine import HarborParser
-from harborrag_adapters.parsers.exceptions import ParseError
+from harborrag_adapters.parsers import HarborParserFactory
+from harborrag_adapters.parsers.common.validation import (
+    DEFAULT_MAX_INPUT_BYTES,
+    guard_input_size,
+)
+from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.markup.engines.html import engine as html_parser_module
+from harborrag_adapters.parsers.markup.engines.markdown import (
+    engine as markdown_parser_module,
+)
+from harborrag_adapters.parsers.spreadsheet.engines.csv import engine as csv_parser_module
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]
 
 
 def test_multi_megabyte_text_inputs_parse() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
 
     csv_row = "1234567,alpha,beta,gamma,delta\n"
     csv_body = "a,b,c,d,e\n" + csv_row * 60_000

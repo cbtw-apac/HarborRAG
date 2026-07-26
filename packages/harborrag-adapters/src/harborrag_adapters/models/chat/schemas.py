@@ -17,7 +17,6 @@ from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.chat import HarborChatResponse
 
 from .backend import ChatBackend
-from .invocation import ChatCompletionInvocation
 from .registry import ProviderRegistry
 
 
@@ -53,9 +52,7 @@ class HarborChatBatchResult:
     def responses(self) -> tuple[HarborChatResponse, ...]:
         """Return successful responses in original request order."""
 
-        return tuple(
-            item.response for item in self.items if item.response is not None
-        )
+        return tuple(item.response for item in self.items if item.response is not None)
 
     @property
     def errors(self) -> tuple[Exception, ...]:
@@ -69,7 +66,6 @@ class ChatClientDependencies:
     """Optional adapter boundaries and ownership used to compose one chat client."""
 
     backend: ChatBackend | None = None
-    invocation: ChatCompletionInvocation | None = None
     cache: ModelResponseCache | None = None
     runtime_services: ModelRuntimeServices | None = None
     routing_state: RoutingStateStore | None = None

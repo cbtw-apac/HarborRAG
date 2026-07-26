@@ -57,9 +57,10 @@ class MockAppService(BaseAppService):
         run_id: str | None = None,
         manifest_id: str | None = None,
         generation_id: str | None = None,
+        max_artifacts: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
-        del wait
+        del max_artifacts, wait
         return AppResponse(
             True,
             {
@@ -79,6 +80,31 @@ class MockAppService(BaseAppService):
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
         return AppResponse(True, {"result": {"run_id": run_id, "status": "completed"}})
+
+    async def retrieve(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        top_k: int = 10,
+        include_content: bool = False,
+    ) -> AppResponse:
+        del query, tenant_id, include_content
+        return AppResponse(
+            True,
+            {
+                "request_id": "mock-retrieval",
+                "results": [{"rank": 1, "id": "chunk-1", "score": 0.9}][:top_k],
+                "diagnostics": {
+                    "vector_hits": 1,
+                    "graph_nodes": 2,
+                    "graph_edges": 1,
+                    "graph_hits": 1,
+                    "graph_truncated": False,
+                    "duration_ms": 1.0,
+                },
+            },
+        )
 
     async def control_ingestion(
         self,

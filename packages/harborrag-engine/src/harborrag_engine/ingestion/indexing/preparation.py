@@ -44,8 +44,8 @@ class EmbeddingInputPreparer:
     def _context(cls, record: ChunkRecord) -> str:
         lines: list[str] = []
         cls._append(lines, "Title", record.context.title)
-        if record.structural_path:
-            lines.append(f"Section: {' > '.join(record.structural_path)}")
+        if record.context.structural_path:
+            lines.append(f"Section: {' > '.join(record.context.structural_path)}")
         cls._append(lines, "Role", record.role)
         metadata: Mapping[str, object] = record.metadata
         cls._append(lines, "Issue", metadata.get("issue_key"))

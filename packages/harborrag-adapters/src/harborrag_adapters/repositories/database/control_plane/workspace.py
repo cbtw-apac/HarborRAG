@@ -43,6 +43,7 @@ class SqlSettingsRepository:
             row.updated_at = utc_now()
         return settings
 
+
 @dataclass(slots=True)
 class SqlProviderRepository:
     """ProviderRepositoryPort over the providers table."""
@@ -89,6 +90,7 @@ class SqlProviderRepository:
             config=dict(row.config_json),
             secret_ref=row.secret_ref,
         )
+
 
 @dataclass(slots=True)
 class SqlMemberRepository:

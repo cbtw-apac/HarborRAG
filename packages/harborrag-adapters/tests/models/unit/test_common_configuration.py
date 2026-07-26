@@ -117,10 +117,10 @@ def test_python_configuration_objects_and_logical_aliases() -> None:
     )
 
     assert config.model_for()[0] == "primary"
-    assert config.timeout_seconds == 60
+    assert config.timeouts.request_seconds == 60
 
 
-def test_typed_timeout_configuration_preserves_runtime_accessors() -> None:
+def test_typed_timeout_configuration_is_the_single_runtime_shape() -> None:
     document = chat_document()
     chat = document["chat"]
     assert isinstance(chat, dict)
@@ -129,8 +129,8 @@ def test_typed_timeout_configuration_preserves_runtime_accessors() -> None:
     config = HarborChatClientConfig.from_dict(document)
 
     assert config.timeouts.request_seconds == 12
-    assert config.timeout_seconds == 12
-    assert config.stream_timeout_seconds == 30
+    assert config.timeouts.request_seconds == 12
+    assert config.timeouts.stream_seconds == 30
 
 
 @pytest.mark.parametrize("suffix", [".json", ".yaml"])
@@ -190,13 +190,12 @@ def test_registry_rejects_duplicates_and_reports_supported_providers() -> None:
 
 
 def test_invalid_timeout_retry_and_credential_combinations_are_rejected() -> None:
-    with pytest.raises(ValidationError, match="legacy fields"):
+    with pytest.raises(ValidationError, match="timeout_seconds"):
         HarborChatClientConfig.from_dict(
             {
                 **chat_document(),
                 "chat": {
                     **chat_document()["chat"],
-                    "timeouts": {"request_seconds": 10},
                     "timeout_seconds": 5,
                 },
             }

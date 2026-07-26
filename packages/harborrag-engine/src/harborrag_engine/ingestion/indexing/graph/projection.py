@@ -69,7 +69,12 @@ class UniversalGraphProjector:
         parent_nodes: dict[str, str] = {}
         references = {item.chunk_revision_id: item for item in manifest.chunks}
         for record in records:
-            parent = self._sections(state, revision, record.structural_path, sections)
+            parent = self._sections(
+                state,
+                revision,
+                record.context.structural_path,
+                sections,
+            )
             revision_id = str(record.chunk_revision_id)
             parent_nodes[revision_id] = parent
             reference = references[revision_id]

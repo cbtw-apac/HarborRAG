@@ -10,7 +10,7 @@ from harbor_test_builders import (
     build_xlsx_bytes,
 )
 
-from harborrag_adapters.parsers import (
+from harborrag_adapters.parsers.compat import (
     DocxParser,
     EpubParser,
     ExcelParser,

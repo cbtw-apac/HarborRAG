@@ -52,14 +52,14 @@ connectors:
     enabled: true
     environment:
       base_url: JIRA_BASE_URL
+      project_keys: JIRA_PROJECT_KEY
     settings:
       deployment_type: cloud
-      project_keys: []
       issue_types: []
       statuses: []
       labels: []
       include_comments: false
-      include_attachments: false
+      include_attachments: true
       include_changelog: false
       include_attachment_text_in_content: true
       max_attachment_size_bytes: 26214400

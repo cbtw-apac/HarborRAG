@@ -22,12 +22,13 @@ def test_service_uses_headings_as_context_without_emitting_heading_chunks() -> N
     result = make_service(profile).chunk(make_request(document))
 
     assert [record.content for record in result.chunks] == ["alpha\n\nbeta", "gamma"]
-    assert [record.structural_path for record in result.chunks] == [
+    assert [record.context.structural_path for record in result.chunks] == [
         ("One",),
         ("Two",),
     ]
     assert result.chunks[0].context.structural_path == ("One",)
-    assert result.chunks[0].source_element_ids == ("p1", "p2")
+    assert result.chunks[0].source_span is not None
+    assert result.chunks[0].source_span.source_element_ids == ("p1", "p2")
     assert result.manifest.validation.valid
 
 
@@ -93,7 +94,7 @@ def test_canonical_identity_separates_logical_chunk_from_revision() -> None:
     assert first == repeated
     assert first.chunks[0].logical_chunk_id == changed.chunks[0].logical_chunk_id
     assert first.chunks[0].chunk_revision_id != changed.chunks[0].chunk_revision_id
-    assert first.chunks[0].id == first.chunks[0].chunk_revision_id
+    assert "id" not in first.chunks[0].model_fields
     assert first.chunks[0].created_at is None
 
 

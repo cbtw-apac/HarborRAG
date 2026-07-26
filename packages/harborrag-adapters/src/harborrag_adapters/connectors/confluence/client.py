@@ -30,6 +30,9 @@ class ConfluenceClient(Protocol):
     def download_bytes(self, url: str) -> bytes | None:
         """Download bytes from a trusted Confluence URL."""
 
+    def close(self) -> None:
+        """Release connector-owned HTTP resources."""
+
 
 class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
     """Authenticated, rate-limited Confluence REST client."""

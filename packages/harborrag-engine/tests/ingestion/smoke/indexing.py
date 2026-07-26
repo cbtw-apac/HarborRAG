@@ -67,9 +67,7 @@ async def run_smoke() -> SmokeSummary:
             collection=config.vector_collection,
             generation_id=request.generation_id,
             chunk_revision_id=str(record.chunk_revision_id),
-            embedding_configuration_fingerprint=(
-                config.embedding_configuration_fingerprint
-            ),
+            embedding_configuration_fingerprint=(config.embedding_configuration_fingerprint),
         )
         for record in request.chunking.chunks
     ]
@@ -140,8 +138,7 @@ async def _exercise(
     if {point.id for point in scanned.points} != set(point_ids):
         raise AssertionError("Qdrant retry created missing or duplicate point identities")
     if any(
-        point.payload.get("index_state") != "staged"
-        or point.payload.get("is_active") is not False
+        point.payload.get("index_state") != "staged" or point.payload.get("is_active") is not False
         for point in points
     ):
         raise AssertionError("Qdrant points became active during staging")
@@ -211,13 +208,9 @@ def main() -> int:
         "qdrant_client": (
             'Install it with: uv pip install -e "packages/harborrag-adapters[qdrant]"'
         ),
-        "falkordb": (
-            'Install it with: uv pip install -e "packages/harborrag-adapters[falkordb]"'
-        ),
+        "falkordb": ('Install it with: uv pip install -e "packages/harborrag-adapters[falkordb]"'),
     }
-    available = [
-        dependency_available(name, hint) for name, hint in requirements.items()
-    ]
+    available = [dependency_available(name, hint) for name, hint in requirements.items()]
     if not all(available):
         return 2
     try:

@@ -106,9 +106,7 @@ class TextRefinementRequest:
             raise ValueError("structural_path parts must be non-empty")
         if self.separators is not None:
             if not self.separators or self.separators[-1] != "":
-                raise ValueError(
-                    "separators must be non-empty and end with an empty fallback"
-                )
+                raise ValueError("separators must be non-empty and end with an empty fallback")
             if len(set(self.separators)) != len(self.separators):
                 raise ValueError("separators must not contain duplicates")
 

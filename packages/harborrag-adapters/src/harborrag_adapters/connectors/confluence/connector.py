@@ -10,8 +10,12 @@ from typing import Any
 from harborrag_adapters.connectors.attachments.processing import AttachmentProcessor
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
-from harborrag_adapters.parsers import HarborParser
+from harborrag_adapters.connectors.schemas import (
+    ConnectorCapabilities,
+    ConnectorPage,
+    ConnectorQuery,
+)
+from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -54,7 +58,7 @@ class ConfluenceConnector(BaseConnector):
         config: ConfluenceSpaceConfig,
         *,
         client: ConfluenceClient | None = None,
-        parser: HarborParser | None = None,
+        parser: HarborParserRegistry | None = None,
     ) -> None:
         """Initialize provider APIs and shared attachment processing."""
         self.config = config
@@ -71,6 +75,13 @@ class ConfluenceConnector(BaseConnector):
             fail_on_error=config.fail_on_error,
             logger_=logger,
         )
+
+    def close(self) -> None:
+        """Release the client session when the connector owns one."""
+
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search Confluence content or materialize explicitly requested IDs."""
@@ -102,6 +113,44 @@ class ConfluenceConnector(BaseConnector):
             yielded += 1
             if query.limit is not None and yielded >= query.limit:
                 return
+
+    def discover_page(
+        self,
+        query: ConnectorQuery | None,
+        *,
+        cursor: str | None,
+        page_size: int,
+    ) -> ConnectorPage:
+        """Use Confluence's Cloud cursor or Data Center offset directly."""
+
+        query = query or ConnectorQuery()
+        if self._content_ids_from_query(query):
+            return super().discover_page(query, cursor=cursor, page_size=page_size)
+        cql = self._cql_from_query(query)
+        output: list[SourceRecord] = []
+        next_cursor = cursor
+        while len(output) < page_size:
+            content_page, next_cursor = self._content.search_page(
+                cql,
+                cursor=next_cursor,
+                limit=page_size - len(output),
+            )
+            for content in content_page:
+                content_id = str(content.get("id") or "<unknown>")
+                self._validate_content(content, content_id)
+                if not self._should_process_content(content):
+                    continue
+                record = build_source_record(
+                    content,
+                    base_url=self.base_url,
+                    deployment_type=self.config.deployment,
+                    default_space_key=self.config.space_key,
+                )
+                record.metadata["include_attachments"] = query.include_attachments
+                output.append(record)
+            if next_cursor is None:
+                break
+        return ConnectorPage(tuple(output), next_cursor)
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""

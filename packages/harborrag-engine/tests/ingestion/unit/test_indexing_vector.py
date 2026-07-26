@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from harborrag_core.schemas.vector import VectorPoint
 from harborrag_engine.ingestion.indexing import (
     ChunkDiffStatus,
     RemovedVectorPolicy,
@@ -164,6 +165,73 @@ async def test_vector_index_service_does_not_embed_or_write_unchanged_chunks() -
     assert result.plan.count(VectorMutationAction.RETAIN) == 1
     assert embed_client.requests == []
     assert repository.upsert_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_vector_index_service_reuses_embedding_when_only_metadata_changes() -> None:
+    active_reference = make_reference(
+        "logical-1",
+        "revision-1",
+        "hash-1",
+        ordinal=0,
+        token_count=20,
+    )
+    proposed_reference = make_reference(
+        "logical-1",
+        "revision-2",
+        "hash-1",
+        ordinal=0,
+        token_count=5,
+    )
+    active = make_manifest((active_reference,), artifact_revision_id="artifact-revision-1")
+    proposed = make_manifest(
+        (proposed_reference,),
+        artifact_revision_id="artifact-revision-2",
+    )
+    record = make_record(
+        proposed_reference,
+        artifact_revision_id="artifact-revision-2",
+        structural_path=("Guide", "Revised"),
+    )
+    config = make_config()
+    embed_client = FakeEmbedClient()
+    repository = FakeVectorRepository()
+    old_point_id = deterministic_vector_point_id(
+        tenant_id="tenant-1",
+        collection=config.vector_collection,
+        generation_id="generation-1",
+        chunk_revision_id="revision-1",
+        embedding_configuration_fingerprint=(config.embedding_configuration_fingerprint),
+    )
+    repository.points[old_point_id] = VectorPoint(
+        id=old_point_id,
+        tenant_id="tenant-1",
+        vector=[0.1, 0.2, 0.3],
+        payload={"is_active": True},
+    )
+
+    result = await make_service(embed_client, repository).stage(
+        make_index_request(
+            proposed=proposed,
+            records=(record,),
+            active=active,
+            active_fingerprint=config.embedding_configuration_fingerprint,
+            active_generation_id="generation-1",
+            config=config,
+        )
+    )
+
+    assert result.diff.entries[0].status is ChunkDiffStatus.REFRESH_REQUIRED
+    assert embed_client.requests == []
+    assert result.batches == ()
+    assert result.plan.count(VectorMutationAction.RETIRE) == 1
+    assert result.plan.count(VectorMutationAction.UPSERT) == 1
+    refreshed = result.plan.points[0]
+    assert refreshed.vector == [0.1, 0.2, 0.3]
+    assert refreshed.payload["generation_id"] == "generation-2"
+    assert refreshed.payload["chunk_revision_id"] == "revision-2"
+    assert refreshed.payload["token_count"] == 5
+    assert refreshed.payload["structural_path"] == ["Guide", "Revised"]
 
 
 @pytest.mark.parametrize(

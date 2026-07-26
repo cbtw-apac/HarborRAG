@@ -119,13 +119,17 @@ rerank:
 profiles:
   development:
     chat:
-      timeout_seconds: 30
+      timeouts:
+        request_seconds: 30
       observability:
         enabled: false
   production:
     chat:
-      timeout_seconds: 90
+      timeouts:
+        request_seconds: 90
     embed:
-      timeout_seconds: 90
+      timeouts:
+        request_seconds: 90
     rerank:
-      timeout_seconds: 90
+      timeouts:
+        request_seconds: 90

@@ -56,6 +56,15 @@ def start(
         str | None,
         typer.Option("--generation-id", help="Index generation ID; generated when omitted."),
     ] = None,
+    max_artifacts: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            min=1,
+            metavar="COUNT",
+            help="Stop after ingesting at most this many discovered artifacts.",
+        ),
+    ] = None,
     wait: Annotated[
         bool,
         typer.Option("--wait", help="Wait for completion and display the final summary."),
@@ -71,6 +80,7 @@ def start(
             run_id=run_id,
             manifest_id=manifest_id,
             generation_id=generation_id,
+            max_artifacts=max_artifacts,
             wait=wait,
         ),
         context=context,

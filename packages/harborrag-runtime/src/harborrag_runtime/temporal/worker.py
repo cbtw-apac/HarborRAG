@@ -10,6 +10,7 @@ import signal
 from collections.abc import Callable
 from typing import Any, cast
 
+from harborrag_core.observability.process_logging import configure_logging
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import WorkerStartupError
@@ -35,9 +36,26 @@ async def run_configured_workers(
     shutdown is requested explicitly, then wait for them to drain.
     """
 
+    logger.info(
+        "Connecting Temporal worker to %s namespace %r as %r for groups: %s",
+        config.connection.target,
+        config.connection.namespace,
+        config.connection.identity,
+        ", ".join(group.value for group in groups),
+    )
     lifecycle = await RuntimeLifecycle.open(config, dependencies)
     workers = tuple(lifecycle.worker_group(group) for group in groups)
+    for group, worker in zip(groups, workers, strict=True):
+        # Log the queue map at startup: a run that hangs with no error is
+        # almost always an activity scheduled onto a queue nobody polls, and
+        # this is the only place the resolved mapping is observable.
+        logger.info(
+            "Worker group %s polling task queues: %s",
+            group.value,
+            ", ".join(registration.task_queue for registration in worker.registrations),
+        )
     run_future = asyncio.gather(*(worker.run() for worker in workers))
+    logger.info("Temporal worker is running; waiting for tasks")
     stop_task = asyncio.create_task(stop_event.wait()) if stop_event is not None else None
     try:
         if stop_task is None:
@@ -62,6 +80,7 @@ async def run_configured_workers(
                 await asyncio.shield(run_future)
             finally:
                 await lifecycle.close()
+                logger.info("Temporal worker stopped and dependencies closed")
 
 
 async def _configured_main(stop_event: asyncio.Event | None = None) -> None:
@@ -141,6 +160,9 @@ def _load_provider(path: str) -> Callable[[RuntimeSettings], object]:
 
 
 def main() -> None:
+    """Configure process logging, then run workers until a signal stops them."""
+
+    configure_logging()
     with asyncio.Runner() as runner:
         loop = runner.get_loop()
         stop_event = asyncio.Event()

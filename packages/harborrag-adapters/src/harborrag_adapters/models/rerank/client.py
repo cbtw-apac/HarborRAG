@@ -27,14 +27,14 @@ from harborrag_adapters.models.runtime.runtime_services import (
 from harborrag_adapters.models.runtime.singleflight import SingleFlightCoordinator
 from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.capabilities import HarborRerankCapabilities
-from harborrag_core.models.protocols import (
-    AsyncHarborRerankClientProtocol,
-    HarborRerankClientProtocol,
-)
 from harborrag_core.models.rerank import (
     HarborRerankRequest,
     HarborRerankResponse,
     RawRerankDocument,
+)
+from harborrag_core.ports.model_clients import (
+    AsyncHarborRerankClientProtocol,
+    HarborRerankClientProtocol,
 )
 
 from .configs import HarborRerankClientConfig

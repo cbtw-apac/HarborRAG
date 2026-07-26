@@ -30,7 +30,7 @@ def test_chat_many_preserves_order_and_collects_item_errors() -> None:
     invocation = FakeChatInvocation(
         [raw_chat("first"), ValueError("bad provider result"), raw_chat("third")]
     )
-    client = sync_client(chat_config(), invocation=invocation)
+    client = sync_client(chat_config(), backend=invocation)
 
     result = client.chat_many(requests(3), concurrency=1)
 
@@ -41,7 +41,7 @@ def test_chat_many_preserves_order_and_collects_item_errors() -> None:
 
 def test_chat_many_fail_fast_raises_normalized_error() -> None:
     invocation = FakeChatInvocation([ValueError("provider failed")])
-    client = sync_client(chat_config(), invocation=invocation)
+    client = sync_client(chat_config(), backend=invocation)
 
     with pytest.raises(HarborChatProviderError):
         client.chat_many(
@@ -66,7 +66,7 @@ async def test_achat_many_bounds_concurrency_and_preserves_order() -> None:
             active -= 1
             return raw_chat(kwargs["messages"][0]["content"])
 
-    client = async_client(chat_config(), invocation=Invocation([]))
+    client = async_client(chat_config(), backend=Invocation([]))
 
     result = await client.achat_many(requests(5), concurrency=2)
 
@@ -92,7 +92,7 @@ async def test_achat_many_fail_fast_cancels_sibling_tasks() -> None:
                 raise
             return raw_chat(content)
 
-    client = async_client(chat_config(), invocation=Invocation([]))
+    client = async_client(chat_config(), backend=Invocation([]))
 
     with pytest.raises(HarborChatProviderError):
         await client.achat_many(
@@ -104,7 +104,7 @@ async def test_achat_many_fail_fast_cancels_sibling_tasks() -> None:
 
 
 def test_chat_many_rejects_empty_requests_and_invalid_concurrency() -> None:
-    client = sync_client(chat_config(), invocation=FakeChatInvocation([]))
+    client = sync_client(chat_config(), backend=FakeChatInvocation([]))
 
     with pytest.raises(Exception, match="at least one"):
         client.chat_many(())

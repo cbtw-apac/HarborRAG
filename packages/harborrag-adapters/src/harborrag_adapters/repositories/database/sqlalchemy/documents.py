@@ -59,9 +59,7 @@ class SQLDocumentRepository(DocumentRepository):
                 sa_insert(DOCUMENTS).values(
                     tenant_id=str(record.tenant_id),
                     id=str(record.id),
-                    data_source_id=(
-                        str(record.data_source_id) if record.data_source_id else None
-                    ),
+                    data_source_id=(str(record.data_source_id) if record.data_source_id else None),
                     current_version_id=str(record.current_version_id),
                     external_id=record.external_id,
                     title=record.title,
@@ -126,9 +124,7 @@ class SQLDocumentRepository(DocumentRepository):
                 DOCUMENTS.c.version == expected_version,
             )
             .values(
-                data_source_id=(
-                    str(record.data_source_id) if record.data_source_id else None
-                ),
+                data_source_id=(str(record.data_source_id) if record.data_source_id else None),
                 current_version_id=str(record.current_version_id),
                 external_id=record.external_id,
                 title=record.title,
@@ -144,9 +140,7 @@ class SQLDocumentRepository(DocumentRepository):
         )
         if result.rowcount != 1:
             raise self._conflict(context, record.id, expected_version)
-        return record.model_copy(
-            update={"version": expected_version + 1, "updated_at": now}
-        )
+        return record.model_copy(update={"version": expected_version + 1, "updated_at": now})
 
     @traced_repository_operation("document_list_ready_without_vectors")
     async def list_ready_without_vectors(
@@ -171,10 +165,7 @@ class SQLDocumentRepository(DocumentRepository):
                 statement = statement.where(
                     sa_or(
                         DOCUMENTS.c.updated_at > last_updated,
-                        (
-                            (DOCUMENTS.c.updated_at == last_updated)
-                            & (DOCUMENTS.c.id > last_id)
-                        ),
+                        ((DOCUMENTS.c.updated_at == last_updated) & (DOCUMENTS.c.id > last_id)),
                     )
                 )
             rows = (
@@ -229,8 +220,6 @@ class SQLDocumentRepository(DocumentRepository):
             tenant_id=str(context.tenant_id),
             resource_name=resource,
             metadata=(
-                {"expected_version": expected_version}
-                if expected_version is not None
-                else {}
+                {"expected_version": expected_version} if expected_version is not None else {}
             ),
         )

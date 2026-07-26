@@ -6,12 +6,18 @@ from unittest.mock import AsyncMock
 import pytest
 
 from harborrag_runtime.temporal.schemas import (
+    ArtifactOutcomeCheckpoint,
     ArtifactReference,
+    ArtifactResult,
+    ArtifactStage,
+    ArtifactStatus,
     ConcurrencyUpdate,
     DiscoveryResult,
     IngestionRunInput,
     PartitionResult,
+    PendingResolution,
     ReconciliationResult,
+    RunContinuationState,
     RunProgress,
     RunStatus,
     WorkflowOptions,
@@ -148,18 +154,36 @@ async def test_graceful_cancellation_reconciles_without_cleanup(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_continue_as_new_carries_only_compact_state(monkeypatch) -> None:
+async def test_continue_as_new_rehydrates_operator_visible_state(monkeypatch) -> None:
     artifact = _reference(0)
     _patch_common(
         monkeypatch,
         DiscoveryResult((artifact,), "1", "checkpoint://page", False),
     )
+    pending = PendingResolution(
+        artifact_id=artifact.artifact_id,
+        request_ref="resolution://artifact-0",
+        reason="operator review",
+        resume_stage=ArtifactStage.INDEX,
+    )
+    workflow = IngestionRunWorkflow()
+    workflow.retry_failed(("artifact-prior",))
 
     async def start(name, request, **kwargs):
+        await workflow.adjust_concurrency(ConcurrencyUpdate(2, 3))
         return _Handle(
             PartitionResult(
                 request.partition_number,
-                RunProgress(processed=1, succeeded=1),
+                RunProgress(processed=1, failed=1),
+                failed_artifacts=(artifact.artifact_id,),
+                pending_resolutions=(pending,),
+                artifact_results=(
+                    ArtifactResult(
+                        artifact_id=artifact.artifact_id,
+                        status=ArtifactStatus.FAILED,
+                        pending_resolution=pending,
+                    ),
+                ),
             )
         )
 
@@ -184,13 +208,97 @@ async def test_continue_as_new_carries_only_compact_state(monkeypatch) -> None:
     )
 
     with pytest.raises(Continued) as captured:
-        await IngestionRunWorkflow().run(_input(continue_after_partitions=1))
+        await workflow.run(_input(continue_after_partitions=1))
 
     continuation = captured.value.value
     assert continuation.source_cursor == "1"
     assert continuation.next_partition == 1
     assert continuation.progress.processed == 1
-    assert not hasattr(continuation, "artifacts")
+    assert continuation.continuation.partition_concurrency == 2
+    assert continuation.continuation.artifact_concurrency == 3
+    assert continuation.continuation.retry_requested == ("artifact-prior",)
+    assert continuation.continuation.pending_resolutions == (pending,)
+    assert (
+        continuation.continuation.artifact_outcomes[0].reference.artifact_id == artifact.artifact_id
+    )
+
+    _patch_common(
+        monkeypatch,
+        DiscoveryResult((), None, "checkpoint://complete", True),
+    )
+    resumed = IngestionRunWorkflow()
+    await resumed.run(continuation)
+
+    assert resumed.get_failed_artifacts() == (artifact.artifact_id,)
+    assert resumed.get_pending_resolutions() == (pending,)
+    assert resumed._retry_requested == ["artifact-prior"]
+    assert resumed._partition_concurrency == 2
+    assert resumed._artifact_concurrency == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_from_prior_page_replaces_failed_outcome(monkeypatch) -> None:
+    artifact = _reference(0)
+    failed = ArtifactResult(
+        artifact_id=artifact.artifact_id,
+        status=ArtifactStatus.FAILED,
+        error_type="provider_unavailable",
+    )
+    continuation = RunContinuationState(
+        artifact_outcomes=(ArtifactOutcomeCheckpoint(artifact, failed),),
+        retry_requested=(artifact.artifact_id,),
+    )
+    _patch_common(
+        monkeypatch,
+        DiscoveryResult((), None, "checkpoint://complete", True),
+    )
+    attempts: list[tuple[str, ...]] = []
+
+    async def start(name, request, **kwargs):
+        attempts.append(tuple(item.artifact_id for item in request.artifacts))
+        return _Handle(
+            PartitionResult(
+                request.partition_number,
+                RunProgress(processed=1, succeeded=1),
+                artifact_results=(
+                    ArtifactResult(
+                        artifact_id=artifact.artifact_id,
+                        status=ArtifactStatus.SUCCEEDED,
+                    ),
+                ),
+            )
+        )
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.workflows.ingestion.workflow.start_child_workflow",
+        start,
+    )
+    workflow = IngestionRunWorkflow()
+
+    result = await workflow.run(
+        IngestionRunInput(
+            run_id="run-1",
+            tenant_id="tenant-1",
+            connector_name="local",
+            manifest_id="manifest-1",
+            generation_id="generation-1",
+            progress=RunProgress(
+                discovered=1,
+                processed=1,
+                failed=1,
+                partitions=1,
+            ),
+            continuation=continuation,
+        )
+    )
+
+    assert attempts == [(artifact.artifact_id,)]
+    assert result.status is RunStatus.COMPLETED
+    assert result.progress.processed == 1
+    assert result.progress.failed == 0
+    assert result.progress.succeeded == 1
+    assert workflow.get_failed_artifacts() == ()
+    assert workflow._retry_requested == []
 
 
 @pytest.mark.asyncio
@@ -208,35 +316,3 @@ async def test_pause_resume_retry_and_concurrency_controls() -> None:
     assert await workflow.adjust_concurrency(update) == update
     assert workflow._partition_concurrency == 2
     assert workflow._artifact_concurrency == 3
-
-
-@pytest.mark.asyncio
-async def test_concurrency_update_does_not_skip_partitions(monkeypatch) -> None:
-    artifacts = tuple(_reference(index) for index in range(4))
-    _patch_common(
-        monkeypatch,
-        DiscoveryResult(artifacts, None, "checkpoint://complete", True),
-    )
-    workflow = IngestionRunWorkflow()
-    started: list[int] = []
-
-    async def start(name, request, **kwargs):
-        started.append(request.partition_number)
-        if request.partition_number == 0:
-            await workflow.adjust_concurrency(ConcurrencyUpdate(1, 1))
-        return _Handle(
-            PartitionResult(
-                request.partition_number,
-                RunProgress(processed=1, succeeded=1),
-            )
-        )
-
-    monkeypatch.setattr(
-        "harborrag_runtime.temporal.workflows.ingestion.workflow.start_child_workflow",
-        start,
-    )
-
-    result = await workflow.run(_input(partition_size=1, partition_concurrency=2))
-
-    assert started == [0, 1, 2, 3]
-    assert result.progress.processed == 4

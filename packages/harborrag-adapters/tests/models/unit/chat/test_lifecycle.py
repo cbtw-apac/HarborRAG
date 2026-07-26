@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 def test_owned_sync_lifecycle_is_idempotent(base_config) -> None:
     invocation = FakeInvocation()
-    client = sync_client(base_config, invocation=invocation)
+    client = sync_client(base_config, backend=invocation)
 
     client.close()
     client.close()
@@ -31,7 +31,7 @@ def test_owned_sync_lifecycle_is_idempotent(base_config) -> None:
 async def test_owned_async_context_closes_once(base_config) -> None:
     invocation = FakeInvocation([response_dict()])
 
-    async with async_client(base_config, invocation=invocation) as client:
+    async with async_client(base_config, backend=invocation) as client:
         await client.achat([HarborChatMessage.user("hello")])
     await client.aclose()
 
@@ -43,7 +43,7 @@ def test_borrowed_invocation_is_not_closed(base_config) -> None:
 
     with sync_client(
         base_config,
-        invocation=invocation,
+        backend=invocation,
         resource_ownership=ResourceOwnership.BORROWED,
     ):
         pass

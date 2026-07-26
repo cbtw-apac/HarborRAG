@@ -8,7 +8,7 @@ from harborrag_core.models.embed import (
     HarborEmbedRequest,
     HarborEmbedResponse,
 )
-from harborrag_core.models.protocols import AsyncHarborEmbedClientProtocol
+from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 
 from .config import IndexingConfig
 from .errors import EmbeddingResultMismatchError

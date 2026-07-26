@@ -12,7 +12,6 @@ from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.chat.errors import normalize_exception
 from harborrag_adapters.models.chat.registry import (
     HarborProvider,
-    ProviderDescriptor,
     ProviderRegistry,
 )
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
@@ -29,6 +28,7 @@ from harborrag_adapters.models.runtime.config import (
 from harborrag_adapters.models.runtime.health import deployment_state_key
 from harborrag_adapters.models.runtime.lifecycle import close_async_callbacks
 from harborrag_adapters.models.runtime.litellm_backend import litellm_routing_strategy
+from harborrag_adapters.models.runtime.provider import ProviderMetadata
 from harborrag_adapters.models.runtime.routing import (
     DeploymentSelector,
     NoHealthyDeploymentError,
@@ -49,7 +49,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_registry_detects_duplicates_and_reports_unknown_provider() -> None:
-    descriptor = ProviderDescriptor(HarborProvider.OPENAI, "openai")
+    descriptor = ProviderMetadata(HarborProvider.OPENAI, "openai")
 
     with pytest.raises(ValueError, match="duplicate provider registration"):
         ProviderRegistry([descriptor, descriptor])
@@ -341,4 +341,4 @@ def test_advanced_example_yaml_loads_base_and_profiles(
     assert base[0].routing.engine is RoutingEngine.LITELLM_ROUTER
     assert base[1].routing.engine is RoutingEngine.HARBOR
     assert base[2].routing.engine is RoutingEngine.HARBOR
-    assert tuple(config.timeout_seconds for config in production) == (90, 90, 90)
+    assert tuple(config.timeouts.request_seconds for config in production) == (90, 90, 90)

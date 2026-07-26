@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from harborrag_core.domain.document import Document
+from harborrag_core.domain.normalized_document import Document
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
 
@@ -13,14 +12,6 @@ if TYPE_CHECKING:
         ChunkingRequest,
         ChunkingResult,
     )
-
-
-@dataclass(frozen=True, slots=True)
-class IngestionRunSummary:
-    discovered: int
-    loaded: int
-    parsed: int
-    indexed: int
 
 
 class BaseDocumentNormalizer(ABC):
@@ -36,16 +27,4 @@ class BaseChunker(ABC):
 
     @abstractmethod
     def chunk(self, request: ChunkingRequest) -> ChunkingResult:
-        raise NotImplementedError
-
-
-class BaseIngestionPipeline(ABC):
-    """Orchestrate connector -> parser -> normalizer -> repositories."""
-
-    @abstractmethod
-    def run_once(self) -> list[Document]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def summarize(self) -> IngestionRunSummary:
         raise NotImplementedError

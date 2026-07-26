@@ -10,37 +10,40 @@ from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorPoint, VectorSearchQuery
 
 
-def test_legacy_chunk_records_upgrade_to_the_canonical_identity_shape() -> None:
+def test_chunk_records_use_the_canonical_identity_shape() -> None:
     record = ChunkRecord(
-        id="revision-1",
+        logical_chunk_id="logical-1",
+        chunk_revision_id="revision-1",
         tenant_id="tenant-1",
         document_id="document-1",
         document_version_id="document-version-1",
-        chunk_index=2,
+        artifact_id="artifact-1",
+        artifact_revision_id="artifact-revision-1",
+        ordinal=2,
+        role="content",
         content="content",
         content_hash="hash",
     )
 
-    assert record.logical_chunk_id == "revision-1"
+    assert record.logical_chunk_id == "logical-1"
     assert record.chunk_revision_id == "revision-1"
-    assert record.artifact_id == "document-1"
-    assert record.artifact_revision_id == "document-version-1"
+    assert record.artifact_id == "artifact-1"
+    assert record.artifact_revision_id == "artifact-revision-1"
     assert record.ordinal == 2
     assert record.role == "content"
 
 
-def test_chunk_storage_id_must_equal_revision_id() -> None:
-    with pytest.raises(ValidationError, match="id must equal chunk_revision_id"):
+def test_chunk_record_rejects_the_removed_storage_id_alias() -> None:
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ChunkRecord(
             id="storage-id",
             logical_chunk_id="logical-id",
-            chunk_revision_id="different-revision",
+            chunk_revision_id="revision-1",
             tenant_id="tenant-1",
             document_id="document-1",
             document_version_id="document-version-1",
             artifact_id="artifact-1",
             artifact_revision_id="artifact-revision-1",
-            chunk_index=0,
             ordinal=0,
             role="content",
             content="content",

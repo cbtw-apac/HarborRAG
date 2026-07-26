@@ -70,8 +70,9 @@ def test_sharepoint_access_token_raises_on_request_exception():
     client.session = FakeSession(
         responses=[requests.ConnectionError("boom"), requests.ConnectionError("boom")]
     )
-    with pytest.raises(AuthenticationError, match="boom"):
+    with pytest.raises(AuthenticationError, match="Microsoft identity request failed") as error:
         client._access_token()
+    assert "boom" not in str(error.value)
 
 
 def test_sharepoint_access_token_retries_transient_failure_then_succeeds():

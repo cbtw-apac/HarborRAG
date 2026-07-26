@@ -125,7 +125,9 @@ class JiraChunkingStrategy:
     ) -> list[tuple[DocumentElement, str]]:
         elements = request.document.content
         if not self._uses_connector_layout(elements):
-            return [(element, self._explicit_field(element) or "description") for element in elements]
+            return [
+                (element, self._explicit_field(element) or "description") for element in elements
+            ]
 
         output: list[tuple[DocumentElement, str]] = []
         current_field = "metadata"
@@ -173,9 +175,7 @@ class JiraChunkingStrategy:
             output.append((element, current_field))
 
         custom_field_target = (
-            "description"
-            if any(field == "description" for _, field in output)
-            else "summary"
+            "description" if any(field == "description" for _, field in output) else "summary"
         )
         return [
             (

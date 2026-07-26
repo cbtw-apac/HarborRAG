@@ -26,9 +26,7 @@ def test_smoke_config_builders_accept_explicit_provider_credentials(
 ) -> None:
     _set_provider(monkeypatch, family="CHAT", provider="openai", model="openai/chat")
     _set_provider(monkeypatch, family="EMBED", provider="openai", model="openai/embed")
-    _set_provider(
-        monkeypatch, family="RERANK", provider="cohere", model="cohere/rerank"
-    )
+    _set_provider(monkeypatch, family="RERANK", provider="cohere", model="cohere/rerank")
     monkeypatch.setenv("HARBOR_EMBED_EXPECTED_DIMENSIONS", "8")
 
     chat = config.chat_config()

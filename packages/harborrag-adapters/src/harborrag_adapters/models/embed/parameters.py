@@ -269,24 +269,27 @@ def _purpose_parameters(
     return {parameter: values[purpose]}
 
 
-_COHERE_PURPOSES = {
+_COHERE_PURPOSES: dict[EmbeddingPurpose, str] = {
     EmbeddingPurpose.QUERY: "search_query",
     EmbeddingPurpose.DOCUMENT: "search_document",
     EmbeddingPurpose.CLASSIFICATION: "classification",
     EmbeddingPurpose.CLUSTERING: "clustering",
 }
-_VOYAGE_PURPOSES = {
+_VOYAGE_PURPOSES: dict[EmbeddingPurpose, str] = {
     purpose: purpose.value
     for purpose in EmbeddingPurpose
     if purpose is not EmbeddingPurpose.UNSPECIFIED
 }
-_GEMINI_PURPOSES = {
+_GEMINI_PURPOSES: dict[EmbeddingPurpose, str] = {
     EmbeddingPurpose.QUERY: "RETRIEVAL_QUERY",
     EmbeddingPurpose.DOCUMENT: "RETRIEVAL_DOCUMENT",
     EmbeddingPurpose.CLASSIFICATION: "CLASSIFICATION",
     EmbeddingPurpose.CLUSTERING: "CLUSTERING",
 }
-_PURPOSE_POLICIES = {
+_PURPOSE_POLICIES: dict[
+    HarborEmbedProvider,
+    tuple[str, Mapping[EmbeddingPurpose, str]],
+] = {
     HarborEmbedProvider.COHERE: ("input_type", _COHERE_PURPOSES),
     HarborEmbedProvider.VOYAGE: ("input_type", _VOYAGE_PURPOSES),
     HarborEmbedProvider.GEMINI: ("task_type", _GEMINI_PURPOSES),

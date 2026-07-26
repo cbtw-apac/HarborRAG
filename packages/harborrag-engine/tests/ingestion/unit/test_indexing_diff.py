@@ -68,6 +68,28 @@ def test_incremental_diff_requires_reembedding_when_model_changes() -> None:
     assert result.entries[0].status is ChunkDiffStatus.REEMBED_REQUIRED
 
 
+def test_incremental_diff_refreshes_metadata_without_reembedding_content() -> None:
+    active = make_manifest(
+        (make_reference("logical-1", "revision-1", "hash-1", ordinal=0),),
+        artifact_revision_id="artifact-revision-1",
+    )
+    proposed = make_manifest(
+        (make_reference("logical-1", "revision-2", "hash-1", ordinal=0),),
+        artifact_revision_id="artifact-revision-2",
+    )
+
+    result = IncrementalChunkDiffer().compare(
+        proposed,
+        active,
+        target_embedding_configuration_fingerprint="embed-v1",
+        active_embedding_configuration_fingerprint="embed-v1",
+    )
+
+    assert result.entries[0].status is ChunkDiffStatus.REFRESH_REQUIRED
+    assert result.for_embedding == ()
+    assert result.for_refresh == result.entries
+
+
 def test_incremental_diff_treats_unknown_active_model_as_reembed_required() -> None:
     active = make_manifest(
         (make_reference("logical-1", "revision-1", "hash-1", ordinal=0),),

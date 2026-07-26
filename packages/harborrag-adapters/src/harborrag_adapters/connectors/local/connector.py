@@ -17,7 +17,7 @@ from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
 from .filesystem import LocalFileSystem
-from .filesystem_paths import guess_mime_type, sha256_file
+from .filesystem_paths import guess_mime_type
 from .mappers import build_document_metadata, path_from_record
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
@@ -59,33 +59,38 @@ class LocalFileConnector(BaseConnector):
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Read one local file as bytes and attach filesystem metadata."""
-        path = self._files.resolve_candidate(path_from_record(record))
-        if not path.is_file():
-            raise DocumentProcessingError(f"Local path is not a file: {path}")
+        record_path = path_from_record(record)
+        path = record_path if record_path.is_absolute() else self.root_path / record_path
+        if not path.is_relative_to(self.root_path):
+            raise DocumentProcessingError(f"Local path is outside configured source scope: {path}")
 
         logger.info("Loading local file %s", path)
         try:
-            stat = path.stat()
-            self._files.enforce_size_limit(path, stat.st_size)
-            content = self._files.read_capped_bytes(path)
+            snapshot = self._files.read_snapshot(path)
         except OSError as exc:
-            raise FetchError(f"Could not read local file {path}: {exc}") from exc
+            raise FetchError(f"Could not read local file {path}") from exc
 
         metadata = build_document_metadata(
             path,
             root_path=self.root_path,
-            checksum=sha256_file(path),
+            checksum=snapshot.checksum,
             is_symlink=bool(record.metadata.get("is_symlink", False)),
+            stat_result=snapshot.stat,
         )
 
         return RawDocument(
             id=record.id,
             source=path.as_uri(),
-            content=content,
+            content=snapshot.content,
             content_type=guess_mime_type(path),
             metadata=metadata.to_dict(),
             raw={"path": str(path)},
         )
+
+    def close(self) -> None:
+        """Release the root descriptor held by the filesystem boundary."""
+
+        self._files.close()
 
     def load_by_paths(self, paths: list[str | Path]) -> Iterator[RawDocument]:
         """Load files for callers that already have file paths."""

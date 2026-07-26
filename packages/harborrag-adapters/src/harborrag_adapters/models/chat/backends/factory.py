@@ -30,7 +30,7 @@ def build_chat_backend(
 
     lifecycle = connections or SharedConnectionLifecycle(config.connections)
     ownership = ResourceOwnership.OWNED if connections is None else connection_ownership
-    backend_type = config.backend.resolved_type(config.routing.engine)
+    backend_type = config.backend.type
     if backend_type is ChatBackendType.DIRECT_SDK:
         return LiteLLMDirectBackend(
             connections=lifecycle,

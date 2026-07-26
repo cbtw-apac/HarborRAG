@@ -25,7 +25,7 @@ class Answer(BaseModel):
 
 def test_explicit_native_schema_strategy_uses_json_schema() -> None:
     invocation = FakeChatInvocation([raw_chat('{"answer":"native"}')])
-    client = sync_client(chat_config(), invocation=invocation)
+    client = sync_client(chat_config(), backend=invocation)
 
     result = client.chat_structured(
         [HarborChatMessage.user("answer")],
@@ -39,7 +39,7 @@ def test_explicit_native_schema_strategy_uses_json_schema() -> None:
 
 def test_explicit_json_mode_strategy_uses_json_object() -> None:
     invocation = FakeChatInvocation([raw_chat('{"answer":"json"}')])
-    client = sync_client(chat_config(), invocation=invocation)
+    client = sync_client(chat_config(), backend=invocation)
 
     result = client.chat_structured(
         [HarborChatMessage.user("answer")],
@@ -53,7 +53,7 @@ def test_explicit_json_mode_strategy_uses_json_object() -> None:
 
 def test_explicit_prompt_fallback_injects_schema_instruction() -> None:
     invocation = FakeChatInvocation([raw_chat('{"answer":"prompt"}')])
-    client = sync_client(chat_config(), invocation=invocation)
+    client = sync_client(chat_config(), backend=invocation)
 
     result = client.chat_structured(
         [HarborChatMessage.user("answer")],
@@ -76,7 +76,7 @@ def test_explicit_native_strategy_rejects_unsupported_deployment() -> None:
     )
     client = sync_client(
         chat_config(deployments=(deployment,)),
-        invocation=FakeChatInvocation([]),
+        backend=FakeChatInvocation([]),
     )
 
     with pytest.raises(HarborChatCapabilityError):
@@ -90,7 +90,7 @@ def test_explicit_native_strategy_rejects_unsupported_deployment() -> None:
 def test_complete_response_normalizes_reasoning_content() -> None:
     raw: dict[str, Any] = raw_chat("answer")
     raw["choices"][0]["message"]["reasoning_content"] = "private chain summary"
-    client = sync_client(chat_config(), invocation=FakeChatInvocation([raw]))
+    client = sync_client(chat_config(), backend=FakeChatInvocation([raw]))
 
     response = client.chat([HarborChatMessage.user("reason")])
 

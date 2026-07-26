@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 
 from temporalio import activity
 
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
+from harborrag_runtime.temporal.process_codec import ProcessResultKind
 from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
@@ -63,6 +64,29 @@ async def _run_sync_with_heartbeats[ResultT](
         raise
 
 
+async def _run_async_with_heartbeats[ResultT](
+    operation: Awaitable[ResultT],
+    *,
+    heartbeat: HeartbeatProgress,
+) -> ResultT:
+    """Await external work while renewing the activity heartbeat lease."""
+
+    task = asyncio.ensure_future(operation)
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                (task,),
+                timeout=_heartbeat_interval_seconds(),
+            )
+            if task in done:
+                return task.result()
+            activity.heartbeat(heartbeat)
+    except asyncio.CancelledError:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise
+
+
 class ProcessingActivities:
     def __init__(self, dependencies: RuntimeDependencies) -> None:
         self._dependencies = dependencies
@@ -91,7 +115,10 @@ class ProcessingActivities:
         progress = HeartbeatProgress(stage="fetch", completed=0, total=1)
         activity.heartbeat(progress)
         try:
-            source = await self._dependencies.state.load_source(request.state.artifact.source_ref)
+            source = await self._dependencies.state.load_source(
+                request.state.artifact.source_ref,
+                request.tenant_id,
+            )
             connector = self._dependencies.connector(request.state.artifact.connector_name)
             raw = await _run_sync_with_heartbeats(
                 connector.load,
@@ -135,14 +162,40 @@ class ProcessingActivities:
         snapshot_ref = request.state.snapshot_ref
         if snapshot_ref is None:
             raise ValueError("parse activity requires snapshot_ref")
-        activity.heartbeat(HeartbeatProgress(stage="parse", completed=0, total=1))
-        raw = await self._dependencies.state.load_snapshot(snapshot_ref)
-        parsed = await asyncio.to_thread(self._dependencies.parser.parse, raw)
-        document = await asyncio.to_thread(
-            self._dependencies.normalizer.normalize,
-            raw,
-            parsed,
-        )
+        progress = HeartbeatProgress(stage="parse", completed=0, total=1)
+        activity.heartbeat(progress)
+        raw = await self._dependencies.state.load_snapshot(snapshot_ref, request.tenant_id)
+        process_runner = getattr(self._dependencies, "process_runner", None)
+        if process_runner is not None:
+            parsed = await process_runner.run(
+                self._dependencies.parser.parse,
+                raw,
+                heartbeat=lambda: activity.heartbeat(progress),
+                heartbeat_interval_seconds=_heartbeat_interval_seconds(),
+                result_kind=ProcessResultKind.PARSED_DOCUMENT,
+            )
+        else:
+            parsed = await _run_sync_with_heartbeats(
+                self._dependencies.parser.parse,
+                raw,
+                heartbeat=progress,
+            )
+        if process_runner is not None:
+            document = await process_runner.run(
+                self._dependencies.normalizer.normalize,
+                raw,
+                parsed,
+                heartbeat=lambda: activity.heartbeat(progress),
+                heartbeat_interval_seconds=_heartbeat_interval_seconds(),
+                result_kind=ProcessResultKind.NORMALIZED_DOCUMENT,
+            )
+        else:
+            document = await _run_sync_with_heartbeats(
+                self._dependencies.normalizer.normalize,
+                raw,
+                parsed,
+                heartbeat=progress,
+            )
         parsed_ref = await self._dependencies.state.persist_parsed_document(
             request,
             parsed,

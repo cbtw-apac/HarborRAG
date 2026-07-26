@@ -5,8 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from harborrag_adapters.parsers import ImageParser
-from harborrag_adapters.parsers.pdf_engine import (
+from harborrag_adapters.parsers.compat import (
     DoclingBackend,
     LiteParseBackend,
     MinerUBackend,
@@ -14,6 +13,7 @@ from harborrag_adapters.parsers.pdf_engine import (
     PdfParserProfile,
     PyMuPdfBackend,
 )
+from harborrag_adapters.parsers.image.parser import HarborImageParser
 from harborrag_runtime.config import (
     ParserConfigurationError,
     load_parser_catalog,
@@ -44,13 +44,15 @@ def test_repository_config_builds_enabled_parser_overrides() -> None:
     assert pdf_parser.backends[0].options.ocr_engine == "rapidocr"
 
     image_parser = catalog.build("image-rapidocr")
-    assert isinstance(image_parser, ImageParser)
+    assert isinstance(image_parser, HarborImageParser)
     assert image_parser.ocr_engine == "rapidocr"
 
     harbor_parser = catalog.build_harbor_parser()
+    attachment_parser = catalog.build_harbor_parser()
     assert isinstance(harbor_parser.create("pdf"), PdfParser)
-    assert isinstance(harbor_parser.create("image"), ImageParser)
-    assert harbor_parser.create("markdown") is not None
+    assert attachment_parser is not harbor_parser
+    assert isinstance(harbor_parser.create("image"), HarborImageParser)
+    assert harbor_parser.resolve("README.md", "text/markdown") is not None
 
 
 def test_repository_config_keeps_inactive_alternatives_commented() -> None:
@@ -329,5 +331,5 @@ def test_registry_rejects_multiple_enabled_profiles_for_same_parser(
     )
     catalog = load_parser_catalog(config_path)
 
-    with pytest.raises(ParserConfigurationError, match="both configure parser"):
+    with pytest.raises(ParserConfigurationError, match="both configure family"):
         catalog.build_harbor_parser()

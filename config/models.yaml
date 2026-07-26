@@ -2,7 +2,8 @@ chat:
   default_model: primary
   backend:
     type: direct_sdk
-  timeout_seconds: 60
+  timeouts:
+    request_seconds: 60
   retry:
     same_deployment_attempts: 2
     max_deployment_failovers: 1
@@ -24,7 +25,8 @@ chat:
 
 embed:
   default_model: primary
-  timeout_seconds: 60
+  timeouts:
+    request_seconds: 60
   default_batch_size: 64
   security:
     allowed_providers: [openai]

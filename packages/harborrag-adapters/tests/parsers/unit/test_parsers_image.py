@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from harborrag_adapters.parsers import ImageParser
+from harborrag_adapters.parsers.compat import ImageParser
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers.archive_safety import (
-    DEFAULT_MAX_INPUT_BYTES,
-    guard_input_size,
-)
-from harborrag_adapters.parsers.exceptions import ParseError
-from harborrag_adapters.parsers.text_extraction import (
+from harborrag_adapters.parsers.common.normalization import (
     compact_text,
     html_to_text_with_engine,
 )
+from harborrag_adapters.parsers.common.validation import (
+    DEFAULT_MAX_INPUT_BYTES,
+    guard_input_size,
+)
+from harborrag_adapters.parsers.errors import ParseError
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

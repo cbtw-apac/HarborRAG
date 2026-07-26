@@ -47,14 +47,13 @@ class ChatClientRuntime(
         self.config = config
         self._registry = registry
         self._middleware = MiddlewarePipeline(selected.middleware)
-        self._invocation = self._build_invocation(config, selected, registry)
+        self._backend = self._build_backend(config, selected, registry)
         self._telemetry = selected.telemetry or TelemetryDispatcher(
             (),
             config=config.observability,
         )
         self._owns_telemetry = (
-            selected.telemetry is None
-            or selected.telemetry_ownership is ResourceOwnership.OWNED
+            selected.telemetry is None or selected.telemetry_ownership is ResourceOwnership.OWNED
         )
         self._services = selected.runtime_services or build_runtime_services(
             config,
@@ -79,45 +78,30 @@ class ChatClientRuntime(
         config: HarborChatClientConfig,
         dependencies: ChatClientDependencies,
     ) -> None:
-        if dependencies.backend is not None and dependencies.invocation is not None:
-            raise ValueError("backend and invocation are mutually exclusive")
-        if dependencies.connections is not None and (
-            dependencies.backend is not None
-            or dependencies.invocation is not None
-        ):
+        if dependencies.connections is not None and dependencies.backend is not None:
+            raise ValueError("connections cannot be combined with an injected backend")
+        if config.routing.active_health.start_automatically and dependencies.health_probe is None:
             raise ValueError(
-                "connections cannot be combined with an injected backend"
-            )
-        if (
-            config.routing.active_health.start_automatically
-            and dependencies.health_probe is None
-        ):
-            raise ValueError(
-                "routing.active_health.start_automatically requires an injected "
-                "health probe"
+                "routing.active_health.start_automatically requires an injected health probe"
             )
 
     @staticmethod
-    def _build_invocation(
+    def _build_backend(
         config: HarborChatClientConfig,
         dependencies: ChatClientDependencies,
         registry: ProviderRegistry,
     ) -> object:
-        return (
-            dependencies.backend
-            or dependencies.invocation
-            or build_chat_backend(
-                config,
-                registry,
-                connections=dependencies.connections,
-                connection_ownership=dependencies.connection_ownership,
-            )
+        return dependencies.backend or build_chat_backend(
+            config,
+            registry,
+            connections=dependencies.connections,
+            connection_ownership=dependencies.connection_ownership,
         )
 
     def _build_execution(self) -> None:
         self._execution = ChatExecution(
             self.config,
-            self._invocation,
+            self._backend,
             registry=self._registry,
             middleware=self._middleware,
             cache=self._services.cache,
@@ -128,7 +112,7 @@ class ChatClientRuntime(
         )
         self._stream_execution = ChatStreamExecution(
             self.config,
-            self._invocation,
+            self._backend,
             self._telemetry,
             runtime=self._execution.router.runtime,
             registry=self._registry,
@@ -165,7 +149,7 @@ class ChatClientRuntime(
 
     def _backend_type(self) -> ChatBackendType:
         value = getattr(
-            self._invocation,
+            self._backend,
             "backend_type",
             ChatBackendType.DIRECT_SDK,
         )

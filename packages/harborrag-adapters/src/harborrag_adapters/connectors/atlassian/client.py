@@ -144,7 +144,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise FetchError(str(exc)) from exc
+            raise FetchError(f"{label} redirect request failed") from exc
         if follow_up.status_code >= 400:
             detail = safe_error_detail(follow_up.text)
             raise FetchError(
@@ -169,7 +169,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError(str(exc)) from exc
+                    raise FetchError(f"{self._provider_label} request failed") from exc
                 self._sleep(attempt, exc)
                 continue
 
@@ -191,7 +191,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             )
             self._sleep(attempt, last_error, response.headers)
 
-        raise FetchError(str(last_error))
+        raise FetchError(f"{self._provider_label} request failed") from last_error
+
+    def close(self) -> None:
+        """Close the connector-owned HTTP connection pool."""
+
+        self.session.close()
 
     def _acquire(self) -> None:
         """Throttle requests according to the configured per-minute budget."""
@@ -206,11 +211,11 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay)
         self._logger.warning(
-            "Retrying %s request after error, attempt %d/%d: %s",
+            "Retrying %s request after %s, attempt %d/%d",
             self._provider_label,
+            type(error).__name__,
             attempt + 1,
             self.config.max_retries,
-            error,
         )
         if delay > 0:
             time.sleep(delay)

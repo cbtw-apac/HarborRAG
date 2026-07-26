@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 
 from harborrag_adapters.models.chat import (
+    ChatBackendType,
     HarborChatClientConfig,
 )
+from harborrag_adapters.models.chat.backend_config import ChatBackendConfig
 from harborrag_adapters.models.runtime.config import RoutingEngine
 from harborrag_core.models.chat import (
     FinishReason,
@@ -21,7 +23,7 @@ from harborrag_core.models.errors import (
     HarborChatRateLimitError,
     HarborChatTimeoutError,
 )
-from harborrag_core.models.protocols import (
+from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     HarborChatClientProtocol,
 )
@@ -38,7 +40,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 def test_sync_completion_normalizes_messages_and_response(base_config) -> None:
     invocation = FakeInvocation([response_dict("sync")])
-    client = sync_client(base_config, invocation=invocation)
+    client = sync_client(base_config, backend=invocation)
 
     response = client.chat([{"role": "user", "content": "hello"}])
 
@@ -55,7 +57,7 @@ def test_sync_completion_normalizes_messages_and_response(base_config) -> None:
 @pytest.mark.asyncio
 async def test_async_completion_uses_async_client_contract(base_config) -> None:
     invocation = FakeInvocation([response_dict("async")])
-    client = async_client(base_config, invocation=invocation)
+    client = async_client(base_config, backend=invocation)
 
     response = await client.achat([HarborChatMessage.user("hello")], temperature=0.6)
 
@@ -66,7 +68,7 @@ async def test_async_completion_uses_async_client_contract(base_config) -> None:
 
 def test_alias_resolution_and_timeout_forwarding(base_config) -> None:
     invocation = FakeInvocation([response_dict()])
-    client = sync_client(base_config, invocation=invocation)
+    client = sync_client(base_config, backend=invocation)
 
     response = client.chat(
         [HarborChatMessage.user("hello")],
@@ -91,7 +93,7 @@ def test_request_object_preserves_identity_metadata(base_config) -> None:
         metadata={"request_id": "req-123", "user_id": "user-1"},
     )
 
-    response = sync_client(base_config, invocation=invocation).chat(request=request)
+    response = sync_client(base_config, backend=invocation).chat(request=request)
 
     assert response.request_id == "req-123"
     assert invocation.calls[0]["user"] == "user-1"
@@ -111,7 +113,7 @@ def test_finish_reason_normalization(base_config, finish_reason, expected) -> No
     raw = response_dict(finish_reason=finish_reason or "stop")
     raw["choices"][0]["finish_reason"] = finish_reason
 
-    response = sync_client(base_config, invocation=FakeInvocation([raw])).chat(
+    response = sync_client(base_config, backend=FakeInvocation([raw])).chat(
         [HarborChatMessage.user("hello")]
     )
 
@@ -127,7 +129,7 @@ def test_usage_normalizes_input_output_and_detail_tokens(base_config) -> None:
     }
     client = sync_client(
         base_config,
-        invocation=FakeInvocation([response_dict(usage=usage)]),
+        backend=FakeInvocation([response_dict(usage=usage)]),
     )
 
     response = client.chat([HarborChatMessage.user("hello")])
@@ -158,7 +160,7 @@ def test_usage_normalizes_input_output_and_detail_tokens(base_config) -> None:
     ],
 )
 def test_malformed_provider_responses_are_typed(base_config, raw) -> None:
-    client = sync_client(base_config, invocation=FakeInvocation([raw]))
+    client = sync_client(base_config, backend=FakeInvocation([raw]))
 
     with pytest.raises(HarborChatProviderError, match="malformed"):
         client.chat([HarborChatMessage.user("hello")])
@@ -182,7 +184,7 @@ def test_litellm_errors_are_mapped(
     monkeypatch.setattr(litellm, exception_name, ProviderFailure)
     client = sync_client(
         base_config,
-        invocation=FakeInvocation(
+        backend=FakeInvocation(
             [ProviderFailure("provider failed"), ProviderFailure("provider failed")]
         ),
     )
@@ -205,7 +207,7 @@ def test_litellm_errors_are_mapped(
 def test_transport_errors_are_mapped(base_config, failure, expected_error) -> None:
     client = sync_client(
         base_config,
-        invocation=FakeInvocation([failure, failure]),
+        backend=FakeInvocation([failure, failure]),
     )
 
     with pytest.raises(expected_error):
@@ -214,7 +216,7 @@ def test_transport_errors_are_mapped(base_config, failure, expected_error) -> No
 
 def test_undeclared_json_mode_fails_before_invocation(base_config) -> None:
     invocation = FakeInvocation([response_dict()])
-    client = sync_client(base_config, invocation=invocation)
+    client = sync_client(base_config, backend=invocation)
 
     with pytest.raises(HarborChatCapabilityError, match="JSON response mode"):
         client.chat(
@@ -250,24 +252,24 @@ def test_multiple_enabled_deployments_are_routed() -> None:
             },
         }
     )
-    client = sync_client(config, invocation=FakeInvocation([response_dict()]))
+    client = sync_client(config, backend=FakeInvocation([response_dict()]))
 
     response = client.chat([HarborChatMessage.user("hello")])
 
     assert response.deployment == "one"
-    assert client._invocation.calls[0]["model"] == "openai/gpt-4o-mini"
+    assert client._backend.calls[0]["model"] == "openai/gpt-4o-mini"
 
 
 def test_request_and_messages_are_mutually_exclusive(base_config) -> None:
     request = HarborChatRequest(messages=(HarborChatMessage.user("request"),))
-    client = sync_client(base_config, invocation=FakeInvocation())
+    client = sync_client(base_config, backend=FakeInvocation())
 
     with pytest.raises(HarborChatInvalidRequestError, match="mutually exclusive"):
         client.chat([HarborChatMessage.user("messages")], request=request)
 
 
 def test_invalid_message_is_reported_as_contract_error(base_config) -> None:
-    client = sync_client(base_config, invocation=FakeInvocation())
+    client = sync_client(base_config, backend=FakeInvocation())
 
     with pytest.raises(HarborChatInvalidRequestError, match="invalid chat request"):
         client.chat([{"role": "not-a-role", "content": "hello"}])
@@ -290,7 +292,7 @@ def test_custom_litellm_provider_is_supported_when_allowed() -> None:
     )
     invocation = FakeInvocation([response_dict()])
 
-    sync_client(config, invocation=invocation).chat([HarborChatMessage.user("hello")])
+    sync_client(config, backend=invocation).chat([HarborChatMessage.user("hello")])
 
     assert invocation.calls[0]["model"] == "vendor/model"
     assert invocation.calls[0]["custom_llm_provider"] == "vendor"
@@ -311,7 +313,7 @@ def test_custom_provider_is_rejected_by_default_security_policy() -> None:
     )
 
     with pytest.raises(HarborChatConfigurationError, match="custom providers"):
-        sync_client(config, invocation=FakeInvocation())
+        sync_client(config, backend=FakeInvocation())
 
 
 def test_cache_and_router_execution_modes_are_accepted(base_config) -> None:
@@ -320,11 +322,12 @@ def test_cache_and_router_execution_modes_are_accepted(base_config) -> None:
     )
     routed = base_config.model_copy(
         update={
+            "backend": ChatBackendConfig(type=ChatBackendType.LITELLM_ROUTER),
             "routing": base_config.routing.model_copy(
                 update={"engine": RoutingEngine.LITELLM_ROUTER}
-            )
+            ),
         }
     )
 
-    sync_client(cached, invocation=FakeInvocation())
-    sync_client(routed, invocation=FakeInvocation())
+    sync_client(cached, backend=FakeInvocation())
+    sync_client(routed, backend=FakeInvocation())

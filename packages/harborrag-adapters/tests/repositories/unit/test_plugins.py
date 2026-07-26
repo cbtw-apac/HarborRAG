@@ -138,7 +138,7 @@ def test_qdrant_vector_plugin_builds_unconnected_repository(
     monkeypatch.setattr(qdrant_query_module, "qm", _Sentinel())
     plugin = QdrantVectorPlugin()
     repository = plugin.create(
-        QdrantVectorConfig(url="http://qdrant.invalid"),
+        QdrantVectorConfig(url="https://qdrant.invalid"),
         RepositoryDependencies(),
     )
     assert isinstance(repository, QdrantVectorRepository)

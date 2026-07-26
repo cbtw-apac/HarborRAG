@@ -195,7 +195,7 @@ def test_confluence_request_raises_fetch_error_after_exhausting_connection_error
     client = _confluence_client()
     client.config.max_retries = 0
     client.session = FakeSession(responses=[requests.ConnectionError("boom")])
-    with pytest.raises(FetchError, match="boom"):
+    with pytest.raises(FetchError, match="Confluence request failed"):
         client.get_json("content/search")
 
 

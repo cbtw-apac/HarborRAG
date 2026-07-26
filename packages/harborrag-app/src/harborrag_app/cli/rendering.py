@@ -14,7 +14,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from harborrag_app.cli.stages import build_stage_table
+from harborrag_app.cli.stages import build_stage_table, headline_status
 from harborrag_app.workflow_control import AppResponse
 
 _STATUS_STYLES = {
@@ -25,6 +25,12 @@ _STATUS_STYLES = {
     "cancelled": "dim",
     "completed": "green",
     "failed": "red",
+    # Temporal execution statuses, which use American spelling and cover
+    # outcomes the workflow cannot report about itself.
+    "canceled": "dim",
+    "terminated": "red",
+    "timed_out": "red",
+    "continued_as_new": "cyan",
 }
 
 _METRICS = (
@@ -137,17 +143,27 @@ class CliRenderer:
         header = self._details_table()
         header.add_row("Run", self._text(status.get("run_id", "—"), style="cyan"))
         header.add_row("Status", self._status_text(value))
+        # Temporal's own execution status is the only field that turns terminal
+        # when a workflow crashes, so show it next to the workflow's self-report
+        # rather than leaving "running" as the last word on a dead run.
+        execution = str(data.get("execution_status", "")).lower()
+        if execution:
+            header.add_row("Execution", self._status_text(execution))
+        headline = headline_status(value, execution)
         header.add_row("Partition", self._text(status.get("current_partition", "—")))
         header.add_row("Paused", self._boolean(status.get("paused", False)))
         header.add_row(
             "Cancellation requested",
             self._boolean(status.get("cancel_requested", False)),
         )
-        title = Text(f"Ingestion {value}", style=f"bold {_STATUS_STYLES.get(value, 'white')}")
+        title = Text(
+            f"Ingestion {headline}",
+            style=f"bold {_STATUS_STYLES.get(headline, 'white')}",
+        )
         self.console.print(Panel(header, title=title))
         self.console.print(
             build_stage_table(
-                value,
+                headline,
                 progress,
                 current_partition=self._optional_integer(status.get("current_partition")),
             )

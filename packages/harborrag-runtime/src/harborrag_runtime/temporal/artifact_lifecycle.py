@@ -22,9 +22,10 @@ from .schemas import (
     ResolutionReceipt,
     RunStatus,
 )
+from .state_mixin_base import IngestionStateMixinBase
 
 
-class ArtifactLifecycleMixin:
+class ArtifactLifecycleMixin(IngestionStateMixinBase):
     """Complete an artifact and reconcile its ingestion run."""
 
     async def validate(
@@ -34,11 +35,15 @@ class ArtifactLifecycleMixin:
         reference = request.state.indexing_result_ref
         if reference is None:
             raise ValueError("validation requires indexing_result_ref")
-        result = load_indexing_result(await self._objects.get(reference))
+        result = load_indexing_result(
+            await self._objects.get(
+                reference,
+                expected_tenant_id=request.tenant_id,
+                expected_key_suffix="/indexing.json",
+            )
+        )
         valid = (
-            result.status is IndexingStatus.SUCCEEDED
-            and result.vector_valid
-            and result.graph_valid
+            result.status is IndexingStatus.SUCCEEDED and result.vector_valid and result.graph_valid
         )
         return ArtifactActivityResult(
             status=ArtifactStatus.RUNNING if valid else ArtifactStatus.QUARANTINED,
@@ -52,15 +57,14 @@ class ArtifactLifecycleMixin:
         self,
         request: ArtifactActivityInput,
     ) -> ArtifactActivityResult:
-        if (
-            request.state.chunking_result_ref is None
-            or request.state.indexing_result_ref is None
-        ):
-            raise ValueError(
-                "finalization requires chunking and indexing result references"
-            )
+        if request.state.chunking_result_ref is None or request.state.indexing_result_ref is None:
+            raise ValueError("finalization requires chunking and indexing result references")
         indexing = load_indexing_result(
-            await self._objects.get(request.state.indexing_result_ref)
+            await self._objects.get(
+                request.state.indexing_result_ref,
+                expected_tenant_id=request.tenant_id,
+                expected_key_suffix="/indexing.json",
+            )
         )
         if (
             indexing.status is not IndexingStatus.SUCCEEDED
@@ -79,9 +83,7 @@ class ArtifactLifecycleMixin:
             or indexing.activation.artifact_id != indexing.artifact_id
             or indexing.activation.generation_id != indexing.generation_id
         ):
-            raise ValueError(
-                "indexing activation identity does not match finalization state"
-            )
+            raise ValueError("indexing activation identity does not match finalization state")
         if self._activator is None:
             raise RuntimeError("index generation activation service is not configured")
         promotion_started = await self._begin_promotion(request, indexing)
@@ -98,9 +100,7 @@ class ArtifactLifecycleMixin:
             state=request.state,
             error_type=None if promoted else "stale_generation",
             error_message=(
-                None
-                if promoted
-                else "a newer generation reserved this artifact before promotion"
+                None if promoted else "a newer generation reserved this artifact before promotion"
             ),
         )
 
@@ -136,9 +136,7 @@ class ArtifactLifecycleMixin:
             "skip",
         }
         resume_stage = (
-            ArtifactStage.FINALIZE
-            if decision.decision.lower() == "skip"
-            else request.state.stage
+            ArtifactStage.FINALIZE if decision.decision.lower() == "skip" else request.state.stage
         )
         reference = await self._objects.put(
             request.tenant_id,

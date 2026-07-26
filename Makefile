@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint format typecheck compile doctor deps-check provider-matrix clean
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean
 
 help:
 	@echo "HarborRAG development targets"
@@ -18,6 +18,9 @@ help:
 	@echo "  make coverage         Run tests with 90% coverage gate"
 	@echo "  make openapi          Export the OpenAPI contract to openapi.json"
 	@echo "  make lint             Run Ruff lint checks"
+	@echo "  make complexity       Enforce the Ruff complexity ratchet"
+	@echo "  make file-length      Require every Python file to stay under 350 lines"
+	@echo "  make import-boundaries Run import-linter architecture contracts"
 	@echo "  make format           Format and fix imports with Ruff"
 	@echo "  make typecheck        Run mypy across packages"
 	@echo "  make compile          Compile package and script Python files"
@@ -34,7 +37,7 @@ bootstrap:
 	$(PYTHON) -m pip install -e packages/harborrag-engine
 	$(PYTHON) -m pip install -e "packages/harborrag-runtime[production]"
 	$(PYTHON) -m pip install -e "packages/harborrag-app[api]"
-	$(PYTHON) -m pip install -e packages/harborrag-mcp
+	$(PYTHON) -m pip install -e packages/harborrag-mcp-server
 	$(PYTHON) -m pip install -e packages/harborrag
 	$(PYTHON) -m pip install -e ".[dev]"
 
@@ -61,11 +64,21 @@ coverage-html:
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html
 
 lint:
-	ruff check .
+	ruff format --check packages tests scripts
+	ruff check --ignore C901,PLR0913 .
+
+complexity:
+	$(PYTHON) scripts/check_ruff_complexity.py
+
+file-length:
+	$(PYTHON) scripts/check_python_file_length.py
+
+import-boundaries:
+	lint-imports
 
 format:
 	ruff format packages tests scripts
-	ruff check --fix packages tests scripts
+	ruff check --fix --ignore C901,PLR0913 packages tests scripts
 
 typecheck:
 	mypy packages

@@ -1,6 +1,8 @@
 # HarborRAG Temporal deployment
 
-The local stack uses PostgreSQL for both Temporal persistence stores:
+The local stack reuses the PostgreSQL service from
+`deploy/compose/docker-compose.database.yml` for both Temporal persistence
+stores:
 
 - `temporal` stores workflow history, mutable state, and tasks;
 - `temporal_visibility` stores workflow visibility and search data.
@@ -8,8 +10,9 @@ The local stack uses PostgreSQL for both Temporal persistence stores:
 It follows Temporal's current
 [PostgreSQL Compose sample](https://github.com/temporalio/samples-server/blob/main/compose/docker-compose-postgres.yml)
 and pins the image versions directly in
-`deploy/compose/docker-compose.temporal.yml`. The environment file contains
-runtime settings and credentials only. This stack is for development and
+`deploy/compose/docker-compose.temporal.yml`. It does not start a second
+PostgreSQL container. The environment file contains runtime settings and
+credentials only. This stack is for development and
 integration testing. For production, use Temporal Cloud
 or the official [Temporal Helm chart](https://github.com/temporalio/helm-charts)
 with externally managed PostgreSQL, credentials, backups, and schema upgrades.
@@ -17,37 +20,39 @@ with externally managed PostgreSQL, credentials, backups, and schema upgrades.
 ## Start the local server
 
 ```bash
+DATABASE_ENV_FILE=env/.env.database scripts/deployment/database_up.sh
 scripts/deployment/temporal_up.sh
 ```
 
-The first run creates `env/.env.temporal`. Review the local password and public
-Temporal/UI ports there. PostgreSQL is reachable only by containers on the
-Temporal network and does not consume a host port. The startup sequence waits
-for PostgreSQL, initializes both SQL
+The first run creates `env/.env.temporal` with private file permissions.
+`temporal_up.sh` reads `POSTGRES_USER` and `POSTGRES_PASSWORD` from
+`DATABASE_ENV_FILE` (`env/.env.database` by default), so the Temporal server and
+schema job use the credentials of the already-deployed database stack rather
+than maintaining a second copy. Keep the worker's percent-encoded
+`HARBORRAG_INGESTION_STATE_URL` aligned with those values, then review the
+public Temporal/UI ports. PostgreSQL is reached over the existing
+`harborrag-data-network`. The startup sequence waits for it, initializes both SQL
 schemas, starts Temporal, creates the `harborrag` namespace, and then starts the
 UI at <http://localhost:8080>.
 
-The PostgreSQL data is retained in the named
-`harborrag-temporal-postgresql-data` volume. A regular Compose stop or
-down does not delete it. The startup script creates this external volume when
-it is missing. It also updates the persisted PostgreSQL role password from
-`TEMPORAL_POSTGRES_PASSWORD` before running schema migrations, so changing the
-local development credential does not require deleting the volume.
+Workflow history is retained by the database stack's `pg_data` volume. A
+regular Temporal Compose stop or down does not affect it. Schema initialization
+is idempotent; the configured PostgreSQL role must be allowed to create and
+migrate the `temporal` and `temporal_visibility` databases.
 
 ## Start HarborRAG workers
 
-Start Qdrant and FalkorDB first:
+Start the complete database stack first:
 
 ```bash
 DATABASE_ENV_FILE=env/.env.database scripts/deployment/database_up.sh
 ```
 
-The database stack creates the stable `harborrag-data-network`. The Temporal
-worker joins that network and the Compose-managed Temporal default network, so
-it can reach Qdrant, FalkorDB, and Redis by service name. The Temporal server,
-UI, schema initializer, and PostgreSQL remain isolated from the data services.
-Starting the worker profile before the database stack fails because its data
-network is intentionally external to the Temporal Compose project.
+The database stack creates the stable `harborrag-data-network`. Temporal's
+schema initializer and server use that network to reach the existing
+`postgres` service. The worker also joins it and reaches PostgreSQL, Qdrant,
+FalkorDB, and Redis by service name. Startup fails early when the external
+network is absent instead of silently launching another database.
 
 The active runtime configuration is checked in at `config/connectors.yaml`,
 `config/parsers.yaml`, and `config/models.yaml`. Keep credentials in the ignored
@@ -76,8 +81,9 @@ HARBORRAG_MODEL_CONFIG_PATH=config/models.yaml
 HARBORRAG_LOCAL_SOURCE_MOUNT=../../docs
 ```
 
-Run `scripts/deployment/temporal_up.sh` again. Worker checkpoints and ingestion
-objects persist in the `harborrag-ingestion-data` volume. A custom
+Run `scripts/deployment/temporal_up.sh` again. Worker checkpoints and operational
+state use PostgreSQL; ingestion objects remain in the
+`harborrag-ingestion-data` volume. A custom
 `HARBORRAG_TEMPORAL_DEPENDENCY_PROVIDER` is optional. Two worker replicas are
 the local default; lower `HARBORRAG_TEMPORAL_WORKER_REPLICAS` to `1` on a
 memory-constrained host. The replicas share the persistent
@@ -99,14 +105,15 @@ HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
 
 ```bash
 docker compose \
-  --env-file env/.env.temporal \
-  --file deploy/compose/docker-compose.temporal.yml \
-  exec postgresql psql -U temporal -l
+  --env-file env/.env.database \
+  --file deploy/compose/docker-compose.database.yml \
+  exec postgres psql -U postgres -l
 ```
 
 Both `temporal` and `temporal_visibility` should be present. Schema setup and
 namespace creation run in the one-shot `temporal-schema` and
 `temporal-namespace` services.
 
-Removing the named volume permanently deletes local workflow history, so use
-`docker compose down --volumes` only when an intentional clean reset is needed.
+Removing the database stack's `pg_data` volume permanently deletes Temporal
+history and HarborRAG PostgreSQL state, so remove it only for an intentional
+clean reset.

@@ -11,13 +11,15 @@ from harborrag_adapters.repositories.errors import (
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.schemas.state import WorkflowState, WorkflowStatus
 
+from .state_mixin_base import IngestionStateMixinBase
+
 if TYPE_CHECKING:
     from harborrag_engine.ingestion.indexing.schemas import IndexingResult
 
     from .schemas import ArtifactActivityInput
 
 
-class GenerationPromotionMixin:
+class GenerationPromotionMixin(IngestionStateMixinBase):
     """Reserve and atomically promote one artifact generation."""
 
     async def _reserve_generation(
@@ -30,9 +32,7 @@ class GenerationPromotionMixin:
         for _ in range(5):
             current = await self._states.get(workflow_id, context=context)
             payload = dict(current.payload) if current else {}
-            promotion_generation = self._optional_text(
-                payload.get("promotion_generation_id")
-            )
+            promotion_generation = self._optional_text(payload.get("promotion_generation_id"))
             if promotion_generation not in {None, request.state.generation_id}:
                 raise RuntimeError(
                     "another generation is being promoted for this artifact; retry later"
@@ -88,9 +88,7 @@ class GenerationPromotionMixin:
                 raise ValueError("artifact generation was not reserved during preflight")
             if current.payload.get("pending_generation_id") != request.state.generation_id:
                 return False
-            active_generation = self._optional_text(
-                current.payload.get("active_generation_id")
-            )
+            active_generation = self._optional_text(current.payload.get("active_generation_id"))
             if active_generation != indexing.activation.previous_generation_id:
                 return False
             promotion_generation = self._optional_text(
@@ -130,10 +128,8 @@ class GenerationPromotionMixin:
             if current is None:
                 raise ValueError("artifact generation promotion state disappeared")
             if (
-                current.payload.get("promotion_generation_id")
-                != request.state.generation_id
-                or current.payload.get("pending_generation_id")
-                != request.state.generation_id
+                current.payload.get("promotion_generation_id") != request.state.generation_id
+                or current.payload.get("pending_generation_id") != request.state.generation_id
             ):
                 return False
             payload = dict(current.payload)
@@ -148,9 +144,7 @@ class GenerationPromotionMixin:
                     "active_indexing_fingerprint": (
                         self._indexing_config.configuration_fingerprint
                     ),
-                    "active_chunking_configuration_version": (
-                        self._chunking_configuration_version
-                    ),
+                    "active_chunking_configuration_version": (self._chunking_configuration_version),
                 }
             )
             for key in (

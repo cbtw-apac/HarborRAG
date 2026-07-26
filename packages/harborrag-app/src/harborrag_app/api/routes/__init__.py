@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from harborrag_app.api.routes import diagnostics, health
+from harborrag_app.api.routes import diagnostics, health, ingestions
 
 
 def all_routers() -> list[APIRouter]:
     """Every router the factory mounts, in registration order."""
-    return [health.router, diagnostics.router]
+    return [health.router, diagnostics.router, ingestions.router]

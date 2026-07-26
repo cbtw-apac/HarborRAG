@@ -31,7 +31,9 @@ Use fakes in tests; do not ship a provider `mock.py` as a substitute for product
 
 ## Parsers
 
-Implement `BaseParser[Input, Output]` under `parsers/`, or a `PdfBackend` under `parsers/pdf_engine/`.
+Add a complete `HarborParser` family under `parsers/<family>/`. Add an
+individual provider below that family's `engines/<provider>/` directory and
+implement the family-specific engine contract, such as `HarborPDFEngine`.
 
 Parsers should:
 
@@ -43,7 +45,9 @@ Parsers should:
 - keep raw output bounded and disabled by default;
 - declare optional dependencies and test without requiring heavyweight models.
 
-Register ordinary parsers in `HarborParser.default_parsers()` when they should be part of the default route. Add PDF backend metadata to the runtime parser provider table when it should be YAML-configurable.
+Register complete families through `HarborParserFactory`; provider engines do
+not belong in the root MIME/extension registry. Add provider metadata to the
+runtime parser provider table when it should be YAML-configurable.
 
 ## Model providers and behavior
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 from app_test_fixtures import MockAppService
@@ -42,6 +43,9 @@ class FakeTemporalClient:
             False,
             False,
         )
+
+    async def execution_status(self, run_id):
+        return "running"
 
     async def get_progress(self, run_id):
         return RunProgress(discovered=2)
@@ -85,9 +89,11 @@ async def test_app_service_submits_queries_and_controls_temporal() -> None:
         run_id="run-1",
         manifest_id="manifest-1",
         generation_id="generation-1",
+        max_artifacts=3,
     )
     assert started.ok
     assert temporal.started[0].connector_name == "local-docs"
+    assert temporal.started[0].options.max_artifacts == 3
     health = await service.runtime_health()
     assert health.ok and health.data["runtime"]["provider"] == "temporal"
     status = await service.ingestion_status("run-1")
@@ -123,6 +129,31 @@ def test_ingest_cli_has_stable_json_envelope(monkeypatch, capsys) -> None:
     assert payload["ok"] is True
     assert payload["error"] is None
     assert payload["data"]["run"]["run_id"] == "run-1"
+
+
+def test_ingest_cli_constructs_service_outside_event_loop(monkeypatch, capsys) -> None:
+    caller_thread = threading.get_ident()
+    factory_threads: list[int] = []
+
+    def build_service() -> MockAppService:
+        factory_threads.append(threading.get_ident())
+        return MockAppService()
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", build_service)
+
+    exit_code = cli.main(
+        [
+            "ingest",
+            "status",
+            "run-1",
+            "--json",
+        ]
+    )
+
+    capsys.readouterr()
+    assert exit_code == 0
+    assert factory_threads
+    assert factory_threads[0] != caller_thread
 
 
 def test_ingest_cli_uses_rich_human_summary(monkeypatch, capsys) -> None:

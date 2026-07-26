@@ -50,7 +50,7 @@ def validate_chat_configuration(
 ) -> None:
     """Validate provider policy, credentials, endpoints, and enabled chat routes."""
 
-    backend_type = config.backend.resolved_type(config.routing.engine)
+    backend_type = config.backend.type
     _validate_backend_routing(config, backend_type)
     if (
         config.routing.engine is RoutingEngine.LITELLM_ROUTER

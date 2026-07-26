@@ -14,17 +14,17 @@ for source_path in (
     if source not in sys.path:
         sys.path.insert(0, source)
 
-from harborrag_adapters.parsers import (  # noqa: E402
+from harborrag_adapters.parsers import HarborParserFactory  # noqa: E402
+from harborrag_adapters.parsers.compat import (  # noqa: E402
     DoclingBackend,
-    HarborParser,
     LiteParseBackend,
     MinerUBackend,
     PaddleOcrBackend,
-    ParseInput,
     PdfParser,
     PdfParserProfile,
     PyMuPdfBackend,
 )
+from harborrag_core.domain.parser import ParseInput  # noqa: E402
 
 PDF_BACKENDS = {
     "docling": DoclingBackend,
@@ -70,11 +70,11 @@ def main() -> int:
         parse_input = ParseInput(path=path)
         if args.pdf_backend:
             backend = PDF_BACKENDS[args.pdf_backend]()
-            document = PdfParser(backends=[backend]).parse(parse_input)
+            document = PdfParser(backends=[backend]).parse_input(parse_input)
         elif args.pdf_profile:
-            document = PdfParser(profile=args.pdf_profile).parse(parse_input)
+            document = PdfParser(profile=args.pdf_profile).parse_input(parse_input)
         else:
-            document = HarborParser().parse(parse_input)
+            document = HarborParserFactory().create_registry().parse_input(parse_input)
         if not document.content.strip():
             raise AssertionError("parser returned empty extracted content")
     except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code

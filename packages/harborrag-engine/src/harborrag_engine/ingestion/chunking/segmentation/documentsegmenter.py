@@ -5,8 +5,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from harborrag_core.contracts.chunking import SplitBoundaryKind, TokenCounter
-from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.normalized_document import Document
 
 from ..config import ChunkingProfile
 from ..schemas import ChunkUnit

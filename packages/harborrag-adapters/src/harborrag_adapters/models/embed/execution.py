@@ -331,5 +331,6 @@ class EmbedExecution(EmbedExecutionContextMixin):
         )
         return params
 
+
 def _elapsed(started: float) -> float:
     return (time.perf_counter() - started) * 1_000

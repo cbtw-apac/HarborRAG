@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 from model_runtime_support import chat_config
 
-from harborrag_adapters.models.chat.invocation import (
-    LiteLLMChatInvocation,
-    LiteLLMChatRouterInvocation,
+from harborrag_adapters.models.chat.backends import (
+    LiteLLMDirectBackend,
+    LiteLLMRouterBackend,
 )
 from harborrag_adapters.models.embed.invocation import (
     LiteLLMEmbeddingInvocation,
@@ -19,9 +19,12 @@ from harborrag_adapters.models.runtime.config import (
     BudgetLimitConfig,
     CacheBackend,
     CacheConfig,
+    ConnectionPoolConfig,
     RoutingConfig,
     RoutingStrategy,
 )
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_adapters.models.runtime.litellm_backend import litellm_routing_strategy
 from harborrag_adapters.models.runtime.litellm_router import (
     build_litellm_router,
@@ -82,11 +85,31 @@ class _Router:
         self.closed += 1
 
 
+def direct_chat_backend(
+    completion=None,
+    acompletion=None,
+) -> LiteLLMDirectBackend:
+    return LiteLLMDirectBackend(
+        connections=SharedConnectionLifecycle(ConnectionPoolConfig(enabled=False)),
+        connection_ownership=ResourceOwnership.OWNED,
+        completion=completion,
+        acompletion=acompletion,
+    )
+
+
+def router_chat_backend(router: Any) -> LiteLLMRouterBackend:
+    return LiteLLMRouterBackend(
+        router,
+        connections=SharedConnectionLifecycle(ConnectionPoolConfig(enabled=False)),
+        connection_ownership=ResourceOwnership.OWNED,
+    )
+
+
 def test_direct_invocations_forward_sync_calls() -> None:
     def echo(**kwargs: Any) -> dict[str, Any]:
         return kwargs
 
-    chat = LiteLLMChatInvocation(echo, _async_value)
+    chat = direct_chat_backend(echo, _async_value)
     embed = LiteLLMEmbeddingInvocation(echo, _async_value)
     rerank = LiteLLMRerankInvocation(echo, _async_value)
 
@@ -101,7 +124,7 @@ def test_direct_invocations_forward_sync_calls() -> None:
 
 @pytest.mark.asyncio
 async def test_direct_invocations_forward_async_calls_and_close() -> None:
-    chat = LiteLLMChatInvocation(lambda **kwargs: kwargs, _async_value)
+    chat = direct_chat_backend(lambda **kwargs: kwargs, _async_value)
     embed = LiteLLMEmbeddingInvocation(lambda **kwargs: kwargs, _async_value)
     rerank = LiteLLMRerankInvocation(lambda **kwargs: kwargs, _async_value)
 
@@ -117,7 +140,7 @@ async def test_direct_invocations_forward_async_calls_and_close() -> None:
 def test_sync_stream_cleanup_supports_sync_and_async_only_streams() -> None:
     sync_stream = _SyncStream()
     async_stream = _AsyncStream()
-    invocation = LiteLLMChatInvocation(lambda **kwargs: kwargs, _async_value)
+    invocation = direct_chat_backend(lambda **kwargs: kwargs, _async_value)
 
     invocation.close_stream(sync_stream)
     invocation.close_stream(async_stream)
@@ -135,7 +158,7 @@ async def test_sync_stream_cleanup_resolves_awaitable_inside_running_loop() -> N
         closed = True
 
     stream = _SyncStream(mark_closed())
-    invocation = LiteLLMChatInvocation(lambda **kwargs: kwargs, _async_value)
+    invocation = direct_chat_backend(lambda **kwargs: kwargs, _async_value)
 
     invocation.close_stream(stream)
 
@@ -153,7 +176,7 @@ async def test_async_stream_cleanup_supports_async_and_awaitable_sync_close() ->
         closed = True
 
     sync_stream = _SyncStream(mark_closed())
-    invocation = LiteLLMChatInvocation(lambda **kwargs: kwargs, _async_value)
+    invocation = direct_chat_backend(lambda **kwargs: kwargs, _async_value)
 
     await invocation.aclose_stream(async_stream)
     await invocation.aclose_stream(sync_stream)
@@ -166,13 +189,13 @@ async def test_async_stream_cleanup_supports_async_and_awaitable_sync_close() ->
 @pytest.mark.parametrize(
     ("invocation_type", "sync_method", "async_method"),
     [
-        (LiteLLMChatRouterInvocation, "complete", "acomplete"),
+        (router_chat_backend, "complete", "acomplete"),
         (LiteLLMEmbeddingRouterInvocation, "embed", "aembed"),
     ],
 )
 @pytest.mark.asyncio
 async def test_router_invocations_forward_and_close(
-    invocation_type: type[Any],
+    invocation_type: Callable[[Any], Any],
     sync_method: str,
     async_method: str,
 ) -> None:
@@ -184,17 +207,17 @@ async def test_router_invocations_forward_and_close(
     invocation.close()
     await invocation.aclose()
 
-    expected_closes = 1 if invocation_type is LiteLLMChatRouterInvocation else 2
+    expected_closes = 1 if invocation_type is router_chat_backend else 2
     assert router.closed == expected_closes
 
 
 @pytest.mark.parametrize(
     "invocation_type",
-    [LiteLLMChatRouterInvocation, LiteLLMEmbeddingRouterInvocation],
+    [router_chat_backend, LiteLLMEmbeddingRouterInvocation],
 )
 @pytest.mark.asyncio
 async def test_router_async_close_falls_back_to_sync(
-    invocation_type: type[Any],
+    invocation_type: Callable[[Any], Any],
 ) -> None:
     router = _Router(async_close=False)
     invocation = invocation_type(router)

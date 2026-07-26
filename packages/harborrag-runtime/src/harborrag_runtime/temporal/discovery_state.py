@@ -23,9 +23,10 @@ from .schemas import (
     DiscoveryInput,
     DiscoveryResult,
 )
+from .state_mixin_base import IngestionStateMixinBase
 
 
-class DiscoveryStateMixin:
+class DiscoveryStateMixin(IngestionStateMixinBase):
     """Persist discovery progress and idempotent stage completion."""
 
     async def initialize_run(self, request: DiscoveryInput) -> None:
@@ -90,9 +91,7 @@ class DiscoveryStateMixin:
     ) -> str:
         workflow_id = self._discovery_id(request)
         context = self._context(request.tenant_id, request.run_id)
-        checkpoint_ref = (
-            f"harbor-state://{quote(request.tenant_id, safe='')}/{workflow_id}"
-        )
+        checkpoint_ref = f"harbor-state://{quote(request.tenant_id, safe='')}/{workflow_id}"
         result = DiscoveryResult(artifacts, next_cursor, checkpoint_ref, done)
         await self._upsert_state(
             workflow_id,

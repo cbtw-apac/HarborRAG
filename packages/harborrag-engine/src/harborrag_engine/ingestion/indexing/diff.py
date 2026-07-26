@@ -53,6 +53,8 @@ class IncrementalChunkDiffer:
                 status = ChunkDiffStatus.CHANGED
             elif model_changed:
                 status = ChunkDiffStatus.REEMBED_REQUIRED
+            elif previous.chunk_revision_id != reference.chunk_revision_id:
+                status = ChunkDiffStatus.REFRESH_REQUIRED
             else:
                 status = ChunkDiffStatus.UNCHANGED
             entries.append(

@@ -124,9 +124,10 @@ class QdrantCollectionMixin:
         if current is None:
             return True
         expected = cls._payload_schema(field)
-        return str(getattr(current, "value", current)).lower() == str(
-            getattr(expected, "value", expected)
-        ).lower()
+        return (
+            str(getattr(current, "value", current)).lower()
+            == str(getattr(expected, "value", expected)).lower()
+        )
 
     @traced_repository_operation("collection_exists")
     async def collection_exists(

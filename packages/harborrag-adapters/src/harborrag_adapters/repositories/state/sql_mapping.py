@@ -24,6 +24,7 @@ def _state_from_row(row: Any) -> WorkflowState:
         }
     )
 
+
 def _checkpoint_from_row(row: Any) -> CheckpointRecord:
     return CheckpointRecord.model_validate(
         {

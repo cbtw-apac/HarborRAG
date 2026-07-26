@@ -26,17 +26,24 @@ class ContextCapsuleBuilder:
 
         normalized = self._whitespace.sub(" ", record.content).strip()
         preview = normalized[: config.capsule_maximum_characters]
+        span = record.source_span
         return {
             "logical_chunk_id": str(record.logical_chunk_id),
             "chunk_revision_id": str(record.chunk_revision_id),
             "title": record.context.title,
-            "section_path": list(record.structural_path),
+            "section_path": list(record.context.structural_path),
             "chunk_role": record.role,
             "preview": preview,
             "preview_truncated": len(normalized) > len(preview),
             "token_count": record.token_count or 0,
-            "page_range": self._range(record.page_start, record.page_end),
-            "line_range": self._range(record.start_line, record.end_line),
+            "page_range": self._range(
+                span.page_start if span is not None else None,
+                span.page_end if span is not None else None,
+            ),
+            "line_range": self._range(
+                span.start_line if span is not None else None,
+                span.end_line if span is not None else None,
+            ),
             "content_hash": record.content_hash,
             "vector_point_id": vector_point_id,
             "content_reference": content_reference,

@@ -48,9 +48,7 @@ def test_text_split_preserves_framework_neutral_context() -> None:
     assert split.boundary_kind == SplitBoundaryKind.SECTION
 
 
-def test_json_structure_request_uses_character_bounds_only_for_adapter_structure() -> (
-    None
-):
+def test_json_structure_request_uses_character_bounds_only_for_adapter_structure() -> None:
     request = JsonStructureSplitRequest(
         value={"items": [{"id": 1}]},
         minimum_characters=10,

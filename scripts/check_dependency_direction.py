@@ -7,7 +7,7 @@ Allowed direction (lower layers never import higher ones):
     harborrag_engine    -> core, adapters
     harborrag_runtime   -> core, adapters, engine
     harborrag_app       -> core, engine, runtime
-    harborrag_mcp       -> core, engine, runtime
+    harborrag_mcp_server -> core, engine, runtime
     harborrag           -> any harborrag package (public facade)
 
 Each package's own ``tests/`` directory is checked against the same rule as
@@ -45,14 +45,14 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     "harborrag_engine": {"harborrag_core", "harborrag_adapters"},
     "harborrag_runtime": {"harborrag_core", "harborrag_adapters", "harborrag_engine"},
     "harborrag_app": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
-    "harborrag_mcp": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
+    "harborrag_mcp_server": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
     "harborrag": {
         "harborrag_core",
         "harborrag_adapters",
         "harborrag_engine",
         "harborrag_runtime",
         "harborrag_app",
-        "harborrag_mcp",
+        "harborrag_mcp_server",
     },
 }
 
@@ -62,7 +62,7 @@ MODULE_TO_PACKAGE_DIR = {
     "harborrag_engine": "harborrag-engine",
     "harborrag_runtime": "harborrag-runtime",
     "harborrag_app": "harborrag-app",
-    "harborrag_mcp": "harborrag-mcp",
+    "harborrag_mcp_server": "harborrag-mcp-server",
     "harborrag": "harborrag",
 }
 

@@ -20,7 +20,7 @@ from harborrag_adapters.models.chat import (
     HarborChatClient,
     HarborChatClientConfig,
 )
-from harborrag_core.models.protocols import (
+from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     HarborChatClientProtocol,
 )
@@ -56,9 +56,7 @@ class AsyncClientHarness:
         return await self.client.achat(CONTRACT_MESSAGES)
 
     async def stream(self) -> tuple[object, ...]:
-        events = [
-            event async for event in self.client.astream(CONTRACT_MESSAGES)
-        ]
+        events = [event async for event in self.client.astream(CONTRACT_MESSAGES)]
         return tuple(events)
 
     async def structured(self) -> ContractAnswer:
@@ -98,7 +96,7 @@ def build_harness(
         responses=[response("contract"), response('{"answer":"typed"}')],
         streams=[stream_chunks()],
     )
-    dependencies = ChatClientDependencies(invocation=invocation)
+    dependencies = ChatClientDependencies(backend=invocation)
     if mode == "sync":
         client = ChatClientFactory.create(contract_config(), dependencies)
         assert isinstance(client, HarborChatClientProtocol)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from harborrag_core.domain.document import Document
+from harborrag_core.domain.normalized_document import Document
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -17,6 +17,7 @@ from .ingestioncodec import (
     dump_raw_document,
     load_chunking_result,
     load_document,
+    load_indexing_result,
     load_raw_document,
     load_source_record,
 )
@@ -26,16 +27,20 @@ from .schemas import (
     ArtifactStage,
     ArtifactStatus,
 )
+from .state_mixin_base import IngestionStateMixinBase
 
 
-class ArtifactPayloadMixin:
+class ArtifactPayloadMixin(IngestionStateMixinBase):
     """Persist and load payloads passed between artifact stages."""
 
     async def preflight(
         self,
         request: ArtifactActivityInput,
     ) -> ArtifactActivityResult:
-        source = await self.load_source(request.state.artifact.source_ref)
+        source = await self.load_source(
+            request.state.artifact.source_ref,
+            request.tenant_id,
+        )
         revision_id = self._revision_id(request.state.artifact, source)
         active = await self._active_state(request)
         if active and (
@@ -59,8 +64,14 @@ class ArtifactPayloadMixin:
             ),
         )
 
-    async def load_source(self, source_ref: str) -> SourceRecord:
-        return load_source_record(await self._objects.get(source_ref))
+    async def load_source(self, source_ref: str, tenant_id: str) -> SourceRecord:
+        return load_source_record(
+            await self._objects.get(
+                source_ref,
+                expected_tenant_id=tenant_id,
+                expected_key_suffix="/source.json",
+            )
+        )
 
     async def persist_snapshot(
         self,
@@ -78,8 +89,14 @@ class ArtifactPayloadMixin:
             kind="raw-document",
         )
 
-    async def load_snapshot(self, snapshot_ref: str) -> RawDocument:
-        return load_raw_document(await self._objects.get(snapshot_ref))
+    async def load_snapshot(self, snapshot_ref: str, tenant_id: str) -> RawDocument:
+        return load_raw_document(
+            await self._objects.get(
+                snapshot_ref,
+                expected_tenant_id=tenant_id,
+                expected_key_suffix="/snapshot.json",
+            )
+        )
 
     async def persist_parsed_document(
         self,
@@ -98,8 +115,18 @@ class ArtifactPayloadMixin:
             kind="parsed-document",
         )
 
-    async def load_parsed_document(self, parsed_document_ref: str) -> Document:
-        return load_document(await self._objects.get(parsed_document_ref))
+    async def load_parsed_document(
+        self,
+        parsed_document_ref: str,
+        tenant_id: str,
+    ) -> Document:
+        return load_document(
+            await self._objects.get(
+                parsed_document_ref,
+                expected_tenant_id=tenant_id,
+                expected_key_suffix="/parsed.json",
+            )
+        )
 
     async def persist_chunking_result(
         self,
@@ -120,8 +147,15 @@ class ArtifactPayloadMixin:
     async def load_chunking_result(
         self,
         chunking_result_ref: str,
+        tenant_id: str,
     ) -> ChunkingResult:
-        return load_chunking_result(await self._objects.get(chunking_result_ref))
+        return load_chunking_result(
+            await self._objects.get(
+                chunking_result_ref,
+                expected_tenant_id=tenant_id,
+                expected_key_suffix="/chunking.json",
+            )
+        )
 
     async def indexing_request(
         self,
@@ -129,10 +163,28 @@ class ArtifactPayloadMixin:
         chunking: ChunkingResult,
     ) -> IndexingRequest:
         active = await self._active_state(request)
+        resume_result = None
+        resume_key = self._artifact_key(
+            request.run_id,
+            request.state.artifact.artifact_id,
+            "indexing",
+        )
+        if await self._objects.exists(request.tenant_id, resume_key):
+            resume_ref = self._objects.reference(request.tenant_id, resume_key)
+            resume_result = load_indexing_result(
+                await self._objects.get(
+                    resume_ref,
+                    expected_tenant_id=request.tenant_id,
+                    expected_key_suffix="/indexing.json",
+                )
+            )
         active_chunking = None
         active_ref = active.payload.get("active_chunking_ref") if active else None
         if isinstance(active_ref, str):
-            active_chunking = await self.load_chunking_result(active_ref)
+            active_chunking = await self.load_chunking_result(
+                active_ref,
+                request.tenant_id,
+            )
         return IndexingRequest(
             chunking=chunking,
             generation_id=request.state.generation_id,
@@ -140,17 +192,14 @@ class ArtifactPayloadMixin:
             context=self._context(request.tenant_id, request.run_id),
             active_manifest=(active_chunking.manifest if active_chunking else None),
             active_embedding_configuration_fingerprint=(
-                self._optional_text(
-                    active.payload.get("active_embedding_fingerprint")
-                )
+                self._optional_text(active.payload.get("active_embedding_fingerprint"))
                 if active
                 else None
             ),
             active_generation_id=(
-                self._optional_text(active.payload.get("active_generation_id"))
-                if active
-                else None
+                self._optional_text(active.payload.get("active_generation_id")) if active else None
             ),
+            resume_result=resume_result,
         )
 
     async def persist_indexing_result(

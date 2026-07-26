@@ -32,11 +32,15 @@ async def exercise_database(
         metadata={"smoke_test": True},
     )
     chunk = ChunkRecord(
-        id=f"chunk-{suffix}",
+        logical_chunk_id=f"chunk-{suffix}",
+        chunk_revision_id=f"chunk-{suffix}",
         tenant_id=context.tenant_id,
         document_id=document.id,
         document_version_id=document.current_version_id,
-        chunk_index=0,
+        artifact_id=str(document.id),
+        artifact_revision_id=str(document.current_version_id),
+        ordinal=0,
+        role="content",
         content="repository smoke probe",
         content_hash=f"chunk-hash-{suffix}",
     )
@@ -48,8 +52,11 @@ async def exercise_database(
             raise AssertionError("document did not round-trip inside the transaction")
 
         await unit_of_work.chunks.bulk_upsert([chunk], context=context)
-        loaded_chunks = await unit_of_work.chunks.get_many([str(chunk.id)], context=context)
-        if [item.id for item in loaded_chunks] != [chunk.id]:
+        loaded_chunks = await unit_of_work.chunks.get_many(
+            [str(chunk.chunk_revision_id)],
+            context=context,
+        )
+        if [item.chunk_revision_id for item in loaded_chunks] != [chunk.chunk_revision_id]:
             raise AssertionError("chunk did not round-trip inside the transaction")
 
         await unit_of_work.outbox.add(

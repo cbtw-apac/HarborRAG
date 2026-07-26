@@ -161,7 +161,7 @@ class ChunkRoute:
 class ChunkingConfig:
     """Immutable routing and named-profile configuration."""
 
-    configuration_version: str = "1"
+    configuration_version: str = "2"
     default_profile: str = "generic"
     profiles: Mapping[str, ChunkingProfile] = field(default_factory=default_chunking_profiles)
     routes: tuple[ChunkRoute, ...] = field(

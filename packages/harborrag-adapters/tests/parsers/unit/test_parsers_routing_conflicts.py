@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers import HarborParser
-from harborrag_adapters.parsers.exceptions import ParseError, UnsupportedFormatError
+from harborrag_adapters.parsers import HarborParserFactory
+from harborrag_adapters.parsers.errors import ParseError, UnsupportedFormatError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -13,12 +13,12 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 def test_generic_content_type_does_not_conflict_with_specific_suffix():
     # Object stores often mislabel .csv as text/plain; the suffix must win.
-    registry = HarborParser()
+    registry = HarborParserFactory().create_registry()
     parser = registry.parser_for(
         ParseInput(content="a,b\n1,2", filename="doc.csv", content_type="text/plain")
     )
     assert parser is not None
-    assert parser.name == "csv"
+    assert parser.parser_name == "spreadsheet"
 
     document = registry.parse(
         ParseInput(content="a,b\n1,2", filename="doc.csv", content_type="text/plain")
@@ -27,24 +27,24 @@ def test_generic_content_type_does_not_conflict_with_specific_suffix():
 
 
 def test_conflicting_specific_signals_raise_unsupported_format():
-    registry = HarborParser()
+    registry = HarborParserFactory().create_registry()
     conflicting = ParseInput(
         content="a,b\n1,2",
         filename="doc.csv",  # -> csv parser
         content_type="text/html",  # -> html parser (specific, not generic)
     )
-    with pytest.raises(UnsupportedFormatError, match="Conflicting parser routes"):
+    with pytest.raises(UnsupportedFormatError, match="Conflicting parser-family routes"):
         registry.parse(conflicting)
 
 
 def test_content_type_used_when_suffix_absent():
-    registry = HarborParser()
+    registry = HarborParserFactory().create_registry()
     parser = registry.parser_for(ParseInput(content="a,b\n1,2", content_type="text/csv"))
-    assert parser is not None and parser.name == "csv"
+    assert parser is not None and parser.parser_name == "spreadsheet"
 
 
 def test_unknown_route_returns_none_from_parser_for():
-    registry = HarborParser()
+    registry = HarborParserFactory().create_registry()
     assert (
         registry.parser_for(ParseInput(content=b"\x00", filename="x.zzz", content_type="x/y"))
         is None
@@ -52,7 +52,7 @@ def test_unknown_route_returns_none_from_parser_for():
 
 
 def test_parse_many_skip_isolates_bad_item():
-    registry = HarborParser()
+    registry = HarborParserFactory().create_registry()
     documents = registry.parse_many(
         [
             ParseInput(content="alpha", filename="a.txt"),
@@ -65,7 +65,7 @@ def test_parse_many_skip_isolates_bad_item():
 
 
 def test_parse_many_raise_propagates_first_failure():
-    registry = HarborParser()
+    registry = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         registry.parse_many(
             [
@@ -78,4 +78,4 @@ def test_parse_many_raise_propagates_first_failure():
 
 def test_parse_many_rejects_unknown_policy():
     with pytest.raises(ValueError, match="Unknown on_error policy"):
-        HarborParser().parse_many([], on_error="bogus")
+        HarborParserFactory().create_registry().parse_many([], on_error="bogus")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -12,9 +13,12 @@ import typer
 
 from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.workflow_control.errors import public_error_message
 from harborrag_app.workflow_control.selection import runtime_app_service
 
 type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
+
+logger = logging.getLogger("harborrag.app.cli.runner")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,8 +81,10 @@ async def _invoke(
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     try:
-        service = runtime_app_service()
+        logger.debug("Building the runtime application service")
+        service = await asyncio.to_thread(runtime_app_service)
     except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
+        logger.exception("Failed to build the runtime application service")
         _emit(
             _failure(exc),
             renderer=renderer,
@@ -111,7 +117,8 @@ async def _invoke(
 async def _run_dashboard(run_id: str, *, refresh_seconds: float) -> None:
     from harborrag_app.cli.dashboard import IngestionDashboard
 
-    service = runtime_app_service()
+    logger.debug("Building the runtime application service for the dashboard")
+    service = await asyncio.to_thread(runtime_app_service)
     try:
         dashboard = IngestionDashboard(
             run_id,
@@ -155,7 +162,7 @@ def _failure(exc: Exception) -> AppResponse:
     return AppResponse(
         False,
         data={"error_type": type(exc).__name__},
-        error=str(exc) or type(exc).__name__,
+        error=public_error_message(exc),
     )
 
 

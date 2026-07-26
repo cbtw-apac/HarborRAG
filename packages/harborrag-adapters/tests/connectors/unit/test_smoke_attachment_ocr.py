@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import runpy
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,8 +13,17 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
 def _bootstrap() -> dict[str, object]:
-    path = Path(__file__).parents[2] / "smoke" / "connectors" / "bootstrap.py"
-    return runpy.run_path(str(path))
+    """Import the smoke bootstrap package fresh, mirroring the isolation a
+    subprocess run of the standalone script would have: each call gets its
+    own `_RAPID_OCR_ENGINE` cache instead of sharing one across tests."""
+    connectors_dir = Path(__file__).parents[2] / "smoke" / "connectors"
+    if str(connectors_dir) not in sys.path:
+        sys.path.insert(0, str(connectors_dir))
+    for name in [key for key in sys.modules if key == "bootstrap" or key.startswith("bootstrap.")]:
+        del sys.modules[name]
+    from bootstrap import ocr_parser
+
+    return vars(ocr_parser)
 
 
 def test_attachment_custom_parsers_routes_images_to_rapidocr() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers.engine import HarborParser
+from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]
@@ -28,7 +28,7 @@ def _make_input(index: int) -> ParseInput:
 
 
 def test_parse_many_handles_bulk_inputs() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     inputs = [_make_input(i) for i in range(2000)]
 
     results = parser.parse_many(inputs, on_error="skip")
@@ -38,7 +38,7 @@ def test_parse_many_handles_bulk_inputs() -> None:
 
 
 def test_parse_many_isolates_a_corrupt_item_at_scale() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     good = [_make_input(i) for i in range(2000)]
     corrupt = ParseInput(content='{"broken": ', filename="corrupt.json")
     mixed = [*good[:1000], corrupt, *good[1000:]]

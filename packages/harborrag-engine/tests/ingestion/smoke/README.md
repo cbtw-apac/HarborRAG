@@ -69,6 +69,25 @@ HARBOR_SMOKE_ENV_FILE=/secure/path/indexing-smoke.env \
 The script prints only provider-independent identities and counts. It never
 prints chunk text, embedding vectors, credentials, or raw provider payloads.
 
+## Local indexing performance gate
+
+The integration suite can stage a deterministic 128-record batch directly
+through both local databases without calling a paid embedding provider:
+
+```bash
+HARBORRAG_QDRANT_INTEGRATION=1 \
+HARBORRAG_FALKORDB_INTEGRATION=1 \
+  pytest \
+    packages/harborrag-engine/tests/ingestion/integration/test_qdrant_vector_indexing.py \
+    packages/harborrag-engine/tests/ingestion/integration/test_falkordb_graph_indexing.py \
+    -m integration
+```
+
+Set `HARBORRAG_INDEXING_PERFORMANCE_RECORDS` to change the batch size and
+`HARBORRAG_INDEXING_MAX_SECONDS` to set the environment-specific upper bound.
+The tests validate stored vector and graph identities after timing the stage,
+then remove their uniquely named probe collection and graph records.
+
 ## Exit codes
 
 | Code | Meaning |

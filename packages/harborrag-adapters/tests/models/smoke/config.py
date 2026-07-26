@@ -130,16 +130,14 @@ def chat_config() -> HarborChatClientConfig:
         backend_type = ChatBackendType(backend_value)
     except ValueError as exc:
         supported = ", ".join(item.value for item in ChatBackendType)
-        raise SmokeConfigurationError(
-            f"HARBOR_CHAT_BACKEND must be one of: {supported}"
-        ) from exc
+        raise SmokeConfigurationError(f"HARBOR_CHAT_BACKEND must be one of: {supported}") from exc
 
     deployment = _deployment("HARBOR_CHAT")
     deployment["capabilities"] = {"streaming": True}
     backend: dict[str, Any] = {"type": backend_type.value}
     chat: dict[str, Any] = {
         "default_model": "smoke",
-        "timeout_seconds": _timeout(),
+        "timeouts": {"request_seconds": _timeout()},
         "security": _security("HARBOR_CHAT"),
         "retry": _single_attempt_policy(),
         "models": {"smoke": {"deployments": [deployment]}},
@@ -170,7 +168,7 @@ def embed_config() -> HarborEmbedClientConfig:
         {
             "embed": {
                 "default_model": "smoke",
-                "timeout_seconds": _timeout(),
+                "timeouts": {"request_seconds": _timeout()},
                 "security": _security("HARBOR_EMBED"),
                 "retry": _single_attempt_policy(),
                 "models": {
@@ -191,7 +189,7 @@ def rerank_config() -> HarborRerankClientConfig:
         {
             "rerank": {
                 "default_model": "smoke",
-                "timeout_seconds": _timeout(),
+                "timeouts": {"request_seconds": _timeout()},
                 "security": _security("HARBOR_SMOKE_RERANK"),
                 "retry": _single_attempt_policy(),
                 "models": {

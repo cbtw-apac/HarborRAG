@@ -43,9 +43,7 @@ def test_request_lifecycle_captures_identity_usage_and_safe_defaults() -> None:
     sink = RecordingTelemetry()
     privacy = PrivacyConfig(metadata_allowlist=frozenset({"collection_name"}))
     invocation = FakeInvocation([response_dict()])
-    client = sync_client(
-        _config(), invocation=invocation, telemetry=_dispatcher(sink, privacy)
-    )
+    client = sync_client(_config(), backend=invocation, telemetry=_dispatcher(sink, privacy))
 
     response = client.chat(
         [HarborChatMessage.user("private prompt")],
@@ -95,7 +93,7 @@ async def test_async_request_dispatches_start_and_completion() -> None:
     sink = RecordingTelemetry()
     client = async_client(
         _config(),
-        invocation=FakeInvocation([response_dict()]),
+        backend=FakeInvocation([response_dict()]),
         telemetry=_dispatcher(sink),
     )
 
@@ -119,7 +117,7 @@ def test_prompt_and_response_content_are_redacted_and_bounded() -> None:
     )
     client = sync_client(
         _config(),
-        invocation=FakeInvocation([response_dict("private response")]),
+        backend=FakeInvocation([response_dict("private response")]),
         telemetry=_dispatcher(sink, privacy),
     )
 
@@ -156,7 +154,7 @@ def test_tool_calls_capture_names_and_redact_json_arguments() -> None:
     privacy = PrivacyConfig(log_outputs=True, max_logged_content_length=10_000)
     client = sync_client(
         _config(),
-        invocation=FakeInvocation([raw]),
+        backend=FakeInvocation([raw]),
         telemetry=_dispatcher(sink, privacy),
     )
 
@@ -184,7 +182,7 @@ def test_retry_deployment_and_model_fallback_events_are_distinct() -> None:
     )
     client = sync_client(
         _config(deployments=2, fallback=True, attempts=2),
-        invocation=invocation,
+        backend=invocation,
         telemetry=_dispatcher(sink),
     )
 
@@ -201,9 +199,7 @@ def test_retry_deployment_and_model_fallback_events_are_distinct() -> None:
 def test_cache_events_report_miss_then_hit() -> None:
     sink = RecordingTelemetry()
     invocation = FakeInvocation([response_dict("cached")])
-    client = sync_client(
-        _config(cache=True), invocation=invocation, telemetry=_dispatcher(sink)
-    )
+    client = sync_client(_config(cache=True), backend=invocation, telemetry=_dispatcher(sink))
     request = [HarborChatMessage.user("hello")]
     kwargs = {"cacheable": True, "metadata": {"tenant_id": "tenant"}}
 
@@ -220,7 +216,7 @@ def test_errors_are_sanitized_before_dispatch() -> None:
     sink = RecordingTelemetry()
     client = sync_client(
         _config(),
-        invocation=FakeInvocation([RuntimeError("api_key=top-secret")]),
+        backend=FakeInvocation([RuntimeError("api_key=top-secret")]),
         telemetry=_dispatcher(sink),
     )
 
@@ -238,7 +234,7 @@ def test_stream_events_include_first_token_and_completion() -> None:
     raw = FakeSyncStream([stream_chunk("hello"), stream_chunk(finish_reason="stop")])
     client = sync_client(
         _config(),
-        invocation=FakeInvocation(streams=[raw]),
+        backend=FakeInvocation(streams=[raw]),
         telemetry=_dispatcher(sink),
     )
 
@@ -265,7 +261,7 @@ def test_stream_errors_emit_stream_and_request_failure_events() -> None:
     raw = FakeSyncStream([stream_chunk("hello"), ConnectionError("disconnected")])
     client = sync_client(
         _config(),
-        invocation=FakeInvocation(streams=[raw]),
+        backend=FakeInvocation(streams=[raw]),
         telemetry=_dispatcher(sink),
     )
 
@@ -285,7 +281,7 @@ def test_stream_event_suppression_retains_first_token_latency() -> None:
     )
     client = sync_client(
         _config(),
-        invocation=FakeInvocation(
+        backend=FakeInvocation(
             streams=[FakeSyncStream([stream_chunk("hello"), stream_chunk(finish_reason="stop")])]
         ),
         telemetry=dispatcher,
@@ -314,7 +310,7 @@ def test_telemetry_failures_are_isolated_unless_strict(
     dispatcher = TelemetryDispatcher(
         [FailingTelemetry(TelemetryEventType.REQUEST_COMPLETE)], config=config
     )
-    client = sync_client(_config(), invocation=invocation, telemetry=dispatcher)
+    client = sync_client(_config(), backend=invocation, telemetry=dispatcher)
 
     if raises:
         with pytest.raises(TelemetryDispatchError):
@@ -338,7 +334,7 @@ def test_client_respects_injected_telemetry_ownership(
     sink = RecordingTelemetry()
     client = sync_client(
         _config(),
-        invocation=FakeInvocation(),
+        backend=FakeInvocation(),
         telemetry=_dispatcher(sink),
         resource_ownership=ResourceOwnership.BORROWED,
         telemetry_ownership=ownership,

@@ -9,9 +9,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from harborrag_adapters.parsers.base import BaseParser
-from harborrag_adapters.parsers.engine import HarborParser
-from harborrag_adapters.parsers.pdf_engine import PdfBackend
+from harborrag_adapters.parsers import HarborParserFactory, HarborParserRegistry
+from harborrag_adapters.parsers.common.base import HarborParser
+from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.parsers.providers import (
     parser_factory,
@@ -47,7 +47,7 @@ class PdfBackendDefinition:
         *,
         parser_name: str,
         environment: Mapping[str, str] | None = None,
-    ) -> PdfBackend:
+    ) -> HarborPDFEngine:
         """Build the configured PDF backend with contextual error reporting."""
         spec = pdf_backend_spec(self.backend)
         if spec is None:  # Defensive for manually-created definitions.
@@ -101,7 +101,7 @@ class ParserDefinition:
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, Any] | None = None,
-    ) -> BaseParser[Any, Any]:
+    ) -> HarborParser:
         """Build the parser after merging YAML settings and code overrides."""
         factory = parser_factory(self.parser)
         if factory is None:  # Defensive for manually-created definitions.
@@ -159,7 +159,7 @@ class ParserCatalog:
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, Any] | None = None,
-    ) -> BaseParser[Any, Any]:
+    ) -> HarborParser:
         """Build one configured parser by application-level name."""
         return self.get(name).build(environment=environment, overrides=overrides)
 
@@ -167,7 +167,7 @@ class ParserCatalog:
         self,
         *,
         environment: Mapping[str, str] | None = None,
-    ) -> dict[str, BaseParser[Any, Any]]:
+    ) -> dict[str, HarborParser]:
         """Build all enabled parser definitions in their YAML order."""
         return {
             name: definition.build(environment=environment)
@@ -175,32 +175,40 @@ class ParserCatalog:
             if definition.enabled
         }
 
+    def build_registry(
+        self,
+        *,
+        environment: Mapping[str, str] | None = None,
+    ) -> HarborParserRegistry:
+        """Replace matching default families with enabled configured families.
+
+        Exactly one enabled definition may exist for a parser family. Families
+        not configured remain on the default factory-built registry.
+        """
+        configured: dict[str, tuple[str, HarborParser]] = {}
+        for config_name, parser in self.build_enabled(environment=environment).items():
+            existing = configured.get(parser.parser_name)
+            if existing is not None:
+                raise ParserConfigurationError(
+                    f"Enabled parser definitions {existing[0]!r} and "
+                    f"{config_name!r} both configure family {parser.parser_name!r}"
+                )
+            configured[parser.parser_name] = (config_name, parser)
+
+        parser_families: list[HarborParser] = []
+        defaults = HarborParserFactory().create_registry().families()
+        for default in defaults:
+            replacement = configured.pop(default.parser_name, None)
+            parser_families.append(default if replacement is None else replacement[1])
+        parser_families.extend(parser for _, parser in configured.values())
+        return HarborParserFactory().create_registry(families=parser_families)
+
     def build_harbor_parser(
         self,
         *,
         environment: Mapping[str, str] | None = None,
-    ) -> HarborParser:
-        """Replace matching default parsers with enabled configured parsers.
-
-        Exactly one enabled definition may exist for a stable parser type. All
-        parser types not configured remain on ``HarborParser``'s default stack.
-        """
-        configured: dict[str, tuple[str, BaseParser[Any, Any]]] = {}
-        for config_name, parser in self.build_enabled(environment=environment).items():
-            existing = configured.get(parser.name)
-            if existing is not None:
-                raise ParserConfigurationError(
-                    f"Enabled parser definitions {existing[0]!r} and "
-                    f"{config_name!r} both configure parser {parser.name!r}"
-                )
-            configured[parser.name] = (config_name, parser)
-
-        parser_stack: list[BaseParser[Any, Any]] = []
-        for default in HarborParser.default_parsers():
-            replacement = configured.pop(default.name, None)
-            parser_stack.append(default if replacement is None else replacement[1])
-        parser_stack.extend(parser for _, parser in configured.values())
-        return HarborParser(parser_stack)
+    ) -> HarborParserRegistry:
+        return self.build_registry(environment=environment)
 
 
 def _required_environment_value(

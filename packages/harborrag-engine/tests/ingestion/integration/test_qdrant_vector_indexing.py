@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+from time import perf_counter
+from uuid import uuid4
+
 import pytest
 
 from harborrag_adapters.repositories.vector import HarborVectorDBClient
@@ -77,3 +81,63 @@ async def test_vector_indexing_round_trips_through_embedded_qdrant() -> None:
                     config.vector_collection,
                     context=request.context,
                 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.performance
+async def test_vector_indexing_throughput_against_qdrant_service() -> None:
+    """Measure a representative staged batch against the real Qdrant service."""
+
+    pytest.importorskip("qdrant_client")
+    if os.getenv("HARBORRAG_QDRANT_INTEGRATION") != "1":
+        pytest.skip("set HARBORRAG_QDRANT_INTEGRATION=1 for the live service test")
+
+    record_count = int(os.getenv("HARBORRAG_INDEXING_PERFORMANCE_RECORDS", "128"))
+    maximum_seconds = float(os.getenv("HARBORRAG_INDEXING_MAX_SECONDS", "30"))
+    references = tuple(
+        make_reference(f"logical-{index}", f"revision-{index}", f"hash-{index}", ordinal=index)
+        for index in range(record_count)
+    )
+    manifest = make_manifest(references, artifact_revision_id="performance-revision")
+    records = tuple(
+        make_record(reference, artifact_revision_id="performance-revision")
+        for reference in references
+    )
+    collection = f"harborrag_indexing_performance_{uuid4().hex}"
+    config = make_config(vector_collection=collection)
+    request = make_index_request(proposed=manifest, records=records, config=config)
+    options: dict[str, object] = {
+        "deployment": "remote",
+        "url": os.getenv("HARBORRAG_QDRANT_URL", "http://127.0.0.1:6333"),
+        "prefer_grpc": False,
+    }
+    if api_key := os.getenv("HARBORRAG_QDRANT_API_KEY"):
+        options["api_key"] = api_key
+    repository = HarborVectorDBClient.default().create(
+        backend="qdrant",
+        instance_name="engine-indexing-performance",
+        options=options,
+    )
+    service = VectorIndexService(
+        embed_client=FakeEmbedClient(),
+        vector_repository=repository,
+        token_counter=CharacterCounter(),
+    )
+
+    async with repository:
+        try:
+            started = perf_counter()
+            result = await service.stage(request)
+            duration = perf_counter() - started
+            loaded = await repository.get(
+                collection,
+                [point.id for point in result.plan.points],
+                context=request.context,
+            )
+
+            assert result.validation.valid
+            assert len(loaded) == record_count
+            assert duration < maximum_seconds
+        finally:
+            if await repository.collection_exists(collection, context=request.context):
+                await repository.delete_collection(collection, context=request.context)

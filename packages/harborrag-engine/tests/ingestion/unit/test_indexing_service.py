@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from harborrag_engine.ingestion.indexing import (
@@ -135,3 +137,31 @@ async def test_repeated_combined_indexing_does_not_create_duplicates() -> None:
     assert len(vector_repository.points) == vector_count
     assert len(graph_repository.nodes) == node_count
     assert len(graph_repository.edges) == edge_count
+
+
+@pytest.mark.asyncio
+async def test_partial_retry_resumes_only_the_failed_provider_side() -> None:
+    embed_client = FakeEmbedClient()
+    vector_repository = FakeVectorRepository()
+    request = make_request()
+    first = await make_service(
+        embed_client,
+        vector_repository,
+        FakeGraphRepository(fail=True),
+    ).index(request)
+    embed_requests = len(embed_client.requests)
+    vector_upserts = vector_repository.upsert_calls
+
+    second = await make_service(
+        embed_client,
+        vector_repository,
+        FakeGraphRepository(),
+    ).index(replace(request, resume_result=first))
+
+    assert first.status is IndexingStatus.PARTIAL
+    assert first.failures[0].component == "graph"
+    assert first.failures[0].retryable is True
+    assert second.status is IndexingStatus.SUCCEEDED
+    assert second.failures == ()
+    assert len(embed_client.requests) == embed_requests
+    assert vector_repository.upsert_calls == vector_upserts

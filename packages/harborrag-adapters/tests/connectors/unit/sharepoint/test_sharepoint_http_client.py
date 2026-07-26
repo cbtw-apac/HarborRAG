@@ -176,8 +176,9 @@ def test_sharepoint_request_raises_fetch_error_after_exhausting_connection_error
 
     client = sharepoint_client(max_retries=0)
     client.session = FakeSession(responses=[requests.ConnectionError("boom")])
-    with pytest.raises(FetchError, match="boom"):
+    with pytest.raises(FetchError, match="Microsoft Graph request failed") as error:
         client.get_json("sites/x")
+    assert "boom" not in str(error.value)
 
 
 def test_sharepoint_config_rejects_negative_max_retries():

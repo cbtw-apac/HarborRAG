@@ -7,17 +7,19 @@ from typing import Any, ClassVar
 
 import pytest
 
-from harborrag_adapters.parsers import (
+from harborrag_adapters.parsers import HarborParserFactory, HarborParserRegistry
+from harborrag_adapters.parsers.common.family import HarborSingleEngineFamilyParser
+from harborrag_adapters.parsers.common.resources import read_parse_input_text
+from harborrag_adapters.parsers.compat import (
     PARSER_LOGGER_NAME,
     BaseParser,
-    HarborParser,
     HtmlParser,
     UnsupportedFormatError,
     get_parser_logger,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.input_loading import read_parse_input_text
-from harborrag_adapters.parsers.pdf_engine.content_extraction import content_from_any
+from harborrag_adapters.parsers.markup.parser import HarborMarkupParser
+from harborrag_adapters.parsers.pdf.normalization import content_from_any
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
@@ -56,15 +58,26 @@ class BuggyParser(FakeParser):
         raise TypeError("implementation bug")
 
 
-def test_parser_package_smoke_imports_and_default_registry():
-    parser = HarborParser()
+class FakeFamily(HarborSingleEngineFamilyParser):
+    parser_name = "fake"
 
-    assert parser.create("markdown").name == "markdown"
-    assert parser.create("csv").name == "csv"
-    assert parser.create("pdf").name == "pdf"
-    assert parser.create("text").name == "text"
-    assert parser.parser_for(ParseInput(content="# Hi", filename="doc.md")).name == ("markdown")
-    assert parser.parser_for(ParseInput(content=b"%PDF", filename="doc.pdf")).name == ("pdf")
+    def __init__(self, engine: FakeParser | None = None) -> None:
+        super().__init__((engine or FakeParser(),))
+
+
+class OtherFakeFamily(FakeFamily):
+    parser_name = "other_fake"
+
+
+def test_parser_package_smoke_imports_and_default_registry():
+    parser = HarborParserFactory().create_registry()
+
+    assert parser.create("markup").parser_name == "markup"
+    assert parser.create("spreadsheet").parser_name == "spreadsheet"
+    assert parser.create("pdf").parser_name == "pdf"
+    assert parser.create("text").parser_name == "text"
+    assert parser.parser_for(ParseInput(content="# Hi", filename="doc.md")).parser_name == "markup"
+    assert parser.parser_for(ParseInput(content=b"%PDF", filename="doc.pdf")).parser_name == "pdf"
     assert get_parser_logger().name == PARSER_LOGGER_NAME
     assert get_parser_logger("Registry").name == ("harborrag.adapters.parsers.registry")
     assert any(isinstance(handler, logging.NullHandler) for handler in get_parser_logger().handlers)
@@ -72,16 +85,17 @@ def test_parser_package_smoke_imports_and_default_registry():
 
 @pytest.mark.whitebox
 def test_registry_indexes_routes_and_rejects_duplicate_ownership():
-    registry = HarborParser([])
+    registry = HarborParserRegistry()
     fake = FakeParser()
-    registry.register(fake)
+    family = FakeFamily(fake)
+    registry.register_family(family)
 
-    assert registry._by_name["fake"] is fake
-    assert registry._by_suffix[".fake"] is fake
-    assert registry._by_content_type["application/x-fake"] is fake
+    assert registry._families["fake"]() is family
+    assert registry._extensions[".fake"]() is family
+    assert registry._mime_types["application/x-fake"]() is family
 
     with pytest.raises(ValueError, match="already registered"):
-        registry.register(OtherFakeParser())
+        registry.register_family(OtherFakeFamily(OtherFakeParser()))
 
     registry.unregister("fake")
     assert registry.parser_for(ParseInput(content="hello", filename="doc.fake")) is None
@@ -89,19 +103,22 @@ def test_registry_indexes_routes_and_rejects_duplicate_ownership():
 
 @pytest.mark.whitebox
 def test_registry_rejects_conflicting_suffix_and_content_type_routes():
-    registry = HarborParser([FakeParser(), HtmlParser()])
+    registry = HarborParserRegistry()
+    registry.register_family(FakeFamily())
+    registry.register_family(HarborMarkupParser((HtmlParser(),)))
     ambiguous = ParseInput(
         content="<p>hello</p>",
         filename="doc.fake",
         content_type="text/html",
     )
 
-    with pytest.raises(UnsupportedFormatError, match="Conflicting parser routes"):
+    with pytest.raises(UnsupportedFormatError, match="Conflicting parser-family routes"):
         registry.parse(ambiguous)
 
 
 def test_unexpected_parser_bug_is_not_normalized_or_skipped():
-    registry = HarborParser([BuggyParser()])
+    registry = HarborParserRegistry()
+    registry.register_family(FakeFamily(BuggyParser()))
     parse_input = ParseInput(content="data", filename="doc.buggy")
 
     with pytest.raises(TypeError, match="implementation bug"):
@@ -144,7 +161,8 @@ def test_content_from_any_bails_out_on_pathologically_deep_nesting():
 @pytest.mark.graybox
 def test_parser_registry_logs_route_and_result(caplog):
     caplog.set_level(logging.DEBUG, logger=PARSER_LOGGER_NAME)
-    registry = HarborParser([FakeParser()])
+    registry = HarborParserRegistry()
+    registry.register_family(FakeFamily())
 
     document = registry.parse(
         ParseInput(
@@ -158,7 +176,7 @@ def test_parser_registry_logs_route_and_result(caplog):
     started = next(record for record in caplog.records if record.msg.startswith("Parsing"))
     finished = next(record for record in caplog.records if record.msg.startswith("Parsed"))
     assert started.name == "harborrag.adapters.parsers.registry"
-    assert started.getMessage() == "Parsing doc.fake with fake via suffix=.fake"
+    assert started.getMessage() == ("Parsing doc.fake with fake via mime_type=application/x-fake")
     assert finished.getMessage() == ("Parsed doc.fake with parser fake content_chars=5 elements=1")
 
 

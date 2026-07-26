@@ -226,7 +226,6 @@ class ChunkingService(BaseChunker):
             next_chunk_id=next_id,
         )
         return ChunkRecord(
-            id=ChunkId(identity.chunk_revision_id),
             logical_chunk_id=ChunkId(identity.logical_chunk_id),
             chunk_revision_id=ChunkId(identity.chunk_revision_id),
             tenant_id=TenantId(request.tenant_id),
@@ -234,7 +233,6 @@ class ChunkingService(BaseChunker):
             document_version_id=DocumentVersionId(request.artifact_revision_id),
             artifact_id=request.artifact_id,
             artifact_revision_id=request.artifact_revision_id,
-            chunk_index=ordinal,
             ordinal=ordinal,
             role=candidate.role,
             content=candidate.content,
@@ -242,16 +240,6 @@ class ChunkingService(BaseChunker):
             token_count=self._token_counter.count(candidate.content),
             source_span=source_span,
             context=context,
-            structural_path=candidate.structural_path,
-            start_offset=span.start_offset,
-            end_offset=span.end_offset,
-            page_start=span.page_start,
-            page_end=span.page_end,
-            start_line=span.start_line,
-            end_line=span.end_line,
-            previous_chunk_id=previous_id,
-            next_chunk_id=next_id,
-            source_element_ids=span.element_ids,
             metadata={
                 **candidate.metadata,
                 "boundary_kind": candidate.boundary_kind.value,

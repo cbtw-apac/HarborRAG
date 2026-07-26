@@ -10,7 +10,7 @@ from harborrag_core.models.chat import (
     HarborChatResponse,
     HarborChatStreamChunk,
 )
-from harborrag_core.models.protocols import AsyncHarborChatClientProtocol
+from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
 
 from .batch_client import AsyncChatBatchMixin
 from .client_runtime import ChatClientRuntime

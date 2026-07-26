@@ -88,6 +88,7 @@ class SqlJobRepository:
                 )
             )
 
+
 @dataclass(slots=True)
 class SqlActivityRepository:
     """ActivityRepositoryPort over the append-only activity table."""

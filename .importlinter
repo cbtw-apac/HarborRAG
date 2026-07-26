@@ -6,7 +6,7 @@ root_packages =
     harborrag_engine
     harborrag_runtime
     harborrag_app
-    harborrag_mcp
+    harborrag_mcp_server
 
 [importlinter:contract:1]
 name = Core has no outward dependencies
@@ -18,7 +18,7 @@ forbidden_modules =
     harborrag_adapters
     harborrag_engine
     harborrag_app
-    harborrag_mcp
+    harborrag_mcp_server
     harborrag_runtime
 
 [importlinter:contract:2]
@@ -30,7 +30,7 @@ forbidden_modules =
     harborrag
     harborrag_engine
     harborrag_app
-    harborrag_mcp
+    harborrag_mcp_server
     harborrag_runtime
 
 [importlinter:contract:3]
@@ -41,5 +41,37 @@ source_modules =
 forbidden_modules =
     harborrag
     harborrag_app
-    harborrag_mcp
+    harborrag_mcp_server
     harborrag_runtime
+
+[importlinter:contract:4]
+name = Runtime never depends on transports
+type = forbidden
+source_modules =
+    harborrag_runtime
+forbidden_modules =
+    harborrag
+    harborrag_app
+    harborrag_mcp_server
+
+[importlinter:contract:5]
+name = App never depends on adapters or MCP
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    harborrag_app
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_mcp_server
+
+[importlinter:contract:6]
+name = MCP never depends on adapters or app
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    harborrag_mcp_server
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_app

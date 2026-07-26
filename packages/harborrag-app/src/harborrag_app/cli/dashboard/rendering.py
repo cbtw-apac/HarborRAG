@@ -106,6 +106,16 @@ def attention_rows(
 
 def message(snapshot: DashboardSnapshot, *, refresh_seconds: float) -> Text:
     if snapshot.status in TERMINAL_STATUSES:
+        # A workflow that crashed still self-reports "running", so name the
+        # execution status that actually settled the run; otherwise the paused
+        # polling would look like a dashboard fault.
+        if snapshot.workflow_status != snapshot.status:
+            return Text(
+                f"Temporal reports the execution {snapshot.execution_status} while the "
+                f"workflow last recorded {snapshot.workflow_status}. Polling is paused; "
+                "press F to refresh.",
+                style="dim",
+            )
         return Text(
             "Terminal state reached. Automatic polling is paused; press F to refresh.",
             style="dim",

@@ -222,42 +222,6 @@ class ModelClientConfig(BaseModel):
                 raise ValueError("Redis singleflight requires Redis response caching")
         return self
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_timeout_fields(cls, raw: Any) -> Any:
-        """Accept legacy flat timeout fields while keeping one typed timeout schema."""
-
-        if not isinstance(raw, Mapping):
-            return raw
-        data = dict(raw)
-        legacy_fields = {
-            "timeout_seconds": "request_seconds",
-            "stream_timeout_seconds": "stream_seconds",
-        }
-        supplied_legacy = [name for name in legacy_fields if name in data]
-        if "timeouts" in data and supplied_legacy:
-            fields = ", ".join(supplied_legacy)
-            raise ValueError(f"timeouts cannot be combined with legacy fields: {fields}")
-        if supplied_legacy:
-            data["timeouts"] = {
-                target: data.pop(source)
-                for source, target in legacy_fields.items()
-                if source in data
-            }
-        return data
-
-    @property
-    def timeout_seconds(self) -> float:
-        """Expose the request timeout for existing runtime consumers."""
-
-        return self.timeouts.request_seconds
-
-    @property
-    def stream_timeout_seconds(self) -> float | None:
-        """Expose the optional stream timeout for chat runtime consumers."""
-
-        return self.timeouts.stream_seconds
-
     def sanitized_dump(self) -> dict[str, Any]:
         """Return a serialization-safe view with secrets and sensitive fields redacted."""
 

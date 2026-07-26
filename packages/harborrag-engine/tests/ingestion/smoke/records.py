@@ -53,7 +53,6 @@ def build_indexing_request(config: IndexingConfig) -> IndexingRequest:
         path = ("Indexing smoke", f"Section {ordinal + 1}")
         records.append(
             ChunkRecord(
-                id=revision_id,
                 logical_chunk_id=logical_id,
                 chunk_revision_id=revision_id,
                 tenant_id=tenant_id,
@@ -61,7 +60,6 @@ def build_indexing_request(config: IndexingConfig) -> IndexingRequest:
                 document_version_id=artifact_revision_id,
                 artifact_id=artifact_id,
                 artifact_revision_id=artifact_revision_id,
-                chunk_index=ordinal,
                 ordinal=ordinal,
                 role="content",
                 content=content,
@@ -72,9 +70,6 @@ def build_indexing_request(config: IndexingConfig) -> IndexingRequest:
                     title="HarborRAG indexing smoke",
                     structural_path=path,
                 ),
-                structural_path=path,
-                start_line=ordinal + 1,
-                end_line=ordinal + 1,
                 metadata={"source_kind": "document", "smoke_test": True},
             )
         )

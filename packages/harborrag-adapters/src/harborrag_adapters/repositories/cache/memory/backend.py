@@ -51,11 +51,7 @@ class MemoryCacheBackend(HarborCacheBackend):
             family=StorageFamily.CACHE,
             backend="memory",
             instance_name=self._state.instance_name,
-            status=(
-                HealthStatus.HEALTHY
-                if self._state.connected
-                else HealthStatus.UNKNOWN
-            ),
+            status=(HealthStatus.HEALTHY if self._state.connected else HealthStatus.UNKNOWN),
             details={
                 "entries": len(self._state.entries),
                 "locks": len(self._state.locks),

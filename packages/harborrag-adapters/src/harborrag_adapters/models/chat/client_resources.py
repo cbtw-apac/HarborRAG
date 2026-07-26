@@ -13,7 +13,7 @@ class ChatClientResourcesMixin:
     """Build ordered lifecycle resources for the concrete chat client."""
 
     _health_monitor: Any
-    _invocation: Any
+    _backend: Any
     _resource_ownership: ResourceOwnership
     _execution: Any
     _telemetry: Any
@@ -27,7 +27,7 @@ class ChatClientResourcesMixin:
             resources.append(LifecycleResource(self._health_monitor.close))
         resources.extend(
             (
-                LifecycleResource(self._invocation.close, self._resource_ownership),
+                LifecycleResource(self._backend.close, self._resource_ownership),
                 LifecycleResource(
                     self._execution.cache.backend.close,
                     (
@@ -62,7 +62,7 @@ class ChatClientResourcesMixin:
             resources.append(AsyncLifecycleResource(self._health_monitor.aclose))
         resources.extend(
             (
-                AsyncLifecycleResource(self._invocation.aclose, self._resource_ownership),
+                AsyncLifecycleResource(self._backend.aclose, self._resource_ownership),
                 AsyncLifecycleResource(
                     self._execution.cache.backend.aclose,
                     (

@@ -9,11 +9,7 @@ def record_pending(
     pending_items: list[PendingResolution],
     pending: PendingResolution,
 ) -> list[PendingResolution]:
-    retained = [
-        item
-        for item in pending_items
-        if item.artifact_id != pending.artifact_id
-    ]
+    retained = [item for item in pending_items if item.artifact_id != pending.artifact_id]
     retained.append(pending)
     return retained
 

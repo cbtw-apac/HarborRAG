@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.normalized_document import Document, DocumentRelation
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument

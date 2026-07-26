@@ -3,13 +3,25 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEMPORAL_ENV_FILE="${TEMPORAL_ENV_FILE:-env/.env.temporal}"
+DATABASE_ENV_FILE="${DATABASE_ENV_FILE:-env/.env.database}"
 
 if [[ ! -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" ]]; then
+    umask 077
     mkdir -p "$(dirname "${ROOT_DIR}/${TEMPORAL_ENV_FILE}")"
     cp \
         "${ROOT_DIR}/env-example/.env.temporal.example" \
         "${ROOT_DIR}/${TEMPORAL_ENV_FILE}"
+    chmod 600 "${ROOT_DIR}/${TEMPORAL_ENV_FILE}"
     echo "Created ${TEMPORAL_ENV_FILE}; review its local credentials before reuse."
+fi
+
+if [[ ! -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" ]]; then
+    echo "Temporal reuses the deployed database stack but its environment file is missing:" >&2
+    echo "  ${DATABASE_ENV_FILE}" >&2
+    echo "Create it and start the database stack first:" >&2
+    echo "  cp env-example/.env.database.example ${DATABASE_ENV_FILE}" >&2
+    echo "  DATABASE_ENV_FILE=${DATABASE_ENV_FILE} scripts/deployment/database_up.sh" >&2
+    exit 2
 fi
 
 ensure_volume() {
@@ -19,29 +31,19 @@ ensure_volume() {
     fi
 }
 
-sync_postgresql_password() {
-    # The postgres image only applies POSTGRES_PASSWORD when it initializes an
-    # empty data directory. Keep the existing role aligned with the env file
-    # when the external volume survives a container recreation.
-    docker compose "${compose_args[@]}" up --detach --wait postgresql
-    docker compose "${compose_args[@]}" exec -T -u postgres postgresql \
-        sh -ec 'psql \
-            -v ON_ERROR_STOP=1 \
-            -U "$POSTGRES_USER" \
-            -d postgres \
-            -v role_name="$POSTGRES_USER" \
-            -v role_password="$POSTGRES_PASSWORD" <<'"'"'SQL'"'"'
-ALTER ROLE :"role_name" PASSWORD :'"'"'role_password'"'"';
-SQL'
-}
-
-ensure_volume harborrag-temporal-postgresql-data
-
 compose_args=(
+    --env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}"
     --env-file "${ROOT_DIR}/${TEMPORAL_ENV_FILE}"
     --file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.yml"
 )
 worker_scale_args=()
+
+if ! docker network inspect harborrag-data-network >/dev/null 2>&1; then
+    echo "Temporal requires the existing PostgreSQL service on harborrag-data-network." >&2
+    echo "Start the database stack first:" >&2
+    echo "  DATABASE_ENV_FILE=env/.env.database scripts/deployment/database_up.sh" >&2
+    exit 2
+fi
 
 if [[ -v TEMPORAL_START_WORKER ]]; then
     start_worker="${TEMPORAL_START_WORKER}"
@@ -53,12 +55,6 @@ else
 fi
 
 if [[ "${start_worker:-0}" == "1" ]]; then
-    if ! docker network inspect harborrag-data-network >/dev/null 2>&1; then
-        echo "The Temporal worker requires harborrag-data-network." >&2
-        echo "Start the database stack first:" >&2
-        echo "  DATABASE_ENV_FILE=env/.env.database scripts/deployment/database_up.sh" >&2
-        exit 2
-    fi
     ensure_volume harborrag-model-cache
     compose_args+=(--profile worker)
 
@@ -77,7 +73,5 @@ if [[ "${start_worker:-0}" == "1" ]]; then
     fi
     worker_scale_args+=(--scale "temporal-worker=${worker_replicas}")
 fi
-
-sync_postgresql_password
 
 docker compose "${compose_args[@]}" up --build --detach "${worker_scale_args[@]}"

@@ -101,9 +101,7 @@ class IndexingConfig:
             {
                 "embedding_batch_size": self.embedding_batch_size,
                 "embedding_concurrency": self.embedding_concurrency,
-                "embedding_configuration_fingerprint": (
-                    self.embedding_configuration_fingerprint
-                ),
+                "embedding_configuration_fingerprint": (self.embedding_configuration_fingerprint),
                 "include_chunk_content_in_vector_payload": (
                     self.include_chunk_content_in_vector_payload
                 ),

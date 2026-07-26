@@ -104,18 +104,14 @@ def test_updated_after_filter_uses_file_mtime(tmp_path: Path):
 
 def test_load_raises_fetch_error_on_read_failure(tmp_path: Path, monkeypatch):
     path = write_file(tmp_path / "secret.md")
-    resolved_path = os.path.realpath(str(path))
-    original_open = Path.open
-
-    def maybe_raise(self, *args, **kwargs):
-        if os.path.realpath(str(self)) == resolved_path:
-            raise OSError("permission denied")
-        return original_open(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "open", maybe_raise)
     connector = LocalFileConnector(config(tmp_path))
 
-    with pytest.raises(FetchError, match="Could not read local file"):
+    def fail_read(*_args, **_kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(connector._files, "_read_descriptor", fail_read)
+
+    with pytest.raises(FetchError, match="Could not securely open local file"):
         connector.load(
             SourceRecord(
                 path.resolve().as_uri(),
@@ -124,6 +120,22 @@ def test_load_raises_fetch_error_on_read_failure(tmp_path: Path, monkeypatch):
                 metadata={"path": str(path.resolve())},
             )
         )
+
+
+def test_load_rejects_parent_directory_replaced_by_symlink(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    original_dir = source_dir / "docs"
+    path = write_file(original_dir / "guide.md", b"safe")
+    outside_dir = tmp_path / "outside"
+    write_file(outside_dir / "guide.md", b"secret")
+    connector = LocalFileConnector(config(source_dir))
+    record = connector._files.record_for_path(path)
+
+    original_dir.rename(source_dir / "docs-original")
+    original_dir.symlink_to(outside_dir, target_is_directory=True)
+
+    with pytest.raises(FetchError, match="Could not securely open local file"):
+        connector.load(record)
 
 
 def test_load_by_paths_loads_each_file(tmp_path: Path):

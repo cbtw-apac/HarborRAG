@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.temporal.retry import ActivityRetryConfig
@@ -12,6 +14,16 @@ from harborrag_runtime.temporal.task_queues import TaskQueueConfig
 
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
+
+
+def _is_loopback(host: str) -> bool:
+    normalized = host.rstrip(".").lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,10 +60,22 @@ class TemporalConnectionConfig:
     identity: str | None = None
     api_key: str | None = field(default=None, repr=False)
     tls: TemporalTLSConfig = TemporalTLSConfig()
+    allow_insecure_remote: bool = False
 
     def __post_init__(self) -> None:
         if not self.target.strip() or not self.namespace.strip():
             raise RuntimeConfigurationError("Temporal target and namespace must be non-empty")
+        host = urlsplit(f"//{self.target}").hostname
+        if host is None:
+            raise RuntimeConfigurationError("Temporal target must include a valid host")
+        loopback = _is_loopback(host)
+        if self.api_key and not self.tls.enabled:
+            raise RuntimeConfigurationError("Temporal api_key requires TLS")
+        if not self.tls.enabled and not loopback and not self.allow_insecure_remote:
+            raise RuntimeConfigurationError(
+                "remote Temporal requires TLS; set allow_insecure_remote only "
+                "for an explicitly trusted development network"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +152,7 @@ class TemporalRuntimeConfig:
                 identity=settings.temporal_identity,
                 api_key=settings.temporal_api_key,
                 tls=TemporalTLSConfig(enabled=settings.temporal_tls),
+                allow_insecure_remote=settings.temporal_allow_insecure_remote,
             ),
             worker=WorkerConfig(identity=settings.temporal_identity),
             partition_size=settings.ingestion_partition_size,

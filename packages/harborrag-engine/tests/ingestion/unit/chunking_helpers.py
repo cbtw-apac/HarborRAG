@@ -14,8 +14,8 @@ from harborrag_core.contracts.chunking import (
     TextRefiner,
     TextSplit,
 )
-from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.normalized_document import Document
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_engine.ingestion.chunking import (
     ChunkingConfig,

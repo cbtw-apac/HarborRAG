@@ -25,6 +25,7 @@ from harborrag_runtime.temporal.workflows.execution import (
     execute_artifact_stage,
     execute_resolution,
 )
+from harborrag_runtime.temporal.workflows.failures import durable_failure
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -99,14 +100,14 @@ class ArtifactIngestionWorkflow:
                         ),
                     )
         except ActivityError as exc:
-            cause = exc.cause
+            error_type, error_message = durable_failure(exc)
             return ArtifactResult(
                 artifact_id=request.artifact.artifact_id,
                 status=ArtifactStatus.FAILED,
                 artifact_revision_id=self._state.artifact_revision_id,
                 generation_id=request.generation_id,
-                error_type=type(cause).__name__ if cause is not None else type(exc).__name__,
-                error_message=str(cause or exc)[:512],
+                error_type=error_type,
+                error_message=error_message,
             )
 
         return ArtifactResult(
@@ -118,11 +119,11 @@ class ArtifactIngestionWorkflow:
         )
 
     async def _execute_current_stage(self) -> ArtifactActivityResult:
-        assert self._input is not None and self._state is not None
-        stage = self._state.stage
+        workflow_input, state = self._require_context()
+        stage = state.stage
         if stage is ArtifactStage.PARSE:
             activity_class = (
-                ActivityClass.OCR if self._input.artifact.requires_ocr else ActivityClass.PARSER
+                ActivityClass.OCR if workflow_input.artifact.requires_ocr else ActivityClass.PARSER
             )
             name = "harborrag.parse_artifact"
         else:
@@ -131,17 +132,22 @@ class ArtifactIngestionWorkflow:
             name,
             self._activity_input(),
             activity_class,
-            self._input.options,
+            workflow_input.options,
         )
 
     def _activity_input(self) -> ArtifactActivityInput:
-        assert self._input is not None and self._state is not None
+        workflow_input, state = self._require_context()
         return ArtifactActivityInput(
-            run_id=self._input.run_id,
-            tenant_id=self._input.tenant_id,
-            manifest_id=self._input.manifest_id,
-            state=self._state,
+            run_id=workflow_input.run_id,
+            tenant_id=workflow_input.tenant_id,
+            manifest_id=workflow_input.manifest_id,
+            state=state,
         )
+
+    def _require_context(self) -> tuple[ArtifactWorkflowInput, ArtifactStageState]:
+        if self._input is None or self._state is None:
+            raise RuntimeError("artifact workflow has not been initialized")
+        return self._input, self._state
 
     async def _notify_parent(self, signal: str, value: object) -> None:
         parent = workflow.info().parent
@@ -167,14 +173,14 @@ class ArtifactIngestionWorkflow:
 
     @workflow.update
     async def submit_resolution(self, decision: ResolutionDecision) -> ResolutionReceipt:
-        assert self._input is not None and self._state is not None
+        workflow_input, state = self._require_context()
         decision = replace(decision, submitted_at=workflow.now().isoformat())
         receipt = await execute_resolution(
             self._activity_input(),
             decision,
-            self._input.options,
+            workflow_input.options,
         )
-        self._state = replace(self._state, stage=receipt.resume_stage)
+        self._state = replace(state, stage=receipt.resume_stage)
         self._pending = None
         self._status = ArtifactStatus.RUNNING
         await self._notify_parent("artifact_resolution_completed", decision.artifact_id)

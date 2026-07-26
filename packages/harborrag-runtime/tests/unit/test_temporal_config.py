@@ -39,6 +39,8 @@ def test_retry_policies_differ_by_activity_class() -> None:
 def test_workflow_options_validate_bounded_concurrency() -> None:
     with pytest.raises(ValueError, match="positive"):
         WorkflowOptions(artifact_concurrency=0)
+    with pytest.raises(ValueError, match="positive"):
+        WorkflowOptions(max_artifacts=0)
 
 
 def test_tls_rejects_partial_client_credentials() -> None:

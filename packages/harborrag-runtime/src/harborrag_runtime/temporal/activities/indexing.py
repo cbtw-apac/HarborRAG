@@ -7,6 +7,7 @@ from dataclasses import replace
 from temporalio import activity
 
 from harborrag_engine.ingestion.indexing.schemas import IndexingStatus
+from harborrag_runtime.temporal.activities.processing import _run_async_with_heartbeats
 from harborrag_runtime.temporal.activities.schemas import ActivityTelemetryContext
 from harborrag_runtime.temporal.activities.telemetry import record_activity
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
@@ -38,12 +39,22 @@ class IndexingActivities:
         if chunking_ref is None:
             raise ValueError("index activity requires chunking_result_ref")
 
-        activity.heartbeat(HeartbeatProgress(stage="index", completed=0, total=1))
-        chunking = await self._dependencies.state.load_chunking_result(chunking_ref)
+        progress = HeartbeatProgress(stage="index", completed=0, total=1)
+        activity.heartbeat(progress)
+        chunking = await self._dependencies.state.load_chunking_result(
+            chunking_ref,
+            request.tenant_id,
+        )
         index_request = await self._dependencies.state.indexing_request(request, chunking)
-        result = await self._dependencies.indexer.index(index_request)
+        result = await _run_async_with_heartbeats(
+            self._dependencies.indexer.index(index_request),
+            heartbeat=progress,
+        )
         result_ref = await self._dependencies.state.persist_indexing_result(request, result)
-        if result.status is IndexingStatus.FAILED:
+        failures = getattr(result, "failures", ())
+        if any(failure.retryable for failure in failures) or (
+            not failures and result.status is IndexingStatus.FAILED
+        ):
             activity.heartbeat(
                 HeartbeatProgress(
                     stage="index",
@@ -52,9 +63,7 @@ class IndexingActivities:
                     checkpoint_ref=result_ref,
                 )
             )
-            raise RuntimeError(
-                f"indexing generation failed; persisted result reference: {result_ref}"
-            )
+            raise RuntimeError("retryable indexing provider failure")
         status = (
             ArtifactStatus.RUNNING
             if result.status is IndexingStatus.SUCCEEDED
@@ -68,7 +77,14 @@ class IndexingActivities:
         output = ArtifactActivityResult(
             status=status,
             state=state,
-            error_type=(None if status is ArtifactStatus.RUNNING else result.status.value),
+            error_type=(
+                None
+                if status is ArtifactStatus.RUNNING
+                else "indexing_validation_failed"
+                if failures
+                and all(failure.error_type == "validation_failed" for failure in failures)
+                else "indexing_failed"
+            ),
             error_message=(
                 None if status is ArtifactStatus.RUNNING else "; ".join(result.validation_errors)
             ),

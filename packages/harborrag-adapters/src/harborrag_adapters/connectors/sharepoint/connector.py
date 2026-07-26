@@ -50,6 +50,13 @@ class SharePointConnector(BaseConnector):
         self.client = client or _RequestsGraphClient(config)
         self._drive = SharePointDriveAPI(self.client, config)
 
+    def close(self) -> None:
+        """Release the client session when the connector owns one."""
+
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Discover SharePoint drive-item records from IDs or folder traversal."""
         query = query or ConnectorQuery()

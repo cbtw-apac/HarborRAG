@@ -6,7 +6,7 @@ from harborrag_core.schemas.ids import TenantId
 from harborrag_core.schemas.vector import VectorPoint
 
 from ..config import IndexingConfig, RemovedVectorPolicy
-from ..schemas import ChunkDiffResult, ChunkDiffStatus, EmbeddingRun
+from ..schemas import ChunkDiffResult, ChunkDiffStatus, EmbeddedChunk, EmbeddingRun
 from .payload import VectorPayloadBuilder
 from .schemas import VectorMutation, VectorMutationAction, VectorMutationPlan
 
@@ -43,13 +43,14 @@ class VectorMutationPlanner:
 
         self._payload_builder = payload_builder or VectorPayloadBuilder()
 
-    def plan(
+    def plan(  # noqa: PLR0913
         self,
         *,
         generation_id: str,
         tenant_id: str,
         diff: ChunkDiffResult,
         embeddings: EmbeddingRun,
+        reused: tuple[EmbeddedChunk, ...] = (),
         config: IndexingConfig,
         active_generation_id: str | None = None,
         active_embedding_configuration_fingerprint: str | None = None,
@@ -69,6 +70,14 @@ class VectorMutationPlanner:
         }
         if set(by_revision) != expected:
             raise ValueError("embedding run does not exactly satisfy the chunk diff")
+        reused_by_revision = {str(item.record.chunk_revision_id): item for item in reused}
+        expected_reused = {
+            entry.current.chunk_revision_id
+            for entry in diff.for_refresh
+            if entry.current is not None
+        }
+        if set(reused_by_revision) != expected_reused:
+            raise ValueError("reused vectors do not exactly satisfy metadata refreshes")
 
         mutations: list[VectorMutation] = []
         for entry in diff.entries:
@@ -79,7 +88,7 @@ class VectorMutationPlanner:
                         logical_chunk_id=entry.logical_chunk_id,
                         current_chunk_revision_id=self._revision(entry.current),
                         previous_chunk_revision_id=self._revision(entry.previous),
-                        point_id=self._active_point_id(
+                        point_id=self.active_point_id(
                             tenant_id=tenant_id,
                             config=config,
                             generation_id=active_generation_id,
@@ -95,7 +104,7 @@ class VectorMutationPlanner:
                         action=self._removed_action(config.removed_vector_policy),
                         logical_chunk_id=entry.logical_chunk_id,
                         previous_chunk_revision_id=self._revision(entry.previous),
-                        point_id=self._active_point_id(
+                        point_id=self.active_point_id(
                             tenant_id=tenant_id,
                             config=config,
                             generation_id=active_generation_id,
@@ -112,7 +121,7 @@ class VectorMutationPlanner:
                         logical_chunk_id=entry.logical_chunk_id,
                         current_chunk_revision_id=self._revision(entry.current),
                         previous_chunk_revision_id=self._revision(entry.previous),
-                        point_id=self._active_point_id(
+                        point_id=self.active_point_id(
                             tenant_id=tenant_id,
                             config=config,
                             generation_id=active_generation_id,
@@ -124,7 +133,11 @@ class VectorMutationPlanner:
             current_revision = self._revision(entry.current)
             if current_revision is None:
                 raise ValueError("vector upsert requires a current chunk revision")
-            embedded = by_revision[current_revision]
+            embedded = (
+                reused_by_revision[current_revision]
+                if entry.status is ChunkDiffStatus.REFRESH_REQUIRED
+                else by_revision[current_revision]
+            )
             point_id = deterministic_vector_point_id(
                 tenant_id=tenant_id,
                 collection=config.vector_collection,
@@ -176,7 +189,7 @@ class VectorMutationPlanner:
         }[policy]
 
     @staticmethod
-    def _active_point_id(
+    def active_point_id(
         *,
         tenant_id: str,
         config: IndexingConfig,

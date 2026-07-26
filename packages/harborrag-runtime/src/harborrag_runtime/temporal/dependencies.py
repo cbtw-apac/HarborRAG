@@ -10,8 +10,8 @@ from typing import Protocol
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
-from harborrag_adapters.parsers.engine import HarborParser
-from harborrag_core.domain.document import Document
+from harborrag_adapters.parsers import HarborParserRegistry
+from harborrag_core.domain.normalized_document import Document
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -22,6 +22,7 @@ from harborrag_engine.ingestion.chunking.schemas import ChunkingResult
 from harborrag_engine.ingestion.indexing.pipeline import IndexingService
 from harborrag_engine.ingestion.indexing.schemas import IndexingRequest, IndexingResult
 from harborrag_runtime.errors import RuntimeConfigurationError
+from harborrag_runtime.temporal.process_isolation import IsolatedProcessRunner
 from harborrag_runtime.temporal.schemas import (
     ArtifactActivityInput,
     ArtifactActivityResult,
@@ -80,7 +81,7 @@ class RuntimeIngestionState(Protocol):
 
     async def preflight(self, request: ArtifactActivityInput) -> ArtifactActivityResult: ...
 
-    async def load_source(self, source_ref: str) -> SourceRecord: ...
+    async def load_source(self, source_ref: str, tenant_id: str) -> SourceRecord: ...
 
     async def persist_snapshot(
         self,
@@ -88,7 +89,7 @@ class RuntimeIngestionState(Protocol):
         document: RawDocument,
     ) -> str: ...
 
-    async def load_snapshot(self, snapshot_ref: str) -> RawDocument: ...
+    async def load_snapshot(self, snapshot_ref: str, tenant_id: str) -> RawDocument: ...
 
     async def persist_parsed_document(
         self,
@@ -97,7 +98,11 @@ class RuntimeIngestionState(Protocol):
         document: Document,
     ) -> str: ...
 
-    async def load_parsed_document(self, parsed_document_ref: str) -> Document: ...
+    async def load_parsed_document(
+        self,
+        parsed_document_ref: str,
+        tenant_id: str,
+    ) -> Document: ...
 
     async def persist_chunking_result(
         self,
@@ -105,7 +110,11 @@ class RuntimeIngestionState(Protocol):
         result: ChunkingResult,
     ) -> str: ...
 
-    async def load_chunking_result(self, chunking_result_ref: str) -> ChunkingResult: ...
+    async def load_chunking_result(
+        self,
+        chunking_result_ref: str,
+        tenant_id: str,
+    ) -> ChunkingResult: ...
 
     async def indexing_request(
         self,
@@ -144,12 +153,13 @@ class RuntimeDependencies:
     """One shared, explicitly owned service graph per worker process."""
 
     connectors: Mapping[str, BaseConnector | HarborConnector]
-    parser: HarborParser
+    parser: HarborParserRegistry
     normalizer: BaseDocumentNormalizer
     chunker: BaseChunker
     chunk_persistence: ChunkPersistenceService
     indexer: IndexingService
     state: RuntimeIngestionState
+    process_runner: IsolatedProcessRunner | None = None
     resources: tuple[AsyncLifecyclePort, ...] = ()
     observer: RuntimeObserverPort = field(default_factory=NullRuntimeObserver)
     _started: bool = field(default=False, init=False, repr=False)

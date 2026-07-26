@@ -23,6 +23,7 @@ class VectorPayloadBuilder:
         source_kind = record.metadata.get("source_kind", "unknown")
         if not isinstance(source_kind, str) or not source_kind.strip():
             source_kind = "unknown"
+        span = record.source_span
         payload: dict[str, Any] = {
             "tenant_id": str(record.tenant_id),
             "chunk_revision_id": str(record.chunk_revision_id),
@@ -32,9 +33,15 @@ class VectorPayloadBuilder:
             "generation_id": generation_id,
             "source_kind": source_kind,
             "chunk_role": record.role,
-            "structural_path": list(record.structural_path),
-            "page_range": self._range(record.page_start, record.page_end),
-            "line_range": self._range(record.start_line, record.end_line),
+            "structural_path": list(record.context.structural_path),
+            "page_range": self._range(
+                span.page_start if span is not None else None,
+                span.page_end if span is not None else None,
+            ),
+            "line_range": self._range(
+                span.start_line if span is not None else None,
+                span.end_line if span is not None else None,
+            ),
             "content_hash": record.content_hash,
             "token_count": record.token_count or 0,
             "embedding_configuration_fingerprint": (config.embedding_configuration_fingerprint),

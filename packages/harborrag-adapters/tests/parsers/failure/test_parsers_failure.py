@@ -13,17 +13,17 @@ import csv
 import pytest
 from harbor_test_builders import build_zip_bomb_bytes
 
-from harborrag_adapters.parsers import (
+from harborrag_adapters.parsers import HarborParserFactory
+from harborrag_adapters.parsers.common.validation import open_guarded_zip
+from harborrag_adapters.parsers.compat import (
     DocxParser,
     EpubParser,
     ExcelParser,
-    HarborParser,
     ImageParser,
     JsonParser,
     PptxParser,
 )
-from harborrag_adapters.parsers.archive_safety import open_guarded_zip
-from harborrag_adapters.parsers.exceptions import ParseError, UnsupportedFormatError
+from harborrag_adapters.parsers.errors import ParseError, UnsupportedFormatError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
@@ -82,7 +82,7 @@ def test_invalid_ndjson_line_raises_parse_error():
 
 
 def test_csv_oversized_field_raises_parse_error():
-    from harborrag_adapters.parsers.csv import CsvParser
+    from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvParser
 
     original_limit = csv.field_size_limit()
     try:
@@ -145,8 +145,8 @@ def test_image_oversized_pixel_count_raises_parse_error_before_decoding():
 
 
 def test_unknown_suffix_and_content_type_raise_unsupported_format():
-    registry = HarborParser()
-    with pytest.raises(UnsupportedFormatError, match="No parser registered"):
+    registry = HarborParserFactory().create_registry()
+    with pytest.raises(UnsupportedFormatError, match="No parser family registered"):
         registry.parse(
             ParseInput(
                 content=b"\x00\x01\x02",

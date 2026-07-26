@@ -12,7 +12,11 @@ from harborrag_core.domain.source import SourceRecord
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.temporal.dependencies import RuntimeDependencies
 from harborrag_runtime.temporal.worker import run_configured_workers
-from harborrag_runtime.temporal.workers import WorkerGroup, worker_registrations
+from harborrag_runtime.temporal.workers import (
+    WorkerGroup,
+    WorkerRegistration,
+    worker_registrations,
+)
 
 
 class _Connector(BaseConnector):
@@ -78,6 +82,9 @@ class _RunningWorker:
         self.stop = asyncio.Event()
         self.run_cancelled = False
         self.shutdown_calls = 0
+        # Mirrors RuntimeWorkerGroup.registrations, which the entry point reads
+        # to log the resolved task-queue map at startup.
+        self.registrations = (WorkerRegistration(task_queue="test-queue"),)
 
     async def run(self) -> None:
         self.started.set()

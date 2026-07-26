@@ -66,12 +66,20 @@ The normal operator path is the app CLI:
 
 ```bash
 harborrag ingest start --tenant tenant-1 --connector local-docs --wait
+harborrag ingest start --tenant tenant-1 --connector jira --limit 3 --wait
 harborrag ingest status RUN_ID --json
 harborrag ingest pause RUN_ID
 harborrag ingest resume RUN_ID
 harborrag ingest retry RUN_ID --artifact ARTIFACT_ID
 harborrag ingest cancel RUN_ID
+harborrag retrieve "deployment requirements" --tenant tenant-1 --top-k 5 --json
 ```
+
+`--limit` is a workflow-stable safety bound for operator and acceptance runs;
+omitting it retains the configured full-source behavior. Retrieval composes the
+same embedding model, active Qdrant collection, FalkorDB graph, and canonical
+chunk object store used by ingestion. Query embeddings are marked sensitive
+and non-cacheable.
 
 Applications can also use the framework-owned client directly:
 

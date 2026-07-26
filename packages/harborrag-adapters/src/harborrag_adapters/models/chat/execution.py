@@ -28,9 +28,9 @@ from harborrag_adapters.models.runtime.telemetry import (
 from harborrag_adapters.models.runtime.telemetry_operation import ModelTelemetryOperation
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
 
+from .backend import ChatBackend
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .errors import normalize_exception
-from .invocation import ChatCompletionInvocation
 from .normalization import normalize_chat_response
 from .parameters import build_litellm_parameters, chat_request_id
 from .registry import ProviderRegistry
@@ -43,7 +43,7 @@ class ChatExecution:
     def __init__(
         self,
         config: HarborChatClientConfig,
-        invocation: ChatCompletionInvocation,
+        backend: ChatBackend,
         *,
         registry: ProviderRegistry,
         middleware: MiddlewarePipeline,
@@ -56,7 +56,7 @@ class ChatExecution:
         """Store runtime dependencies and create shared deployment health state."""
 
         self.config = config
-        self.invocation = invocation
+        self.backend = backend
         self.registry = registry
         self.middleware = middleware
         self.owns_cache = cache is None
@@ -193,7 +193,7 @@ class ChatExecution:
     ) -> HarborChatResponse:
         result = self.router.execute(
             logical,
-            invoke=lambda attempt: self.invocation.complete(
+            invoke=lambda attempt: self.backend.complete(
                 **self._parameters(attempt, request, decision)
             ),
             normalize=lambda raw, name, deployment, latency: normalize_chat_response(
@@ -227,7 +227,7 @@ class ChatExecution:
     ) -> HarborChatResponse:
         result = await self.router.aexecute(
             logical,
-            invoke=lambda attempt: self.invocation.acomplete(
+            invoke=lambda attempt: self.backend.acomplete(
                 **self._parameters(attempt, request, decision)
             ),
             normalize=lambda raw, name, deployment, latency: normalize_chat_response(

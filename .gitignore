@@ -61,6 +61,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+harborrag_control.db
+harborrag_control.db-journal
 
 # Flask stuff:
 instance/
@@ -158,6 +160,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# HarborRAG local runtime state and ingested object data
+/.harborrag/
+/.local/
 
 # Spyder project settings
 .spyderproject

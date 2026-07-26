@@ -78,7 +78,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         )
 
     async def connect(self) -> None:
-        await asyncio.to_thread(self._root.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(self._ensure_private_directory, self._root)
         self._connected = True
 
     async def close(self) -> None:
@@ -105,7 +105,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
     ) -> ObjectReference:
         target = self._safe_path(request.bucket, request.key, context)
         try:
-            await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(self._ensure_private_directory, target.parent)
         except OSError as exc:
             raise self._io_error("put", request.bucket, request.key, context, exc) from exc
         lock_path = target.with_name(f".{target.name}{_LOCK_SUFFIX}")
@@ -140,7 +140,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         digest = hashlib.sha256()
         size = 0
         try:
-            file = await asyncio.to_thread(temporary.open, "wb")
+            file = await asyncio.to_thread(self._open_private_file, temporary)
             try:
                 async for chunk in iter_body(request.body):
                     digest.update(chunk)
@@ -170,11 +170,16 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
                 metadata={**request.metadata, "tenant_id": str(context.tenant_id)},
                 last_modified=datetime.now(UTC),
             )
-            await asyncio.to_thread(
-                meta_temporary.write_text,
-                metadata.model_dump_json(indent=2),
-                "utf-8",
-            )
+            meta_file = await asyncio.to_thread(self._open_private_file, meta_temporary)
+            try:
+                await asyncio.to_thread(
+                    meta_file.write,
+                    metadata.model_dump_json(indent=2).encode("utf-8"),
+                )
+                await asyncio.to_thread(meta_file.flush)
+                await asyncio.to_thread(os.fsync, meta_file.fileno())
+            finally:
+                await asyncio.to_thread(meta_file.close)
             await asyncio.to_thread(os.replace, temporary, target)
             await asyncio.to_thread(os.replace, meta_temporary, existing_meta_path)
             return reference

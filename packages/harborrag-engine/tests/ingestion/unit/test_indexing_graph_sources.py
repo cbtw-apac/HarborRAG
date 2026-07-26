@@ -87,9 +87,7 @@ def test_graph_node_identities_are_artifact_scoped_for_shared_jira_entities() ->
             metadata=metadata,
         )
         plans.append(
-            GraphMutationPlanner().plan(
-                make_index_request(proposed=manifest, records=(record,))
-            )
+            GraphMutationPlanner().plan(make_index_request(proposed=manifest, records=(record,)))
         )
 
     first_ids = {str(node.id) for node in plans[0].nodes}

@@ -1,19 +1,24 @@
-"""PDF backend memoization tests for expensive parser resources."""
+"""PDF provider memoization tests for expensive parser resources."""
 
 from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers.pdf_engine.base import PdfBackend, PdfParseResult
-from harborrag_adapters.parsers.pdf_engine.docling import (
-    DoclingBackend,
+from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
+from harborrag_adapters.parsers.pdf.engines.docling.config import (
     DoclingBackendOptions,
 )
-from harborrag_adapters.parsers.pdf_engine.liteparse import (
-    LiteParseBackend,
+from harborrag_adapters.parsers.pdf.engines.docling.engine import (
+    DoclingPDFEngine,
+)
+from harborrag_adapters.parsers.pdf.engines.liteparse.config import (
     LiteParseBackendOptions,
 )
-from harborrag_adapters.parsers.pdf_engine.parser import PdfParser
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (
+    LiteParsePDFEngine,
+)
+from harborrag_adapters.parsers.pdf.models import PDFParseResult
+from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.slow, pytest.mark.graybox, pytest.mark.timeout(30)]
@@ -22,7 +27,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.graybox, pytest.mark.timeout(30)]
 _MODEL_BUILDS = 0
 
 
-class _CountingPdfBackend(PdfBackend):
+class _CountingPDFEngine(HarborPDFEngine):
     name = "counting-fake"
 
     def __init__(self) -> None:
@@ -35,10 +40,10 @@ class _CountingPdfBackend(PdfBackend):
             self._cached_model = object()
         return self._cached_model
 
-    def parse(self, input: ParseInput) -> PdfParseResult:
+    def parse_input(self, input: ParseInput) -> PDFParseResult:
         model = self._model()
         assert model is self._cached_model
-        return PdfParseResult(
+        return PDFParseResult(
             content="fake extracted pdf content that is long enough",
             engine=self.name,
         )
@@ -62,35 +67,35 @@ def test_pdf_parser_reuses_one_backend_instance_across_many_parses() -> None:
     global _MODEL_BUILDS
     _MODEL_BUILDS = 0
 
-    parser = PdfParser(backends=[_CountingPdfBackend()], min_content_chars=5)
+    parser = HarborPDFParser(engines=[_CountingPDFEngine()], min_content_chars=5)
     for i in range(300):
-        document = parser.parse(ParseInput(content=b"%PDF-1.4 fake", filename=f"scan{i}.pdf"))
+        document = parser.parse_input(ParseInput(content=b"%PDF-1.4 fake", filename=f"scan{i}.pdf"))
         assert document.parser_name == "pdf"
 
     assert _MODEL_BUILDS == 1
 
 
 def test_backend_cache_fields_start_none() -> None:
-    assert DoclingBackend()._cached_converter is None
-    assert LiteParseBackend()._cached_parser is None
+    assert DoclingPDFEngine()._cached_converter is None
+    assert LiteParsePDFEngine()._cached_parser is None
 
 
 def test_docling_injected_converter_is_reused_by_identity() -> None:
     converter = _FakeDoclingConverter()
-    backend = DoclingBackend(DoclingBackendOptions(converter=converter))
+    backend = DoclingPDFEngine(DoclingBackendOptions(converter=converter))
 
     assert backend._converter() is converter
     assert backend._converter() is converter
     assert backend._cached_converter is None
 
-    doc1 = backend.parse(ParseInput(content=b"%PDF-1.4", filename="a.pdf"))
-    doc2 = backend.parse(ParseInput(content=b"%PDF-1.4", filename="b.pdf"))
+    doc1 = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="a.pdf"))
+    doc2 = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="b.pdf"))
     assert doc1.content and doc2.content
     assert converter.convert_calls == 2
 
 
 def test_docling_cached_converter_branch_returns_same_identity() -> None:
-    backend = DoclingBackend()
+    backend = DoclingPDFEngine()
     sentinel = object()
     backend._cached_converter = sentinel
 
@@ -112,12 +117,12 @@ def test_liteparse_injected_parser_is_reused_by_identity() -> None:
             return _FakeLiteResult()
 
     fake = _FakeLiteParse()
-    backend = LiteParseBackend(LiteParseBackendOptions(parser=fake))
+    backend = LiteParsePDFEngine(LiteParseBackendOptions(parser=fake))
 
     assert backend._parser() is fake
     assert backend._parser() is fake
     assert backend._cached_parser is None
 
-    backend.parse(ParseInput(content=b"%PDF-1.4", filename="a.pdf"))
-    backend.parse(ParseInput(content=b"%PDF-1.4", filename="b.pdf"))
+    backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="a.pdf"))
+    backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="b.pdf"))
     assert fake.parse_calls == 2

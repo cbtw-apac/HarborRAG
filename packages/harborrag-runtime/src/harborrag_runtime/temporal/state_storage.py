@@ -17,9 +17,12 @@ from harborrag_core.schemas.storage import StorageOperationContext
 from .artifact_objects import digest
 from .ingestioncodec import dump_payload
 from .schemas import ArtifactActivityInput, ArtifactReference, ArtifactStage, DiscoveryInput
+from .state_mixin_base import IngestionStateMixinBase
+
+_STATE_WORKFLOW_DIGEST_LENGTH = 60
 
 
-class IngestionStateStorageMixin:
+class IngestionStateStorageMixin(IngestionStateMixinBase):
     """Provide stable keys and optimistic state-store updates."""
 
     async def _active_state(
@@ -56,9 +59,7 @@ class IngestionStateStorageMixin:
                     continue
             try:
                 return await self._states.save(
-                    current.model_copy(
-                        update={"current_step": current_step, "payload": payload}
-                    ),
+                    current.model_copy(update={"current_step": current_step, "payload": payload}),
                     expected_version=current.version,
                     context=context,
                 )
@@ -106,7 +107,8 @@ class IngestionStateStorageMixin:
 
     @staticmethod
     def _workflow_id(*parts: str) -> WorkflowId:
-        return WorkflowId(f"ing-{digest(chr(0).join(parts))}")
+        identifier = digest(chr(0).join(parts))[:_STATE_WORKFLOW_DIGEST_LENGTH]
+        return WorkflowId(f"ing-{identifier}")
 
     def _discovery_id(self, request: DiscoveryInput) -> WorkflowId:
         return self._workflow_id("discovery", request.run_id, request.cursor or "start")

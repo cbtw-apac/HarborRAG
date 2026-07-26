@@ -118,13 +118,13 @@ def test_secret_reference_and_resolver() -> None:
 
 def test_profiles_and_programmatic_overrides() -> None:
     document = _document("openai", api_key="key")
-    document["profiles"] = {"production": {"embed": {"timeout_seconds": 45}}}
+    document["profiles"] = {"production": {"embed": {"timeouts": {"request_seconds": 45}}}}
     config = HarborEmbedClientConfig.from_dict(
         document,
         profile="production",
         overrides={"default_batch_size": 32},
     )
-    assert config.timeout_seconds == 45
+    assert config.timeouts.request_seconds == 45
     assert config.default_batch_size == 32
 
 

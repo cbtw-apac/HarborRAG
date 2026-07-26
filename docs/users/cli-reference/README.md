@@ -2,7 +2,7 @@
 
 The installed command is `harborrag`. Run
 `uv run --package harborrag-app harborrag ...` from a source checkout or
-`harbor ...` from an installed package.
+`harborrag ...` from an installed package.
 
 Typer provides grouped Rich help pages, validation, typo-friendly errors, and
 shell completion. One-shot commands render Rich status panels, progress bars,
@@ -32,7 +32,6 @@ harborrag ingest start \
   [--wait] [--json]
 
 harborrag ingest status RUN_ID [--json]
-harborrag status RUN_ID [--json]
 harborrag ingest wait RUN_ID [--json]
 harborrag ingest watch RUN_ID [--refresh SECONDS]
 harborrag ingest pause RUN_ID [--json]

@@ -47,6 +47,32 @@ _RUN_STATUSES = frozenset(
     {"pending", "running", "paused", "cancelling", "cancelled", "completed", "failed"}
 )
 
+# Temporal execution statuses that settle a run, mapped onto the run vocabulary
+# above. Temporal uses American spelling and reports outcomes ("terminated",
+# "timed_out") that the workflow has no opportunity to record about itself.
+_TERMINAL_EXECUTION_STATUSES = {
+    "failed": "failed",
+    "terminated": "failed",
+    "timed_out": "failed",
+    "canceled": "cancelled",
+    "completed": "completed",
+}
+
+
+def headline_status(workflow_status: str, execution_status: str) -> str:
+    """Prefer Temporal's verdict once the execution has actually finished.
+
+    A workflow that crashed keeps self-reporting "running", so presenting only
+    its own view would headline a dead run as live and draw an active stage
+    table. Non-terminal executions fall through to the workflow status, which
+    is the only one that distinguishes paused and cancelling from running.
+    """
+
+    terminal = _TERMINAL_EXECUTION_STATUSES.get(execution_status)
+    if terminal is None or workflow_status == terminal:
+        return workflow_status
+    return terminal
+
 
 def build_stage_table(
     status: str,

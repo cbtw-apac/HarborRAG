@@ -45,9 +45,11 @@ def test_typer_help_groups_commands_and_excludes_removed_sample(capsys) -> None:
     assert cli.main(["--help"]) == 0
 
     rendered = capsys.readouterr().out
+    command_names = {command.name for command in cli.app.registered_commands}
     assert "Operations" in rendered
     assert "Ingestion" in rendered
     assert "sample-ingest" not in rendered
+    assert "status" not in command_names
 
 
 def test_cli_service_construction_failure_uses_stable_json(monkeypatch, capsys) -> None:
@@ -61,6 +63,6 @@ def test_cli_service_construction_failure_uses_stable_json(monkeypatch, capsys) 
     payload = json.loads(capsys.readouterr().out)
     assert payload == {
         "data": {"error_type": "RuntimeError"},
-        "error": "Temporal configuration is invalid",
+        "error": "RuntimeError",
         "ok": False,
     }

@@ -226,7 +226,7 @@ class MemberRow(Base):
 
 
 class McpQueryLogRow(Base):
-    """mcp_query_log: read-side MCP telemetry written by harborrag-mcp."""
+    """mcp_query_log: read-side MCP telemetry written by harborrag-mcp-server."""
 
     __tablename__ = "mcp_query_log"
 

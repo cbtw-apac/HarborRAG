@@ -30,7 +30,7 @@ def test_image_and_text_parts_are_normalized_for_litellm(base_config) -> None:
     config = _with_multimodal_capability(base_config)
     invocation = FakeInvocation([response_dict("an image")])
 
-    response = sync_client(config, invocation=invocation).chat(
+    response = sync_client(config, backend=invocation).chat(
         [
             {
                 "role": "user",
@@ -76,7 +76,7 @@ def test_multimodal_request_requires_deployment_capability(base_config) -> None:
     )
 
     with pytest.raises(HarborChatCapabilityError, match="multimodal messages"):
-        sync_client(base_config, invocation=invocation).chat([message])
+        sync_client(base_config, backend=invocation).chat([message])
 
     assert invocation.calls == []
 
@@ -108,6 +108,6 @@ def test_valid_base64_image_data_url_is_preserved(base_config) -> None:
     url = "data:image/png;base64,iVBORw0KGgo="
     message = HarborChatMessage.user((ImageURLContentPart(image_url=ImageURL(url=url)),))
 
-    sync_client(config, invocation=invocation).chat([message])
+    sync_client(config, backend=invocation).chat([message])
 
     assert invocation.calls[0]["messages"][0]["content"][0]["image_url"]["url"] == url

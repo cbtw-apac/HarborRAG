@@ -108,7 +108,7 @@ def test_profile_and_programmatic_override():
         {
             "chat": {
                 "default_model": "primary",
-                "timeout_seconds": 60,
+                "timeouts": {"request_seconds": 60},
                 "models": {
                     "primary": {
                         "provider": "ollama",
@@ -117,12 +117,12 @@ def test_profile_and_programmatic_override():
                     }
                 },
             },
-            "profiles": {"production": {"chat": {"timeout_seconds": 20}}},
+            "profiles": {"production": {"chat": {"timeouts": {"request_seconds": 20}}}},
         },
         profile="production",
-        overrides={"timeout_seconds": 10},
+        overrides={"timeouts": {"request_seconds": 10}},
     )
-    assert config.timeout_seconds == 10
+    assert config.timeouts.request_seconds == 10
 
 
 def test_secret_is_redacted_from_repr():

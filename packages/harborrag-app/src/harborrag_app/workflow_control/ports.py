@@ -29,6 +29,7 @@ class BaseAppService(ABC):
         run_id: str | None = None,
         manifest_id: str | None = None,
         generation_id: str | None = None,
+        max_artifacts: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
         raise NotImplementedError
@@ -37,6 +38,16 @@ class BaseAppService(ABC):
         raise NotImplementedError
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
+        raise NotImplementedError
+
+    async def retrieve(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        top_k: int = 10,
+        include_content: bool = False,
+    ) -> AppResponse:
         raise NotImplementedError
 
     async def control_ingestion(

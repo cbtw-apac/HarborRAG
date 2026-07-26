@@ -7,7 +7,7 @@ from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
 from .registry import connector_registry
-from .schemas import ConnectorCapabilities, ConnectorQuery
+from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery
 
 
 class HarborConnector:
@@ -26,6 +26,20 @@ class HarborConnector:
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Proxy discovery to the selected provider."""
         return self.provider.discover(query)
+
+    def discover_page(
+        self,
+        query: ConnectorQuery | None,
+        *,
+        cursor: str | None,
+        page_size: int,
+    ) -> ConnectorPage:
+        """Proxy cursor-aware discovery to the selected provider."""
+        return self.provider.discover_page(
+            query,
+            cursor=cursor,
+            page_size=page_size,
+        )
 
     def connect(self) -> None:
         """Open resources owned by the selected provider."""

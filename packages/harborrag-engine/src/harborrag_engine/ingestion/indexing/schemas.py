@@ -21,6 +21,7 @@ class ChunkDiffStatus(StrEnum):
 
     NEW = "NEW"
     UNCHANGED = "UNCHANGED"
+    REFRESH_REQUIRED = "REFRESH_REQUIRED"
     CHANGED = "CHANGED"
     REMOVED = "REMOVED"
     REEMBED_REQUIRED = "REEMBED_REQUIRED"
@@ -89,6 +90,14 @@ class ChunkDiffResult:
         """Return entries that require embedding in manifest order."""
 
         return tuple(entry for entry in self.entries if entry.requires_embedding)
+
+    @property
+    def for_refresh(self) -> tuple[ChunkDiffEntry, ...]:
+        """Return content-stable entries whose indexed metadata changed."""
+
+        return tuple(
+            entry for entry in self.entries if entry.status is ChunkDiffStatus.REFRESH_REQUIRED
+        )
 
     @property
     def removed(self) -> tuple[ChunkDiffEntry, ...]:
@@ -181,6 +190,15 @@ class IndexingStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class IndexingFailure:
+    """Sanitized provider failure safe to persist in workflow state."""
+
+    component: str
+    error_type: str
+    retryable: bool
+
+
+@dataclass(frozen=True, slots=True)
 class IndexingDiagnostics:
     """Deterministic counts for one combined indexing execution."""
 
@@ -211,6 +229,7 @@ class IndexingRequest:
     active_manifest: ChunkManifest | None = None
     active_embedding_configuration_fingerprint: str | None = None
     active_generation_id: str | None = None
+    resume_result: IndexingResult | None = None
 
     def __post_init__(self) -> None:
         """Validate generation context and canonical chunking input."""
@@ -231,6 +250,13 @@ class IndexingRequest:
             or self.active_generation_id is not None
         ):
             raise ValueError("active indexing metadata requires an active manifest")
+        if self.resume_result is not None and (
+            self.resume_result.artifact_id != self.chunking.manifest.artifact_id
+            or self.resume_result.artifact_revision_id
+            != self.chunking.manifest.artifact_revision_id
+            or self.resume_result.generation_id != self.generation_id
+        ):
+            raise ValueError("indexing resume checkpoint does not match the request")
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +272,7 @@ class IndexingResult:
     validation_errors: tuple[str, ...]
     diagnostics: IndexingDiagnostics
     activation: GenerationActivationPlan
+    failures: tuple[IndexingFailure, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

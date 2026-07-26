@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers import (
+from harborrag_adapters.parsers import HarborParserFactory
+from harborrag_adapters.parsers.compat import (
     CsvParser,
-    HarborParser,
     HtmlParser,
     JsonParser,
     MarkdownParser,
@@ -57,7 +57,7 @@ pytestmark = pytest.mark.unit
     ],
 )
 def test_builtin_text_parsers_blackbox(parse_input, expected_parser, expected_content):
-    document = HarborParser().parse(parse_input)
+    document = HarborParserFactory().create_registry().parse(parse_input)
 
     assert document.parser_name == expected_parser
     assert expected_content in document.content

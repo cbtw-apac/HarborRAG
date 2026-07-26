@@ -159,9 +159,7 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
         try:
             async with engine.connect() as connection:
                 version = (
-                    await connection.execute(
-                        sa.text("SELECT version_num FROM alembic_version")
-                    )
+                    await connection.execute(sa.text("SELECT version_num FROM alembic_version"))
                 ).scalar()
             return {
                 "ping": "ok",

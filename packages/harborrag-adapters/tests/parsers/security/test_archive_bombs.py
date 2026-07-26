@@ -12,9 +12,9 @@ from harbor_test_builders import (
     build_zip_bomb_bytes,
 )
 
-from harborrag_adapters.parsers import HarborParser
-from harborrag_adapters.parsers.archive_safety import open_guarded_zip
-from harborrag_adapters.parsers.exceptions import ParseError
+from harborrag_adapters.parsers import HarborParserFactory
+from harborrag_adapters.parsers.common.validation import open_guarded_zip
+from harborrag_adapters.parsers.errors import ParseError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.blackbox
@@ -49,19 +49,19 @@ def test_open_guarded_zip_forged_file_size_cannot_smuggle_more_real_bytes() -> N
 
 
 def test_pptx_parser_rejects_zero_compressed_size_bomb_via_public_api() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zero_compressed_size_zip_bytes(), filename="b.pptx"))
 
 
 def test_xlsx_parser_rejects_zero_compressed_size_bomb_via_public_api() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zero_compressed_size_zip_bytes(), filename="b.xlsx"))
 
 
 def test_epub_parser_rejects_bomb_via_public_api() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zip_bomb_bytes(), filename="b.epub"))
 
@@ -70,7 +70,7 @@ def test_pptx_parser_rejects_bomb_via_public_api() -> None:
     # PPTX is a zip container like DOCX/EPUB; the guard must run before bytes
     # reach python-pptx, not just when called directly (regression coverage
     # for the guard being skipped in PptxParser.parse()).
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zip_bomb_bytes(), filename="b.pptx"))
 
@@ -79,6 +79,6 @@ def test_xlsx_parser_rejects_bomb_via_public_api() -> None:
     # XLSX is a zip container like DOCX/EPUB; the guard must run before bytes
     # reach openpyxl, not just when called directly (regression coverage for
     # the guard being skipped in ExcelParser._parse_openxml()).
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zip_bomb_bytes(), filename="b.xlsx"))

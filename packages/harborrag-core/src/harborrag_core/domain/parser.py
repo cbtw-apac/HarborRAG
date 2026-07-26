@@ -43,6 +43,7 @@ class ParseInput:
         if self.path is None and self.content is None:
             raise ValueError("ParseInput requires either `path` or `content`")
 
+
 @dataclass(slots=True)
 class ParsedDocument:
     """Parser output shared across RAG stages."""

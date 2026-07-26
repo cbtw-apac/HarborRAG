@@ -121,11 +121,6 @@ def safe_error(error: BaseException) -> str:
 
 def _unquote(value: str) -> str:
     normalized = value.strip()
-    if (
-        len(normalized) >= 2
-        and normalized[0] == normalized[-1]
-        and normalized[0] in {"'", '"'}
-    ):
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
         return normalized[1:-1]
     return normalized
-

@@ -54,7 +54,10 @@ class SQLStateBackend(HarborStateBackend):
     async def connect(self) -> None:
         await self.client.connect()
         if self._create_schema:
-            await self.client.create_schema(_METADATA)
+            await self._initialize_schema()
+
+    async def _initialize_schema(self) -> None:
+        await self.client.create_schema(_METADATA)
 
     async def close(self) -> None:
         await self.client.close()

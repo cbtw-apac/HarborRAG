@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.parsers.input_loading import (
+from harborrag_adapters.parsers.common.resources import (
     coerce_parse_input,
     read_parse_input_text,
 )

@@ -65,7 +65,11 @@ def test_docs_disabled_by_settings() -> None:
 def test_docs_default_to_disabled_in_prod() -> None:
     """env=prod must not silently expose Swagger docs (or the raw OpenAPI
     schema route) via the docs_enabled=True default."""
-    settings = ApiSettings(env="prod", auth_mode="hmac", auth_secret="s3cr3t")
+    settings = ApiSettings(
+        env="prod",
+        auth_mode="hmac",
+        auth_secret="production-test-secret-at-least-32-bytes",
+    )
     assert settings.docs_enabled is False
     with TestClient(
         create_fastapi_app(settings),
@@ -78,7 +82,12 @@ def test_docs_default_to_disabled_in_prod() -> None:
 @pytest.mark.blackbox
 def test_docs_explicit_true_is_respected_even_in_prod() -> None:
     """An operator who explicitly opts in to docs in prod must still get them."""
-    settings = ApiSettings(env="prod", auth_mode="hmac", auth_secret="s3cr3t", docs_enabled=True)
+    settings = ApiSettings(
+        env="prod",
+        auth_mode="hmac",
+        auth_secret="production-test-secret-at-least-32-bytes",
+        docs_enabled=True,
+    )
     assert settings.docs_enabled is True
     with TestClient(create_fastapi_app(settings)) as client:
         assert client.get("/api/v1/docs").status_code == 200

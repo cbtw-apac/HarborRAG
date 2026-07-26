@@ -271,7 +271,7 @@ def test_config_cli_validate_render_explain_and_errors(tmp_path: Path, capsys: A
 @pytest.mark.asyncio
 async def test_public_clients_expose_one_runtime_introspection_api() -> None:
     clients = (
-        sync_client(chat_config(), invocation=FakeChatInvocation([])),
+        sync_client(chat_config(), backend=FakeChatInvocation([])),
         HarborEmbedClient(embed_config(), invocation=FakeEmbeddingInvocation([])),
         HarborRerankingClient(rerank_config(), invocation=FakeRerankInvocation([])),
     )

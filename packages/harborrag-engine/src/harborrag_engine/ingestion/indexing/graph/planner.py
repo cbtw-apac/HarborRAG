@@ -58,6 +58,7 @@ class GraphMutationPlanner:
                 and entry.status
                 in {
                     ChunkDiffStatus.CHANGED,
+                    ChunkDiffStatus.REFRESH_REQUIRED,
                     ChunkDiffStatus.REEMBED_REQUIRED,
                     ChunkDiffStatus.REMOVED,
                 }

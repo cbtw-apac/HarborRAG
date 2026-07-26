@@ -138,9 +138,12 @@ class LangfuseTelemetry:
             flush()
 
     async def aclose(self) -> None:
-        """Flush Langfuse in a worker so async client shutdown is not blocked."""
+        """Flush blocking Langfuse clients without delaying the event loop."""
 
-        await asyncio.to_thread(self.close)
+        if callable(getattr(self.client, "flush", None)):
+            await asyncio.to_thread(self.close)
+        else:
+            self.close()
 
 
 class OpenTelemetryTelemetry:

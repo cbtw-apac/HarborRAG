@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AuthMode = Literal["none", "hmac", "oidc"]
@@ -24,7 +24,11 @@ class ApiSettings(BaseSettings):
     env: Literal["dev", "prod"] = "dev"
     cors_origins: list[str] = []
     auth_mode: AuthMode = "none"
-    auth_secret: str = ""
+    auth_secret: SecretStr | None = None
+    auth_issuer: str = "harborrag"
+    auth_audience: str = "harborrag-api"
+    auth_max_token_lifetime_seconds: int = Field(default=3600, ge=60, le=86_400)
+    auth_clock_skew_seconds: int = Field(default=30, ge=0, le=300)
     docs_enabled: bool = True
 
     @model_validator(mode="before")

@@ -26,6 +26,10 @@ api = [
     "sse-starlette>=2.1",
     "websockets>=12",
 ]
+production = [
+    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant]==0.1.0",
+    "harborrag-runtime==0.1.0",
+]
 
 [build-system]
 requires = ["hatchling"]

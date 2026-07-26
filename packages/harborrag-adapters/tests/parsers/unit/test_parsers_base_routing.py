@@ -6,7 +6,9 @@ from typing import ClassVar
 
 import pytest
 
-from harborrag_adapters.parsers import (
+from harborrag_adapters.parsers.common.base import BaseParser
+from harborrag_adapters.parsers.common.mime import normalize_suffix
+from harborrag_adapters.parsers.compat import (
     CsvParser,
     DocxParser,
     EpubParser,
@@ -18,8 +20,6 @@ from harborrag_adapters.parsers import (
     PptxParser,
     TextParser,
 )
-from harborrag_adapters.parsers.base import BaseParser
-from harborrag_adapters.parsers.routing import normalize_suffix
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

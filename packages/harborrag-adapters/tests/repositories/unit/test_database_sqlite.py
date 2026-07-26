@@ -38,7 +38,6 @@ def make_backend(tmp_path: Path) -> SQLiteDatabaseBackend:
 
 def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
     record = ChunkRecord(
-        id="revision-1",
         logical_chunk_id="logical-1",
         chunk_revision_id="revision-1",
         tenant_id="tenant-a",
@@ -46,7 +45,6 @@ def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
         document_version_id="doc-version-1",
         artifact_id="artifact-1",
         artifact_revision_id="artifact-version-1",
-        chunk_index=0,
         ordinal=0,
         role="section",
         content="content",
@@ -67,14 +65,14 @@ def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
     )
 
     storage_metadata = chunk_metadata(record)
-    storage_metadata["_harborrag_chunk"]["id"] = "untrusted-override"
+    storage_metadata["_harborrag_chunk"]["chunk_revision_id"] = "untrusted-override"
     loaded = chunk_from_row(
         {
-            "id": str(record.id),
+            "id": str(record.chunk_revision_id),
             "tenant_id": str(record.tenant_id),
             "document_id": str(record.document_id),
             "document_version_id": str(record.document_version_id),
-            "chunk_index": record.chunk_index,
+            "chunk_index": record.ordinal,
             "content": record.content,
             "content_hash": record.content_hash,
             "token_count": record.token_count,
@@ -183,7 +181,6 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
         context = make_context()
         chunks = [
             ChunkRecord(
-                id=f"c{i}",
                 logical_chunk_id=f"logical-{i}",
                 chunk_revision_id=f"c{i}",
                 tenant_id=context.tenant_id,
@@ -191,13 +188,14 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
                 document_version_id="v1",
                 artifact_id="artifact-1",
                 artifact_revision_id="artifact-revision-1",
-                chunk_index=i,
                 ordinal=i,
                 role="table" if i == 1 else "content",
                 content=f"chunk {i}",
                 content_hash=f"hash{i}",
-                structural_path=("Section", str(i)),
-                source_element_ids=(f"element-{i}",),
+                source_span=ChunkSourceSpan(
+                    source_element_ids=(f"element-{i}",),
+                ),
+                context=ChunkContext(structural_path=("Section", str(i))),
             )
             for i in range(3)
         ]
@@ -208,18 +206,25 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
 
         async with backend.unit_of_work_factory() as uow:
             loaded = await uow.chunks.list_by_document("doc-1", context=context)
-            assert [chunk.id for chunk in loaded] == ["c0", "c1", "c2"]
+            assert [chunk.chunk_revision_id for chunk in loaded] == [
+                "c0",
+                "c1",
+                "c2",
+            ]
             assert [chunk.logical_chunk_id for chunk in loaded] == [
                 "logical-0",
                 "logical-1",
                 "logical-2",
             ]
             assert loaded[1].role == "table"
-            assert loaded[2].structural_path == ("Section", "2")
+            assert loaded[2].context.structural_path == ("Section", "2")
 
         async with backend.unit_of_work_factory() as uow:
             fetched = await uow.chunks.get_many(["c0", "c2", "missing"], context=context)
-            assert sorted(chunk.id for chunk in fetched) == ["c0", "c2"]
+            assert sorted(chunk.chunk_revision_id for chunk in fetched) == [
+                "c0",
+                "c2",
+            ]
 
 
 @pytest.mark.asyncio

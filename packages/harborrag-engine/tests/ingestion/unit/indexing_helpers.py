@@ -86,7 +86,6 @@ def make_record(
     span = ChunkSourceSpan(page_start=page_start, page_end=page_end)
     context = ChunkContext(title="HarborRAG", structural_path=structural_path)
     return ChunkRecord(
-        id=reference.chunk_revision_id,
         logical_chunk_id=reference.logical_chunk_id,
         chunk_revision_id=reference.chunk_revision_id,
         tenant_id=tenant_id,
@@ -94,7 +93,6 @@ def make_record(
         document_version_id=artifact_revision_id,
         artifact_id=artifact_id,
         artifact_revision_id=artifact_revision_id,
-        chunk_index=reference.ordinal,
         ordinal=reference.ordinal,
         role=role,
         content=text,
@@ -102,9 +100,6 @@ def make_record(
         token_count=reference.token_count,
         source_span=span,
         context=context,
-        structural_path=structural_path,
-        page_start=page_start,
-        page_end=page_end,
         metadata={"source_kind": "document", **(metadata or {})},
     )
 

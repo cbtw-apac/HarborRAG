@@ -59,10 +59,10 @@ class SQLChunkRepository(ChunkRepository):
                     instance_name=self._instance_name,
                     operation="chunk_bulk_upsert",
                     tenant_id=str(context.tenant_id),
-                    resource_name=str(record.id),
+                    resource_name=str(record.chunk_revision_id),
                 ),
             )
-        ids = [str(record.id) for record in records]
+        ids = [str(record.chunk_revision_id) for record in records]
         await self._session.execute(
             sa_delete(CHUNKS).where(
                 CHUNKS.c.tenant_id == str(context.tenant_id),
@@ -74,10 +74,10 @@ class SQLChunkRepository(ChunkRepository):
             [
                 {
                     "tenant_id": str(context.tenant_id),
-                    "id": str(record.id),
+                    "id": str(record.chunk_revision_id),
                     "document_id": str(record.document_id),
                     "document_version_id": str(record.document_version_id),
-                    "chunk_index": record.chunk_index,
+                    "chunk_index": record.ordinal,
                     "content": record.content,
                     "content_hash": record.content_hash,
                     "token_count": record.token_count,

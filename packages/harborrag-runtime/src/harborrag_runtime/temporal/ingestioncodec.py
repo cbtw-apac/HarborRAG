@@ -9,8 +9,8 @@ from typing import Any
 
 from pydantic_core import to_jsonable_python
 
-from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.normalized_document import Document, DocumentRelation
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument
@@ -26,6 +26,7 @@ from harborrag_engine.ingestion.chunking.schemas import (
 from harborrag_engine.ingestion.indexing.schemas import (
     GenerationActivationPlan,
     IndexingDiagnostics,
+    IndexingFailure,
     IndexingResult,
     IndexingStatus,
 )
@@ -191,6 +192,14 @@ def load_indexing_result(payload: bytes) -> IndexingResult:
             retire_vector_ids=tuple(activation.get("retire_vector_ids", ())),
             delete_vector_ids=tuple(activation.get("delete_vector_ids", ())),
             tombstone_vector_ids=tuple(activation.get("tombstone_vector_ids", ())),
+        ),
+        failures=tuple(
+            IndexingFailure(
+                component=item["component"],
+                error_type=item["error_type"],
+                retryable=item["retryable"],
+            )
+            for item in value.get("failures", ())
         ),
     )
 

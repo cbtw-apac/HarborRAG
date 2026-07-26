@@ -25,7 +25,7 @@ def _xls_bytes() -> bytes:
 
 
 def test_excel_parser_reads_legacy_xls() -> None:
-    from harborrag_adapters.parsers.excel import ExcelParser
+    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
 
     doc = ExcelParser().parse(ParseInput(content=_xls_bytes(), filename="legacy.xls"))
     assert "Data" in doc.content
@@ -36,8 +36,8 @@ def test_excel_parser_reads_legacy_xls() -> None:
 def test_excel_parser_missing_dependency_raises_parse_error(monkeypatch) -> None:
     import builtins
 
-    from harborrag_adapters.parsers.excel import ExcelParser
-    from harborrag_adapters.parsers.exceptions import ParseError
+    from harborrag_adapters.parsers.errors import ParseError
+    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
 
     real_import = builtins.__import__
 

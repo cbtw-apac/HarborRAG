@@ -6,16 +6,21 @@ from typing import Any
 import litellm
 import pytest
 
-from harborrag_adapters.models.chat.invocation import (
-    LiteLLMChatInvocation,
-    LiteLLMChatRouterInvocation,
+from harborrag_adapters.models.chat.backends import (
+    LiteLLMDirectBackend,
+    LiteLLMRouterBackend,
 )
 from harborrag_adapters.models.embed.invocation import (
     LiteLLMEmbeddingInvocation,
     LiteLLMEmbeddingRouterInvocation,
 )
 from harborrag_adapters.models.rerank.invocation import LiteLLMRerankInvocation
-from harborrag_adapters.models.runtime.config import RetryPolicyConfig
+from harborrag_adapters.models.runtime.config import (
+    ConnectionPoolConfig,
+    RetryPolicyConfig,
+)
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_adapters.models.runtime.responses import (
     coerce_sdk_mapping,
     sdk_hidden_parameters,
@@ -73,6 +78,26 @@ class SyncOnlyRouter(Router):
     aclose = None
 
 
+def direct_chat_backend(
+    completion=None,
+    acompletion=None,
+) -> LiteLLMDirectBackend:
+    return LiteLLMDirectBackend(
+        connections=SharedConnectionLifecycle(ConnectionPoolConfig(enabled=False)),
+        connection_ownership=ResourceOwnership.OWNED,
+        completion=completion,
+        acompletion=acompletion,
+    )
+
+
+def router_chat_backend(router: Any) -> LiteLLMRouterBackend:
+    return LiteLLMRouterBackend(
+        router,
+        connections=SharedConnectionLifecycle(ConnectionPoolConfig(enabled=False)),
+        connection_ownership=ResourceOwnership.OWNED,
+    )
+
+
 class MappingModel:
     """Provide a Pydantic-like mapping conversion method."""
 
@@ -117,7 +142,7 @@ async def test_default_litellm_invocations_use_sdk_functions(
         return "achat", kwargs
 
     monkeypatch.setattr(litellm, "acompletion", acompletion)
-    chat = LiteLLMChatInvocation()
+    chat = direct_chat_backend()
     assert chat.complete(model="one") == ("chat", {"model": "one"})
     assert await chat.acomplete(model="two") == ("achat", {"model": "two"})
 
@@ -149,7 +174,7 @@ async def test_default_litellm_invocations_use_sdk_functions(
 @pytest.mark.asyncio
 async def test_router_invocations_forward_lifecycle_methods() -> None:
     router = Router()
-    chat = LiteLLMChatRouterInvocation(router)
+    chat = router_chat_backend(router)
     assert chat.complete(model="chat") == {"model": "chat"}
     chat.close()
     await chat.aclose()
@@ -162,13 +187,13 @@ async def test_router_invocations_forward_lifecycle_methods() -> None:
     assert (router.closed, router.aclosed) == (2, 1)
 
     sync_router = SyncOnlyRouter()
-    await LiteLLMChatRouterInvocation(sync_router).aclose()
+    await router_chat_backend(sync_router).aclose()
     await LiteLLMEmbeddingRouterInvocation(sync_router).aclose()
     assert sync_router.closed == 2
 
 
 def test_chat_stream_cleanup_accepts_sync_and_async_close() -> None:
-    invocation = LiteLLMChatInvocation(lambda **_: None, lambda **_: None)
+    invocation = direct_chat_backend(lambda **_: None, lambda **_: None)
     state = {"sync": False, "async": False}
 
     class SyncStream:
@@ -187,7 +212,7 @@ def test_chat_stream_cleanup_accepts_sync_and_async_close() -> None:
 
 @pytest.mark.asyncio
 async def test_async_stream_cleanup_accepts_async_and_sync_fallbacks() -> None:
-    invocation = LiteLLMChatInvocation(lambda **_: None, lambda **_: None)
+    invocation = direct_chat_backend(lambda **_: None, lambda **_: None)
     state = {"sync": False, "async": False, "awaited": False}
 
     class AsyncStream:
@@ -214,8 +239,13 @@ async def test_async_stream_cleanup_accepts_async_and_sync_fallbacks() -> None:
 
 def test_async_loop_runner_reuses_thread_and_rejects_work_after_stop() -> None:
     runner = AsyncLoopRunner(thread_name="harbor-test-loop")
+
+    async def loop_identity() -> int:
+        return id(asyncio.get_running_loop())
+
     assert runner.run(asyncio.sleep(0, result=3)) == 3
     assert runner.submit(asyncio.sleep(0, result=4)).result() == 4
+    assert runner.run(loop_identity()) == runner.run(loop_identity())
     runner.stop()
     runner.stop()
     with pytest.raises(RuntimeError, match="closed"):

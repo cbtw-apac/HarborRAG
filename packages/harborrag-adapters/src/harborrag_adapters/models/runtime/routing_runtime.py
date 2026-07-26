@@ -31,9 +31,9 @@ class DeploymentRuntime[D: DeploymentLike]:
     last_latency_ms: float | None = None
     distributed_active_requests: int = 0
     sync_semaphore: BoundedSemaphore | None = field(default=None, repr=False)
-    _async_semaphores: WeakKeyDictionary[
-        asyncio.AbstractEventLoop, asyncio.BoundedSemaphore
-    ] = field(default_factory=WeakKeyDictionary, repr=False)
+    _async_semaphores: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.BoundedSemaphore] = (
+        field(default_factory=WeakKeyDictionary, repr=False)
+    )
 
     def __post_init__(self) -> None:
         if self.config.max_parallel_requests:

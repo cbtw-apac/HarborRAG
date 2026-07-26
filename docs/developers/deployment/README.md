@@ -1,9 +1,10 @@
 # Deployment
 
 Deployment assets are at mixed maturity. The database Compose file supports
-local adapter smoke tests, and the Temporal Compose file provides a runnable
-PostgreSQL-backed development server. Application and MCP images still require
-application-specific composition.
+local adapter smoke tests, the Temporal Compose file provides a runnable
+PostgreSQL-backed development server, and the development helper composes those
+services with the control-plane API. Production and MCP deployments still
+require application-specific composition.
 
 ## Local repository services
 
@@ -49,17 +50,35 @@ Set non-default Grafana credentials in that environment for any non-local use.
 
 ## Application Compose files
 
-The following files describe intended topology but are not runnable application deployments at the current revision:
+`scripts/deployment/dev_up.sh` is the supported local entrypoint for the full
+development topology. On its first invocation it creates protected environment
+files from `env-example/`, then stops so placeholder credentials can be
+reviewed. Run it again to start the data services, Temporal, a Temporal worker,
+and the API:
 
-| File | Current blocker |
+```bash
+scripts/deployment/dev_up.sh
+```
+
+The API binds to `127.0.0.1:8000` by default. Override
+`HARBORRAG_API_BIND_ADDRESS` or `HARBORRAG_API_PORT` when another local binding
+is required. Set `HARBORRAG_DEV_START_WORKER=0` to omit the ingestion worker.
+Stop the API and its development dependencies in reverse order with:
+
+```bash
+scripts/deployment/dev_down.sh
+```
+
+The remaining application Compose files describe intended topology but are not
+complete production deployments:
+
+| File | Current boundary |
 | --- | --- |
-| `docker-compose.yml` | Refers to qdrant/redis services not defined in the file and builds unfinished app images |
-| `docker-compose.dev.yml` | Builds the unfinished API image and expects root `.env` |
-| `docker-compose.prod.yml` | Depends on qdrant/redis services not defined in the file and builds the unfinished API image |
-| `docker-compose.temporal.yml` | Runnable local server; worker profile requires a dependency provider |
-| `docker-compose.all.yml` | Includes the incomplete dev and Temporal stacks |
-
-Resolve and test application/MCP entry points before presenting those images as deployable.
+| `docker-compose.yml` | Legacy API/CLI composition; external data services are not defined in the file |
+| `docker-compose.dev.yml` | API portion of the supported `dev_up.sh` topology |
+| `docker-compose.prod.yml` | Production outline; external data services and deployment-specific secrets remain operator concerns |
+| `docker-compose.temporal.yml` | Runnable local Temporal server and built-in worker profile |
+| `docker-compose.all.yml` | Legacy include composition; use `dev_up.sh` for the validated development topology |
 
 ## Model assets
 

@@ -13,7 +13,7 @@ from harborrag_core.contracts.chunking import (
 
 from .base import HarborBaseChunk
 
-_PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "？", "！", " ", "")
+_PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "? ", "! ", " ", "")
 _STRUCTURED_SEPARATORS = ("\n", "")
 
 
@@ -122,6 +122,8 @@ class RecursiveTextRefiner(HarborBaseChunk[TextRefinementRequest]):
             positioned: list[tuple[str, int, int]] = []
             for document in documents:
                 content = str(document.page_content)
+                if not content:
+                    continue
                 metadata: Mapping[str, Any] = document.metadata
                 start = metadata.get("start_index")
                 if (
@@ -157,18 +159,28 @@ class RecursiveTextRefiner(HarborBaseChunk[TextRefinementRequest]):
     @staticmethod
     def _validate_coverage(chunks: Sequence[tuple[str, int, int]], source_size: int) -> None:
         coverage_end = 0
-        previous_start = -1
+        last_start = -1
         for _, start, end in chunks:
             if start < 0 or end < start or end > source_size:
-                raise ValueError("recursive split contains invalid source offsets")
-            if start < previous_start:
-                raise ValueError("recursive split source offsets are not ordered")
+                raise ValueError(
+                    "recursive split contains invalid source offsets: "
+                    f"start={start}, end={end}, source_size={source_size}"
+                )
+            if start < last_start:
+                raise ValueError(
+                    "recursive split source offsets are not ordered: "
+                    f"start={start} precedes previous start={last_start}"
+                )
             if start > coverage_end:
-                raise ValueError("recursive split lost source content")
-            previous_start = start
+                raise ValueError(
+                    f"recursive split lost source content between offset {coverage_end} and {start}"
+                )
+            last_start = start
             coverage_end = max(coverage_end, end)
         if coverage_end != source_size:
-            raise ValueError("recursive split lost trailing source content")
+            raise ValueError(
+                f"recursive split lost trailing source content: covered {coverage_end} of {source_size}"
+            )
 
     @staticmethod
     def _source_span(
@@ -184,8 +196,6 @@ class RecursiveTextRefiner(HarborBaseChunk[TextRefinementRequest]):
         if base and base.start_line is not None:
             before = request.content[:start]
             start_line = base.start_line + before.count("\n")
-            # ``end`` is half-open while line bounds are inclusive. A newline
-            # at the end of a split belongs to the preceding source line.
             end_line = base.start_line + request.content[: end - 1].count("\n")
 
         return SourceSpan(

@@ -1,44 +1,27 @@
 name: harborrag-temporal
 
 services:
-  postgresql:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
-      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
-      POSTGRES_DB: postgres
-    volumes:
-      - temporal_postgresql_data:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 60
-      start_period: 20s
-    restart: unless-stopped
-
   temporal-schema:
     image: temporalio/admin-tools:1.31.2
-    depends_on:
-      postgresql:
-        condition: service_healthy
     environment:
       DB_PORT: "5432"
-      POSTGRES_SEEDS: postgresql
-      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
-      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
-      SQL_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      POSTGRES_SEEDS: ${TEMPORAL_POSTGRES_HOST:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in the database environment file}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}
+      SQL_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         echo "Waiting for PostgreSQL..."
 
+        attempts=0
         until nc -z -w 5 "$${POSTGRES_SEEDS}" "$${DB_PORT}"
         do
+          attempts=$$((attempts + 1))
+          if [ "$${attempts}" -ge 60 ]; then
+            echo "PostgreSQL is unavailable at $${POSTGRES_SEEDS}:$${DB_PORT}" >&2
+            exit 1
+          fi
           sleep 2
         done
 
@@ -84,6 +67,8 @@ services:
           /etc/temporal/schema/postgresql/v12/visibility/versioned
 
         echo "Temporal PostgreSQL schemas are ready."
+    networks:
+      - harborrag-data-network
     restart: "no"
 
   temporal:
@@ -98,16 +83,19 @@ services:
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
 
-      POSTGRES_SEEDS: postgresql
-      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
-      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      POSTGRES_SEEDS: ${TEMPORAL_POSTGRES_HOST:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in the database environment file}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}
 
       BIND_ON_IP: 0.0.0.0
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
     ports:
-      - "${TEMPORAL_PORT:-7233}:7233"
+      - "${HARBORRAG_TEMPORAL_BIND_ADDRESS:-127.0.0.1}:${TEMPORAL_PORT:-7233}:7233"
     volumes:
       - ../temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    networks:
+      - default
+      - harborrag-data-network
     restart: unless-stopped
 
   temporal-namespace:
@@ -158,7 +146,7 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: "http://localhost:${TEMPORAL_UI_PORT:-8080}"
     ports:
-      - "${TEMPORAL_UI_PORT:-8080}:8080"
+      - "${HARBORRAG_TEMPORAL_BIND_ADDRESS:-127.0.0.1}:${TEMPORAL_UI_PORT:-8080}:8080"
     restart: unless-stopped
 
   temporal-worker:
@@ -179,6 +167,7 @@ services:
         required: false
     environment:
       HARBORRAG_TEMPORAL_TARGET: temporal:7233
+      HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
       HARBORRAG_TEMPORAL_IDENTITY: ${HARBORRAG_TEMPORAL_IDENTITY:-harborrag-runtime}
       HARBORRAG_TEMPORAL_WORKER_GROUPS: ${HARBORRAG_TEMPORAL_WORKER_GROUPS:-discovery,processing,indexing,maintenance}
@@ -186,14 +175,18 @@ services:
       HARBORRAG_PARSER_CONFIG_PATH: ${HARBORRAG_PARSER_CONFIG_PATH:-config/parsers.yaml}
       HARBORRAG_MODEL_CONFIG_PATH: ${HARBORRAG_MODEL_CONFIG_PATH:-config/models.yaml}
       LOCAL_SOURCE_PATH: /data/sources
-      HARBORRAG_INGESTION_STATE_DATABASE: /var/lib/harborrag/ingestion-state.db
+      HARBORRAG_INGESTION_STATE_BACKEND: postgresql
+      HARBORRAG_INGESTION_STATE_URL: ${HARBORRAG_INGESTION_STATE_URL:?set HARBORRAG_INGESTION_STATE_URL in the Temporal environment file}
+      HARBORRAG_INGESTION_STATE_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_INGESTION_OBJECT_ROOT: /var/lib/harborrag/objects
       HARBORRAG_QDRANT_URL: ${HARBORRAG_QDRANT_URL:-http://qdrant:6333}
+      HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_FALKORDB_HOST: ${HARBORRAG_FALKORDB_HOST:-falkordb}
       HARBORRAG_FALKORDB_PORT: ${HARBORRAG_FALKORDB_PORT:-6379}
+      HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
     volumes:
       - harborrag_ingestion_data:/var/lib/harborrag
-      - harborrag_model_cache:/root/.cache/huggingface
+      - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
       - ${HARBORRAG_LOCAL_SOURCE_MOUNT:-../../docs}:/data/sources:ro
     init: true
     # Leave enough time beyond the SDK's 30s activity grace window to report
@@ -210,9 +203,6 @@ networks:
     external: true
 
 volumes:
-  temporal_postgresql_data:
-    name: harborrag-temporal-postgresql-data
-    external: true
   harborrag_ingestion_data:
     name: harborrag-ingestion-data
   harborrag_model_cache:

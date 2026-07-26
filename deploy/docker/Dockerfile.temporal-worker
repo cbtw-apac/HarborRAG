@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM ghcr.io/astral-sh/uv:python3.12-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -6,48 +6,58 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
         libgl1 \
         libglib2.0-0 \
-        libxcb1 \
-    && rm -rf /var/lib/apt/lists/*
+        libxcb1
 
-RUN python -m pip install --upgrade pip \
-    && python -m pip install \
-        --index-url https://download.pytorch.org/whl/cpu \
-        'torch>=2.2.2,<3' 'torchvision<1'
 
-# Keep the expensive dependency layer stable while application source changes
-# during ingestion debugging. Editable installs keep pointing at these paths
-# after the complete package trees are copied below.
+COPY pyproject.toml uv.lock ./
 COPY packages/harborrag-core/pyproject.toml packages/harborrag-core/README.md ./packages/harborrag-core/
 COPY packages/harborrag-core/src/harborrag_core/__init__.py ./packages/harborrag-core/src/harborrag_core/
 COPY packages/harborrag-adapters/pyproject.toml packages/harborrag-adapters/README.md ./packages/harborrag-adapters/
 COPY packages/harborrag-adapters/src/harborrag_adapters/__init__.py ./packages/harborrag-adapters/src/harborrag_adapters/
 COPY packages/harborrag-engine/pyproject.toml packages/harborrag-engine/README.md ./packages/harborrag-engine/
 COPY packages/harborrag-engine/src/harborrag_engine/__init__.py ./packages/harborrag-engine/src/harborrag_engine/
-COPY packages/harborrag-memory/pyproject.toml packages/harborrag-memory/README.md ./packages/harborrag-memory/
-COPY packages/harborrag-memory/src/harborrag_memory/__init__.py ./packages/harborrag-memory/src/harborrag_memory/
 COPY packages/harborrag-runtime/pyproject.toml packages/harborrag-runtime/README.md ./packages/harborrag-runtime/
 COPY packages/harborrag-runtime/src/harborrag_runtime/__init__.py ./packages/harborrag-runtime/src/harborrag_runtime/
 COPY packages/harborrag-app/pyproject.toml packages/harborrag-app/README.md ./packages/harborrag-app/
 COPY packages/harborrag-app/src/harborrag_app/__init__.py ./packages/harborrag-app/src/harborrag_app/
-COPY packages/harborrag-mcp/pyproject.toml packages/harborrag-mcp/README.md ./packages/harborrag-mcp/
-COPY packages/harborrag-mcp/src/harborrag_mcp/__init__.py ./packages/harborrag-mcp/src/harborrag_mcp/
+COPY packages/harborrag-mcp-server/pyproject.toml packages/harborrag-mcp-server/README.md ./packages/harborrag-mcp-server/
+COPY packages/harborrag-mcp-server/src/harborrag_mcp_server/__init__.py ./packages/harborrag-mcp-server/src/harborrag_mcp_server/
 COPY packages/harborrag/pyproject.toml packages/harborrag/README.md ./packages/harborrag/
 COPY packages/harborrag/src/harborrag/__init__.py ./packages/harborrag/src/harborrag/
 
-RUN python -m pip install -e packages/harborrag-core \
-    && python -m pip install -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant]' \
-    && python -m pip install -e packages/harborrag-engine \
-    && python -m pip install -e packages/harborrag-memory \
-    && python -m pip install -e packages/harborrag-runtime \
-    && python -m pip install -e packages/harborrag-app \
-    && python -m pip install -e packages/harborrag-mcp \
-    && python -m pip install -e packages/harborrag
+RUN uv export --quiet --frozen --package harborrag-runtime --extra production \
+        --no-dev --no-hashes --no-emit-workspace \
+        --output-file /tmp/harborrag-lock.txt \
+    && python -m uv pip install \
+        --no-deps \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --constraint /tmp/harborrag-lock.txt \
+        'torch==2.13.0' 'torchvision==0.28.0' \
+    && python -m uv pip install --constraint /tmp/harborrag-lock.txt \
+        -e packages/harborrag-core \
+        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,postgres,qdrant]' \
+        -e packages/harborrag-engine \
+        -e packages/harborrag-runtime \
+    && rm -f /tmp/harborrag-lock.txt \
+    && groupadd --gid 10001 harborrag \
+    && useradd --uid 10001 --gid harborrag --no-log-init \
+        --home-dir /var/lib/harborrag --create-home \
+        --shell /usr/sbin/nologin harborrag \
+    && mkdir -p \
+        /var/lib/harborrag/.cache/huggingface \
+        /var/lib/harborrag/objects \
+    && chown -R harborrag:harborrag /var/lib/harborrag
 
-COPY packages ./packages
+COPY packages/harborrag-core ./packages/harborrag-core
+COPY packages/harborrag-adapters ./packages/harborrag-adapters
+COPY packages/harborrag-engine ./packages/harborrag-engine
+COPY packages/harborrag-runtime ./packages/harborrag-runtime
 COPY config ./config
+
+WORKDIR /var/lib/harborrag
+USER harborrag
 
 CMD ["python", "-m", "harborrag_runtime.temporal.worker"]

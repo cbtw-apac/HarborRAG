@@ -33,7 +33,13 @@ from harborrag_core.models.errors import (
     HarborEmbedPartialBatchError,
     HarborModelError,
 )
-from harborrag_core.models.protocols import (
+from harborrag_core.models.rerank import (
+    HarborRerankDocument,
+    HarborRerankRequest,
+    HarborRerankUsage,
+)
+from harborrag_core.models.usage import ModelTokenUsage
+from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
     AsyncHarborRerankClientProtocol,
@@ -41,12 +47,6 @@ from harborrag_core.models.protocols import (
     HarborEmbedClientProtocol,
     HarborRerankClientProtocol,
 )
-from harborrag_core.models.rerank import (
-    HarborRerankDocument,
-    HarborRerankRequest,
-    HarborRerankUsage,
-)
-from harborrag_core.models.usage import ModelTokenUsage
 
 
 class ContractClient:

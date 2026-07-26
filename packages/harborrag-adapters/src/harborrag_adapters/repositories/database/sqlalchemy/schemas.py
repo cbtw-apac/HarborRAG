@@ -60,22 +60,9 @@ VECTOR_COLLECTIONS_KEY = "vector_collections"
 CANONICAL_CHUNK_KEY = "_harborrag_chunk"
 CANONICAL_CHUNK_FIELDS = (
     "logical_chunk_id",
-    "chunk_revision_id",
     "artifact_id",
     "artifact_revision_id",
-    "ordinal",
     "role",
-    "structural_path",
-    "start_offset",
-    "end_offset",
-    "page_start",
-    "page_end",
-    "start_line",
-    "end_line",
-    "parent_chunk_id",
-    "previous_chunk_id",
-    "next_chunk_id",
-    "source_element_ids",
     "source_span",
     "context",
 )
@@ -113,11 +100,11 @@ def chunk_from_row(row: Any) -> ChunkRecord:
     )
     return ChunkRecord.model_validate(
         {
-            "id": row["id"],
+            "chunk_revision_id": row["id"],
             "tenant_id": row["tenant_id"],
             "document_id": row["document_id"],
             "document_version_id": row["document_version_id"],
-            "chunk_index": row["chunk_index"],
+            "ordinal": row["chunk_index"],
             "content": row["content"],
             "content_hash": row["content_hash"],
             "token_count": row["token_count"],
@@ -133,30 +120,9 @@ def chunk_metadata(record: ChunkRecord) -> dict[str, Any]:
     metadata = dict(serialized["metadata"])
     metadata[CANONICAL_CHUNK_KEY] = {
         "logical_chunk_id": str(record.logical_chunk_id),
-        "chunk_revision_id": str(record.chunk_revision_id),
         "artifact_id": record.artifact_id,
         "artifact_revision_id": record.artifact_revision_id,
-        "ordinal": record.ordinal,
         "role": record.role,
-        "structural_path": list(record.structural_path),
-        "start_offset": record.start_offset,
-        "end_offset": record.end_offset,
-        "page_start": record.page_start,
-        "page_end": record.page_end,
-        "start_line": record.start_line,
-        "end_line": record.end_line,
-        "parent_chunk_id": (
-            str(record.parent_chunk_id) if record.parent_chunk_id is not None else None
-        ),
-        "previous_chunk_id": (
-            str(record.previous_chunk_id)
-            if record.previous_chunk_id is not None
-            else None
-        ),
-        "next_chunk_id": (
-            str(record.next_chunk_id) if record.next_chunk_id is not None else None
-        ),
-        "source_element_ids": list(record.source_element_ids),
         "source_span": serialized["source_span"],
         "context": serialized["context"],
     }

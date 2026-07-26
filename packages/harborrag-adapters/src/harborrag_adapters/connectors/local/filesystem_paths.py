@@ -53,15 +53,6 @@ def relative_path(path: Path, root_path: Path) -> str:
         return path.as_posix()
 
 
-def is_relative_to(path: Path, root_path: Path) -> bool:
-    """Compatibility wrapper for checking whether path is under root."""
-    try:
-        path.relative_to(root_path)
-        return True
-    except ValueError:
-        return False
-
-
 def is_hidden_path(path: Path, root_path: Path) -> bool:
     """Return whether any relative path component is hidden."""
     relative = relative_path(path, root_path)

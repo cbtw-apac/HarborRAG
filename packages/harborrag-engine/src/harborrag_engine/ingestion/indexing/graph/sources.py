@@ -161,7 +161,7 @@ class SourceGraphProjector:
         top_sections = {
             parent_node_ids[str(record.chunk_revision_id)]
             for record in records
-            if record.structural_path
+            if record.context.structural_path
         }
         for section_id in sorted(top_sections):
             state.edge("HAS_SECTION", page_node_id, section_id)
@@ -183,8 +183,9 @@ class SourceGraphProjector:
         for record in records:
             parent_id = parent_node_ids[str(record.chunk_revision_id)]
             chunk_id = chunk_node_ids[str(record.chunk_revision_id)]
-            if record.page_start is not None and record.page_end is not None:
-                for page in self._pages(record.page_start, record.page_end):
+            span = record.source_span
+            if span is not None and span.page_start is not None and span.page_end is not None:
+                for page in self._pages(span.page_start, span.page_end):
                     page_node = state.node(
                         kind="page",
                         key=str(page),

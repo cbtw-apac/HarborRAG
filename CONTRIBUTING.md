@@ -23,7 +23,8 @@ For a `pip` editable installation:
 make bootstrap
 ```
 
-`make bootstrap` installs the seven active workspace packages in dependency order and then installs the root `dev` extra. The `harborrag-memory` directory is currently a placeholder and is not a uv workspace member.
+`make bootstrap` installs the seven active workspace packages in dependency
+order and then installs the root `dev` extra.
 
 ## Before changing code
 
@@ -43,7 +44,7 @@ Keep changes focused. Do not combine generated files, broad formatting, or unrel
 | `harborrag-engine` | Ingestion, retrieval, indexing, graph mapping, and evidence orchestration |
 | `harborrag-runtime` | Configuration loading, composition, jobs, supervision, schedules, and durable-workflow boundaries |
 | `harborrag-app` | Application services, CLI commands, and HTTP controllers |
-| `harborrag-mcp` | MCP tool/server interfaces, policy, and audit behavior |
+| `harborrag-mcp-server` | MCP tool/server interfaces, policy, and audit behavior |
 | `harborrag` | Stable public re-exports only |
 
 The allowed HarborRAG imports are:
@@ -54,11 +55,34 @@ harborrag_adapters  -> core
 harborrag_engine    -> core, adapters
 harborrag_runtime   -> core, adapters, engine
 harborrag_app       -> core, engine, runtime
-harborrag_mcp       -> core, engine, runtime
+harborrag_mcp_server -> core, engine, runtime
 harborrag           -> any active HarborRAG package
 ```
 
 Run `make deps-check` after changing cross-package imports.
+
+## Developer map
+
+| Goal | Location |
+| --- | --- |
+| Add a connector | `packages/harborrag-adapters/src/harborrag_adapters/connectors/<provider>/` |
+| Add a PDF parser backend | `packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf_engine/<backend>.py` |
+| Add a vector repository | `packages/harborrag-adapters/src/harborrag_adapters/repositories/vector/<backend>/` |
+| Add a chat/model provider | `packages/harborrag-adapters/src/harborrag_adapters/models/<family>/` |
+| Add a chunking strategy | `packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/strategies/` |
+| Change ingestion business behavior | `packages/harborrag-engine/src/harborrag_engine/ingestion/` |
+| Change retrieval ranking | `packages/harborrag-engine/src/harborrag_engine/retrieval/` |
+| Add an API endpoint | `packages/harborrag-app/src/harborrag_app/api/routes/` |
+| Add a CLI command | `packages/harborrag-app/src/harborrag_app/cli/commands/` |
+| Add an MCP tool | `packages/harborrag-mcp-server/src/harborrag_mcp_server/tools/` |
+| Add durable execution | `packages/harborrag-runtime/src/harborrag_runtime/temporal/workflows/` |
+
+A new backend should add its implementation folder, configuration example, and
+contract-test registration. It should not require changes to engine pipelines,
+transports, or unrelated providers. The one current exception is provider metadata
+behind the single LiteLLM chat path, which remains in
+`models/chat/registry.py`; a second execution provider path requires a feature design
+before introducing a plugin registry.
 
 ## Adapter contributions
 
@@ -116,6 +140,8 @@ Run the checks relevant to your change. Before a pull request, the full local se
 
 ```bash
 uv run make lint
+uv run make complexity
+uv run make import-boundaries
 uv run make typecheck
 uv run make deps-check
 uv run make compile
@@ -128,7 +154,16 @@ Formatting is explicit and may modify files:
 uv run make format
 ```
 
-Review the resulting diff after formatting. The CI quality workflow runs lint, type checking, dependency direction, compilation, and the 90% coverage gate. A second workflow runs every active package suite plus the website tests.
+Review the resulting diff after formatting. `make lint` requires zero
+non-complexity Ruff findings. `make complexity` enforces the committed per-file
+`C901`/`PLR0913` ratchet: violations may only decrease, and reductions must update
+`.ruff-complexity-baseline.json` with
+`uv run python scripts/check_ruff_complexity.py --write-baseline`.
+
+The CI quality workflow runs Ruff lint, the complexity ratchet, import-linter, type
+checking, dependency direction, compilation, and the 90% coverage gate. A second
+workflow runs every active package suite plus the website tests. Configure branch
+protection to require the `Quality Gates / build-test` status.
 
 ## Documentation changes
 
@@ -138,6 +173,7 @@ Update documentation whenever behavior, public imports, commands, configuration,
 - User and developer guides: `docs/`
 - Package-specific API details: `packages/<package>/README.md` or the nearest module README
 - Release-visible behavior: `CHANGELOG.md`
+- Architecture decisions: `docs/adr/`
 
 Use repository-relative Markdown links and runnable commands from the repository root. Be explicit about alpha or scaffolded surfaces; do not document a placeholder as operational.
 
@@ -182,10 +218,15 @@ A pull request should explain the behavior change, package boundaries affected, 
 ## Pull request checklist
 
 - [ ] The change is in the package that owns the behavior.
-- [ ] Cross-package imports pass `make deps-check`.
-- [ ] New behavior has deterministic tests at the owning layer.
-- [ ] Live services and credentials are not required by default tests.
-- [ ] Public behavior, configuration, and examples are documented.
-- [ ] Secrets and provider payloads are absent from the diff.
-- [ ] Lint, type checking, compilation, and relevant tests pass.
-- [ ] Coverage remains at or above 90%.
+- [ ] The public contract and non-goals are documented.
+- [ ] Cross-package imports pass `make import-boundaries` and `make deps-check`.
+- [ ] No logic is duplicated from another package.
+- [ ] Data shapes live in capability-local `schemas.py` files.
+- [ ] `__all__` appears only in `__init__.py`.
+- [ ] Configuration and failure-path examples are covered.
+- [ ] Unit and applicable contract/integration tests are present.
+- [ ] Observability is included where relevant.
+- [ ] Replaced code is removed without compatibility aliases.
+- [ ] No unused files or duplicate implementations remain.
+- [ ] Relevant README and ADR records are updated.
+- [ ] Lint, complexity, type checking, compilation, tests, and coverage pass.

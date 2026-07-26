@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Any
 
 from harborrag_core.contracts.chunking import SourceSpan, SplitBoundaryKind
-from harborrag_core.domain.document import Document
+from harborrag_core.domain.normalized_document import Document
 from harborrag_core.schemas.documents import ChunkRecord
 
 
@@ -249,9 +249,3 @@ class ChunkingResult:
                 or (record.token_count or 0) != reference.token_count
             ):
                 raise ValueError("chunking record does not match its manifest reference")
-
-    @property
-    def records(self) -> tuple[ChunkRecord, ...]:
-        """Compatibility alias for callers using the earlier result shape."""
-
-        return self.chunks

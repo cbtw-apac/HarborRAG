@@ -38,6 +38,10 @@ class JiraClient(Protocol):
         """Download bytes from a trusted JIRA URL."""
         pass
 
+    def close(self) -> None:
+        """Release connector-owned HTTP resources."""
+        pass
+
 
 class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
     """Authenticated, rate-limited JIRA REST client."""

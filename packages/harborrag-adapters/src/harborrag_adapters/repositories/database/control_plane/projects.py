@@ -77,6 +77,7 @@ class SqlProjectRepository:
         async with self.sessions.begin() as session:
             await session.execute(sa.delete(ProjectRow).where(ProjectRow.id == project_id))
 
+
 @dataclass(slots=True)
 class SqlSourceRepository:
     """SourceRepositoryPort over the sources table."""

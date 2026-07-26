@@ -3,135 +3,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from enum import StrEnum
 
+from harborrag_runtime.temporal.artifact_schemas import (
+    ArtifactActivityInput as ArtifactActivityInput,
+)
+from harborrag_runtime.temporal.artifact_schemas import (
+    ArtifactActivityResult as ArtifactActivityResult,
+)
+from harborrag_runtime.temporal.artifact_schemas import (
+    ArtifactReference,
+    ArtifactStatus,
+    PendingResolution,
+    RunStatus,
+)
+from harborrag_runtime.temporal.artifact_schemas import (
+    ArtifactStage as ArtifactStage,
+)
+from harborrag_runtime.temporal.artifact_schemas import (
+    ArtifactStageState as ArtifactStageState,
+)
+from harborrag_runtime.temporal.artifact_schemas import (
+    ResolutionDecision as ResolutionDecision,
+)
+from harborrag_runtime.temporal.artifact_schemas import (
+    ResolutionReceipt as ResolutionReceipt,
+)
 from harborrag_runtime.temporal.retry import ActivityRetryConfig
+from harborrag_runtime.temporal.schema_version import PAYLOAD_VERSION
 from harborrag_runtime.temporal.task_queues import TaskQueueConfig
-
-PAYLOAD_VERSION = 1
-
-
-class RunStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    PAUSED = "paused"
-    CANCELLING = "cancelling"
-    CANCELLED = "cancelled"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-class ArtifactStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    WAITING_FOR_RESOLUTION = "waiting_for_resolution"
-    SUCCEEDED = "succeeded"
-    UNCHANGED = "unchanged"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    QUARANTINED = "quarantined"
-    CANCELLED = "cancelled"
-
-
-class ArtifactStage(StrEnum):
-    PREFLIGHT = "preflight"
-    FETCH = "fetch"
-    PARSE = "parse"
-    CHUNK = "chunk"
-    INDEX = "index"
-    VALIDATE = "validate"
-    FINALIZE = "finalize"
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactReference:
-    artifact_id: str
-    source_ref: str
-    source_kind: str
-    connector_name: str
-    artifact_revision_id: str | None = None
-    checksum: str | None = None
-    parser_hint: str | None = None
-    requires_ocr: bool = False
-    version: int = PAYLOAD_VERSION
-
-    def __post_init__(self) -> None:
-        values = (self.artifact_id, self.source_ref, self.source_kind, self.connector_name)
-        if self.version != PAYLOAD_VERSION or any(not value.strip() for value in values):
-            raise ValueError("artifact reference is invalid or unsupported")
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactStageState:
-    artifact: ArtifactReference
-    generation_id: str
-    stage: ArtifactStage = ArtifactStage.PREFLIGHT
-    artifact_revision_id: str | None = None
-    snapshot_ref: str | None = None
-    parsed_document_ref: str | None = None
-    chunking_result_ref: str | None = None
-    indexing_result_ref: str | None = None
-    checkpoint_ref: str | None = None
-    version: int = PAYLOAD_VERSION
-
-    def __post_init__(self) -> None:
-        if self.version != PAYLOAD_VERSION or not self.generation_id.strip():
-            raise ValueError("artifact stage state is invalid or unsupported")
-
-
-@dataclass(frozen=True, slots=True)
-class PendingResolution:
-    artifact_id: str
-    request_ref: str
-    reason: str
-    resume_stage: ArtifactStage
-    workflow_id: str | None = None
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ResolutionDecision:
-    artifact_id: str
-    request_ref: str
-    decision: str
-    actor_id: str
-    submitted_at: str | None = None
-    note: str | None = None
-    version: int = PAYLOAD_VERSION
-
-    def __post_init__(self) -> None:
-        values = (self.artifact_id, self.request_ref, self.decision, self.actor_id)
-        if self.version != PAYLOAD_VERSION or any(not value.strip() for value in values):
-            raise ValueError("resolution decision is invalid or unsupported")
-
-
-@dataclass(frozen=True, slots=True)
-class ResolutionReceipt:
-    artifact_id: str
-    decision_ref: str
-    accepted: bool
-    resume_stage: ArtifactStage
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactActivityInput:
-    run_id: str
-    tenant_id: str
-    manifest_id: str
-    state: ArtifactStageState
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactActivityResult:
-    status: ArtifactStatus
-    state: ArtifactStageState
-    pending_resolution: PendingResolution | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    retryable: bool = False
-    version: int = PAYLOAD_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +88,23 @@ class ArtifactResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactOutcomeCheckpoint:
+    """Compact reference and current retryable terminal outcome for one artifact."""
+
+    reference: ArtifactReference
+    result: ArtifactResult
+    version: int = PAYLOAD_VERSION
+
+    def __post_init__(self) -> None:
+        if (
+            self.version != PAYLOAD_VERSION
+            or self.reference.artifact_id != self.result.artifact_id
+            or self.result.status not in {ArtifactStatus.FAILED, ArtifactStatus.QUARANTINED}
+        ):
+            raise ValueError("artifact outcome checkpoint is invalid or unsupported")
+
+
+@dataclass(frozen=True, slots=True)
 class RunProgress:
     discovered: int = 0
     processed: int = 0
@@ -227,6 +143,36 @@ class RunProgress:
             partitions=self.partitions + other.partitions,
         )
 
+    def replace_artifact(
+        self,
+        previous: ArtifactStatus,
+        current: ArtifactStatus,
+    ) -> RunProgress:
+        """Replace a prior terminal outcome without counting another artifact."""
+
+        fields = {
+            ArtifactStatus.SUCCEEDED: "succeeded",
+            ArtifactStatus.UNCHANGED: "unchanged",
+            ArtifactStatus.FAILED: "failed",
+            ArtifactStatus.SKIPPED: "skipped",
+            ArtifactStatus.QUARANTINED: "quarantined",
+            ArtifactStatus.CANCELLED: "cancelled",
+        }
+        previous_field = fields.get(previous)
+        current_field = fields.get(current)
+        values: dict[str, int] = {}
+        if previous_field is not None:
+            values[previous_field] = getattr(self, previous_field) - 1
+        if current_field is not None:
+            values[current_field] = (
+                values.get(
+                    current_field,
+                    getattr(self, current_field),
+                )
+                + 1
+            )
+        return replace(self, **values)
+
 
 @dataclass(frozen=True, slots=True)
 class PartitionInput:
@@ -248,7 +194,34 @@ class PartitionResult:
     failed_artifacts: tuple[str, ...] = ()
     quarantined_artifacts: tuple[str, ...] = ()
     pending_resolutions: tuple[PendingResolution, ...] = ()
+    artifact_results: tuple[ArtifactResult, ...] = ()
     version: int = PAYLOAD_VERSION
+
+
+@dataclass(frozen=True, slots=True)
+class RunContinuationState:
+    """Operator-visible state that must survive continue-as-new."""
+
+    artifact_outcomes: tuple[ArtifactOutcomeCheckpoint, ...] = ()
+    pending_resolutions: tuple[PendingResolution, ...] = ()
+    retry_requested: tuple[str, ...] = ()
+    partition_concurrency: int | None = None
+    artifact_concurrency: int | None = None
+    retry_attempt: int = 0
+    cancel_requested: bool = False
+    version: int = PAYLOAD_VERSION
+
+    def __post_init__(self) -> None:
+        capacities = (self.partition_concurrency, self.artifact_concurrency)
+        if (
+            self.version != PAYLOAD_VERSION
+            or self.retry_attempt < 0
+            or any(value is not None and value < 1 for value in capacities)
+        ):
+            raise ValueError("run continuation state is invalid or unsupported")
+        artifact_ids = [checkpoint.reference.artifact_id for checkpoint in self.artifact_outcomes]
+        if len(artifact_ids) != len(set(artifact_ids)):
+            raise ValueError("run continuation outcomes must have unique artifact IDs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +230,7 @@ class WorkflowOptions:
 
     task_queues: TaskQueueConfig = TaskQueueConfig()
     retries: ActivityRetryConfig = ActivityRetryConfig()
+    max_artifacts: int | None = None
     partition_size: int = 50
     partition_concurrency: int = 4
     artifact_concurrency: int = 16
@@ -272,7 +246,11 @@ class WorkflowOptions:
             self.continue_after_partitions,
             self.continue_after_artifacts,
         )
-        if self.version != PAYLOAD_VERSION or any(value < 1 for value in values):
+        if (
+            self.version != PAYLOAD_VERSION
+            or any(value < 1 for value in values)
+            or (self.max_artifacts is not None and self.max_artifacts < 1)
+        ):
             raise ValueError("workflow orchestration limits must be positive")
 
 
@@ -288,6 +266,7 @@ class IngestionRunInput:
     next_partition: int = 0
     progress: RunProgress = RunProgress()
     paused: bool = False
+    continuation: RunContinuationState = RunContinuationState()
     version: int = PAYLOAD_VERSION
 
     def __post_init__(self) -> None:

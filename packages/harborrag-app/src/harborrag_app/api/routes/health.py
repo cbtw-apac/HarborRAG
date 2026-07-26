@@ -28,7 +28,7 @@ def readyz(request: Request) -> JSONResponse:
     service: BaseAppService = request.app.state.app_service
     response = service.health()
     if response.ok:
-        return JSONResponse(status_code=200, content={"status": "ready", "data": response.data})
+        return JSONResponse(status_code=200, content={"status": "ready"})
     return JSONResponse(
         status_code=503,
         content=error_envelope(request, "not_ready", response.error or "service not ready", {}),

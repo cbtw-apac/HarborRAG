@@ -73,6 +73,39 @@ class MemoryStateBackend:
         )
 
 
+def test_durable_state_workflow_ids_fit_the_postgresql_schema() -> None:
+    first = RepositoryRuntimeIngestionState._workflow_id("stage", "run-1", "artifact-1")
+    second = RepositoryRuntimeIngestionState._workflow_id("stage", "run-1", "artifact-2")
+
+    assert len(first) == 64
+    assert first != second
+
+
+@pytest.mark.asyncio
+async def test_ingestion_objects_reject_cross_tenant_and_wrong_bucket_references() -> None:
+    store = MemoryObjectStore()
+    await store.connect()
+    try:
+        objects = IngestionObjectRepository(store)
+        reference = await objects.put(
+            "tenant-b",
+            "sources/source.json",
+            b"{}",
+            kind="source",
+        )
+
+        with pytest.raises(ValueError, match="tenant does not match"):
+            await objects.get(reference, expected_tenant_id="tenant-a")
+
+        with pytest.raises(ValueError, match="bucket is not authorized"):
+            await objects.get(
+                "harbor-object://tenant-a/other/sources/source.json",
+                expected_tenant_id="tenant-a",
+            )
+    finally:
+        await store.close()
+
+
 @pytest.mark.asyncio
 async def test_repository_state_survives_new_service_instance() -> None:
     backend = MemoryStateBackend()
@@ -104,7 +137,7 @@ async def test_repository_state_survives_new_service_instance() -> None:
         progress = await second.discovery_progress(discovery)
         assert progress is not None and progress.done
         assert progress.artifacts == (artifact,)
-        assert await second.load_source(artifact.source_ref) == source
+        assert await second.load_source(artifact.source_ref, "tenant-1") == source
 
         request = ArtifactActivityInput(
             "run-1",
@@ -126,7 +159,7 @@ async def test_repository_state_survives_new_service_instance() -> None:
             {"title": "Guide"},
         )
         snapshot_ref = await second.persist_snapshot(request, raw)
-        loaded_raw = await second.load_snapshot(snapshot_ref)
+        loaded_raw = await second.load_snapshot(snapshot_ref, "tenant-1")
         assert loaded_raw.content == b"# Guide"
 
         parsed = ParsedDocument(
@@ -136,7 +169,7 @@ async def test_repository_state_survives_new_service_instance() -> None:
         )
         document = DocumentNormalizer().normalize(raw, parsed)
         parsed_ref = await second.persist_parsed_document(request, parsed, document)
-        loaded_document = await second.load_parsed_document(parsed_ref)
+        loaded_document = await second.load_parsed_document(parsed_ref, "tenant-1")
         assert loaded_document.content == document.content
         assert (await second.health())["ready"] is True
     finally:

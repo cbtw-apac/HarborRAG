@@ -3,7 +3,7 @@ import pytest
 from harborrag_adapters.models.chat import AsyncHarborChatClient, HarborChatClient
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.models.rerank import HarborRerankingClient
-from harborrag_core.models.protocols import (
+from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
     AsyncHarborRerankClientProtocol,

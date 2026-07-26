@@ -28,14 +28,10 @@ def embedding_config() -> HarborEmbedClientConfig:
         "provider": require_env("HARBOR_EMBED_PROVIDER"),
         "model": require_env("HARBOR_EMBED_MODEL"),
         "expected_dimensions": dimensions,
-        "allow_ambient_credentials": env_bool(
-            "HARBOR_EMBED_ALLOW_AMBIENT_CREDENTIALS"
-        ),
+        "allow_ambient_credentials": env_bool("HARBOR_EMBED_ALLOW_AMBIENT_CREDENTIALS"),
         "capabilities": {
             "batch": True,
-            "configurable_dimensions": env_bool(
-                "HARBOR_EMBED_CONFIGURABLE_DIMENSIONS"
-            ),
+            "configurable_dimensions": env_bool("HARBOR_EMBED_CONFIGURABLE_DIMENSIONS"),
             "default_dimensions": dimensions,
             "encoding_format": True,
             "purpose": True,
@@ -74,9 +70,7 @@ def embedding_config() -> HarborEmbedClientConfig:
             "embed": {
                 "default_model": "smoke",
                 "security": {
-                    "allow_custom_providers": env_bool(
-                        "HARBOR_EMBED_ALLOW_CUSTOM_PROVIDER"
-                    )
+                    "allow_custom_providers": env_bool("HARBOR_EMBED_ALLOW_CUSTOM_PROVIDER")
                 },
                 "retry": {
                     "same_deployment_attempts": 1,
@@ -85,9 +79,7 @@ def embedding_config() -> HarborEmbedClientConfig:
                 },
                 "models": {
                     "smoke": {
-                        "embedding_space": env(
-                            "HARBOR_EMBED_SPACE", "smoke-embedding-space"
-                        ),
+                        "embedding_space": env("HARBOR_EMBED_SPACE", "smoke-embedding-space"),
                         "deployments": [deployment],
                     }
                 },
@@ -122,9 +114,7 @@ def falkordb_config() -> FalkorDBGraphConfig:
         port=env_int("FALKORDB_PORT", 6379),
         username=env("FALKORDB_USERNAME"),
         password=SecretStr(password) if password else None,
-        graph_name=env(
-            "HARBOR_SMOKE_INDEXING_FALKORDB_GRAPH", "harborrag_indexing_smoke"
-        )
+        graph_name=env("HARBOR_SMOKE_INDEXING_FALKORDB_GRAPH", "harborrag_indexing_smoke")
         or "harborrag_indexing_smoke",
         ssl=env_bool("FALKORDB_SSL"),
     )
@@ -136,12 +126,9 @@ def indexing_config() -> IndexingConfig:
     return IndexingConfig(
         embedding_model="smoke",
         embedding_dimensions=env_int("HARBOR_EMBED_EXPECTED_DIMENSIONS"),
-        vector_collection=env(
-            "HARBOR_SMOKE_INDEXING_QDRANT_COLLECTION", "indexing_probe"
-        )
+        vector_collection=env("HARBOR_SMOKE_INDEXING_QDRANT_COLLECTION", "indexing_probe")
         or "indexing_probe",
-        graph_namespace=env("HARBOR_SMOKE_INDEXING_GRAPH_NAMESPACE", "smoke")
-        or "smoke",
+        graph_namespace=env("HARBOR_SMOKE_INDEXING_GRAPH_NAMESPACE", "smoke") or "smoke",
         embedding_batch_size=2,
         embedding_concurrency=1,
     )

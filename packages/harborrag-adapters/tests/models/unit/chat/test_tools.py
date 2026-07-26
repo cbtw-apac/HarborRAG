@@ -51,7 +51,7 @@ def test_tool_definitions_calls_and_parallel_arguments_are_normalized(
     ]
     invocation = FakeInvocation([raw])
 
-    response = sync_client(base_config, invocation=invocation).chat(
+    response = sync_client(base_config, backend=invocation).chat(
         [HarborChatMessage.user("Compare weather")],
         tools=(weather_tool(),),
         tool_choice="auto",
@@ -80,7 +80,7 @@ def test_tool_result_messages_preserve_provider_fields_only(base_config) -> None
     )
     invocation = FakeInvocation([response_dict("It is sunny")])
 
-    sync_client(base_config, invocation=invocation).chat(
+    sync_client(base_config, backend=invocation).chat(
         [
             HarborChatMessage.user("Weather?"),
             HarborChatMessage.assistant(tool_calls=(previous_call,)),
@@ -105,7 +105,7 @@ def test_tool_result_messages_preserve_provider_fields_only(base_config) -> None
 
 
 def test_tool_choice_requires_definitions(base_config) -> None:
-    client = sync_client(base_config, invocation=FakeInvocation())
+    client = sync_client(base_config, backend=FakeInvocation())
 
     with pytest.raises(HarborChatInvalidRequestError, match="tool_choice"):
         client.chat([HarborChatMessage.user("hello")], tool_choice="auto")

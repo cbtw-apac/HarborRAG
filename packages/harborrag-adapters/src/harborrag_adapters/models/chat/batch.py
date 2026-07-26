@@ -103,8 +103,7 @@ class AsyncChatBatchExecutor:
                 return HarborChatBatchItem(index=index, response=response)
 
         tasks = [
-            asyncio.create_task(execute(index, request))
-            for index, request in enumerate(requests)
+            asyncio.create_task(execute(index, request)) for index, request in enumerate(requests)
         ]
         try:
             items = await asyncio.gather(*tasks)
@@ -113,9 +112,7 @@ class AsyncChatBatchExecutor:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
-        return HarborChatBatchResult(
-            items=tuple(sorted(items, key=lambda item: item.index))
-        )
+        return HarborChatBatchResult(items=tuple(sorted(items, key=lambda item: item.index)))
 
 
 def _validate_batch(
@@ -128,11 +125,7 @@ def _validate_batch(
             operation="chat",
             retryable=False,
         )
-    if (
-        isinstance(concurrency, bool)
-        or not isinstance(concurrency, int)
-        or concurrency < 1
-    ):
+    if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
         raise HarborChatInvalidRequestError(
             "batch concurrency must be a positive integer",
             operation="chat",

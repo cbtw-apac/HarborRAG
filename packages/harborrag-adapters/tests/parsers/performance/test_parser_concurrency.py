@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from harborrag_adapters.parsers.engine import HarborParser
+from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.slow, pytest.mark.graybox, pytest.mark.timeout(30)]
@@ -30,7 +30,7 @@ def _make_input(index: int) -> ParseInput:
 
 
 def test_concurrent_parse_is_deterministic_and_route_tables_intact() -> None:
-    parser = HarborParser()
+    parser = HarborParserFactory().create_registry()
     inputs = [_make_input(i) for i in range(len(_DOC_TEMPLATES))]
     baseline = [parser.parse(inp).content for inp in inputs]
 

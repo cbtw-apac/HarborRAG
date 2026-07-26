@@ -34,7 +34,7 @@ from harborrag_core.models.embed import (
     HarborEmbedResponse,
     RawEmbeddingInput,
 )
-from harborrag_core.models.protocols import (
+from harborrag_core.ports.model_clients import (
     AsyncHarborEmbedClientProtocol,
     HarborEmbedClientProtocol,
 )

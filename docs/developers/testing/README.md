@@ -9,11 +9,9 @@ packages/harborrag-adapters/tests/  connectors, parsers, models, repositories
 packages/harborrag-engine/tests/    engine contracts and utilities
 packages/harborrag-runtime/tests/   config loaders and runtime boundaries
 packages/harborrag-app/tests/       CLI/app boundaries
-packages/harborrag-mcp/tests/       MCP boundaries
+packages/harborrag-mcp-server/tests/       MCP boundaries
 packages/harborrag/tests/           meta-package exports
 ```
-
-`harborrag-memory` has no tests because it is a reserved placeholder, not an active workspace package.
 
 ## Common commands
 

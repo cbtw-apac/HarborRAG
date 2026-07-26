@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 from pathlib import Path
+from typing import BinaryIO
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
@@ -27,6 +28,28 @@ class FilesystemAccessMixin:
 
     _root: Path
     _instance_name: str
+
+    def _ensure_private_directory(self, path: Path) -> None:
+        """Create and lock down directories beneath the configured root."""
+
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        current = path
+        while current == self._root or self._root in current.parents:
+            os.chmod(current, 0o700)
+            if current == self._root:
+                break
+            current = current.parent
+
+    @staticmethod
+    def _open_private_file(path: Path) -> BinaryIO:
+        """Create a replacement file with an explicit owner-only mode."""
+
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+            0o600,
+        )
+        return os.fdopen(descriptor, "wb")
 
     async def _authorized_path(
         self,

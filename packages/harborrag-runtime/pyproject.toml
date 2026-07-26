@@ -12,11 +12,12 @@ dependencies = [
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
     "temporalio>=1.30,<2",
+    "cloudpickle>=3.1,<4",
 ]
 
 [project.optional-dependencies]
 production = [
-    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf,qdrant]==0.1.0",
+    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,postgres,qdrant]==0.1.0",
 ]
 dev = [
     "types-PyYAML>=6.0,<7",

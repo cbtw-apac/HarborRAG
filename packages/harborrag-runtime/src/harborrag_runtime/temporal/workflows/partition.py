@@ -21,6 +21,7 @@ from harborrag_runtime.temporal.schemas import (
     PendingResolution,
     RunProgress,
 )
+from harborrag_runtime.temporal.workflows.failures import durable_failure
 
 _ROLLING_ARTIFACT_POOL_PATCH = "rolling-artifact-pool-v1"
 
@@ -56,6 +57,7 @@ class IngestionPartitionWorkflow:
                 if result.status is ArtifactStatus.QUARANTINED
             ),
             pending_resolutions=tuple(self._pending),
+            artifact_results=tuple(completed_results),
         )
 
     async def _run_rolling(self, request: PartitionInput) -> list[ArtifactResult]:
@@ -65,9 +67,7 @@ class IngestionPartitionWorkflow:
 
         while next_index < len(request.artifacts) or active:
             if not active:
-                await workflow.wait_condition(
-                    lambda: not self._paused or self._cancel_requested
-                )
+                await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
 
             if self._cancel_requested and not active:
                 for index in range(next_index, len(request.artifacts)):
@@ -105,9 +105,7 @@ class IngestionPartitionWorkflow:
                     result_type=ArtifactResult,
                     parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                 )
-                active[
-                    asyncio.create_task(self._artifact_result(handle, reference))
-                ] = next_index
+                active[asyncio.create_task(self._artifact_result(handle, reference))] = next_index
                 next_index += 1
 
             if not active:
@@ -188,13 +186,13 @@ class IngestionPartitionWorkflow:
         try:
             return cast("ArtifactResult", await handle)
         except ChildWorkflowError as exc:
-            cause = exc.cause
+            error_type, error_message = durable_failure(exc)
             return ArtifactResult(
                 artifact_id=reference.artifact_id,
                 status=ArtifactStatus.FAILED,
                 artifact_revision_id=reference.artifact_revision_id,
-                error_type=type(cause).__name__ if cause is not None else type(exc).__name__,
-                error_message=str(cause or exc)[:512],
+                error_type=error_type,
+                error_message=error_message,
             )
 
     @staticmethod

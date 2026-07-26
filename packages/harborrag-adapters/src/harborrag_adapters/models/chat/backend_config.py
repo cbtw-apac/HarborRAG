@@ -6,7 +6,6 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from harborrag_adapters.models.runtime.config import RoutingEngine
 from harborrag_adapters.models.runtime.security import (
     HeaderValue,
     SecretReference,
@@ -18,7 +17,6 @@ from harborrag_adapters.models.runtime.transport import protect_sensitive_header
 class ChatBackendType(StrEnum):
     """Identify the concrete LiteLLM transport used by the chat client."""
 
-    AUTO = "auto"
     DIRECT_SDK = "direct_sdk"
     LITELLM_ROUTER = "litellm_router"
     LITELLM_PROXY = "litellm_proxy"
@@ -114,7 +112,7 @@ class ChatBackendConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    type: ChatBackendType = ChatBackendType.AUTO
+    type: ChatBackendType = ChatBackendType.DIRECT_SDK
     proxy: LiteLLMProxyConfig | None = None
 
     @model_validator(mode="after")
@@ -126,15 +124,6 @@ class ChatBackendConfig(BaseModel):
         if self.type is not ChatBackendType.LITELLM_PROXY and self.proxy is not None:
             raise ValueError("backend.proxy is only valid for the LiteLLM Proxy backend")
         return self
-
-    def resolved_type(self, routing_engine: RoutingEngine) -> ChatBackendType:
-        """Resolve backward-compatible automatic selection from the routing engine."""
-
-        if self.type is not ChatBackendType.AUTO:
-            return self.type
-        if routing_engine is RoutingEngine.LITELLM_ROUTER:
-            return ChatBackendType.LITELLM_ROUTER
-        return ChatBackendType.DIRECT_SDK
 
 
 def _header_contains_newline(value: HeaderValue) -> bool:

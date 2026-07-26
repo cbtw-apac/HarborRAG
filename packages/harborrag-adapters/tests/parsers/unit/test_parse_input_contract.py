@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.parsers.input_loading import (
+from harborrag_adapters.parsers.common.resources import (
     coerce_parse_input,
     parse_input_suffix,
     parse_input_supports,
@@ -26,9 +26,7 @@ def test_read_text_prefers_bom_encodings() -> None:
 def test_read_text_plain_utf8_and_explicit_encoding() -> None:
     assert read_parse_input_text(ParseInput(content=b"hello")) == "hello"
     assert (
-        read_parse_input_text(
-            ParseInput(content="ne".encode("latin-1")), encoding="latin-1"
-        )
+        read_parse_input_text(ParseInput(content="ne".encode("latin-1")), encoding="latin-1")
         == "ne"
     )
 

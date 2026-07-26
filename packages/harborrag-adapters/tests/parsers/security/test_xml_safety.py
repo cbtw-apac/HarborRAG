@@ -8,7 +8,7 @@ pytestmark = pytest.mark.blackbox
 
 
 def test_epub_xml_uses_defused_parser() -> None:
-    from harborrag_adapters.parsers import ebook
+    from harborrag_adapters.parsers.document.engines.epub import engine as ebook
 
     ebook._ensure_defusedxml()
     assert "defusedxml" in ebook._xml_fromstring.__module__
@@ -17,8 +17,8 @@ def test_epub_xml_uses_defused_parser() -> None:
 def test_epub_parsing_fails_closed_when_defusedxml_missing(monkeypatch) -> None:
     import builtins
 
-    from harborrag_adapters.parsers import ebook
-    from harborrag_adapters.parsers.exceptions import ParseError
+    from harborrag_adapters.parsers.document.engines.epub import engine as ebook
+    from harborrag_adapters.parsers.errors import ParseError
 
     monkeypatch.setattr(ebook, "_xml_fromstring", None)
     monkeypatch.setattr(ebook, "_XmlParseError", None)

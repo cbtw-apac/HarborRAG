@@ -15,8 +15,8 @@ HarborRAG is under active alpha development. The distinction between implemented
 | Repository adapters | Implemented backends for Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and memory |
 | Engine and runtime | Engine stages plus durable Temporal workflows, activities, clients, and worker lifecycle are implemented; application dependency assembly remains external |
 | CLI | `doctor` plus Temporal-backed ingestion start, status, wait, pause, resume, retry, and cancel commands |
-| HTTP API | Controller contracts and route placeholders exist; there is no FastAPI application factory yet |
-| MCP | In-process mock tools work; there is no stdio or HTTP transport yet |
+| HTTP API | FastAPI factory with authenticated health, readiness, and diagnostics routes; document, ingestion, and retrieval routes are not implemented |
+| MCP | Audited and policy-bounded in-process health tool; there is no stdio or HTTP transport yet |
 | Temporal deployment | PostgreSQL-backed local development stack; production deployment remains application/operator work |
 
 ## Why the package boundaries exist

@@ -6,6 +6,8 @@ from typing import Any
 import pytest
 from model_runtime_support import chat_config, embed_config
 
+from harborrag_adapters.models.chat import ChatBackendType
+from harborrag_adapters.models.chat.backend_config import ChatBackendConfig
 from harborrag_adapters.models.chat.validation import validate_chat_configuration
 from harborrag_adapters.models.embed.validation import validate_embed_configuration
 from harborrag_adapters.models.runtime.config import (
@@ -30,6 +32,8 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
                     engine=RoutingEngine.LITELLM_ROUTER,
                     strategy=RoutingStrategy.ROUND_ROBIN,
                 )
+            ).model_copy(
+                update={"backend": ChatBackendConfig(type=ChatBackendType.LITELLM_ROUTER)}
             ),
             validate_chat_configuration,
             HarborChatConfigurationError,

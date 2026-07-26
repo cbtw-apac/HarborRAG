@@ -48,13 +48,29 @@ class IngestionObjectRepository:
         )
         return self.reference(tenant_id, key)
 
-    async def get(self, reference: str) -> bytes:
+    async def get(
+        self,
+        reference: str,
+        *,
+        expected_tenant_id: str,
+        expected_bucket: str = _BUCKET,
+        expected_key_prefix: str | None = None,
+        expected_key_suffix: str | None = None,
+    ) -> bytes:
         tenant_id, bucket, key = self.parts(reference)
+        if tenant_id != expected_tenant_id:
+            raise ValueError("ingestion object tenant does not match activity tenant")
+        if bucket != expected_bucket:
+            raise ValueError("ingestion object bucket is not authorized")
+        if expected_key_prefix is not None and not key.startswith(expected_key_prefix):
+            raise ValueError("ingestion object key kind is not authorized")
+        if expected_key_suffix is not None and not key.endswith(expected_key_suffix):
+            raise ValueError("ingestion object key kind is not authorized")
         return await self.store.get_bytes(
             bucket,
             key,
             byte_range=None,
-            context=self.context(tenant_id),
+            context=self.context(expected_tenant_id),
         )
 
     async def exists(self, tenant_id: str, key: str) -> bool:
@@ -105,7 +121,15 @@ class ObjectChunkRepository(CanonicalChunkRepository):
         records: list[ChunkRecord] = []
         for revision_id in chunk_revision_ids:
             reference = self._objects.reference(tenant_id, self._key(revision_id))
-            value = load_payload(await self._objects.get(reference), "canonical-chunk")
+            value = load_payload(
+                await self._objects.get(
+                    reference,
+                    expected_tenant_id=tenant_id,
+                    expected_key_prefix="chunks/",
+                    expected_key_suffix=".json",
+                ),
+                "canonical-chunk",
+            )
             records.append(ChunkRecord.model_validate(value))
         return tuple(records)
 
@@ -143,7 +167,15 @@ class ObjectManifestRepository(ChunkManifestRepository):
         if not await self._objects.exists(tenant_id, key):
             return None
         reference = self._objects.reference(tenant_id, key)
-        value = load_payload(await self._objects.get(reference), "chunk-manifest")
+        value = load_payload(
+            await self._objects.get(
+                reference,
+                expected_tenant_id=tenant_id,
+                expected_key_prefix="manifests/",
+                expected_key_suffix=".json",
+            ),
+            "chunk-manifest",
+        )
         return load_chunk_manifest(value)
 
     @staticmethod
