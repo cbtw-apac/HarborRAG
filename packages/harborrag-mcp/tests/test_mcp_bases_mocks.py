@@ -43,6 +43,7 @@ def test_mcp_mock_tools_server_and_module_facade():
     assert [tool.name for tool in server.list_tools()] == [
         "harbor_health_check",
         "harbor_sample_retrieve",
+        "vector_search",
     ]
     assert server.call_tool("harbor_health_check")["ok"] is True
     with pytest.raises(ValueError):

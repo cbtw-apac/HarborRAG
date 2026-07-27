@@ -124,6 +124,68 @@ def test_vector_search_score_threshold_drops_all_when_too_high():
     assert result["results"] == []
 
 
+def test_vector_search_rejects_score_threshold_out_of_range():
+    tool = VectorSearchTool()
+
+    too_low = tool.call({"query": "harbor", "score_threshold": -0.1})
+    too_high = tool.call({"query": "harbor", "score_threshold": 1.1})
+
+    assert too_low["ok"] is False
+    assert too_high["ok"] is False
+    assert "score_threshold" in str(too_low.get("error", ""))
+    assert "score_threshold" in str(too_high.get("error", ""))
+
+
+def test_vector_search_rejects_invalid_score_threshold_string_and_null():
+    tool = VectorSearchTool()
+
+    bad_str = tool.call({"query": "harbor", "score_threshold": "oops"})
+    bad_null = tool.call({"query": "harbor", "score_threshold": None})
+
+    assert bad_str["ok"] is False
+    assert bad_null["ok"] is False
+    assert "score_threshold" in str(bad_str.get("error", ""))
+    assert "score_threshold" in str(bad_null.get("error", ""))
+
+
+def test_vector_search_rejects_top_k_out_of_range():
+    tool = VectorSearchTool()
+
+    too_small = tool.call({"query": "harbor", "top_k": 0})
+    too_large = tool.call({"query": "harbor", "top_k": 21})
+
+    assert too_small["ok"] is False
+    assert too_large["ok"] is False
+    assert "top_k" in str(too_small.get("error", ""))
+    assert "top_k" in str(too_large.get("error", ""))
+
+
+def test_vector_search_rejects_invalid_top_k_string_and_null():
+    tool = VectorSearchTool()
+
+    bad_str = tool.call({"query": "harbor", "top_k": "oops"})
+    bad_null = tool.call({"query": "harbor", "top_k": None})
+
+    assert bad_str["ok"] is False
+    assert bad_null["ok"] is False
+    assert "top_k" in str(bad_str.get("error", ""))
+    assert "top_k" in str(bad_null.get("error", ""))
+
+
+def test_vector_search_rejects_non_object_filters():
+    tool = VectorSearchTool()
+    bad_str = tool.call({"query": "harbor", "filters": "bad"})
+    bad_null = tool.call({"query": "harbor", "filters": None})
+    bad_list = tool.call({"query": "harbor", "filters": ["bad"]})
+
+    assert bad_str["ok"] is False
+    assert bad_null["ok"] is False
+    assert bad_list["ok"] is False
+    assert "filters" in str(bad_str.get("error", ""))
+    assert "filters" in str(bad_null.get("error", ""))
+    assert "filters" in str(bad_list.get("error", ""))
+
+
 def test_vector_search_spec_matches_expected_schema():
     tool = VectorSearchTool()
 
@@ -131,6 +193,7 @@ def test_vector_search_spec_matches_expected_schema():
     assert "query" in tool.spec.input_schema["properties"]
     assert "top_k" in tool.spec.input_schema["properties"]
     assert "filters" in tool.spec.input_schema["properties"]
+    assert tool.spec.input_schema["properties"]["top_k"]["maximum"] == 20
     assert tool.spec.input_schema["required"] == ["query"]
 
 
@@ -202,3 +265,17 @@ def test_vector_search_facade_respects_policy_budget(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(ValueError, match="MCP result budget exceeded"):
         call_tool("vector_search", {"query": "over budget"})
+
+
+def test_vector_search_facade_pre_call_clamps_top_k_to_policy_budget(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import harborrag_mcp.server.mock as mock_server
+    from harborrag_mcp.policy import McpToolPolicy
+
+    monkeypatch.setattr(mock_server, "_default_policy", McpToolPolicy(max_results=1))
+
+    result = call_tool("vector_search", {"query": "HarborRAG", "top_k": 50})
+
+    assert result["ok"] is True
+    assert len(result["results"]) <= 1

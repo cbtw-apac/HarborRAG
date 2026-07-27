@@ -31,6 +31,51 @@ def _result_count(result: dict[str, object]) -> int:
     return 1
 
 
+def _apply_pre_call_budget(
+    tool: BaseMcpTool,
+    arguments: dict[str, object],
+    max_results: int,
+) -> dict[str, object]:
+    """Clamp/validate request size before invoking tools with result-size knobs.
+
+    This prevents oversized vector-search requests from triggering retrieval
+    work that is guaranteed to violate policy.max_results.
+    """
+    payload = dict(arguments)
+    if tool.spec.name != "vector_search":
+        return payload
+
+    if max_results < 1:
+        raise ValueError("MCP result budget exceeded.")
+
+    requested_top_k = payload.get("top_k")
+    if requested_top_k is None:
+        top_k_schema = (
+            tool.spec.input_schema.get("properties", {}).get("top_k", {})
+            if isinstance(tool.spec.input_schema, dict)
+            else {}
+        )
+        default_top_k = top_k_schema.get("default")
+        try:
+            default_top_k_int = int(default_top_k)
+        except (TypeError, ValueError):
+            default_top_k_int = max_results
+        if default_top_k_int > max_results:
+            payload["top_k"] = max_results
+        return payload
+
+    try:
+        requested_top_k_int = int(requested_top_k)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("vector_search top_k must be an integer") from exc
+
+    if requested_top_k_int < 1:
+        raise ValueError("vector_search top_k must be >= 1")
+    if requested_top_k_int > max_results:
+        payload["top_k"] = max_results
+    return payload
+
+
 @dataclass(slots=True)
 class MockMcpServer(BaseMcpServer):
     tools: list[BaseMcpTool] = field(
@@ -49,7 +94,8 @@ class MockMcpServer(BaseMcpServer):
                 # tool that raises (or a policy check that later rejects the
                 # result) still leaves a record that the call happened.
                 self.audit.record(name)
-                result = tool.call(arguments or {})
+                payload = _apply_pre_call_budget(tool, arguments or {}, self.policy.max_results)
+                result = tool.call(payload)
                 self.policy.check_results(_result_count(result))
                 return result
         raise ValueError(f"Unknown MCP tool: {name}")
