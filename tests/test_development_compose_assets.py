@@ -41,16 +41,16 @@ def test_worker_source_mount_comes_from_the_connector_environment() -> None:
     script = (ROOT / "scripts/deployment/temporal_up.sh").read_text(encoding="utf-8")
     temporal_env_example = (ROOT / "env-example/.env.temporal.example").read_text(encoding="utf-8")
     temporal_readme = (ROOT / "deploy/temporal/README.md").read_text(encoding="utf-8")
-    helper = (ROOT / "scripts/deployment/lib/local_source.sh").read_text(encoding="utf-8")
 
+    # The mount is not a separate knob: the startup script derives it from
+    # LOCAL_SOURCE_PATH in env/.env.connector.
     assert "HARBORRAG_LOCAL_SOURCE_MOUNT" not in temporal
     assert "HARBORRAG_LOCAL_SOURCE_MOUNT" not in temporal_env_example
     assert "HARBORRAG_LOCAL_SOURCE_MOUNT" not in temporal_readme
-    assert "${HARBORRAG_RESOLVED_LOCAL_SOURCE_DIR:?" in temporal
+    assert "${HARBORRAG_LOCAL_SOURCE_DIR:-" in temporal
     assert "LOCAL_SOURCE_PATH: /data/sources" in temporal
-    assert "export HARBORRAG_RESOLVED_LOCAL_SOURCE_DIR=" in helper
-    assert "s/^LOCAL_SOURCE_PATH=//p" in helper
-    assert "resolve_local_source_dir" in script
+    assert "s/^LOCAL_SOURCE_PATH=//p" in script
+    assert "export HARBORRAG_LOCAL_SOURCE_DIR" in script
 
 
 def test_worker_config_paths_are_absolute_container_paths() -> None:
@@ -67,13 +67,6 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
             f"ENV {variable}=/app/config/" in dockerfile or f"{variable}=/app/config/" in dockerfile
         )
         assert f"${{{variable}:-/app/config/" in temporal
-
-
-def test_temporal_teardown_resolves_the_same_source_mount() -> None:
-    script = DEV_DOWN.read_text(encoding="utf-8")
-
-    assert "lib/local_source.sh" in script
-    assert 'resolve_local_source_dir "${ROOT_DIR}" 0' in script
 
 
 def test_dev_up_orchestrates_data_temporal_worker_and_api() -> None:

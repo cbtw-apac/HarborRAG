@@ -5,12 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATABASE_ENV_FILE="${DATABASE_ENV_FILE:-env/.env.database}"
 TEMPORAL_ENV_FILE="${TEMPORAL_ENV_FILE:-env/.env.temporal}"
 
-# The Temporal compose file interpolates the worker's source mount, so teardown
-# needs the same resolved path. A missing directory must not block a stop.
-# shellcheck source=scripts/deployment/lib/local_source.sh
-source "${ROOT_DIR}/scripts/deployment/lib/local_source.sh"
-resolve_local_source_dir "${ROOT_DIR}" 0
-
 api_compose_args=(
     --file "${ROOT_DIR}/deploy/compose/docker-compose.dev.yml"
 )

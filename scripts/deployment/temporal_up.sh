@@ -25,10 +25,27 @@ if [[ ! -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" ]]; then
 fi
 
 # The worker mounts a host directory at the fixed container path /data/sources.
-# The directory itself is configured once, in the connector layer.
-# shellcheck source=scripts/deployment/lib/local_source.sh
-source "${ROOT_DIR}/scripts/deployment/lib/local_source.sh"
-resolve_local_source_dir "${ROOT_DIR}" 1 || exit 2
+# The directory itself is configured once in the connector layer, as
+# LOCAL_SOURCE_PATH in env/.env.connector, which config/connectors.yaml maps to
+# the local connector's source_path. Relative values there resolve from the
+# repository root, while a relative bind-mount source would resolve from the
+# compose file directory, so export an absolute path for Compose.
+local_source_path="$(
+    sed -n 's/^LOCAL_SOURCE_PATH=//p' "${ROOT_DIR}/env/.env.connector" 2>/dev/null | tail -n 1
+)"
+local_source_path="${local_source_path:-docs}"
+if [[ "${local_source_path}" == /* ]]; then
+    HARBORRAG_LOCAL_SOURCE_DIR="${local_source_path}"
+else
+    HARBORRAG_LOCAL_SOURCE_DIR="${ROOT_DIR}/${local_source_path#./}"
+fi
+if [[ ! -d "${HARBORRAG_LOCAL_SOURCE_DIR}" ]]; then
+    echo "The local connector source directory does not exist:" >&2
+    echo "  ${HARBORRAG_LOCAL_SOURCE_DIR}" >&2
+    echo "Create it, or set LOCAL_SOURCE_PATH in env/.env.connector." >&2
+    exit 2
+fi
+export HARBORRAG_LOCAL_SOURCE_DIR
 
 ensure_volume() {
     local volume_name="$1"

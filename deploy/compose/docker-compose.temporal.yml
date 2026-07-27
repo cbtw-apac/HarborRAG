@@ -189,7 +189,9 @@ services:
     volumes:
       - harborrag_ingestion_data:/var/lib/harborrag
       - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
-      - ${HARBORRAG_RESOLVED_LOCAL_SOURCE_DIR:?run scripts/deployment/temporal_up.sh, which resolves this from LOCAL_SOURCE_PATH in env/.env.connector}:/data/sources:ro
+      # scripts/deployment/temporal_up.sh sets this from LOCAL_SOURCE_PATH in
+      # env/.env.connector. The fallback only applies to a hand-run compose.
+      - ${HARBORRAG_LOCAL_SOURCE_DIR:-../../docs}:/data/sources:ro
     init: true
     # Leave enough time beyond the SDK's 30s activity grace window to report
     # cancellations, drain worker tasks, and close shared dependencies.
