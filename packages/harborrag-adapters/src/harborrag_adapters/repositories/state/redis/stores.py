@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from harborrag_core.schemas.ids import WorkflowId
 from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
@@ -25,10 +25,13 @@ from harborrag_adapters.repositories.state.redis.scripts import (
 )
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 
+WatchError: Any
 try:
-    from redis.exceptions import WatchError
+    from redis.exceptions import WatchError as _WatchError
 except ImportError:  # pragma: no cover - optional dependency
     WatchError = RuntimeError
+else:
+    WatchError = _WatchError
 
 if TYPE_CHECKING:
     from harborrag_adapters.repositories.state.redis.repository import RedisStateBackend

@@ -23,10 +23,13 @@ from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 
+qm: Any
 try:
-    from qdrant_client import models as qm
+    from qdrant_client import models as _qm
 except ImportError:  # pragma: no cover - optional dependency
     qm = None
+else:
+    qm = _qm
 
 
 class QdrantQueryExecutor:

@@ -10,11 +10,17 @@ from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_adapters.repositories.cache.base import HarborCacheStore
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 
+ResponseError: Any
+WatchError: Any
 try:
-    from redis.exceptions import ResponseError, WatchError
+    from redis.exceptions import ResponseError as _ResponseError
+    from redis.exceptions import WatchError as _WatchError
 except ImportError:  # pragma: no cover - optional dependency
     ResponseError = RuntimeError
     WatchError = RuntimeError
+else:
+    ResponseError = _ResponseError
+    WatchError = _WatchError
 
 if TYPE_CHECKING:
     from harborrag_adapters.repositories.cache.redis.repository import (
