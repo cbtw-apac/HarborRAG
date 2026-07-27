@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.source_config import SourceConfig
+from harborrag_core.security.redaction import redact_mapping
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
@@ -36,7 +36,7 @@ class SourceOut(BaseModel):
             project_id=source.project_id,
             source_type=source.source_type,
             name=source.name,
-            config=source.config,
+            config=redact_mapping(source.config),
             secret_refs=source.secret_refs,
             schedule=source.schedule,
             status=source.status,
@@ -56,6 +56,4 @@ async def get_source(source_id: str, request: Request) -> SourceOut:
     """One source by id; 404 (enveloped) when it does not exist."""
     service: BaseAppService = request.app.state.app_service
     response = await service.get_source(source_id)
-    if not response.ok:
-        raise HarborNotFoundError(f"source {source_id!r} not found")
     return SourceOut.from_domain(response.data["source"])

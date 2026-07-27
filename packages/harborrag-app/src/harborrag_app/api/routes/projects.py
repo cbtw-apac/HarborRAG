@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.project import Project
 from pydantic import BaseModel
 
@@ -69,6 +68,4 @@ async def get_project(project_id: str, request: Request) -> ProjectOut:
     """One project by id; 404 (enveloped) when it does not exist."""
     service: BaseAppService = request.app.state.app_service
     response = await service.get_project(project_id)
-    if not response.ok:
-        raise HarborNotFoundError(f"project {project_id!r} not found")
     return ProjectOut.from_domain(response.data["project"])

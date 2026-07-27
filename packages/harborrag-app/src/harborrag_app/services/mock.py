@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -58,7 +59,7 @@ class MockAppService(BaseAppService):
     async def get_project(self, project_id: str) -> AppResponse:
         project = await self._projects.get(project_id)
         if project is None:
-            return AppResponse(False, error="not_found")
+            raise HarborNotFoundError(f"project {project_id!r} not found")
         return AppResponse(True, {"project": project})
 
     async def list_sources(self, project_id: str | None = None) -> AppResponse:
@@ -67,7 +68,7 @@ class MockAppService(BaseAppService):
     async def get_source(self, source_id: str) -> AppResponse:
         source = await self._sources.get(source_id)
         if source is None:
-            return AppResponse(False, error="not_found")
+            raise HarborNotFoundError(f"source {source_id!r} not found")
         return AppResponse(True, {"source": source})
 
     async def list_activity(self, limit: int = 50) -> AppResponse:

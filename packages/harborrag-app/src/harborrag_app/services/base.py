@@ -34,7 +34,7 @@ class BaseAppService(ABC):
 
     @abstractmethod
     async def get_project(self, project_id: str) -> AppResponse:
-        """One project by id; ok=False, error="not_found" when missing."""
+        """One project by id; raises HarborNotFoundError when missing."""
         raise NotImplementedError
 
     @abstractmethod
@@ -44,7 +44,7 @@ class BaseAppService(ABC):
 
     @abstractmethod
     async def get_source(self, source_id: str) -> AppResponse:
-        """One source by id; ok=False, error="not_found" when missing."""
+        """One source by id; raises HarborNotFoundError when missing."""
         raise NotImplementedError
 
     @abstractmethod

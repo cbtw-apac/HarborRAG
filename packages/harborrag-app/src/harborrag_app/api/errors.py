@@ -22,6 +22,7 @@ from harborrag_core.contracts.errors import (
     HarborError,
     HarborNotFoundError,
     HarborSecurityError,
+    HarborUnavailableError,
     HarborValidationError,
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -34,6 +35,7 @@ _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborSecurityError: 403,
     HarborDeadlineExceeded: 504,
     HarborConfigurationError: 500,
+    HarborUnavailableError: 503,
 }
 
 

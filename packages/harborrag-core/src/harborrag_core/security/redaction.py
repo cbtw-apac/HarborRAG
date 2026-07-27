@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
+from typing import Any
+
+_SENSITIVE_KEY_PATTERN = re.compile(r"(?i)api[_-]?key|token|secret|password|credential")
 
 _LABELED_PATTERNS = [
     re.compile(
@@ -25,4 +29,23 @@ def redact_secrets(text: str, replacement: str = "<redacted>") -> str:
         result = pattern.sub(lambda match: f"{match.group(1)}={replacement}", result)
     for pattern in _TOKEN_PATTERNS:
         result = pattern.sub(replacement, result)
+    return result
+
+
+def redact_mapping(data: Mapping[str, Any], replacement: str = "<redacted>") -> dict[str, Any]:
+    """Recursively mask values whose key looks credential-shaped.
+
+    Defense-in-depth for DTO boundaries that serialize free-form config
+    (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN is
+    masked regardless of what invariants upstream write-side code is
+    supposed to enforce.
+    """
+    result: dict[str, Any] = {}
+    for key, value in data.items():
+        if _SENSITIVE_KEY_PATTERN.search(key):
+            result[key] = replacement
+        elif isinstance(value, Mapping):
+            result[key] = redact_mapping(value, replacement)
+        else:
+            result[key] = value
     return result

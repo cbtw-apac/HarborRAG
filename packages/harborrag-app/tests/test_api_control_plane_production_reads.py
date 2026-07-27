@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.services.app_service import AppService
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.project import Project, ProjectStats
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -107,3 +108,26 @@ def test_activity_settings_and_metrics_read_from_real_db(seeded_client) -> None:
         "failed": 0,
         "cancelled": 0,
     }
+
+
+@pytest.mark.blackbox
+def test_read_routes_return_enveloped_503_when_control_plane_unconfigured() -> None:
+    """AppService bound to a composition with no control plane (e.g. it
+    failed to wire up) must surface a 503, not a KeyError-turned-500 or a
+    misleading 404 (the previous per-route behavior for get_project/get_source)."""
+    app = create_fastapi_app(ApiSettings())
+    with TestClient(app) as client:
+        app.state.app_service = AppService(CompositionRoot.local())
+
+        for path in (
+            "/api/v1/projects",
+            "/api/v1/projects/any-id",
+            "/api/v1/sources",
+            "/api/v1/sources/any-id",
+            "/api/v1/activity",
+            "/api/v1/settings",
+            "/api/v1/metrics",
+        ):
+            response = client.get(path)
+            assert response.status_code == 503, path
+            assert response.json()["error"]["code"] == "harbor_unavailable_error"

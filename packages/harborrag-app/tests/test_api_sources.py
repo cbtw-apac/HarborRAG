@@ -21,7 +21,13 @@ def test_list_sources_empty_in_mock_mode() -> None:
 
 @pytest.mark.blackbox
 def test_list_sources_filters_by_project_and_hides_secrets() -> None:
-    """Seeded sources scope by project_id; only secret_refs ever appear."""
+    """Seeded sources scope by project_id; only secret_refs ever appear.
+
+    proj-b's config carries a stray "token" value (a bug/migration edge, per
+    the SourceConfig docstring config should only ever hold secret_ref
+    placeholders) to prove the DTO boundary masks it rather than merely
+    happening not to contain one.
+    """
     app = create_fastapi_app(ApiSettings())
     with TestClient(app) as client:
         app.state.app_service = MockAppService(
@@ -39,7 +45,10 @@ def test_list_sources_filters_by_project_and_hides_secrets() -> None:
                     project_id="proj-b",
                     source_type="jira",
                     name="AuTa board",
-                    config={"base_url": "https://example.atlassian.net"},
+                    config={
+                        "base_url": "https://example.atlassian.net",
+                        "token": "hunter2",
+                    },
                     secret_refs=["secret://fake/1"],
                 ),
             ]
@@ -50,7 +59,8 @@ def test_list_sources_filters_by_project_and_hides_secrets() -> None:
         [source] = response.json()
         assert source["id"] == "src-2"
         assert source["secret_refs"] == ["secret://fake/1"]
-        assert "token" not in source["config"]
+        assert source["config"]["token"] == "<redacted>"
+        assert "hunter2" not in source["config"].values()
 
         response = client.get("/api/v1/sources/src-1")
         assert response.status_code == 200
