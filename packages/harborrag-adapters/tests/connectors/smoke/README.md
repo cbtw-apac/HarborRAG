@@ -69,9 +69,9 @@ variables; see their required variables in the module docstring of each file.
 ## Run a connector
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector local
-python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector confluence
-python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector jira
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector local
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector confluence
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira
 ```
 
 `confluence.py`, `jira.py`, and `local.py` remain as thin, no-argument
@@ -81,7 +81,7 @@ After individual checks pass, run every configured provider (including GitHub
 and SharePoint):
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/connectors/run_all.py
+python packages/harborrag-adapters/tests/connectors/smoke/run_all.py
 ```
 
 `run_all.py` skips providers returning `2`, fails when any configured provider
@@ -90,12 +90,12 @@ returns `1`, and returns `2` when none are configured.
 ## Save parsed output
 
 By default nothing is written to disk. Pass `--output txt` or `--output md` to
-save the parsed content under `tests/smoke/connectors/output/` (override with
+save the parsed content under `tests/connectors/smoke/output/` (override with
 `--output-dir`):
 
 ```bash
-python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector jira --output txt
-python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector jira --output md
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira --output txt
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira --output md
 ```
 
 `txt` saves a flat concatenation of the body and every parsed attachment's
@@ -153,7 +153,7 @@ declarative parser catalog, so the smoke bootstrap wires it directly.
 
 ```bash
 HARBOR_SMOKE_PDF_BACKEND=docling \
-  python packages/harborrag-adapters/tests/smoke/connectors/confluence.py
+  python packages/harborrag-adapters/tests/connectors/smoke/confluence.py
 ```
 
 Docling defaults to `auto`, asks Docling's accelerator resolver for the best
@@ -163,7 +163,7 @@ smoke check. Override it with `auto`, `cpu`, `cuda`, `cuda:N`, `mps`, or `xpu`:
 ```bash
 HARBOR_SMOKE_PDF_BACKEND=docling \
 HARBOR_SMOKE_DOCLING_DEVICE=xpu \
-  python packages/harborrag-adapters/tests/smoke/connectors/confluence.py
+  python packages/harborrag-adapters/tests/connectors/smoke/confluence.py
 ```
 
 CUDA and XPU require a matching accelerator-enabled PyTorch build; MPS requires

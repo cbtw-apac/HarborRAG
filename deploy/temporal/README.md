@@ -75,11 +75,25 @@ Point `env/.env.temporal` at those files and enable the built-in worker graph:
 ```dotenv
 TEMPORAL_START_WORKER=1
 HARBORRAG_TEMPORAL_WORKER_REPLICAS=2
-HARBORRAG_CONNECTOR_CONFIG_PATH=config/connectors.yaml
-HARBORRAG_PARSER_CONFIG_PATH=config/parsers.yaml
-HARBORRAG_MODEL_CONFIG_PATH=config/models.yaml
-HARBORRAG_LOCAL_SOURCE_MOUNT=../../docs
+HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml
+HARBORRAG_PARSER_CONFIG_PATH=/app/config/parsers.yaml
+HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml
 ```
+
+Those three are paths *inside* the worker container. The image copies the
+tracked `config/` directory to `/app/config` and runs from its writable data
+directory, so repository-relative values do not resolve. The image sets the same
+absolute defaults; override them only to point at a mounted configuration
+directory. `--build` runs on every startup, so edits to the tracked YAML files
+are picked up on the next `scripts/deployment/temporal_up.sh`.
+
+The local connector's source directory is not repeated here. It is configured
+once, as `LOCAL_SOURCE_PATH` in `env/.env.connector`, which
+`config/connectors.yaml` maps to the local connector's `source_path`.
+`scripts/deployment/temporal_up.sh` resolves that value against the repository
+root and mounts the directory read-only at `/data/sources` inside the worker,
+where the container's own `LOCAL_SOURCE_PATH` points. It defaults to `docs` and
+fails if the directory is missing.
 
 Run `scripts/deployment/temporal_up.sh` again. Worker checkpoints and operational
 state use PostgreSQL; ingestion objects remain in the

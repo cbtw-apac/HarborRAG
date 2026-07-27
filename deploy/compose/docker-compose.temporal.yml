@@ -171,9 +171,11 @@ services:
       HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
       HARBORRAG_TEMPORAL_IDENTITY: ${HARBORRAG_TEMPORAL_IDENTITY:-harborrag-runtime}
       HARBORRAG_TEMPORAL_WORKER_GROUPS: ${HARBORRAG_TEMPORAL_WORKER_GROUPS:-discovery,processing,indexing,maintenance}
-      HARBORRAG_CONNECTOR_CONFIG_PATH: ${HARBORRAG_CONNECTOR_CONFIG_PATH:-config/connectors.yaml}
-      HARBORRAG_PARSER_CONFIG_PATH: ${HARBORRAG_PARSER_CONFIG_PATH:-config/parsers.yaml}
-      HARBORRAG_MODEL_CONFIG_PATH: ${HARBORRAG_MODEL_CONFIG_PATH:-config/models.yaml}
+      # Container paths. The image copies the tracked config/ directory to
+      # /app/config and runs from the writable data directory.
+      HARBORRAG_CONNECTOR_CONFIG_PATH: ${HARBORRAG_CONNECTOR_CONFIG_PATH:-/app/config/connectors.yaml}
+      HARBORRAG_PARSER_CONFIG_PATH: ${HARBORRAG_PARSER_CONFIG_PATH:-/app/config/parsers.yaml}
+      HARBORRAG_MODEL_CONFIG_PATH: ${HARBORRAG_MODEL_CONFIG_PATH:-/app/config/models.yaml}
       LOCAL_SOURCE_PATH: /data/sources
       HARBORRAG_INGESTION_STATE_BACKEND: postgresql
       HARBORRAG_INGESTION_STATE_URL: ${HARBORRAG_INGESTION_STATE_URL:?set HARBORRAG_INGESTION_STATE_URL in the Temporal environment file}
@@ -187,7 +189,7 @@ services:
     volumes:
       - harborrag_ingestion_data:/var/lib/harborrag
       - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
-      - ${HARBORRAG_LOCAL_SOURCE_MOUNT:-../../docs}:/data/sources:ro
+      - ${HARBORRAG_RESOLVED_LOCAL_SOURCE_DIR:?run scripts/deployment/temporal_up.sh, which resolves this from LOCAL_SOURCE_PATH in env/.env.connector}:/data/sources:ro
     init: true
     # Leave enough time beyond the SDK's 30s activity grace window to report
     # cancellations, drain worker tasks, and close shared dependencies.

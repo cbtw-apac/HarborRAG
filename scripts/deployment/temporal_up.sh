@@ -24,6 +24,12 @@ if [[ ! -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" ]]; then
     exit 2
 fi
 
+# The worker mounts a host directory at the fixed container path /data/sources.
+# The directory itself is configured once, in the connector layer.
+# shellcheck source=scripts/deployment/lib/local_source.sh
+source "${ROOT_DIR}/scripts/deployment/lib/local_source.sh"
+resolve_local_source_dir "${ROOT_DIR}" 1 || exit 2
+
 ensure_volume() {
     local volume_name="$1"
     if ! docker volume inspect "${volume_name}" >/dev/null 2>&1; then

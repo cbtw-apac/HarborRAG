@@ -58,6 +58,13 @@ COPY packages/harborrag-engine ./packages/harborrag-engine
 COPY packages/harborrag-runtime ./packages/harborrag-runtime
 COPY config ./config
 
+# The container runs from the writable data directory, not from /app, so the
+# tracked YAML files need absolute paths. Override these to point at a mounted
+# configuration directory instead.
+ENV HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml \
+    HARBORRAG_PARSER_CONFIG_PATH=/app/config/parsers.yaml \
+    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml
+
 WORKDIR /var/lib/harborrag
 USER harborrag
 

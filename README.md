@@ -131,8 +131,8 @@ Start the data stack first because it creates the external network used by the
 workers:
 
 ```bash
-DATABASE_ENV_FILE=env/.env.database scripts/deployment/database_up.sh
-TEMPORAL_ENV_FILE=env/.env.temporal scripts/deployment/temporal_up.sh
+DATABASE_ENV_FILE=env/.env.database bash scripts/deployment/database_up.sh
+TEMPORAL_ENV_FILE=env/.env.temporal bash scripts/deployment/temporal_up.sh
 ```
 
 After the application image compatibility issue above is resolved, the first

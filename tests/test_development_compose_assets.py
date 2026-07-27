@@ -36,6 +36,46 @@ def test_data_and_temporal_ports_bind_to_loopback_by_default() -> None:
     assert temporal.count("HARBORRAG_TEMPORAL_BIND_ADDRESS:-127.0.0.1") == 2
 
 
+def test_worker_source_mount_comes_from_the_connector_environment() -> None:
+    temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    script = (ROOT / "scripts/deployment/temporal_up.sh").read_text(encoding="utf-8")
+    temporal_env_example = (ROOT / "env-example/.env.temporal.example").read_text(encoding="utf-8")
+    temporal_readme = (ROOT / "deploy/temporal/README.md").read_text(encoding="utf-8")
+    helper = (ROOT / "scripts/deployment/lib/local_source.sh").read_text(encoding="utf-8")
+
+    assert "HARBORRAG_LOCAL_SOURCE_MOUNT" not in temporal
+    assert "HARBORRAG_LOCAL_SOURCE_MOUNT" not in temporal_env_example
+    assert "HARBORRAG_LOCAL_SOURCE_MOUNT" not in temporal_readme
+    assert "${HARBORRAG_RESOLVED_LOCAL_SOURCE_DIR:?" in temporal
+    assert "LOCAL_SOURCE_PATH: /data/sources" in temporal
+    assert "export HARBORRAG_RESOLVED_LOCAL_SOURCE_DIR=" in helper
+    assert "s/^LOCAL_SOURCE_PATH=//p" in helper
+    assert "resolve_local_source_dir" in script
+
+
+def test_worker_config_paths_are_absolute_container_paths() -> None:
+    temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "deploy/docker/Dockerfile.temporal-worker").read_text(encoding="utf-8")
+
+    # The image copies config/ to /app/config but runs from /var/lib/harborrag,
+    # so repository-relative configuration paths cannot resolve.
+    assert "WORKDIR /var/lib/harborrag" in dockerfile
+    assert "COPY config ./config" in dockerfile
+    for name in ("CONNECTOR", "PARSER", "MODEL"):
+        variable = f"HARBORRAG_{name}_CONFIG_PATH"
+        assert (
+            f"ENV {variable}=/app/config/" in dockerfile or f"{variable}=/app/config/" in dockerfile
+        )
+        assert f"${{{variable}:-/app/config/" in temporal
+
+
+def test_temporal_teardown_resolves_the_same_source_mount() -> None:
+    script = DEV_DOWN.read_text(encoding="utf-8")
+
+    assert "lib/local_source.sh" in script
+    assert 'resolve_local_source_dir "${ROOT_DIR}" 0' in script
+
+
 def test_dev_up_orchestrates_data_temporal_worker_and_api() -> None:
     script = DEV_UP.read_text(encoding="utf-8")
 

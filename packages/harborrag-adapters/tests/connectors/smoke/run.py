@@ -1,8 +1,8 @@
 """Run one real connector smoke check, driven by config/env, with real parsing.
 
-    python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector jira
-    python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector confluence --output txt
-    python packages/harborrag-adapters/tests/smoke/connectors/run.py --connector local --output md
+    python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira
+    python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector confluence --output txt
+    python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector local --output md
 
 Connectors come from `config/connectors.yaml`, parsers (Docling for PDF,
 RapidOCR for images) come from `config/parsers.yaml`, and credentials come
@@ -56,7 +56,7 @@ def _arguments() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory for saved output (default: tests/smoke/connectors/output).",
+        help="Directory for saved output (default: tests/connectors/smoke/output).",
     )
     parser.add_argument(
         "--limit",
