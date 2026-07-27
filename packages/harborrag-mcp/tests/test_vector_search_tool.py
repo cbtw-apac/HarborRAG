@@ -8,7 +8,6 @@ from harborrag_mcp.server import call_tool, list_tools
 from harborrag_mcp.server.mock import MockMcpServer
 from harborrag_mcp.tools.vector_search import VectorSearchTool
 
-
 # ---------------------------------------------------------------------------
 # Unit-level: tool in isolation
 # ---------------------------------------------------------------------------

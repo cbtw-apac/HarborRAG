@@ -14,7 +14,6 @@ import os
 import uuid
 
 import pytest
-
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_engine.retrieval.mock import MockRetrievalPipeline
 from harborrag_mcp.tools.vector_search import VectorSearchTool
