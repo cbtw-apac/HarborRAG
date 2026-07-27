@@ -82,7 +82,7 @@ reviews:
       instructions: >
         Core is the pure contract/domain layer. Verify that it does not import
         harborrag_adapters, harborrag_engine, harborrag_runtime, harborrag_app,
-        harborrag_mcp, or the meta-package. New domain objects should be small,
+        harborrag_mcp_server, or the meta-package. New domain objects should be small,
         deterministic, typed, and dependency-light. Flag provider SDK imports,
         network calls, filesystem side effects, environment reads, or concrete
         adapter references in core.
@@ -166,7 +166,7 @@ reviews:
         provider dependencies, no mutation of input results unless documented,
         and tests for empty, duplicate, tie-score, and low-score cases.
 
-    - path: "packages/harborrag-engine/src/harborrag_engine/indexing/**"
+    - path: "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/**"
       instructions: >
         Indexing should coordinate embedding and repository writes through ports.
         Check batch-size handling, partial-failure reporting, idempotency,
@@ -213,7 +213,7 @@ reviews:
         response DTOs, structured diagnostics, and no raw provider response leak
         in normal output.
 
-    - path: "packages/harborrag-mcp/src/harborrag_mcp/**"
+    - path: "packages/harborrag-mcp-server/src/harborrag_mcp_server/**"
       instructions: >
         MCP exposes an audited service-only facade for agents. Tools must have
         explicit input/output schemas, capability budgets, sanitized errors, and
@@ -294,7 +294,7 @@ reviews:
         instructions: >
           Fail if any file under packages/harborrag-core/src imports
           harborrag_adapters, harborrag_engine, harborrag_runtime,
-          harborrag_app, harborrag_mcp, or harborrag. Core must remain pure.
+          harborrag_app, harborrag_mcp_server, or harborrag. Core must remain pure.
 
       - name: "Mock and tests for new base"
         mode: error

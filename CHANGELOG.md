@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Project renamed: Qdrant-loader → HarborRAG
 
-- Qdrant-loader is now **HarborRAG**, restructured from a single Qdrant-coupled ingestion tool into a modular, provider-agnostic RAG framework. The old `qdrant-loader` / `qdrant-loader-core` / `qdrant-loader-mcp-server` packages are replaced by seven ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently instead of being hardwired to Qdrant and a fixed provider set.
+- Qdrant-loader is now **HarborRAG**, restructured from a single Qdrant-coupled ingestion tool into a modular, provider-agnostic RAG framework. The old `qdrant-loader` / `qdrant-loader-core` / `qdrant-loader-mcp-server` packages are replaced by seven ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp-server`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently instead of being hardwired to Qdrant and a fixed provider set.
 - Documentation, Docker assets, and CI workflows updated to reflect the new package layout and naming.
 
 > This is a breaking rename: import paths, package names, and CLI/config references from `qdrant-loader` do not carry over. See [README.md](README.md) for the current architecture.

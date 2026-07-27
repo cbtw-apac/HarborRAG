@@ -36,7 +36,18 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     if settings.auth_mode == "hmac":
         if not settings.auth_secret:
             raise HarborConfigurationError("auth_mode=hmac requires HARBORRAG_AUTH_SECRET")
-        return HmacTokenVerifier(secret=settings.auth_secret)
+        secret = settings.auth_secret.get_secret_value()
+        if len(secret.encode("utf-8")) < 32:
+            raise HarborConfigurationError(
+                "HARBORRAG_AUTH_SECRET must contain at least 32 UTF-8 bytes"
+            )
+        return HmacTokenVerifier(
+            secret=secret,
+            issuer=settings.auth_issuer,
+            audience=settings.auth_audience,
+            max_token_lifetime_seconds=settings.auth_max_token_lifetime_seconds,
+            clock_skew_seconds=settings.auth_clock_skew_seconds,
+        )
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
 
 

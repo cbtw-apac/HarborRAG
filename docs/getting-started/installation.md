@@ -6,7 +6,7 @@
 - `uv` for the recommended workflow, or a recent `pip`
 - Native libraries required by any optional parser/provider you select
 
-HarborRAG is a workspace of seven active packages under `packages/`. The adjacent `harborrag-memory` directory is a placeholder and is not included in the uv workspace.
+HarborRAG is a workspace of seven active packages under `packages/`.
 
 ## uv workspace
 
@@ -44,7 +44,7 @@ python -m pip install -e packages/harborrag-adapters
 python -m pip install -e packages/harborrag-engine
 python -m pip install -e packages/harborrag-runtime
 python -m pip install -e packages/harborrag-app
-python -m pip install -e packages/harborrag-mcp
+python -m pip install -e packages/harborrag-mcp-server
 python -m pip install -e packages/harborrag
 python -m pip install -e ".[dev]"
 ```
@@ -56,11 +56,14 @@ python -m pip install -e ".[dev]"
 ```bash
 python -m pip install -e "packages/harborrag-adapters[parsers]"
 python -m pip install -e "packages/harborrag-adapters[pdf]"
+python -m pip install -e "packages/harborrag-adapters[pdf-docling]"
 python -m pip install -e "packages/harborrag-adapters[llm]"
 python -m pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 ```
 
 Install only the families used by your application. Some PDF backends also download models or require platform-specific runtimes.
+Use `pdf-docling` when the deployment only needs Docling with RapidOCR; the
+aggregate `pdf` extra installs every supported PDF backend.
 The `pdf` extra includes RapidOCR and the CPU `onnxruntime` package; Docling can
 independently use CUDA, MPS, or XPU through an accelerator-enabled PyTorch
 installation.
@@ -69,7 +72,6 @@ installation.
 
 ```bash
 uv run python -m harborrag_app.cli.main doctor --json
-uv run python scripts/run_mock_pipeline.py --json
 uv run python scripts/check_dependency_direction.py
 ```
 

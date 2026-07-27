@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Self
 
-from harborrag_core.errors import HarborError
+from harborrag_core.contracts.errors import HarborError
 
 
 class HarborModelError(HarborError):

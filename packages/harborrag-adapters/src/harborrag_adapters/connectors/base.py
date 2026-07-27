@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from dataclasses import replace
+from itertools import islice
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
 from .exceptions import AuthenticationError
-from .schemas import ConnectorCapabilities, ConnectorQuery
+from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery
 
 logger = logging.getLogger("harborrag.adapters.connectors.base")
 
@@ -58,6 +60,33 @@ class BaseConnector(ABC):
     def load(self, record: SourceRecord) -> RawDocument:
         """Fetch one raw document for a previously discovered source record."""
         raise NotImplementedError
+
+    def discover_page(
+        self,
+        query: ConnectorQuery | None,
+        *,
+        cursor: str | None,
+        page_size: int,
+    ) -> ConnectorPage:
+        """Compatibility pagination for connectors without a native cursor.
+
+        Provider connectors should override this method. The fallback preserves
+        existing third-party connectors while making its numeric replay cursor
+        explicit instead of leaking offset logic into runtime.
+        """
+
+        if page_size < 1:
+            raise ValueError("connector page_size must be positive")
+        try:
+            offset = int(cursor or 0)
+        except ValueError as exc:
+            raise ValueError("connector does not understand the supplied cursor") from exc
+        if offset < 0:
+            raise ValueError("connector cursor cannot be negative")
+        bounded = replace(query or ConnectorQuery(), limit=offset + page_size)
+        records = tuple(islice(self.discover(bounded), offset, offset + page_size))
+        next_cursor = str(offset + len(records)) if len(records) == page_size else None
+        return ConnectorPage(records=records, next_cursor=next_cursor)
 
     def load_raw_documents(
         self,

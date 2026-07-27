@@ -8,7 +8,7 @@ from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from harborrag_adapters.repositories.database.control_plane.models import Base
+from harborrag_adapters.repositories.database.control_plane.schemas import Base
 
 target_metadata = Base.metadata
 

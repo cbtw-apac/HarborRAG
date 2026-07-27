@@ -3,7 +3,7 @@ from harborrag_runtime.config.parsers.loader import (
     PARSER_CONFIG_VERSION,
     load_parser_catalog,
 )
-from harborrag_runtime.config.parsers.models import (
+from harborrag_runtime.config.parsers.schemas import (
     ParserCatalog,
     ParserDefinition,
     PdfBackendDefinition,

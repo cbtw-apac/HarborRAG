@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from harborrag_adapters.repositories.cache.memory.backend import MemoryCacheBackend
 from harborrag_adapters.repositories.cache.memory.config import MemoryCacheConfig
-from harborrag_adapters.repositories.cache.memory.repository import MemoryCacheBackend
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,

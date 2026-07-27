@@ -26,7 +26,7 @@ jobs:
           # Tags follow the release.py convention: <package-name>-v<version>
           PACKAGE="${TAG_NAME%-v*}"
           case "$PACKAGE" in
-            harborrag-core|harborrag-adapters|harborrag-engine|harborrag-runtime|harborrag-app|harborrag-mcp|harborrag)
+            harborrag-core|harborrag-adapters|harborrag-engine|harborrag-runtime|harborrag-app|harborrag-mcp-server|harborrag)
               echo "package=$PACKAGE" >> $GITHUB_OUTPUT
               echo "publish=true" >> $GITHUB_OUTPUT
               ;;

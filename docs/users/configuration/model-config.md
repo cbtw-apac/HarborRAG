@@ -38,10 +38,10 @@ Logical model names such as `primary` are stable application identifiers. A logi
 ## Load a family
 
 ```python
-from harborrag_adapters.models.chat import HarborChatClient, HarborChatClientConfig
+from harborrag_adapters.models.chat import ChatClientFactory, HarborChatClientConfig
 
 config = HarborChatClientConfig.from_file("config/models.example.yaml")
-with HarborChatClient.from_config(config) as client:
+with ChatClientFactory.create(config) as client:
     response = client.chat([{"role": "user", "content": "Summarize HarborRAG."}])
     print(response.text)
 ```

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
+from hashlib import sha256
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
@@ -11,13 +13,10 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
-from .filters import extension_filter, file_paths_from_query, path_filter
-from .mappers import build_source_record
-from .utils import (
+from .filesystem_paths import (
     file_extension,
     guess_mime_type,
     is_hidden_path,
-    is_relative_to,
     matches_globs,
     matches_pattern,
     path_in_scope,
@@ -27,6 +26,9 @@ from .utils import (
     stat_datetime,
     stat_signature,
 )
+from .filters import extension_filter, file_paths_from_query, path_filter
+from .mappers import build_source_record
+from .secure_read import LocalFileSnapshot, SecureReadScope, read_snapshot_beneath
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -42,7 +44,18 @@ class LocalFileSystem:
         # Config accepts strings at the package boundary; traversal uses one
         # concrete Path representation after validation.
         self.source_path = Path(config.source_path)
-        self.root_path = self.source_path.parent if self.source_path.is_file() else self.source_path
+        self._source_is_file = self.source_path.is_file()
+        self.root_path = self.source_path.parent if self._source_is_file else self.source_path
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        self._root_fd = os.open(self.root_path, flags)
+
+    def close(self) -> None:
+        """Release the trusted root descriptor used for race-free reads."""
+
+        if self._root_fd >= 0:
+            os.close(self._root_fd)
+            self._root_fd = -1
 
     def files_from_query(self, query: ConnectorQuery) -> Iterator[tuple[Path, bool]]:
         """Yield resolved files (with pre-resolution symlink provenance)."""
@@ -216,21 +229,55 @@ class LocalFileSystem:
         file despite the earlier check. Re-checking the size incrementally
         while reading closes that race.
         """
+        return self.read_snapshot(path).content
+
+    def read_snapshot(self, path: Path) -> LocalFileSnapshot:
+        """Open beneath the bound root and read/hash/fstat one descriptor.
+
+        Every component is opened with ``O_NOFOLLOW``. This binds validation,
+        bytes, metadata, and checksum to one inode even if a writer renames a
+        pathname while the connector is loading it.
+        """
+
+        return read_snapshot_beneath(
+            path,
+            scope=SecureReadScope(
+                root_path=self.root_path,
+                source_path=self.source_path,
+                source_is_file=self._source_is_file,
+                root_fd=self._root_fd,
+            ),
+            enforce_size_limit=self.enforce_size_limit,
+            read_descriptor=self._read_descriptor,
+        )
+
+    def _read_descriptor(
+        self,
+        path: Path,
+        file_fd: int,
+        descriptor_stat: os.stat_result,
+    ) -> LocalFileSnapshot:
+        """Read and hash an authorized descriptor with a hard byte cap."""
+
         limit = self.config.max_file_size_bytes
-        if limit is None:
-            return path.read_bytes()
         buffer = bytearray()
-        with path.open("rb") as handle:
+        digest = sha256()
+        with os.fdopen(os.dup(file_fd), "rb") as handle:
             while True:
                 chunk = handle.read(_READ_CHUNK_SIZE)
                 if not chunk:
                     break
                 buffer.extend(chunk)
-                if len(buffer) > limit:
+                digest.update(chunk)
+                if limit is not None and len(buffer) > limit:
                     raise DocumentProcessingError(
                         f"Local file {path} exceeds max_file_size_bytes {limit}"
                     )
-        return bytes(buffer)
+        return LocalFileSnapshot(
+            content=bytes(buffer),
+            stat=descriptor_stat,
+            checksum=digest.hexdigest(),
+        )
 
     def source_record(self, path: Path, *, is_symlink: bool) -> SourceRecord:
         """Build a lightweight source record for a discovered file."""
@@ -276,9 +323,9 @@ class LocalFileSystem:
     def within_source_scope(self, path: Path) -> bool:
         """Return whether a resolved path is inside the configured source scope."""
         resolved = resolve_path(path)
-        if self.source_path.is_file():
+        if self._source_is_file:
             return resolved == self.source_path
-        return is_relative_to(resolved, self.source_path)
+        return resolved.is_relative_to(self.source_path)
 
     def has_symlink_component(self, path: Path) -> bool:
         """Detect symlink use anywhere between the candidate and source root."""

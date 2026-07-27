@@ -1,24 +1,12 @@
-"""Composition roots: mock/local wiring and env-driven production wiring (ST8).
-
-Runtime is the only layer allowed to construct adapters (deps-check enforces
-app -> {core, engine, runtime} only), so control-plane repositories and the
-secrets/event fakes are assembled here and exposed as core port types.
-"""
+"""Production composition for control-plane repositories and engine services."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_adapters.parsers.text import TextParser
-from harborrag_core.domain.parser import ParseInput
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
@@ -28,80 +16,18 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
-from harborrag_core.ports.events import EventBusPort
-from harborrag_core.ports.secrets import SecretsPort
-from harborrag_engine.builder import EngineBuilder
-from harborrag_runtime.services.base import BaseRuntimeService
-from harborrag_runtime.services.mock import MockRuntimeService
+from harborrag_engine.config import EngineConfig
+from harborrag_engine.policy import EnginePolicy
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from harborrag_runtime.settings import RuntimeSettings
+    from harborrag_runtime.config.settings import RuntimeSettings
 
 
 @dataclass(frozen=True, slots=True)
-class _MockIngestionSummary:
-    """Summary shape for the deterministic composition smoke pipeline."""
-
-    discovered: int
-    loaded: int
-    parsed: int
-    indexed: int
-
-
-class _MockIngestionConnector(BaseConnector):
-    """In-memory connector yielding one canned record for health checks."""
-
-    provider_name = "mock_runtime"
-
-    def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        yield SourceRecord(
-            id="mock://composition/1",
-            source_type="text/plain",
-            locator="mock://composition/1",
-        )
-
-    def load(self, record: SourceRecord) -> RawDocument:
-        return RawDocument(
-            id=record.id,
-            source=record.locator,
-            content="HarborRAG mock ingestion content",
-            content_type="text/plain",
-        )
-
-
-@dataclass(slots=True)
-class _MockIngestionShim:
-    """Reduced connector-to-parser pipeline used by local health checks."""
-
-    connector: BaseConnector
-    parser: TextParser
-    _summary: _MockIngestionSummary = field(
-        default_factory=lambda: _MockIngestionSummary(0, 0, 0, 0)
-    )
-
-    def run_once(self) -> list[RawDocument]:
-        documents: list[RawDocument] = []
-        for record in self.connector.discover():
-            raw = self.connector.load(record)
-            self.parser.parse(ParseInput.coerce(raw))
-            documents.append(raw)
-        count = len(documents)
-        self._summary = _MockIngestionSummary(count, count, count, 0)
-        return documents
-
-    def summarize(self) -> _MockIngestionSummary:
-        return self._summary
-
-
-@dataclass(slots=True)
 class ControlPlaneRepositories:
-    """Port-typed bundle of control-plane repositories.
-
-    Typing these fields as the core Protocols makes mypy verify that the
-    SQLAlchemy implementations conform (ST5 DoD).
-    """
+    """Core-port view of the configured control-plane repositories."""
 
     projects: ProjectRepositoryPort
     sources: SourceRepositoryPort
@@ -114,78 +40,75 @@ class ControlPlaneRepositories:
 
 @dataclass(slots=True)
 class CompositionRoot:
-    engine_builder: EngineBuilder
-    runtime_service: BaseRuntimeService = field(default_factory=MockRuntimeService)
+    """Resources assembled for one production runtime process."""
+
+    engine_config: EngineConfig = field(default_factory=EngineConfig)
+    engine_policy: EnginePolicy = field(default_factory=EnginePolicy)
     control_plane: ControlPlaneRepositories | None = None
-    secrets: SecretsPort | None = None
-    events: EventBusPort | None = None
-    mode: str = "local"
+    control_db: dict[str, Any] = field(default_factory=dict)
+    mode: str = "production"
     _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
 
     async def aclose(self) -> None:
-        """Dispose the control-plane DB engine created by :meth:`production`, if any."""
+        """Dispose resources created by :meth:`production`."""
+
         if self._control_db_engine is not None:
             await self._control_db_engine.dispose()
+            self._control_db_engine = None
 
     @classmethod
-    def local(cls) -> CompositionRoot:
-        return cls(engine_builder=EngineBuilder())
+    def production(
+        cls,
+        settings: RuntimeSettings | None = None,
+    ) -> CompositionRoot:
+        """Migrate, probe, and assemble the configured control-plane database."""
 
-    @classmethod
-    def production(cls, settings: RuntimeSettings | None = None) -> CompositionRoot:
-        """Env-driven composition: control-plane DB (migrated), repositories,
-        dev secrets/event fakes, and the production runtime service.
-
-        Heavy imports stay inside the method so the bare CLI install (no
-        [production]/[control-plane] extras) never pays for them. Callers in
-        an event loop should invoke this via asyncio.to_thread (migrations
-        and the boot probe drive their own loops).
-        """
         from harborrag_adapters.repositories.database.control_plane.engine import (
             create_control_plane_engine,
             create_session_factory,
         )
+        from harborrag_adapters.repositories.database.control_plane.jobs import (
+            SqlActivityRepository,
+            SqlJobRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.migrations import (
             run_migrations,
         )
-        from harborrag_adapters.repositories.database.control_plane.repositories import (
-            SqlActivityRepository,
-            SqlJobRepository,
-            SqlMemberRepository,
+        from harborrag_adapters.repositories.database.control_plane.projects import (
             SqlProjectRepository,
-            SqlProviderRepository,
-            SqlSettingsRepository,
             SqlSourceRepository,
         )
+        from harborrag_adapters.repositories.database.control_plane.workspace import (
+            SqlMemberRepository,
+            SqlProviderRepository,
+            SqlSettingsRepository,
+        )
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_core.testing.fakes import FakeEventBus, FakeSecrets
-        from harborrag_runtime.services.runtime_service import ProductionRuntimeService
-        from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
+        from harborrag_runtime.config.settings import (
+            DEFAULT_CONTROL_DB_URL,
+            RuntimeSettings,
+        )
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url
         if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
             raise HarborConfigurationError(
                 "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
-                "boot production composition against the default local SQLite "
-                "database; set HARBORRAG_CONTROL_DB_URL explicitly"
+                "boot against the default local SQLite database; set "
+                "HARBORRAG_CONTROL_DB_URL explicitly"
             )
+
         try:
             run_migrations(dsn)
-        except Exception as exc:  # noqa: BLE001 - boot degraded, readyz reports it
+        except Exception as exc:  # noqa: BLE001 - health reports boot degradation
             return cls(
-                engine_builder=EngineBuilder(),
-                runtime_service=ProductionRuntimeService(
-                    control_db={
-                        "ping": "failed",
-                        "error": f"migrations failed: {exc}",
-                        "scheme": dsn.split(":", 1)[0],
-                    }
-                ),
-                mode="production",
+                control_db=_failed_database_status(
+                    dsn,
+                    f"migrations failed: {exc}",
+                )
             )
-        control_db = _probe_control_db(dsn)
 
+        control_db = _probe_control_db(dsn)
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
         repositories = ControlPlaneRepositories(
@@ -198,52 +121,36 @@ class CompositionRoot:
             members=SqlMemberRepository(sessions),
         )
         return cls(
-            engine_builder=EngineBuilder(),
-            runtime_service=ProductionRuntimeService(control_db=control_db),
             control_plane=repositories,
-            # TODO(M2): env/file-backed SecretsPort + Redis EventBusPort replace
-            # these deterministic fakes; the port seams are already final.
-            secrets=FakeSecrets(),
-            events=FakeEventBus(),
-            mode="production",
+            control_db=control_db,
             _control_db_engine=engine,
         )
 
-    def mock_pipeline(self) -> _MockIngestionShim:
-        """Build the connector/parser pair used by the ingest smoke check."""
-        return _MockIngestionShim(connector=_MockIngestionConnector(), parser=TextParser())
-
-    def sample_pipeline(self) -> _MockIngestionShim:
-        """Build a sample pipeline that ingests a small set of documents for testing and demonstration.
-
-        TODO: Implement a sample pipeline that ingests a small set of documents for testing and demonstration.
-        """
-        return self.mock_pipeline()
-
     def diagnostics(self) -> dict[str, object]:
+        """Return process-safe component health without exposing adapter objects."""
+
         return {
             "mode": self.mode,
-            "runtime": self.runtime_service.diagnostics(),
-            "engine": self.engine_builder.diagnostics(),
+            "runtime": {
+                "provider": "production_runtime",
+                "ready": self.control_db.get("ping") == "ok",
+                "control_db": dict(self.control_db),
+            },
+            "engine": {
+                "tenant": self.engine_config.tenant,
+                "environment": self.engine_config.environment,
+                "max_concurrency": self.engine_policy.max_concurrency,
+            },
         }
 
-    def run_mock_ingestion(self) -> dict[str, object]:
-        """Run a mock ingestion pipeline that ingests a small set of documents for testing and demonstration.
 
-        TODO: Implement a mock ingestion pipeline that ingests a small set of documents for testing and demonstration.
-        """
-        return self.runtime_service.run_mock_ingestion()
+def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:
+    return {"ping": "failed", "error": error, "scheme": dsn.split(":", 1)[0]}
 
 
 def _probe_control_db(dsn: str) -> dict[str, Any]:
-    """Boot-time probe: ping the control DB and read the migration stamp.
+    """Probe connectivity and the migration stamp using a short-lived engine."""
 
-    Runs its own short-lived engine + event loop and disposes it, so the
-    connections never leak across loops (asyncpg pools are loop-bound). Safe
-    to call from sync code and from within a running event loop, mirroring
-    ``run_migrations``: the loop case hops to a worker thread so this probe's
-    own ``asyncio.run`` gets a clean thread instead of failing outright.
-    """
     import sqlalchemy as sa
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -254,15 +161,19 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
                 version = (
                     await connection.execute(sa.text("SELECT version_num FROM alembic_version"))
                 ).scalar()
-            return {"ping": "ok", "migrations": version, "scheme": dsn.split(":", 1)[0]}
+            return {
+                "ping": "ok",
+                "migrations": version,
+                "scheme": dsn.split(":", 1)[0],
+            }
         finally:
             await engine.dispose()
 
     def _run() -> dict[str, Any]:
         try:
             return asyncio.run(_probe())
-        except Exception as exc:  # noqa: BLE001 - boot probe reports, never raises
-            return {"ping": "failed", "error": str(exc), "scheme": dsn.split(":", 1)[0]}
+        except Exception as exc:  # noqa: BLE001 - diagnostics must remain available
+            return _failed_database_status(dsn, str(exc))
 
     try:
         asyncio.get_running_loop()

@@ -1,23 +1,31 @@
-FROM python:3.12-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_NO_CACHE=1
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY packages ./packages
 
-RUN python -m pip install --upgrade pip \
-    && python -m pip install -e packages/harborrag-core \
-    && python -m pip install -e packages/harborrag-adapters \
-    && python -m pip install -e packages/harborrag-engine \
-    && python -m pip install -e packages/harborrag-memory \
-    && python -m pip install -e packages/harborrag-runtime \
-    && python -m pip install -e packages/harborrag-app \
-    && python -m pip install -e packages/harborrag-mcp \
-    && python -m pip install -e packages/harborrag
+RUN uv export --quiet --frozen --package harborrag-app --extra production \
+        --no-dev --no-hashes --no-emit-workspace \
+        --output-file /tmp/harborrag-lock.txt \
+    && uv pip install --system --constraint /tmp/harborrag-lock.txt \
+        -e packages/harborrag-core \
+        -e packages/harborrag-adapters \
+        -e packages/harborrag-engine \
+        -e packages/harborrag-runtime \
+        -e 'packages/harborrag-app[production]' \
+    && rm -f /tmp/harborrag-lock.txt \
+    && groupadd --gid 10001 harborrag \
+    && useradd --uid 10001 --gid harborrag --no-log-init \
+        --home-dir /var/lib/harborrag --create-home \
+        --shell /usr/sbin/nologin harborrag
 
-ENTRYPOINT ["harbor"]
+WORKDIR /var/lib/harborrag
+USER harborrag
+
+ENTRYPOINT ["harborrag"]
 CMD ["doctor", "--json"]

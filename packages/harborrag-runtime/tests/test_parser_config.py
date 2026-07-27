@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from harborrag_adapters.parsers.pdf_engine import (
+from harborrag_adapters.parsers.compat import (
     DoclingBackend,
     LiteParseBackend,
     MinerUBackend,
@@ -13,11 +13,12 @@ from harborrag_adapters.parsers.pdf_engine import (
     PdfParserProfile,
     PyMuPdfBackend,
 )
+from harborrag_adapters.parsers.image.parser import HarborImageParser
 from harborrag_runtime.config import (
     ParserConfigurationError,
     load_parser_catalog,
 )
-from harborrag_runtime.config.parsers.models import (
+from harborrag_runtime.config.parsers.schemas import (
     ParserDefinition,
     PdfBackendDefinition,
 )
@@ -31,23 +32,33 @@ def _write_config(tmp_path: Path, content: str) -> Path:
     return config_path
 
 
-def test_repository_example_builds_enabled_pdf_override() -> None:
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.example.yaml")
+def test_repository_config_builds_enabled_parser_overrides() -> None:
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
 
-    assert catalog.names(enabled_only=True) == ["pdf-default"]
-    parser = catalog.build("pdf-default")
-    assert isinstance(parser, PdfParser)
-    assert parser.profile == PdfParserProfile.FAST
+    assert catalog.names(enabled_only=True) == ["image-rapidocr", "pdf-docling"]
+
+    pdf_parser = catalog.build("pdf-docling")
+    assert isinstance(pdf_parser, PdfParser)
+    assert [backend.name for backend in pdf_parser.backends] == ["docling"]
+    assert isinstance(pdf_parser.backends[0], DoclingBackend)
+    assert pdf_parser.backends[0].options.ocr_engine == "rapidocr"
+
+    image_parser = catalog.build("image-rapidocr")
+    assert isinstance(image_parser, HarborImageParser)
+    assert image_parser.ocr_engine == "rapidocr"
 
     harbor_parser = catalog.build_harbor_parser()
-    assert harbor_parser.create("pdf") is not None
-    assert harbor_parser.create("markdown") is not None
+    attachment_parser = catalog.build_harbor_parser()
+    assert isinstance(harbor_parser.create("pdf"), PdfParser)
+    assert attachment_parser is not harbor_parser
+    assert isinstance(harbor_parser.create("image"), HarborImageParser)
+    assert harbor_parser.resolve("README.md", "text/markdown") is not None
 
 
-def test_repository_example_keeps_alternative_pdf_engines_commented() -> None:
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.example.yaml")
+def test_repository_config_keeps_inactive_alternatives_commented() -> None:
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
 
-    assert catalog.names() == ["pdf-default"]
+    assert catalog.names() == ["image-rapidocr", "pdf-docling"]
 
 
 def test_builds_explicit_pdf_backend_order_and_options(tmp_path: Path) -> None:
@@ -320,5 +331,5 @@ def test_registry_rejects_multiple_enabled_profiles_for_same_parser(
     )
     catalog = load_parser_catalog(config_path)
 
-    with pytest.raises(ParserConfigurationError, match="both configure parser"):
+    with pytest.raises(ParserConfigurationError, match="both configure family"):
         catalog.build_harbor_parser()

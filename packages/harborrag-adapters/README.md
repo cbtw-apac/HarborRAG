@@ -16,11 +16,10 @@ errors for missing optional dependencies.
 
 ## Public extension API
 
-`AdapterRegistry` registers connector, parser, model, and repository classes by
-provider name. `AdapterBuilder` resolves those registrations and constructs an
-adapter from provider-specific keyword arguments. Both are exported from
-`harborrag_adapters`; built-in connectors are also available through
-`HarborConnector` and its provider registry.
+Each adapter family owns its registry and factory at the variation point:
+connectors, parsers, model providers, and repository backends are registered
+independently. There is intentionally no cross-family registry because adding
+one provider must not require editing unrelated adapter families.
 
 ## File ownership and test doubles
 
@@ -31,9 +30,9 @@ adapter from provider-specific keyword arguments. Both are exported from
 - Repository families expose provider-neutral `Harbor*` contracts plus real
   provider packages. Their deterministic fakes belong under `tests/`; production
   repository packages do not ship mock backends.
-- Shared adapter construction belongs in `builder.py` and `registry.py`; domain
-  schemas must remain in `harborrag-core`, and workflow orchestration must remain
-  in `harborrag-runtime`.
+- Provider construction belongs to the registry or factory in that capability;
+  domain schemas remain in `harborrag-core`, and workflow orchestration remains
+  outside adapters.
 
 ## Contributor and teammate deliverables
 
@@ -57,11 +56,34 @@ PDFs through the default parser stack:
 pip install -e "packages/harborrag-adapters[parsers]"
 ```
 
+Install the optional third-party chunking providers used for oversized text
+refinement and Markdown, HTML, or JSON structure recovery:
+
+```bash
+pip install -e "packages/harborrag-adapters[chunking]"
+```
+
+The provider implementations live directly under `chunking/` in capability-
+named modules: `recursive.py`, `markdownsplitter.py`, `htmlsplitter.py`, and
+`jsonsplitter.py`.
+Use `HarborChunk` to construct one by its registered name (`recursive`,
+`markdown`, `html`, or `json`). Every implementation derives from
+`HarborBaseChunk` and returns HarborRAG-owned `TextSplit` values; engine policy
+never depends on framework-owned types. `HarborChunk.available(name)` checks an
+optional provider without importing it, allowing ingestion composition to use
+normalized parser elements when a structural splitter is not installed.
+
 Install advanced PDF backends separately when needed. This extra also includes
 RapidOCR with its default ONNX Runtime CPU engine:
 
 ```bash
 pip install -e "packages/harborrag-adapters[pdf]"
+```
+
+For a Docling/RapidOCR-only deployment, use the narrower extra:
+
+```bash
+pip install -e "packages/harborrag-adapters[pdf-docling]"
 ```
 
 SQLite database, state, filesystem, and memory repositories are included in the
@@ -75,8 +97,6 @@ pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 
 | Module | Purpose |
 | --- | --- |
-| `harborrag_adapters.AdapterRegistry` | Registers adapter classes by family and provider name. |
-| `harborrag_adapters.AdapterBuilder` | Constructs registered adapters from configuration. |
 | `harborrag_adapters.connectors` | Source connectors that discover `SourceRecord`s and load `RawDocument`s. |
 | `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
 | `harborrag_adapters.repositories` | Tenant-isolated vector, graph, cache, object, database, and workflow-state repositories. |
@@ -194,7 +214,7 @@ Use the family clients (`HarborVectorDBClient`, `HarborGraphDBClient`,
 provider backend directly when configuration is already typed.
 
 Live, non-pytest smoke checks for Redis, FalkorDB, PostgreSQL, Qdrant, and SQLite
-are documented in `tests/smoke/repositories/README.md`.
+are documented in `tests/repositories/smoke/README.md`.
 
 ## Reliability Boundaries
 
@@ -232,7 +252,7 @@ pytest packages/harborrag-adapters/tests
 Run the hermetic repository suite and enforce its coverage target with:
 
 ```bash
-pytest -n 0 packages/harborrag-adapters/tests/unit/repositories \
+pytest -n 0 packages/harborrag-adapters/tests/repositories/unit \
   --cov=harborrag_adapters.repositories --cov-fail-under=90
 ```
 

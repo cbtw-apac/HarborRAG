@@ -4,7 +4,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
-from harborrag_adapters.models.common.responses import (
+from harborrag_adapters.models.runtime.responses import (
     coerce_sdk_mapping,
     sdk_hidden_parameters,
 )

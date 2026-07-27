@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal
+
+from harborrag_core.base import utc_now
 
 from .validation import require_id
 
 ProjectStatus = Literal["active", "archived"]
-
-
-def _utc_now() -> datetime:
-    """Timezone-aware UTC timestamp (RFC 3339-ready, per API conventions)."""
-    return datetime.now(UTC)
 
 
 @dataclass(slots=True)
@@ -35,8 +32,8 @@ class Project:
     collection: str
     description: str = ""
     status: ProjectStatus = "active"
-    created_at: datetime = field(default_factory=_utc_now)
-    updated_at: datetime = field(default_factory=_utc_now)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     stats: ProjectStats = field(default_factory=ProjectStats)
 
     def __post_init__(self) -> None:

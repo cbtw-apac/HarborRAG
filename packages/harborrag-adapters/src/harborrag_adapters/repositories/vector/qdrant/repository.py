@@ -5,9 +5,8 @@ from typing import Any
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageCapabilityError,
-    HarborStorageValidationError,
 )
-from harborrag_adapters.repositories.shared.tenancy import ensure_tenant
+from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
@@ -15,6 +14,9 @@ from harborrag_adapters.repositories.telemetry import (
 )
 from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
+from harborrag_adapters.repositories.vector.qdrant.collections import (
+    QdrantCollectionMixin,
+)
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
@@ -40,7 +42,7 @@ except ImportError:  # pragma: no cover - optional dependency
     qm = None  # type: ignore[assignment]
 
 
-class QdrantVectorRepository(HarborVectorRepository):
+class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
     """Stores and searches tenant-scoped dense vectors through Qdrant."""
 
     def __init__(
@@ -67,6 +69,7 @@ class QdrantVectorRepository(HarborVectorRepository):
             operation_timeout_seconds=config.operation_timeout_seconds,
         )
         self._specs: dict[tuple[str, str], VectorCollectionSpec] = {}
+        self._collection_locks = {}
         self._queries = QdrantQueryExecutor(
             client=self._database,
             config=config,
@@ -123,82 +126,6 @@ class QdrantVectorRepository(HarborVectorRepository):
             },
         )
 
-    @traced_repository_operation("ensure_collection")
-    async def ensure_collection(
-        self,
-        spec: VectorCollectionSpec,
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        if not spec.tenant_scoped:
-            raise HarborStorageValidationError(
-                "the Qdrant adapter requires tenant_scoped=True",
-                context=self._queries.error_context(
-                    "ensure_collection", spec.name, context=context
-                ),
-            )
-        name = self._queries.collection_name(spec.name, context)
-        client = self._database.raw
-        if not await client.collection_exists(name):
-            await client.create_collection(
-                collection_name=name,
-                vectors_config=qm.VectorParams(
-                    size=spec.dimension,
-                    distance=QdrantMapper.distance(spec.distance, qm),
-                ),
-            )
-            for field in spec.metadata_indexes:
-                await client.create_payload_index(
-                    collection_name=name,
-                    field_name=field,
-                    field_schema=qm.PayloadSchemaType.KEYWORD,
-                    wait=True,
-                )
-            self._specs[self._queries.spec_key(spec.name, context)] = spec
-            return
-        persisted = await self._queries.require_spec(spec.name, context)
-        if (persisted.dimension, persisted.distance) != (spec.dimension, spec.distance):
-            raise HarborStorageValidationError(
-                f"collection {spec.name!r} already exists with dimension "
-                f"{persisted.dimension} and distance {persisted.distance}",
-                context=self._queries.error_context("ensure_collection", spec.name),
-            )
-        info = await client.get_collection(name)
-        existing_indexes = set(getattr(info, "payload_schema", {}) or {})
-        for field in spec.metadata_indexes:
-            if field in existing_indexes:
-                continue
-            await client.create_payload_index(
-                collection_name=name,
-                field_name=field,
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-                wait=True,
-            )
-        self._specs[self._queries.spec_key(spec.name, context)] = spec
-
-    @traced_repository_operation("collection_exists")
-    async def collection_exists(
-        self,
-        name: str,
-        *,
-        context: StorageOperationContext,
-    ) -> bool:
-        return bool(
-            await self._database.raw.collection_exists(self._queries.collection_name(name, context))
-        )
-
-    @traced_repository_operation("delete_collection")
-    async def delete_collection(
-        self,
-        name: str,
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        physical_name = self._queries.collection_name(name, context)
-        if await self._database.raw.collection_exists(physical_name):
-            await self._database.raw.delete_collection(collection_name=physical_name)
-        self._specs.pop(self._queries.spec_key(name, context), None)
-
     @traced_repository_operation("upsert")
     async def upsert(
         self,
@@ -232,6 +159,57 @@ class QdrantVectorRepository(HarborVectorRepository):
             points=qdrant_points,
             wait=True,
         )
+
+    @traced_repository_operation("activate_generation")
+    async def activate_generation(
+        self,
+        collection: str,
+        *,
+        artifact_id: str,
+        generation_id: str,
+        activate_ids: Sequence[str],
+        retire_ids: Sequence[str],
+        delete_ids: Sequence[str],
+        tombstone_ids: Sequence[str],
+        context: StorageOperationContext,
+    ) -> None:
+        """Apply a validated, idempotent vector visibility plan."""
+
+        physical_name = self._queries.collection_name(collection, context)
+        client = self._database.raw
+        await self._set_index_state(
+            client,
+            physical_name,
+            activate_ids,
+            artifact_id=artifact_id,
+            generation_id=generation_id,
+            index_state="active",
+            is_active=True,
+            context=context,
+        )
+        await self._set_index_state(
+            client,
+            physical_name,
+            retire_ids,
+            artifact_id=artifact_id,
+            generation_id=None,
+            index_state="retired",
+            is_active=False,
+            context=context,
+        )
+        await self._set_index_state(
+            client,
+            physical_name,
+            tombstone_ids,
+            artifact_id=artifact_id,
+            generation_id=None,
+            index_state="tombstoned",
+            is_active=False,
+            context=context,
+            extra_payload={"tombstone": True},
+        )
+        if delete_ids:
+            await self.delete(collection, delete_ids, context=context)
 
     @traced_repository_operation("get")
     async def get(
@@ -308,4 +286,53 @@ class QdrantVectorRepository(HarborVectorRepository):
             "this baseline Qdrant adapter exposes dense search only; add named sparse vectors "
             "to the collection schema before enabling provider-native fusion",
             context=self._queries.error_context("hybrid_search"),
+        )
+
+    async def _set_index_state(
+        self,
+        client: Any,
+        collection: str,
+        point_ids: Sequence[str],
+        *,
+        artifact_id: str,
+        generation_id: str | None,
+        index_state: str,
+        is_active: bool,
+        context: StorageOperationContext,
+        extra_payload: dict[str, Any] | None = None,
+    ) -> None:
+        if not point_ids:
+            return
+        must: list[Any] = [
+            qm.HasIdCondition(
+                has_id=[
+                    QdrantMapper.point_id(str(context.tenant_id), identity)
+                    for identity in point_ids
+                ]
+            ),
+            qm.FieldCondition(
+                key="_harbor_tenant_id",
+                match=qm.MatchValue(value=str(context.tenant_id)),
+            ),
+            qm.FieldCondition(
+                key="artifact_id",
+                match=qm.MatchValue(value=artifact_id),
+            ),
+        ]
+        if generation_id is not None:
+            must.append(
+                qm.FieldCondition(
+                    key="generation_id",
+                    match=qm.MatchValue(value=generation_id),
+                )
+            )
+        await client.set_payload(
+            collection_name=collection,
+            payload={
+                "index_state": index_state,
+                "is_active": is_active,
+                **(extra_payload or {}),
+            },
+            points=qm.Filter(must=must),
+            wait=True,
         )

@@ -14,6 +14,12 @@ from harborrag_runtime.config.parsers import (
     PdfBackendDefinition,
     load_parser_catalog,
 )
+from harborrag_runtime.config.temporal import (
+    TemporalConnectionConfig,
+    TemporalRuntimeConfig,
+    TemporalTLSConfig,
+    WorkerConfig,
+)
 
 __all__ = [
     "CONNECTOR_CONFIG_VERSION",
@@ -26,6 +32,10 @@ __all__ = [
     "ParserConfigurationError",
     "ParserDefinition",
     "PdfBackendDefinition",
+    "TemporalConnectionConfig",
+    "TemporalRuntimeConfig",
+    "TemporalTLSConfig",
+    "WorkerConfig",
     "load_connector_catalog",
     "load_parser_catalog",
 ]

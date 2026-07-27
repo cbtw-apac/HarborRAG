@@ -1,6 +1,9 @@
 # Parser Configuration
 
-The runtime loader reads named parser definitions from versioned YAML. Start from [`config/parsers.example.yaml`](../../../config/parsers.example.yaml), which enables a credential-free `fast` PDF profile.
+The runtime loader reads named parser definitions from versioned YAML. The
+checked-in [`config/parsers.yaml`](../../../config/parsers.yaml) activates
+Docling with RapidOCR for PDFs and RapidOCR for raster images. Alternative
+profiles and engines remain in the file as commented blocks.
 
 ## Default parser registry
 
@@ -8,21 +11,28 @@ The runtime loader reads named parser definitions from versioned YAML. Start fro
 
 An enabled catalog definition replaces the matching parser type in that default stack. Parser types not configured in YAML remain available.
 
-## PDF profile
+## Active Docling PDF parser
 
 ```yaml
 version: 1
 
 parsers:
-  pdf-default:
+  pdf-docling:
     parser: pdf
     enabled: true
     settings:
-      profile: fast
       min_content_chars: 20
+    engines:
+      - backend: docling
+        settings:
+          do_ocr: true
+          ocr_engine: rapidocr
+          do_table_structure: true
 ```
 
-Built-in PDF profiles are `fast`, `balanced`, `ocr`, and `quality`. They select an ordered backend chain maintained by `PdfParser`. Start with `fast` for PDFs containing embedded text; heavier profiles may need model downloads, OCR runtimes, more memory, and substantially more compute.
+An explicit one-item engine chain guarantees that PDFs go through Docling.
+Using a built-in profile would create a fallback chain and could select another
+engine first. Available profiles are `fast`, `balanced`, `ocr`, and `quality`.
 
 ## Explicit backend chain
 
@@ -42,6 +52,22 @@ parsers:
 ```
 
 Supported backend names are `pymupdf`, `docling`, `liteparse`, `mineru`, and `paddleocr`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
+
+## Image OCR engine
+
+```yaml
+parsers:
+  image-rapidocr:
+    parser: image
+    enabled: true
+    settings:
+      ocr_engine: rapidocr
+      max_pixels: 100000000
+```
+
+Image OCR supports `rapidocr` and `pytesseract`. RapidOCR is loaded lazily and
+one engine instance is reused by the configured parser. The `lang`, `config`,
+and `timeout` settings apply to the `pytesseract` alternative.
 
 ## Environment and secrets
 
@@ -73,10 +99,11 @@ does not load it automatically.
 ```python
 from harborrag_runtime.config import load_parser_catalog
 
-catalog = load_parser_catalog("config/parsers.example.yaml")
+catalog = load_parser_catalog("config/parsers.yaml")
 print(catalog.names(enabled_only=True))
 
-pdf = catalog.build("pdf-default")
+pdf = catalog.build("pdf-docling")
+image = catalog.build("image-rapidocr")
 parser_registry = catalog.build_harbor_parser()
 ```
 
@@ -85,7 +112,7 @@ Only one enabled definition may replace a given stable parser name. `build_harbo
 Code overrides take precedence over YAML settings:
 
 ```python
-pdf = catalog.build("pdf-default", overrides={"min_content_chars": 100})
+pdf = catalog.build("pdf-docling", overrides={"min_content_chars": 100})
 ```
 
 Construction validates configuration. A backend whose optional library, executable, model, device, or service is unavailable reports that availability failure when parsing.

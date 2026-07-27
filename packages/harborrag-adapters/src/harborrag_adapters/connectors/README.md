@@ -231,7 +231,7 @@ connectors/<provider>/
   connector.py    # discover/load orchestration
   mappers.py      # provider payloads -> SourceRecord/metadata
   schemas.py      # typed provider metadata classes
-  utils.py        # pure provider helpers
+  repository_paths.py  # repository URL and path behavior
 ```
 
 Add these modules only when they remove real connector complexity:
@@ -257,13 +257,13 @@ connectors/<provider>/
   connector.py
   mappers.py
   schemas.py
-  utils.py
+  query.py
 ```
 
 Guidelines:
 
 - Keep auth and SDK imports in `client.py` or the provider module.
-- Put reusable provider helpers in `utils.py`.
+- Put reusable behavior in a module named for the capability it implements.
 - Put schema-to-domain conversion in `mappers.py`.
 - Validate config in `config.py`.
 - Inherit loaded metadata from `ConnectorMetadata` and keep provider-only fields

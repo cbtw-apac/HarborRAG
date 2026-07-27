@@ -1,6 +1,6 @@
 """Job queue port (plan ST6): the seam Temporal replaces in Phase 7.
 
-M0 ships the Protocol + fake only; the SQLAlchemy queue with real
+M0 ships the Protocol; tests provide a fake, while the SQLAlchemy queue with real
 lease/retry semantics is M2 (ported from qdrant-loader 1.0.3).
 """
 

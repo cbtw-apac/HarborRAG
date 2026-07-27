@@ -7,19 +7,19 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from harborrag_adapters.connectors.shared.attachments import (
+from harborrag_adapters.connectors.attachments.processing import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
     CustomAttachmentParser,
     FileType,
 )
-from harborrag_adapters.connectors.utils.helpers import (
+from harborrag_adapters.connectors.policies.validation import (
     DEFAULT_MAX_NESTED_ITEMS,
     validate_http_tuning,
     validate_https_url,
     validate_non_negative_limit,
 )
 
-from .utils import is_cloud_hostname
+from .query import is_cloud_hostname
 
 
 class JiraDeploymentType(StrEnum):
@@ -95,6 +95,10 @@ class JiraProjectConfig:
         validate_https_url("base_url", self.base_url)
         self.token = self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
         self.email = self.email or os.getenv("JIRA_EMAIL")
+        self.project_keys = self._string_list(self.project_keys)
+        self.issue_types = self._string_list(self.issue_types)
+        self.statuses = self._string_list(self.statuses)
+        self.labels = self._string_list(self.labels)
         self.fields = tuple(
             dict.fromkeys(str(field_name) for field_name in self.fields if field_name)
         )
@@ -133,3 +137,10 @@ class JiraProjectConfig:
         if self.include_all_fields:
             return ("*all",)
         return self.fields
+
+    @staticmethod
+    def _string_list(value: list[str] | str) -> list[str]:
+        """Accept lists from Python/YAML and comma-separated dotenv values."""
+
+        values = value.split(",") if isinstance(value, str) else value
+        return list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))

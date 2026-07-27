@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from harborrag_runtime.config.errors import ParserConfigurationError
-from harborrag_runtime.config.parsers.models import ParserCatalog
-from harborrag_runtime.config.parsers.schema import parse_parser_definitions
-from harborrag_runtime.config.utils import (
+from harborrag_runtime.config.loading import (
     read_yaml_file,
     reject_unknown_keys,
     require_schema_version,
     require_string_mapping,
 )
+from harborrag_runtime.config.parsers.parsing import parse_parser_definitions
+from harborrag_runtime.config.parsers.schemas import ParserCatalog
 
 PARSER_CONFIG_VERSION = 1
 

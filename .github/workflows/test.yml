@@ -27,7 +27,7 @@ jobs:
           - harborrag-engine
           - harborrag-runtime
           - harborrag-app
-          - harborrag-mcp
+          - harborrag-mcp-server
           - harborrag
     steps:
       - uses: actions/checkout@v6

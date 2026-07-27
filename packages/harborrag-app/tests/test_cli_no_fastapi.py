@@ -1,4 +1,4 @@
-"""The harbor CLI must import and run without the [api extras]"""
+"""The HarborRAG CLI must import and run without the [api extras]"""
 
 import builtins
 import importlib

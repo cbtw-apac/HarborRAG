@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from harborrag_adapters.models.common.config import RoutingEngine, RoutingStrategy
-from harborrag_adapters.models.common.provider_validation import (
+from harborrag_adapters.models.runtime.config import RoutingEngine, RoutingStrategy
+from harborrag_adapters.models.runtime.provider_validation import (
     validate_extension_parameters,
     validate_provider_deployment,
     validate_request_headers,
 )
-from harborrag_adapters.models.common.transport import validate_base_url
+from harborrag_adapters.models.runtime.transport import validate_base_url
 from harborrag_core.models.chat import (
     HarborChatRequest,
     InputAudioContentPart,
@@ -50,7 +50,7 @@ def validate_chat_configuration(
 ) -> None:
     """Validate provider policy, credentials, endpoints, and enabled chat routes."""
 
-    backend_type = config.backend.resolved_type(config.routing.engine)
+    backend_type = config.backend.type
     _validate_backend_routing(config, backend_type)
     if (
         config.routing.engine is RoutingEngine.LITELLM_ROUTER

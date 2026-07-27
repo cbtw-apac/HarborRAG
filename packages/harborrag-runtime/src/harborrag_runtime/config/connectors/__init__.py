@@ -2,7 +2,7 @@ from harborrag_runtime.config.connectors.loader import (
     CONNECTOR_CONFIG_VERSION,
     load_connector_catalog,
 )
-from harborrag_runtime.config.connectors.models import (
+from harborrag_runtime.config.connectors.schemas import (
     ConnectorCatalog,
     ConnectorDefinition,
 )

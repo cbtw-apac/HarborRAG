@@ -8,7 +8,7 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageCheckpointConflictError,
     HarborStorageLeaseError,
 )
-from harborrag_adapters.repositories.shared import ensure_tenant
+from harborrag_adapters.repositories.policies import ensure_tenant
 from harborrag_adapters.repositories.state.base import (
     HarborCheckpointStore,
     HarborLeaseStore,

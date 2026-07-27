@@ -1,25 +1,17 @@
-"""Job aggregate: the domain-level view of an ingestion job.
-
-Promoted from harborrag_runtime.job_state (arch plan target domain/job.py)
-so core ports can type against it; the runtime JobState remains the thin
-runner-side projection and re-exports JobStatus from here.
-"""
+"""Framework-independent ingestion job aggregate used by core ports."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Literal
+
+from harborrag_core.base import utc_now
 
 from .validation import require_id
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 JobType = Literal["bulk_ingest", "incremental_pull", "dry_run"]
-
-
-def _utc_now() -> datetime:
-    """Timezone-aware UTC timestamp (RFC 3339-ready, per API conventions)."""
-    return datetime.now(UTC)
 
 
 @dataclass(slots=True)
@@ -46,7 +38,7 @@ class Job:
     status: JobStatus = "queued"
     dry_run: bool = False
     attempts: int = 0
-    enqueued_at: datetime = field(default_factory=_utc_now)
+    enqueued_at: datetime = field(default_factory=utc_now)
     started_at: datetime | None = None
     finished_at: datetime | None = None
     counters: JobCounters = field(default_factory=JobCounters)

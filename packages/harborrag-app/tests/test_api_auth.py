@@ -6,10 +6,10 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from app_test_fixtures import MockTokenVerifier
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.mock import MockTokenVerifier
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
@@ -20,7 +20,15 @@ DIAG = "/api/v1/diagnostics"
 def _token(role: str, *, expired: bool = False, secret: str = SECRET) -> str:
     """Mint an HS256 JWT with sub/role/exp claims for tests."""
     delta = timedelta(minutes=-5 if expired else 5)
-    claims = {"sub": "u1", "role": role, "exp": datetime.now(UTC) + delta}
+    now = datetime.now(UTC)
+    claims = {
+        "sub": "u1",
+        "role": role,
+        "iat": now - timedelta(seconds=1),
+        "exp": now + delta,
+        "iss": "harborrag",
+        "aud": "harborrag-api",
+    }
     return jwt.encode(claims, secret, algorithm="HS256")
 
 
@@ -100,7 +108,14 @@ def test_non_string_role_claim_is_401_not_500() -> None:
     """A JWT whose role claim is not a string (e.g. a list) must be rejected
     as 401 harbor_auth_error, never crash the lookup into a 500."""
     bad = jwt.encode(
-        {"sub": "u1", "role": [], "exp": datetime.now(UTC) + timedelta(minutes=5)},
+        {
+            "sub": "u1",
+            "role": [],
+            "iat": datetime.now(UTC),
+            "exp": datetime.now(UTC) + timedelta(minutes=5),
+            "iss": "harborrag",
+            "aud": "harborrag-api",
+        },
         SECRET,
         algorithm="HS256",
     )

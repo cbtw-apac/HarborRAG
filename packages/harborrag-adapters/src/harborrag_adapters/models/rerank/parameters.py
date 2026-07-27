@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from harborrag_adapters.models.common.litellm_backend import build_provider_params
-from harborrag_adapters.models.common.transport import reveal_headers
+from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
+from harborrag_adapters.models.runtime.transport import reveal_headers
 from harborrag_core.models.errors import (
     HarborRerankConfigurationError,
     HarborRerankError,

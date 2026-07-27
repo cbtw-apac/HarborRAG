@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
-from harborrag_adapters.models.common.litellm_router import build_litellm_router
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.litellm_router import build_litellm_router
 
 from ..backend import ChatBackend
 from ..backend_config import ChatBackendType
@@ -30,7 +30,7 @@ def build_chat_backend(
 
     lifecycle = connections or SharedConnectionLifecycle(config.connections)
     ownership = ResourceOwnership.OWNED if connections is None else connection_ownership
-    backend_type = config.backend.resolved_type(config.routing.engine)
+    backend_type = config.backend.type
     if backend_type is ChatBackendType.DIRECT_SDK:
         return LiteLLMDirectBackend(
             connections=lifecycle,

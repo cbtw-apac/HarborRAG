@@ -52,12 +52,15 @@ dev = [
     "Pillow>=10.0.0",
     "pytesseract>=0.3.13",
     "cairosvg>=2.7.0",
+    "import-linter>=2.13,<3",
     "mypy>=1.0.0",
+    "types-jsonschema>=4.26,<5",
     "ruff>=0.1.0",
     "pre-commit>=3.5.0",
     "requests>=2.28.0",
     "responses>=0.24.1",
     "requests-mock>=1.11.0",
+    "tomli-w>=1.0.0,<2",
     "beautifulsoup4>=4.12.0",
     "defusedxml>=0.7.1",
     "docx2txt>=0.9",
@@ -70,6 +73,7 @@ dev = [
     "prometheus-client>=0.19.0,<1.0.0",
     "fastapi>=0.115",
     "httpx>=0.27",
+    "httpx2>=2.7,<3",
 ]
 docs = [
     "tomli>=2.0.0",
@@ -97,7 +101,7 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
-mypy_path = "packages/harborrag-core/src:packages/harborrag-adapters/src:packages/harborrag-engine/src:packages/harborrag-runtime/src:packages/harborrag-app/src:packages/harborrag-mcp/src:packages/harborrag/src"
+mypy_path = "packages/harborrag-core/src:packages/harborrag-adapters/src:packages/harborrag-engine/src:packages/harborrag-runtime/src:packages/harborrag-app/src:packages/harborrag-mcp-server/src:packages/harborrag/src"
 
 # Package-local tests deliberately exercise abstract base classes (safe-super)
 # and index into loosely-typed diagnostics payloads; keep strictness for src only.
@@ -112,14 +116,23 @@ module = [
     "fitz",
     "paddleocr",
     "pytesseract",
+    "rapidocr",
     "docx2txt",
     "odf",
     "odf.*",
     "boto3",
     "google.cloud",
     "google.cloud.*",
+    "langchain_text_splitters",
     "azure.identity",
     "azure.keyvault.secrets",
+    "falkordb.asyncio",
+    "cloudpickle",
+    "docling.*",
+    "fastmcp",
+    "langfuse",
+    "liteparse",
+    "pptx",
 ]
 ignore_missing_imports = true
 
@@ -131,7 +144,7 @@ testpaths = [
     "packages/harborrag-engine/tests",
     "packages/harborrag-runtime/tests",
     "packages/harborrag-app/tests",
-    "packages/harborrag-mcp/tests",
+    "packages/harborrag-mcp-server/tests",
     "packages/harborrag/tests",
 ]
 norecursedirs = [
@@ -158,18 +171,21 @@ addopts = [
     "--strict-config",
     "-v",
     "--tb=short",
+    "-m",
+    "not integration and not e2e and not smoke",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-    "smoke: fast import and wiring tests",
+    "unit: fast, isolated, no I/O",
+    "contract: port/protocol conformance suite",
+    "integration: real adapter against a real backend",
+    "smoke: minimal post-deploy liveness check",
+    "e2e: full-stack scenario test",
     "blackbox: public API behavior tests",
     "graybox: public behavior tests that assert observable internal signals",
     "whitebox: internal architecture and contract tests",
     "requires_deps: marks tests requiring optional dependencies",
     "workflow: marks tests that validate GitHub Actions workflow",
-    "contract: reusable behavioral contracts shared by adapter implementations",
     "chaos: deterministic fault-injection and recovery tests",
     "performance: bounded local performance and concurrency tests",
     "load: correctness-oriented local micro-load tests",
@@ -193,7 +209,7 @@ source = [
     "packages/harborrag-engine/src",
     "packages/harborrag-runtime/src",
     "packages/harborrag-app/src",
-    "packages/harborrag-mcp/src",
+    "packages/harborrag-mcp-server/src",
     "packages/harborrag/src",
 ]
 omit = [
@@ -248,16 +264,20 @@ select = [
     "F",
     "I",
     "B",
+    "C90",
     "C4",
+    "PLR0913",
     "UP",
 ]
 ignore = [
     "E501",
     "B008",
-    "C901",
     "B017",
     "B904",
 ]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.isort]
 known-first-party = [
@@ -267,7 +287,7 @@ known-first-party = [
     "harborrag_engine",
     "harborrag_runtime",
     "harborrag_app",
-    "harborrag_mcp",
+    "harborrag_mcp_server",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -290,7 +310,7 @@ members = [
     "packages/harborrag-engine",
     "packages/harborrag-runtime",
     "packages/harborrag-app",
-    "packages/harborrag-mcp",
+    "packages/harborrag-mcp-server",
     "packages/harborrag",
 ]
 
@@ -309,7 +329,7 @@ workspace = true
 [tool.uv.sources.harborrag-app]
 workspace = true
 
-[tool.uv.sources.harborrag-mcp]
+[tool.uv.sources.harborrag-mcp-server]
 workspace = true
 
 [tool.uv.sources.harborrag]

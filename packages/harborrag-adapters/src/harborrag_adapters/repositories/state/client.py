@@ -10,7 +10,7 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_adapters.repositories.shared.provider_map import ProviderMap
+from harborrag_adapters.repositories.registry import ProviderMap
 from harborrag_adapters.repositories.state.base import HarborStateBackend
 from harborrag_adapters.repositories.state.redis.plugin import RedisStatePlugin
 from harborrag_adapters.repositories.state.sqlite.plugin import SQLiteStatePlugin

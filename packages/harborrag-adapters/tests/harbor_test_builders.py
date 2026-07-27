@@ -20,6 +20,9 @@ def build_docx_bytes(text: str = "Hello Harbor") -> bytes:
 
 
 def build_odt_bytes(paragraphs: list[str] | None = None, *, heading: str | None = None) -> bytes:
+    import pytest
+
+    pytest.importorskip("odf", reason="ODT parser test requires the parsers extra")
     from odf.opendocument import OpenDocumentText
     from odf.text import H, P
 
@@ -35,6 +38,9 @@ def build_odt_bytes(paragraphs: list[str] | None = None, *, heading: str | None 
 
 
 def build_pptx_bytes(text: str = "Slide text") -> bytes:
+    import pytest
+
+    pytest.importorskip("pptx", reason="PowerPoint parser test requires the parsers extra")
     from pptx import Presentation
     from pptx.util import Inches
 

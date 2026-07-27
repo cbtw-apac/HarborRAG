@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from harborrag_core.domain.source import SourceRecord
 
-from .schemas import LocalFileMetadata
-from .utils import (
+from .filesystem_paths import (
     guess_mime_type,
     relative_path,
     stat_datetime,
 )
+from .schemas import LocalFileMetadata
 
 
 def path_from_record(record: SourceRecord) -> Path:
@@ -66,13 +67,14 @@ def build_document_metadata(
     root_path: Path,
     checksum: str,
     is_symlink: bool,
+    stat_result: os.stat_result | None = None,
 ) -> LocalFileMetadata:
     """Build parsed provenance metadata for a loaded local file.
 
     ``is_symlink`` must be captured by the caller before ``path`` is resolved;
     see :func:`build_source_record`.
     """
-    stat = path.stat()
+    stat = stat_result or path.stat()
     relative = relative_path(path, root_path)
     return LocalFileMetadata(
         record_id=relative,

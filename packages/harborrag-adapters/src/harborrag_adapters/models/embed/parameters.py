@@ -6,9 +6,9 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from harborrag_adapters.models.common.litellm_backend import build_provider_params
-from harborrag_adapters.models.common.security import HeaderValue
-from harborrag_adapters.models.common.transport import reveal_headers
+from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
+from harborrag_adapters.models.runtime.security import HeaderValue
+from harborrag_adapters.models.runtime.transport import reveal_headers
 from harborrag_core.models.embed import (
     EmbeddingInput,
     EmbeddingPurpose,
@@ -262,22 +262,36 @@ def _purpose_parameters(
 ) -> dict[str, str]:
     if purpose is None or purpose is EmbeddingPurpose.UNSPECIFIED:
         return {}
-    if provider is HarborEmbedProvider.COHERE:
-        values = {
-            EmbeddingPurpose.QUERY: "search_query",
-            EmbeddingPurpose.DOCUMENT: "search_document",
-            EmbeddingPurpose.CLASSIFICATION: "classification",
-            EmbeddingPurpose.CLUSTERING: "clustering",
-        }
-        return {"input_type": values[purpose]}
-    if provider is HarborEmbedProvider.VOYAGE:
-        return {"input_type": purpose.value}
-    if provider in {HarborEmbedProvider.GEMINI, HarborEmbedProvider.VERTEX_AI}:
-        values = {
-            EmbeddingPurpose.QUERY: "RETRIEVAL_QUERY",
-            EmbeddingPurpose.DOCUMENT: "RETRIEVAL_DOCUMENT",
-            EmbeddingPurpose.CLASSIFICATION: "CLASSIFICATION",
-            EmbeddingPurpose.CLUSTERING: "CLUSTERING",
-        }
-        return {"task_type": values[purpose]}
-    return {}
+    policy = _PURPOSE_POLICIES.get(provider)
+    if policy is None:
+        return {}
+    parameter, values = policy
+    return {parameter: values[purpose]}
+
+
+_COHERE_PURPOSES: dict[EmbeddingPurpose, str] = {
+    EmbeddingPurpose.QUERY: "search_query",
+    EmbeddingPurpose.DOCUMENT: "search_document",
+    EmbeddingPurpose.CLASSIFICATION: "classification",
+    EmbeddingPurpose.CLUSTERING: "clustering",
+}
+_VOYAGE_PURPOSES: dict[EmbeddingPurpose, str] = {
+    purpose: purpose.value
+    for purpose in EmbeddingPurpose
+    if purpose is not EmbeddingPurpose.UNSPECIFIED
+}
+_GEMINI_PURPOSES: dict[EmbeddingPurpose, str] = {
+    EmbeddingPurpose.QUERY: "RETRIEVAL_QUERY",
+    EmbeddingPurpose.DOCUMENT: "RETRIEVAL_DOCUMENT",
+    EmbeddingPurpose.CLASSIFICATION: "CLASSIFICATION",
+    EmbeddingPurpose.CLUSTERING: "CLUSTERING",
+}
+_PURPOSE_POLICIES: dict[
+    HarborEmbedProvider,
+    tuple[str, Mapping[EmbeddingPurpose, str]],
+] = {
+    HarborEmbedProvider.COHERE: ("input_type", _COHERE_PURPOSES),
+    HarborEmbedProvider.VOYAGE: ("input_type", _VOYAGE_PURPOSES),
+    HarborEmbedProvider.GEMINI: ("task_type", _GEMINI_PURPOSES),
+    HarborEmbedProvider.VERTEX_AI: ("task_type", _GEMINI_PURPOSES),
+}

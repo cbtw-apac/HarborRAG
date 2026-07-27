@@ -3,43 +3,42 @@ from __future__ import annotations
 import time
 from typing import cast
 
-from harborrag_adapters.models.common.budget import (
+from harborrag_adapters.models.runtime.budget import (
     BudgetAuthorization,
     ModelBudgetPolicy,
 )
-from harborrag_adapters.models.common.cache import (
+from harborrag_adapters.models.runtime.cache import (
     CacheDecision,
     ModelResponseCache,
     ResponseCacheController,
 )
-from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.execution import RoutedModelExecutor
-from harborrag_adapters.models.common.litellm_router import router_model_name
-from harborrag_adapters.models.common.middleware import (
+from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.execution import RoutedModelExecutor
+from harborrag_adapters.models.runtime.litellm_router import router_model_name
+from harborrag_adapters.models.runtime.middleware import (
     MiddlewarePipeline,
     middleware_context,
 )
-from harborrag_adapters.models.common.routing_state import RoutingStateStore
-from harborrag_adapters.models.common.routing_types import RoutedAttempt
-from harborrag_adapters.models.common.singleflight import SingleFlightCoordinator
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.routing_state import RoutingStateStore
+from harborrag_adapters.models.runtime.routing_types import RoutedAttempt
+from harborrag_adapters.models.runtime.singleflight import SingleFlightCoordinator
+from harborrag_adapters.models.runtime.telemetry import (
     TelemetryDispatcher,
     litellm_telemetry_metadata,
 )
-from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_adapters.models.runtime.telemetry_operation import ModelTelemetryOperation
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
-from harborrag_core.models.errors import HarborEmbedError
 
 from .batching import EmbeddingBatchAccumulator
 from .configs import HarborEmbedClientConfig, HarborEmbedProviderConfig
-from .errors import normalize_exception
+from .execution_context import EmbedExecutionContextMixin
 from .invocation import EmbeddingInvocation
 from .parameters import build_litellm_parameters, effective_batch_size, litellm_inputs
 from .registry import EmbedProviderRegistry
 from .validation import validate_embed_request
 
 
-class EmbedExecution:
+class EmbedExecution(EmbedExecutionContextMixin):
     """Route, deduplicate, budget, and cache complete embedding operations."""
 
     def __init__(
@@ -331,33 +330,6 @@ class EmbedExecution:
             privacy=self.config.observability.privacy,
         )
         return params
-
-    @staticmethod
-    def _error(
-        exc: Exception,
-        logical: str,
-        deployment: HarborEmbedProviderConfig,
-        request: HarborEmbedRequest,
-    ) -> HarborEmbedError:
-        return normalize_exception(
-            exc,
-            logical_model=logical,
-            provider=deployment.provider.value,
-            provider_model=deployment.model,
-            deployment=deployment.name,
-            request_id=request.metadata.request_id,
-        )
-
-    def _operation(
-        self, logical: str, request: HarborEmbedRequest, model_alias: str
-    ) -> ModelTelemetryOperation:
-        return ModelTelemetryOperation(
-            self.telemetry,
-            operation="embed",
-            request=request,
-            model_alias=model_alias,
-            logical_model=logical,
-        )
 
 
 def _elapsed(started: float) -> float:
