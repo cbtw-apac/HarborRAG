@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.12-alpine
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -6,10 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apk add --no-cache \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
         libgl1 \
-        libglib2.0-0 \
-        libxcb1
+        libglib2.0-0t64 \
+        libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
 
 
 COPY pyproject.toml uv.lock ./
@@ -28,15 +30,16 @@ COPY packages/harborrag-mcp-server/src/harborrag_mcp_server/__init__.py ./packag
 COPY packages/harborrag/pyproject.toml packages/harborrag/README.md ./packages/harborrag/
 COPY packages/harborrag/src/harborrag/__init__.py ./packages/harborrag/src/harborrag/
 
-RUN uv export --quiet --frozen --package harborrag-runtime --extra production \
+RUN python -m pip install 'uv==0.11.32' \
+    && uv export --quiet --frozen --package harborrag-runtime --extra production \
         --no-dev --no-hashes --no-emit-workspace \
         --output-file /tmp/harborrag-lock.txt \
-    && python -m uv pip install \
+    && uv pip install --system \
         --no-deps \
         --index-url https://download.pytorch.org/whl/cpu \
         --constraint /tmp/harborrag-lock.txt \
         'torch==2.13.0' 'torchvision==0.28.0' \
-    && python -m uv pip install --constraint /tmp/harborrag-lock.txt \
+    && uv pip install --system --constraint /tmp/harborrag-lock.txt \
         -e packages/harborrag-core \
         -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,postgres,qdrant]' \
         -e packages/harborrag-engine \

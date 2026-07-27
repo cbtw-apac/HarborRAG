@@ -15,6 +15,7 @@ pytest_plugins = (
     "tests.fixtures.coverage",
     "tests.fixtures.project",
     "tests.fixtures.results",
+    "tests.fixtures.website_builder",
 )
 
 # Add project paths to sys.path for imports

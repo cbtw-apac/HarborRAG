@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.12-alpine
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,10 +9,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY packages ./packages
 
-RUN uv export --quiet --frozen --package harborrag-app --extra production \
+RUN python -m pip install 'uv==0.11.32' \
+    && uv export --quiet --frozen --package harborrag-app --extra production \
         --no-dev --no-hashes --no-emit-workspace \
         --output-file /tmp/harborrag-lock.txt \
-    && python -m uv pip install --constraint /tmp/harborrag-lock.txt \
+    && uv pip install --system --constraint /tmp/harborrag-lock.txt \
         -e packages/harborrag-core \
         -e packages/harborrag-adapters \
         -e packages/harborrag-engine \
