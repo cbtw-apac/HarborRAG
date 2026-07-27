@@ -1,8 +1,8 @@
-FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
+    UV_NO_CACHE=1 \
     HARBORRAG_HOST=0.0.0.0 \
     HARBORRAG_PORT=8000 \
     HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml \
@@ -23,8 +23,7 @@ COPY packages/harborrag-runtime/src/harborrag_runtime/__init__.py ./packages/har
 COPY packages/harborrag-app/pyproject.toml packages/harborrag-app/README.md ./packages/harborrag-app/
 COPY packages/harborrag-app/src/harborrag_app/__init__.py ./packages/harborrag-app/src/harborrag_app/
 
-RUN python -m pip install 'uv==0.11.32' \
-    && uv export --quiet --frozen --package harborrag-app --extra api \
+RUN uv export --quiet --frozen --package harborrag-app --extra api \
         --no-dev --no-hashes --no-emit-workspace \
         --output-file /tmp/harborrag-lock.txt \
     && uv export --quiet --frozen --package harborrag-adapters \

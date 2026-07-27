@@ -10,6 +10,13 @@ DOCKERFILES = {
     "worker": ROOT / "deploy/docker/Dockerfile.temporal-worker",
 }
 
+# The uv base image ships uv preinstalled, so nothing pip-installs it. It must be a
+# glibc build: the locked temporalio, PyTorch, TorchVision and ONNX Runtime releases
+# publish manylinux wheels only, so the musl (alpine) variants cannot be used.
+BASE_IMAGE = "FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
+# Everything after this marker is the dependency-installation block.
+INSTALL_MARKER = "RUN uv export"
+
 
 @pytest.mark.parametrize("image", DOCKERFILES)
 def test_release_image_installs_from_the_frozen_lock(image: str) -> None:
@@ -20,12 +27,29 @@ def test_release_image_installs_from_the_frozen_lock(image: str) -> None:
     assert "--no-dev --no-hashes --no-emit-workspace" in dockerfile
     assert "--constraint /tmp/harborrag-lock.txt" in dockerfile
     assert "pip install --upgrade" not in dockerfile
-    assert dockerfile.startswith("FROM python:3.12-slim@sha256:")
+
+
+@pytest.mark.parametrize("image", DOCKERFILES)
+def test_release_image_uses_the_shared_glibc_uv_base(image: str) -> None:
+    """All four images must share one base so the toolchain cannot drift apart."""
+    dockerfile = DOCKERFILES[image].read_text(encoding="utf-8")
+
+    assert dockerfile.splitlines()[0] == BASE_IMAGE
+
+
+@pytest.mark.parametrize("image", DOCKERFILES)
+def test_release_image_installs_into_the_system_environment(image: str) -> None:
+    """``uv pip install`` refuses to run outside a virtualenv without ``--system``."""
+    dockerfile = DOCKERFILES[image].read_text(encoding="utf-8")
+
+    for line in dockerfile.splitlines():
+        if "uv pip install" in line:
+            assert "--system" in line, line
 
 
 def test_worker_image_contains_only_worker_packages() -> None:
     dockerfile = DOCKERFILES["worker"].read_text(encoding="utf-8")
-    install_block = dockerfile.split("RUN python -m pip install 'uv==", 1)[1]
+    install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
     assert "-e packages/harborrag-runtime" in install_block
     assert "-e packages/harborrag-app" not in install_block
@@ -35,7 +59,7 @@ def test_worker_image_contains_only_worker_packages() -> None:
 
 def test_api_image_contains_only_control_plane_runtime_dependencies() -> None:
     dockerfile = DOCKERFILES["api"].read_text(encoding="utf-8")
-    install_block = dockerfile.split("RUN python -m pip install 'uv==", 1)[1]
+    install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
     assert "--package harborrag-app --extra api" in install_block
     assert "--package harborrag-adapters" in install_block
@@ -68,7 +92,7 @@ def test_release_images_run_as_the_unprivileged_application_user(image: str) -> 
 
 def test_mcp_image_does_not_install_unrelated_transports() -> None:
     dockerfile = DOCKERFILES["mcp"].read_text(encoding="utf-8")
-    install_block = dockerfile.split("RUN python -m pip install 'uv==", 1)[1]
+    install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
     assert "-e 'packages/harborrag-mcp-server[mcp]'" in install_block
     assert "-e packages/harborrag-app" not in install_block

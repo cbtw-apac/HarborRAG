@@ -68,14 +68,16 @@ rolling pool with a default concurrency of 16, so a slow artifact does not
 hold a completed batch slot idle. Both replicas share persistent ingestion and
 model-cache volumes.
 
-> **Container build status:** the Dockerfiles currently use
-> `ghcr.io/astral-sh/uv:python3.12-alpine`. Alpine uses musl, while the locked
-> `temporalio`, PyTorch, TorchVision, and ONNX Runtime releases require glibc
-> wheels. The API and CLI also fall back to an unsupported Temporal SDK source
-> build, and the worker still contains Debian package and account-management
-> commands. Do not expect `dev_up.sh` or the worker profile to build until the
-> application images return to a version-pinned glibc-based uv image or every
-> native dependency is replaced with a verified musllinux-compatible build.
+> **Container base image:** all four Dockerfiles use
+> `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`. It must stay a glibc (Debian)
+> image: the locked `temporalio`, PyTorch, TorchVision, and ONNX Runtime
+> releases publish manylinux wheels only, so the musl (alpine) variants cannot
+> be used. uv ships in the base image, so nothing pip-installs it.
+> `tests/test_release_images_use_lock.py` enforces the shared base and the
+> frozen-lock install path. The tag floats, so the uv and Python patch versions
+> can move between builds; the application dependencies themselves stay
+> reproducible via `uv export --frozen` against `uv.lock`. Note that the images
+> are not built in CI.
 
 ### 1. Create protected environment files
 
