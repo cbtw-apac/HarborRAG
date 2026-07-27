@@ -67,7 +67,7 @@ def test_safe_error_detail_truncates() -> None:
 def _smoke_bootstrap() -> dict[str, object]:
     """Import the smoke bootstrap package fresh each call, mirroring the
     isolation a subprocess run of the standalone script would have."""
-    connectors_dir = Path(__file__).parents[2] / "smoke" / "connectors"
+    connectors_dir = Path(__file__).parents[1] / "smoke"
     if str(connectors_dir) not in sys.path:
         sys.path.insert(0, str(connectors_dir))
     for name in [key for key in sys.modules if key == "bootstrap" or key.startswith("bootstrap.")]:

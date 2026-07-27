@@ -254,6 +254,54 @@ def test_smoke_test_directory_is_exempt_from_layering_rule(
     assert violations == []
 
 
+def test_smoke_directory_nested_under_a_domain_is_exempt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Suites are grouped by domain, so smoke trees sit at `tests/<domain>/smoke/`
+    rather than directly under `tests/`. The exemption follows the directory,
+    not its depth."""
+    monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
+    for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
+        _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
+    smoke_dir = (
+        tmp_path
+        / "packages"
+        / "harborrag-adapters"
+        / "tests"
+        / "connectors"
+        / "smoke"
+        / "bootstrap"
+    )
+    smoke_dir.mkdir(parents=True)
+    (smoke_dir / "catalogs.py").write_text(
+        "from harborrag_runtime.config import load_connector_catalog\n",
+        encoding="utf-8",
+    )
+
+    violations = find_violations()
+
+    assert violations == []
+
+
+def test_module_named_smoke_is_still_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The exemption matches directories, so a `smoke.py` module is not exempt."""
+    monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
+    for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
+        _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
+    tests_dir = tmp_path / "packages" / "harborrag-adapters" / "tests" / "connectors"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "smoke.py").write_text(
+        "from harborrag_runtime.config import load_connector_catalog\n",
+        encoding="utf-8",
+    )
+
+    violations = find_violations()
+
+    assert any("harborrag_adapters must not import harborrag_runtime" in v for v in violations)
+
+
 def test_non_smoke_test_directory_is_still_checked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -16,7 +16,7 @@ def _bootstrap() -> dict[str, object]:
     """Import the smoke bootstrap package fresh, mirroring the isolation a
     subprocess run of the standalone script would have: each call gets its
     own `_RAPID_OCR_ENGINE` cache instead of sharing one across tests."""
-    connectors_dir = Path(__file__).parents[2] / "smoke" / "connectors"
+    connectors_dir = Path(__file__).parents[1] / "smoke"
     if str(connectors_dir) not in sys.path:
         sys.path.insert(0, str(connectors_dir))
     for name in [key for key in sys.modules if key == "bootstrap" or key.startswith("bootstrap.")]:
