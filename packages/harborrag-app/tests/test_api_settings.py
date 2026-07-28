@@ -25,9 +25,7 @@ def test_get_settings_returns_seeded_document() -> None:
     """Seeded settings pass through untouched."""
     app = create_fastapi_app(ApiSettings())
     with TestClient(app) as client:
-        app.state.app_service = mock_app_service(
-            settings=WorkspaceSettings(data={"theme": "dark"})
-        )
+        app.state.app_service = mock_app_service(settings=WorkspaceSettings(data={"theme": "dark"}))
         response = client.get("/api/v1/settings")
         assert response.status_code == 200
         assert response.json() == {"data": {"theme": "dark"}}

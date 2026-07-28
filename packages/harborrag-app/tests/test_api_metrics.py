@@ -54,9 +54,7 @@ def test_metrics_reflects_seeded_projects_and_sources() -> None:
                 ),
             ],
             sources=[
-                SourceConfig(
-                    id="src-1", project_id="proj-1", source_type="local_file", name="Docs"
-                )
+                SourceConfig(id="src-1", project_id="proj-1", source_type="local_file", name="Docs")
             ],
         )
         response = client.get("/api/v1/metrics")

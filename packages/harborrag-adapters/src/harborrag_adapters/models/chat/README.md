@@ -48,9 +48,7 @@ Asynchronous applications select the async boundary explicitly:
 
 ```python
 async with ChatClientFactory.create_async(config) as client:
-    response = await client.achat(
-        [{"role": "user", "content": "Summarize HarborRAG."}]
-    )
+    response = await client.achat([{"role": "user", "content": "Summarize HarborRAG."}])
 ```
 
 Tests and application composition roots may inject owned or borrowed dependencies

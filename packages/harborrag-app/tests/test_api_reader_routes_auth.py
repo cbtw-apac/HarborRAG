@@ -16,7 +16,13 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
-READ_ROUTES = ["/api/v1/projects", "/api/v1/sources", "/api/v1/activity", "/api/v1/settings", "/api/v1/metrics"]
+READ_ROUTES = [
+    "/api/v1/projects",
+    "/api/v1/sources",
+    "/api/v1/activity",
+    "/api/v1/settings",
+    "/api/v1/metrics",
+]
 
 
 def _token(role: str) -> str:

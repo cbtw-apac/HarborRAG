@@ -27,9 +27,7 @@ def test_list_projects_returns_seeded_project() -> None:
     app = create_fastapi_app(ApiSettings())
     with TestClient(app) as client:
         app.state.app_service = mock_app_service(
-            projects=[
-                Project(id="demo-1", name="Demo", collection="demo_collection")
-            ]
+            projects=[Project(id="demo-1", name="Demo", collection="demo_collection")]
         )
         response = client.get("/api/v1/projects")
         assert response.status_code == 200
