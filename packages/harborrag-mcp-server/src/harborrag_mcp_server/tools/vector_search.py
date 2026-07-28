@@ -76,6 +76,8 @@ class VectorSearchTool(BaseMcpTool):
             return {"ok": False, "error": "query must be a non-empty string"}
 
         raw_top_k = arguments.get("top_k", _DEFAULT_TOP_K)
+        if not isinstance(raw_top_k, int | str | bytes | bytearray):
+            return {"ok": False, "error": "top_k must be an integer"}
         try:
             top_k = int(raw_top_k)
         except (TypeError, ValueError):
@@ -102,6 +104,8 @@ class VectorSearchTool(BaseMcpTool):
             }
 
         raw_threshold = arguments.get("score_threshold", _DEFAULT_SCORE_THRESHOLD)
+        if not isinstance(raw_threshold, int | float | str | bytes | bytearray):
+            return {"ok": False, "error": "score_threshold must be a number"}
         try:
             score_threshold = float(raw_threshold)
         except (TypeError, ValueError):
