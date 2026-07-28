@@ -13,6 +13,57 @@ _MAX_TOP_K = McpToolPolicy().max_results
 _DEFAULT_SCORE_THRESHOLD = 0.3
 
 
+class _ValidationError(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+def _validate_query(arguments: dict[str, object]) -> str:
+    query_text = str(arguments.get("query", "")).strip()
+    if not query_text:
+        raise _ValidationError("query must be a non-empty string")
+    return query_text
+
+
+def _validate_top_k(arguments: dict[str, object]) -> int:
+    raw_top_k = arguments.get("top_k", _DEFAULT_TOP_K)
+    if not isinstance(raw_top_k, int | str | bytes | bytearray):
+        raise _ValidationError("top_k must be an integer")
+    try:
+        top_k = int(raw_top_k)
+    except (TypeError, ValueError):
+        raise _ValidationError("top_k must be an integer") from None
+    if top_k < 1 or top_k > _MAX_TOP_K:
+        raise _ValidationError(f"top_k must be between 1 and {_MAX_TOP_K}")
+    return top_k
+
+
+def _validate_filters(arguments: dict[str, object]) -> dict[str, object]:
+    raw_filters = arguments.get("filters")
+    if not isinstance(raw_filters, Mapping):
+        raise _ValidationError("filters is required and must be an object")
+    filters = dict(raw_filters)
+
+    tenant_id = filters.get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
+        raise _ValidationError("filters.tenant_id must be a non-empty string")
+    return filters
+
+
+def _validate_score_threshold(arguments: dict[str, object]) -> float:
+    raw_threshold = arguments.get("score_threshold", _DEFAULT_SCORE_THRESHOLD)
+    if not isinstance(raw_threshold, int | float | str | bytes | bytearray):
+        raise _ValidationError("score_threshold must be a number")
+    try:
+        score_threshold = float(raw_threshold)
+    except (TypeError, ValueError):
+        raise _ValidationError("score_threshold must be a number") from None
+    if score_threshold < 0.0 or score_threshold > 1.0:
+        raise _ValidationError("score_threshold must be between 0.0 and 1.0")
+    return score_threshold
+
+
 @dataclass(slots=True)
 class VectorSearchTool(BaseMcpTool):
     """Search the vector store and return ranked retrieval results.
@@ -71,47 +122,13 @@ class VectorSearchTool(BaseMcpTool):
     )
 
     def call(self, arguments: dict[str, object]) -> dict[str, object]:
-        query_text = str(arguments.get("query", "")).strip()
-        if not query_text:
-            return {"ok": False, "error": "query must be a non-empty string"}
-
-        raw_top_k = arguments.get("top_k", _DEFAULT_TOP_K)
-        if not isinstance(raw_top_k, int | str | bytes | bytearray):
-            return {"ok": False, "error": "top_k must be an integer"}
         try:
-            top_k = int(raw_top_k)
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "top_k must be an integer"}
-        if top_k < 1 or top_k > _MAX_TOP_K:
-            return {
-                "ok": False,
-                "error": f"top_k must be between 1 and {_MAX_TOP_K}",
-            }
-
-        raw_filters = arguments.get("filters")
-        if not isinstance(raw_filters, Mapping):
-            return {
-                "ok": False,
-                "error": "filters is required and must be an object",
-            }
-        filters = dict(raw_filters)
-
-        tenant_id = filters.get("tenant_id")
-        if not isinstance(tenant_id, str) or not tenant_id.strip():
-            return {
-                "ok": False,
-                "error": "filters.tenant_id must be a non-empty string",
-            }
-
-        raw_threshold = arguments.get("score_threshold", _DEFAULT_SCORE_THRESHOLD)
-        if not isinstance(raw_threshold, int | float | str | bytes | bytearray):
-            return {"ok": False, "error": "score_threshold must be a number"}
-        try:
-            score_threshold = float(raw_threshold)
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "score_threshold must be a number"}
-        if score_threshold < 0.0 or score_threshold > 1.0:
-            return {"ok": False, "error": "score_threshold must be between 0.0 and 1.0"}
+            query_text = _validate_query(arguments)
+            top_k = _validate_top_k(arguments)
+            filters = _validate_filters(arguments)
+            score_threshold = _validate_score_threshold(arguments)
+        except _ValidationError as exc:
+            return {"ok": False, "error": exc.message}
 
         if self.pipeline is None:
             return {
