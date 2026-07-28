@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-from harborrag_core.schemas.storage import StorageFamily
 from pydantic import BaseModel
 
 from harborrag_adapters.repositories.cache.base import HarborCacheBackend
@@ -14,7 +13,8 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_adapters.repositories.shared.provider_map import ProviderMap
+from harborrag_adapters.repositories.registry import ProviderMap
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class HarborCacheDBClient:

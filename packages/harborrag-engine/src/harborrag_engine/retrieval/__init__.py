@@ -1,9 +1,4 @@
-from harborrag_engine.retrieval.base import BaseEvidenceBuilder, BaseRetrievalPipeline
-from harborrag_engine.retrieval.mock import MockEvidenceBuilder, MockRetrievalPipeline
+from harborrag_engine.retrieval.pipeline import RetrievalPipeline
+from harborrag_engine.retrieval.ports import RetrievalContext
 
-__all__ = [
-    "BaseEvidenceBuilder",
-    "BaseRetrievalPipeline",
-    "MockEvidenceBuilder",
-    "MockRetrievalPipeline",
-]
+__all__ = ["RetrievalContext", "RetrievalPipeline"]

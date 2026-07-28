@@ -1,0 +1,167 @@
+version: 1
+
+parsers:
+  pdf-docling:
+    parser: pdf
+    enabled: true
+    settings:
+      min_content_chars: 20
+    engines:
+      - backend: docling
+        settings:
+          do_ocr: true
+          ocr_engine: rapidocr
+          ocr_lang: [en]
+          force_full_page_ocr: false
+          bitmap_area_threshold: 0.05
+          do_table_structure: true
+          table_do_cell_matching: true
+          accelerator_device: auto
+          accelerator_threads: 4
+          pdf_backend: pypdfium2
+          max_num_pages: 500
+          max_file_size: 104857600
+          page_range: [1, 500]
+          raises_on_error: true
+          export_format: markdown
+          strict_text: false
+          include_raw_document: false
+          extra_convert_options: {}
+
+  # Active image parser: use the same local RapidOCR/ONNX stack installed by
+  # the PDF extra. The engine is memoized and reused across image parses.
+  image-rapidocr:
+    parser: image
+    enabled: true
+    settings:
+      ocr_engine: rapidocr
+      max_pixels: 100000000
+
+  # Inactive alternatives. Keep exactly one definition enabled for each stable
+  # parser type (pdf or image); the runtime rejects ambiguous replacements.
+
+  # Fast embedded-text PDF extraction with no OCR or layout reconstruction.
+  # pdf-pymupdf:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     min_content_chars: 10
+  #   engines:
+  #     - backend: pymupdf
+
+  # Fast PDF profile: PyMuPDF first, then LiteParse.
+  # pdf-fast:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     profile: fast
+  #     min_content_chars: 20
+
+  # Mixed text/layout/OCR PDF fallback chain.
+  # pdf-balanced:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     profile: balanced
+  #     min_content_chars: 20
+
+  # OCR-oriented PDF fallback chain for predominantly scanned documents.
+  # pdf-ocr:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     profile: ocr
+  #     min_content_chars: 20
+
+  # Highest-quality built-in PDF chain; requires more models and compute.
+  # pdf-quality:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     profile: quality
+  #     min_content_chars: 50
+
+  # Local LiteParse with an optional external OCR service.
+  # pdf-liteparse:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     min_content_chars: 20
+  #   engines:
+  #     - backend: liteparse
+  #       settings:
+  #         output_format: markdown
+  #         image_mode: placeholder
+  #         extract_links: true
+  #         ocr_enabled: true
+  #         ocr_language: eng
+  #         ocr_server_url: http://127.0.0.1:8080
+  #         max_pages: 1000
+  #         dpi: 200
+  #         preserve_very_small_text: false
+  #         quiet: true
+  #         num_workers: 4
+  #         input_mode: path
+  #         include_raw: false
+  #         extra_options: {}
+  #       secrets:
+  #         password_env: PDF_DOCUMENT_PASSWORD
+
+  # Local MinerU pipeline; the mineru executable must be installed on PATH.
+  # pdf-mineru:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     min_content_chars: 20
+  #   engines:
+  #     - backend: mineru
+  #       settings:
+  #         backend: pipeline
+  #         executable: mineru
+  #         timeout_seconds: 600
+  #         method: auto
+  #         language: null
+  #         effort: medium
+  #         keep_output: false
+  #         extra_args: []
+
+  # OCR-heavy local PDF analysis with CPU-safe PaddleOCR settings.
+  # pdf-paddleocr:
+  #   parser: pdf
+  #   enabled: true
+  #   settings:
+  #     min_content_chars: 20
+  #   engines:
+  #     - backend: paddleocr
+  #       settings:
+  #         pipeline_class: PPStructureV3
+  #         fallback_pipeline_classes: [PaddleOCRVL, PPStructure]
+  #         lang: en
+  #         device: cpu
+  #         enable_hpi: false
+  #         use_tensorrt: false
+  #         precision: fp32
+  #         enable_mkldnn: true
+  #         cpu_threads: 4
+  #         use_doc_orientation_classify: true
+  #         use_doc_unwarping: true
+  #         use_textline_orientation: true
+  #         use_table_recognition: true
+  #         use_formula_recognition: false
+  #         use_chart_recognition: false
+  #         use_region_detection: true
+  #         format_block_content: true
+  #         markdown_ignore_labels: [header, footer]
+  #         extra_options: {}
+  #         legacy_ocr_options: {}
+
+  # Legacy image OCR using the external Tesseract executable.
+  # image-pytesseract:
+  #   parser: image
+  #   enabled: true
+  #   settings:
+  #     ocr_engine: pytesseract
+  #     lang: eng
+  #     config: ""
+  #     timeout: 60
+  #     max_pixels: 100000000

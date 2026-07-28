@@ -38,6 +38,15 @@ jobs:
       - name: Lint
         run: uv run make lint
 
+      - name: Complexity ratchet
+        run: uv run make complexity
+
+      - name: File length
+        run: uv run make file-length
+
+      - name: Import boundaries
+        run: uv run make import-boundaries
+
       - name: Type check
         run: uv run make typecheck
 

@@ -4,6 +4,7 @@ from abc import abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.graph import (
     GraphEdge,
     GraphExpansionQuery,
@@ -14,11 +15,9 @@ from harborrag_core.schemas.graph import (
 from harborrag_core.schemas.ids import EntityId, RelationshipId
 from harborrag_core.schemas.storage import StorageOperationContext
 
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
-
 
 class HarborGraphRepository(RepositoryLifecycle):
-    """Defines portable graph operations used by HarborRAG retrieval workflows."""
+    """Defines portable graph persistence and read operations used by HarborRAG."""
 
     @property
     @abstractmethod
@@ -51,6 +50,15 @@ class HarborGraphRepository(RepositoryLifecycle):
         context: StorageOperationContext,
     ) -> list[GraphNode]:
         """Load graph nodes by stable HarborRAG identifiers."""
+
+    @abstractmethod
+    async def get_edges(
+        self,
+        ids: Sequence[RelationshipId],
+        *,
+        context: StorageOperationContext,
+    ) -> list[GraphEdge]:
+        """Load graph edges by stable HarborRAG identifiers."""
 
     @abstractmethod
     async def delete_nodes(

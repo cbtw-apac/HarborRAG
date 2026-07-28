@@ -1,9 +1,9 @@
 """ML1 read routes over a real (temp SQLite) control-plane DB.
 
-test_api_projects/sources/activity/settings/metrics.py exercise MockAppService
+test_api_projects/sources/activity/settings/metrics.py exercise mock_app_service
 only; this file drives the same endpoints through AppService (production)
-so the SQL-backed code paths in app_service.py are actually covered, not
-just verified by hand.
+so the SQL-backed code paths in workflow_control/client.py are actually
+covered, not just verified by hand.
 
 Seeding goes through CompositionRoot.production() (harborrag_runtime), never
 through harborrag_adapters directly — harborrag-app may depend on
@@ -18,15 +18,16 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.services.app_service import AppService
+from harborrag_app.workflow_control.client import AppService
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.project import Project, ProjectStats
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_runtime.composition import CompositionRoot
-from harborrag_runtime.settings import RuntimeSettings
+from harborrag_runtime.config.settings import RuntimeSettings
 
 
 async def _seed(dsn: str) -> None:
@@ -117,7 +118,7 @@ def test_read_routes_return_enveloped_503_when_control_plane_unconfigured() -> N
     misleading 404 (the previous per-route behavior for get_project/get_source)."""
     app = create_fastapi_app(ApiSettings())
     with TestClient(app) as client:
-        app.state.app_service = AppService(CompositionRoot.local())
+        app.state.app_service = AppService(CompositionRoot())
 
         for path in (
             "/api/v1/projects",

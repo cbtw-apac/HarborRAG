@@ -12,6 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+chunking = ["langchain-text-splitters>=1.1,<2"]
 control-plane = [
     "sqlalchemy[asyncio]>=2.0,<3",
     "alembic>=1.13",
@@ -27,6 +28,7 @@ parsers = [
     "beautifulsoup4>=4.12.0",
     "defusedxml>=0.7.1",
     "docx2txt>=0.9",
+    "odfpy>=1.4.1",
     "openpyxl>=3.1.0",
     "Pillow>=10.0.0",
     "PyMuPDF>=1.24.0",
@@ -38,10 +40,66 @@ pdf = [
     "PyMuPDF>=1.24.0",
     "docling>=2.0.0",
     "liteparse>=2.5.0",
-    "mineru[all]>=2.0.0",
+    "mineru>=3.4.4,<4",
     "onnxruntime>=1.20,<2",
     "paddleocr>=3.0.0",
     "rapidocr>=3.1,<4",
+]
+pdf-docling = [
+    "docling>=2.0.0",
+    "onnxruntime>=1.20,<2",
+    "rapidocr>=3.1,<4",
+]
+pdf-pymupdf = ["PyMuPDF>=1.24.0"]
+pdf-liteparse = ["liteparse>=2.5.0"]
+pdf-mineru = ["mineru>=3.4.4,<4"]
+pdf-ocr = ["paddleocr>=3.0.0"]
+document = [
+    "docx2txt>=0.9",
+    "odfpy>=1.4.1",
+    "defusedxml>=0.7.1",
+]
+spreadsheet = [
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.1",
+]
+presentation = ["python-pptx>=1.0.0"]
+markup = [
+    "beautifulsoup4>=4.12.0",
+    "defusedxml>=0.7.1",
+]
+image = [
+    "onnxruntime>=1.20,<2",
+    "Pillow>=10.0.0",
+    "pytesseract>=0.3.13",
+    "rapidocr>=3.1,<4",
+]
+image-tesseract = [
+    "Pillow>=10.0.0",
+    "pytesseract>=0.3.13",
+]
+image-rapidocr = [
+    "onnxruntime>=1.20,<2",
+    "Pillow>=10.0.0",
+    "rapidocr>=3.1,<4",
+]
+parsers-all = [
+    "beautifulsoup4>=4.12.0",
+    "defusedxml>=0.7.1",
+    "docx2txt>=0.9",
+    "docling>=2.0.0",
+    "liteparse>=2.5.0",
+    "mineru>=3.4.4,<4",
+    "odfpy>=1.4.1",
+    "onnxruntime>=1.20,<2",
+    "openpyxl>=3.1.0",
+    "paddleocr>=3.0.0",
+    "Pillow>=10.0.0",
+    "PyMuPDF>=1.24.0",
+    "pytesseract>=0.3.13",
+    "python-pptx>=1.0.0",
+    "rapidocr>=3.1,<4",
+    "xlrd>=2.0.1",
 ]
 llm = [
     "litellm>=1.90.0,<1.92.0",

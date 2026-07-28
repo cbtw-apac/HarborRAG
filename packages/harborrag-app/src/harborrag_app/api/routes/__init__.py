@@ -12,6 +12,7 @@ from harborrag_app.api.routes import (
     activity,
     diagnostics,
     health,
+    ingestions,
     metrics,
     projects,
     settings,
@@ -29,4 +30,5 @@ def all_routers() -> list[APIRouter]:
         activity.router,
         settings.router,
         metrics.router,
+        ingestions.router,
     ]

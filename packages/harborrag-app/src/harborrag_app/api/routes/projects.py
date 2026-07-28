@@ -10,11 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
-from harborrag_core.domain.project import Project
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
-from harborrag_app.services.base import BaseAppService
+from harborrag_app.workflow_control import BaseAppService
+from harborrag_core.domain.project import Project
 
 router = APIRouter(tags=["projects"], dependencies=[Depends(require_role("reader"))])
 

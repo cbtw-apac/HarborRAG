@@ -10,6 +10,7 @@ from urllib.parse import quote, urljoin
 from harborrag_core.domain.source import SourceRecord
 
 from .config import ConfluenceDeploymentType
+from .query import validate_content_id
 from .schemas import (
     AttachmentMetadata,
     ConfluenceCommentMetadata,
@@ -17,7 +18,6 @@ from .schemas import (
     ConfluenceMetadata,
     ConfluencePageReference,
 )
-from .utils import validate_content_id
 
 
 def parse_timestamp(value: str | None) -> datetime | None:

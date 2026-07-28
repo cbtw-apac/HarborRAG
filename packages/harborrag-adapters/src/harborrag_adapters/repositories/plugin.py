@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harborrag_core.schemas.storage import StorageFamily
 from pydantic import BaseModel, ConfigDict, Field
 
 from harborrag_adapters.repositories.telemetry import StorageTelemetryHook
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class RepositoryConfig(BaseModel):

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel
+
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.models.errors import HarborChatStructuredOutputError
-from pydantic import BaseModel
 
 from .configs import HarborChatProviderConfig
 from .structured_policy import schema_json

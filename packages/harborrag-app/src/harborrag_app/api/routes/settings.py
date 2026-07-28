@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
-from harborrag_app.services.base import BaseAppService
+from harborrag_app.workflow_control import BaseAppService
 
 router = APIRouter(tags=["settings"], dependencies=[Depends(require_role("reader"))])
 

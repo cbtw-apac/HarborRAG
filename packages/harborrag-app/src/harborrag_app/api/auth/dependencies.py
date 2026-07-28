@@ -7,17 +7,17 @@ from typing import Annotated
 
 from fastapi import Depends, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from harborrag_app.api.auth.base import BaseTokenVerifier
+from harborrag_app.api.auth.hmac import HmacTokenVerifier
+from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
+from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
     HarborConfigurationError,
 )
 from harborrag_core.domain.member import Role
-
-from harborrag_app.api.auth.base import BaseTokenVerifier
-from harborrag_app.api.auth.hmac import HmacTokenVerifier
-from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
-from harborrag_app.api.settings import ApiSettings
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -31,24 +31,29 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     """
     if settings.auth_mode == "none":
         if settings.env == "prod":
-            raise HarborConfigurationError(
-                "auth_mode=none is not allowed when HARBORRAG_ENV=prod"
-            )
+            raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
         return None
     if settings.auth_mode == "hmac":
         if not settings.auth_secret:
+            raise HarborConfigurationError("auth_mode=hmac requires HARBORRAG_AUTH_SECRET")
+        secret = settings.auth_secret.get_secret_value()
+        if len(secret.encode("utf-8")) < 32:
             raise HarborConfigurationError(
-                "auth_mode=hmac requires HARBORRAG_AUTH_SECRET"
+                "HARBORRAG_AUTH_SECRET must contain at least 32 UTF-8 bytes"
             )
-        return HmacTokenVerifier(secret=settings.auth_secret)
+        return HmacTokenVerifier(
+            secret=secret,
+            issuer=settings.auth_issuer,
+            audience=settings.auth_audience,
+            max_token_lifetime_seconds=settings.auth_max_token_lifetime_seconds,
+            clock_skew_seconds=settings.auth_clock_skew_seconds,
+        )
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
 
 
 def get_principal(
     request: Request,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Security(_bearer_scheme)
-    ] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
 ) -> Principal:
     """Resolve the caller's Principal from the bearer token.
 

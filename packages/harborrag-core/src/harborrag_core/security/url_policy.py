@@ -4,7 +4,13 @@ import ipaddress
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-from harborrag_core.errors import URLPolicyError
+from harborrag_core.contracts.errors import HarborError
+
+_LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+
+
+class URLPolicyError(HarborError):
+    """Raised when a URL violates the configured outbound-access policy."""
 
 
 def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -26,9 +32,6 @@ def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool
         or ip.is_multicast
         or ip.is_unspecified
     )
-
-
-_LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
 
 
 @dataclass(slots=True)

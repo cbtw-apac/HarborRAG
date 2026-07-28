@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from harborrag_adapters.models.common.connections import SharedConnectionLifecycle
-from harborrag_adapters.models.common.lifecycle import ResourceOwnership
-from harborrag_adapters.models.common.security import reveal_secret
-from harborrag_adapters.models.common.transport import reveal_headers
+from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.security import reveal_secret
+from harborrag_adapters.models.runtime.transport import reveal_headers
 
 from ..backend_config import ChatBackendType, LiteLLMProxyConfig, ProxyAuthMode
 from .base import BaseLiteLLMChatBackend

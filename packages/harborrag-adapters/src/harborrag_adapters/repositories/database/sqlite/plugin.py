@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.database.sqlite.repository import (
     SQLiteDatabaseBackend,
@@ -10,6 +8,7 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class SQLiteDatabasePlugin(RepositoryPlugin[SQLiteDatabaseConfig, SQLiteDatabaseBackend]):

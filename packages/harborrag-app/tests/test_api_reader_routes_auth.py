@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 
@@ -19,7 +20,15 @@ READ_ROUTES = ["/api/v1/projects", "/api/v1/sources", "/api/v1/activity", "/api/
 
 
 def _token(role: str) -> str:
-    claims = {"sub": "u1", "role": role, "exp": datetime.now(UTC) + timedelta(minutes=5)}
+    now = datetime.now(UTC)
+    claims = {
+        "sub": "u1",
+        "role": role,
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+        "iss": "harborrag",
+        "aud": "harborrag-api",
+    }
     return jwt.encode(claims, SECRET, algorithm="HS256")
 
 

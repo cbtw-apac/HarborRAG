@@ -61,6 +61,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+harborrag_control.db
+harborrag_control.db-journal
 
 # Flask stuff:
 instance/
@@ -159,6 +161,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# HarborRAG local runtime state and ingested object data
+/.harborrag/
+/.local/
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -219,7 +225,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-.claude/
+.claude/**
+.agents/
+
 examples/
 
 # OS / editor noise
@@ -234,3 +242,6 @@ clients/typescript/node_modules/
 
 # Internal architecture working notes (kept out of the repo per team decision)
 docs/developers/architecture/http_backend/
+
+# Docling image output (config/parsers.yaml pdf-docling.image_output_dir)
+/data/docling-images/

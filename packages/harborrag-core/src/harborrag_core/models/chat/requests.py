@@ -76,8 +76,8 @@ class HarborChatRequest(StrictModel):
 
     @field_validator("custom_headers", mode="before")
     @classmethod
-    def protect_request_auth_headers(cls, value: Any) -> Any:
-        """Wrap known auth-header values before validation."""
+    def protect_headers(cls, value: Any) -> Any:
+        """Wrap credential-bearing header values before validation."""
         return protect_model_headers(value)
 
     @field_validator("messages", mode="before")

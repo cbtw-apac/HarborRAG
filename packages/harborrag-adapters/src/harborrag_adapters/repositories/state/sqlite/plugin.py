@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
 from harborrag_adapters.repositories.state.sqlite.config import SQLiteStateConfig
 from harborrag_adapters.repositories.state.sqlite.repository import SQLiteStateBackend
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class SQLiteStatePlugin(RepositoryPlugin[SQLiteStateConfig, SQLiteStateBackend]):

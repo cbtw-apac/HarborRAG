@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.database.postgresql.config import (
     PostgreSQLDatabaseConfig,
 )
 from harborrag_adapters.repositories.database.postgresql.repository import (
     PostgreSQLDatabaseBackend,
 )
-from harborrag_adapters.repositories.plugin import RepositoryDependencies, RepositoryPlugin
+from harborrag_adapters.repositories.plugin import (
+    RepositoryDependencies,
+    RepositoryPlugin,
+)
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class PostgreSQLDatabasePlugin(

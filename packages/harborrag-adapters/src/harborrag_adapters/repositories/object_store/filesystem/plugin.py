@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.object_store.filesystem.config import (
     FilesystemObjectStoreConfig,
 )
-from harborrag_adapters.repositories.object_store.filesystem.repository import FilesystemObjectStore
+from harborrag_adapters.repositories.object_store.filesystem.repository import (
+    FilesystemObjectStore,
+)
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class FilesystemObjectStorePlugin(

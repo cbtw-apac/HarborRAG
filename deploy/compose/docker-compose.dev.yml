@@ -5,11 +5,19 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.api
-    env_file:
-      - ../../.env
     environment:
       HARBORRAG_ENV: dev
-      HARBORRAG_QDRANT_URL: http://qdrant:6333
-      HARBORRAG_REDIS_URL: redis://redis:6379/0
+      HARBORRAG_TEMPORAL_TARGET: temporal:7233
+      HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
+      HARBORRAG_TEMPORAL_IDENTITY: ${HARBORRAG_API_TEMPORAL_IDENTITY:-harborrag-api}
     ports:
-      - "8000:8000"
+      - "${HARBORRAG_API_BIND_ADDRESS:-127.0.0.1}:${HARBORRAG_API_PORT:-8000}:8000"
+    init: true
+    networks:
+      - harborrag-data-network
+
+networks:
+  harborrag-data-network:
+    name: harborrag-data-network
+    external: true

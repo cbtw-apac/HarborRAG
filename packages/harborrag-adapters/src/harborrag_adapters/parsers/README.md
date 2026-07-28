@@ -1,202 +1,122 @@
-# Parsers
+# Parser families
 
-## File Configuration
+Parsers are organized by document family. The root registry answers which
+family owns an input; a family parser owns its engines, routing policy,
+quality checks, fallback, and normalization.
 
-Applications can select parser profiles and explicit PDF backend chains in
-`config/parsers.yaml`, then load them through `harborrag_runtime.config`.
-Runtime configuration constructs the parser adapters; parser implementations
-remain independent from YAML parsing.
+```text
+parsers/
+├── registry.py              # MIME/extension -> parser family
+├── factory.py               # dependency construction
+├── common/                  # cross-family contracts and mechanics
+├── pdf/                     # PDF workflow and provider engines
+├── document/                # DOCX, ODT, and EPUB
+├── spreadsheet/             # Excel and delimited data
+├── presentation/            # PowerPoint
+├── markup/                  # HTML and Markdown
+├── structured/              # JSON, JSONL, and NDJSON
+├── text/                    # plain text and source/config files
+└── image/                   # image OCR
+```
 
-See [Parser Configuration](../../../../../docs/users/configuration/parser-config.md)
-for the schema and registry replacement API.
+The architectural boundary is:
 
-Parsers convert raw source payloads into `ParsedDocument` objects for later RAG
-stages. Shared parser schemas live in `harborrag-core`; this package owns the
-format-specific extraction engines.
+```text
+HarborParserRegistry
+    -> HarborPDFParser
+        -> PDFEngineRouter
+            -> DoclingPDFEngine
+            -> MinerUPDFEngine
+            -> PaddleOCRPDFEngine
+            -> PyMuPDFEngine
+```
 
-## Contract
+Provider engines are never MIME or extension routes in the root registry.
+They remain internal to their family and do not import one another.
 
-Parser input and output:
+## Public API
 
-- `ParseInput` contains the original payload plus routing metadata:
-  `path`, `content`, `filename`, `content_type`, and `metadata`.
-- `ParsedDocument` contains extracted `content`, optional structured
-  `elements`, parser provenance, warnings, metadata, and optional raw backend
-  data.
-
-Every concrete parser extends `BaseParser` and declares:
-
-- `parser_name`
-- `parser_engine`
-- `suffixes`
-- `content_types`
-- `parse(input)`
-
-## HarborParser
-
-`HarborParser` is the parser registry and factory.
+`HarborParser` is the global family contract. New integrations submit a
+`ParseRequest` and receive the same `ParseResult` shape for every family.
 
 ```python
-from harborrag_adapters.parsers import HarborParser, ParseInput
+from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
 
-parser = HarborParser()
-
-document = parser.parse(
-    ParseInput(
-        content=b"# Hello",
-        filename="README.md",
-        content_type="text/markdown",
-    )
+registry = HarborParserFactory().create_registry()
+parser = registry.resolve(
+    filename="technical-report.pdf",
+    mime_type="application/pdf",
 )
 
-print(document.parser_name)
-print(document.content)
+result = await parser.parse(
+    ParseRequest(
+        source_uri="file:///data/technical-report.pdf",
+        filename="technical-report.pdf",
+        mime_type="application/pdf",
+    )
+)
 ```
 
-Routing is deterministic:
+`ParseResult` contains normalized elements and text, the family and selected
+engine names, warnings, metadata, and an ordered provider-attempt history.
+Current ingestion callers can continue using the synchronous
+`registry.parse(ParseInput(...))` compatibility boundary while they migrate.
+Older concrete class names are available explicitly from
+`harborrag_adapters.parsers.compat`; they are not part of the root public API.
 
-- Suffix and MIME content type are indexed at registration time.
-- A direct suffix route or content-type route is used when only one matches.
-- A specific suffix wins when the transport MIME type is generic, such as
-  `text/plain` or `application/octet-stream`.
-- A content-type route is used when the input has no suffix.
-- Other conflicts where suffix and content type match different parsers fail
-  with `UnsupportedFormatError` instead of guessing.
-- Route overrides require `replace=True`.
+## Routing
 
-```python
-parser = HarborParser()
-markdown = parser.create("markdown")
+The registry indexes only complete family parsers.
 
-parser.unregister("markdown")
-parser.register(markdown, replace=True)
-```
+- MIME type wins when MIME and extension resolve to the same family.
+- A known extension wins over a generic transport type such as
+  `application/octet-stream`.
+- A conflict between two specific family routes fails instead of guessing.
+- `register_extension()` and `register_mime_type()` accept builders when an
+  application needs custom dependency construction.
+- `HarborParserFactory` registers the default families from `ParserConfig`.
 
-## Default Parsers
+Family engines use a second routing layer. Most current families select one
+engine by format. PDF uses a named, configuration-driven profile and may try
+several engines until its quality policy accepts a result.
 
-| Parser | Suffixes | Engine |
-| --- | --- | --- |
-| `PptxParser` | `.pptx`, `.pptm` | `python-pptx` |
-| `DocxParser` | `.docx` | `docx2txt` |
-| `ExcelParser` | `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` | `openpyxl`, `xlrd` |
-| `PdfParser` | `.pdf` | PyMuPDF, Docling, LiteParse, MinerU, PaddleOCR |
-| `CsvParser` | `.csv`, `.tsv` | Python `csv` |
-| `ImageParser` | `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.gif`, `.webp` | `pytesseract`, Pillow |
-| `HtmlParser` | `.html`, `.htm`, `.xhtml` | Beautiful Soup or stdlib HTML fallback |
-| `EpubParser` | `.epub` | Python `zipfile` and XML parsing |
-| `JsonParser` | `.json`, `.jsonl`, `.ndjson` | Python `json` |
-| `MarkdownParser` | `.md`, `.markdown`, `.mdx` | Python regex text extraction |
-| `TextParser` | Plain text and common source/config suffixes | Python text decoding |
+See [Parser Configuration](../../../../../docs/users/configuration/parser-config.md)
+for application YAML configuration.
 
-Install common parser dependencies:
+## Optional dependencies
+
+Install all common parser integrations:
 
 ```bash
-pip install -e "packages/harborrag-adapters[parsers]"
+pip install -e "packages/harborrag-adapters[parsers-all]"
 ```
 
-Install advanced PDF dependencies:
+Smaller extras are available for `document`, `spreadsheet`, `presentation`,
+`markup`, `image-tesseract`, `image-rapidocr`, `pdf-pymupdf`, `pdf-docling`,
+`pdf-liteparse`, `pdf-mineru`, and `pdf-ocr`. Provider imports remain lazy so
+a family can be constructed when an unused optional dependency is absent.
 
-```bash
-pip install -e "packages/harborrag-adapters[pdf]"
-```
+## Adding a family or engine
 
-## PDF Backends
+A new family implements `HarborParser` in `<family>/parser.py`, declares its
+supported MIME types and extensions, and defines its provider contract in
+`<family>/base.py`. The factory then registers that family.
 
-`PdfParser` tries backends in profile order and returns the first backend that
-produces enough content. Missing optional backend packages are reported as
-warnings while later backends are attempted.
+A new provider belongs under `<family>/engines/<provider>/`:
 
-Profiles:
+- `config.py` owns provider settings.
+- `engine.py` integrates only that provider.
+- `mapping.py` owns provider-schema conversion when needed.
+- the family router receives the engine through dependency injection.
 
-| Profile | Goal |
-| --- | --- |
-| `fast` | Prefer quick text extraction. |
-| `balanced` | Default. Try fast extraction, layout-aware engines, and OCR fallbacks. |
-| `ocr` | Prefer OCR-heavy processing for scanned documents. |
-| `quality` | Prefer richer layout, table, formula, and document-analysis engines. |
+Only move behavior into `common/` after at least two families use it. PDF page
+analysis, OCR policy, spreadsheet cells, presentation notes, and DOM cleanup
+remain family-specific.
 
-Example:
+## Logging and tests
 
-```python
-from harborrag_adapters.parsers import PdfParser, PdfParserProfile
+Parser logs use the `harborrag.adapters.parsers` namespace. Family parsers log
+engine selection and failures without logging extracted document text.
 
-pdf_parser = PdfParser(profile=PdfParserProfile.QUALITY)
-parsed = pdf_parser.parse("report.pdf")
-```
-
-Custom backend ordering:
-
-```python
-from harborrag_adapters.parsers import PdfParser, PyMuPdfBackend
-
-pdf_parser = PdfParser(backends=[PyMuPdfBackend()], min_content_chars=10)
-```
-
-## Writing A Parser
-
-Keep a parser self-contained:
-
-```python
-from typing import ClassVar
-
-from harborrag_adapters.parsers import BaseParser, ParseInput, ParsedDocument
-
-
-class MyParser(BaseParser[ParseInput, ParsedDocument]):
-    parser_name: ClassVar[str] = "my_format"
-    parser_engine: ClassVar[str] = "my-library"
-    suffixes: ClassVar[frozenset[str]] = frozenset({"mine"})
-    content_types: ClassVar[frozenset[str]] = frozenset({"application/x-mine"})
-
-    def parse(self, input: ParseInput) -> ParsedDocument:
-        parse_input = self.coerce_input(input)
-        content = parse_input.read_text()
-        return ParsedDocument(
-            content=content,
-            parser_name=self.parser_name,
-            parser_version=self.parser_version,
-            metadata=self.metadata_for(parse_input),
-        )
-```
-
-Guidelines:
-
-- Put helpers used only by one parser inside that parser class.
-- Put helpers shared across parser files in `parsers/utils.py`.
-- Keep optional dependency imports inside `parse()` or backend methods.
-- Raise `ParseError` for expected dependency or malformed-input failures.
-- Do not duplicate content fields. `ParsedDocument.content` is the canonical
-  extracted text.
-- Add elements only when they provide useful structure for chunking or metadata.
-
-## Logging
-
-Parser logging uses:
-
-```text
-harborrag.adapters.parsers
-```
-
-Use `get_parser_logger()` and `parser_log_extra()` so parser name, engine, route,
-filename, and content type stay consistent across format implementations.
-Prefer structured counters such as `input_bytes`, `content_chars`, `elements`,
-`pages`, `slides`, `sheets`, and `rows`; never log extracted document text.
-
-## Tests
-
-Parser tests live in:
-
-```text
-packages/harborrag-adapters/tests/unit/parsers/
-packages/harborrag-adapters/tests/failure/test_parsers_failure.py
-packages/harborrag-adapters/tests/security/
-packages/harborrag-adapters/tests/performance/
-packages/harborrag-adapters/tests/smoke/parsers/
-```
-
-Useful test levels:
-
-- Standalone smoke checks for real document extraction and optional PDF engines.
-- Whitebox tests for route indexes and conflict behavior.
-- Graybox tests for parser metadata and warnings.
-- Blackbox tests that parse representative inputs by suffix and content type.
+Tests live under `packages/harborrag-adapters/tests/parsers/`, including
+architecture, unit, failure, security, performance, and smoke coverage.

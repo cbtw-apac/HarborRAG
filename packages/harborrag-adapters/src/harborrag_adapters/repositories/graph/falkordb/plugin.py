@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
-from harborrag_adapters.repositories.graph.falkordb.repository import FalkorDBGraphRepository
+from harborrag_adapters.repositories.graph.falkordb.repository import (
+    FalkorDBGraphRepository,
+)
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class FalkorDBGraphPlugin(RepositoryPlugin[FalkorDBGraphConfig, FalkorDBGraphRepository]):

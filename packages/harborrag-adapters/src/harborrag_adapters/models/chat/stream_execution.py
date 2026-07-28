@@ -5,33 +5,32 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from typing import Any, cast
 
-from harborrag_core.models.chat import HarborChatRequest, HarborChatStreamChunk
-from harborrag_core.models.errors import HarborChatError, HarborModelError
-
-from harborrag_adapters.models.common.budget import ModelBudgetPolicy
-from harborrag_adapters.models.common.cache import CacheDecision
-from harborrag_adapters.models.common.config import RoutingEngine
-from harborrag_adapters.models.common.execution import (
+from harborrag_adapters.models.runtime.budget import ModelBudgetPolicy
+from harborrag_adapters.models.runtime.cache import CacheDecision
+from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.execution import (
     RoutingRuntime,
     normalize_execution_error,
     routing_unavailable_error,
 )
-from harborrag_adapters.models.common.litellm_router import router_model_name
-from harborrag_adapters.models.common.middleware import (
+from harborrag_adapters.models.runtime.litellm_router import router_model_name
+from harborrag_adapters.models.runtime.middleware import (
     MiddlewarePipeline,
     middleware_context,
 )
-from harborrag_adapters.models.common.routing_state import RoutingAdmissionError
-from harborrag_adapters.models.common.telemetry import (
+from harborrag_adapters.models.runtime.routing_state import RoutingAdmissionError
+from harborrag_adapters.models.runtime.telemetry import (
     TelemetryDispatcher,
     TelemetryDispatchError,
     litellm_telemetry_metadata,
 )
-from harborrag_adapters.models.common.telemetry_operation import ModelTelemetryOperation
+from harborrag_adapters.models.runtime.telemetry_operation import ModelTelemetryOperation
+from harborrag_core.models.chat import HarborChatRequest, HarborChatStreamChunk
+from harborrag_core.models.errors import HarborChatError, HarborModelError
 
+from .backend import ChatBackend
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .errors import normalize_exception
-from .invocation import ChatCompletionInvocation
 from .parameters import build_litellm_parameters, chat_request_id
 from .registry import ProviderRegistry
 from .streaming import ChatStreamNormalizer
@@ -44,7 +43,7 @@ class ChatStreamExecution:
     def __init__(
         self,
         config: HarborChatClientConfig,
-        invocation: ChatCompletionInvocation,
+        backend: ChatBackend,
         telemetry: TelemetryDispatcher,
         *,
         runtime: RoutingRuntime[HarborChatProviderConfig],
@@ -55,7 +54,7 @@ class ChatStreamExecution:
         """Reuse non-streaming health state and store stream-specific dependencies."""
 
         self.config = config
-        self.invocation = invocation
+        self.backend = backend
         self.telemetry = telemetry
         self.runtime = runtime
         self.registry = registry
@@ -97,7 +96,7 @@ class ChatStreamExecution:
                     token_cost=authorization.estimated_tokens,
                 ):
                     started = time.perf_counter()
-                    raw_stream = self.invocation.stream(
+                    raw_stream = self.backend.stream(
                         **self._parameters(attempt.logical_model, state.config, routed)
                     )
                     for raw in raw_stream:
@@ -148,7 +147,7 @@ class ChatStreamExecution:
                     time.sleep(delay)
             finally:
                 if raw_stream is not None:
-                    self.invocation.close_stream(raw_stream)
+                    self.backend.close_stream(raw_stream)
         unavailable = routing_unavailable_error(logical, cursor, last_error)
         self.middleware.error(unavailable, context)
         operation.error(unavailable, streaming=True)
@@ -189,7 +188,7 @@ class ChatStreamExecution:
                     token_cost=authorization.estimated_tokens,
                 ):
                     started = time.perf_counter()
-                    raw_stream = await self.invocation.astream(
+                    raw_stream = await self.backend.astream(
                         **self._parameters(attempt.logical_model, state.config, routed)
                     )
                     async for raw in raw_stream:
@@ -238,7 +237,7 @@ class ChatStreamExecution:
                 await self.runtime.retry.sleep(cursor.retry_count)
             finally:
                 if raw_stream is not None:
-                    await asyncio.shield(self.invocation.aclose_stream(raw_stream))
+                    await asyncio.shield(self.backend.aclose_stream(raw_stream))
         unavailable = routing_unavailable_error(logical, cursor, last_error)
         await self.middleware.aerror(unavailable, context)
         await operation.aerror(unavailable, streaming=True)
@@ -260,7 +259,7 @@ class ChatStreamExecution:
         parameters = build_litellm_parameters(
             deployment,
             request,
-            timeout=self.config.stream_timeout_seconds or self.config.timeouts.request_seconds,
+            timeout=self.config.timeouts.stream_seconds or self.config.timeouts.request_seconds,
             stream=True,
             model_override=override,
             litellm_provider=descriptor.litellm_provider,

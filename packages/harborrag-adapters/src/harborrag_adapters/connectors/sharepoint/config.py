@@ -6,13 +6,13 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from harborrag_adapters.connectors.utils.helpers import (
+from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
     validate_https_url,
     validate_non_negative_limit,
 )
 
-from .utils import parse_sharepoint_site_url
+from .drive_paths import parse_sharepoint_site_url
 
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024

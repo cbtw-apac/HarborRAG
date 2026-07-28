@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.services.mock import MockAppService
+from harborrag_app.workflow_control import mock_app_service
 from harborrag_core.domain.source_config import SourceConfig
 
 
@@ -30,7 +31,7 @@ def test_list_sources_filters_by_project_and_hides_secrets() -> None:
     """
     app = create_fastapi_app(ApiSettings())
     with TestClient(app) as client:
-        app.state.app_service = MockAppService(
+        app.state.app_service = mock_app_service(
             sources=[
                 SourceConfig(
                     id="src-1",

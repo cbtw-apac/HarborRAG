@@ -1,4 +1,4 @@
-"""Token verifier base class (ST4): base/mock pair per repo convention."""
+"""Token verifier contract for API authentication implementations."""
 
 from __future__ import annotations
 

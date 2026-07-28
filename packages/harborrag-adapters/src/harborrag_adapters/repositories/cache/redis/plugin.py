@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
 from harborrag_adapters.repositories.cache.redis.repository import RedisCacheBackend
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class RedisCachePlugin(RepositoryPlugin[RedisCacheConfig, RedisCacheBackend]):

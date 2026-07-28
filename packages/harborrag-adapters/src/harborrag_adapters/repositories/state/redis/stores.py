@@ -3,16 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from harborrag_core.schemas.ids import WorkflowId
-from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
-from harborrag_core.schemas.storage import StorageOperationContext
-
 from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageCheckpointConflictError,
     HarborStorageLeaseError,
 )
-from harborrag_adapters.repositories.shared import ensure_tenant
+from harborrag_adapters.repositories.policies import ensure_tenant
 from harborrag_adapters.repositories.state.base import (
     HarborCheckpointStore,
     HarborLeaseStore,
@@ -24,6 +20,9 @@ from harborrag_adapters.repositories.state.redis.scripts import (
     RENEW_LEASE,
 )
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
+from harborrag_core.schemas.ids import WorkflowId
+from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
+from harborrag_core.schemas.storage import StorageOperationContext
 
 WatchError: Any
 try:
@@ -114,13 +113,16 @@ class RedisStateStore(RedisStoreBase, HarborStateStore):
                 if existing is None or existing.version != expected_version:
                     raise self._conflict(context, state.workflow_id, expected_version, existing)
                 saved = state.model_copy(
-                    update={"version": expected_version + 1, "updated_at": datetime.now(UTC)}
+                    update={
+                        "version": expected_version + 1,
+                        "updated_at": datetime.now(UTC),
+                    }
                 )
                 pipe.multi()
                 pipe.set(
                     key,
                     saved.model_dump_json(),
-                    exat=int(saved.expires_at.timestamp()) if saved.expires_at else None,
+                    exat=(int(saved.expires_at.timestamp()) if saved.expires_at else None),
                 )
                 await pipe.execute()
                 return saved

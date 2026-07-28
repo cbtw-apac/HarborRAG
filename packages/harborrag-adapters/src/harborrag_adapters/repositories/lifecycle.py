@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Self
 
 from harborrag_core.schemas.storage import RepositoryHealth
+
+logger = logging.getLogger(__name__)
 
 
 class AsyncLifecycle(ABC):
@@ -27,7 +30,10 @@ class AsyncLifecycle(ABC):
             try:
                 await self.close()
             except BaseException:
-                pass
+                logger.warning(
+                    "Failed to close a partially initialized repository resource",
+                    exc_info=True,
+                )
             raise
         return self
 

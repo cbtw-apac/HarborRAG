@@ -2,31 +2,45 @@
 
 ## Use in Python today
 
-Instantiate the mock server when tests need direct control:
+Instantiate the in-process server when an application or test needs direct
+control:
 
 ```python
-from harborrag_mcp.server import MockMcpServer
+from harborrag_mcp_server.server import McpServer
 
-server = MockMcpServer()
+server = McpServer()
 for spec in server.list_tools():
     print(spec.name, spec.input_schema)
 
-result = server.call_tool("harbor_sample_retrieve", {"query": "HarborRAG"})
+result = server.call_tool("harborrag_health_check")
 ```
 
-Or use the package-level convenience functions shown in [MCP Mock Tools](README.md).
+Or use the package-level convenience functions shown in [MCP Tools](README.md).
 
 ## External clients
 
-There is no command to add to an IDE or desktop MCP configuration yet. `BaseMcpServer` defines only Python `list_tools()` and `call_tool()` methods, and `MockMcpServer` dispatches them in process.
+The package now provides a standard FastMCP stdio server. Configure a client to
+run:
 
-An external integration still needs:
+```bash
+python -c "from harborrag_mcp_server import create_mcp_server; create_mcp_server(allow_unauthenticated_local=True).run()"
+```
 
-1. a protocol transport translating MCP `tools/list` and `tools/call` messages;
-2. real service-backed tools instead of the fixed mock retrieval result;
-3. JSON-schema input validation and normalized protocol errors;
-4. identity, tenant, permission, and budget enforcement;
-5. automatic audit recording and safe observability;
-6. lifecycle and shutdown handling.
+Only `harborrag_health_check` is currently exposed. It returns bounded service
+health and no document content. Calls pass pre-execution capability and
+declared JSON-schema validation and argument budgets, post-execution
+result/output budgets, and an owner-only JSONL audit log at
+`.harborrag/mcp-audit.jsonl` (override with `HARBORRAG_MCP_AUDIT_PATH`). Audit
+records contain a principal identifier, arguments digest, and outcome, never
+the bearer token or raw arguments.
 
-Keep the transport in `harborrag-mcp` and call runtime/service interfaces rather than provider clients. See [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces).
+The command above explicitly permits unauthenticated local stdio and opens no
+listener. All other construction fails closed without a FastMCP authentication
+provider. A deployment choosing HTTP or streamable HTTP must call
+`create_mcp_server(auth=...)` and enforce tenant/capability authorization in
+each service-backed tool. Retrieval outputs must mark source text as untrusted
+data and tool descriptions must contain only developer-authored instructions.
+
+Keep service tools in `harborrag-mcp-server` and call runtime/service interfaces
+rather than provider clients. See
+[Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces).

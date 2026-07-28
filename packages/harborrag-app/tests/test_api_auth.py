@@ -6,9 +6,10 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from app_test_fixtures import MockTokenVerifier
 from fastapi.testclient import TestClient
+
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.mock import MockTokenVerifier
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
@@ -19,7 +20,15 @@ DIAG = "/api/v1/diagnostics"
 def _token(role: str, *, expired: bool = False, secret: str = SECRET) -> str:
     """Mint an HS256 JWT with sub/role/exp claims for tests."""
     delta = timedelta(minutes=-5 if expired else 5)
-    claims = {"sub": "u1", "role": role, "exp": datetime.now(UTC) + delta}
+    now = datetime.now(UTC)
+    claims = {
+        "sub": "u1",
+        "role": role,
+        "iat": now - timedelta(seconds=1),
+        "exp": now + delta,
+        "iss": "harborrag",
+        "aud": "harborrag-api",
+    }
     return jwt.encode(claims, secret, algorithm="HS256")
 
 
@@ -46,7 +55,9 @@ def test_none_mode_grants_implicit_owner() -> None:
         ({"Authorization": "Bearer garbage"}, 401),  # unparseable
         ({"Authorization": f"Bearer {_token('admin', expired=True)}"}, 401),
         (
-            {"Authorization": f"Bearer {_token('admin', secret='wrong-secret-also-32-bytes-long!!')}"},
+            {
+                "Authorization": f"Bearer {_token('admin', secret='wrong-secret-also-32-bytes-long!!')}"
+            },
             401,
         ),
         ({"Authorization": f"Bearer {_token('reader')}"}, 403),  # authned, low role
@@ -65,9 +76,7 @@ def test_none_mode_grants_implicit_owner() -> None:
         "owner",
     ],
 )
-def test_hmac_mode_enforces_auth_and_roles(
-    headers: dict[str, str], expected_status: int
-) -> None:
+def test_hmac_mode_enforces_auth_and_roles(headers: dict[str, str], expected_status: int) -> None:
     """hmac mode: 401 for bad/missing tokens, 403 below admin, 200 at admin+;
     failures always use the harbor_auth_error envelope."""
     with _hmac_client() as client:
@@ -81,9 +90,7 @@ def test_hmac_mode_enforces_auth_and_roles(
 def test_diagnostics_never_echoes_the_auth_secret() -> None:
     """The settings echo redacts auth_secret (plan §8.2: no secret values out)."""
     with _hmac_client() as client:
-        response = client.get(
-            DIAG, headers={"Authorization": f"Bearer {_token('admin')}"}
-        )
+        response = client.get(DIAG, headers={"Authorization": f"Bearer {_token('admin')}"})
         assert response.status_code == 200
         assert SECRET not in response.text
         assert response.json()["settings"]["auth_secret"] == "<redacted>"
@@ -101,7 +108,14 @@ def test_non_string_role_claim_is_401_not_500() -> None:
     """A JWT whose role claim is not a string (e.g. a list) must be rejected
     as 401 harbor_auth_error, never crash the lookup into a 500."""
     bad = jwt.encode(
-        {"sub": "u1", "role": [], "exp": datetime.now(UTC) + timedelta(minutes=5)},
+        {
+            "sub": "u1",
+            "role": [],
+            "iat": datetime.now(UTC),
+            "exp": datetime.now(UTC) + timedelta(minutes=5),
+            "iss": "harborrag",
+            "aud": "harborrag-api",
+        },
         SECRET,
         algorithm="HS256",
     )

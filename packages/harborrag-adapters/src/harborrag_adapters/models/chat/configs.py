@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Self
 
-from harborrag_core.models.capabilities import HarborChatCapabilities
-from harborrag_core.models.chat import StructuredOutputDegradation
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from harborrag_adapters.models.common.config import (
+from harborrag_adapters.models.runtime.config import (
     ModelClientConfig,
     SecurityBaseConfig,
 )
-from harborrag_adapters.models.common.model_config import (
+from harborrag_adapters.models.runtime.model_config import (
     LogicalModelConfig,
     normalize_single_deployment_shorthand,
     resolve_logical_model,
@@ -18,7 +16,9 @@ from harborrag_adapters.models.common.model_config import (
     validate_logical_model_references,
     validate_unique_deployments,
 )
-from harborrag_adapters.models.common.provider import ProviderDeploymentConfig
+from harborrag_adapters.models.runtime.provider import ProviderDeploymentConfig
+from harborrag_core.models.capabilities import HarborChatCapabilities
+from harborrag_core.models.chat import StructuredOutputDegradation
 
 from .backend_config import ChatBackendConfig
 from .registry import HarborProvider

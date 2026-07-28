@@ -8,16 +8,15 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_core.domain.source import SourceRecord
-
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.domain.source import SourceRecord
 
 from .client import GitHubClient
 from .config import GitHubRepositoryConfig
 from .filters import should_process_file
 from .mappers import build_source_record, tree_sha_from_commit
-from .utils import (
+from .repository_paths import (
     GITHUB_BLOB_LIMIT_BYTES,
     blob_endpoint,
     commit_endpoint,

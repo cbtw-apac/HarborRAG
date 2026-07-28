@@ -31,7 +31,9 @@ Use fakes in tests; do not ship a provider `mock.py` as a substitute for product
 
 ## Parsers
 
-Implement `BaseParser[Input, Output]` under `parsers/`, or a `PdfBackend` under `parsers/pdf_engine/`.
+Add a complete `HarborParser` family under `parsers/<family>/`. Add an
+individual provider below that family's `engines/<provider>/` directory and
+implement the family-specific engine contract, such as `HarborPDFEngine`.
 
 Parsers should:
 
@@ -43,11 +45,15 @@ Parsers should:
 - keep raw output bounded and disabled by default;
 - declare optional dependencies and test without requiring heavyweight models.
 
-Register ordinary parsers in `HarborParser.default_parsers()` when they should be part of the default route. Add PDF backend metadata to the runtime parser provider table when it should be YAML-configurable.
+Register complete families through `HarborParserFactory`; provider engines do
+not belong in the root MIME/extension registry. Add provider metadata to the
+runtime parser provider table when it should be YAML-configurable.
 
 ## Model providers and behavior
 
-Model code lives under `models/chat`, `models/embed`, `models/rerank`, and shared `models/common` helpers. Core request/response/error types live in `harborrag_core.models`.
+Model code lives under `models/chat`, `models/embed`, `models/rerank`, and
+provider runtime capabilities under `models/runtime`. Core request, response,
+and error shapes live in the corresponding `harborrag_core` schema modules.
 
 When adding provider support:
 
@@ -91,7 +97,7 @@ Use `repositories/`, not a new `stores/` family. Do not return raw provider resp
 Put provider-independent RAG orchestration in `harborrag-engine`:
 
 - normalizers and chunkers under `ingestion/`;
-- vector/index writing under `indexing/`;
+- vector/index writing under `ingestion/indexing/`;
 - query rewrite, retrieval, fusion, reranking, and evidence under `retrieval/`;
 - document-to-graph mapping under `graph/`.
 
@@ -99,11 +105,15 @@ Inject connector/parser/model/repository contracts. Production stages should pre
 
 ## Runtime services
 
-Put configuration loading, provider composition, jobs, scheduling, supervision, checkpoint coordination, and optional durable workflows in `harborrag-runtime`.
+Put configuration loading, provider composition, checkpoint coordination, and
+durable workflow implementation in `harborrag-runtime`. Reuse the core job,
+repository, lifecycle, and observation ports instead of adding runtime-owned
+copies.
 
 The existing connector/parser catalogs demonstrate strict versioning and environment references. A unified composition must retain explicit construction and avoid importing optional providers until selected.
 
-Temporal integration belongs behind runtime-owned optional dependencies. It must not become a core, adapter, or engine dependency.
+Temporal SDK integration belongs in `harborrag-runtime.temporal`. It must not
+become a core, adapter, or engine dependency.
 
 ## Application and MCP surfaces
 

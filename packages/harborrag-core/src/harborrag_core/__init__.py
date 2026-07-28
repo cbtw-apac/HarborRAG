@@ -1,3 +1,4 @@
+from harborrag_core.contracts.errors import HarborError
 from harborrag_core.domain import (
     Document,
     DocumentElement,
@@ -8,9 +9,8 @@ from harborrag_core.domain import (
     RetrievalResult,
     SourceRecord,
 )
-from harborrag_core.errors import HarborError, URLPolicyError
 from harborrag_core.security.redaction import redact_mapping, redact_secrets
-from harborrag_core.security.url_policy import URLPolicy
+from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
 __all__ = [
     "Document",

@@ -1,4 +1,4 @@
 from .redaction import redact_mapping, redact_secrets
-from .url_policy import URLPolicy
+from .url_policy import URLPolicy, URLPolicyError
 
-__all__ = ["URLPolicy", "redact_mapping", "redact_secrets"]
+__all__ = ["URLPolicy", "redact_mapping", "URLPolicyError", "redact_secrets"]

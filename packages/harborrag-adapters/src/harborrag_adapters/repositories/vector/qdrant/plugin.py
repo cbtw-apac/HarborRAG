@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
-from harborrag_adapters.repositories.vector.qdrant.repository import QdrantVectorRepository
+from harborrag_adapters.repositories.vector.qdrant.repository import (
+    QdrantVectorRepository,
+)
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class QdrantVectorPlugin(RepositoryPlugin[QdrantVectorConfig, QdrantVectorRepository]):

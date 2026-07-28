@@ -3,18 +3,20 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-from harborrag_core.schemas.storage import StorageFamily
 from pydantic import BaseModel
 
 from harborrag_adapters.repositories.database.base import HarborDatabaseBackend
-from harborrag_adapters.repositories.database.postgresql.plugin import PostgreSQLDatabasePlugin
+from harborrag_adapters.repositories.database.postgresql.plugin import (
+    PostgreSQLDatabasePlugin,
+)
 from harborrag_adapters.repositories.database.sqlite.plugin import SQLiteDatabasePlugin
 from harborrag_adapters.repositories.plugin import (
     RepositoryConfig,
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_adapters.repositories.shared.provider_map import ProviderMap
+from harborrag_adapters.repositories.registry import ProviderMap
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class HarborDatabaseClient:

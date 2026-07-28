@@ -2,19 +2,20 @@
 
 HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow downward; SDK integrations and operator surfaces stay at the edges.
 
+Accepted choices and their consequences are recorded in the
+[architecture decision records](../../adr/README.md).
+
 ## Active package map
 
 | Package | Responsibility | Current maturity |
 | --- | --- | --- |
 | `harborrag-core` | Domain objects, validated model/storage schemas, common errors, security | Implemented contracts |
 | `harborrag-adapters` | Connectors, parsers, model clients, repositories | Broadest implemented layer |
-| `harborrag-engine` | Ingestion, retrieval, indexing, graph orchestration | Contracts, mock/static paths, focused utilities |
-| `harborrag-runtime` | Config catalogs, composition, jobs, scheduling, supervision | Catalog loaders and local scaffolding |
-| `harborrag-app` | Application service, CLI, HTTP boundary | Two mock-backed CLI commands; API placeholders |
-| `harborrag-mcp` | Tool/server interfaces, policy, audit | In-process mock facade |
+| `harborrag-engine` | Ingestion, retrieval, indexing, graph orchestration | Implemented engine stages and policies |
+| `harborrag-runtime` | Config catalogs, production composition, Temporal orchestration | Durable workflows and application integration boundary |
+| `harborrag-app` | Application service, CLI, HTTP boundary | Temporal-backed CLI plus health and diagnostics API |
+| `harborrag-mcp-server` | Tool/server interfaces, policy, audit | Audited in-process health transport |
 | `harborrag` | Public re-exports | `Document` and `CompositionRoot` |
-
-`packages/harborrag-memory` reserves a future package boundary but has no public API or tests and is not an active uv workspace member.
 
 ## Dependency direction
 
@@ -26,17 +27,21 @@ harborrag_adapters  -> core
 harborrag_engine    -> core, adapters
 harborrag_runtime   -> core, adapters, engine
 harborrag_app       -> core, engine, runtime
-harborrag_mcp       -> core, engine, runtime
+harborrag_mcp_server -> core, engine, runtime
 harborrag           -> any active package
 ```
 
 Run:
 
 ```bash
+uv run make import-boundaries
 uv run make deps-check
 ```
 
-The checker scans source imports, not runtime call graphs. Review still needs to catch indirect boundary leaks, provider objects in public schemas, and service layers bypassed through callbacks.
+Import-linter is the required CI boundary gate. The AST dependency checker provides
+additional coverage for dynamic imports and package-local tests. Neither scans
+runtime call graphs, so review still needs to catch indirect boundary leaks, provider
+objects in public schemas, and service layers bypassed through callbacks.
 
 ## Document flow
 
@@ -64,16 +69,23 @@ storage schemas and RetrievalResult
 - `ParsedDocument` holds canonical extracted content, optional structured elements, warnings, metadata, and bounded raw data.
 - `Document` is the normalized domain object with provenance and structural relations.
 
-The local mock script does not implement every arrow: it loads and parses one document, creates a demonstration chunk dictionary, and retrieves from a deterministic list without persistence.
-
 ## Core contracts
 
-`harborrag-core` has four major groups:
+`harborrag-core` has these groups:
 
-- `domain/` — document, source, parser, retrieval, provenance, element, chunk, data-source, and tenant values.
-- `models/` — chat, embedding, reranking, capability, usage, request metadata, protocol, and safe error contracts.
+- `domain/` — document, source, parser, retrieval, provenance, element, job, member, project, provider,
+  and source-config values. `domain/__init__.py` also re-exports `ChunkContext`/`ChunkRecord`/`ChunkSourceSpan`
+  from `schemas/documents.py` by design — those chunk/index shapes are conceptually part of the document
+  flow below even though they're implemented as Pydantic schemas, not dataclasses.
+- `models/` — chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
+  Client-boundary protocols now live in `ports/` (ADR-0009), not here.
 - `schemas/` — typed IDs plus document, vector, graph, cache, state, object-store, telemetry, and storage-operation schemas.
-- `security/` — secret redaction and URL policy.
+- `security/` — secret redaction, URL policy, and `URLPolicyError`.
+- `contracts/` — the shared `HarborError` hierarchy, `HarborEvent`, and chunking-strategy protocols
+  (`TextRefiner`, `StructureSplitter`, `JsonStructureSplitter`, `TokenCounter`).
+- `ports/` — every boundary-facing `Protocol` in core: repository/infra ports (control plane, event bus,
+  job queue, secrets, runtime lifecycle, vector/graph indexing) and, since ADR-0009, model-client protocols
+  (`HarborChatClientProtocol` and its embed/rerank/async counterparts).
 
 Most storage schemas derive from strict Pydantic bases; several older/simple domain values are dataclasses. Add a shared concept to core only when more than one higher package needs a provider-neutral form.
 
@@ -114,22 +126,31 @@ Family clients construct backends by provider name. Plugin/config modules isolat
 
 ## Engine and runtime
 
-`harborrag-engine` defines ingestion normalizer/chunker/pipeline interfaces, retrieval/evidence interfaces, indexing interfaces, graph mapping, reciprocal-rank fusion, rewriting, and reranking boundaries. The production, configured pipeline is not assembled yet.
+`harborrag-engine` defines normalization, chunking, indexing, retrieval/evidence,
+graph mapping, reciprocal-rank fusion, rewriting, and reranking boundaries. The
+runtime composes its ingestion services without moving provider logic into the
+engine.
 
 `harborrag-runtime` owns:
 
 - versioned connector and parser catalog loaders;
-- `CompositionRoot.local()` and deterministic local diagnostics;
-- in-memory/mock job, schedule, supervisor, and service contracts;
-- placeholder Temporal modules that keep durable workflow SDK concerns out of lower packages.
+- production control-plane composition and health diagnostics;
+- versioned Temporal contracts, workflows, activities, clients, and worker lifecycle;
+- the runtime dependency graph that connects adapters and engine services.
 
-Complete composition should be added here or in application bootstrap code, not in provider adapters.
+Framework-independent lifecycle/observer interfaces and job/repository ports live
+in `harborrag-core`. Provider-specific assembly belongs here or in application
+bootstrap code, not in provider adapters.
 
 ## App and MCP boundaries
 
-The app CLI calls `BaseAppService` rather than adapters. Today `doctor` and `sample-ingest` use `MockAppService`; HTTP route files and the FastAPI factory remain placeholders.
+The app CLI calls `BaseAppService` rather than adapters. Production ingestion
+commands delegate to `TemporalRuntimeClient`. HTTP ingestion routes remain
+future work.
 
-The MCP facade follows the same rule. `MockMcpServer` provides in-process dispatch for a health tool and deterministic retrieval tool. Policy and audit primitives exist but are not automatically enforced. No protocol transport is implemented.
+The MCP facade follows the same rule. `McpServer` provides audited,
+policy-checked in-process dispatch for the health tool. No external protocol
+transport is implemented yet.
 
 ## Configuration boundaries
 

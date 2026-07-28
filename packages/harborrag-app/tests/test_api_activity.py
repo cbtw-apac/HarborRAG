@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.services.mock import MockAppService
+from harborrag_app.workflow_control import mock_app_service
 from harborrag_core.domain.activity import ActivityEntry
 
 
@@ -24,7 +25,7 @@ def test_list_activity_returns_seeded_entries_newest_first() -> None:
     """Seeded entries come back newest first, respecting the limit param."""
     app = create_fastapi_app(ApiSettings())
     with TestClient(app) as client:
-        app.state.app_service = MockAppService(
+        app.state.app_service = mock_app_service(
             activity=[
                 ActivityEntry(
                     id="a1",

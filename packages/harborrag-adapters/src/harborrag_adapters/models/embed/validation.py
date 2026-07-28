@@ -3,6 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
+from harborrag_adapters.models.runtime.config import RoutingEngine, RoutingStrategy
+from harborrag_adapters.models.runtime.provider_validation import (
+    validate_extension_parameters,
+    validate_provider_deployment,
+    validate_request_headers,
+)
+from harborrag_adapters.models.runtime.security import HeaderValue
 from harborrag_core.models.embed import (
     EmbeddingEncodingFormat,
     EmbeddingPurpose,
@@ -13,14 +20,6 @@ from harborrag_core.models.errors import (
     HarborEmbedConfigurationError,
     HarborEmbedInvalidRequestError,
 )
-
-from harborrag_adapters.models.common.config import RoutingEngine, RoutingStrategy
-from harborrag_adapters.models.common.provider_validation import (
-    validate_extension_parameters,
-    validate_provider_deployment,
-    validate_request_headers,
-)
-from harborrag_adapters.models.common.security import HeaderValue
 
 from .configs import (
     HarborEmbedClientConfig,

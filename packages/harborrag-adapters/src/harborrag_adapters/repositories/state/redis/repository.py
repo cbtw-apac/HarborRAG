@@ -2,16 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
-)
-
+from harborrag_adapters.repositories.backends.redis import RedisDBClient
 from harborrag_adapters.repositories.errors import StorageErrorContext
-from harborrag_adapters.repositories.shared.keys import escape_key_part
-from harborrag_adapters.repositories.shared.redis import RedisDBClient
+from harborrag_adapters.repositories.policies.key_encoding import escape_key_part
 from harborrag_adapters.repositories.state.base import HarborStateBackend
 from harborrag_adapters.repositories.state.redis.config import RedisStateConfig
 from harborrag_adapters.repositories.state.redis.stores import (
@@ -19,7 +12,16 @@ from harborrag_adapters.repositories.state.redis.stores import (
     RedisLeaseStore,
     RedisStateStore,
 )
-from harborrag_adapters.repositories.telemetry import RepositoryTelemetry, StorageTelemetryHook
+from harborrag_adapters.repositories.telemetry import (
+    RepositoryTelemetry,
+    StorageTelemetryHook,
+)
+from harborrag_core.schemas.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
+)
 
 
 class RedisStateBackend(HarborStateBackend):

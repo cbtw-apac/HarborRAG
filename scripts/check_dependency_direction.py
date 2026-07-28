@@ -7,7 +7,7 @@ Allowed direction (lower layers never import higher ones):
     harborrag_engine    -> core, adapters
     harborrag_runtime   -> core, adapters, engine
     harborrag_app       -> core, engine, runtime
-    harborrag_mcp       -> core, engine, runtime
+    harborrag_mcp_server -> core, engine, runtime
     harborrag           -> any harborrag package (public facade)
 
 Each package's own ``tests/`` directory is checked against the same rule as
@@ -18,6 +18,14 @@ production code isn't allowed to depend on either). Both plain
 string argument are detected via the AST rather than a line-anchored regex,
 so multi-import statements (``import harborrag_core, harborrag_runtime``),
 multi-line imports, and dynamic imports are all caught.
+
+``smoke`` trees anywhere under ``tests/`` are exempt from this rule, whether
+they sit at ``tests/smoke/`` or under a domain directory such as
+``tests/connectors/smoke/``. Unlike ordinary pytest suites, those scripts are
+manual, opt-in integration checks that deliberately wire up the real
+application stack (real declarative config via `harborrag_runtime`, real
+credentials) exactly like `harborrag_app` would -- see each suite's
+`README.md`.
 
 Usage:
     python scripts/check_dependency_direction.py
@@ -39,14 +47,14 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     "harborrag_engine": {"harborrag_core", "harborrag_adapters"},
     "harborrag_runtime": {"harborrag_core", "harborrag_adapters", "harborrag_engine"},
     "harborrag_app": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
-    "harborrag_mcp": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
+    "harborrag_mcp_server": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
     "harborrag": {
         "harborrag_core",
         "harborrag_adapters",
         "harborrag_engine",
         "harborrag_runtime",
         "harborrag_app",
-        "harborrag_mcp",
+        "harborrag_mcp_server",
     },
 }
 
@@ -56,9 +64,16 @@ MODULE_TO_PACKAGE_DIR = {
     "harborrag_engine": "harborrag-engine",
     "harborrag_runtime": "harborrag-runtime",
     "harborrag_app": "harborrag-app",
-    "harborrag_mcp": "harborrag-mcp",
+    "harborrag_mcp_server": "harborrag-mcp-server",
     "harborrag": "harborrag",
 }
+
+# Manual, opt-in integration scripts (see the README.md beside each smoke
+# suite) intentionally wire up the full application stack and are exempt from
+# the layering rule that applies to ordinary pytest suites. Suites are grouped
+# by domain, so the exempt directory is nested at any depth under tests/.
+EXEMPT_TEST_SUBDIRS = frozenset({"smoke"})
+
 
 def _importlib_bindings(tree: ast.AST) -> tuple[set[str], set[str]]:
     """Track names bound to the ``importlib`` module and to ``import_module``.
@@ -111,7 +126,9 @@ def _assigned_names(target: ast.AST) -> Iterator[str]:
             yield from _assigned_names(element)
 
 
-def _function_local_shadow_names(scope: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> set[str]:
+def _function_local_shadow_names(
+    scope: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+) -> set[str]:
     """Names a parameter, assignment, for/with/except target, or walrus
     operator binds directly within this function/lambda's own scope.
 
@@ -206,9 +223,11 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
         callee_name = (
             callee.id
             if isinstance(callee, ast.Name)
-            else callee.value.id
-            if isinstance(callee, ast.Attribute) and isinstance(callee.value, ast.Name)
-            else None
+            else (
+                callee.value.id
+                if isinstance(callee, ast.Attribute) and isinstance(callee.value, ast.Name)
+                else None
+            )
         )
         if callee_name is not None and any(callee_name in scope for scope in enclosing_scopes):
             # Shadowed by a parameter/reassignment in an enclosing function:
@@ -231,11 +250,21 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
             yield module_name.split(".")[0], call.lineno
 
 
-def _scan_directory(directory: Path, *, module: str, allowed: set[str]) -> list[str]:
+def _scan_directory(
+    directory: Path,
+    *,
+    module: str,
+    allowed: set[str],
+    exempt_subdirs: frozenset[str] = frozenset(),
+) -> list[str]:
     violations: list[str] = []
     if not directory.is_dir():
         return violations
     for path in sorted(directory.rglob("*.py")):
+        # Match directory components only, never the file name itself, so a
+        # module called smoke.py stays subject to the rule.
+        if exempt_subdirs and exempt_subdirs.intersection(path.relative_to(directory).parts[:-1]):
+            continue
         try:
             with tokenize.open(path) as handle:
                 text = handle.read()
@@ -261,7 +290,14 @@ def find_violations() -> list[str]:
             continue
         allowed = ALLOWED_IMPORTS[module] | {module}
         violations.extend(_scan_directory(src_dir, module=module, allowed=allowed))
-        violations.extend(_scan_directory(package_root / "tests", module=module, allowed=allowed))
+        violations.extend(
+            _scan_directory(
+                package_root / "tests",
+                module=module,
+                allowed=allowed,
+                exempt_subdirs=EXEMPT_TEST_SUBDIRS,
+            )
+        )
     return violations
 
 

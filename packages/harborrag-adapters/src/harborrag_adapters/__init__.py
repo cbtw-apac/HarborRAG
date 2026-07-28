@@ -1,6 +1,3 @@
-"""HarborRAG adapter registries and builders."""
+"""Provider implementations grouped by adapter capability."""
 
-from harborrag_adapters.builder import AdapterBuilder
-from harborrag_adapters.registry import AdapterRegistry
-
-__all__ = ["AdapterBuilder", "AdapterRegistry"]
+__all__: list[str] = []

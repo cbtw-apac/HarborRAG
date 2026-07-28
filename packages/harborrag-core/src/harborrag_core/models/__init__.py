@@ -86,14 +86,6 @@ from .errors import (
 )
 from .headers import ModelHeaderValue
 from .metadata import ModelRequestMetadata
-from .protocols import (
-    AsyncHarborChatClientProtocol,
-    AsyncHarborEmbedClientProtocol,
-    AsyncHarborRerankClientProtocol,
-    HarborChatClientProtocol,
-    HarborEmbedClientProtocol,
-    HarborRerankClientProtocol,
-)
 from .rerank import (
     HarborRerankDocument,
     HarborRerankMetadata,
@@ -107,9 +99,6 @@ from .rerank import (
 from .usage import ModelTokenUsage
 
 __all__ = [
-    "AsyncHarborChatClientProtocol",
-    "AsyncHarborEmbedClientProtocol",
-    "AsyncHarborRerankClientProtocol",
     "ContentPart",
     "EmbeddingEncodingFormat",
     "EmbeddingInput",
@@ -122,7 +111,6 @@ __all__ = [
     "HarborChatCancelledError",
     "HarborChatCapabilities",
     "HarborChatCapabilityError",
-    "HarborChatClientProtocol",
     "HarborChatConfigurationError",
     "HarborChatConnectionError",
     "HarborChatContentPolicyError",
@@ -145,7 +133,6 @@ __all__ = [
     "HarborEmbedCancelledError",
     "HarborEmbedCapabilities",
     "HarborEmbedCapabilityError",
-    "HarborEmbedClientProtocol",
     "HarborEmbedConfigurationError",
     "HarborEmbedConnectionError",
     "HarborEmbedError",
@@ -167,7 +154,6 @@ __all__ = [
     "HarborRerankCancelledError",
     "HarborRerankCapabilities",
     "HarborRerankCapabilityError",
-    "HarborRerankClientProtocol",
     "HarborRerankConfigurationError",
     "HarborRerankConnectionError",
     "HarborRerankDocument",

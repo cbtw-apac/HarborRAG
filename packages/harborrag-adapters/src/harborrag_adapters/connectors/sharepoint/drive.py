@@ -6,15 +6,13 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_core.domain.source import SourceRecord
-
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.domain.source import SourceRecord
 
 from .client import SharePointClient
 from .config import SharePointSiteConfig
-from .mappers import build_source_record, parse_timestamp
-from .utils import (
+from .drive_paths import (
     DRIVE_ITEM_SELECT,
     DRIVE_SELECT,
     children_endpoint,
@@ -27,6 +25,7 @@ from .utils import (
     matches_pattern,
     site_path_endpoint,
 )
+from .mappers import build_source_record, parse_timestamp
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 

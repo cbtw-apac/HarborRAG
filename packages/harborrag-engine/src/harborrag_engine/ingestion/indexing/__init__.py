@@ -1,0 +1,96 @@
+from harborrag_engine.ingestion.indexing.activation import IndexGenerationActivationService
+from harborrag_engine.ingestion.indexing.batching import EmbeddingBatchPlanner
+from harborrag_engine.ingestion.indexing.config import IndexingConfig, RemovedVectorPolicy
+from harborrag_engine.ingestion.indexing.diff import IncrementalChunkDiffer
+from harborrag_engine.ingestion.indexing.embedding import EmbeddingService
+from harborrag_engine.ingestion.indexing.errors import (
+    ChunkDiffError,
+    EmbeddingResultMismatchError,
+    GraphIndexValidationError,
+    IndexingError,
+    VectorIndexValidationError,
+)
+from harborrag_engine.ingestion.indexing.graph import (
+    ContextCapsuleBuilder,
+    GraphIndexResult,
+    GraphIndexService,
+    GraphMutationPlan,
+    GraphMutationPlanner,
+    GraphValidationResult,
+    GraphValidationService,
+    UniversalGraphProjector,
+)
+from harborrag_engine.ingestion.indexing.pipeline import IndexingService
+from harborrag_engine.ingestion.indexing.preparation import EmbeddingInputPreparer
+from harborrag_engine.ingestion.indexing.schemas import (
+    ChunkDiffEntry,
+    ChunkDiffResult,
+    ChunkDiffStatus,
+    EmbeddedChunk,
+    EmbeddingBatch,
+    EmbeddingRun,
+    GenerationActivationPlan,
+    GenerationActivationRequest,
+    IndexingDiagnostics,
+    IndexingRequest,
+    IndexingResult,
+    IndexingStatus,
+    PreparedEmbeddingInput,
+)
+from harborrag_engine.ingestion.indexing.vector import (
+    VectorIndexResult,
+    VectorIndexService,
+    VectorMutation,
+    VectorMutationAction,
+    VectorMutationPlan,
+    VectorMutationPlanner,
+    VectorValidationResult,
+    VectorValidationService,
+    deterministic_vector_point_id,
+)
+
+__all__ = [
+    "ChunkDiffEntry",
+    "ChunkDiffError",
+    "ChunkDiffResult",
+    "ChunkDiffStatus",
+    "ContextCapsuleBuilder",
+    "EmbeddedChunk",
+    "EmbeddingBatch",
+    "EmbeddingBatchPlanner",
+    "EmbeddingInputPreparer",
+    "EmbeddingResultMismatchError",
+    "EmbeddingRun",
+    "EmbeddingService",
+    "GraphIndexResult",
+    "GraphIndexService",
+    "GraphIndexValidationError",
+    "GraphMutationPlan",
+    "GraphMutationPlanner",
+    "GraphValidationResult",
+    "GraphValidationService",
+    "IncrementalChunkDiffer",
+    "GenerationActivationPlan",
+    "GenerationActivationRequest",
+    "IndexGenerationActivationService",
+    "IndexingConfig",
+    "IndexingDiagnostics",
+    "IndexingError",
+    "IndexingRequest",
+    "IndexingResult",
+    "IndexingService",
+    "IndexingStatus",
+    "PreparedEmbeddingInput",
+    "RemovedVectorPolicy",
+    "UniversalGraphProjector",
+    "VectorIndexResult",
+    "VectorIndexService",
+    "VectorIndexValidationError",
+    "VectorMutation",
+    "VectorMutationAction",
+    "VectorMutationPlan",
+    "VectorMutationPlanner",
+    "VectorValidationResult",
+    "VectorValidationService",
+    "deterministic_vector_point_id",
+]

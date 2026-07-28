@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request
-from harborrag_core.domain.activity import ActivityEntry
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
-from harborrag_app.services.base import BaseAppService
+from harborrag_app.workflow_control import BaseAppService
+from harborrag_core.domain.activity import ActivityEntry
 
 router = APIRouter(tags=["activity"], dependencies=[Depends(require_role("reader"))])
 

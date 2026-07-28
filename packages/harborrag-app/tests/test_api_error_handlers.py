@@ -47,9 +47,7 @@ def _app_raising(exc: Exception) -> TestClient:
 
 
 @pytest.mark.blackbox
-@pytest.mark.parametrize(
-    ("exc", "status", "code"), CASES, ids=[c[2] + str(c[1]) for c in CASES]
-)
+@pytest.mark.parametrize(("exc", "status", "code"), CASES, ids=[c[2] + str(c[1]) for c in CASES])
 def test_harbor_errors_are_enveloped(exc: HarborError, status: int, code: str) -> None:
     """Each HarborError subclass maps to its planned HTTP status and the standard
     {"error": {code, message, details, trace_id}} envelope."""

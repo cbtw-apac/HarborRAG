@@ -1,6 +1,6 @@
 """Read-side dashboard metrics endpoint (ML1/M1).
 
-See harborrag_app.services.metrics for what these counters are derived from
+See harborrag_app.workflow_control.metrics for what these counters are derived from
 and why there is no dedicated metrics table yet.
 """
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
-from harborrag_app.services.base import BaseAppService
+from harborrag_app.workflow_control import BaseAppService
 
 router = APIRouter(tags=["metrics"], dependencies=[Depends(require_role("reader"))])
 
