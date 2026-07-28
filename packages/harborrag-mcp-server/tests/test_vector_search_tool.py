@@ -72,9 +72,7 @@ def test_vector_search_score_threshold_filters_results() -> None:
     )
     tool = VectorSearchTool(pipeline=pipeline)
 
-    result = tool.call(
-        {"query": "alpha", "score_threshold": 0.8, "filters": {"tenant_id": "demo"}}
-    )
+    result = tool.call({"query": "alpha", "score_threshold": 0.8, "filters": {"tenant_id": "demo"}})
 
     assert result["ok"] is True
     assert [item["id"] for item in result["results"]] == ["high"]

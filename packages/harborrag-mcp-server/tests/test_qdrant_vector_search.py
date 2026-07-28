@@ -39,58 +39,49 @@ class QdrantRetrievalPipeline:
     tenant_id: str = "smoke"
     embed_fn: Callable[[str], list[float]] = field(default_factory=lambda: deterministic_embed)
     dimension: int = SMOKE_DIMENSION
-    _repo: Any = field(default=None, init=False, repr=False)
+    _client: Any = field(default=None, init=False, repr=False)
 
     async def __aenter__(self) -> QdrantRetrievalPipeline:
-        from harborrag_adapters.repositories.vector.qdrant import (
-            QdrantVectorConfig,
-            QdrantVectorRepository,
-        )
-        from harborrag_core.schemas.storage import StorageOperationContext
-        from harborrag_core.schemas.vector import VectorCollectionSpec
+        from qdrant_client import AsyncQdrantClient
+        from qdrant_client.http import models
 
-        self._repo = QdrantVectorRepository(
-            QdrantVectorConfig(instance_name="smoke", url=self.url, prefer_grpc=False)
-        )
-        await self._repo.__aenter__()
-        await self._repo.ensure_collection(
-            VectorCollectionSpec(name=self.collection, dimension=self.dimension),
-            context=StorageOperationContext(tenant_id=self.tenant_id),
+        self._client = AsyncQdrantClient(url=self.url, prefer_grpc=False)
+        await self._client.recreate_collection(
+            collection_name=self.collection,
+            vectors_config=models.VectorParams(
+                size=self.dimension,
+                distance=models.Distance.COSINE,
+            ),
         )
         return self
 
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-        if self._repo is not None:
-            await self._repo.__aexit__(exc_type, exc, tb)
-            self._repo = None
+        del exc_type, exc, tb
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
     async def seed(self, points: list[tuple[str, str, dict[str, Any]]]) -> None:
-        from harborrag_core.schemas.storage import StorageOperationContext
-        from harborrag_core.schemas.vector import VectorPoint
+        from qdrant_client.http import models
 
-        assert self._repo is not None
+        assert self._client is not None
         vector_points = [
-            VectorPoint(
+            models.PointStruct(
                 id=pt_id,
-                tenant_id=self.tenant_id,
                 vector=self.embed_fn(text),
-                payload={**payload, "text": text},
+                payload={**payload, "text": text, "tenant_id": self.tenant_id},
             )
             for pt_id, text, payload in points
         ]
-        await self._repo.upsert(
-            self.collection,
-            vector_points,
-            context=StorageOperationContext(tenant_id=self.tenant_id),
+        await self._client.upsert(
+            collection_name=self.collection,
+            points=vector_points,
+            wait=True,
         )
 
     async def delete_collection(self) -> None:
-        from harborrag_core.schemas.storage import StorageOperationContext
-
-        assert self._repo is not None
-        context = StorageOperationContext(tenant_id=self.tenant_id)
-        if await self._repo.collection_exists(self.collection, context=context):
-            await self._repo.delete_collection(self.collection, context=context)
+        assert self._client is not None
+        await self._client.delete_collection(collection_name=self.collection)
 
     async def aretrieve(
         self,
@@ -99,39 +90,33 @@ class QdrantRetrievalPipeline:
         score_threshold: float | None = None,
         filters: dict[str, Any] | None = None,
     ) -> list[RetrievalResult]:
-        from harborrag_core.schemas.storage import StorageOperationContext
-        from harborrag_core.schemas.vector import (
-            FilterOperator,
-            VectorFilter,
-            VectorFilterCondition,
-            VectorSearchQuery,
+        from qdrant_client.http import models
+
+        assert self._client is not None
+        merged_filters: dict[str, Any] = {"tenant_id": self.tenant_id}
+        merged_filters.update(query.filters)
+        if filters is not None:
+            merged_filters.update(filters)
+        field_filters = models.Filter(
+            must=[
+                models.FieldCondition(key=key, match=models.MatchValue(value=value))
+                for key, value in merged_filters.items()
+            ]
         )
 
-        assert self._repo is not None
-        vector_filter = None
-        if filters or query.filters:
-            vector_filter = VectorFilter(
-                must=[
-                    VectorFilterCondition(field=k, operator=FilterOperator.EQUALS, value=v)
-                    for k, v in (filters or query.filters).items()
-                ]
-            )
-        raw = await self._repo.search(
-            VectorSearchQuery(
-                collection=self.collection,
-                vector=self.embed_fn(query.text),
-                top_k=query.top_k,
-                score_threshold=score_threshold,
-                filters=vector_filter,
-            ),
-            context=StorageOperationContext(tenant_id=self.tenant_id),
+        raw = await self._client.search(
+            collection_name=self.collection,
+            query_vector=self.embed_fn(query.text),
+            limit=query.top_k,
+            score_threshold=score_threshold,
+            query_filter=field_filters,
         )
         return [
             RetrievalResult(
                 id=item.id,
-                text=str(item.payload.get("text", "")),
+                text=str((item.payload or {}).get("text", "")),
                 score=item.score,
-                metadata={k: v for k, v in item.payload.items() if k != "text"},
+                metadata={k: v for k, v in (item.payload or {}).items() if k != "text"},
             )
             for item in raw
         ]
@@ -158,7 +143,7 @@ def _sync_retrieve(
 
 @pytest.fixture(scope="module")
 def qdrant_url() -> str:
-    pytest.importorskip("harborrag_adapters.repositories.vector.qdrant")
+    pytest.importorskip("qdrant_client")
 
     import httpx
 

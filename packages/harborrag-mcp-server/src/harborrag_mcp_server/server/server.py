@@ -37,9 +37,7 @@ def _result_count(result: dict[str, object]) -> int:
 class McpServer(BaseMcpServer):
     """In-process MCP transport enforcing policy and audit boundaries."""
 
-    tools: list[BaseMcpTool] = field(
-        default_factory=lambda: [HealthTool(), VectorSearchTool()]
-    )
+    tools: list[BaseMcpTool] = field(default_factory=lambda: [HealthTool(), VectorSearchTool()])
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
 
