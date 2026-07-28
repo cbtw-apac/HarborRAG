@@ -146,7 +146,10 @@ class VectorSearchTool(BaseMcpTool):
             top_k=top_k,
             filters=filters,
         )
-        results = self.pipeline.retrieve(retrieval_query)
+        try:
+            results = self.pipeline.retrieve(retrieval_query)
+        except Exception:
+            return {"ok": False, "error": "vector_search backend failed to retrieve results"}
 
         results = [r for r in results if r.score >= score_threshold]
 

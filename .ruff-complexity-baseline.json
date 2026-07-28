@@ -188,9 +188,6 @@
     "packages/harborrag-engine/tests/ingestion/unit/indexing_helpers.py": {
       "PLR0913": 3
     },
-    "packages/harborrag-mcp-server/src/harborrag_mcp_server/tools/vector_search.py": {
-      "C901": 1
-    },
     "scripts/check_dependency_direction.py": {
       "C901": 2
     },
