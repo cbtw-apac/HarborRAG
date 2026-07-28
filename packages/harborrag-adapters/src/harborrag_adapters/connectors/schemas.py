@@ -5,6 +5,8 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, ClassVar, cast
 
+from harborrag_core.domain.source import SourceRecord
+
 
 def _json_safe(value: Any) -> Any:
     """Recursively convert connector metadata into JSON-safe values."""
@@ -84,3 +86,11 @@ class ConnectorQuery:
     limit: int | None = None
     include_attachments: bool = True
     filters: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorPage:
+    """One bounded discovery page plus an opaque provider continuation cursor."""
+
+    records: tuple[SourceRecord, ...]
+    next_cursor: str | None

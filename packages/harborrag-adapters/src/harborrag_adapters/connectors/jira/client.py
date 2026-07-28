@@ -6,7 +6,7 @@ import logging
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from harborrag_adapters.connectors.shared.atlassian_client import AtlassianRestClient
+from harborrag_adapters.connectors.atlassian.client import AtlassianRestClient
 
 from .config import JiraDeploymentType, JiraProjectConfig
 
@@ -36,6 +36,10 @@ class JiraClient(Protocol):
 
     def download_bytes(self, url: str) -> bytes | None:
         """Download bytes from a trusted JIRA URL."""
+        pass
+
+    def close(self) -> None:
+        """Release connector-owned HTTP resources."""
         pass
 
 

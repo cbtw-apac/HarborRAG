@@ -7,8 +7,8 @@ from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
 
+from .drive_paths import item_mime_type, item_name, item_path
 from .schemas import SharePointMetadata, SharePointParentReference
-from .utils import item_mime_type, item_name, item_path
 
 
 def parse_timestamp(value: str | None) -> datetime | None:

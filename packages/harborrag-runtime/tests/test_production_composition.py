@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from harborrag_core.domain.project import Project
 from harborrag_runtime.composition import CompositionRoot
-from harborrag_runtime.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
+from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
 
 def _production(tmp_path: Path) -> CompositionRoot:
@@ -56,20 +57,9 @@ def test_production_probe_reports_failure_without_raising(tmp_path: Path) -> Non
     bad = CompositionRoot.production(
         RuntimeSettings(control_db_url=f"sqlite+aiosqlite:///{tmp_path}/nodir/x.db")
     )
-    runtime = bad.runtime_service.diagnostics()
+    runtime = bad.diagnostics()["runtime"]
+    assert isinstance(runtime, dict)
     assert runtime["ready"] is False
-
-
-@pytest.mark.whitebox
-def test_local_composition_stays_mock() -> None:
-    """local() keeps the deterministic mock wiring and 'local' mode."""
-    composition = CompositionRoot.local()
-    assert composition.mode == "local"
-    assert composition.control_plane is None
-    assert composition.diagnostics()["runtime"] == {
-        "provider": "mock_runtime",
-        "ready": True,
-    }
 
 
 @pytest.mark.whitebox

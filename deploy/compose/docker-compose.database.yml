@@ -1,23 +1,23 @@
 services:
   qdrant:
-    image: qdrant/qdrant:${QDRANT_VERSION:-v1.18.3}
+    image: qdrant/qdrant:v1.18.3
     restart: unless-stopped
     ports:
-      - "${QDRANT_HTTP_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_PORT:-6334}:6334"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
-      - harborrag-network
+      - harborrag-data-network
 
   falkordb:
-    image: falkordb/falkordb:${FALKORDB_VERSION:-v4.20.1}
+    image: falkordb/falkordb:v4.20.1
     restart: unless-stopped
     environment:
       REDIS_ARGS: "--appendonly yes --appendfsync everysec"
     ports:
-      - "${FALKORDB_PORT:-6379}:6379"
-      - "${FALKORDB_BROWSER_PORT:-3000}:3000"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_PORT:-6379}:6379"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_BROWSER_PORT:-3000}:3000"
     volumes:
       - falkordb_data:/var/lib/falkordb/data
     healthcheck:
@@ -27,10 +27,10 @@ services:
       retries: 20
       start_period: 10s
     networks:
-      - harborrag-network
+      - harborrag-data-network
 
   redis:
-    image: redis:${REDIS_VERSION:-7-alpine}
+    image: redis:7-alpine
     restart: unless-stopped
     command:
       - redis-server
@@ -39,7 +39,7 @@ services:
       - --appendfsync
       - everysec
     ports:
-      - "${REDIS_PORT:-6380}:6379"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -49,17 +49,17 @@ services:
       retries: 20
       start_period: 5s
     networks:
-      - harborrag-network
+      - harborrag-data-network
 
   postgres:
-    image: postgres:${POSTGRES_VERSION:-15-alpine}
+    image: postgres:15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-harborrag}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -71,10 +71,11 @@ services:
       retries: 20
       start_period: 10s
     networks:
-      - harborrag-network
+      - harborrag-data-network
 
 networks:
-  harborrag-network:
+  harborrag-data-network:
+    name: harborrag-data-network
     driver: bridge
 
 volumes:

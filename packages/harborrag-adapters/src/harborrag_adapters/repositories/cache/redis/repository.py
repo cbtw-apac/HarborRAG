@@ -2,24 +2,26 @@ from __future__ import annotations
 
 from typing import Any
 
+from harborrag_adapters.repositories.backends.redis import (
+    RedisClientProtocol,
+    RedisDBClient,
+)
+from harborrag_adapters.repositories.cache.base import HarborCacheBackend
+from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
+from harborrag_adapters.repositories.cache.redis.lock import RedisLockManager
+from harborrag_adapters.repositories.cache.redis.store import RedisCacheStore
+from harborrag_adapters.repositories.errors import StorageErrorContext
+from harborrag_adapters.repositories.policies.key_encoding import escape_key_part
+from harborrag_adapters.repositories.telemetry import (
+    RepositoryTelemetry,
+    StorageTelemetryHook,
+)
 from harborrag_core.schemas.storage import (
     HealthStatus,
     RepositoryHealth,
     StorageFamily,
     StorageOperationContext,
 )
-
-from harborrag_adapters.repositories.cache.base import HarborCacheBackend
-from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
-from harborrag_adapters.repositories.cache.redis.lock import RedisLockManager
-from harborrag_adapters.repositories.cache.redis.store import RedisCacheStore
-from harborrag_adapters.repositories.errors import StorageErrorContext
-from harborrag_adapters.repositories.shared.keys import escape_key_part
-from harborrag_adapters.repositories.shared.redis import (
-    RedisClientProtocol,
-    RedisDBClient,
-)
-from harborrag_adapters.repositories.telemetry import RepositoryTelemetry, StorageTelemetryHook
 
 
 class RedisCacheBackend(HarborCacheBackend):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
-from harborrag_adapters.connectors.shared.atlassian_client import AtlassianRestClient
+from harborrag_adapters.connectors.atlassian.client import AtlassianRestClient
 
 from .config import ConfluenceDeploymentType, ConfluenceSpaceConfig
 
@@ -29,6 +29,9 @@ class ConfluenceClient(Protocol):
 
     def download_bytes(self, url: str) -> bytes | None:
         """Download bytes from a trusted Confluence URL."""
+
+    def close(self) -> None:
+        """Release connector-owned HTTP resources."""
 
 
 class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):

@@ -9,9 +9,7 @@ class InMemoryMetrics:
     observations: dict[str, list[float]] = field(default_factory=dict)
 
     def increment(self, name: str, value: int = 1, **labels: str) -> None:
-        self.counters[_key(name, labels)] = (
-            self.counters.get(_key(name, labels), 0) + value
-        )
+        self.counters[_key(name, labels)] = self.counters.get(_key(name, labels), 0) + value
 
     def observe(self, name: str, value: float, **labels: str) -> None:
         self.observations.setdefault(_key(name, labels), []).append(value)

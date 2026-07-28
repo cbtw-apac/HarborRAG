@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harborrag_adapters.repositories.state.sql import SQLStateBackend
+from harborrag_adapters.repositories.state.sql_backend import SQLStateBackend
 from harborrag_adapters.repositories.state.sqlite.client import SQLiteStateDBClient
 from harborrag_adapters.repositories.state.sqlite.config import SQLiteStateConfig
 from harborrag_adapters.repositories.telemetry import StorageTelemetryHook

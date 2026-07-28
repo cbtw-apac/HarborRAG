@@ -4,6 +4,7 @@ from datetime import UTC
 from typing import get_args
 
 import pytest
+
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.member import Member, Role
 from harborrag_core.domain.project import Project, ProjectStats
@@ -66,8 +67,7 @@ def test_member_and_provider_and_settings_defaults() -> None:
 @pytest.mark.whitebox
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_project_member_provider_reject_blank_or_whitespace_ids(bad_id: str) -> None:
-    """Empty/whitespace ids must never silently construct a domain aggregate --
-    unlike Tenant, these classes previously had no __post_init__ guard at all."""
+    """Empty or whitespace IDs must not construct a domain aggregate."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Project(id=bad_id, name="Docs", collection="docs_main")
     with pytest.raises(ValueError, match="id must be non-empty"):

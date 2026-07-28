@@ -4,7 +4,7 @@ from urllib.parse import urlparse, urlunparse
 def _redact_url(url: str) -> str:
     """Strip userinfo, query, and fragment before a URL reaches an error message.
 
-    Kept local (not imported from ``connectors.utils.http``) because that
+    Kept local (not imported from ``connectors.policies.http``) because that
     module's package imports back from this one, which would create a
     circular import.
     """

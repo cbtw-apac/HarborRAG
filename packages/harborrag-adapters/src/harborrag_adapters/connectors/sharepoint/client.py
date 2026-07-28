@@ -14,7 +14,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     RateLimitError,
 )
-from harborrag_adapters.connectors.utils.http import (
+from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
     require_same_origin_url,
@@ -42,6 +42,10 @@ class SharePointClient(Protocol):
 
     def get_bytes(self, endpoint: str) -> bytes:
         """Return bytes downloaded from a Microsoft Graph endpoint."""
+        pass
+
+    def close(self) -> None:
+        """Release connector-owned HTTP resources."""
         pass
 
 
@@ -106,7 +110,7 @@ class _RequestsGraphClient:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError(str(exc)) from exc
+                    raise FetchError("Microsoft Graph request failed") from exc
                 self._sleep(attempt, exc)
                 continue
 
@@ -125,7 +129,7 @@ class _RequestsGraphClient:
             last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
             self._sleep(attempt, last_error, response.headers)
 
-        raise FetchError(str(last_error))
+        raise FetchError("Microsoft Graph request failed") from last_error
 
     def _access_token(self) -> str:
         """Return a configured token or obtain/cache one by client credentials."""
@@ -168,7 +172,7 @@ class _RequestsGraphClient:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise AuthenticationError(str(exc)) from exc
+                    raise AuthenticationError("Microsoft identity request failed") from exc
                 self._sleep(attempt, exc)
                 continue
 
@@ -184,7 +188,14 @@ class _RequestsGraphClient:
             )
             self._sleep(attempt, last_error, response.headers)
 
-        raise AuthenticationError(str(last_error))
+        raise AuthenticationError("Microsoft identity request failed") from last_error
+
+    def close(self) -> None:
+        """Close the connector-owned HTTP connection pool and discard its token."""
+
+        self._token = None
+        self._token_expires_at = 0.0
+        self.session.close()
 
     def _api_url(self, endpoint: str) -> str:
         """Build a Graph API URL while rejecting cross-origin absolute URLs."""
@@ -213,10 +224,10 @@ class _RequestsGraphClient:
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay)
         logger.warning(
-            "Retrying Microsoft Graph request after error, attempt %d/%d: %s",
+            "Retrying Microsoft Graph request after %s, attempt %d/%d",
+            type(error).__name__,
             attempt + 1,
             self.config.max_retries,
-            error,
         )
         if delay > 0:
             time.sleep(delay)

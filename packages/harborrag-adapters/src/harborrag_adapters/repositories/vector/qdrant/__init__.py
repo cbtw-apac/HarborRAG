@@ -4,7 +4,9 @@ from harborrag_adapters.repositories.vector.qdrant.config import (
     QdrantVectorConfig,
 )
 from harborrag_adapters.repositories.vector.qdrant.plugin import QdrantVectorPlugin
-from harborrag_adapters.repositories.vector.qdrant.repository import QdrantVectorRepository
+from harborrag_adapters.repositories.vector.qdrant.repository import (
+    QdrantVectorRepository,
+)
 
 __all__ = [
     "QdrantDBClient",

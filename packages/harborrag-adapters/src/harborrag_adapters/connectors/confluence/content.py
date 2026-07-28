@@ -6,15 +6,15 @@ from collections.abc import Iterator
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
-from harborrag_adapters.connectors.utils.helpers import (
+from harborrag_adapters.connectors.policies.validation import (
     enforce_collection_limit,
     extend_with_limit,
 )
+from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .client import ConfluenceClient
 from .config import ConfluenceSpaceConfig
-from .utils import (
+from .query import (
     COMMENT_EXPAND,
     CONTENT_EXPAND,
     LIGHT_EXPAND,
@@ -36,41 +36,64 @@ class ConfluenceContentAPI:
         """Iterate CQL results across Cloud cursor and Data Center start paging."""
         cursor: str | None = None
         seen_cursors: set[str] = set()
-        paging_mode: str | None = None
-        start = 0
         while True:
-            params = build_search_params(
-                cql=cql,
-                limit=self.config.page_size,
-                start=start,
+            results, next_cursor = self.search_page(
+                cql,
                 cursor=cursor,
-                expand=LIGHT_EXPAND,
+                limit=self.config.page_size,
             )
-            response = self.client.get_json("content/search", params=params)
-            results = response.get("results", [])
-            if not results:
-                return
             yield from results
+            if next_cursor is None:
+                return
+            if next_cursor in seen_cursors:
+                raise FetchError("Confluence search pagination did not advance")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
-            next_url = response.get("_links", {}).get("next")
-            next_cursor = extract_cursor(next_url)
-            if next_cursor and paging_mode != "offset":
-                if next_cursor in seen_cursors:
-                    raise FetchError(
-                        f"Confluence search pagination did not advance for "
-                        f"cql={cql!r}: cursor {next_cursor!r} repeated"
-                    )
-                seen_cursors.add(next_cursor)
-                paging_mode = "cursor"
-                cursor = next_cursor
-                continue
-            if paging_mode == "cursor":
-                return
-            if not next_url and len(results) < self.config.page_size:
-                return
-            paging_mode = "offset"
-            cursor = None
-            start += len(results)
+    def search_page(
+        self,
+        cql: str,
+        *,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Fetch exactly one provider page using a durable opaque cursor."""
+
+        if limit < 1:
+            raise ValueError("Confluence page limit must be positive")
+        provider_limit = min(limit, self.config.page_size)
+        cursor_token: str | None = None
+        start = 0
+        if cursor:
+            kind, separator, value = cursor.partition(":")
+            if not separator or kind not in {"cursor", "offset"}:
+                raise ValueError("invalid Confluence discovery cursor")
+            if len(value) > 4096 or any(ord(character) < 32 for character in value):
+                raise ValueError("invalid Confluence discovery cursor")
+            if kind == "cursor":
+                cursor_token = value
+            else:
+                start = int(value)
+                if start < 0:
+                    raise ValueError("invalid Confluence discovery cursor")
+        params = build_search_params(
+            cql=cql,
+            limit=provider_limit,
+            start=start,
+            cursor=cursor_token,
+            expand=LIGHT_EXPAND,
+        )
+        response = self.client.get_json("content/search", params=params)
+        results = list(response.get("results", []))
+        next_url = response.get("_links", {}).get("next")
+        next_token = extract_cursor(next_url)
+        if next_token:
+            return results, f"cursor:{next_token}"
+        if cursor_token is not None:
+            return results, None
+        if _has_next_page(response, results, provider_limit):
+            return results, f"offset:{start + len(results)}"
+        return results, None
 
     def get_content_summary(self, content_id: str) -> dict[str, Any]:
         """Fetch lightweight content metadata for explicit-ID discovery."""

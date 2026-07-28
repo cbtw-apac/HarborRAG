@@ -3,21 +3,23 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
-from harborrag_core.schemas.storage import StorageFamily
 from pydantic import BaseModel
 
 from harborrag_adapters.repositories.object_store.base import HarborObjectStore
 from harborrag_adapters.repositories.object_store.filesystem.plugin import (
     FilesystemObjectStorePlugin,
 )
-from harborrag_adapters.repositories.object_store.memory.plugin import MemoryObjectStorePlugin
+from harborrag_adapters.repositories.object_store.memory.plugin import (
+    MemoryObjectStorePlugin,
+)
 from harborrag_adapters.repositories.object_store.s3.plugin import S3ObjectStorePlugin
 from harborrag_adapters.repositories.plugin import (
     RepositoryConfig,
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_adapters.repositories.shared.provider_map import ProviderMap
+from harborrag_adapters.repositories.registry import ProviderMap
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class HarborObjectStoreDBClient:

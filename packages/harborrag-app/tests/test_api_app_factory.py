@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 
@@ -21,8 +22,8 @@ def test_health_and_openapi_served() -> None:
 
 
 @pytest.mark.blackbox
-def test_readyz_ready_with_mock_composition() -> None:
-    """/readyz reports ready when the (mock) app service is healthy."""
+def test_readyz_ready_with_development_composition() -> None:
+    """/readyz reports ready when the development app service is healthy."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:
         response = client.get("/api/v1/readyz")
         assert response.status_code == 200
@@ -64,7 +65,11 @@ def test_docs_disabled_by_settings() -> None:
 def test_docs_default_to_disabled_in_prod() -> None:
     """env=prod must not silently expose Swagger docs (or the raw OpenAPI
     schema route) via the docs_enabled=True default."""
-    settings = ApiSettings(env="prod", auth_mode="hmac", auth_secret="s3cr3t")
+    settings = ApiSettings(
+        env="prod",
+        auth_mode="hmac",
+        auth_secret="production-test-secret-at-least-32-bytes",
+    )
     assert settings.docs_enabled is False
     with TestClient(
         create_fastapi_app(settings),
@@ -78,7 +83,10 @@ def test_docs_default_to_disabled_in_prod() -> None:
 def test_docs_explicit_true_is_respected_even_in_prod() -> None:
     """An operator who explicitly opts in to docs in prod must still get them."""
     settings = ApiSettings(
-        env="prod", auth_mode="hmac", auth_secret="s3cr3t", docs_enabled=True
+        env="prod",
+        auth_mode="hmac",
+        auth_secret="production-test-secret-at-least-32-bytes",
+        docs_enabled=True,
     )
     assert settings.docs_enabled is True
     with TestClient(create_fastapi_app(settings)) as client:

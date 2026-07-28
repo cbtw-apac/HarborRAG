@@ -10,12 +10,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from harborrag_core.security.redaction import redact_secrets
 
 from harborrag_app.api.auth.dependencies import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.services.base import BaseAppService
+from harborrag_app.workflow_control import BaseAppService
+from harborrag_core.security.redaction import redact_secrets
 
 router = APIRouter(tags=["diagnostics"])
 

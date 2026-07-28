@@ -4,11 +4,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Self
 
+from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord
 from harborrag_core.schemas.ids import DocumentId
 from harborrag_core.schemas.storage import StorageOperationContext
-
-from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 
 
 class DocumentRepository(ABC):

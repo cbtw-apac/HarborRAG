@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
-
-def _utc_now() -> datetime:
-    """Timezone-aware UTC timestamp (RFC 3339-ready, per API conventions)."""
-    return datetime.now(UTC)
+from harborrag_core.base import utc_now
 
 
 @dataclass(slots=True)
@@ -21,4 +18,4 @@ class ActivityEntry:
     entity_type: str
     entity_id: str
     summary: str
-    created_at: datetime = field(default_factory=_utc_now)
+    created_at: datetime = field(default_factory=utc_now)

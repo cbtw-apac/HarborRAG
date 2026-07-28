@@ -4,13 +4,14 @@ import json
 from enum import StrEnum
 from typing import Any
 
+from pydantic import BaseModel
+
 from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatRequest,
     StructuredOutputDegradation,
 )
 from harborrag_core.models.errors import HarborChatCapabilityError
-from pydantic import BaseModel
 
 from .configs import HarborChatProviderConfig
 from .structured_strategy import StructuredOutputStrategy

@@ -1,0 +1,48 @@
+chat:
+  default_model: primary
+  backend:
+    type: direct_sdk
+  timeouts:
+    request_seconds: 60
+  retry:
+    same_deployment_attempts: 2
+    max_deployment_failovers: 1
+    max_model_fallbacks: 1
+  security:
+    allowed_providers: [openai]
+  models:
+    primary:
+      deployments:
+        - name: openai-primary
+          provider: ${HARBOR_CHAT_PROVIDER}
+          model: ${HARBOR_CHAT_MODEL}
+          api_key: ${HARBOR_CHAT_API_KEY}
+          capabilities:
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+
+embed:
+  default_model: primary
+  timeouts:
+    request_seconds: 60
+  default_batch_size: 64
+  security:
+    allowed_providers: [openai]
+  models:
+    primary:
+      embedding_space: harbor-production-v1
+      deployments:
+        - name: openai-embedding
+          provider: ${HARBOR_EMBED_PROVIDER}
+          model: ${HARBOR_EMBED_MODEL}
+          api_key: ${HARBOR_EMBED_API_KEY}
+          expected_dimensions: 1536
+          capabilities:
+            batch: true
+            configurable_dimensions: true
+            default_dimensions: 1536
+            encoding_format: true
+            purpose: true
+            supported_purposes: [query, document]

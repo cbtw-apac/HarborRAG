@@ -1,5 +1,3 @@
-"""HarborRAG engine base classes and mock pipelines."""
+"""HarborRAG business workflows for ingestion and retrieval."""
 
-from harborrag_engine.builder import EngineBuilder
-
-__all__ = ["EngineBuilder"]
+__all__: list[str] = []

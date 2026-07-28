@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.utils.helpers import extend_with_limit
+from harborrag_adapters.connectors.policies.validation import extend_with_limit
 
 from .client import JiraClient
 from .config import JiraDeploymentType, JiraProjectConfig
 from .mappers import changelog_histories
-from .utils import search_body, search_jql_body, validate_issue_key
+from .query import search_body, search_jql_body, validate_issue_key
 
 DISCOVERY_FIELDS = (
     "summary",
@@ -37,6 +37,59 @@ class JiraIssueAPI:
             yield from self._search_cloud(jql)
         else:
             yield from self._search_datacenter(jql)
+
+    def search_page(
+        self,
+        jql: str,
+        *,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Fetch one native Jira Cloud-token or Data Center-offset page."""
+
+        if limit < 1:
+            raise ValueError("JIRA page limit must be positive")
+        provider_limit = min(limit, self.config.page_size)
+        if self.config.deployment_type == JiraDeploymentType.CLOUD:
+            token = _cursor_value(cursor, expected_kind="token")
+            response = self.client.post_json(
+                "search/jql",
+                json=search_jql_body(
+                    jql=jql,
+                    max_results=provider_limit,
+                    fields=DISCOVERY_FIELDS,
+                    next_page_token=token,
+                ),
+            )
+            issues = list(response.get("issues") or [])
+            next_token = response.get("nextPageToken")
+            return (
+                issues,
+                None if response.get("isLast") or not next_token else f"token:{next_token}",
+            )
+
+        raw_offset = _cursor_value(cursor, expected_kind="offset")
+        start_at = int(raw_offset or 0)
+        if start_at < 0:
+            raise ValueError("invalid JIRA discovery cursor")
+        response = self.client.post_json(
+            "search",
+            json=search_body(
+                jql=jql,
+                start_at=start_at,
+                max_results=provider_limit,
+                fields=DISCOVERY_FIELDS,
+            ),
+        )
+        issues = list(response.get("issues") or [])
+        next_offset = start_at + len(issues)
+        total = response.get("total")
+        done = (
+            not issues
+            or (total is not None and next_offset >= int(total))
+            or len(issues) < provider_limit
+        )
+        return issues, None if done else f"offset:{next_offset}"
 
     def get_issue(self, issue_key: str) -> dict[str, Any]:
         """Fetch one issue with configured fields and expansion settings."""
@@ -148,3 +201,18 @@ class JiraIssueAPI:
                 return
             if len(issues) < self.config.page_size:
                 return
+
+
+def _cursor_value(cursor: str | None, *, expected_kind: str) -> str | None:
+    if cursor is None:
+        return None
+    kind, separator, value = cursor.partition(":")
+    if (
+        not separator
+        or kind != expected_kind
+        or not value
+        or len(value) > 4096
+        or any(ord(character) < 32 for character in value)
+    ):
+        raise ValueError("invalid JIRA discovery cursor")
+    return value

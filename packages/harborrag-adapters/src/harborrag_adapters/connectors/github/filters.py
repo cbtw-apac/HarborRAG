@@ -9,7 +9,7 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .config import GitHubRepositoryConfig
 from .mappers import commit_timestamp
-from .utils import (
+from .repository_paths import (
     file_extension,
     guess_mime_type,
     normalize_repo_path,

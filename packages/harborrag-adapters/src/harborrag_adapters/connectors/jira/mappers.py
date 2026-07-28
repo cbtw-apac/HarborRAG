@@ -7,11 +7,11 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin
 
+from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_core.domain.source import SourceRecord
 
-from harborrag_adapters.connectors.shared.attachments import AttachmentMetadata
-
 from .content import custom_field_metadata, field_text
+from .query import validate_issue_key
 from .schemas import (
     JiraChangelogItemMetadata,
     JiraChangelogMetadata,
@@ -20,7 +20,6 @@ from .schemas import (
     JiraIssueReference,
     JiraMetadata,
 )
-from .utils import validate_issue_key
 
 
 def parse_timestamp(value: str | None) -> datetime | None:

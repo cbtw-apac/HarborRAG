@@ -19,9 +19,7 @@ TRACE_HEADER = "X-Request-Id"
 class TraceIdMiddleware(BaseHTTPMiddleware):
     """Attach a trace id to every request and echo it on the response."""
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Populate request.state.trace_id and mirror it into the response."""
         trace_id = request.headers.get(TRACE_HEADER) or uuid4().hex
         request.state.trace_id = trace_id

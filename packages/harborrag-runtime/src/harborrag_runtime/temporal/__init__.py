@@ -1,5 +1,20 @@
-"""TODO: Implement optional Temporal integration here.
+"""Temporal-specific ingestion contracts, workflows, activities, and workers."""
 
-Add workflows, activities, client creation, and worker startup without importing Temporal from
-core, adapters, or engine packages. Keep this dependency optional behind runtime extras.
-"""
+from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
+from harborrag_runtime.temporal.schemas import (
+    IngestionRunInput,
+    IngestionSummary,
+    ResolutionDecision,
+    WorkflowStatusView,
+)
+from harborrag_runtime.temporal.task_queues import ActivityClass, TaskQueueConfig
+
+__all__ = [
+    "ActivityClass",
+    "IngestionRunInput",
+    "IngestionSummary",
+    "ResolutionDecision",
+    "RuntimeWorkflowRef",
+    "TaskQueueConfig",
+    "WorkflowStatusView",
+]

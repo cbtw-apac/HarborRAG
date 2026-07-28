@@ -1,0 +1,45 @@
+"""Select application services without importing API-only dependencies."""
+
+from __future__ import annotations
+
+import os
+
+from .ports import BaseAppService
+
+
+def select_app_service() -> tuple[BaseAppService, str]:
+    env = os.getenv("HARBORRAG_ENV", "dev")
+    control_db_url = os.getenv("HARBORRAG_CONTROL_DB_URL", "")
+    if env == "dev" and not control_db_url:
+        return development_app_service(), "development"
+    return runtime_app_service(), "production"
+
+
+def development_app_service() -> BaseAppService:
+    """Build a real AppService without provisioning a control-plane database."""
+
+    from harborrag_app.workflow_control.client import AppService
+    from harborrag_runtime.composition import CompositionRoot
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    settings = RuntimeSettings()
+    composition = CompositionRoot(
+        control_db={"ping": "ok", "scheme": "development"},
+        mode="development",
+    )
+    return AppService(composition, settings)
+
+
+def runtime_app_service() -> BaseAppService:
+    from harborrag_app.workflow_control.client import AppService
+    from harborrag_runtime.composition import CompositionRoot
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    settings = RuntimeSettings()
+    composition = CompositionRoot.production(settings)
+    return AppService(composition, settings)
+
+
+def get_app_service() -> BaseAppService:
+    service, _ = select_app_service()
+    return service

@@ -2,6 +2,40 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT_DIR"
+DATABASE_ENV_FILE="${DATABASE_ENV_FILE:-env/.env.database}"
+TEMPORAL_ENV_FILE="${TEMPORAL_ENV_FILE:-env/.env.temporal}"
 
-docker compose -f deploy/compose/docker-compose.dev.yml down
+api_compose_args=(
+    --file "${ROOT_DIR}/deploy/compose/docker-compose.dev.yml"
+)
+if [[ -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" ]]; then
+    api_compose_args=(
+        --env-file "${ROOT_DIR}/${TEMPORAL_ENV_FILE}"
+        "${api_compose_args[@]}"
+    )
+fi
+
+echo "Stopping the HarborRAG development API..."
+docker compose "${api_compose_args[@]}" down "$@"
+
+if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" ]]; then
+    echo "Stopping Temporal services..."
+    docker compose \
+        --env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}" \
+        --env-file "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" \
+        --file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.yml" \
+        --profile worker \
+        down "$@"
+else
+    echo "Skipping Temporal teardown because its environment files are missing." >&2
+fi
+
+if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" ]]; then
+    echo "Stopping HarborRAG data services..."
+    docker compose \
+        --env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}" \
+        --file "${ROOT_DIR}/deploy/compose/docker-compose.database.yml" \
+        down "$@"
+else
+    echo "Skipping data-service teardown because ${DATABASE_ENV_FILE} is missing." >&2
+fi

@@ -6,7 +6,9 @@ Tenant-aware storage contracts are implemented and are separate from that future
 
 ## Tenant identifiers
 
-`harborrag_core.schemas.ids.TenantId` is a non-empty, JSON-compatible typed string used by storage records. The older `harborrag_core.domain.tenant.Tenant` value object also validates a non-empty, whitespace-free ID, but repository APIs use `TenantId` through operation context.
+`harborrag_core.schemas.ids.TenantId` is the single non-empty,
+JSON-compatible tenant identifier used by storage records and repository
+operation context.
 
 ## `StorageOperationContext`
 

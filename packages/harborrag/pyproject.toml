@@ -10,7 +10,7 @@ dependencies = [
     "harborrag-engine==0.1.0", 
     "harborrag-runtime==0.1.0", 
     "harborrag-app==0.1.0", 
-    "harborrag-mcp==0.1.0"
+    "harborrag-mcp-server==0.1.0"
     ]
 
 [build-system]

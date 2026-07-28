@@ -1,27 +1,71 @@
-FROM python:3.12-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    HARBORRAG_TEMPORAL_TASK_QUEUE=harborrag
+    UV_NO_CACHE=1
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
-COPY packages ./packages
+COPY pyproject.toml uv.lock ./
+COPY packages/harborrag-core/pyproject.toml packages/harborrag-core/README.md ./packages/harborrag-core/
+COPY packages/harborrag-core/src/harborrag_core/__init__.py ./packages/harborrag-core/src/harborrag_core/
+COPY packages/harborrag-adapters/pyproject.toml packages/harborrag-adapters/README.md ./packages/harborrag-adapters/
+COPY packages/harborrag-adapters/src/harborrag_adapters/__init__.py ./packages/harborrag-adapters/src/harborrag_adapters/
+COPY packages/harborrag-engine/pyproject.toml packages/harborrag-engine/README.md ./packages/harborrag-engine/
+COPY packages/harborrag-engine/src/harborrag_engine/__init__.py ./packages/harborrag-engine/src/harborrag_engine/
+COPY packages/harborrag-runtime/pyproject.toml packages/harborrag-runtime/README.md ./packages/harborrag-runtime/
+COPY packages/harborrag-runtime/src/harborrag_runtime/__init__.py ./packages/harborrag-runtime/src/harborrag_runtime/
+COPY packages/harborrag-app/pyproject.toml packages/harborrag-app/README.md ./packages/harborrag-app/
+COPY packages/harborrag-app/src/harborrag_app/__init__.py ./packages/harborrag-app/src/harborrag_app/
+COPY packages/harborrag-mcp-server/pyproject.toml packages/harborrag-mcp-server/README.md ./packages/harborrag-mcp-server/
+COPY packages/harborrag-mcp-server/src/harborrag_mcp_server/__init__.py ./packages/harborrag-mcp-server/src/harborrag_mcp_server/
+COPY packages/harborrag/pyproject.toml packages/harborrag/README.md ./packages/harborrag/
+COPY packages/harborrag/src/harborrag/__init__.py ./packages/harborrag/src/harborrag/
 
-RUN python -m pip install --upgrade pip \
-    && python -m pip install -e packages/harborrag-core \
-    && python -m pip install -e packages/harborrag-adapters \
-    && python -m pip install -e packages/harborrag-engine \
-    && python -m pip install -e packages/harborrag-memory \
-    && python -m pip install -e 'packages/harborrag-runtime[temporal]' \
-    && python -m pip install -e packages/harborrag-app \
-    && python -m pip install -e packages/harborrag-mcp \
-    && python -m pip install -e packages/harborrag
+RUN uv export --quiet --frozen --package harborrag-runtime --extra production \
+        --no-dev --no-hashes --no-emit-workspace \
+        --output-file /tmp/harborrag-lock.txt \
+    && uv pip install --system \
+        --no-deps \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --constraint /tmp/harborrag-lock.txt \
+        'torch==2.13.0' 'torchvision==0.28.0' \
+    && uv pip install --system --constraint /tmp/harborrag-lock.txt \
+        -e packages/harborrag-core \
+        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,postgres,qdrant]' \
+        -e packages/harborrag-engine \
+        -e packages/harborrag-runtime \
+    && rm -f /tmp/harborrag-lock.txt \
+    && groupadd --gid 10001 harborrag \
+    && useradd --uid 10001 --gid harborrag --no-log-init \
+        --home-dir /var/lib/harborrag --create-home \
+        --shell /usr/sbin/nologin harborrag \
+    && mkdir -p \
+        /var/lib/harborrag/.cache/huggingface \
+        /var/lib/harborrag/objects \
+    && chown -R harborrag:harborrag /var/lib/harborrag
+
+COPY packages/harborrag-core ./packages/harborrag-core
+COPY packages/harborrag-adapters ./packages/harborrag-adapters
+COPY packages/harborrag-engine ./packages/harborrag-engine
+COPY packages/harborrag-runtime ./packages/harborrag-runtime
+COPY config ./config
+
+# The container runs from the writable data directory, not from /app, so the
+# tracked YAML files need absolute paths. Override these to point at a mounted
+# configuration directory instead.
+ENV HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml \
+    HARBORRAG_PARSER_CONFIG_PATH=/app/config/parsers.yaml \
+    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml
+
+WORKDIR /var/lib/harborrag
+USER harborrag
 
 CMD ["python", "-m", "harborrag_runtime.temporal.worker"]

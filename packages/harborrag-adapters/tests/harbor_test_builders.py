@@ -19,7 +19,28 @@ def build_docx_bytes(text: str = "Hello Harbor") -> bytes:
     return buffer.getvalue()
 
 
+def build_odt_bytes(paragraphs: list[str] | None = None, *, heading: str | None = None) -> bytes:
+    import pytest
+
+    pytest.importorskip("odf", reason="ODT parser test requires the parsers extra")
+    from odf.opendocument import OpenDocumentText
+    from odf.text import H, P
+
+    paragraphs = ["Hello Harbor"] if paragraphs is None else paragraphs
+    document = OpenDocumentText()
+    if heading:
+        document.text.addElement(H(outlinelevel=1, text=heading))
+    for text in paragraphs:
+        document.text.addElement(P(text=text))
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 def build_pptx_bytes(text: str = "Slide text") -> bytes:
+    import pytest
+
+    pytest.importorskip("pptx", reason="PowerPoint parser test requires the parsers extra")
     from pptx import Presentation
     from pptx.util import Inches
 

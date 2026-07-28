@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from harborrag_core.schemas.storage import StorageFamily
-
 from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
 from harborrag_adapters.repositories.state.redis.config import RedisStateConfig
 from harborrag_adapters.repositories.state.redis.repository import RedisStateBackend
+from harborrag_core.schemas.storage import StorageFamily
 
 
 class RedisStatePlugin(RepositoryPlugin[RedisStateConfig, RedisStateBackend]):

@@ -6,12 +6,12 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from harborrag_adapters.connectors.utils.helpers import (
+from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
     validate_non_negative_limit,
 )
 
-from .utils import (
+from .repository_paths import (
     DEFAULT_GITHUB_API_URL,
     DEFAULT_GITHUB_API_VERSION,
     DEFAULT_GITHUB_WEB_URL,

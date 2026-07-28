@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from harborrag_adapters.repositories.database.sqlalchemy import SQLAlchemyDatabaseBackend
+from harborrag_adapters.repositories.database.sqlalchemy import (
+    SQLAlchemyDatabaseBackend,
+)
 from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.telemetry import StorageTelemetryHook

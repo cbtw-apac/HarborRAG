@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
-from harborrag_adapters.connectors.schemas import ConnectorMetadata
-from harborrag_adapters.connectors.shared.attachments import (
+from harborrag_adapters.connectors.attachments.processing import (
     AttachmentMetadata,
 )
+from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 
 @dataclass(slots=True)
