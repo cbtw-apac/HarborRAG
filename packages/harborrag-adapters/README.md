@@ -23,7 +23,7 @@ one provider must not require editing unrelated adapter families.
 
 ## File ownership and test doubles
 
-- `connectors/base.py` and `parsers/base.py` define contracts. Production
+- `connectors/base.py` and `parsers/common/base.py` define contracts. Production
   implementations belong in provider or format modules under those packages.
 - Implemented connectors and parsers do not keep production `mock.py` modules;
   their fakes and test doubles belong under `tests/`.
@@ -116,7 +116,7 @@ from harborrag_adapters.connectors import (
     LocalFileConfig,
     LocalFileConnector,
 )
-from harborrag_adapters.parsers import HarborParser
+from harborrag_adapters.parsers import HarborParserFactory
 
 connector = LocalFileConnector(
     LocalFileConfig(
@@ -124,10 +124,10 @@ connector = LocalFileConnector(
         allowed_extensions={".md", ".txt", ".pdf"},
     )
 )
-parser = HarborParser()
+registry = HarborParserFactory().create_registry()
 
 for raw_document in connector.load_raw_documents(ConnectorQuery(recursive=True)):
-    parsed = parser.parse(raw_document)
+    parsed = registry.parse(raw_document)
     print(raw_document.source, parsed.parser_name, len(parsed.content))
 ```
 
@@ -173,9 +173,11 @@ path handling, and structured logging.
 
 ## Parsers
 
-`HarborParser` is the parser factory and registry. It routes by filename suffix
-and MIME content type. Generic transport MIME types defer to a specific suffix;
-other conflicting routes raise instead of choosing a parser silently.
+`HarborParserFactory().create_registry()` builds the `HarborParserRegistry`, which
+routes by filename suffix and MIME content type. Generic transport MIME types defer
+to a specific suffix; other conflicting routes raise instead of choosing a parser
+silently. `HarborParser` in `parsers/common/base.py` is the family contract each
+registered parser family implements.
 
 Default parser support includes:
 
@@ -183,6 +185,7 @@ Default parser support includes:
 | --- | --- |
 | `PythonPptxPresentationEngine` | `.pptx`, `.pptm` |
 | `DocxDocumentEngine` | `.docx` |
+| `OdtDocumentEngine` | `.odt` |
 | `ExcelSpreadsheetEngine` | `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
 | `HarborPDFParser` | `.pdf` with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR engines |
 | `CsvSpreadsheetEngine` | `.csv`, `.tsv` |

@@ -7,12 +7,7 @@ from harborrag_adapters.models.runtime.client_lifecycle import (
     ModelClientLifecycleMixin,
 )
 from harborrag_adapters.models.runtime.client_runtime import ModelClientRuntimeMixin
-from harborrag_adapters.models.runtime.health import ActiveHealthMonitor
 from harborrag_adapters.models.runtime.introspection import ModelRuntimeIntrospector
-from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
-from harborrag_adapters.models.runtime.middleware import MiddlewarePipeline
-from harborrag_adapters.models.runtime.runtime_services import build_runtime_services
-from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.chat import HarborChatRequest
 
 from .backend_config import ChatBackendType
@@ -46,44 +41,21 @@ class ChatClientRuntime(
 
         self.config = config
         self._registry = registry
-        self._middleware = MiddlewarePipeline(selected.middleware)
         self._backend = self._build_backend(config, selected, registry)
-        self._telemetry = selected.telemetry or TelemetryDispatcher(
-            (),
-            config=config.observability,
-        )
-        self._owns_telemetry = (
-            selected.telemetry is None or selected.telemetry_ownership is ResourceOwnership.OWNED
-        )
-        self._services = selected.runtime_services or build_runtime_services(
-            config,
-            family="chat",
-            cache=selected.cache,
-            routing_state=selected.routing_state,
-            singleflight=selected.singleflight,
-            budget=selected.budget,
-            redis=selected.redis,
-        )
-        self._owns_services = (
-            selected.runtime_services is None
-            or selected.services_ownership is ResourceOwnership.OWNED
-        )
+        self._resolve_shared_runtime(config, selected, family="chat")
         self._build_execution()
         self._build_introspection(selected)
         self._resource_ownership = selected.resource_ownership
         self._closed = False
 
-    @staticmethod
     def _validate_dependencies(
+        self,
         config: HarborChatClientConfig,
         dependencies: ChatClientDependencies,
     ) -> None:
         if dependencies.connections is not None and dependencies.backend is not None:
             raise ValueError("connections cannot be combined with an injected backend")
-        if config.routing.active_health.start_automatically and dependencies.health_probe is None:
-            raise ValueError(
-                "routing.active_health.start_automatically requires an injected health probe"
-            )
+        self._require_health_probe(config, dependencies)
 
     @staticmethod
     def _build_backend(
@@ -128,18 +100,7 @@ class ChatClientRuntime(
             family="chat",
             backend=self._backend_type().value,
         )
-        self._health_monitor = (
-            ActiveHealthMonitor(
-                self.config.models,
-                config=self.config.routing.active_health,
-                store=self._services.routing_state,
-                probe=dependencies.health_probe,
-            )
-            if dependencies.health_probe is not None
-            else None
-        )
-        if self.config.routing.active_health.start_automatically:
-            self.start_health_monitor()
+        self._resolve_health_monitor(self.config, dependencies, models=self.config.models)
 
     @property
     def backend_type(self) -> ChatBackendType:

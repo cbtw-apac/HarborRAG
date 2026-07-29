@@ -5,7 +5,6 @@ from typing import Any, Self
 from harborrag_adapters.models.runtime.client_lifecycle import ModelClientLifecycleMixin
 from harborrag_adapters.models.runtime.client_runtime import ModelClientRuntimeMixin
 from harborrag_adapters.models.runtime.config import RoutingEngine
-from harborrag_adapters.models.runtime.health import ActiveHealthMonitor
 from harborrag_adapters.models.runtime.introspection import ModelRuntimeIntrospector
 from harborrag_adapters.models.runtime.lifecycle import (
     AsyncLifecycleResource,
@@ -13,9 +12,6 @@ from harborrag_adapters.models.runtime.lifecycle import (
     ResourceOwnership,
 )
 from harborrag_adapters.models.runtime.litellm_router import build_litellm_router
-from harborrag_adapters.models.runtime.middleware import MiddlewarePipeline
-from harborrag_adapters.models.runtime.runtime_services import build_runtime_services
-from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
 from harborrag_core.models.embed import (
     HarborEmbedRequest,
@@ -56,33 +52,13 @@ class HarborEmbedClient(
         """Validate configuration and store injected embedding runtime boundaries."""
 
         selected = dependencies or EmbedClientDependencies()
-        if config.routing.active_health.start_automatically and selected.health_probe is None:
-            raise ValueError(
-                "routing.active_health.start_automatically requires an injected health probe"
-            )
+        self._require_health_probe(config, selected)
         registry = selected.provider_registry or EmbedProviderRegistry.default()
         validate_embed_configuration(config, registry)
         self.config = config
         self._registry = registry
-        self._middleware = MiddlewarePipeline(selected.middleware)
         self._invocation = selected.invocation or self._default_invocation(config, registry)
-        self._telemetry = selected.telemetry or TelemetryDispatcher((), config=config.observability)
-        self._owns_telemetry = (
-            selected.telemetry is None or selected.telemetry_ownership is ResourceOwnership.OWNED
-        )
-        self._services = selected.runtime_services or build_runtime_services(
-            config,
-            family="embed",
-            cache=selected.cache,
-            routing_state=selected.routing_state,
-            singleflight=selected.singleflight,
-            budget=selected.budget,
-            redis=selected.redis,
-        )
-        self._owns_services = (
-            selected.runtime_services is None
-            or selected.services_ownership is ResourceOwnership.OWNED
-        )
+        self._resolve_shared_runtime(config, selected, family="embed")
         self._execution = EmbedExecution(
             config,
             self._invocation,
@@ -101,18 +77,7 @@ class HarborEmbedClient(
             family="embed",
             backend=type(self._invocation).__name__,
         )
-        self._health_monitor = (
-            ActiveHealthMonitor(
-                config.models,
-                config=config.routing.active_health,
-                store=self._services.routing_state,
-                probe=selected.health_probe,
-            )
-            if selected.health_probe is not None
-            else None
-        )
-        if config.routing.active_health.start_automatically:
-            self.start_health_monitor()
+        self._resolve_health_monitor(config, selected, models=config.models)
         self._resource_ownership = selected.resource_ownership
         self._closed = False
 

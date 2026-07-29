@@ -176,6 +176,14 @@ metadata, redact credential-shaped fields, and bound logged content.
 `failure_mode: raise` is available only for applications that intentionally require
 strict telemetry.
 
+An injected `runtime_services` bundle is borrowed by default for the same reason:
+one cache, routing-state store, single-flight coordinator, and budget are commonly
+shared across chat, embedding, and reranking clients, so closing any one client must
+not close the bundle for the rest. Set
+`services_ownership=ResourceOwnership.OWNED` when a single client should own the
+bundle's lifetime, or close it at the application boundary. A bundle the client
+builds itself is always owned regardless of this flag.
+
 Register the LiteLLM callback once during application startup to capture sanitized
 provider-completion and provider-error events. Harbor injects only request correlation
 metadata into provider calls; callback registration remains an application-level

@@ -72,7 +72,7 @@ class ChatClientDependencies:
     singleflight: SingleFlightCoordinator | None = None
     budget: ModelBudgetPolicy | None = None
     redis: RedisConnectionLifecycle | None = None
-    services_ownership: ResourceOwnership = ResourceOwnership.OWNED
+    services_ownership: ResourceOwnership = ResourceOwnership.BORROWED
     health_probe: DeploymentHealthProbe | None = None
     connections: SharedConnectionLifecycle | None = None
     connection_ownership: ResourceOwnership = ResourceOwnership.BORROWED

@@ -7,7 +7,7 @@ profiles and engines remain in the file as commented blocks.
 
 ## Default parser registry
 
-`HarborParser` routes by filename suffix and MIME type. Its default stack supports PPTX/PPTM, DOCX, Excel, CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain text/source/config formats.
+The `HarborParserRegistry` built by `HarborParserFactory` routes by filename suffix and MIME type. Its default stack supports PPTX/PPTM, DOCX, ODT, Excel, CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain text/source/config formats.
 
 An enabled catalog definition replaces the matching parser type in that default stack. Parser types not configured in YAML remain available.
 
