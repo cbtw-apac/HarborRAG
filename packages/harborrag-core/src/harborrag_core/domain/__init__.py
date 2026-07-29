@@ -1,4 +1,4 @@
-from harborrag_core.schemas.documents import ChunkContext, ChunkRecord, ChunkSourceSpan
+from harborrag_core.chunking import ChunkContext, ChunkRecord, ChunkSourceSpan
 
 from .element import DocumentElement
 from .normalized_document import Document, DocumentRelation

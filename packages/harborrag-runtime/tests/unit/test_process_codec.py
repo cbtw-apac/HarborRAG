@@ -34,7 +34,7 @@ def _document() -> Document:
 
 
 def _chunking_result() -> ChunkingResult:
-    record = ChunkRecord(
+    record = ChunkRecord.from_legacy(
         logical_chunk_id="logical-1",
         chunk_revision_id="revision-1",
         tenant_id="tenant-1",

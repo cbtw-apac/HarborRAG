@@ -4,6 +4,51 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from .errors import InvalidChunkingPlanError
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkingPlan:
+    """Validated source-independent configuration for one chunking execution."""
+
+    profile: str = "default"
+    strategy_version: str = "1"
+
+    create_route_chunks: bool = True
+    create_context_parents: bool = True
+    create_evidence_chunks: bool = True
+
+    target_tokens: int = 700
+    minimum_tokens: int = 100
+    soft_maximum_tokens: int = 900
+    hard_maximum_tokens: int = 1100
+    boundary_overlap_sentences: int = 0
+
+    index_comments: bool = True
+    index_events: bool = True
+    contextualize_embeddings: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.profile.strip():
+            raise InvalidChunkingPlanError("profile must be non-empty")
+        if not self.strategy_version.strip():
+            raise InvalidChunkingPlanError("strategy_version must be non-empty")
+        if self.minimum_tokens <= 0:
+            raise InvalidChunkingPlanError("minimum_tokens must be positive")
+        limits = (
+            self.minimum_tokens,
+            self.target_tokens,
+            self.soft_maximum_tokens,
+            self.hard_maximum_tokens,
+        )
+        if limits != tuple(sorted(limits)):
+            raise InvalidChunkingPlanError(
+                "token limits must satisfy minimum_tokens <= target_tokens "
+                "<= soft_maximum_tokens <= hard_maximum_tokens"
+            )
+        if self.boundary_overlap_sentences < 0:
+            raise InvalidChunkingPlanError("boundary_overlap_sentences must not be negative")
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkingLimits:

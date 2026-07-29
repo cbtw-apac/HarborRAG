@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from harborrag_core.contracts.chunking import (
@@ -9,24 +8,15 @@ from harborrag_core.contracts.chunking import (
     TextRefiner,
     TokenCounter,
 )
-from harborrag_core.schemas.documents import (
-    ChunkContext,
-    ChunkRecord,
-    ChunkSourceSpan,
-)
-from harborrag_core.schemas.ids import (
-    ChunkId,
-    DocumentId,
-    DocumentVersionId,
-    TenantId,
-)
 
 from ..base import BaseChunker
-from .config import ChunkingConfig, ChunkingProfile
+from .config import ChunkingConfig, ChunkingLimits, ChunkingPlan, ChunkingProfile
 from .errors import ChunkValidationError
-from .identity import ChunkIdentity, ChunkIdentityService, content_fingerprint
+from .hierarchy import ChunkHierarchyValidator
+from .identity import ChunkIdentityService, content_fingerprint
 from .identity.fingerprint import manifest_fingerprint
 from .packing import CompatiblePeerMerger, TokenBudgetPacker
+from .record_factory import CanonicalChunkFactory, CanonicalChunkInput
 from .registry import ChunkStrategyRegistry
 from .router import ChunkingRouter
 from .schemas import (
@@ -71,14 +61,22 @@ class ChunkingService(BaseChunker):
         self._packer = packer
         self._peer_merger = peer_merger
         self._identity = identity_service or ChunkIdentityService()
+        self._record_factory = CanonicalChunkFactory(token_counter, self._identity)
+        self._hierarchy_validator = ChunkHierarchyValidator()
         self._validator = ChunkValidator(token_counter)
 
-    def chunk(self, request: ChunkingRequest) -> ChunkingResult:
+    def chunk(
+        self,
+        request: ChunkingRequest,
+        plan: ChunkingPlan | None = None,
+    ) -> ChunkingResult:
         """Create and validate canonical chunks for one normalized document."""
 
         selected = self._router.select(request)
         strategy = self._registry.get(selected.strategy)
-        profile = self._config.profiles[selected.profile]
+        configured_profile = self._config.profiles[selected.profile]
+        profile = self._profile_for_plan(configured_profile, plan)
+        strategy_version = plan.strategy_version if plan is not None else strategy.version
 
         source_units = strategy.create_units(request, profile)
         oversized_units = sum(unit.token_count > profile.maximum_tokens for unit in source_units)
@@ -89,40 +87,45 @@ class ChunkingService(BaseChunker):
             configuration_version=self._config.configuration_version,
             profile=profile,
             chunker_name=strategy.name,
-            chunker_version=strategy.version,
+            chunker_version=strategy_version,
         )
 
         content_hashes = tuple(content_fingerprint(candidate.content) for candidate in candidates)
         identities = tuple(
             self._identity.identify(
-                tenant_id=request.tenant_id,
-                artifact_id=request.artifact_id,
-                strategy_name=strategy.name,
+                document_id=request.document.id,
+                document_version_id=request.artifact_revision_id,
+                strategy_version=strategy_version,
+                section_path=candidate.structural_path,
                 structural_anchor=candidate.anchor,
                 local_part_index=candidate.local_part_index,
-                role=candidate.role,
+                chunk_kind=self._record_factory.kind_for_role(candidate.role),
                 content_hash=content_hashes[index],
-                configuration_hash=configuration_hash,
-                chunker_version=strategy.version,
             )
             for index, candidate in enumerate(candidates)
         )
         records = tuple(
-            self._record(
-                request=request,
-                candidate=candidate,
-                identity=identities[ordinal],
-                content_hash=content_hashes[ordinal],
-                ordinal=ordinal,
-                previous=(identities[ordinal - 1] if ordinal > 0 else None),
-                next_=(identities[ordinal + 1] if ordinal + 1 < len(identities) else None),
-                strategy_name=strategy.name,
-                strategy_version=strategy.version,
-                profile=profile,
-                configuration_hash=configuration_hash,
+            self._record_factory.build(
+                CanonicalChunkInput(
+                    request=request,
+                    candidate=candidate,
+                    identity=identities[ordinal],
+                    content_hash=content_hashes[ordinal],
+                    ordinal=ordinal,
+                    previous=(identities[ordinal - 1] if ordinal > 0 else None),
+                    next_=(identities[ordinal + 1] if ordinal + 1 < len(identities) else None),
+                    strategy_name=strategy.name,
+                    strategy_version=strategy_version,
+                    profile=profile,
+                    configuration_hash=configuration_hash,
+                    contextualize_embeddings=(
+                        plan.contextualize_embeddings if plan is not None else True
+                    ),
+                )
             )
             for ordinal, candidate in enumerate(candidates)
         )
+        self._hierarchy_validator.validate(records)
         validation = self._validator.validate(
             records,
             request,
@@ -147,7 +150,7 @@ class ChunkingService(BaseChunker):
             artifact_id=request.artifact_id,
             artifact_revision_id=request.artifact_revision_id,
             chunker_name=strategy.name,
-            chunker_version=strategy.version,
+            chunker_version=strategy_version,
             configuration_hash=configuration_hash,
             chunks=references,
             total_token_count=sum(reference.token_count for reference in references),
@@ -179,6 +182,29 @@ class ChunkingService(BaseChunker):
         )
 
     @staticmethod
+    def _profile_for_plan(
+        configured: ChunkingProfile,
+        plan: ChunkingPlan | None,
+    ) -> ChunkingProfile:
+        if plan is None:
+            return configured
+        return ChunkingProfile(
+            name=plan.profile,
+            strategy=configured.strategy,
+            limits=ChunkingLimits(
+                minimum_tokens=plan.minimum_tokens,
+                target_tokens=plan.target_tokens,
+                maximum_tokens=plan.hard_maximum_tokens,
+                overlap_tokens=0,
+            ),
+            merge_small_peers=configured.merge_small_peers,
+            preserve_sections=configured.preserve_sections,
+            preserve_tables=configured.preserve_tables,
+            preserve_code_blocks=configured.preserve_code_blocks,
+            repeat_table_headers=configured.repeat_table_headers,
+        )
+
+    @staticmethod
     def _assign_local_parts(
         candidates: tuple[ChunkCandidate, ...],
     ) -> tuple[ChunkCandidate, ...]:
@@ -189,79 +215,6 @@ class ChunkingService(BaseChunker):
             occurrences[candidate.anchor] = local_part + 1
             output.append(replace(candidate, local_part_index=local_part))
         return tuple(output)
-
-    def _record(
-        self,
-        *,
-        request: ChunkingRequest,
-        candidate: ChunkCandidate,
-        identity: ChunkIdentity,
-        content_hash: str,
-        ordinal: int,
-        previous: ChunkIdentity | None,
-        next_: ChunkIdentity | None,
-        strategy_name: str,
-        strategy_version: str,
-        profile: ChunkingProfile,
-        configuration_hash: str,
-    ) -> ChunkRecord:
-        span = candidate.source_span
-        previous_id = ChunkId(previous.logical_chunk_id) if previous is not None else None
-        next_id = ChunkId(next_.logical_chunk_id) if next_ is not None else None
-        parent_title = self._parent_title(candidate.metadata)
-        source_span = ChunkSourceSpan(
-            start_offset=span.start_offset,
-            end_offset=span.end_offset,
-            start_line=span.start_line,
-            end_line=span.end_line,
-            page_start=span.page_start,
-            page_end=span.page_end,
-            source_element_ids=span.element_ids,
-        )
-        context = ChunkContext(
-            title=request.document.title.strip() or None,
-            structural_path=candidate.structural_path,
-            parent_title=parent_title,
-            previous_chunk_id=previous_id,
-            next_chunk_id=next_id,
-        )
-        return ChunkRecord(
-            logical_chunk_id=ChunkId(identity.logical_chunk_id),
-            chunk_revision_id=ChunkId(identity.chunk_revision_id),
-            tenant_id=TenantId(request.tenant_id),
-            document_id=DocumentId(request.document.id),
-            document_version_id=DocumentVersionId(request.artifact_revision_id),
-            artifact_id=request.artifact_id,
-            artifact_revision_id=request.artifact_revision_id,
-            ordinal=ordinal,
-            role=candidate.role,
-            content=candidate.content,
-            content_hash=content_hash,
-            token_count=self._token_counter.count(candidate.content),
-            source_span=source_span,
-            context=context,
-            metadata={
-                **candidate.metadata,
-                "boundary_kind": candidate.boundary_kind.value,
-                "forced_split": candidate.forced_split,
-                "structural_anchor": candidate.anchor,
-                "local_part_index": candidate.local_part_index,
-                "chunker_name": strategy_name,
-                "chunker_version": strategy_version,
-                "profile_name": profile.name,
-                "configuration_hash": configuration_hash,
-                "source_kind": request.source_kind,
-            },
-        )
-
-    @staticmethod
-    def _parent_title(metadata: Mapping[str, object]) -> str | None:
-        values = metadata.get("ancestor_titles") or metadata.get("breadcrumb")
-        if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
-            for value in reversed(values):
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-        return None
 
 
 def build_default_chunking_service(

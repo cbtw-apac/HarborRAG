@@ -11,7 +11,7 @@ from harborrag_core.schemas.vector import VectorPoint, VectorSearchQuery
 
 
 def test_chunk_records_use_the_canonical_identity_shape() -> None:
-    record = ChunkRecord(
+    record = ChunkRecord.from_legacy(
         logical_chunk_id="logical-1",
         chunk_revision_id="revision-1",
         tenant_id="tenant-1",
@@ -26,6 +26,7 @@ def test_chunk_records_use_the_canonical_identity_shape() -> None:
     )
 
     assert record.logical_chunk_id == "logical-1"
+    assert record.chunk_id == "revision-1"
     assert record.chunk_revision_id == "revision-1"
     assert record.artifact_id == "artifact-1"
     assert record.artifact_revision_id == "artifact-revision-1"

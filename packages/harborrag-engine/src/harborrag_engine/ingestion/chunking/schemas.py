@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from harborrag_core.chunking import ChunkKind
 from harborrag_core.contracts.chunking import SourceSpan, SplitBoundaryKind
 from harborrag_core.domain.normalized_document import Document
 from harborrag_core.schemas.documents import ChunkRecord
@@ -194,6 +195,30 @@ class ChunkingDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
+class ChunkingStatistics:
+    """Source-independent counters for one completed chunking result."""
+
+    route_chunk_count: int
+    evidence_chunk_count: int
+    table_chunk_count: int
+    total_token_count: int
+    rejected_chunk_count: int
+
+    def __post_init__(self) -> None:
+        if any(
+            value < 0
+            for value in (
+                self.route_chunk_count,
+                self.evidence_chunk_count,
+                self.table_chunk_count,
+                self.total_token_count,
+                self.rejected_chunk_count,
+            )
+        ):
+            raise ValueError("chunking statistics values must not be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class ChunkingResult:
     """Canonical chunks, diagnostics, and their lightweight manifest."""
 
@@ -205,6 +230,11 @@ class ChunkingResult:
     chunks: tuple[ChunkRecord, ...]
     diagnostics: ChunkingDiagnostics
     manifest: ChunkManifest
+    document_id: str = field(init=False)
+    document_version_id: str = field(init=False)
+    strategy_version: str = field(init=False)
+    warnings: tuple[str, ...] = field(init=False)
+    statistics: ChunkingStatistics = field(init=False)
 
     def __post_init__(self) -> None:
         """Reject inconsistent records, diagnostics, and manifest references."""
@@ -249,3 +279,40 @@ class ChunkingResult:
                 or (record.token_count or 0) != reference.token_count
             ):
                 raise ValueError("chunking record does not match its manifest reference")
+        object.__setattr__(
+            self,
+            "document_id",
+            str(self.chunks[0].document_id) if self.chunks else self.artifact_id,
+        )
+        object.__setattr__(
+            self,
+            "document_version_id",
+            (str(self.chunks[0].document_version_id) if self.chunks else self.artifact_revision_id),
+        )
+        object.__setattr__(self, "strategy_version", self.manifest.chunker_version)
+        object.__setattr__(self, "warnings", self.manifest.validation.warnings)
+        object.__setattr__(
+            self,
+            "statistics",
+            ChunkingStatistics(
+                route_chunk_count=sum(
+                    record.chunk_kind == ChunkKind.ROUTE for record in self.chunks
+                ),
+                evidence_chunk_count=sum(
+                    record.chunk_kind
+                    in {
+                        ChunkKind.EVIDENCE,
+                        ChunkKind.CODE,
+                        ChunkKind.COMMENT,
+                        ChunkKind.EVENT,
+                        ChunkKind.JIRA_FIELD,
+                    }
+                    for record in self.chunks
+                ),
+                table_chunk_count=sum(
+                    record.chunk_kind == ChunkKind.TABLE for record in self.chunks
+                ),
+                total_token_count=sum(record.token_count for record in self.chunks),
+                rejected_chunk_count=0,
+            ),
+        )

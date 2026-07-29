@@ -2,7 +2,7 @@ import pytest
 
 from harborrag_core.contracts.chunking import TextRefinementRequest, TextSplit
 from harborrag_core.domain.element import DocumentElement
-from harborrag_engine.ingestion.chunking import ChunkingError
+from harborrag_engine.ingestion.chunking import ChunkingError, ChunkingPlan
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 
@@ -98,7 +98,7 @@ def test_canonical_identity_separates_logical_chunk_from_revision() -> None:
     assert first.chunks[0].created_at is None
 
 
-def test_configuration_changes_revision_but_not_logical_identity() -> None:
+def test_configuration_changes_manifest_but_not_canonical_identity() -> None:
     profile = make_profile(target=10, maximum=12)
     request = make_request(make_document([DocumentElement("p1", "paragraph", "content")]))
 
@@ -106,18 +106,62 @@ def test_configuration_changes_revision_but_not_logical_identity() -> None:
     second = make_service(profile, configuration_version="2").chunk(request)
 
     assert first.chunks[0].logical_chunk_id == second.chunks[0].logical_chunk_id
-    assert first.chunks[0].chunk_revision_id != second.chunks[0].chunk_revision_id
+    assert first.chunks[0].chunk_id == second.chunks[0].chunk_id
     assert first.manifest.configuration_hash != second.manifest.configuration_hash
 
 
-def test_profile_limit_changes_revision_but_not_logical_identity() -> None:
+def test_profile_limit_changes_do_not_change_identity_when_output_is_unchanged() -> None:
     request = make_request(make_document([DocumentElement("p1", "paragraph", "content")]))
 
     first = make_service(make_profile(target=10, maximum=12)).chunk(request)
     second = make_service(make_profile(target=11, maximum=12)).chunk(request)
 
     assert first.chunks[0].logical_chunk_id == second.chunks[0].logical_chunk_id
-    assert first.chunks[0].chunk_revision_id != second.chunks[0].chunk_revision_id
+    assert first.chunks[0].chunk_id == second.chunks[0].chunk_id
+
+
+def test_strategy_version_and_document_version_change_exact_chunk_identity() -> None:
+    profile = make_profile(target=10, maximum=12)
+    document = make_document([DocumentElement("p1", "paragraph", "content")])
+    service = make_service(profile)
+    first = service.chunk(
+        make_request(document, artifact_revision_id="document-version-1"),
+        ChunkingPlan(
+            profile="document",
+            strategy_version="strategy-1",
+            minimum_tokens=2,
+            target_tokens=10,
+            soft_maximum_tokens=11,
+            hard_maximum_tokens=12,
+        ),
+    )
+    changed_strategy = service.chunk(
+        make_request(document, artifact_revision_id="document-version-1"),
+        ChunkingPlan(
+            profile="document",
+            strategy_version="strategy-2",
+            minimum_tokens=2,
+            target_tokens=10,
+            soft_maximum_tokens=11,
+            hard_maximum_tokens=12,
+        ),
+    )
+    changed_document = service.chunk(
+        make_request(document, artifact_revision_id="document-version-2"),
+        ChunkingPlan(
+            profile="document",
+            strategy_version="strategy-1",
+            minimum_tokens=2,
+            target_tokens=10,
+            soft_maximum_tokens=11,
+            hard_maximum_tokens=12,
+        ),
+    )
+
+    assert first.chunks[0].logical_chunk_id == changed_strategy.chunks[0].logical_chunk_id
+    assert first.chunks[0].logical_chunk_id == changed_document.chunks[0].logical_chunk_id
+    assert first.chunks[0].chunk_id != changed_strategy.chunks[0].chunk_id
+    assert first.chunks[0].chunk_id != changed_document.chunks[0].chunk_id
 
 
 def test_strategy_changes_logical_identity() -> None:

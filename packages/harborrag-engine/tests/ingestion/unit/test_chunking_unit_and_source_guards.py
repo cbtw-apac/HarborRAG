@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import pytest
 
+from harborrag_core.chunking import ChunkKind
 from harborrag_core.contracts.chunking import SourceSpan, SplitBoundaryKind
 from harborrag_core.schemas.documents import ChunkContext, ChunkRecord, ChunkSourceSpan
+from harborrag_engine.ingestion.chunking.record_factory import CanonicalChunkFactory
 from harborrag_engine.ingestion.chunking.schemas import ChunkCandidate, ChunkUnit
 from harborrag_engine.ingestion.chunking.validation import ChunkValidator
 
@@ -48,7 +50,7 @@ def _candidate(**changes: object) -> ChunkCandidate:
 
 
 def _record(role: str = "body", **metadata: object) -> ChunkRecord:
-    return ChunkRecord(
+    return ChunkRecord.from_legacy(
         tenant_id="tenant-1",
         document_id="document-1",
         document_version_id="version-1",
@@ -64,6 +66,15 @@ def _record(role: str = "body", **metadata: object) -> ChunkRecord:
         context=ChunkContext(structural_path=("Guide",)),
         source_span=ChunkSourceSpan(start_offset=0, end_offset=9),
         metadata=metadata,
+    )
+
+
+def test_canonical_record_factory_maps_remaining_roles_and_parent_titles() -> None:
+    assert CanonicalChunkFactory.kind_for_role("event") == ChunkKind.EVENT
+    assert CanonicalChunkFactory.kind_for_role("jira.field") == ChunkKind.JIRA_FIELD
+    assert CanonicalChunkFactory._parent_title({"ancestor_titles": "not-a-sequence"}) is None
+    assert CanonicalChunkFactory._parent_title({"ancestor_titles": [None, " Parent "]}) == (
+        "Parent"
     )
 
 
@@ -187,7 +198,7 @@ def _location_errors(spans: list[ChunkSourceSpan]) -> list[str]:
     errors: list[str] = []
     previous: dict[str, tuple[int, int, int]] = {}
     for index, span in enumerate(spans):
-        record = _record().model_copy(update={"source_span": span})
+        record = _record().model_copy(update={"source_locator": span})
         ChunkValidator._validate_locations(record, previous, errors, f"chunk[{index}]")
     return errors
 
@@ -210,9 +221,9 @@ def test_a_backward_source_location_is_reported() -> None:
     assert any("source location moved backward" in e for e in _location_errors(spans))
 
 
-def test_a_record_without_a_span_is_skipped() -> None:
+def test_a_record_with_an_empty_source_locator_is_accepted() -> None:
     errors: list[str] = []
-    record = _record().model_copy(update={"source_span": None})
+    record = _record().model_copy(update={"source_locator": ChunkSourceSpan()})
 
     ChunkValidator._validate_locations(record, {}, errors, "chunk[0]")
 

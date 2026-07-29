@@ -31,7 +31,7 @@ async def exercise_database(
         status=DocumentStatus.READY,
         metadata={"smoke_test": True},
     )
-    chunk = ChunkRecord(
+    chunk = ChunkRecord.from_legacy(
         logical_chunk_id=f"chunk-{suffix}",
         chunk_revision_id=f"chunk-{suffix}",
         tenant_id=context.tenant_id,
@@ -43,6 +43,7 @@ async def exercise_database(
         role="content",
         content="repository smoke probe",
         content_hash=f"chunk-hash-{suffix}",
+        token_count=3,
     )
 
     async with factory() as unit_of_work:

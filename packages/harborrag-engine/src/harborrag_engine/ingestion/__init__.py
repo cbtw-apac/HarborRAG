@@ -1,11 +1,13 @@
 from harborrag_engine.ingestion.base import (
     BaseChunker,
     BaseDocumentNormalizer,
+    HarborChunker,
 )
 from harborrag_engine.ingestion.chunking import (
     CanonicalChunkRepository,
     ChunkingConfig,
     ChunkingLimits,
+    ChunkingPlan,
     ChunkingProfile,
     ChunkingRequest,
     ChunkingResult,
@@ -30,6 +32,7 @@ __all__ = [
     "ChunkRoute",
     "ChunkingConfig",
     "ChunkingLimits",
+    "ChunkingPlan",
     "ChunkingProfile",
     "ChunkingRequest",
     "ChunkingResult",
@@ -37,5 +40,6 @@ __all__ = [
     "ChunkingService",
     "ChunkStrategyRegistry",
     "DocumentNormalizer",
+    "HarborChunker",
     "build_default_chunking_service",
 ]

@@ -37,7 +37,7 @@ def make_backend(tmp_path: Path) -> SQLiteDatabaseBackend:
 
 
 def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
-    record = ChunkRecord(
+    record = ChunkRecord.from_legacy(
         logical_chunk_id="logical-1",
         chunk_revision_id="revision-1",
         tenant_id="tenant-a",
@@ -180,7 +180,7 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
     async with backend:
         context = make_context()
         chunks = [
-            ChunkRecord(
+            ChunkRecord.from_legacy(
                 logical_chunk_id=f"logical-{i}",
                 chunk_revision_id=f"c{i}",
                 tenant_id=context.tenant_id,

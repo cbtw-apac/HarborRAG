@@ -5,6 +5,9 @@ HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow down
 Accepted choices and their consequences are recorded in the
 [architecture decision records](../../adr/README.md).
 
+The provider-neutral chunk boundary and deterministic identity policy are
+documented in [Canonical chunking contracts](chunking-contracts.md).
+
 ## Active package map
 
 | Package | Responsibility | Current maturity |
@@ -74,9 +77,10 @@ storage schemas and RetrievalResult
 `harborrag-core` has these groups:
 
 - `domain/` — document, source, parser, retrieval, provenance, element, job, member, project, provider,
-  and source-config values. `domain/__init__.py` also re-exports `ChunkContext`/`ChunkRecord`/`ChunkSourceSpan`
-  from `schemas/documents.py` by design — those chunk/index shapes are conceptually part of the document
-  flow below even though they're implemented as Pydantic schemas, not dataclasses.
+  and source-config values. `domain/__init__.py` retains the former chunk imports as compatibility
+  paths to the canonical Pydantic contracts in `chunking/`.
+- `chunking/` — canonical immutable chunk, hierarchy, security, relation, source-attribute, and table
+  schemas. Deterministic identity policy and chunk planning remain engine responsibilities.
 - `models/` — chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
   Client-boundary protocols now live in `ports/` (ADR-0009), not here.
 - `schemas/` — typed IDs plus document, vector, graph, cache, state, object-store, telemetry, and storage-operation schemas.
