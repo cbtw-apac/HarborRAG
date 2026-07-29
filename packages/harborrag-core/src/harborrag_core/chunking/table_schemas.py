@@ -26,4 +26,7 @@ class TableChunkLocator(StrictModel):
             raise ValueError("table key_column_indices must not contain duplicates")
         if any(index < 0 or index >= self.column_count for index in self.key_column_indices):
             raise ValueError("table key_column_indices must be within column_count")
+        described_row_count = self.row_end - self.row_start + 1
+        if self.repeated_header_row_count > described_row_count:
+            raise ValueError("repeated_header_row_count must not exceed the table row range")
         return self

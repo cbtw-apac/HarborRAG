@@ -102,6 +102,20 @@ def test_chunk_models_are_immutable_strict_and_serialize_enums_as_strings() -> N
     assert "FrozenMetadata" in repr(chunk.metadata)
 
 
+def test_chunk_metadata_is_recursively_immutable_and_json_safe() -> None:
+    source = {"nested": {"values": [1, 2.5, True, None]}}
+    chunk = make_chunk(metadata=source)
+    source["nested"]["values"].append("changed")  # type: ignore[index,union-attr]
+
+    assert chunk.model_dump(mode="json")["metadata"] == {"nested": {"values": [1, 2.5, True, None]}}
+    with pytest.raises(TypeError):
+        chunk.metadata["nested"]["values"] = ()  # type: ignore[index]
+
+    for unsupported in ({1, 2}, object(), float("nan")):
+        with pytest.raises(ValidationError, match="JSON-compatible|finite"):
+            make_chunk(metadata={"unsupported": unsupported})
+
+
 def test_optional_chunk_fields_may_be_absent() -> None:
     chunk = make_chunk(
         language=None,
@@ -123,7 +137,13 @@ def test_optional_chunk_fields_may_be_absent() -> None:
         ({"token_count": -1}, "greater than or equal to 0"),
         ({"document_id": ""}, "at least 1 character"),
         ({"document_version_id": ""}, "at least 1 character"),
-        ({"quality": ChunkQuality(score=0.5), "created_at": datetime(2026, 1, 1)}, "timezone"),
+        (
+            {
+                "quality": ChunkQuality(score=0.5),
+                "created_at": datetime(2026, 1, 1),  # noqa: DTZ001
+            },
+            "timezone",
+        ),
     ],
 )
 def test_chunk_rejects_invalid_required_state(
@@ -183,6 +203,15 @@ def test_quality_table_locator_and_source_attribute_validation_are_strict() -> N
             row_end=1,
             column_count=2,
             key_column_indices=(0, 0),
+        )
+    with pytest.raises(ValidationError, match="must not exceed the table row range"):
+        TableChunkLocator(
+            table_id="table:1",
+            table_version_id="table-version:1",
+            row_start=4,
+            row_end=5,
+            column_count=2,
+            repeated_header_row_count=3,
         )
     with pytest.raises(ValidationError, match="finite"):
         SourceAttribute(key="score", value=float("inf"))

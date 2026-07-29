@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from math import isfinite
 from typing import Annotated, Any
 
 from pydantic import AfterValidator, PlainSerializer
@@ -11,7 +12,13 @@ def _freeze_metadata_value(value: Any) -> Any:
         return FrozenMetadata(value)
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_metadata_value(item) for item in value)
-    return value
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if not isfinite(value):
+            raise ValueError("chunk metadata numbers must be finite")
+        return value
+    raise ValueError(f"chunk metadata values must be JSON-compatible, got {type(value).__name__}")
 
 
 class FrozenMetadata(Mapping[str, Any]):

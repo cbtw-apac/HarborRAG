@@ -72,6 +72,9 @@ def _record(role: str = "body", **metadata: object) -> ChunkRecord:
 def test_canonical_record_factory_maps_remaining_roles_and_parent_titles() -> None:
     assert CanonicalChunkFactory.kind_for_role("event") == ChunkKind.EVENT
     assert CanonicalChunkFactory.kind_for_role("jira.field") == ChunkKind.JIRA_FIELD
+    assert CanonicalChunkFactory.kind_for_role("confluence.table") == ChunkKind.TABLE
+    assert CanonicalChunkFactory.kind_for_role("prevent") == ChunkKind.EVIDENCE
+    assert CanonicalChunkFactory.kind_for_role("decode") == ChunkKind.EVIDENCE
     assert CanonicalChunkFactory._parent_title({"ancestor_titles": "not-a-sequence"}) is None
     assert CanonicalChunkFactory._parent_title({"ancestor_titles": [None, " Parent "]}) == (
         "Parent"

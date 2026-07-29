@@ -312,7 +312,7 @@ class ChunkingResult:
                 table_chunk_count=sum(
                     record.chunk_kind == ChunkKind.TABLE for record in self.chunks
                 ),
-                total_token_count=sum(record.token_count for record in self.chunks),
+                total_token_count=sum((record.token_count or 0) for record in self.chunks),
                 rejected_chunk_count=0,
             ),
         )

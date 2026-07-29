@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Self
 
@@ -8,6 +9,16 @@ from pydantic import Field, model_validator
 from harborrag_core.base import StrictModel
 from harborrag_core.schemas.ids import ChunkId, DocumentId, DocumentVersionId, TenantId
 
+from .legacy import (
+    chunk_kind_for_legacy_role,
+    connector_type_for_legacy_source,
+    context_from_legacy_payload,
+    contextual_prefix_from_legacy_context,
+    document_kind_for_legacy_role,
+    metadata_from_legacy_payload,
+    source_locator_from_legacy_payload,
+    table_locator_from_legacy_metadata,
+)
 from .metadata import ChunkMetadata, FrozenMetadata
 from .schemas import (
     ChunkContext,
@@ -169,6 +180,35 @@ class ChunkRecord(StrictModel):
             next_chunk_id=self.hierarchy.next_chunk_id,
         )
 
+    @classmethod
+    def from_legacy_payload(cls, payload: Mapping[str, Any]) -> Self:
+        """Validate a canonical payload or migrate its former persisted shape."""
+
+        if payload.get("schema_version") and payload.get("chunk_id"):
+            return cls.model_validate(payload)
+
+        chunk_revision_id = str(payload.get("chunk_revision_id") or payload.get("chunk_id") or "")
+        document_id = str(payload.get("document_id") or "")
+        document_version_id = str(payload.get("document_version_id") or "")
+        return cls.from_legacy(
+            logical_chunk_id=str(payload.get("logical_chunk_id") or chunk_revision_id),
+            chunk_revision_id=chunk_revision_id,
+            tenant_id=str(payload.get("tenant_id") or ""),
+            document_id=document_id,
+            document_version_id=document_version_id,
+            artifact_id=str(payload.get("artifact_id") or document_id),
+            artifact_revision_id=str(payload.get("artifact_revision_id") or document_version_id),
+            ordinal=payload.get("ordinal", 0),
+            role=str(payload.get("role") or "content"),
+            content=payload.get("content", ""),
+            content_hash=str(payload.get("content_hash") or ""),
+            token_count=payload.get("token_count"),
+            source_span=source_locator_from_legacy_payload(payload),
+            context=context_from_legacy_payload(payload),
+            metadata=metadata_from_legacy_payload(payload),
+            created_at=payload.get("created_at"),
+        )
+
     # This boundary mirrors the former public constructor; a mapping would hide
     # migration fields and weaken validation at persisted-payload call sites.
     @classmethod
@@ -197,14 +237,14 @@ class ChunkRecord(StrictModel):
         legacy_metadata = dict(metadata or {})
         legacy_metadata["legacy_role"] = role
         source_kind = str(legacy_metadata.get("source_kind") or "local").lower()
-        connector_type = cls._legacy_connector_type(source_kind)
-        chunk_kind = cls._legacy_chunk_kind(role)
+        connector_type = connector_type_for_legacy_source(source_kind)
+        chunk_kind = chunk_kind_for_legacy_role(role)
         selected_context = context or ChunkContext()
-        prefix = cls._legacy_contextual_prefix(selected_context)
-        document_kind = cls._legacy_document_kind(connector_type, role)
+        prefix = contextual_prefix_from_legacy_context(selected_context)
+        document_kind = document_kind_for_legacy_role(connector_type, role)
         strategy_version = str(legacy_metadata.get("chunker_version") or "legacy")
         table_locator = (
-            cls._legacy_table_locator(
+            table_locator_from_legacy_metadata(
                 logical_chunk_id=logical_chunk_id,
                 chunk_revision_id=chunk_revision_id,
                 content=content,
@@ -250,71 +290,4 @@ class ChunkRecord(StrictModel):
             table_locator=table_locator,
             metadata=legacy_metadata,
             created_at=created_at,
-        )
-
-    @staticmethod
-    def _legacy_connector_type(source_kind: str) -> ConnectorType:
-        if "confluence" in source_kind:
-            return ConnectorType.CONFLUENCE
-        if "jira" in source_kind:
-            return ConnectorType.JIRA
-        return ConnectorType.LOCAL
-
-    @staticmethod
-    def _legacy_chunk_kind(role: str) -> ChunkKind:
-        normalized = role.lower()
-        if normalized == "table":
-            return ChunkKind.TABLE
-        if "code" in normalized:
-            return ChunkKind.CODE
-        if "comment" in normalized:
-            return ChunkKind.COMMENT
-        if "event" in normalized:
-            return ChunkKind.EVENT
-        if normalized in {"jira.field", "jira_field"}:
-            return ChunkKind.JIRA_FIELD
-        return ChunkKind.EVIDENCE
-
-    @staticmethod
-    def _legacy_document_kind(connector: ConnectorType, role: str) -> DocumentKind:
-        if "attachment" in role.lower():
-            return DocumentKind.ATTACHMENT
-        if connector == ConnectorType.CONFLUENCE:
-            return DocumentKind.CONFLUENCE_PAGE
-        if connector == ConnectorType.JIRA:
-            return DocumentKind.JIRA_ISSUE
-        return DocumentKind.LOCAL_FILE
-
-    @staticmethod
-    def _legacy_contextual_prefix(context: ChunkContext) -> str:
-        lines: list[str] = []
-        if context.title:
-            lines.append(f"Document: {context.title}")
-        if context.structural_path:
-            lines.append(f"Section: {' > '.join(context.structural_path)}")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _legacy_table_locator(
-        *,
-        logical_chunk_id: str,
-        chunk_revision_id: str,
-        content: str,
-        metadata: dict[str, Any],
-    ) -> TableChunkLocator:
-        lines = content.splitlines()
-        column_count = max((len(line.split("\t")) for line in lines), default=1)
-        row_start = metadata.get("table_row_start", metadata.get("row_start", 0))
-        row_end = metadata.get(
-            "table_row_end",
-            metadata.get("row_end", max(len(lines) - 1, 0)),
-        )
-        return TableChunkLocator(
-            table_id=str(metadata.get("table_id") or f"legacy-table:{logical_chunk_id}"),
-            table_version_id=str(
-                metadata.get("table_version_id") or f"legacy-table-version:{chunk_revision_id}"
-            ),
-            row_start=row_start if isinstance(row_start, int) else 0,
-            row_end=row_end if isinstance(row_end, int) else max(len(lines) - 1, 0),
-            column_count=column_count,
         )

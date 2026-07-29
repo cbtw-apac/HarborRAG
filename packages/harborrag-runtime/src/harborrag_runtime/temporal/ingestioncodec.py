@@ -15,7 +15,7 @@ from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
-from harborrag_core.schemas.documents import ChunkContext, ChunkRecord, ChunkSourceSpan
+from harborrag_core.schemas.documents import ChunkRecord
 from harborrag_engine.ingestion.chunking.schemas import (
     ChunkingDiagnostics,
     ChunkingResult,
@@ -174,34 +174,7 @@ def load_chunking_result(payload: bytes) -> ChunkingResult:
 def load_chunk_record(value: dict[str, Any]) -> ChunkRecord:
     """Load current chunks and explicitly migrate version-one storage payloads."""
 
-    if value.get("schema_version") and value.get("chunk_id"):
-        return ChunkRecord.model_validate(value)
-    return ChunkRecord.from_legacy(
-        logical_chunk_id=value["logical_chunk_id"],
-        chunk_revision_id=value["chunk_revision_id"],
-        tenant_id=value["tenant_id"],
-        document_id=value["document_id"],
-        document_version_id=value["document_version_id"],
-        artifact_id=value["artifact_id"],
-        artifact_revision_id=value["artifact_revision_id"],
-        ordinal=value["ordinal"],
-        role=value["role"],
-        content=value["content"],
-        content_hash=value["content_hash"],
-        token_count=value.get("token_count"),
-        source_span=(
-            ChunkSourceSpan.model_validate(value["source_span"])
-            if value.get("source_span") is not None
-            else None
-        ),
-        context=(
-            ChunkContext.model_validate(value["context"])
-            if value.get("context") is not None
-            else None
-        ),
-        metadata=dict(value.get("metadata") or {}),
-        created_at=_datetime(value.get("created_at")),
-    )
+    return ChunkRecord.from_legacy_payload(value)
 
 
 def load_indexing_result(payload: bytes) -> IndexingResult:

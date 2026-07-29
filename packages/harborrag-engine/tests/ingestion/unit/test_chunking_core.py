@@ -48,6 +48,29 @@ def test_preferred_minimum_merges_a_small_compatible_tail_under_maximum() -> Non
     assert len(result.chunks[0].metadata["source_units"]) == 2
 
 
+def test_plan_soft_maximum_limits_peer_merging_below_hard_maximum() -> None:
+    profile = make_profile(minimum=3, target=6, maximum=10)
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "aaaaaa"),
+            DocumentElement("p2", "paragraph", "b"),
+        ]
+    )
+    plan = ChunkingPlan(
+        profile="document",
+        strategy_version="strategy-1",
+        minimum_tokens=3,
+        target_tokens=6,
+        soft_maximum_tokens=7,
+        hard_maximum_tokens=10,
+    )
+
+    result = make_service(profile).chunk(make_request(document), plan)
+
+    assert [record.content for record in result.chunks] == ["aaaaaa", "b"]
+    assert result.manifest.validation.valid
+
+
 def test_oversized_units_get_unique_parts_below_the_hard_maximum() -> None:
     profile = make_profile(target=3, maximum=4)
     document = make_document([DocumentElement("p1", "paragraph", "abcdefghij")])

@@ -145,6 +145,7 @@ def test_section_path_normalization_preserves_ordered_ancestry() -> None:
 
     assert normalize_section_path(path) == ("Architecture", "Café Design")
     assert parent_section_path(path) == ("Architecture",)
+    assert parent_section_path(("Architecture",)) is None
     assert parent_section_path(()) is None
     with pytest.raises(ChunkHierarchyError, match="non-empty"):
         normalize_section_path(("Architecture", " "))

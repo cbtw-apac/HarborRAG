@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from re import compile
+
+from pydantic import ValidationError
 
 from harborrag_core.chunking import (
     ChunkHierarchy,
@@ -20,8 +23,27 @@ from harborrag_core.contracts.chunking import TokenCounter
 from harborrag_core.schemas.ids import ChunkId, DocumentId, DocumentVersionId, TenantId
 
 from .config import ChunkingProfile
+from .errors import ChunkValidationError
 from .identity import ChunkIdentity, ChunkIdentityBuilder
 from .schemas import ChunkCandidate, ChunkingRequest
+
+_ROLE_TOKEN_PATTERN = compile(r"[._-]+")
+_CONNECTOR_RULES = (
+    ("confluence", ConnectorType.CONFLUENCE),
+    ("jira", ConnectorType.JIRA),
+)
+_CHUNK_KIND_RULES = (
+    (frozenset({"table"}), ChunkKind.TABLE),
+    (frozenset({"code"}), ChunkKind.CODE),
+    (frozenset({"comment"}), ChunkKind.COMMENT),
+    (frozenset({"event"}), ChunkKind.EVENT),
+    (frozenset({"jira", "field"}), ChunkKind.JIRA_FIELD),
+)
+_DOCUMENT_KIND_BY_CONNECTOR = {
+    ConnectorType.CONFLUENCE: DocumentKind.CONFLUENCE_PAGE,
+    ConnectorType.JIRA: DocumentKind.JIRA_ISSUE,
+    ConnectorType.LOCAL: DocumentKind.LOCAL_FILE,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +78,14 @@ class CanonicalChunkFactory:
     def build(self, values: CanonicalChunkInput) -> ChunkRecord:
         """Build one complete immutable chunk without mutating its candidate."""
 
+        try:
+            return self._build_record(values)
+        except ValidationError as error:
+            if any(details["loc"][:1] == ("metadata",) for details in error.errors()):
+                raise ChunkValidationError("chunk metadata is not JSON serializable") from error
+            raise ChunkValidationError("canonical chunk validation failed") from error
+
+    def _build_record(self, values: CanonicalChunkInput) -> ChunkRecord:
         request = values.request
         candidate = values.candidate
         identity = values.identity
@@ -117,17 +147,19 @@ class CanonicalChunkFactory:
     def kind_for_role(role: str) -> ChunkKind:
         """Map existing structural strategy roles to stable chunk kinds."""
 
-        if role == "table":
-            return ChunkKind.TABLE
-        if "code" in role:
-            return ChunkKind.CODE
-        if "comment" in role:
-            return ChunkKind.COMMENT
-        if "event" in role:
-            return ChunkKind.EVENT
-        if role in {"jira.field", "jira_field"}:
-            return ChunkKind.JIRA_FIELD
-        return ChunkKind.EVIDENCE
+        tokens = CanonicalChunkFactory._role_tokens(role)
+        return next(
+            (
+                chunk_kind
+                for required_tokens, chunk_kind in _CHUNK_KIND_RULES
+                if required_tokens <= tokens
+            ),
+            ChunkKind.EVIDENCE,
+        )
+
+    @staticmethod
+    def _role_tokens(role: str) -> frozenset[str]:
+        return frozenset(filter(None, _ROLE_TOKEN_PATTERN.split(role.strip().lower())))
 
     def _hierarchy(
         self,
@@ -222,22 +254,21 @@ class CanonicalChunkFactory:
 
     @staticmethod
     def _connector_type(source_kind: str) -> ConnectorType:
-        if "confluence" in source_kind:
-            return ConnectorType.CONFLUENCE
-        if "jira" in source_kind:
-            return ConnectorType.JIRA
-        return ConnectorType.LOCAL
+        return next(
+            (
+                connector_type
+                for marker, connector_type in _CONNECTOR_RULES
+                if marker in source_kind
+            ),
+            ConnectorType.LOCAL,
+        )
 
     @classmethod
     def _document_kind(cls, source_kind: str, role: str) -> DocumentKind:
-        if "attachment" in role:
+        if "attachment" in cls._role_tokens(role):
             return DocumentKind.ATTACHMENT
         connector = cls._connector_type(source_kind)
-        if connector == ConnectorType.CONFLUENCE:
-            return DocumentKind.CONFLUENCE_PAGE
-        if connector == ConnectorType.JIRA:
-            return DocumentKind.JIRA_ISSUE
-        return DocumentKind.LOCAL_FILE
+        return _DOCUMENT_KIND_BY_CONNECTOR[connector]
 
     @staticmethod
     def _contextual_prefix(hierarchy: ChunkHierarchy) -> str:

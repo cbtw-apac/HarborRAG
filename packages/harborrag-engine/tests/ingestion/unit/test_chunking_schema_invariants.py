@@ -35,6 +35,14 @@ from harborrag_engine.ingestion.chunking.schemas import ChunkReference
             {"maximum_tokens": 500, "target_tokens": 700},
             "maximum_tokens must not be below target_tokens",
         ),
+        (
+            {"soft_maximum_tokens": 600, "target_tokens": 700},
+            "soft_maximum_tokens must not be below target_tokens",
+        ),
+        (
+            {"soft_maximum_tokens": 1200, "maximum_tokens": 1100},
+            "soft_maximum_tokens must not exceed maximum_tokens",
+        ),
         ({"overlap_tokens": -1}, "overlap_tokens must not be negative"),
         (
             {"overlap_tokens": 700, "target_tokens": 700},
@@ -53,7 +61,12 @@ def test_chunking_limits_reject_inconsistent_bounds(
 def test_chunking_limits_accept_the_documented_defaults() -> None:
     limits = ChunkingLimits()
 
-    assert limits.minimum_tokens <= limits.target_tokens <= limits.maximum_tokens
+    assert (
+        limits.minimum_tokens
+        <= limits.target_tokens
+        <= limits.soft_maximum_tokens
+        <= limits.maximum_tokens
+    )
     assert limits.overlap_tokens < limits.target_tokens
 
 
@@ -82,6 +95,7 @@ def test_profile_strips_its_identity_and_exposes_limits() -> None:
     assert profile.strategy == "structural"
     assert profile.minimum_tokens == profile.limits.minimum_tokens
     assert profile.target_tokens == profile.limits.target_tokens
+    assert profile.soft_maximum_tokens == profile.limits.soft_maximum_tokens
 
 
 # --------------------------------------------------------------------------

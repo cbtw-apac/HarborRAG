@@ -61,6 +61,13 @@ class ChunkContainer(StrictModel):
     ordinal: int = Field(ge=0)
     title: str | None = None
 
+    @field_validator("container_id")
+    @classmethod
+    def validate_container_id(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("container_id must be non-empty")
+        return value
+
     @field_validator("title")
     @classmethod
     def validate_title(cls, value: str | None) -> str | None:
@@ -109,7 +116,18 @@ class ChunkHierarchy(StrictModel):
             raise ValueError("parent_section_id must be the last ancestry entry")
         if self.previous_chunk_id is not None and self.previous_chunk_id == self.next_chunk_id:
             raise ValueError("previous_chunk_id and next_chunk_id must differ")
+        self._validate_containers()
         return self
+
+    def _validate_containers(self) -> None:
+        container_ids = tuple(container.container_id for container in self.containers)
+        if len(set(container_ids)) != len(container_ids):
+            raise ValueError("chunk hierarchy container IDs must be unique")
+        container_ordinals = tuple(container.ordinal for container in self.containers)
+        if len(set(container_ordinals)) != len(container_ordinals):
+            raise ValueError("chunk hierarchy container ordinals must be unique")
+        if container_ordinals != tuple(sorted(container_ordinals)):
+            raise ValueError("chunk hierarchy containers must be ordered by ordinal")
 
 
 class ChunkRelation(StrictModel):

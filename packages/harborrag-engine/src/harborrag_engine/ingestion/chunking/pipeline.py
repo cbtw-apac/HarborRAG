@@ -196,6 +196,7 @@ class ChunkingService(BaseChunker):
                 target_tokens=plan.target_tokens,
                 maximum_tokens=plan.hard_maximum_tokens,
                 overlap_tokens=0,
+                soft_maximum_tokens=plan.soft_maximum_tokens,
             ),
             merge_small_peers=configured.merge_small_peers,
             preserve_sections=configured.preserve_sections,

@@ -13,6 +13,7 @@ from harborrag_core.chunking import (
     ChunkRecord,
     ChunkRelation,
     ChunkSecurity,
+    ChunkValidationError,
     ConnectorType,
     ContainerKind,
     DocumentKind,
@@ -30,6 +31,11 @@ from harborrag_core.chunking import (
             {"container_id": "c1", "kind": "section", "ordinal": 0, "title": " "},
             "title",
         ),
+        (
+            ChunkContainer,
+            {"container_id": " ", "kind": "section", "ordinal": 0},
+            "container_id",
+        ),
         (ChunkHierarchy, {"section_path": (" ",)}, "section path"),
         (ChunkHierarchy, {"document_title": " "}, "document_title"),
         (ChunkHierarchy, {"parent_title": " "}, "parent_title"),
@@ -44,6 +50,36 @@ from harborrag_core.chunking import (
             ChunkHierarchy,
             {"previous_chunk_id": "same", "next_chunk_id": "same"},
             "must differ",
+        ),
+        (
+            ChunkHierarchy,
+            {
+                "containers": (
+                    {"container_id": "same", "kind": "section", "ordinal": 0},
+                    {"container_id": "same", "kind": "panel", "ordinal": 1},
+                )
+            },
+            "container IDs must be unique",
+        ),
+        (
+            ChunkHierarchy,
+            {
+                "containers": (
+                    {"container_id": "first", "kind": "section", "ordinal": 0},
+                    {"container_id": "second", "kind": "panel", "ordinal": 0},
+                )
+            },
+            "container ordinals must be unique",
+        ),
+        (
+            ChunkHierarchy,
+            {
+                "containers": (
+                    {"container_id": "first", "kind": "section", "ordinal": 2},
+                    {"container_id": "second", "kind": "panel", "ordinal": 1},
+                )
+            },
+            "ordered by ordinal",
         ),
         (ChunkRelation, {"relation_type": "links_to", "target_id": " "}, "target"),
         (
@@ -168,6 +204,20 @@ def test_chunk_rejects_cross_field_contract_mismatches(
             DocumentKind.ATTACHMENT,
             ChunkKind.EVIDENCE,
         ),
+        (
+            "confluence",
+            "confluence.table",
+            ConnectorType.CONFLUENCE,
+            DocumentKind.CONFLUENCE_PAGE,
+            ChunkKind.TABLE,
+        ),
+        (
+            "local",
+            "prevent",
+            ConnectorType.LOCAL,
+            DocumentKind.LOCAL_FILE,
+            ChunkKind.EVIDENCE,
+        ),
     ],
 )
 def test_explicit_legacy_migration_maps_existing_roles(
@@ -198,7 +248,29 @@ def test_explicit_legacy_migration_maps_existing_roles(
     assert chunk.strategy_version == "7"
 
 
-def test_legacy_table_migration_builds_a_structured_locator() -> None:
+@pytest.mark.parametrize(
+    ("metadata", "expected_start", "expected_end"),
+    [
+        (
+            {
+                "table_id": "table:stable",
+                "table_version_id": "table-version:stable",
+                "row_start": "invalid",
+                "row_end": "invalid",
+            },
+            0,
+            1,
+        ),
+        ({"row_start": 10}, 10, 11),
+        ({"row_start": 10, "row_end": 9}, 10, 10),
+        ({"row_start": True, "row_end": False}, 0, 1),
+    ],
+)
+def test_legacy_table_migration_builds_a_structured_locator(
+    metadata: dict[str, object],
+    expected_start: int,
+    expected_end: int,
+) -> None:
     chunk = ChunkRecord.from_legacy(
         logical_chunk_id="logical",
         chunk_revision_id="revision",
@@ -211,18 +283,42 @@ def test_legacy_table_migration_builds_a_structured_locator() -> None:
         role="table",
         content="A\tB\n1\t2",
         content_hash="hash",
-        metadata={
-            "table_id": "table:stable",
-            "table_version_id": "table-version:stable",
-            "row_start": "invalid",
-            "row_end": "invalid",
-        },
+        metadata=metadata,
     )
 
     assert chunk.table_locator is not None
-    assert chunk.table_locator.table_id == "table:stable"
-    assert chunk.table_locator.row_start == 0
-    assert chunk.table_locator.row_end == 1
+    assert chunk.table_locator.row_start == expected_start
+    assert chunk.table_locator.row_end == expected_end
+
+
+def test_payload_migration_accepts_current_and_legacy_storage_shapes() -> None:
+    current = make_chunk(metadata={"source": "canonical"})
+    assert ChunkRecord.from_legacy_payload(current.model_dump()) == current
+
+    legacy = ChunkRecord.from_legacy_payload(
+        {
+            "logical_chunk_id": "logical",
+            "chunk_revision_id": "revision",
+            "tenant_id": "tenant",
+            "document_id": "document",
+            "document_version_id": "document-version",
+            "artifact_id": "artifact",
+            "artifact_revision_id": "artifact-version",
+            "ordinal": 0,
+            "role": "jira.comment",
+            "content": "content",
+            "content_hash": "hash",
+            "source_span": {"start_offset": 0, "end_offset": 7},
+            "context": {"title": "Issue"},
+            "metadata": {"source_kind": "jira"},
+        }
+    )
+
+    assert legacy.chunk_kind == ChunkKind.COMMENT
+    assert legacy.source_locator.start_offset == 0
+    assert legacy.hierarchy.document_title == "Issue"
+    with pytest.raises(ChunkValidationError, match="metadata must be a mapping"):
+        ChunkRecord.from_legacy_payload({"metadata": "invalid"})
 
 
 def test_canonical_role_compatibility_falls_back_to_chunk_kind() -> None:

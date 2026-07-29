@@ -5,9 +5,6 @@ HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow down
 Accepted choices and their consequences are recorded in the
 [architecture decision records](../../adr/README.md).
 
-The provider-neutral chunk boundary and deterministic identity policy are
-documented in [Canonical chunking contracts](chunking-contracts.md).
-
 ## Active package map
 
 | Package | Responsibility | Current maturity |

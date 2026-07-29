@@ -24,7 +24,9 @@ def parent_section_path(section_path: Sequence[str]) -> tuple[str, ...] | None:
     """Return the normalized parent path, or none for a root section."""
 
     normalized = normalize_section_path(section_path)
-    return normalized[:-1] if normalized else None
+    if len(normalized) < 2:
+        return None
+    return normalized[:-1]
 
 
 class ChunkHierarchyValidator:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from pydantic import ValidationError
 
@@ -118,8 +120,8 @@ class FakeCanonicalChunker(HarborChunker):
         )
 
 
-def test_chunking_plan_is_immutable_and_validates_common_limits() -> None:
-    plan = ChunkingPlan(
+def _contract_plan() -> ChunkingPlan:
+    return ChunkingPlan(
         profile="contract",
         strategy_version="strategy-1",
         minimum_tokens=1,
@@ -128,10 +130,26 @@ def test_chunking_plan_is_immutable_and_validates_common_limits() -> None:
         hard_maximum_tokens=4,
     )
 
+
+def test_chunking_plan_defaults_and_normalizes_identifiers() -> None:
+    plan = ChunkingPlan(
+        profile="  contract  ",
+        strategy_version="  strategy-1  ",
+        minimum_tokens=1,
+        target_tokens=2,
+        soft_maximum_tokens=3,
+        hard_maximum_tokens=4,
+    )
+
+    assert plan.profile == "contract"
+    assert plan.strategy_version == "strategy-1"
     assert plan.create_evidence_chunks
     assert plan.boundary_overlap_sentences == 0
 
-    invalid_values = (
+
+@pytest.mark.parametrize(
+    "invalid_values",
+    (
         {"profile": " "},
         {"strategy_version": ""},
         {"minimum_tokens": 0},
@@ -139,23 +157,14 @@ def test_chunking_plan_is_immutable_and_validates_common_limits() -> None:
         {"target_tokens": 4, "soft_maximum_tokens": 3},
         {"soft_maximum_tokens": 5, "hard_maximum_tokens": 4},
         {"boundary_overlap_sentences": -1},
-    )
-    for changes in invalid_values:
-        values = {
-            "profile": "contract",
-            "strategy_version": "strategy-1",
-            "minimum_tokens": 1,
-            "target_tokens": 2,
-            "soft_maximum_tokens": 3,
-            "hard_maximum_tokens": 4,
-            **changes,
-        }
-        try:
-            ChunkingPlan(**values)
-        except InvalidChunkingPlanError:
-            continue
-        raise AssertionError(f"invalid plan was accepted: {changes}")
+    ),
+)
+def test_chunking_plan_rejects_invalid_values(invalid_values: dict[str, object]) -> None:
+    with pytest.raises(InvalidChunkingPlanError):
+        replace(_contract_plan(), **invalid_values)
 
+
+def test_chunking_statistics_rejects_negative_counts() -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         ChunkingStatistics(-1, 0, 0, 0, 0)
 

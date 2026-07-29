@@ -65,8 +65,6 @@ def chunk_values(**changes: object) -> dict[str, object]:
         "created_at": datetime(2026, 7, 29, tzinfo=UTC),
     }
     values.update(changes)
-    if "content" in changes and "embedding_text" not in changes:
-        values["embedding_text"] = f"{prefix}\n\n{content}" if prefix else content
     return values
 
 
