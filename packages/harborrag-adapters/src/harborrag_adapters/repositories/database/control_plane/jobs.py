@@ -93,7 +93,10 @@ class SqlJobRepository:
         statement = sa.select(JobRow.status, sa.func.count()).group_by(JobRow.status)
         async with self.sessions() as session:
             rows = await session.execute(statement)
-            return dict(rows.all())
+            counts: dict[str, int] = {}
+            for status, count in rows.all():
+                counts[status] = count
+            return counts
 
 
 @dataclass(slots=True)
