@@ -16,7 +16,12 @@ from harborrag_engine.ingestion.chunking.manifest import (
 )
 from harborrag_engine.ingestion.chunking.schemas import ChunkManifest
 
-from .ingestioncodec import dump_payload, load_chunk_manifest, load_payload
+from .ingestioncodec import (
+    dump_payload,
+    load_chunk_manifest,
+    load_chunk_record,
+    load_payload,
+)
 
 _BUCKET = "ingestion"
 
@@ -130,7 +135,7 @@ class ObjectChunkRepository(CanonicalChunkRepository):
                 ),
                 "canonical-chunk",
             )
-            records.append(ChunkRecord.model_validate(value))
+            records.append(load_chunk_record(value))
         return tuple(records)
 
     @staticmethod

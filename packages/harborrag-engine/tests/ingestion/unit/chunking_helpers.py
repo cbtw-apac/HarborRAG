@@ -142,11 +142,12 @@ def make_request(
     document: Document,
     *,
     profile_name: str | None = None,
+    artifact_revision_id: str = "revision-1",
 ) -> ChunkingRequest:
     return ChunkingRequest(
         tenant_id="tenant-1",
         artifact_id=document.id,
-        artifact_revision_id="revision-1",
+        artifact_revision_id=artifact_revision_id,
         document=document,
         profile_name=profile_name,
     )

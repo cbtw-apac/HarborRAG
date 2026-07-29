@@ -165,10 +165,16 @@ def load_chunking_result(payload: bytes) -> ChunkingResult:
         strategy=value["strategy"],
         profile=value["profile"],
         profile_hash=value["profile_hash"],
-        chunks=tuple(ChunkRecord.model_validate(item) for item in value.get("chunks", ())),
+        chunks=tuple(load_chunk_record(item) for item in value.get("chunks", ())),
         diagnostics=ChunkingDiagnostics(**value["diagnostics"]),
         manifest=load_chunk_manifest(value["manifest"]),
     )
+
+
+def load_chunk_record(value: dict[str, Any]) -> ChunkRecord:
+    """Load current chunks and explicitly migrate version-one storage payloads."""
+
+    return ChunkRecord.from_legacy_payload(value)
 
 
 def load_indexing_result(payload: bytes) -> IndexingResult:

@@ -159,7 +159,7 @@
       "PLR0913": 1
     },
     "packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/pipeline.py": {
-      "PLR0913": 3
+      "PLR0913": 2
     },
     "packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/strategies/jirastrategy.py": {
       "PLR0913": 1
