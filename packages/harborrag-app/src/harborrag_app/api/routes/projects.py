@@ -8,11 +8,13 @@ empty FakeProjectRepository in dev/mock mode.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.project import Project
 
@@ -56,16 +58,19 @@ class ProjectOut(BaseModel):
 
 
 @router.get("/projects", response_model=list[ProjectOut])
-async def list_projects(request: Request) -> list[ProjectOut]:
+async def list_projects(
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+) -> list[ProjectOut]:
     """All projects, unpaginated (pagination is an open ML1 decision)."""
-    service: BaseAppService = request.app.state.app_service
     response = await service.list_projects()
     return [ProjectOut.from_domain(project) for project in response.data["projects"]]
 
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
-async def get_project(project_id: str, request: Request) -> ProjectOut:
+async def get_project(
+    project_id: str,
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+) -> ProjectOut:
     """One project by id; 404 (enveloped) when it does not exist."""
-    service: BaseAppService = request.app.state.app_service
     response = await service.get_project(project_id)
     return ProjectOut.from_domain(response.data["project"])

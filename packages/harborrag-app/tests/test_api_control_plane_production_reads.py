@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.client import AppService
 from harborrag_core.domain.activity import ActivityEntry
@@ -131,9 +132,8 @@ def test_read_routes_return_enveloped_503_when_control_plane_unconfigured() -> N
     failed to wire up) must surface a 503, not a KeyError-turned-500 or a
     misleading 404 (the previous per-route behavior for get_project/get_source)."""
     app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_app_service] = lambda: AppService(CompositionRoot())
     with TestClient(app) as client:
-        app.state.app_service = AppService(CompositionRoot())
-
         for path in (
             "/api/v1/projects",
             "/api/v1/projects/any-id",

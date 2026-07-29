@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.activity import ActivityEntry
 
@@ -38,10 +40,9 @@ class ActivityEntryOut(BaseModel):
 
 @router.get("/activity", response_model=list[ActivityEntryOut])
 async def list_activity(
-    request: Request,
+    service: Annotated[BaseAppService, Depends(get_app_service)],
     limit: int = Query(50, ge=1, le=200),
 ) -> list[ActivityEntryOut]:
     """Most recent audit entries, newest first."""
-    service: BaseAppService = request.app.state.app_service
     response = await service.list_activity(limit)
     return [ActivityEntryOut.from_domain(entry) for entry in response.data["activity"]]

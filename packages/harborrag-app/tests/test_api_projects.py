@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control import mock_app_service
 from harborrag_core.domain.project import Project
@@ -25,10 +26,10 @@ def test_list_projects_returns_seeded_project() -> None:
     """Swap in a MockAppService pre-loaded with one project to test the
     read routes end to end without a real control-plane database."""
     app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_app_service] = lambda: mock_app_service(
+        projects=[Project(id="demo-1", name="Demo", collection="demo_collection")]
+    )
     with TestClient(app) as client:
-        app.state.app_service = mock_app_service(
-            projects=[Project(id="demo-1", name="Demo", collection="demo_collection")]
-        )
         response = client.get("/api/v1/projects")
         assert response.status_code == 200
         assert [project["id"] for project in response.json()] == ["demo-1"]

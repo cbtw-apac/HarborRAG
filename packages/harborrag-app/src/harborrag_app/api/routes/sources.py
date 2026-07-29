@@ -6,12 +6,13 @@ operations (create/update/delete, secrets handling) land with ML2.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.redaction import redact_mapping
@@ -44,16 +45,20 @@ class SourceOut(BaseModel):
 
 
 @router.get("/sources", response_model=list[SourceOut])
-async def list_sources(request: Request, project_id: str | None = None) -> list[SourceOut]:
+async def list_sources(
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+    project_id: str | None = None,
+) -> list[SourceOut]:
     """Sources, optionally filtered to one project."""
-    service: BaseAppService = request.app.state.app_service
     response = await service.list_sources(project_id)
     return [SourceOut.from_domain(source) for source in response.data["sources"]]
 
 
 @router.get("/sources/{source_id}", response_model=SourceOut)
-async def get_source(source_id: str, request: Request) -> SourceOut:
+async def get_source(
+    source_id: str,
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+) -> SourceOut:
     """One source by id; 404 (enveloped) when it does not exist."""
-    service: BaseAppService = request.app.state.app_service
     response = await service.get_source(source_id)
     return SourceOut.from_domain(response.data["source"])
