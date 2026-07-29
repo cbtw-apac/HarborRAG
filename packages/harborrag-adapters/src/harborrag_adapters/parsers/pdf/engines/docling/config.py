@@ -43,6 +43,4 @@ class DoclingPDFConfig:
             self.page_range = (page_range[0], page_range[1])
 
 
-DoclingBackendOptions = DoclingPDFConfig
-
-__all__ = ["DoclingBackendOptions", "DoclingPDFConfig"]
+__all__ = ["DoclingPDFConfig"]

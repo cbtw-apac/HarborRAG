@@ -5,15 +5,10 @@ from __future__ import annotations
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory
-from harborrag_adapters.parsers.common.validation import (
-    DEFAULT_MAX_INPUT_BYTES,
-    guard_input_size,
-)
+from harborrag_adapters.parsers.common.validation import DEFAULT_MAX_INPUT_BYTES, guard_input_size
 from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.markup.engines.html import engine as html_parser_module
-from harborrag_adapters.parsers.markup.engines.markdown import (
-    engine as markdown_parser_module,
-)
+from harborrag_adapters.parsers.markup.engines.markdown import engine as markdown_parser_module
 from harborrag_adapters.parsers.spreadsheet.engines.csv import engine as csv_parser_module
 from harborrag_core.domain.parser import ParseInput
 
@@ -55,11 +50,11 @@ def test_guard_input_size_mechanism_without_large_allocation() -> None:
 @pytest.mark.parametrize(
     ("module", "parser_cls", "filename", "body"),
     [
-        (csv_parser_module, csv_parser_module.CsvParser, "big.csv", "a,b\n1,2\n"),
-        (html_parser_module, html_parser_module.HtmlParser, "big.html", "<p>hi</p>"),
+        (csv_parser_module, csv_parser_module.CsvSpreadsheetEngine, "big.csv", "a,b\n1,2\n"),
+        (html_parser_module, html_parser_module.HtmlMarkupEngine, "big.html", "<p>hi</p>"),
         (
             markdown_parser_module,
-            markdown_parser_module.MarkdownParser,
+            markdown_parser_module.MarkdownMarkupEngine,
             "big.md",
             "# hi",
         ),

@@ -19,8 +19,6 @@ from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
-LiteParseBackendOptions = LiteParsePDFConfig
-
 
 class LiteParsePDFEngine(HarborPDFEngine):
     """Adapter for LlamaIndex LiteParse.
@@ -242,6 +240,3 @@ class LiteParsePDFEngine(HarborPDFEngine):
             if item_text:
                 parts.append(str(item_text))
         return compact_text("\n".join(parts))
-
-
-LiteParseBackend = LiteParsePDFEngine

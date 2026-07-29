@@ -135,6 +135,3 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         text = re.sub(r"^\s*\d+[.)]\s+", "", text, flags=re.MULTILINE)
         text = re.sub(r"[*_`~]", "", text)
         return "\n".join(line.strip() for line in text.splitlines()).strip()
-
-
-MarkdownParser = MarkdownMarkupEngine

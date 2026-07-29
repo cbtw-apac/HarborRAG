@@ -113,6 +113,3 @@ class OdtDocumentEngine(HarborDocumentEngine):
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input),
         )
-
-
-OdtParser = OdtDocumentEngine

@@ -207,6 +207,3 @@ class EpubDocumentEngine(HarborDocumentEngine):
         """Remove an XML namespace prefix from an ElementTree tag."""
 
         return tag.rsplit("}", 1)[-1]
-
-
-EpubParser = EpubDocumentEngine

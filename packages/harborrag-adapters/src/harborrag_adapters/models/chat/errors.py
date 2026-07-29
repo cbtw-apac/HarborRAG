@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from harborrag_adapters.models.runtime.errors import (
     ModelErrorCategory,
-    normalize_model_exception,
+    build_exception_normalizer,
 )
 from harborrag_core.models import errors as model_errors
 
+# Chat is the only family that models every category distinctly.
 _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborChatError]] = {
     ModelErrorCategory.AUTHENTICATION: model_errors.HarborChatAuthenticationError,
     ModelErrorCategory.AUTHORIZATION: model_errors.HarborChatAuthorizationError,
@@ -19,25 +20,8 @@ _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborChatError]] = {
     ModelErrorCategory.PROVIDER: model_errors.HarborChatProviderError,
 }
 
-
-def normalize_exception(
-    exc: Exception,
-    *,
-    provider: str | None = None,
-    logical_model: str | None = None,
-    provider_model: str | None = None,
-    deployment: str | None = None,
-    request_id: str | None = None,
-) -> model_errors.HarborChatError:
-    """Map an SDK failure into a sanitized chat error with execution context."""
-    return normalize_model_exception(
-        exc,
-        operation="chat",
-        error_base=model_errors.HarborChatError,
-        error_types=_ERROR_TYPES,
-        provider=provider,
-        logical_model=logical_model,
-        provider_model=provider_model,
-        deployment=deployment,
-        request_id=request_id,
-    )
+normalize_exception = build_exception_normalizer(
+    operation="chat",
+    error_base=model_errors.HarborChatError,
+    error_types=_ERROR_TYPES,
+)

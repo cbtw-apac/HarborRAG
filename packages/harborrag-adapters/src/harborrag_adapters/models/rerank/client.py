@@ -3,14 +3,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Self
 
-from harborrag_adapters.models.runtime.budget import ModelBudgetPolicy
-from harborrag_adapters.models.runtime.cache import ModelResponseCache
 from harborrag_adapters.models.runtime.client_lifecycle import ModelClientLifecycleMixin
 from harborrag_adapters.models.runtime.client_runtime import ModelClientRuntimeMixin
-from harborrag_adapters.models.runtime.health import (
-    ActiveHealthMonitor,
-    DeploymentHealthProbe,
-)
+from harborrag_adapters.models.runtime.health import ActiveHealthMonitor
 from harborrag_adapters.models.runtime.introspection import ModelRuntimeIntrospector
 from harborrag_adapters.models.runtime.lifecycle import (
     AsyncLifecycleResource,
@@ -18,13 +13,7 @@ from harborrag_adapters.models.runtime.lifecycle import (
     ResourceOwnership,
 )
 from harborrag_adapters.models.runtime.middleware import MiddlewarePipeline
-from harborrag_adapters.models.runtime.redis_client import RedisConnectionLifecycle
-from harborrag_adapters.models.runtime.routing_state import RoutingStateStore
-from harborrag_adapters.models.runtime.runtime_services import (
-    ModelRuntimeServices,
-    build_runtime_services,
-)
-from harborrag_adapters.models.runtime.singleflight import SingleFlightCoordinator
+from harborrag_adapters.models.runtime.runtime_services import build_runtime_services
 from harborrag_adapters.models.runtime.telemetry import TelemetryDispatcher
 from harborrag_core.models.capabilities import HarborRerankCapabilities
 from harborrag_core.models.rerank import (
@@ -39,9 +28,10 @@ from harborrag_core.ports.model_clients import (
 
 from .configs import HarborRerankClientConfig
 from .execution import RerankExecution
-from .invocation import LiteLLMRerankInvocation, RerankInvocation
+from .invocation import LiteLLMRerankInvocation
 from .parameters import prepare_rerank_request
 from .registry import RerankProviderRegistry
+from .schemas import RerankClientDependencies
 from .validation import validate_rerank_configuration
 
 
@@ -56,47 +46,37 @@ class HarborRerankingClient(
     def __init__(
         self,
         config: HarborRerankClientConfig,
-        *,
-        invocation: RerankInvocation | None = None,
-        cache: ModelResponseCache | None = None,
-        runtime_services: ModelRuntimeServices | None = None,
-        routing_state: RoutingStateStore | None = None,
-        singleflight: SingleFlightCoordinator | None = None,
-        budget: ModelBudgetPolicy | None = None,
-        redis: RedisConnectionLifecycle | None = None,
-        services_ownership: ResourceOwnership = ResourceOwnership.OWNED,
-        health_probe: DeploymentHealthProbe | None = None,
-        resource_ownership: ResourceOwnership = ResourceOwnership.OWNED,
-        telemetry: TelemetryDispatcher | None = None,
-        telemetry_ownership: ResourceOwnership = ResourceOwnership.BORROWED,
-        provider_registry: RerankProviderRegistry | None = None,
-        middleware: Sequence[object] = (),
+        dependencies: RerankClientDependencies | None = None,
     ) -> None:
         """Validate configuration and store injected reranking runtime boundaries."""
 
-        if config.routing.active_health.start_automatically and health_probe is None:
+        selected = dependencies or RerankClientDependencies()
+        if config.routing.active_health.start_automatically and selected.health_probe is None:
             raise ValueError(
                 "routing.active_health.start_automatically requires an injected health probe"
             )
-        registry = provider_registry or RerankProviderRegistry.default()
+        registry = selected.provider_registry or RerankProviderRegistry.default()
         validate_rerank_configuration(config, registry)
         self.config = config
         self._registry = registry
-        self._middleware = MiddlewarePipeline(middleware)
-        self._invocation = invocation or LiteLLMRerankInvocation()
-        self._telemetry = telemetry or TelemetryDispatcher((), config=config.observability)
-        self._owns_telemetry = telemetry is None or telemetry_ownership is ResourceOwnership.OWNED
-        self._services = runtime_services or build_runtime_services(
+        self._middleware = MiddlewarePipeline(selected.middleware)
+        self._invocation = selected.invocation or LiteLLMRerankInvocation()
+        self._telemetry = selected.telemetry or TelemetryDispatcher((), config=config.observability)
+        self._owns_telemetry = (
+            selected.telemetry is None or selected.telemetry_ownership is ResourceOwnership.OWNED
+        )
+        self._services = selected.runtime_services or build_runtime_services(
             config,
             family="rerank",
-            cache=cache,
-            routing_state=routing_state,
-            singleflight=singleflight,
-            budget=budget,
-            redis=redis,
+            cache=selected.cache,
+            routing_state=selected.routing_state,
+            singleflight=selected.singleflight,
+            budget=selected.budget,
+            redis=selected.redis,
         )
         self._owns_services = (
-            runtime_services is None or services_ownership is ResourceOwnership.OWNED
+            selected.runtime_services is None
+            or selected.services_ownership is ResourceOwnership.OWNED
         )
         self._execution = RerankExecution(
             config,
@@ -121,55 +101,25 @@ class HarborRerankingClient(
                 config.models,
                 config=config.routing.active_health,
                 store=self._services.routing_state,
-                probe=health_probe,
+                probe=selected.health_probe,
             )
-            if health_probe is not None
+            if selected.health_probe is not None
             else None
         )
         if config.routing.active_health.start_automatically:
             self.start_health_monitor()
-        self._resource_ownership = resource_ownership
+        self._resource_ownership = selected.resource_ownership
         self._closed = False
 
     @classmethod
     def from_config(
         cls,
         config: HarborRerankClientConfig,
-        *,
-        invocation: RerankInvocation | None = None,
-        cache: ModelResponseCache | None = None,
-        runtime_services: ModelRuntimeServices | None = None,
-        routing_state: RoutingStateStore | None = None,
-        singleflight: SingleFlightCoordinator | None = None,
-        budget: ModelBudgetPolicy | None = None,
-        redis: RedisConnectionLifecycle | None = None,
-        services_ownership: ResourceOwnership = ResourceOwnership.OWNED,
-        health_probe: DeploymentHealthProbe | None = None,
-        resource_ownership: ResourceOwnership = ResourceOwnership.OWNED,
-        telemetry: TelemetryDispatcher | None = None,
-        telemetry_ownership: ResourceOwnership = ResourceOwnership.BORROWED,
-        provider_registry: RerankProviderRegistry | None = None,
-        middleware: Sequence[object] = (),
+        dependencies: RerankClientDependencies | None = None,
     ) -> Self:
         """Construct a reranking client from a validated configuration object."""
 
-        return cls(
-            config,
-            invocation=invocation,
-            cache=cache,
-            runtime_services=runtime_services,
-            routing_state=routing_state,
-            singleflight=singleflight,
-            budget=budget,
-            redis=redis,
-            services_ownership=services_ownership,
-            health_probe=health_probe,
-            resource_ownership=resource_ownership,
-            telemetry=telemetry,
-            telemetry_ownership=telemetry_ownership,
-            provider_registry=provider_registry,
-            middleware=middleware,
-        )
+        return cls(config, dependencies)
 
     def rerank(
         self,

@@ -12,6 +12,7 @@ from harborrag_adapters.models.runtime.cache import (
     ResponseCacheController,
 )
 from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.errors import ModelCallContext
 from harborrag_adapters.models.runtime.execution import RoutedModelExecutor
 from harborrag_adapters.models.runtime.litellm_router import router_model_name
 from harborrag_adapters.models.runtime.middleware import (
@@ -205,11 +206,9 @@ class ChatExecution:
             ),
             normalize_error=lambda exc, name, deployment: normalize_exception(
                 exc,
-                provider=deployment.provider.value,
-                logical_model=name,
-                provider_model=deployment.model,
-                deployment=deployment.name,
-                request_id=chat_request_id(request),
+                ModelCallContext.for_deployment(
+                    deployment, logical_model=name, request_id=chat_request_id(request)
+                ),
             ),
             on_transition=operation.transition,
             estimated_tokens=authorization.estimated_tokens,
@@ -239,11 +238,9 @@ class ChatExecution:
             ),
             normalize_error=lambda exc, name, deployment: normalize_exception(
                 exc,
-                provider=deployment.provider.value,
-                logical_model=name,
-                provider_model=deployment.model,
-                deployment=deployment.name,
-                request_id=chat_request_id(request),
+                ModelCallContext.for_deployment(
+                    deployment, logical_model=name, request_id=chat_request_id(request)
+                ),
             ),
             on_transition=operation.atransition,
             estimated_tokens=authorization.estimated_tokens,

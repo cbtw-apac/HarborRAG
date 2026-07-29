@@ -29,6 +29,4 @@ class LiteParsePDFConfig:
     extra_options: dict[str, Any] = field(default_factory=dict)
 
 
-LiteParseBackendOptions = LiteParsePDFConfig
-
-__all__ = ["LiteParseBackendOptions", "LiteParsePDFConfig"]
+__all__ = ["LiteParsePDFConfig"]

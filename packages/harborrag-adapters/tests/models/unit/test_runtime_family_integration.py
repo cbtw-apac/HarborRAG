@@ -7,11 +7,11 @@ from model_invocation_support import (
     embedding_response,
     rerank_response,
 )
+from model_runtime_support import embed_client, rerank_client
 
-from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
+from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
-    HarborRerankingClient,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -55,7 +55,7 @@ def test_embedding_deployment_failover_and_cache() -> None:
         }
     )
     invocation = FakeEmbeddingInvocation([TimeoutError("slow"), embedding_response([[1.0, 0.0]])])
-    client = HarborEmbedClient(config, invocation=invocation)
+    client = embed_client(config, invocation=invocation)
 
     first = client.embed("hello", metadata={"tenant_id": "tenant"})
     cached = client.embed("hello", metadata={"tenant_id": "tenant"})
@@ -93,7 +93,7 @@ def test_rerank_logical_fallback_and_cache() -> None:
         }
     )
     invocation = FakeRerankInvocation([TimeoutError("slow"), rerank_response([(0, 0.9)])])
-    client = HarborRerankingClient(config, invocation=invocation)
+    client = rerank_client(config, invocation=invocation)
 
     first = client.rerank("query", ["document"], metadata={"tenant_id": "tenant"})
     cached = client.rerank("query", ["document"], metadata={"tenant_id": "tenant"})

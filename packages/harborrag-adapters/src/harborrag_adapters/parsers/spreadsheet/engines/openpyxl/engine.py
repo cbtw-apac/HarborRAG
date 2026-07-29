@@ -318,6 +318,3 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
         if cell.ctype == xlrd.XL_CELL_ERROR:
             return f"#ERROR:{cell.value}"
         return str(cell.value)
-
-
-ExcelParser = ExcelSpreadsheetEngine

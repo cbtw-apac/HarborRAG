@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 from model_invocation_support import FakeRerankInvocation, rerank_response
+from model_runtime_support import rerank_client
 from pydantic import ValidationError
 
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
-    HarborRerankingClient,
 )
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_core.models.errors import (
@@ -54,9 +54,7 @@ def test_sync_reranking_preserves_source_identity_and_metadata() -> None:
     ]
     invocation = FakeRerankInvocation([rerank_response([(0, 0.2), (1, 0.9)], search_units=1)])
 
-    response = HarborRerankingClient(rerank_config(), invocation=invocation).rerank(
-        "query", documents
-    )
+    response = rerank_client(rerank_config(), invocation=invocation).rerank("query", documents)
 
     assert response.indices == (1, 0)
     assert response.results[0].document_id == "second-id"
@@ -70,7 +68,7 @@ def test_sync_reranking_preserves_source_identity_and_metadata() -> None:
 @pytest.mark.asyncio
 async def test_async_reranking() -> None:
     invocation = FakeRerankInvocation([rerank_response([(0, 0.8), (1, 0.1)])])
-    client = HarborRerankingClient(rerank_config(), invocation=invocation)
+    client = rerank_client(rerank_config(), invocation=invocation)
 
     response = await client.arerank("query", ["first", "second"])
 
@@ -81,7 +79,7 @@ async def test_async_reranking() -> None:
 def test_top_n_is_forwarded_and_limits_results() -> None:
     invocation = FakeRerankInvocation([rerank_response([(2, 0.9), (0, 0.7)])])
 
-    response = HarborRerankingClient(rerank_config(), invocation=invocation).rerank(
+    response = rerank_client(rerank_config(), invocation=invocation).rerank(
         "query", ["zero", "one", "two"], top_n=2
     )
 
@@ -92,7 +90,7 @@ def test_top_n_is_forwarded_and_limits_results() -> None:
 def test_tied_scores_use_stable_source_index_order() -> None:
     invocation = FakeRerankInvocation([rerank_response([(2, 0.5), (0, 0.5), (1, 0.5)])])
 
-    response = HarborRerankingClient(rerank_config(), invocation=invocation).rerank(
+    response = rerank_client(rerank_config(), invocation=invocation).rerank(
         "query", ["zero", "one", "two"]
     )
 
@@ -115,7 +113,7 @@ def test_invalid_requests_are_rejected_before_invocation(
     top_n: int | None,
 ) -> None:
     invocation = FakeRerankInvocation()
-    client = HarborRerankingClient(rerank_config(), invocation=invocation)
+    client = rerank_client(rerank_config(), invocation=invocation)
 
     with pytest.raises(HarborRerankInvalidRequestError, match="invalid rerank request"):
         client.rerank(query, documents, top_n=top_n)
@@ -138,7 +136,7 @@ def test_invalid_requests_are_rejected_before_invocation(
     ],
 )
 def test_malformed_provider_responses_are_rejected(response: object) -> None:
-    client = HarborRerankingClient(rerank_config(), invocation=FakeRerankInvocation([response]))
+    client = rerank_client(rerank_config(), invocation=FakeRerankInvocation([response]))
 
     with pytest.raises(HarborRerankMalformedResponseError):
         client.rerank("query", ["document"])
@@ -148,7 +146,7 @@ def test_timeout_is_retried_and_remains_typed_when_exhausted() -> None:
     invocation = FakeRerankInvocation([TimeoutError("slow"), TimeoutError("still slow")])
 
     with pytest.raises(HarborRerankTimeoutError):
-        HarborRerankingClient(rerank_config(attempts=2), invocation=invocation).rerank(
+        rerank_client(rerank_config(attempts=2), invocation=invocation).rerank(
             "query", ["document"]
         )
 
@@ -156,7 +154,7 @@ def test_timeout_is_retried_and_remains_typed_when_exhausted() -> None:
 
 
 def test_provider_error_is_normalized() -> None:
-    client = HarborRerankingClient(
+    client = rerank_client(
         rerank_config(),
         invocation=FakeRerankInvocation([RuntimeError("provider failed")]),
     )
@@ -172,7 +170,7 @@ def test_structured_documents_require_declared_capability() -> None:
     invocation = FakeRerankInvocation()
 
     with pytest.raises(HarborRerankCapabilityError, match="structured rerank"):
-        HarborRerankingClient(rerank_config(), invocation=invocation).rerank(
+        rerank_client(rerank_config(), invocation=invocation).rerank(
             "query", [{"title": "document"}]
         )
 
@@ -197,7 +195,7 @@ def test_unknown_provider_is_rejected_during_configuration() -> None:
 @pytest.mark.asyncio
 async def test_lifecycle_closes_owned_invocation_once() -> None:
     sync_invocation = FakeRerankInvocation()
-    sync_client = HarborRerankingClient(rerank_config(), invocation=sync_invocation)
+    sync_client = rerank_client(rerank_config(), invocation=sync_invocation)
     sync_client.close()
     sync_client.close()
     assert sync_invocation.close_count == 1
@@ -205,7 +203,7 @@ async def test_lifecycle_closes_owned_invocation_once() -> None:
         sync_client.rerank("query", ["document"])
 
     async_invocation = FakeRerankInvocation()
-    async_client = HarborRerankingClient(rerank_config(), invocation=async_invocation)
+    async_client = rerank_client(rerank_config(), invocation=async_invocation)
     await async_client.aclose()
     await async_client.aclose()
     assert async_invocation.aclose_count == 1
@@ -213,7 +211,7 @@ async def test_lifecycle_closes_owned_invocation_once() -> None:
 
 def test_borrowed_invocation_is_not_closed() -> None:
     invocation = FakeRerankInvocation()
-    client = HarborRerankingClient(
+    client = rerank_client(
         rerank_config(),
         invocation=invocation,
         resource_ownership=ResourceOwnership.BORROWED,

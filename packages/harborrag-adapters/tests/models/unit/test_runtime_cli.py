@@ -11,13 +11,13 @@ from model_runtime_support import (
     FakeEmbeddingInvocation,
     FakeRerankInvocation,
     chat_config,
+    embed_client,
     embed_config,
+    rerank_client,
     rerank_config,
 )
 
-from harborrag_adapters.models.cli import ModelConfigCli, main
-from harborrag_adapters.models.embed import HarborEmbedClient
-from harborrag_adapters.models.rerank import HarborRerankingClient
+from harborrag_adapters.models.cli import main
 from harborrag_adapters.models.runtime.budget import (
     InMemoryBudgetPolicy,
     NoopBudgetPolicy,
@@ -243,28 +243,66 @@ def write_chat_config(path: Path) -> None:
     path.write_text(json.dumps({"chat": config.model_dump(mode="json")}), encoding="utf-8")
 
 
-def test_config_cli_validate_render_explain_and_errors(tmp_path: Path, capsys: Any) -> None:
+def test_config_cli_validate_reports_a_good_config(tmp_path: Path, capsys: Any) -> None:
     source = tmp_path / "models.json"
     write_chat_config(source)
+
     assert main(["validate", str(source), "--family", "chat"]) == 0
     assert "valid chat" in capsys.readouterr().out
 
+
+def test_config_cli_render_writes_yaml_to_the_output_path(tmp_path: Path) -> None:
+    source = tmp_path / "models.json"
+    write_chat_config(source)
     output = tmp_path / "rendered.yaml"
-    assert (
-        ModelConfigCli().run(["render", str(source), "--family", "chat", "--output", str(output)])
-        == 0
-    )
+
+    assert main(["render", str(source), "--family", "chat", "--output", str(output)]) == 0
+    assert output.read_text(encoding="utf-8")
+
+
+def test_config_cli_render_masks_secrets(tmp_path: Path) -> None:
+    source = tmp_path / "models.json"
+    write_chat_config(source)
+    output = tmp_path / "rendered.yaml"
+    main(["render", str(source), "--family", "chat", "--output", str(output)])
+
     rendered = output.read_text(encoding="utf-8")
     assert "api_key: '**********'" in rendered
     assert "api_key: secret" not in rendered
 
-    assert main(["explain", str(source), "--family", "chat"]) == 0
-    explained = json.loads(capsys.readouterr().out)
-    assert explained["default_model"] == "primary"
 
+def test_config_cli_render_prints_to_stdout_without_an_output_path(
+    tmp_path: Path, capsys: Any
+) -> None:
+    source = tmp_path / "models.json"
+    write_chat_config(source)
+
+    assert main(["render", str(source), "--family", "chat"]) == 0
+    assert "api_key: '**********'" in capsys.readouterr().out
+
+
+def test_config_cli_explain_emits_the_default_model(tmp_path: Path, capsys: Any) -> None:
+    source = tmp_path / "models.json"
+    write_chat_config(source)
+
+    assert main(["explain", str(source), "--family", "chat"]) == 0
+    assert json.loads(capsys.readouterr().out)["default_model"] == "primary"
+
+
+def test_config_cli_reports_a_schema_violation_as_a_configuration_error(
+    tmp_path: Path, capsys: Any
+) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text("chat: {}", encoding="utf-8")
+
     assert main(["validate", str(bad), "--family", "chat"]) == 2
+    assert "configuration error" in capsys.readouterr().err
+
+
+def test_config_cli_reports_a_missing_file_as_a_configuration_error(
+    tmp_path: Path, capsys: Any
+) -> None:
+    assert main(["validate", str(tmp_path / "absent.yaml"), "--family", "chat"]) == 2
     assert "configuration error" in capsys.readouterr().err
 
 
@@ -272,8 +310,8 @@ def test_config_cli_validate_render_explain_and_errors(tmp_path: Path, capsys: A
 async def test_public_clients_expose_one_runtime_introspection_api() -> None:
     clients = (
         sync_client(chat_config(), backend=FakeChatInvocation([])),
-        HarborEmbedClient(embed_config(), invocation=FakeEmbeddingInvocation([])),
-        HarborRerankingClient(rerank_config(), invocation=FakeRerankInvocation([])),
+        embed_client(embed_config(), invocation=FakeEmbeddingInvocation([])),
+        rerank_client(rerank_config(), invocation=FakeRerankInvocation([])),
     )
     try:
         for client in clients:

@@ -279,6 +279,25 @@ indexes and metadata and are sorted deterministically by descending score, then 
 index for ties. Multiple deployments, logical-model fallbacks, shared retries, and
 tenant-isolated response caching use the same policy layer as chat and embedding.
 
+## Injecting dependencies
+
+All three families take one optional dependency bundle as the second constructor
+argument — `ChatClientDependencies`, `EmbedClientDependencies`, and
+`RerankClientDependencies`. Each carries the same twelve runtime boundaries and
+ownership flags plus its own provider registry and transport boundary, so a
+collaborator is injected the same way whichever family you are configuring.
+
+```python
+from harborrag_adapters.models.embed import EmbedClientDependencies, HarborEmbedClient
+
+client = HarborEmbedClient(
+    config,
+    EmbedClientDependencies(telemetry=telemetry, cache=cache),
+)
+```
+
+Anything left unset is built by the client and closed with it.
+
 ## Extending configuration safely
 
 - Add a deployment to an existing logical model only when its behavior and output

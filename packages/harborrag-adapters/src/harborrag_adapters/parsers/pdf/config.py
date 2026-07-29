@@ -101,6 +101,3 @@ class PDFParserConfig:
     def __post_init__(self) -> None:
         if self.min_content_chars < 0:
             raise ValueError("PDF min_content_chars cannot be negative")
-
-
-PdfParserProfile = PDFParserProfile

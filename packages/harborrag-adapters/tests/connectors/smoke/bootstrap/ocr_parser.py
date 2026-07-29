@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from harborrag_adapters.parsers.common.base import BaseParser
+from harborrag_adapters.parsers.common.base import HarborParserEngine
 from harborrag_adapters.parsers.image.parser import HarborImageParser
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -17,10 +17,10 @@ if TYPE_CHECKING:
     from harborrag_adapters.parsers import HarborParserRegistry
 
 
-class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
+class RapidOcrImageParser(HarborParserEngine[ParseInput, ParsedDocument]):
     """Route image OCR through RapidOCR instead of the default pytesseract parser.
 
-    Subclassing `BaseParser` (rather than duck-typing) matters here: its
+    Subclassing `HarborParserEngine` (rather than duck-typing) matters here: its
     `__init_subclass__` normalizes `suffixes` to the dot-prefixed form
     `HarborParser`'s suffix routing actually indexes on (`"png"` -> `".png"`).
     A plain class with dot-less suffixes silently never matches by suffix —

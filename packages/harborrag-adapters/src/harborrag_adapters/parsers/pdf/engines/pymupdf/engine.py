@@ -16,8 +16,6 @@ from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
-PyMuPdfBackendOptions = PyMuPDFConfig
-
 
 class PyMuPDFEngine(HarborPDFEngine):
     """Fast local PDF text extractor backed by PyMuPDF."""
@@ -120,6 +118,3 @@ class PyMuPDFEngine(HarborPDFEngine):
             return []
         message = warnings()
         return [message] if message else []
-
-
-PyMuPdfBackend = PyMuPDFEngine

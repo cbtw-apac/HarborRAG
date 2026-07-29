@@ -25,6 +25,7 @@ from harborrag_adapters.models.runtime.config import (
     RoutingStrategy,
     TelemetryFailureMode,
 )
+from harborrag_adapters.models.runtime.errors import ModelCallContext
 from harborrag_adapters.models.runtime.health import deployment_state_key
 from harborrag_adapters.models.runtime.lifecycle import close_async_callbacks
 from harborrag_adapters.models.runtime.litellm_backend import litellm_routing_strategy
@@ -205,11 +206,13 @@ def test_error_mapping_enriches_existing_errors_and_redacts_credentials() -> Non
     existing = HarborChatProviderError("failed", retryable=True)
     enriched = normalize_exception(
         existing,
-        provider="openai",
-        logical_model="primary",
-        provider_model="gpt",
-        deployment="a",
-        request_id="request-1",
+        ModelCallContext(
+            provider="openai",
+            logical_model="primary",
+            provider_model="gpt",
+            deployment="a",
+            request_id="request-1",
+        ),
     )
     assert enriched is existing
     assert enriched.operation == "chat"

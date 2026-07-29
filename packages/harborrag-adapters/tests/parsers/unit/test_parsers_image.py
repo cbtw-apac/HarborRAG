@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from harborrag_adapters.parsers.compat import ImageParser
+from harborrag_adapters.parsers.image.engines.ocr.engine import OcrImageEngine
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -30,7 +30,7 @@ def test_rapidocr_extracts_ordered_lines_and_reuses_engine(monkeypatch) -> None:
             return SimpleNamespace(txts=(" first line ", "", "second line"))
 
     monkeypatch.setitem(sys.modules, "rapidocr", SimpleNamespace(RapidOCR=_RapidOCR))
-    parser = ImageParser(ocr_engine="RAPIDOCR")
+    parser = OcrImageEngine(ocr_engine="RAPIDOCR")
     parse_input = ParseInput(content=_png_bytes(), filename="scan.png")
 
     first = parser.parse(parse_input)
@@ -44,4 +44,4 @@ def test_rapidocr_extracts_ordered_lines_and_reuses_engine(monkeypatch) -> None:
 
 def test_image_parser_rejects_unknown_ocr_engine() -> None:
     with pytest.raises(ValueError, match="Unsupported image OCR engine"):
-        ImageParser(ocr_engine="unknown")
+        OcrImageEngine(ocr_engine="unknown")

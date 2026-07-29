@@ -5,8 +5,10 @@ from typing import Any
 
 from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
+from harborrag_adapters.models.runtime.litellm_import import require_litellm
 from harborrag_adapters.models.runtime.security import reveal_secret
 from harborrag_adapters.models.runtime.transport import reveal_headers
+from harborrag_core.models import errors as model_errors
 
 from ..backend_config import ChatBackendType, LiteLLMProxyConfig, ProxyAuthMode
 from .base import BaseLiteLLMChatBackend
@@ -48,7 +50,7 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
         """Store proxy credentials and bind LiteLLM's proxy-compatible entrypoints."""
 
         if completion is None or acompletion is None:
-            import litellm
+            litellm = require_litellm(model_errors.HarborChatConfigurationError)
 
             completion = completion or litellm.completion
             acompletion = acompletion or litellm.acompletion

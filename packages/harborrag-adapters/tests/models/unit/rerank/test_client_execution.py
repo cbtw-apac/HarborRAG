@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from model_runtime_support import FakeRerankInvocation, rerank_config
+from model_runtime_support import FakeRerankInvocation, rerank_client, rerank_config
 
-from harborrag_adapters.models.rerank import HarborRerankingClient
 from harborrag_adapters.models.rerank.configs import HarborRerankProviderConfig
 from harborrag_adapters.models.rerank.registry import HarborRerankProvider
 from harborrag_adapters.models.runtime.config import CacheConfig, RetryPolicyConfig
@@ -53,7 +52,7 @@ def test_rerank_sync_async_cache_middleware_and_capabilities() -> None:
             return response
 
     invocation = FakeRerankInvocation([raw_rerank(0.2, 0.9), raw_rerank(1.0)])
-    client = HarborRerankingClient.from_config(
+    client = rerank_client(
         rerank_config(cache=CacheConfig(enabled=True, ttl_seconds=30)),
         invocation=invocation,
         middleware=(Middleware(),),
@@ -91,7 +90,7 @@ def test_rerank_sync_async_cache_middleware_and_capabilities() -> None:
 @pytest.mark.asyncio
 async def test_rerank_async_context_and_borrowed_invocation() -> None:
     invocation = FakeRerankInvocation([raw_rerank(1.0)])
-    async with HarborRerankingClient(
+    async with rerank_client(
         rerank_config(),
         invocation=invocation,
         resource_ownership=ResourceOwnership.BORROWED,
@@ -104,7 +103,7 @@ async def test_rerank_async_context_and_borrowed_invocation() -> None:
 def test_rerank_sends_complete_candidate_set_once() -> None:
     documents = [f"document-{index}" for index in range(5)]
     invocation = FakeRerankInvocation([raw_rerank(0.1, 0.2, 0.3, 0.4, 0.5)])
-    response = HarborRerankingClient(rerank_config(), invocation=invocation).rerank("q", documents)
+    response = rerank_client(rerank_config(), invocation=invocation).rerank("q", documents)
     assert len(invocation.calls) == 1
     assert invocation.calls[0]["documents"] == documents
     assert response.results[0].index == 4
@@ -119,7 +118,7 @@ def test_rerank_retry_deployment_and_model_fallback() -> None:
         max_delay_seconds=0,
     )
     invocation = FakeRerankInvocation([TimeoutError(), raw_rerank(1.0)])
-    response = HarborRerankingClient(
+    response = rerank_client(
         rerank_config(
             deployments=(deployment("first"), deployment("second", order=1)),
             retry=retry,
@@ -129,7 +128,7 @@ def test_rerank_retry_deployment_and_model_fallback() -> None:
     assert response.deployment == "second" and response.fallback_count == 1
 
     fallback_invocation = FakeRerankInvocation([TimeoutError(), raw_rerank(1.0)])
-    fallback = HarborRerankingClient(
+    fallback = rerank_client(
         rerank_config(deployments=(deployment("only"),), retry=retry, fallbacks=("fallback",)),
         invocation=fallback_invocation,
     ).rerank("q", ["a"])
@@ -146,13 +145,11 @@ async def test_rerank_same_deployment_retry_and_nonretryable_error() -> None:
         max_delay_seconds=0,
     )
     invocation = FakeRerankInvocation([TimeoutError(), raw_rerank(1.0)])
-    response = await HarborRerankingClient(
-        rerank_config(retry=retry), invocation=invocation
-    ).arerank("q", ["a"])
+    response = await rerank_client(rerank_config(retry=retry), invocation=invocation).arerank(
+        "q", ["a"]
+    )
     assert response.retry_count == 1
     failed = FakeRerankInvocation([HarborRerankProviderError("safe", retryable=False)])
     with pytest.raises(HarborRerankProviderError):
-        await HarborRerankingClient(rerank_config(retry=retry), invocation=failed).arerank(
-            "q", ["a"]
-        )
+        await rerank_client(rerank_config(retry=retry), invocation=failed).arerank("q", ["a"])
     assert len(failed.calls) == 1

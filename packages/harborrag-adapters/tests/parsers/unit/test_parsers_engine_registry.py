@@ -8,16 +8,16 @@ from typing import Any, ClassVar
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory, HarborParserRegistry
+from harborrag_adapters.parsers.common.base import HarborParserEngine
 from harborrag_adapters.parsers.common.family import HarborSingleEngineFamilyParser
 from harborrag_adapters.parsers.common.resources import read_parse_input_text
-from harborrag_adapters.parsers.compat import (
+from harborrag_adapters.parsers.common.utils import (
     PARSER_LOGGER_NAME,
-    BaseParser,
-    HtmlParser,
-    UnsupportedFormatError,
     get_parser_logger,
     parser_log_extra,
 )
+from harborrag_adapters.parsers.errors import UnsupportedFormatError
+from harborrag_adapters.parsers.markup.engines.html.engine import HtmlMarkupEngine
 from harborrag_adapters.parsers.markup.parser import HarborMarkupParser
 from harborrag_adapters.parsers.pdf.normalization import content_from_any
 from harborrag_core.domain.element import DocumentElement
@@ -26,7 +26,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 pytestmark = pytest.mark.unit
 
 
-class FakeParser(BaseParser[ParseInput, ParsedDocument]):
+class FakeParser(HarborParserEngine[ParseInput, ParsedDocument]):
     parser_name: ClassVar[str] = "fake"
     parser_engine: ClassVar[str] = "test-engine"
     suffixes: ClassVar[frozenset[str]] = frozenset({"fake"})
@@ -105,7 +105,7 @@ def test_registry_indexes_routes_and_rejects_duplicate_ownership():
 def test_registry_rejects_conflicting_suffix_and_content_type_routes():
     registry = HarborParserRegistry()
     registry.register_family(FakeFamily())
-    registry.register_family(HarborMarkupParser((HtmlParser(),)))
+    registry.register_family(HarborMarkupParser((HtmlMarkupEngine(),)))
     ambiguous = ParseInput(
         content="<p>hello</p>",
         filename="doc.fake",

@@ -115,6 +115,3 @@ class JsonStructuredEngine(HarborStructuredEngine):
             return lines
 
         return [f"{path}: {value}"]
-
-
-JsonParser = JsonStructuredEngine

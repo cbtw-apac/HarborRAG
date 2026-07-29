@@ -15,15 +15,15 @@ from harbor_test_builders import build_zip_bomb_bytes
 
 from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_adapters.parsers.common.validation import open_guarded_zip
-from harborrag_adapters.parsers.compat import (
-    DocxParser,
-    EpubParser,
-    ExcelParser,
-    ImageParser,
-    JsonParser,
-    PptxParser,
-)
+from harborrag_adapters.parsers.document.engines.docx.engine import DocxDocumentEngine
+from harborrag_adapters.parsers.document.engines.epub.engine import EpubDocumentEngine
 from harborrag_adapters.parsers.errors import ParseError, UnsupportedFormatError
+from harborrag_adapters.parsers.image.engines.ocr.engine import OcrImageEngine
+from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import (
+    PythonPptxPresentationEngine,
+)
+from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelSpreadsheetEngine
+from harborrag_adapters.parsers.structured.engines.json.engine import JsonStructuredEngine
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
@@ -32,10 +32,10 @@ pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 @pytest.mark.parametrize(
     ("parser", "filename"),
     [
-        (DocxParser(), "broken.docx"),
-        (PptxParser(), "broken.pptx"),
-        (ExcelParser(), "broken.xlsx"),
-        (EpubParser(), "broken.epub"),
+        (DocxDocumentEngine(), "broken.docx"),
+        (PythonPptxPresentationEngine(), "broken.pptx"),
+        (ExcelSpreadsheetEngine(), "broken.xlsx"),
+        (EpubDocumentEngine(), "broken.epub"),
     ],
 )
 def test_non_zip_bytes_raise_parse_error(parser, filename):
@@ -46,10 +46,10 @@ def test_non_zip_bytes_raise_parse_error(parser, filename):
 @pytest.mark.parametrize(
     ("parser", "filename"),
     [
-        (DocxParser(), "trunc.docx"),
-        (PptxParser(), "trunc.pptx"),
-        (ExcelParser(), "trunc.xlsx"),
-        (EpubParser(), "trunc.epub"),
+        (DocxDocumentEngine(), "trunc.docx"),
+        (PythonPptxPresentationEngine(), "trunc.pptx"),
+        (ExcelSpreadsheetEngine(), "trunc.xlsx"),
+        (EpubDocumentEngine(), "trunc.epub"),
     ],
 )
 def test_truncated_zip_local_header_raises_parse_error(parser, filename):
@@ -62,34 +62,38 @@ def test_corrupt_docx_does_not_leak_raw_badzipfile():
     import zipfile
 
     with pytest.raises(ParseError) as excinfo:
-        DocxParser().parse(ParseInput(content=b"not a zip", filename="x.docx"))
+        DocxDocumentEngine().parse(ParseInput(content=b"not a zip", filename="x.docx"))
     assert not isinstance(excinfo.value, zipfile.BadZipFile)
 
 
 def test_invalid_json_raises_parse_error():
     with pytest.raises(ParseError, match="Invalid JSON"):
-        JsonParser().parse(ParseInput(content='{"unterminated": ', filename="bad.json"))
+        JsonStructuredEngine().parse(ParseInput(content='{"unterminated": ', filename="bad.json"))
 
 
 def test_deeply_nested_json_raises_parse_error():
     with pytest.raises(ParseError):
-        JsonParser().parse(ParseInput(content="[" * 10000, filename="bomb.json"))
+        JsonStructuredEngine().parse(ParseInput(content="[" * 10000, filename="bomb.json"))
 
 
 def test_invalid_ndjson_line_raises_parse_error():
     with pytest.raises(ParseError):
-        JsonParser().parse(ParseInput(content='{"ok": 1}\nnot-json-here', filename="bad.ndjson"))
+        JsonStructuredEngine().parse(
+            ParseInput(content='{"ok": 1}\nnot-json-here', filename="bad.ndjson")
+        )
 
 
 def test_csv_oversized_field_raises_parse_error():
-    from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvParser
+    from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvSpreadsheetEngine
 
     original_limit = csv.field_size_limit()
     try:
         csv.field_size_limit(16)
         oversized = "x" * 5000
         with pytest.raises(ParseError, match="Invalid CSV"):
-            CsvParser().parse(ParseInput(content=f"col\n{oversized}", filename="big.csv"))
+            CsvSpreadsheetEngine().parse(
+                ParseInput(content=f"col\n{oversized}", filename="big.csv")
+            )
     finally:
         csv.field_size_limit(original_limit)
 
@@ -117,17 +121,19 @@ def test_epub_missing_opf_member_raises_parse_error():
         # Deliberately omit OEBPS/content.opf so archive.read() raises KeyError.
 
     with pytest.raises(ParseError, match="content.opf"):
-        EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="x.epub"))
+        EpubDocumentEngine().parse(ParseInput(content=buffer.getvalue(), filename="x.epub"))
 
 
 def test_epub_parse_of_zip_bomb_raises_parse_error(zip_bomb_bytes):
     with pytest.raises(ParseError):
-        EpubParser().parse(ParseInput(content=zip_bomb_bytes, filename="bomb.epub"))
+        EpubDocumentEngine().parse(ParseInput(content=zip_bomb_bytes, filename="bomb.epub"))
 
 
 def test_corrupt_image_bytes_raise_parse_error():
     with pytest.raises(ParseError):
-        ImageParser().parse(ParseInput(content=b"this is not a valid image", filename="broken.png"))
+        OcrImageEngine().parse(
+            ParseInput(content=b"this is not a valid image", filename="broken.png")
+        )
 
 
 def test_image_oversized_pixel_count_raises_parse_error_before_decoding():
@@ -141,7 +147,9 @@ def test_image_oversized_pixel_count_raises_parse_error_before_decoding():
     # max_pixels=50 rejects the 10x10=100 pixel image before OCR ever runs,
     # so this doesn't depend on a tesseract binary being installed.
     with pytest.raises(ParseError, match="max_pixels"):
-        ImageParser(max_pixels=50).parse(ParseInput(content=buffer.getvalue(), filename="big.png"))
+        OcrImageEngine(max_pixels=50).parse(
+            ParseInput(content=buffer.getvalue(), filename="big.png")
+        )
 
 
 def test_unknown_suffix_and_content_type_raise_unsupported_format():

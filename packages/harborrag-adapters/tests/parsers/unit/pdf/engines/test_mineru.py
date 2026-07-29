@@ -6,15 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.parsers.compat import MinerUBackend, MinerUBackendOptions
+from harborrag_adapters.parsers.pdf.engines.mineru.config import MinerUPDFConfig
+from harborrag_adapters.parsers.pdf.engines.mineru.engine import MinerUPDFEngine
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.mark.whitebox
 def test_mineru_command_includes_advanced_cli_options():
-    backend = MinerUBackend(
-        MinerUBackendOptions(
+    backend = MinerUPDFEngine(
+        MinerUPDFConfig(
             backend="hybrid-http-client",
             effort="high",
             method="ocr",
@@ -51,7 +52,7 @@ def test_mineru_command_includes_advanced_cli_options():
 @pytest.mark.whitebox
 def test_mineru_cleans_up_custom_output_dir_when_run_fails(tmp_path, monkeypatch):
     base_dir = tmp_path / "custom-output"
-    backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=False))
+    backend = MinerUPDFEngine(MinerUPDFConfig(output_dir=base_dir, keep_output=False))
 
     def _raise(command: list[str]) -> None:
         raise RuntimeError("mineru exited non-zero")
@@ -68,7 +69,7 @@ def test_mineru_cleans_up_custom_output_dir_when_run_fails(tmp_path, monkeypatch
 
 def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(tmp_path, monkeypatch):
     base_dir = tmp_path / "custom-output"
-    backend = MinerUBackend(MinerUBackendOptions(output_dir=base_dir, keep_output=True))
+    backend = MinerUPDFEngine(MinerUPDFConfig(output_dir=base_dir, keep_output=True))
 
     def _raise(command: list[str]) -> None:
         raise RuntimeError("mineru exited non-zero")
@@ -91,4 +92,4 @@ def test_mineru_keeps_custom_output_dir_when_run_fails_and_keep_output_true(tmp_
 )
 def test_mineru_options_reject_invalid_cli_controls(overrides, match):
     with pytest.raises(ValueError, match=match):
-        MinerUBackendOptions(**overrides)
+        MinerUPDFConfig(**overrides)

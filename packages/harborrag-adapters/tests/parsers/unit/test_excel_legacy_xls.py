@@ -25,9 +25,11 @@ def _xls_bytes() -> bytes:
 
 
 def test_excel_parser_reads_legacy_xls() -> None:
-    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
+    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import (
+        ExcelSpreadsheetEngine,
+    )
 
-    doc = ExcelParser().parse(ParseInput(content=_xls_bytes(), filename="legacy.xls"))
+    doc = ExcelSpreadsheetEngine().parse(ParseInput(content=_xls_bytes(), filename="legacy.xls"))
     assert "Data" in doc.content
     assert "Ada" in doc.content and "42" in doc.content
     assert doc.metadata["sheets"] == ["Data"]
@@ -37,7 +39,9 @@ def test_excel_parser_missing_dependency_raises_parse_error(monkeypatch) -> None
     import builtins
 
     from harborrag_adapters.parsers.errors import ParseError
-    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
+    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import (
+        ExcelSpreadsheetEngine,
+    )
 
     real_import = builtins.__import__
 
@@ -48,4 +52,4 @@ def test_excel_parser_missing_dependency_raises_parse_error(monkeypatch) -> None
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(ParseError, match="openpyxl"):
-        ExcelParser().parse(ParseInput(content=b"PK\x03\x04", filename="x.xlsx"))
+        ExcelSpreadsheetEngine().parse(ParseInput(content=b"PK\x03\x04", filename="x.xlsx"))

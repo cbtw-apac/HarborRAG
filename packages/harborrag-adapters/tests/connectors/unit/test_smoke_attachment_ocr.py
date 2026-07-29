@@ -91,7 +91,7 @@ def test_build_harbor_parser_uses_docling_for_pdf_and_rapidocr_for_images() -> N
 
 
 def test_rapid_ocr_image_parser_normalizes_suffixes_for_route_matching() -> None:
-    # Regression guard: a plain (non-BaseParser) class keeps dot-less suffixes
+    # Regression guard: a plain (non-HarborParserEngine) class keeps dot-less suffixes
     # like "png", but `ParseInput.suffix` is always dotted (".png"). Local
     # files have no content_type, so suffix routing is the only way they ever
     # reach this parser — silently dropping the dot breaks it with no error

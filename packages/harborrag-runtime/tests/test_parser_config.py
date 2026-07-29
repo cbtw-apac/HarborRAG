@@ -5,15 +5,13 @@ from textwrap import dedent
 
 import pytest
 
-from harborrag_adapters.parsers.compat import (
-    DoclingBackend,
-    LiteParseBackend,
-    MinerUBackend,
-    PdfParser,
-    PdfParserProfile,
-    PyMuPdfBackend,
-)
 from harborrag_adapters.parsers.image.parser import HarborImageParser
+from harborrag_adapters.parsers.pdf.config import PDFParserProfile
+from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingPDFEngine
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParsePDFEngine
+from harborrag_adapters.parsers.pdf.engines.mineru.engine import MinerUPDFEngine
+from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
+from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_runtime.config import (
     ParserConfigurationError,
     load_parser_catalog,
@@ -38,9 +36,9 @@ def test_repository_config_builds_enabled_parser_overrides() -> None:
     assert catalog.names(enabled_only=True) == ["image-rapidocr", "pdf-docling"]
 
     pdf_parser = catalog.build("pdf-docling")
-    assert isinstance(pdf_parser, PdfParser)
+    assert isinstance(pdf_parser, HarborPDFParser)
     assert [backend.name for backend in pdf_parser.backends] == ["docling"]
-    assert isinstance(pdf_parser.backends[0], DoclingBackend)
+    assert isinstance(pdf_parser.backends[0], DoclingPDFEngine)
     assert pdf_parser.backends[0].options.ocr_engine == "rapidocr"
 
     image_parser = catalog.build("image-rapidocr")
@@ -49,7 +47,7 @@ def test_repository_config_builds_enabled_parser_overrides() -> None:
 
     harbor_parser = catalog.build_harbor_parser()
     attachment_parser = catalog.build_harbor_parser()
-    assert isinstance(harbor_parser.create("pdf"), PdfParser)
+    assert isinstance(harbor_parser.create("pdf"), HarborPDFParser)
     assert attachment_parser is not harbor_parser
     assert isinstance(harbor_parser.create("image"), HarborImageParser)
     assert harbor_parser.resolve("README.md", "text/markdown") is not None
@@ -82,11 +80,11 @@ def test_builds_explicit_pdf_backend_order_and_options(tmp_path: Path) -> None:
 
     parser = load_parser_catalog(config_path).build("custom-pdf")
 
-    assert isinstance(parser, PdfParser)
+    assert isinstance(parser, HarborPDFParser)
     assert parser.min_content_chars == 40
     assert [backend.name for backend in parser.backends] == ["pymupdf", "docling"]
-    assert isinstance(parser.backends[0], PyMuPdfBackend)
-    assert isinstance(parser.backends[1], DoclingBackend)
+    assert isinstance(parser.backends[0], PyMuPDFEngine)
+    assert isinstance(parser.backends[1], DoclingPDFEngine)
     assert parser.backends[1].options.force_full_page_ocr is True
 
 
@@ -107,8 +105,8 @@ def test_build_allows_explicit_code_overrides(tmp_path: Path) -> None:
 
     parser = catalog.build("fast-pdf", overrides={"min_content_chars": 100})
 
-    assert isinstance(parser, PdfParser)
-    assert parser.profile == PdfParserProfile.FAST
+    assert isinstance(parser, HarborPDFParser)
+    assert parser.profile == PDFParserProfile.FAST
     assert parser.min_content_chars == 100
 
 
@@ -145,10 +143,10 @@ def test_backend_secrets_and_subprocess_environment_resolve_from_environment(
         },
     )
 
-    assert isinstance(parser, PdfParser)
-    assert isinstance(parser.backends[0], LiteParseBackend)
+    assert isinstance(parser, HarborPDFParser)
+    assert isinstance(parser.backends[0], LiteParsePDFEngine)
     assert parser.backends[0].options.password == "pdf-secret"
-    assert isinstance(parser.backends[1], MinerUBackend)
+    assert isinstance(parser.backends[1], MinerUPDFEngine)
     assert parser.backends[1].options.server_url == "https://vlm.example.test/v1"
     assert parser.backends[1].options.env == {
         "MINERU_VL_API_KEY": "api-secret",

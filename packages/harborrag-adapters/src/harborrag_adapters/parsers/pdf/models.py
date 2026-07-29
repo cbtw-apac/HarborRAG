@@ -28,6 +28,4 @@ class PDFParseResult:
         return len(self.content.strip()) >= min_chars
 
 
-PdfParseResult = PDFParseResult
-
 __all__ = ["PDFParseResult"]

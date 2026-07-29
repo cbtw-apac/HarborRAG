@@ -8,6 +8,7 @@ from typing import Any, cast
 from harborrag_adapters.models.runtime.budget import ModelBudgetPolicy
 from harborrag_adapters.models.runtime.cache import CacheDecision
 from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.errors import ModelCallContext
 from harborrag_adapters.models.runtime.execution import (
     RoutingRuntime,
     normalize_execution_error,
@@ -306,11 +307,9 @@ class ChatStreamExecution:
     ) -> HarborChatError:
         return normalize_exception(
             exc,
-            provider=deployment.provider.value,
-            logical_model=logical,
-            provider_model=deployment.model,
-            deployment=deployment.name,
-            request_id=chat_request_id(request),
+            ModelCallContext.for_deployment(
+                deployment, logical_model=logical, request_id=chat_request_id(request)
+            ),
         )
 
     @classmethod

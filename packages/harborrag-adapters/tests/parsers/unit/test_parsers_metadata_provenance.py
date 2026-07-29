@@ -1,4 +1,4 @@
-"""White-box unit tests for BaseParser.metadata_for provenance handling."""
+"""White-box unit tests for HarborParserEngine.metadata_for provenance handling."""
 
 from __future__ import annotations
 

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from types import MappingProxyType
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.models import ParseRequest, ParseResult
@@ -55,10 +54,6 @@ class HarborParserRegistry:
         self._extensions: dict[str, ParserBuilder] = {}
         self._families: dict[str, ParserBuilder] = {}
         self._family_routes: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
-        # Preserve read-only views used by the former combined registry.
-        self._by_suffix = MappingProxyType(self._extensions)
-        self._by_content_type = MappingProxyType(self._mime_types)
-        self._by_name = MappingProxyType(self._families)
 
     def register_mime_type(
         self,
@@ -151,8 +146,8 @@ class HarborParserRegistry:
         )
         return await parser.parse(request)
 
-    def parse(self, input: Any) -> ParsedDocument:
-        parse_input = coerce_parse_input(input)
+    def parse(self, source: Any) -> ParsedDocument:
+        parse_input = coerce_parse_input(source)
         route = self._route(parse_input.filename, parse_input.content_type)
         if route is None:
             suffix = parse_input_suffix(parse_input) or "<none>"
@@ -193,29 +188,45 @@ class HarborParserRegistry:
 
     def parse_many(
         self,
-        inputs: Iterable[Any],
+        sources: Iterable[Any],
         *,
-        on_error: str = "raise",
+        on_error: Literal["raise", "skip"] = "raise",
     ) -> list[ParsedDocument]:
+        # Literal is static-only; validate here so a value threaded in from config
+        # fails loudly instead of silently defaulting to "skip" below.
         if on_error not in ("raise", "skip"):
             raise ValueError(f"Unknown on_error policy: {on_error!r}")
 
         results: list[ParsedDocument] = []
-        for index, input in enumerate(inputs):
-            try:
-                results.append(self.parse(input))
-            except ParseError as error:
-                if on_error == "raise":
-                    raise
-                parser_logger.warning(
-                    "Skipping input %d after parse failure: %s",
-                    index,
-                    error,
-                )
+        for index, source in enumerate(sources):
+            document = self._parse_or_skip(source, index, on_error=on_error)
+            if document is not None:
+                results.append(document)
         return results
 
-    def parser_for(self, input: Any) -> HarborParser | None:
-        parse_input = coerce_parse_input(input)
+    def _parse_or_skip(
+        self,
+        source: Any,
+        index: int,
+        *,
+        on_error: Literal["raise", "skip"],
+    ) -> ParsedDocument | None:
+        """Parse one input, returning None only when the caller opted into skipping."""
+
+        try:
+            return self.parse(source)
+        except ParseError as error:
+            if on_error == "raise":
+                raise
+            parser_logger.warning(
+                "Skipping input %d after parse failure: %s",
+                index,
+                error,
+            )
+            return None
+
+    def parser_for(self, source: Any) -> HarborParser | None:
+        parse_input = coerce_parse_input(source)
         route = self._route(parse_input.filename, parse_input.content_type)
         return route.builder() if route is not None else None
 
@@ -270,7 +281,3 @@ class HarborParserRegistry:
         if existing is not None and existing is not builder and not replace:
             raise ValueError(f"Parser route {key!r} is already registered.")
         index[key] = builder
-
-
-# Compatibility name for callers migrating from the former combined facade.
-HarborParserEngineRegistry = HarborParserRegistry

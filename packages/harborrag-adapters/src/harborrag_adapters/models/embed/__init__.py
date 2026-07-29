@@ -8,8 +8,10 @@ from .configs import (
 )
 from .invocation import EmbeddingInvocation, LiteLLMEmbeddingInvocation
 from .registry import EmbedProviderRegistry, HarborEmbedProvider
+from .schemas import EmbedClientDependencies
 
 __all__ = [
+    "EmbedClientDependencies",
     "EmbedProviderRegistry",
     "EmbeddingInvocation",
     "HarborEmbedClient",

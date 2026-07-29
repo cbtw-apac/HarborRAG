@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from harborrag_adapters.models.runtime.errors import (
     ModelErrorCategory,
-    normalize_model_exception,
+    build_exception_normalizer,
 )
 from harborrag_core.models import errors as model_errors
 
+# Embeddings have no content-moderation or structured-output failure mode of their
+# own, so those two categories intentionally collapse onto InvalidRequest rather
+# than inventing embed-specific types. CONTEXT_LENGTH gets the more specific
+# InputTooLarge, which is itself a subclass of InvalidRequest.
 _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborEmbedError]] = {
     ModelErrorCategory.AUTHENTICATION: model_errors.HarborEmbedAuthenticationError,
     ModelErrorCategory.AUTHORIZATION: model_errors.HarborEmbedAuthorizationError,
@@ -19,25 +23,8 @@ _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborEmbedError]] = {
     ModelErrorCategory.PROVIDER: model_errors.HarborEmbedProviderError,
 }
 
-
-def normalize_exception(
-    exc: Exception,
-    *,
-    provider: str | None = None,
-    logical_model: str | None = None,
-    provider_model: str | None = None,
-    deployment: str | None = None,
-    request_id: str | None = None,
-) -> model_errors.HarborEmbedError:
-    """Map an SDK failure into a sanitized embedding error with execution context."""
-    return normalize_model_exception(
-        exc,
-        operation="embed",
-        error_base=model_errors.HarborEmbedError,
-        error_types=_ERROR_TYPES,
-        provider=provider,
-        logical_model=logical_model,
-        provider_model=provider_model,
-        deployment=deployment,
-        request_id=request_id,
-    )
+normalize_exception = build_exception_normalizer(
+    operation="embed",
+    error_base=model_errors.HarborEmbedError,
+    error_types=_ERROR_TYPES,
+)

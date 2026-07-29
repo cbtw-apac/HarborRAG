@@ -7,15 +7,16 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.parsers.compat import PaddleOcrBackend, PaddleOcrBackendOptions
+from harborrag_adapters.parsers.pdf.engines.paddleocr.config import PaddleOCRPDFConfig
+from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import PaddleOCRPDFEngine
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.mark.whitebox
 def test_paddleocr_pipeline_options_are_sparse_and_advanced():
-    backend = PaddleOcrBackend(
-        PaddleOcrBackendOptions(
+    backend = PaddleOCRPDFEngine(
+        PaddleOCRPDFConfig(
             lang="en",
             device="cpu",
             cpu_threads=2,
@@ -56,7 +57,7 @@ def test_paddleocr_falls_back_when_pipeline_construction_raises():
         PaddleOCRVL=_WorkingPipeline,
         PPStructure=_WorkingPipeline,
     )
-    backend = PaddleOcrBackend()
+    backend = PaddleOCRPDFEngine()
 
     result, warnings = backend._predict(fake_module, "doc.pdf")
 
@@ -80,7 +81,7 @@ def test_paddleocr_falls_back_when_predict_raises():
         PaddleOCRVL=_WorkingPipeline,
         PPStructure=_WorkingPipeline,
     )
-    backend = PaddleOcrBackend()
+    backend = PaddleOCRPDFEngine()
 
     result, warnings = backend._predict(fake_module, "doc.pdf")
 
@@ -110,7 +111,7 @@ def test_paddleocr_falls_back_to_raw_output_when_combiner_returns_none():
         PaddleOCRVL=_WorkingPipeline,
         PPStructure=_WorkingPipeline,
     )
-    backend = PaddleOcrBackend()
+    backend = PaddleOCRPDFEngine()
 
     result, _warnings = backend._predict(fake_module, "doc.pdf")
 
@@ -132,7 +133,7 @@ def test_paddleocr_falls_back_to_legacy_api_when_all_pipelines_fail():
         PPStructure=_FailingPipeline,
         PaddleOCR=_LegacyOcr,
     )
-    backend = PaddleOcrBackend()
+    backend = PaddleOCRPDFEngine()
 
     result, warnings = backend._predict(fake_module, "doc.pdf")
 

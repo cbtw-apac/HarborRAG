@@ -144,6 +144,3 @@ class PythonPptxPresentationEngine(HarborPresentationEngine):
             child_shapes = getattr(shape, "shapes", None)
             if child_shapes is not None and depth < 8:
                 yield from cls._shape_text(child_shapes, depth + 1)
-
-
-PptxParser = PythonPptxPresentationEngine

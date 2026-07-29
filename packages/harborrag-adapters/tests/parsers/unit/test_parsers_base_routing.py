@@ -1,4 +1,4 @@
-"""White-box unit tests for BaseParser routing (can_parse, __init_subclass__)."""
+"""White-box unit tests for HarborParserEngine routing (can_parse, __init_subclass__)."""
 
 from __future__ import annotations
 
@@ -6,20 +6,20 @@ from typing import ClassVar
 
 import pytest
 
-from harborrag_adapters.parsers.common.base import BaseParser
+from harborrag_adapters.parsers.common.base import HarborParserEngine
 from harborrag_adapters.parsers.common.mime import normalize_suffix
-from harborrag_adapters.parsers.compat import (
-    CsvParser,
-    DocxParser,
-    EpubParser,
-    ExcelParser,
-    HtmlParser,
-    ImageParser,
-    JsonParser,
-    MarkdownParser,
-    PptxParser,
-    TextParser,
+from harborrag_adapters.parsers.document.engines.docx.engine import DocxDocumentEngine
+from harborrag_adapters.parsers.document.engines.epub.engine import EpubDocumentEngine
+from harborrag_adapters.parsers.image.engines.ocr.engine import OcrImageEngine
+from harborrag_adapters.parsers.markup.engines.html.engine import HtmlMarkupEngine
+from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownMarkupEngine
+from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import (
+    PythonPptxPresentationEngine,
 )
+from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvSpreadsheetEngine
+from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelSpreadsheetEngine
+from harborrag_adapters.parsers.structured.engines.json.engine import JsonStructuredEngine
+from harborrag_adapters.parsers.text.engines.plain_text.engine import PlainTextEngine
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -28,23 +28,23 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 @pytest.mark.parametrize(
     ("parser", "filename", "content_type"),
     [
-        (TextParser(), "notes.txt", None),
-        (TextParser(), None, "text/plain"),
-        (MarkdownParser(), "doc.md", None),
-        (MarkdownParser(), None, "text/markdown"),
-        (HtmlParser(), "page.html", None),
-        (HtmlParser(), None, "text/html"),
-        (CsvParser(), "table.csv", None),
-        (CsvParser(), "table.tsv", None),
-        (CsvParser(), None, "text/csv"),
-        (JsonParser(), "data.json", None),
-        (JsonParser(), None, "application/json"),
-        (DocxParser(), "report.docx", None),
-        (PptxParser(), "deck.pptx", None),
-        (ExcelParser(), "sheet.xlsx", None),
-        (ImageParser(), "pic.png", None),
-        (ImageParser(), None, "image/png"),
-        (EpubParser(), "book.epub", None),
+        (PlainTextEngine(), "notes.txt", None),
+        (PlainTextEngine(), None, "text/plain"),
+        (MarkdownMarkupEngine(), "doc.md", None),
+        (MarkdownMarkupEngine(), None, "text/markdown"),
+        (HtmlMarkupEngine(), "page.html", None),
+        (HtmlMarkupEngine(), None, "text/html"),
+        (CsvSpreadsheetEngine(), "table.csv", None),
+        (CsvSpreadsheetEngine(), "table.tsv", None),
+        (CsvSpreadsheetEngine(), None, "text/csv"),
+        (JsonStructuredEngine(), "data.json", None),
+        (JsonStructuredEngine(), None, "application/json"),
+        (DocxDocumentEngine(), "report.docx", None),
+        (PythonPptxPresentationEngine(), "deck.pptx", None),
+        (ExcelSpreadsheetEngine(), "sheet.xlsx", None),
+        (OcrImageEngine(), "pic.png", None),
+        (OcrImageEngine(), None, "image/png"),
+        (EpubDocumentEngine(), "book.epub", None),
     ],
 )
 def test_can_parse_matches_advertised_routes(parser, filename, content_type):
@@ -53,7 +53,13 @@ def test_can_parse_matches_advertised_routes(parser, filename, content_type):
 
 @pytest.mark.parametrize(
     "parser",
-    [MarkdownParser(), CsvParser(), JsonParser(), DocxParser(), ImageParser()],
+    [
+        MarkdownMarkupEngine(),
+        CsvSpreadsheetEngine(),
+        JsonStructuredEngine(),
+        DocxDocumentEngine(),
+        OcrImageEngine(),
+    ],
 )
 def test_can_parse_rejects_unrelated_input(parser):
     assert not parser.can_parse(
@@ -63,11 +69,13 @@ def test_can_parse_rejects_unrelated_input(parser):
 
 def test_can_parse_uses_normalized_content_type_parameters():
     # Content type with parameters is normalized before comparison.
-    assert HtmlParser().can_parse(ParseInput(content=b"x", content_type="text/html; charset=utf-8"))
+    assert HtmlMarkupEngine().can_parse(
+        ParseInput(content=b"x", content_type="text/html; charset=utf-8")
+    )
 
 
 def test_init_subclass_normalizes_suffix_and_content_type_declarations():
-    class WeirdParser(BaseParser[ParseInput, ParsedDocument]):
+    class WeirdParser(HarborParserEngine[ParseInput, ParsedDocument]):
         parser_name: ClassVar[str] = "weird"
         # Mixed case, missing dots, surrounding whitespace, and an empty entry.
         suffixes: ClassVar[frozenset[str]] = frozenset({"FOO", ".Bar", " baz "})

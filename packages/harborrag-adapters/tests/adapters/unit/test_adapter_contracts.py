@@ -7,8 +7,8 @@ import pytest
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
-from harborrag_adapters.parsers.common.base import BaseParser
-from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownParser
+from harborrag_adapters.parsers.common.base import HarborParserEngine
+from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownMarkupEngine
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -85,7 +85,7 @@ class BrokenConnector(BaseConnector):
         return super().load(record)
 
 
-class BrokenParser(BaseParser):
+class BrokenParser(HarborParserEngine):
     parser_name = "broken"
 
     def parse(self, raw):
@@ -131,7 +131,7 @@ def test_connector_and_parser_work_together(tmp_path: Path):
 
     connector = ExampleLocalTextFileConnector(tmp_path)
     raw = connector.load(next(connector.discover()))
-    parsed = MarkdownParser().parse(raw)
+    parsed = MarkdownMarkupEngine().parse(raw)
 
     assert raw.text().startswith("# Title")
     assert [element.type for element in parsed.elements] == ["heading", "paragraph"]

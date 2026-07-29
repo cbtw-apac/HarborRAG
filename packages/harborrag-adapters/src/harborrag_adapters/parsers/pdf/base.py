@@ -41,6 +41,4 @@ class HarborPDFEngine(ABC):
         return True
 
 
-PdfBackend = HarborPDFEngine
-
 __all__ = ["HarborPDFEngine"]

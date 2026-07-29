@@ -10,6 +10,8 @@ from harborrag_adapters.models.chat.configs import (
 )
 from harborrag_adapters.models.chat.registry import HarborProvider
 from harborrag_adapters.models.embed import (
+    EmbedClientDependencies,
+    HarborEmbedClient,
     HarborEmbedClientConfig,
     HarborEmbedModelConfig,
     HarborEmbedProvider,
@@ -17,9 +19,11 @@ from harborrag_adapters.models.embed import (
 )
 from harborrag_adapters.models.rerank import (
     HarborRerankClientConfig,
+    HarborRerankingClient,
     HarborRerankModelConfig,
     HarborRerankProvider,
     HarborRerankProviderConfig,
+    RerankClientDependencies,
 )
 from harborrag_adapters.models.runtime.config import (
     CacheConfig,
@@ -252,6 +256,24 @@ class FakeChatInvocation:
         """Record asynchronous invocation cleanup."""
 
         self.closed += 1
+
+
+def embed_client(
+    config: HarborEmbedClientConfig,
+    **dependencies: Any,
+) -> HarborEmbedClient:
+    """Build an embedding client, bundling keyword dependencies for the caller."""
+
+    return HarborEmbedClient(config, EmbedClientDependencies(**dependencies))
+
+
+def rerank_client(
+    config: HarborRerankClientConfig,
+    **dependencies: Any,
+) -> HarborRerankingClient:
+    """Build a reranking client, bundling keyword dependencies for the caller."""
+
+    return HarborRerankingClient(config, RerankClientDependencies(**dependencies))
 
 
 class FakeEmbeddingInvocation:

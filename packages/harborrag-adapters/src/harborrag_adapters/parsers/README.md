@@ -61,8 +61,11 @@ result = await parser.parse(
 engine names, warnings, metadata, and an ordered provider-attempt history.
 Current ingestion callers can continue using the synchronous
 `registry.parse(ParseInput(...))` compatibility boundary while they migrate.
-Older concrete class names are available explicitly from
-`harborrag_adapters.parsers.compat`; they are not part of the root public API.
+
+Each engine has exactly one public name, formed as `<Provider><Family>Engine`
+(for example `DoclingPDFEngine`, `DocxDocumentEngine`, `OcrImageEngine`) with its
+options in `<Provider><Family>Config`. There are deliberately no `*Parser`,
+`*Backend`, or `*BackendOptions` aliases: one concept, one name.
 
 ## Routing
 

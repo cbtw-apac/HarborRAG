@@ -8,32 +8,30 @@ from typing import ClassVar
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory
-from harborrag_adapters.parsers.compat import (
-    PARSER_LOGGER_NAME,
-    PdfBackend,
-    PdfParser,
-    PdfParseResult,
-    PdfParserProfile,
-)
+from harborrag_adapters.parsers.common.utils import PARSER_LOGGER_NAME
+from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
+from harborrag_adapters.parsers.pdf.config import PDFParserProfile
+from harborrag_adapters.parsers.pdf.models import PDFParseResult
+from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit
 
 
-class EmptyPdfBackend(PdfBackend):
+class EmptyPdfBackend(HarborPDFEngine):
     name: ClassVar[str] = "empty_pdf"
 
-    def parse_input(self, input: ParseInput) -> PdfParseResult:
-        return PdfParseResult(content="", engine=self.name)
+    def parse_input(self, input: ParseInput) -> PDFParseResult:
+        return PDFParseResult(content="", engine=self.name)
 
 
-class UsefulPdfBackend(PdfBackend):
+class UsefulPdfBackend(HarborPDFEngine):
     name: ClassVar[str] = "useful_pdf"
 
-    def parse_input(self, input: ParseInput) -> PdfParseResult:
+    def parse_input(self, input: ParseInput) -> PDFParseResult:
         content = "Useful PDF content for downstream retrieval"
-        return PdfParseResult(
+        return PDFParseResult(
             content=content,
             engine=self.name,
             elements=[DocumentElement(id="pdf:useful:0", type="paragraph", content=content)],
@@ -44,7 +42,7 @@ class UsefulPdfBackend(PdfBackend):
 @pytest.mark.graybox
 def test_pdf_parser_falls_back_until_backend_returns_usable_content(caplog):
     caplog.set_level(logging.DEBUG, logger=PARSER_LOGGER_NAME)
-    parser = PdfParser(
+    parser = HarborPDFParser(
         backends=[EmptyPdfBackend(), UsefulPdfBackend()],
         min_content_chars=10,
     )
@@ -66,7 +64,7 @@ def test_pdf_parser_falls_back_until_backend_returns_usable_content(caplog):
 
 @pytest.mark.whitebox
 def test_pdf_quality_profile_builds_expected_advanced_backends():
-    backends = HarborParserFactory().create_pdf_parser(profile=PdfParserProfile.QUALITY).backends
+    backends = HarborParserFactory().create_pdf_parser(profile=PDFParserProfile.QUALITY).backends
 
     assert [backend.name for backend in backends] == [
         "docling",

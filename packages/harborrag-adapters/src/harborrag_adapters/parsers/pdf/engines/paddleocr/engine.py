@@ -16,8 +16,6 @@ from harborrag_adapters.parsers.pdf.resources import materialized_pdf_path
 from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
 from harborrag_core.domain.parser import ParseInput
 
-PaddleOcrBackendOptions = PaddleOCRPDFConfig
-
 
 class PaddleOCRPDFEngine(HarborPDFEngine):
     """OCR-heavy PDF backend backed by PaddleOCR pipelines."""
@@ -227,6 +225,3 @@ class PaddleOCRPDFEngine(HarborPDFEngine):
         # A combiner that returns None/empty must fall through to `_predict`'s
         # `markdown or output` fallback, not the literal string "None".
         return str(combined) if combined else ""
-
-
-PaddleOcrBackend = PaddleOCRPDFEngine

@@ -8,6 +8,7 @@ from .configs import (
 )
 from .invocation import LiteLLMRerankInvocation, RerankInvocation
 from .registry import HarborRerankProvider, RerankProviderRegistry
+from .schemas import RerankClientDependencies
 
 __all__ = [
     "HarborRerankClientConfig",
@@ -18,6 +19,7 @@ __all__ = [
     "HarborRerankSecurityConfig",
     "HarborRerankingClient",
     "LiteLLMRerankInvocation",
+    "RerankClientDependencies",
     "RerankInvocation",
     "RerankProviderRegistry",
 ]

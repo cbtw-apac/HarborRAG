@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from model_runtime_support import FakeEmbeddingInvocation, embed_config
+from model_runtime_support import FakeEmbeddingInvocation, embed_client, embed_config
 
-from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.models.embed.configs import HarborEmbedProviderConfig
 from harborrag_adapters.models.embed.registry import HarborEmbedProvider
 from harborrag_adapters.models.runtime.config import CacheConfig, RetryPolicyConfig
@@ -58,7 +57,7 @@ def test_embed_sync_async_cache_middleware_and_capabilities() -> None:
             return response
 
     invocation = FakeEmbeddingInvocation([raw_batch([1, 0, 0]), raw_batch([0, 1, 0])])
-    client = HarborEmbedClient.from_config(
+    client = embed_client(
         embed_config(cache=CacheConfig(enabled=True, ttl_seconds=30)),
         invocation=invocation,
         middleware=(Middleware(),),
@@ -90,7 +89,7 @@ def test_embed_sync_async_cache_middleware_and_capabilities() -> None:
 @pytest.mark.asyncio
 async def test_embed_async_context_and_borrowed_invocation() -> None:
     invocation = FakeEmbeddingInvocation([raw_batch([1, 0, 0])])
-    async with HarborEmbedClient(
+    async with embed_client(
         embed_config(),
         invocation=invocation,
         resource_ownership=ResourceOwnership.BORROWED,
@@ -101,7 +100,7 @@ async def test_embed_async_context_and_borrowed_invocation() -> None:
 
 def test_embedding_private_batches_use_one_deployment_and_merge() -> None:
     invocation = FakeEmbeddingInvocation([raw_batch([1, 0, 0], [0, 1, 0]), raw_batch([0, 0, 1])])
-    response = HarborEmbedClient(embed_config(), invocation=invocation).embed(["a", "b", "c"])
+    response = embed_client(embed_config(), invocation=invocation).embed(["a", "b", "c"])
     assert [item.index for item in response.embeddings] == [0, 1, 2]
     assert len(invocation.calls) == 2
     assert invocation.calls[0]["model"] == invocation.calls[1]["model"]
@@ -125,9 +124,7 @@ def test_partial_batch_failure_retries_the_complete_request() -> None:
             raw_batch([0, 0, 1]),
         ]
     )
-    response = HarborEmbedClient(embed_config(retry=retry), invocation=invocation).embed(
-        ["a", "b", "c"]
-    )
+    response = embed_client(embed_config(retry=retry), invocation=invocation).embed(["a", "b", "c"])
     assert len(response.embeddings) == 3
     assert response.retry_count == 1
     assert [call["input"] for call in invocation.calls] == [
@@ -147,7 +144,7 @@ def test_embedding_deployment_and_model_fallbacks_preserve_space() -> None:
         max_delay_seconds=0,
     )
     invocation = FakeEmbeddingInvocation([TimeoutError(), raw_batch([1, 0, 0])])
-    response = HarborEmbedClient(
+    response = embed_client(
         embed_config(
             deployments=(deployment("first"), deployment("second", order=1)),
             retry=retry,
@@ -157,7 +154,7 @@ def test_embedding_deployment_and_model_fallbacks_preserve_space() -> None:
     assert response.deployment == "second" and response.fallback_count == 1
 
     fallback_invocation = FakeEmbeddingInvocation([TimeoutError(), raw_batch([0, 1, 0])])
-    fallback = HarborEmbedClient(
+    fallback = embed_client(
         embed_config(deployments=(deployment("only"),), retry=retry, fallbacks=("fallback",)),
         invocation=fallback_invocation,
     ).embed("x")
@@ -175,9 +172,9 @@ async def test_async_embedding_retry_and_error_path() -> None:
         max_delay_seconds=0,
     )
     invocation = FakeEmbeddingInvocation([TimeoutError(), raw_batch([1, 0, 0])])
-    response = await HarborEmbedClient(embed_config(retry=retry), invocation=invocation).aembed("x")
+    response = await embed_client(embed_config(retry=retry), invocation=invocation).aembed("x")
     assert response.retry_count == 1
     failed = FakeEmbeddingInvocation([HarborEmbedProviderError("safe", retryable=False)])
     with pytest.raises(HarborEmbedProviderError):
-        await HarborEmbedClient(embed_config(retry=retry), invocation=failed).aembed("x")
+        await embed_client(embed_config(retry=retry), invocation=failed).aembed("x")
     assert len(failed.calls) == 1

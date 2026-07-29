@@ -109,6 +109,3 @@ class DocxDocumentEngine(HarborDocumentEngine):
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input),
         )
-
-
-DocxParser = DocxDocumentEngine

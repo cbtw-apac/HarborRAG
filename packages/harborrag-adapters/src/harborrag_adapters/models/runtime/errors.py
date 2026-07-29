@@ -4,8 +4,9 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
+from harborrag_adapters.models.runtime.litellm_import import optional_litellm
 from harborrag_core.models import errors as model_errors
 
 
@@ -40,43 +41,104 @@ class ModelErrorDetails:
     provider_request_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class ModelCallContext:
+    """Identify the deployment and request that a provider failure came from.
+
+    Every error-normalization call site needs exactly these five fields, so they
+    travel as one value instead of five parallel keyword arguments.
+    """
+
+    provider: str | None = None
+    logical_model: str | None = None
+    provider_model: str | None = None
+    deployment: str | None = None
+    request_id: str | None = None
+
+    @classmethod
+    def for_deployment(
+        cls,
+        deployment: Any,
+        *,
+        logical_model: str | None,
+        request_id: str | None,
+    ) -> ModelCallContext:
+        """Read routing identity off a resolved deployment in one place."""
+
+        provider = getattr(deployment, "provider", None)
+        return cls(
+            provider=getattr(provider, "value", None if provider is None else str(provider)),
+            logical_model=logical_model,
+            provider_model=getattr(deployment, "model", None),
+            deployment=getattr(deployment, "name", None),
+            request_id=request_id,
+        )
+
+
 def normalize_model_exception[E: model_errors.HarborModelError](
     exc: Exception,
+    context: ModelCallContext | None = None,
     *,
     operation: str,
     error_base: type[E],
     error_types: Mapping[ModelErrorCategory, type[E]],
-    provider: str | None = None,
-    logical_model: str | None = None,
-    provider_model: str | None = None,
-    deployment: str | None = None,
-    request_id: str | None = None,
 ) -> E:
     """Map an SDK exception into a family error using one shared classifier."""
+    context = context or ModelCallContext()
     if isinstance(exc, error_base):
         return exc.enrich(
             operation=operation,
-            provider=provider,
-            logical_model=logical_model,
-            provider_model=provider_model,
-            deployment=deployment,
-            request_id=request_id,
+            provider=context.provider,
+            logical_model=context.logical_model,
+            provider_model=context.provider_model,
+            deployment=context.deployment,
+            request_id=context.request_id,
         )
-    details = classify_model_exception(exc, provider=provider)
+    details = classify_model_exception(exc, provider=context.provider)
     error_type = error_types.get(details.category, error_types[ModelErrorCategory.PROVIDER])
     return error_type(
         details.message,
         operation=operation,
         provider=details.provider,
-        logical_model=logical_model,
-        provider_model=provider_model,
-        deployment=deployment,
+        logical_model=context.logical_model,
+        provider_model=context.provider_model,
+        deployment=context.deployment,
         retryable=details.retryable,
         status_code=details.status_code,
-        request_id=request_id,
+        request_id=context.request_id,
         provider_request_id=details.provider_request_id,
         original_exception=exc,
     )
+
+
+class ExceptionNormalizer[E: model_errors.HarborModelError](Protocol):
+    """Translate a provider exception into one model family's error type."""
+
+    def __call__(self, exc: Exception, context: ModelCallContext | None = None) -> E: ...
+
+
+def build_exception_normalizer[E: model_errors.HarborModelError](
+    *,
+    operation: str,
+    error_base: type[E],
+    error_types: Mapping[ModelErrorCategory, type[E]],
+) -> ExceptionNormalizer[E]:
+    """Bind one family's error taxonomy to the shared classifier.
+
+    Every family needs the same translation with a different taxonomy, so the
+    binding lives here instead of being restated per family.
+    """
+
+    def normalize_exception(exc: Exception, context: ModelCallContext | None = None) -> E:
+        return normalize_model_exception(
+            exc,
+            context,
+            operation=operation,
+            error_base=error_base,
+            error_types=error_types,
+        )
+
+    return normalize_exception
 
 
 def classify_model_exception(exc: Exception, *, provider: str | None = None) -> ModelErrorDetails:
@@ -93,9 +155,8 @@ def classify_model_exception(exc: Exception, *, provider: str | None = None) -> 
         category = ModelErrorCategory.CONNECTION
         retryable = True
 
-    try:
-        import litellm
-
+    litellm = optional_litellm()
+    if litellm is not None:
         mappings = (
             ("AuthenticationError", ModelErrorCategory.AUTHENTICATION),
             ("PermissionDeniedError", ModelErrorCategory.AUTHORIZATION),
@@ -122,8 +183,6 @@ def classify_model_exception(exc: Exception, *, provider: str | None = None) -> 
         if transient_types and isinstance(exc, transient_types):
             category = ModelErrorCategory.PROVIDER
             retryable = True
-    except ImportError:
-        pass
 
     if status_code in {408, 409, 425, 429} or (status_code is not None and status_code >= 500):
         retryable = True

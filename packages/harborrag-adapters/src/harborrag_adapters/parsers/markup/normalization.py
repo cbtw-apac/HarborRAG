@@ -15,9 +15,4 @@ class MarkupNormalizer(FamilyResultNormalizer):
         super().__init__("markup")
 
 
-__all__ = [
-    "MarkupNormalizer",
-    "compact_text",
-    "html_to_text",
-    "html_to_text_with_engine",
-]
+__all__ = ["MarkupNormalizer", "compact_text", "html_to_text", "html_to_text_with_engine"]

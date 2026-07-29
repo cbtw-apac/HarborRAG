@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from harborrag_adapters.parsers.compat import LiteParseBackend, LiteParseBackendOptions
+from harborrag_adapters.parsers.pdf.engines.liteparse.config import LiteParsePDFConfig
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParsePDFEngine
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit
@@ -34,8 +35,8 @@ class FakeLiteParse:
 def test_liteparse_backend_uses_llamaindex_liteparse_api_shape():
     fake_parser = FakeLiteParse()
 
-    backend = LiteParseBackend(
-        LiteParseBackendOptions(
+    backend = LiteParsePDFEngine(
+        LiteParsePDFConfig(
             parser=fake_parser,
             output_format="markdown",
             ocr_enabled=False,
@@ -64,7 +65,7 @@ def test_liteparse_backend_treats_empty_text_as_empty_not_missing():
             # the whole result object as content.
             return SimpleNamespace(text="", pages=[])
 
-    backend = LiteParseBackend(LiteParseBackendOptions(parser=_FakeEmptyLiteParse()))
+    backend = LiteParsePDFEngine(LiteParsePDFConfig(parser=_FakeEmptyLiteParse()))
 
     document = backend.parse_input(ParseInput(content=b"%PDF", filename="empty.pdf"))
 
@@ -73,8 +74,8 @@ def test_liteparse_backend_treats_empty_text_as_empty_not_missing():
 
 @pytest.mark.whitebox
 def test_liteparse_constructor_kwargs_match_documented_python_options():
-    backend = LiteParseBackend(
-        LiteParseBackendOptions(
+    backend = LiteParsePDFEngine(
+        LiteParsePDFConfig(
             output_format="markdown",
             image_mode="off",
             extract_links=False,

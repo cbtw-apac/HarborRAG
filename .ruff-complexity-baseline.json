@@ -31,9 +31,6 @@
     "packages/harborrag-adapters/src/harborrag_adapters/models/chat/client.py": {
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/chat/errors.py": {
-      "PLR0913": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/models/chat/execution.py": {
       "PLR0913": 1
     },
@@ -50,12 +47,6 @@
     "packages/harborrag-adapters/src/harborrag_adapters/models/chat/structured.py": {
       "PLR0913": 3
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/embed/client.py": {
-      "PLR0913": 2
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/embed/errors.py": {
-      "PLR0913": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/models/embed/execution.py": {
       "PLR0913": 1
     },
@@ -68,12 +59,6 @@
     "packages/harborrag-adapters/src/harborrag_adapters/models/embed/validation.py": {
       "C901": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/client.py": {
-      "PLR0913": 2
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/errors.py": {
-      "PLR0913": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/execution.py": {
       "PLR0913": 1
     },
@@ -85,9 +70,6 @@
     },
     "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/validation.py": {
       "C901": 1
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/runtime/errors.py": {
-      "PLR0913": 1
     },
     "packages/harborrag-adapters/src/harborrag_adapters/models/runtime/execution.py": {
       "PLR0913": 2

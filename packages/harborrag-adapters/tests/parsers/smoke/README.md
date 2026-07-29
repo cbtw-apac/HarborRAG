@@ -66,7 +66,7 @@ python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
   samples/report.pdf --pdf-backend docling
 ```
 
-Supported profiles come from `PdfParserProfile`. Exact backend choices are
+Supported profiles come from `PDFParserProfile`. Exact backend choices are
 `docling`, `liteparse`, `mineru`, `paddleocr`, and `pymupdf`. PDF options used
 with a non-PDF input return exit code `1`.
 

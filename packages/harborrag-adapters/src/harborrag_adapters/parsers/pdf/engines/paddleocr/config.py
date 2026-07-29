@@ -34,6 +34,4 @@ class PaddleOCRPDFConfig:
     legacy_ocr_options: dict[str, Any] = field(default_factory=dict)
 
 
-PaddleOcrBackendOptions = PaddleOCRPDFConfig
-
-__all__ = ["PaddleOCRPDFConfig", "PaddleOcrBackendOptions"]
+__all__ = ["PaddleOCRPDFConfig"]

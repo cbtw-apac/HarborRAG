@@ -23,9 +23,9 @@ def _one_page_pdf(text: str = "Hello PDF world this is a sentence") -> bytes:
 
 
 def test_pymupdf_backend_extracts_text() -> None:
-    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
+    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 
-    result = PyMuPdfBackend().parse_input(ParseInput(content=_one_page_pdf(), filename="d.pdf"))
+    result = PyMuPDFEngine().parse_input(ParseInput(content=_one_page_pdf(), filename="d.pdf"))
     assert "Hello PDF" in result.content
     assert result.engine == "pymupdf"
     assert result.metadata["page_count"] == 1
@@ -33,7 +33,7 @@ def test_pymupdf_backend_extracts_text() -> None:
 
 def test_pymupdf_backend_rejects_encrypted_pdf() -> None:
     from harborrag_adapters.parsers.errors import EncryptedPdfError
-    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
+    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 
     doc = fitz.open()
     try:
@@ -46,15 +46,15 @@ def test_pymupdf_backend_rejects_encrypted_pdf() -> None:
     finally:
         doc.close()
     with pytest.raises(EncryptedPdfError):
-        PyMuPdfBackend().parse_input(ParseInput(content=encrypted, filename="e.pdf"))
+        PyMuPDFEngine().parse_input(ParseInput(content=encrypted, filename="e.pdf"))
 
 
 def test_pymupdf_backend_bad_pdf_raises_parse_error() -> None:
     from harborrag_adapters.parsers.errors import ParseError
-    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
+    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 
     with pytest.raises(ParseError):
-        PyMuPdfBackend().parse_input(ParseInput(content=b"not a pdf", filename="x.pdf"))
+        PyMuPDFEngine().parse_input(ParseInput(content=b"not a pdf", filename="x.pdf"))
 
 
 def test_pymupdf_backend_rejects_pdf_exceeding_max_pages() -> None:
@@ -63,8 +63,8 @@ def test_pymupdf_backend_rejects_pdf_exceeding_max_pages() -> None:
     # timeout to bound the work otherwise.
     from harborrag_adapters.parsers.errors import ParseError
     from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import (
-        PyMuPdfBackend,
-        PyMuPdfBackendOptions,
+        PyMuPDFConfig,
+        PyMuPDFEngine,
     )
 
     doc = fitz.open()
@@ -75,26 +75,26 @@ def test_pymupdf_backend_rejects_pdf_exceeding_max_pages() -> None:
     finally:
         doc.close()
 
-    backend = PyMuPdfBackend(PyMuPdfBackendOptions(max_pages=2))
+    backend = PyMuPDFEngine(PyMuPDFConfig(max_pages=2))
     with pytest.raises(ParseError, match="max_pages"):
         backend.parse_input(ParseInput(content=three_page_pdf, filename="many.pdf"))
 
 
 def test_pymupdf_backend_allows_pdf_within_max_pages() -> None:
     from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import (
-        PyMuPdfBackend,
-        PyMuPdfBackendOptions,
+        PyMuPDFConfig,
+        PyMuPDFEngine,
     )
 
-    backend = PyMuPdfBackend(PyMuPdfBackendOptions(max_pages=5))
+    backend = PyMuPDFEngine(PyMuPDFConfig(max_pages=5))
     result = backend.parse_input(ParseInput(content=_one_page_pdf(), filename="d.pdf"))
     assert result.metadata["page_count"] == 1
 
 
 def test_pymupdf_backend_default_max_pages_is_bounded() -> None:
-    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
+    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 
-    assert PyMuPdfBackend().options.max_pages == 1000
+    assert PyMuPDFEngine().options.max_pages == 1000
 
 
 def test_pdf_parser_end_to_end_and_materialized_path_from_disk(tmp_path: Path) -> None:

@@ -14,6 +14,4 @@ class PyMuPDFConfig:
     max_pages: int | None = DEFAULT_MAX_PAGES
 
 
-PyMuPdfBackendOptions = PyMuPDFConfig
-
-__all__ = ["DEFAULT_MAX_PAGES", "PyMuPDFConfig", "PyMuPdfBackendOptions"]
+__all__ = ["DEFAULT_MAX_PAGES", "PyMuPDFConfig"]

@@ -99,7 +99,7 @@ Connectors own authentication, provider pagination, filtering, retry hints, safe
 
 ### Parsers
 
-`BaseParser` defines metadata-only routing and parsing. `HarborParser` combines the default parser stack and rejects ambiguous non-generic routes. PDF parsing uses ordered backends or named profiles.
+`HarborParserEngine` defines metadata-only routing and parsing. `HarborParser` combines the default parser stack and rejects ambiguous non-generic routes. PDF parsing uses ordered backends or named profiles.
 
 Parsers own extraction and warnings. Runtime/engine code owns fan-out, backpressure, persistence, and retry across documents.
 

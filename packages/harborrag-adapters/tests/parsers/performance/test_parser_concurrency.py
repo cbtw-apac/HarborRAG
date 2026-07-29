@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory
+from harborrag_adapters.parsers.registry import HarborParserRegistry
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.slow, pytest.mark.graybox, pytest.mark.timeout(30)]
@@ -29,14 +30,18 @@ def _make_input(index: int) -> ParseInput:
     )
 
 
-def test_concurrent_parse_is_deterministic_and_route_tables_intact() -> None:
+def _routing_snapshot(parser: HarborParserRegistry) -> dict[str, str]:
+    """Record which family each template suffix resolves to, via the public API."""
+
+    return {
+        suffix: parser.resolve(f"probe.{suffix}", None).parser_name for suffix, _ in _DOC_TEMPLATES
+    }
+
+
+def test_concurrent_parse_is_deterministic() -> None:
     parser = HarborParserFactory().create_registry()
     inputs = [_make_input(i) for i in range(len(_DOC_TEMPLATES))]
     baseline = [parser.parse(inp).content for inp in inputs]
-
-    suffix_before = dict(parser._by_suffix)
-    content_type_before = dict(parser._by_content_type)
-    name_before = dict(parser._by_name)
 
     tasks = [(i % len(inputs)) for i in range(200)]
 
@@ -50,6 +55,18 @@ def test_concurrent_parse_is_deterministic_and_route_tables_intact() -> None:
     for idx, content in outcomes:
         assert content == baseline[idx]
 
-    assert dict(parser._by_suffix) == suffix_before
-    assert dict(parser._by_content_type) == content_type_before
-    assert dict(parser._by_name) == name_before
+
+def test_concurrent_parse_leaves_routing_intact() -> None:
+    parser = HarborParserFactory().create_registry()
+    inputs = [_make_input(i) for i in range(len(_DOC_TEMPLATES))]
+    routing_before = _routing_snapshot(parser)
+    families_before = sorted(family.parser_name for family in parser.families())
+
+    def _run(idx: int) -> str:
+        return parser.parse(inputs[idx]).content
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_run, [(i % len(inputs)) for i in range(200)]))
+
+    assert _routing_snapshot(parser) == routing_before
+    assert sorted(family.parser_name for family in parser.families()) == families_before

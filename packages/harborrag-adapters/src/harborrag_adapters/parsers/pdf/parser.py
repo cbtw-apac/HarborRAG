@@ -294,7 +294,3 @@ class HarborPDFParser(HarborParser):
             if router_config is not None and profile_name in router_config.profiles:
                 return profile_name
             raise
-
-
-PdfParser = HarborPDFParser
-PdfParserProfile = PDFParserProfile

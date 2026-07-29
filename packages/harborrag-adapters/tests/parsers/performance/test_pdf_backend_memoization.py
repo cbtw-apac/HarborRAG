@@ -5,18 +5,10 @@ from __future__ import annotations
 import pytest
 
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
-from harborrag_adapters.parsers.pdf.engines.docling.config import (
-    DoclingBackendOptions,
-)
-from harborrag_adapters.parsers.pdf.engines.docling.engine import (
-    DoclingPDFEngine,
-)
-from harborrag_adapters.parsers.pdf.engines.liteparse.config import (
-    LiteParseBackendOptions,
-)
-from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (
-    LiteParsePDFEngine,
-)
+from harborrag_adapters.parsers.pdf.engines.docling.config import DoclingPDFConfig
+from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingPDFEngine
+from harborrag_adapters.parsers.pdf.engines.liteparse.config import LiteParsePDFConfig
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParsePDFEngine
 from harborrag_adapters.parsers.pdf.models import PDFParseResult
 from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_core.domain.parser import ParseInput
@@ -82,7 +74,7 @@ def test_backend_cache_fields_start_none() -> None:
 
 def test_docling_injected_converter_is_reused_by_identity() -> None:
     converter = _FakeDoclingConverter()
-    backend = DoclingPDFEngine(DoclingBackendOptions(converter=converter))
+    backend = DoclingPDFEngine(DoclingPDFConfig(converter=converter))
 
     assert backend._converter() is converter
     assert backend._converter() is converter
@@ -117,7 +109,7 @@ def test_liteparse_injected_parser_is_reused_by_identity() -> None:
             return _FakeLiteResult()
 
     fake = _FakeLiteParse()
-    backend = LiteParsePDFEngine(LiteParseBackendOptions(parser=fake))
+    backend = LiteParsePDFEngine(LiteParsePDFConfig(parser=fake))
 
     assert backend._parser() is fake
     assert backend._parser() is fake

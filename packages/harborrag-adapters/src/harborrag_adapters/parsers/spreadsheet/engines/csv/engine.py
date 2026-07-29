@@ -100,6 +100,3 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input, rows=len(rendered_rows)),
         )
-
-
-CsvParser = CsvSpreadsheetEngine

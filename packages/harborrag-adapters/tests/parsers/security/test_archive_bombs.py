@@ -69,7 +69,7 @@ def test_epub_parser_rejects_bomb_via_public_api() -> None:
 def test_pptx_parser_rejects_bomb_via_public_api() -> None:
     # PPTX is a zip container like DOCX/EPUB; the guard must run before bytes
     # reach python-pptx, not just when called directly (regression coverage
-    # for the guard being skipped in PptxParser.parse()).
+    # for the guard being skipped in PythonPptxPresentationEngine.parse()).
     parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zip_bomb_bytes(), filename="b.pptx"))
@@ -78,7 +78,7 @@ def test_pptx_parser_rejects_bomb_via_public_api() -> None:
 def test_xlsx_parser_rejects_bomb_via_public_api() -> None:
     # XLSX is a zip container like DOCX/EPUB; the guard must run before bytes
     # reach openpyxl, not just when called directly (regression coverage for
-    # the guard being skipped in ExcelParser._parse_openxml()).
+    # the guard being skipped in ExcelSpreadsheetEngine._parse_openxml()).
     parser = HarborParserFactory().create_registry()
     with pytest.raises(ParseError):
         parser.parse(ParseInput(content=build_zip_bomb_bytes(), filename="b.xlsx"))

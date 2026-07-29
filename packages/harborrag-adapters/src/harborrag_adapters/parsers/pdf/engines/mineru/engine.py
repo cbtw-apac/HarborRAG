@@ -25,8 +25,6 @@ from harborrag_adapters.parsers.pdf.resources import materialized_pdf_path
 from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
 from harborrag_core.domain.parser import ParseInput
 
-MinerUBackendOptions = MinerUPDFConfig
-
 
 class MinerUPDFEngine(HarborPDFEngine):
     """PDF backend that shells out to the MinerU CLI."""
@@ -280,6 +278,3 @@ class MinerUPDFEngine(HarborPDFEngine):
             finally:
                 os.close(descriptor)
         return output
-
-
-MinerUBackend = MinerUPDFEngine

@@ -15,23 +15,31 @@ for source_path in (
         sys.path.insert(0, source)
 
 from harborrag_adapters.parsers import HarborParserFactory  # noqa: E402
-from harborrag_adapters.parsers.compat import (  # noqa: E402
-    DoclingBackend,
-    LiteParseBackend,
-    MinerUBackend,
-    PaddleOcrBackend,
-    PdfParser,
-    PdfParserProfile,
-    PyMuPdfBackend,
+from harborrag_adapters.parsers.pdf.config import PDFParserProfile  # noqa: E402
+from harborrag_adapters.parsers.pdf.engines.docling.engine import (  # noqa: E402
+    DoclingPDFEngine,
 )
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (  # noqa: E402
+    LiteParsePDFEngine,
+)
+from harborrag_adapters.parsers.pdf.engines.mineru.engine import (  # noqa: E402
+    MinerUPDFEngine,
+)
+from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import (  # noqa: E402
+    PaddleOCRPDFEngine,
+)
+from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import (  # noqa: E402
+    PyMuPDFEngine,
+)
+from harborrag_adapters.parsers.pdf.parser import HarborPDFParser  # noqa: E402
 from harborrag_core.domain.parser import ParseInput  # noqa: E402
 
-PDF_BACKENDS = {
-    "docling": DoclingBackend,
-    "liteparse": LiteParseBackend,
-    "mineru": MinerUBackend,
-    "paddleocr": PaddleOcrBackend,
-    "pymupdf": PyMuPdfBackend,
+PDF_ENGINES = {
+    "docling": DoclingPDFEngine,
+    "liteparse": LiteParsePDFEngine,
+    "mineru": MinerUPDFEngine,
+    "paddleocr": PaddleOCRPDFEngine,
+    "pymupdf": PyMuPDFEngine,
 }
 
 
@@ -43,13 +51,13 @@ def _arguments() -> argparse.Namespace:
     pdf_selection = parser.add_mutually_exclusive_group()
     pdf_selection.add_argument(
         "--pdf-profile",
-        choices=[profile.value for profile in PdfParserProfile],
+        choices=[profile.value for profile in PDFParserProfile],
         default=None,
         help="Run a specific PDF backend profile instead of automatic routing",
     )
     pdf_selection.add_argument(
         "--pdf-backend",
-        choices=sorted(PDF_BACKENDS),
+        choices=sorted(PDF_ENGINES),
         default=None,
         help="Run exactly one PDF backend instead of automatic routing",
     )
@@ -69,10 +77,10 @@ def main() -> int:
     try:
         parse_input = ParseInput(path=path)
         if args.pdf_backend:
-            backend = PDF_BACKENDS[args.pdf_backend]()
-            document = PdfParser(backends=[backend]).parse_input(parse_input)
+            backend = PDF_ENGINES[args.pdf_backend]()
+            document = HarborPDFParser(backends=[backend]).parse_input(parse_input)
         elif args.pdf_profile:
-            document = PdfParser(profile=args.pdf_profile).parse_input(parse_input)
+            document = HarborPDFParser(profile=args.pdf_profile).parse_input(parse_input)
         else:
             document = HarborParserFactory().create_registry().parse_input(parse_input)
         if not document.content.strip():

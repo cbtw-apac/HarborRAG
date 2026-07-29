@@ -200,6 +200,3 @@ class OcrImageEngine(HarborImageEngine):
         result = self._rapidocr_engine(data)
         texts = getattr(result, "txts", None) or ()
         return "\n".join(text for value in texts if (text := str(value).strip()))
-
-
-ImageParser = OcrImageEngine

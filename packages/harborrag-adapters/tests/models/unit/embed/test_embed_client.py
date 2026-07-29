@@ -4,9 +4,9 @@ import math
 
 import pytest
 from model_invocation_support import FakeEmbeddingInvocation, embedding_response
+from model_runtime_support import embed_client
 
 from harborrag_adapters.models.embed import (
-    HarborEmbedClient,
     HarborEmbedClientConfig,
 )
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
@@ -53,7 +53,7 @@ def embed_config(
 
 def test_sync_single_input_embedding() -> None:
     invocation = FakeEmbeddingInvocation([embedding_response([[1.0, 2.0]], prompt_tokens=3)])
-    client = HarborEmbedClient(embed_config(), invocation=invocation)
+    client = embed_client(embed_config(), invocation=invocation)
 
     response = client.embed("hello")
 
@@ -68,7 +68,7 @@ def test_sync_single_input_embedding() -> None:
 @pytest.mark.asyncio
 async def test_async_batch_embedding() -> None:
     invocation = FakeEmbeddingInvocation([embedding_response([[1.0, 0.0], [0.0, 1.0]])])
-    client = HarborEmbedClient(embed_config(), invocation=invocation)
+    client = embed_client(embed_config(), invocation=invocation)
 
     response = await client.aembed(["first", "second"])
 
@@ -84,7 +84,7 @@ def test_configurable_batching_and_usage_aggregation() -> None:
         ]
     )
 
-    response = HarborEmbedClient(embed_config(), invocation=invocation).embed(
+    response = embed_client(embed_config(), invocation=invocation).embed(
         ["a", "b", "c"], batch_size=2
     )
 
@@ -98,14 +98,14 @@ def test_provider_indexes_are_restored_to_original_input_order() -> None:
         [embedding_response([[2.0, 0.0], [1.0, 0.0]], indexes=[1, 0])]
     )
 
-    response = HarborEmbedClient(embed_config(), invocation=invocation).embed(["a", "b"])
+    response = embed_client(embed_config(), invocation=invocation).embed(["a", "b"])
 
     assert response.vectors == ((1.0, 0.0), (2.0, 0.0))
     assert tuple(item.index for item in response.embeddings) == (0, 1)
 
 
 def test_dimension_mismatch_is_explicit() -> None:
-    client = HarborEmbedClient(
+    client = embed_client(
         embed_config(),
         invocation=FakeEmbeddingInvocation([embedding_response([[1.0, 2.0, 3.0]])]),
     )
@@ -118,7 +118,7 @@ def test_empty_input_is_rejected_before_invocation() -> None:
     invocation = FakeEmbeddingInvocation()
 
     with pytest.raises(HarborEmbedInvalidRequestError, match="invalid embedding request"):
-        HarborEmbedClient(embed_config(), invocation=invocation).embed([])
+        embed_client(embed_config(), invocation=invocation).embed([])
 
     assert invocation.calls == []
 
@@ -129,7 +129,7 @@ def test_partial_batch_failure_never_returns_partial_vectors() -> None:
     )
 
     with pytest.raises(HarborEmbedPartialBatchError) as captured:
-        HarborEmbedClient(embed_config(), invocation=invocation).embed(["a", "b", "c"])
+        embed_client(embed_config(), invocation=invocation).embed(["a", "b", "c"])
 
     assert captured.value.metadata == {
         "failed_batch_index": 1,
@@ -139,7 +139,7 @@ def test_partial_batch_failure_never_returns_partial_vectors() -> None:
 
 
 def test_provider_error_is_normalized() -> None:
-    client = HarborEmbedClient(
+    client = embed_client(
         embed_config(),
         invocation=FakeEmbeddingInvocation([RuntimeError("provider failed")]),
     )
@@ -155,7 +155,7 @@ def test_timeout_is_retried_and_remains_typed_when_exhausted() -> None:
     invocation = FakeEmbeddingInvocation([TimeoutError("slow"), TimeoutError("still slow")])
 
     with pytest.raises(HarborEmbedTimeoutError):
-        HarborEmbedClient(embed_config(attempts=2), invocation=invocation).embed("hello")
+        embed_client(embed_config(attempts=2), invocation=invocation).embed("hello")
 
     assert len(invocation.calls) == 2
 
@@ -163,9 +163,7 @@ def test_timeout_is_retried_and_remains_typed_when_exhausted() -> None:
 def test_optional_vector_normalization() -> None:
     invocation = FakeEmbeddingInvocation([embedding_response([[3.0, 4.0]])])
 
-    response = HarborEmbedClient(embed_config(), invocation=invocation).embed(
-        "hello", normalize=True
-    )
+    response = embed_client(embed_config(), invocation=invocation).embed("hello", normalize=True)
 
     assert response.normalized is True
     assert response.vectors[0] == pytest.approx((0.6, 0.8))
@@ -176,7 +174,7 @@ def test_token_inputs_require_declared_capability() -> None:
     invocation = FakeEmbeddingInvocation()
 
     with pytest.raises(HarborEmbedCapabilityError, match="token-array"):
-        HarborEmbedClient(embed_config(), invocation=invocation).embed([1, 2, 3])
+        embed_client(embed_config(), invocation=invocation).embed([1, 2, 3])
 
     assert invocation.calls == []
 
@@ -184,7 +182,7 @@ def test_token_inputs_require_declared_capability() -> None:
 @pytest.mark.asyncio
 async def test_lifecycle_closes_owned_invocation_once() -> None:
     sync_invocation = FakeEmbeddingInvocation()
-    sync_client = HarborEmbedClient(embed_config(), invocation=sync_invocation)
+    sync_client = embed_client(embed_config(), invocation=sync_invocation)
     sync_client.close()
     sync_client.close()
     assert sync_invocation.close_count == 1
@@ -192,7 +190,7 @@ async def test_lifecycle_closes_owned_invocation_once() -> None:
         sync_client.embed("hello")
 
     async_invocation = FakeEmbeddingInvocation()
-    async_client = HarborEmbedClient(embed_config(), invocation=async_invocation)
+    async_client = embed_client(embed_config(), invocation=async_invocation)
     await async_client.aclose()
     await async_client.aclose()
     assert async_invocation.aclose_count == 1
@@ -200,7 +198,7 @@ async def test_lifecycle_closes_owned_invocation_once() -> None:
 
 def test_borrowed_invocation_is_not_closed() -> None:
     invocation = FakeEmbeddingInvocation()
-    client = HarborEmbedClient(
+    client = embed_client(
         embed_config(),
         invocation=invocation,
         resource_ownership=ResourceOwnership.BORROWED,

@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from harborrag_adapters.models.runtime.errors import (
     ModelErrorCategory,
-    normalize_model_exception,
+    build_exception_normalizer,
 )
 from harborrag_core.models import errors as model_errors
 
+# Reranking has no dedicated context-length, moderation, or structured-output type:
+# an oversized document set, a moderation refusal, and a schema failure are all
+# request-shape problems from a rerank caller's point of view, so all three
+# categories intentionally collapse onto InvalidRequest.
 _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborRerankError]] = {
     ModelErrorCategory.AUTHENTICATION: model_errors.HarborRerankAuthenticationError,
     ModelErrorCategory.AUTHORIZATION: model_errors.HarborRerankAuthorizationError,
@@ -19,25 +23,8 @@ _ERROR_TYPES: dict[ModelErrorCategory, type[model_errors.HarborRerankError]] = {
     ModelErrorCategory.PROVIDER: model_errors.HarborRerankProviderError,
 }
 
-
-def normalize_exception(
-    exc: Exception,
-    *,
-    provider: str | None = None,
-    logical_model: str | None = None,
-    provider_model: str | None = None,
-    deployment: str | None = None,
-    request_id: str | None = None,
-) -> model_errors.HarborRerankError:
-    """Map an SDK failure into a sanitized reranking error with execution context."""
-    return normalize_model_exception(
-        exc,
-        operation="rerank",
-        error_base=model_errors.HarborRerankError,
-        error_types=_ERROR_TYPES,
-        provider=provider,
-        logical_model=logical_model,
-        provider_model=provider_model,
-        deployment=deployment,
-        request_id=request_id,
-    )
+normalize_exception = build_exception_normalizer(
+    operation="rerank",
+    error_base=model_errors.HarborRerankError,
+    error_types=_ERROR_TYPES,
+)

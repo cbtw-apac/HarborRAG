@@ -10,7 +10,8 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.parsers.compat import DoclingBackend, DoclingBackendOptions
+from harborrag_adapters.parsers.pdf.engines.docling.config import DoclingPDFConfig
+from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingPDFEngine
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit
@@ -41,14 +42,14 @@ def _encrypted_pdf_bytes() -> bytes:
 
 @pytest.mark.whitebox
 def test_docling_backend_options_build_convert_kwargs_without_importing_docling():
-    options = DoclingBackendOptions(
+    options = DoclingPDFConfig(
         max_num_pages=3,
         max_file_size=2048,
         page_range=(1, 2),
         force_full_page_ocr=True,
         extra_convert_options={"custom": "value"},
     )
-    configured = DoclingBackend(options, strict_text=True)
+    configured = DoclingPDFEngine(options, strict_text=True)
 
     assert configured.options.strict_text is True
     assert configured.options.force_full_page_ocr is True
@@ -63,7 +64,7 @@ def test_docling_backend_options_build_convert_kwargs_without_importing_docling(
 
 @pytest.mark.whitebox
 def test_docling_backend_options_normalize_yaml_lists():
-    options = DoclingBackendOptions(
+    options = DoclingPDFConfig(
         ocr_lang=["en"],  # type: ignore[arg-type]
         page_range=[1, 2],  # type: ignore[arg-type]
     )
@@ -75,27 +76,27 @@ def test_docling_backend_options_normalize_yaml_lists():
 @pytest.mark.whitebox
 def test_docling_backend_options_reject_invalid_page_range():
     with pytest.raises(ValueError, match="exactly two"):
-        DoclingBackendOptions(page_range=[1])  # type: ignore[arg-type]
+        DoclingPDFConfig(page_range=[1])  # type: ignore[arg-type]
 
 
 @pytest.mark.whitebox
 @pytest.mark.parametrize("device", ["auto", "cpu", "cuda", "mps", "xpu"])
 def test_docling_backend_preserves_supported_accelerator_devices(device: str):
-    backend = DoclingBackend(accelerator_device=device)
+    backend = DoclingPDFEngine(accelerator_device=device)
 
     assert backend._accelerator_device(_AcceleratorDevice).value == device
 
 
 @pytest.mark.whitebox
 def test_docling_backend_preserves_a_specific_cuda_device():
-    backend = DoclingBackend(accelerator_device="CUDA:2")
+    backend = DoclingPDFEngine(accelerator_device="CUDA:2")
 
     assert backend._accelerator_device(_AcceleratorDevice) == "cuda:2"
 
 
 @pytest.mark.whitebox
 def test_docling_backend_rejects_an_invalid_accelerator_device():
-    backend = DoclingBackend(accelerator_device="gpu")
+    backend = DoclingPDFEngine(accelerator_device="gpu")
 
     with pytest.raises(ValueError, match="Unsupported Docling accelerator device"):
         backend._accelerator_device(_AcceleratorDevice)
@@ -123,7 +124,7 @@ def test_docling_backend_uses_docling_to_resolve_auto_acceleration(monkeypatch):
         accelerator_module,
     )
 
-    assert DoclingBackend().resolved_accelerator_device() == "xpu"
+    assert DoclingPDFEngine().resolved_accelerator_device() == "xpu"
     assert requested == ["auto"]
 
 
@@ -138,7 +139,7 @@ def test_docling_backend_rejects_encrypted_pdf_without_invoking_converter():
                 "PyMuPDF pre-check should short-circuit first."
             )
 
-    backend = DoclingBackend(DoclingBackendOptions(converter=_ExplodingConverter()))
+    backend = DoclingPDFEngine(DoclingPDFConfig(converter=_ExplodingConverter()))
 
     with pytest.raises(EncryptedPdfError):
         backend.parse_input(ParseInput(content=_encrypted_pdf_bytes(), filename="secret.pdf"))
@@ -148,7 +149,7 @@ def test_docling_backend_rejects_encrypted_pdf_without_invoking_converter():
 def test_docling_backend_does_not_build_converter_for_encrypted_pdf(monkeypatch):
     from harborrag_adapters.parsers.errors import EncryptedPdfError
 
-    backend = DoclingBackend()
+    backend = DoclingPDFEngine()
     build_calls: list[str] = []
 
     def _record_and_build() -> None:
@@ -173,7 +174,7 @@ def test_docling_backend_surfaces_partial_failures_as_warnings():
                 errors=["page 3 failed to parse"],
             )
 
-    backend = DoclingBackend(DoclingBackendOptions(converter=_PartialResultConverter()))
+    backend = DoclingPDFEngine(DoclingPDFConfig(converter=_PartialResultConverter()))
     import fitz
 
     plain_pdf = fitz.open()
@@ -193,7 +194,7 @@ def test_docling_backend_pipeline_options_enable_image_generation_when_output_di
     tmp_path,
 ):
     pytest.importorskip("docling")
-    backend = DoclingBackend(image_output_dir=tmp_path, images_scale=1.5)
+    backend = DoclingPDFEngine(image_output_dir=tmp_path, images_scale=1.5)
 
     pipeline_options = backend._pipeline_options()
 
@@ -206,7 +207,7 @@ def test_docling_backend_pipeline_options_enable_image_generation_when_output_di
 @pytest.mark.whitebox
 def test_docling_backend_leaves_image_generation_off_by_default():
     pytest.importorskip("docling")
-    backend = DoclingBackend()
+    backend = DoclingPDFEngine()
 
     pipeline_options = backend._pipeline_options()
 
@@ -240,7 +241,7 @@ def test_docling_backend_saves_page_picture_and_table_images(tmp_path):
         pictures=[_FakeElement(_FakeImage("picture-1"))],
         tables=[_FakeElement(_FakeImage("table-1"))],
     )
-    backend = DoclingBackend(image_output_dir=tmp_path)
+    backend = DoclingPDFEngine(image_output_dir=tmp_path)
 
     saved = backend._save_images(document)
 
@@ -259,7 +260,7 @@ def test_docling_backend_skips_elements_with_no_renderable_image(tmp_path):
         pictures=[_FakeElement(None)],
         tables=[],
     )
-    backend = DoclingBackend(image_output_dir=tmp_path)
+    backend = DoclingPDFEngine(image_output_dir=tmp_path)
 
     assert backend._save_images(document) == []
 
@@ -276,8 +277,8 @@ def test_docling_backend_parse_populates_image_paths_metadata(tmp_path):
         def convert(self, *args: Any, **kwargs: Any) -> Any:
             return SimpleNamespace(document=document)
 
-    backend = DoclingBackend(
-        DoclingBackendOptions(converter=_RecordingConverter(), image_output_dir=tmp_path)
+    backend = DoclingPDFEngine(
+        DoclingPDFConfig(converter=_RecordingConverter(), image_output_dir=tmp_path)
     )
     import fitz
 
@@ -302,7 +303,7 @@ def test_docling_backend_parse_omits_image_paths_metadata_by_default():
         def convert(self, *args: Any, **kwargs: Any) -> Any:
             return SimpleNamespace(document=document)
 
-    backend = DoclingBackend(DoclingBackendOptions(converter=_RecordingConverter()))
+    backend = DoclingPDFEngine(DoclingPDFConfig(converter=_RecordingConverter()))
     import fitz
 
     plain_pdf = fitz.open()
@@ -326,7 +327,7 @@ def test_docling_backend_pre_check_does_not_block_normal_pdfs():
             calls.append("converted")
             return SimpleNamespace(document=SimpleNamespace())
 
-    backend = DoclingBackend(DoclingBackendOptions(converter=_RecordingConverter()))
+    backend = DoclingPDFEngine(DoclingPDFConfig(converter=_RecordingConverter()))
     import fitz
 
     plain_pdf = fitz.open()

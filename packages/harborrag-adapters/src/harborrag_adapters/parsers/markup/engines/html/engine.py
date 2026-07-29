@@ -68,6 +68,3 @@ class HtmlMarkupEngine(HarborMarkupEngine):
             metadata=self.metadata_for(parse_input, text_engine=text_engine),
             raw={"html": html},
         )
-
-
-HtmlParser = HtmlMarkupEngine

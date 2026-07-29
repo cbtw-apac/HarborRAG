@@ -11,6 +11,7 @@ from harborrag_adapters.models.runtime.cache import (
     ModelResponseCache,
     ResponseCacheController,
 )
+from harborrag_adapters.models.runtime.errors import ModelCallContext
 from harborrag_adapters.models.runtime.execution import RoutedModelExecutor
 from harborrag_adapters.models.runtime.middleware import (
     MiddlewarePipeline,
@@ -277,11 +278,11 @@ class RerankExecution:
     ) -> HarborRerankError:
         return normalize_exception(
             exc,
-            logical_model=logical,
-            provider=deployment.provider.value,
-            provider_model=deployment.model,
-            deployment=deployment.name,
-            request_id=request.metadata.request_id,
+            ModelCallContext.for_deployment(
+                deployment,
+                logical_model=logical,
+                request_id=request.metadata.request_id,
+            ),
         )
 
     def _operation(

@@ -24,8 +24,6 @@ from harborrag_adapters.parsers.pdf.resources import (
 from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
 from harborrag_core.domain.parser import ParseInput
 
-DoclingBackendOptions = DoclingPDFConfig
-
 
 class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
     """Layout-aware PDF backend powered by IBM Docling."""
@@ -244,6 +242,3 @@ class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
             return True
         except Exception:  # noqa: BLE001 - third-party config object boundary
             return False
-
-
-DoclingBackend = DoclingPDFEngine

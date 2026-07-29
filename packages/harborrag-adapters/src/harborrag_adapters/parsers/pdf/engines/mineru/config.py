@@ -47,6 +47,4 @@ class MinerUPDFConfig:
             raise ValueError("MinerU output and diagnostic limits must be positive")
 
 
-MinerUBackendOptions = MinerUPDFConfig
-
-__all__ = ["MinerUBackendOptions", "MinerUPDFConfig"]
+__all__ = ["MinerUPDFConfig"]

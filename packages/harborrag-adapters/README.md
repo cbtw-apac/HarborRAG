@@ -181,17 +181,17 @@ Default parser support includes:
 
 | Parser | Formats |
 | --- | --- |
-| `PptxParser` | `.pptx`, `.pptm` |
-| `DocxParser` | `.docx` |
-| `ExcelParser` | `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
-| `PdfParser` | `.pdf` with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR backends |
-| `CsvParser` | `.csv`, `.tsv` |
-| `ImageParser` | OCR for common raster image formats |
-| `HtmlParser` | `.html`, `.htm`, `.xhtml` |
-| `EpubParser` | `.epub` |
-| `JsonParser` | `.json`, `.jsonl`, `.ndjson` |
-| `MarkdownParser` | `.md`, `.markdown`, `.mdx` |
-| `TextParser` | Plain text and common source/config file extensions |
+| `PythonPptxPresentationEngine` | `.pptx`, `.pptm` |
+| `DocxDocumentEngine` | `.docx` |
+| `ExcelSpreadsheetEngine` | `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
+| `HarborPDFParser` | `.pdf` with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR engines |
+| `CsvSpreadsheetEngine` | `.csv`, `.tsv` |
+| `OcrImageEngine` | OCR for common raster image formats |
+| `HtmlMarkupEngine` | `.html`, `.htm`, `.xhtml` |
+| `EpubDocumentEngine` | `.epub` |
+| `JsonStructuredEngine` | `.json`, `.jsonl`, `.ndjson` |
+| `MarkdownMarkupEngine` | `.md`, `.markdown`, `.mdx` |
+| `PlainTextEngine` | Plain text and common source/config file extensions |
 
 ## Repositories
 

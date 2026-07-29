@@ -5,13 +5,11 @@ from __future__ import annotations
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory
-from harborrag_adapters.parsers.compat import (
-    CsvParser,
-    HtmlParser,
-    JsonParser,
-    MarkdownParser,
-    TextParser,
-)
+from harborrag_adapters.parsers.markup.engines.html.engine import HtmlMarkupEngine
+from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownMarkupEngine
+from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvSpreadsheetEngine
+from harborrag_adapters.parsers.structured.engines.json.engine import JsonStructuredEngine
+from harborrag_adapters.parsers.text.engines.plain_text.engine import PlainTextEngine
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit
@@ -23,27 +21,27 @@ pytestmark = pytest.mark.unit
     [
         (
             ParseInput(content="name,role\nAda,engineer", content_type="text/csv"),
-            CsvParser.parser_name,
+            CsvSpreadsheetEngine.parser_name,
             "Ada\tengineer",
         ),
         (
             ParseInput(content='{"name": "Ada"}', filename="data.json"),
-            JsonParser.parser_name,
+            JsonStructuredEngine.parser_name,
             "$.name: Ada",
         ),
         (
             ParseInput(content="# Title\n\nBody", filename="doc.md"),
-            MarkdownParser.parser_name,
+            MarkdownMarkupEngine.parser_name,
             "Title\n\nBody",
         ),
         (
             ParseInput(content="print('hello')", filename="app.py"),
-            TextParser.parser_name,
+            PlainTextEngine.parser_name,
             "print('hello')",
         ),
         (
             ParseInput(content="plain text", content_type="text/plain"),
-            TextParser.parser_name,
+            PlainTextEngine.parser_name,
             "plain text",
         ),
         (
@@ -51,7 +49,7 @@ pytestmark = pytest.mark.unit
                 content="<html><script>x()</script><p>Hello</p></html>",
                 filename="doc.html",
             ),
-            HtmlParser.parser_name,
+            HtmlMarkupEngine.parser_name,
             "Hello",
         ),
     ],
