@@ -6,10 +6,13 @@ and why there is no dedicated metrics table yet.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 
 router = APIRouter(tags=["metrics"], dependencies=[Depends(require_role("reader"))])
@@ -31,9 +34,8 @@ class MetricsOut(BaseModel):
     jobs_by_status: JobsByStatusOut
 
 
-@router.get("/metrics", response_model=MetricsOut)
-async def get_metrics(request: Request) -> MetricsOut:
+@router.get("/metrics/ingestion", response_model=MetricsOut)
+async def get_metrics(service: Annotated[BaseAppService, Depends(get_app_service)]) -> MetricsOut:
     """Dashboard summary counters; all zero on a fresh workspace."""
-    service: BaseAppService = request.app.state.app_service
     response = await service.get_metrics()
     return MetricsOut(**response.data)

@@ -112,7 +112,7 @@ def test_activity_settings_and_metrics_read_from_real_db(seeded_client) -> None:
     settings = seeded_client.get("/api/v1/settings").json()
     assert settings == {"data": {"theme": "dark"}}
 
-    metrics = seeded_client.get("/api/v1/metrics").json()
+    metrics = seeded_client.get("/api/v1/metrics/ingestion").json()
     assert metrics["projects_total"] == 1
     assert metrics["sources_total"] == 1
     assert metrics["documents_total"] == 3
@@ -141,7 +141,7 @@ def test_read_routes_return_enveloped_503_when_control_plane_unconfigured() -> N
             "/api/v1/sources/any-id",
             "/api/v1/activity",
             "/api/v1/settings",
-            "/api/v1/metrics",
+            "/api/v1/metrics/ingestion",
         ):
             response = client.get(path)
             assert response.status_code == 503, path

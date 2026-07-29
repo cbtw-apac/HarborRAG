@@ -21,7 +21,7 @@ READ_ROUTES = [
     "/api/v1/sources",
     "/api/v1/activity",
     "/api/v1/settings",
-    "/api/v1/metrics",
+    "/api/v1/metrics/ingestion",
 ]
 
 

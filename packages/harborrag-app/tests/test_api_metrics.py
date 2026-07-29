@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control import mock_app_service
 from harborrag_core.domain.project import Project, ProjectStats
@@ -16,7 +17,7 @@ from harborrag_core.domain.source_config import SourceConfig
 def test_metrics_all_zero_on_a_fresh_workspace() -> None:
     """A brand-new workspace must not crash the metrics aggregation."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:
-        response = client.get("/api/v1/metrics")
+        response = client.get("/api/v1/metrics/ingestion")
         assert response.status_code == 200
         assert response.json() == {
             "projects_total": 0,
@@ -37,27 +38,27 @@ def test_metrics_all_zero_on_a_fresh_workspace() -> None:
 def test_metrics_reflects_seeded_projects_and_sources() -> None:
     """Counters aggregate across every seeded project/source."""
     app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_app_service] = lambda: mock_app_service(
+        projects=[
+            Project(
+                id="proj-1",
+                name="Docs",
+                collection="docs_collection",
+                stats=ProjectStats(documents=10, chunks=120),
+            ),
+            Project(
+                id="proj-2",
+                name="Jira",
+                collection="jira_collection",
+                stats=ProjectStats(documents=5, chunks=30),
+            ),
+        ],
+        sources=[
+            SourceConfig(id="src-1", project_id="proj-1", source_type="local_file", name="Docs")
+        ],
+    )
     with TestClient(app) as client:
-        app.state.app_service = mock_app_service(
-            projects=[
-                Project(
-                    id="proj-1",
-                    name="Docs",
-                    collection="docs_collection",
-                    stats=ProjectStats(documents=10, chunks=120),
-                ),
-                Project(
-                    id="proj-2",
-                    name="Jira",
-                    collection="jira_collection",
-                    stats=ProjectStats(documents=5, chunks=30),
-                ),
-            ],
-            sources=[
-                SourceConfig(id="src-1", project_id="proj-1", source_type="local_file", name="Docs")
-            ],
-        )
-        response = client.get("/api/v1/metrics")
+        response = client.get("/api/v1/metrics/ingestion")
         assert response.status_code == 200
         body = response.json()
         assert body["projects_total"] == 2
