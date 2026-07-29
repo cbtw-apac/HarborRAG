@@ -12,12 +12,12 @@ from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp_server.tools.health import HealthTool
 
 
-def test_package_uses_the_mcp_server_namespace_without_an_old_alias() -> None:
+def test_package_exposes_the_mcp_server_namespace() -> None:
     assert importlib.util.find_spec("harborrag_mcp_server") is not None
-    assert importlib.util.find_spec("harborrag_mcp") is None
 
 
 def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monkeypatch) -> None:
+    pytest.importorskip("fastmcp")
     monkeypatch.setenv("HARBORRAG_MCP_AUDIT_PATH", str(tmp_path / "audit.jsonl"))
 
     with pytest.raises(RuntimeError, match="requires authentication"):
@@ -27,7 +27,7 @@ def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monkeypatch
     tools = asyncio.run(transport.list_tools())  # type: ignore[attr-defined]
 
     assert type(transport).__module__.startswith("fastmcp.")
-    assert [tool.name for tool in tools] == ["harborrag_health_check"]
+    assert [tool.name for tool in tools] == ["harborrag_health_check", "vector_search"]
     assert tools[0].parameters == {
         "type": "object",
         "additionalProperties": False,
@@ -64,11 +64,17 @@ def test_mcp_health_tool_server_and_module_facade():
     health = HealthTool().call({})
     assert health["ok"] is True
     server = McpServer()
-    assert [tool.name for tool in server.list_tools()] == ["harborrag_health_check"]
+    assert [tool.name for tool in server.list_tools()] == [
+        "harborrag_health_check",
+        "vector_search",
+    ]
     assert server.call_tool("harborrag_health_check")["ok"] is True
     with pytest.raises(ValueError):
         server.call_tool("missing")
-    assert list_tools()[0]["name"] == "harborrag_health_check"
+    assert [spec["name"] for spec in list_tools()] == [
+        "harborrag_health_check",
+        "vector_search",
+    ]
     assert call_tool("harborrag_health_check")["ok"] is True
     with pytest.raises(ValueError):
         call_tool("missing")
