@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.retrieval import RetrievalQuery
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
@@ -11,57 +13,6 @@ _DEFAULT_TOP_K = 5
 _MAX_TOP_K = McpToolPolicy().max_results
 
 _DEFAULT_SCORE_THRESHOLD = 0.3
-
-
-class _ValidationError(Exception):
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
-
-
-def _validate_query(arguments: dict[str, object]) -> str:
-    query_text = str(arguments.get("query", "")).strip()
-    if not query_text:
-        raise _ValidationError("query must be a non-empty string")
-    return query_text
-
-
-def _validate_top_k(arguments: dict[str, object]) -> int:
-    raw_top_k = arguments.get("top_k", _DEFAULT_TOP_K)
-    if not isinstance(raw_top_k, int | str | bytes | bytearray):
-        raise _ValidationError("top_k must be an integer")
-    try:
-        top_k = int(raw_top_k)
-    except (TypeError, ValueError):
-        raise _ValidationError("top_k must be an integer") from None
-    if top_k < 1 or top_k > _MAX_TOP_K:
-        raise _ValidationError(f"top_k must be between 1 and {_MAX_TOP_K}")
-    return top_k
-
-
-def _validate_filters(arguments: dict[str, object]) -> dict[str, object]:
-    raw_filters = arguments.get("filters")
-    if not isinstance(raw_filters, Mapping):
-        raise _ValidationError("filters is required and must be an object")
-    filters = dict(raw_filters)
-
-    tenant_id = filters.get("tenant_id")
-    if not isinstance(tenant_id, str) or not tenant_id.strip():
-        raise _ValidationError("filters.tenant_id must be a non-empty string")
-    return filters
-
-
-def _validate_score_threshold(arguments: dict[str, object]) -> float:
-    raw_threshold = arguments.get("score_threshold", _DEFAULT_SCORE_THRESHOLD)
-    if not isinstance(raw_threshold, int | float | str | bytes | bytearray):
-        raise _ValidationError("score_threshold must be a number")
-    try:
-        score_threshold = float(raw_threshold)
-    except (TypeError, ValueError):
-        raise _ValidationError("score_threshold must be a number") from None
-    if score_threshold < 0.0 or score_threshold > 1.0:
-        raise _ValidationError("score_threshold must be between 0.0 and 1.0")
-    return score_threshold
 
 
 @dataclass(slots=True)
@@ -121,14 +72,62 @@ class VectorSearchTool(BaseMcpTool):
         },
     )
 
+    @staticmethod
+    def _validate_query(arguments: dict[str, object]) -> str:
+        raw_query = arguments.get("query", "")
+        if not isinstance(raw_query, str):
+            raise HarborValidationError("query must be a non-empty string")
+        query_text = raw_query.strip()
+        if not query_text:
+            raise HarborValidationError("query must be a non-empty string")
+        return query_text
+
+    @staticmethod
+    def _validate_top_k(arguments: dict[str, object]) -> int:
+        raw_top_k = arguments.get("top_k", _DEFAULT_TOP_K)
+        if not isinstance(raw_top_k, int | str | bytes | bytearray):
+            raise HarborValidationError("top_k must be an integer")
+        try:
+            top_k = int(raw_top_k)
+        except (TypeError, ValueError):
+            raise HarborValidationError("top_k must be an integer") from None
+        if top_k < 1 or top_k > _MAX_TOP_K:
+            raise HarborValidationError(f"top_k must be between 1 and {_MAX_TOP_K}")
+        return top_k
+
+    @staticmethod
+    def _validate_filters(arguments: dict[str, object]) -> dict[str, object]:
+        raw_filters = arguments.get("filters")
+        if not isinstance(raw_filters, Mapping):
+            raise HarborValidationError("filters is required and must be an object")
+        filters = dict(raw_filters)
+
+        tenant_id = filters.get("tenant_id")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise HarborValidationError("filters.tenant_id must be a non-empty string")
+        return filters
+
+    @staticmethod
+    def _validate_score_threshold(arguments: dict[str, object]) -> float:
+        raw_threshold = arguments.get("score_threshold", _DEFAULT_SCORE_THRESHOLD)
+        if not isinstance(raw_threshold, int | float | str | bytes | bytearray):
+            raise HarborValidationError("score_threshold must be a number")
+        try:
+            score_threshold = float(raw_threshold)
+        except (TypeError, ValueError):
+            raise HarborValidationError("score_threshold must be a number") from None
+        if not math.isfinite(score_threshold) or score_threshold < 0.0 or score_threshold > 1.0:
+            raise HarborValidationError("score_threshold must be between 0.0 and 1.0")
+        return score_threshold
+
     def call(self, arguments: dict[str, object]) -> dict[str, object]:
         try:
-            query_text = _validate_query(arguments)
-            top_k = _validate_top_k(arguments)
-            filters = _validate_filters(arguments)
-            score_threshold = _validate_score_threshold(arguments)
-        except _ValidationError as exc:
-            return {"ok": False, "error": exc.message}
+            query_text = self._validate_query(arguments)
+            top_k = self._validate_top_k(arguments)
+            filters = self._validate_filters(arguments)
+            score_threshold = self._validate_score_threshold(arguments)
+        except HarborValidationError as exc:
+            return {"ok": False, "error": str(exc)}
 
         if self.pipeline is None:
             return {
