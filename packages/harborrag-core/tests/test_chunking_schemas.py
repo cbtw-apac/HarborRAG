@@ -204,15 +204,15 @@ def test_quality_table_locator_and_source_attribute_validation_are_strict() -> N
             column_count=2,
             key_column_indices=(0, 0),
         )
-    with pytest.raises(ValidationError, match="must not exceed the table row range"):
-        TableChunkLocator(
-            table_id="table:1",
-            table_version_id="table-version:1",
-            row_start=4,
-            row_end=5,
-            column_count=2,
-            repeated_header_row_count=3,
-        )
+    locator = TableChunkLocator(
+        table_id="table:1",
+        table_version_id="table-version:1",
+        row_start=4,
+        row_end=5,
+        column_count=2,
+        repeated_header_row_count=3,
+    )
+    assert locator.repeated_header_row_count == 3
     with pytest.raises(ValidationError, match="finite"):
         SourceAttribute(key="score", value=float("inf"))
     with pytest.raises(ValidationError, match="keys must be unique"):

@@ -1,13 +1,12 @@
+from harborrag_core.chunking.errors import ChunkIdentityError as ChunkIdentityError
+
+
 class ChunkingError(ValueError):
     """Base error for deterministic chunking failures."""
 
 
 class ChunkValidationError(ChunkingError):
     """Raised when a chunk manifest violates a correctness invariant."""
-
-
-class ChunkIdentityError(ChunkingError):
-    """Raised when deterministic identity input cannot be normalized safely."""
 
 
 class ChunkHierarchyError(ChunkingError):

@@ -15,6 +15,7 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 from .client import ConfluenceClient
 from .config import ConfluenceSpaceConfig
 from .query import (
+    CLOUD_CONTENT_EXPAND,
     COMMENT_EXPAND,
     CONTENT_EXPAND,
     LIGHT_EXPAND,
@@ -108,7 +109,13 @@ class ConfluenceContentAPI:
         content_id = validate_content_id(content_id)
         return self.client.get_json(
             f"content/{content_id}",
-            params={"expand": CONTENT_EXPAND},
+            params={
+                "expand": (
+                    CLOUD_CONTENT_EXPAND
+                    if self.config.deployment.value == "cloud"
+                    else CONTENT_EXPAND
+                )
+            },
         )
 
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:

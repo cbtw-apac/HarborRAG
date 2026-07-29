@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .canonical import DocumentBlock
 from .element import DocumentElement
 from .provenance import DocumentProvenance
+from .table import TableArtifact
 from .validation import require_id
 
 
@@ -68,6 +70,25 @@ class Document:
             "description": "Raw source data for the document, if needed for debugging or additional processing"
         },
     )
+    blocks: tuple[DocumentBlock, ...] = field(
+        default_factory=tuple,
+        metadata={"description": "Ordered canonical document block roots"},
+    )
+    table_artifacts: tuple[TableArtifact, ...] = field(
+        default_factory=tuple,
+        metadata={"description": "Structured table artifacts referenced by canonical blocks"},
+    )
+    body_representation: str | None = field(
+        default=None,
+        metadata={"description": "Structured source representation selected during normalization"},
+    )
+    warnings: tuple[str, ...] = field(
+        default_factory=tuple,
+        metadata={"description": "Recoverable parser and normalization warnings"},
+    )
 
     def __post_init__(self) -> None:
         require_id(self.id, label="Document")
+
+
+CanonicalDocument = Document

@@ -1,4 +1,13 @@
-from .errors import ChunkContractError, ChunkValidationError
+from .errors import ChunkContractError, ChunkIdentityError, ChunkValidationError
+from .identity import (
+    CanonicalIdentityBuilder,
+    canonical_identity_payload,
+    content_fingerprint,
+    encoded_identifier,
+    manifest_fingerprint,
+    normalize_identity_text,
+    normalize_structural_path,
+)
 from .metadata import ChunkMetadata, FrozenMetadata, thaw_metadata
 from .record import ChunkRecord
 from .schemas import (
@@ -15,13 +24,14 @@ from .schemas import (
     RelationType,
 )
 from .source_schemas import ChunkSecurity, SourceAttribute, SourceLocator
-from .table_schemas import TableChunkLocator
+from .table_schemas import TableChunkLocator, TableProjectionType
 
 __all__ = [
     "ChunkContainer",
     "ChunkContext",
     "ChunkContractError",
     "ChunkHierarchy",
+    "ChunkIdentityError",
     "ChunkKind",
     "ChunkMetadata",
     "ChunkQuality",
@@ -30,6 +40,7 @@ __all__ = [
     "ChunkSecurity",
     "ChunkSourceSpan",
     "ChunkValidationError",
+    "CanonicalIdentityBuilder",
     "ConnectorType",
     "ContainerKind",
     "DocumentKind",
@@ -38,5 +49,12 @@ __all__ = [
     "SourceAttribute",
     "SourceLocator",
     "TableChunkLocator",
+    "TableProjectionType",
+    "canonical_identity_payload",
+    "content_fingerprint",
+    "encoded_identifier",
+    "manifest_fingerprint",
+    "normalize_identity_text",
+    "normalize_structural_path",
     "thaw_metadata",
 ]

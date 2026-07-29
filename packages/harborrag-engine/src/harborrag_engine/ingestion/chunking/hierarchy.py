@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from unicodedata import normalize
 
-from harborrag_core.chunking import ChunkRecord
+from harborrag_core.chunking import ChunkContractError, ChunkRecord, normalize_structural_path
 
 from .errors import ChunkHierarchyError
 
@@ -11,13 +10,10 @@ from .errors import ChunkHierarchyError
 def normalize_section_path(section_path: Sequence[str]) -> tuple[str, ...]:
     """Normalize ordered section titles without changing case or ancestry."""
 
-    normalized: list[str] = []
-    for part in section_path:
-        value = " ".join(normalize("NFC", part).split())
-        if not value:
-            raise ChunkHierarchyError("section path parts must be non-empty")
-        normalized.append(value)
-    return tuple(normalized)
+    try:
+        return normalize_structural_path(section_path)
+    except ChunkContractError as exc:
+        raise ChunkHierarchyError("section path parts must be non-empty") from exc
 
 
 def parent_section_path(section_path: Sequence[str]) -> tuple[str, ...] | None:

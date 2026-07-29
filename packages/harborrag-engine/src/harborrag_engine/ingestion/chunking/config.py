@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import cast
 
 from .errors import InvalidChunkingPlanError
+from .table_policy import TableChunkingPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,7 @@ class ChunkingPlan:
     index_comments: bool = True
     index_events: bool = True
     contextualize_embeddings: bool = True
+    table_policy: TableChunkingPolicy = field(default_factory=TableChunkingPolicy)
 
     def __post_init__(self) -> None:
         profile = self.profile.strip()
