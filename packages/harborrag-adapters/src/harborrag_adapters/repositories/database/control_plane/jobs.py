@@ -88,6 +88,13 @@ class SqlJobRepository:
                 )
             )
 
+    async def count_by_status(self) -> dict[str, int]:
+        """Job counts grouped by status via SQL GROUP BY, not a full-table load."""
+        statement = sa.select(JobRow.status, sa.func.count()).group_by(JobRow.status)
+        async with self.sessions() as session:
+            rows = await session.execute(statement)
+            return {status: count for status, count in rows.all()}
+
 
 @dataclass(slots=True)
 class SqlActivityRepository:
