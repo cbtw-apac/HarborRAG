@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from pydantic_core import to_jsonable_python
 
-from harborrag_core.contracts.errors import HarborNotFoundError, HarborUnavailableError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
@@ -19,8 +19,8 @@ from harborrag_runtime.temporal.client import TemporalRuntimeClient
 from harborrag_runtime.temporal.schemas import IngestionRunInput
 
 from .errors import public_error_message
-from .metrics import summarize_metrics
 from .ports import BaseAppService
+from .reads import ControlPlaneReadsMixin
 from .schemas import AppResponse
 
 type ClientFactory = Callable[
@@ -35,7 +35,7 @@ type RetrievalFactory = Callable[
 logger = logging.getLogger("harborrag.app.workflow_control.client")
 
 
-class AppService(BaseAppService):
+class AppService(ControlPlaneReadsMixin, BaseAppService):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
 
     def __init__(
@@ -270,48 +270,6 @@ class AppService(BaseAppService):
             )
         except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
             return self._failure(exc, "apply %r to ingestion run %r", action, run_id)
-
-    async def list_projects(self) -> AppResponse:
-        """All projects from the control-plane DB (ML1 read side)."""
-        projects = await self._control_plane().projects.list()
-        return AppResponse(True, {"projects": projects})
-
-    async def get_project(self, project_id: str) -> AppResponse:
-        """One project by id; raises HarborNotFoundError when missing."""
-        project = await self._control_plane().projects.get(project_id)
-        if project is None:
-            raise HarborNotFoundError(f"project {project_id!r} not found")
-        return AppResponse(True, {"project": project})
-
-    async def list_sources(self, project_id: str | None = None) -> AppResponse:
-        """Sources from the control-plane DB, optionally scoped to a project."""
-        sources = await self._control_plane().sources.list(project_id)
-        return AppResponse(True, {"sources": sources})
-
-    async def get_source(self, source_id: str) -> AppResponse:
-        """One source by id; raises HarborNotFoundError when missing."""
-        source = await self._control_plane().sources.get(source_id)
-        if source is None:
-            raise HarborNotFoundError(f"source {source_id!r} not found")
-        return AppResponse(True, {"source": source})
-
-    async def list_activity(self, limit: int = 50) -> AppResponse:
-        """Most recent audit entries from the control-plane DB."""
-        activity = await self._control_plane().activity.list(limit)
-        return AppResponse(True, {"activity": activity})
-
-    async def get_settings(self) -> AppResponse:
-        """The workspace settings document (empty document if never written)."""
-        settings = await self._control_plane().settings.get()
-        return AppResponse(True, {"settings": settings})
-
-    async def get_metrics(self) -> AppResponse:
-        """Dashboard summary counters aggregated from the control-plane DB."""
-        control_plane = self._control_plane()
-        projects = await control_plane.projects.list()
-        sources = await control_plane.sources.list()
-        jobs_by_status = await control_plane.jobs.count_by_status()
-        return AppResponse(True, summarize_metrics(projects, sources, jobs_by_status))
 
     async def aclose(self) -> None:
         try:
