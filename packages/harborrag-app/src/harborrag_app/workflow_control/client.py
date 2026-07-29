@@ -310,8 +310,8 @@ class AppService(BaseAppService):
         control_plane = self._control_plane()
         projects = await control_plane.projects.list()
         sources = await control_plane.sources.list()
-        jobs = await control_plane.jobs.list()
-        return AppResponse(True, summarize_metrics(projects, sources, jobs))
+        jobs_by_status = await control_plane.jobs.count_by_status()
+        return AppResponse(True, summarize_metrics(projects, sources, jobs_by_status))
 
     async def aclose(self) -> None:
         try:
