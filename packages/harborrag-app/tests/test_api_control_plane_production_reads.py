@@ -14,6 +14,7 @@ for tests too).
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -51,6 +52,7 @@ async def _seed(dsn: str) -> None:
             config={"path": "./docs"},
         )
     )
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
     await control_plane.activity.append(
         ActivityEntry(
             id="a1",
@@ -59,6 +61,18 @@ async def _seed(dsn: str) -> None:
             entity_type="source",
             entity_id="src-1",
             summary="alice created src-1",
+            created_at=base_time,
+        )
+    )
+    await control_plane.activity.append(
+        ActivityEntry(
+            id="a2",
+            actor="bob",
+            verb="updated",
+            entity_type="source",
+            entity_id="src-1",
+            summary="bob updated src-1",
+            created_at=base_time + timedelta(minutes=1),
         )
     )
     await control_plane.settings.put(WorkspaceSettings(data={"theme": "dark"}))
@@ -92,7 +106,7 @@ def test_projects_and_sources_read_from_real_db(seeded_client) -> None:
 @pytest.mark.blackbox
 def test_activity_settings_and_metrics_read_from_real_db(seeded_client) -> None:
     activity = seeded_client.get("/api/v1/activity").json()
-    assert [entry["id"] for entry in activity] == ["a1"]
+    assert [entry["id"] for entry in activity] == ["a2", "a1"]
 
     settings = seeded_client.get("/api/v1/settings").json()
     assert settings == {"data": {"theme": "dark"}}
