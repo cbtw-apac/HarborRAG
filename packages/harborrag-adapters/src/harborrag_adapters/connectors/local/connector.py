@@ -11,7 +11,11 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
+from harborrag_adapters.connectors.schemas import (
+    ConnectorCapabilities,
+    ConnectorQuery,
+    ConnectorSkip,
+)
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -56,6 +60,12 @@ class LocalFileConnector(BaseConnector):
             yielded += 1
             if query.limit is not None and yielded >= query.limit:
                 return
+
+    @property
+    def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """Report files traversal dropped instead of discovering."""
+
+        return self._files.skips.entries
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Read one local file as bytes and attach filesystem metadata."""

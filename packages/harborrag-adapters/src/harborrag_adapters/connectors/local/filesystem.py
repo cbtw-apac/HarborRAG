@@ -29,6 +29,7 @@ from .filesystem_paths import (
 from .filters import extension_filter, file_paths_from_query, path_filter
 from .mappers import build_source_record
 from .secure_read import LocalFileSnapshot, SecureReadScope, read_snapshot_beneath
+from .skips import LocalSkipReport
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -41,6 +42,7 @@ class LocalFileSystem:
     def __init__(self, config: LocalFileConfig) -> None:
         """Normalize the configured source into concrete traversal paths."""
         self.config = config
+        self.skips = LocalSkipReport()
         # Config accepts strings at the package boundary; traversal uses one
         # concrete Path representation after validation.
         self.source_path = Path(config.source_path)
@@ -86,7 +88,7 @@ class LocalFileSystem:
         if start_path.is_symlink() and not self.config.follow_symlinks:
             return
         if not self.within_source_scope(start_path):
-            logger.warning("Skipping local path outside source scope %s", start_path)
+            self.skips.out_of_scope(start_path)
             return
         if start_path.is_file():
             yield start_path, start_path.is_symlink()
@@ -106,7 +108,7 @@ class LocalFileSystem:
         except OSError as exc:
             if self.config.fail_on_error:
                 raise FetchError(f"Could not list local directory {start_path}: {exc}") from exc
-            logger.warning("Skipping unreadable local directory %s: %s", start_path, exc)
+            self.skips.unreadable(start_path, error=exc)
             return
 
         for entry in entries:
@@ -134,10 +136,7 @@ class LocalFileSystem:
             if entry.is_file():
                 resolved = resolve_path(entry)
                 if not self.within_source_scope(resolved):
-                    logger.warning(
-                        "Skipping local file outside source scope %s",
-                        entry,
-                    )
+                    self.skips.out_of_scope(entry)
                     continue
                 yield resolved, is_symlink_entry
 
@@ -157,7 +156,7 @@ class LocalFileSystem:
         except OSError as exc:
             if self.config.fail_on_error:
                 raise FetchError(f"Could not stat local file {path}: {exc}") from exc
-            logger.warning("Skipping unreadable local file %s: %s", path, exc)
+            self.skips.unreadable(path, error=exc)
             return False
 
         updated_at = stat_datetime(stat.st_mtime)
@@ -189,10 +188,10 @@ class LocalFileSystem:
         if matches_globs(path, self.root_path, exclude_globs):
             return False
 
-        if self.config.max_file_size_bytes is not None:
-            if stat.st_size > self.config.max_file_size_bytes:
-                logger.debug("Skipping oversized local file %s", path)
-                return False
+        size_limit = self.config.max_file_size_bytes
+        if size_limit is not None and stat.st_size > size_limit:
+            self.skips.oversized(path, size=stat.st_size, limit=size_limit)
+            return False
 
         if self.config.process_file_callback:
             try:
@@ -201,13 +200,14 @@ class LocalFileSystem:
                     stat.st_size,
                     guess_mime_type(path),
                 )
-            except Exception:
+            except Exception as exc:
                 if self.config.fail_on_error:
                     raise
                 logger.exception("Local file callback failed for %s", path)
+                self.skips.callback_rejected(path, reason=f"raised {type(exc).__name__}: {exc}")
                 return False
             if not should_process:
-                logger.debug("Skipping local file %s: %s", path, reason)
+                self.skips.callback_rejected(path, reason=reason)
                 return False
         return True
 

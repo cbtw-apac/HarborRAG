@@ -101,6 +101,20 @@ def _render_local_output(
     return "\n".join(lines)
 
 
+def _print_skips(skipped) -> None:
+    """Report files discovery deliberately dropped, so none is silently omitted.
+
+    Skips are informational, not smoke failures: a file the configured
+    `max_file_size_bytes` excludes is correct behavior, and it must still be
+    named with its reason rather than vanishing from the output.
+    """
+    if not skipped:
+        return
+    print(f"[local] skipped {len(skipped)} path(s)")
+    for skip in skipped:
+        print(f"  - {skip.path}: {skip.detail} [{skip.reason}]")
+
+
 def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | None = None) -> int:
     load_env()
     try:
@@ -113,6 +127,7 @@ def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | N
     print(f"\n[local] discovered {len(records)} record(s)")
     for record in records:
         print(f"  - {record.id} ({record.source_type})")
+    _print_skips(connector.skipped)
     if not records:
         print("[local] no records discovered")
         return 1
