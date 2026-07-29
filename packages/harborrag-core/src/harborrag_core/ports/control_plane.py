@@ -76,6 +76,9 @@ class JobRepositoryPort(Protocol):
     async def append_event(self, job_id: str, event: HarborEvent) -> None:
         """Append to the job's ordered event log (WS reconnect replay source)."""
 
+    async def count_by_status(self) -> dict[str, int]:
+        """Job counts grouped by status, without loading each row (dashboard metrics)."""
+
 
 class ActivityRepositoryPort(Protocol):
     """Append-only audit feed (plan §5.5)."""

@@ -140,6 +140,13 @@ class FakeJobRepository:
         """Append to the job's ordered event log."""
         self.events.setdefault(job_id, []).append(event)
 
+    async def count_by_status(self) -> dict[str, int]:
+        """Job counts grouped by status."""
+        counts: dict[str, int] = {}
+        for job in self.jobs.values():
+            counts[job.status] = counts.get(job.status, 0) + 1
+        return counts
+
 
 @dataclass(slots=True)
 class FakeActivityRepository:
