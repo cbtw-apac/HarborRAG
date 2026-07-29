@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 
 router = APIRouter(tags=["settings"], dependencies=[Depends(require_role("reader"))])
 
 
-class WorkspaceSettingsOut(BaseModel):
-    data: dict[str, Any]
-
-
-@router.get("/settings", response_model=WorkspaceSettingsOut)
-async def get_settings(request: Request) -> WorkspaceSettingsOut:
-    """The workspace settings document; an empty document if never written."""
-    service: BaseAppService = request.app.state.app_service
+@router.get("/settings", response_model=dict[str, Any])
+async def get_settings(
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+) -> dict[str, Any]:
+    """The workspace settings document, flat; an empty document if never written."""
     response = await service.get_settings()
-    return WorkspaceSettingsOut(data=response.data["settings"].data)
+    return cast(dict[str, Any], response.data["settings"].data)

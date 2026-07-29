@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control import mock_app_service
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -17,15 +18,17 @@ def test_get_settings_empty_document_by_default() -> None:
     with TestClient(create_fastapi_app(ApiSettings())) as client:
         response = client.get("/api/v1/settings")
         assert response.status_code == 200
-        assert response.json() == {"data": {}}
+        assert response.json() == {}
 
 
 @pytest.mark.blackbox
 def test_get_settings_returns_seeded_document() -> None:
     """Seeded settings pass through untouched."""
     app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_app_service] = lambda: mock_app_service(
+        settings=WorkspaceSettings(data={"theme": "dark"})
+    )
     with TestClient(app) as client:
-        app.state.app_service = mock_app_service(settings=WorkspaceSettings(data={"theme": "dark"}))
         response = client.get("/api/v1/settings")
         assert response.status_code == 200
-        assert response.json() == {"data": {"theme": "dark"}}
+        assert response.json() == {"theme": "dark"}

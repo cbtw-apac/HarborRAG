@@ -110,7 +110,7 @@ def test_activity_settings_and_metrics_read_from_real_db(seeded_client) -> None:
     assert [entry["id"] for entry in activity] == ["a2", "a1"]
 
     settings = seeded_client.get("/api/v1/settings").json()
-    assert settings == {"data": {"theme": "dark"}}
+    assert settings == {"theme": "dark"}
 
     metrics = seeded_client.get("/api/v1/metrics/ingestion").json()
     assert metrics["projects_total"] == 1
