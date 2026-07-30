@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
-from harborrag_core.chunking import ChunkKind
+from harborrag_core.chunking import CanonicalIdentityBuilder, ChunkKind
 
 from ..config import ChunkingProfile
-from ..hierarchy import normalize_section_path
 from .fingerprint import encoded_identifier
 
 
@@ -25,7 +24,7 @@ class ChunkIdentity:
         return self.chunk_id
 
 
-class ChunkIdentityBuilder:
+class ChunkIdentityBuilder(CanonicalIdentityBuilder):
     """Build domain-separated deterministic chunk and table identities."""
 
     def configuration_hash(
@@ -46,109 +45,6 @@ class ChunkIdentityBuilder:
                 "chunker_name": chunker_name,
                 "chunker_version": chunker_version,
             },
-        )
-
-    def section_id(
-        self,
-        *,
-        document_id: str,
-        section_path: Sequence[str],
-    ) -> str:
-        """Return the stable identity of a logical document section."""
-
-        return encoded_identifier(
-            "section",
-            {
-                "document_id": document_id,
-                "section_path": normalize_section_path(section_path),
-            },
-        )
-
-    def logical_chunk_id(
-        self,
-        *,
-        section_id: str,
-        stable_source_range: Mapping[str, object],
-        chunk_kind: ChunkKind,
-    ) -> str:
-        """Return stable conceptual identity independent of content versions."""
-
-        return encoded_identifier(
-            "logical-chunk",
-            {
-                "section_id": section_id,
-                "stable_source_range": dict(stable_source_range),
-                "chunk_kind": chunk_kind.value,
-            },
-        )
-
-    def chunk_id(
-        self,
-        *,
-        logical_chunk_id: str,
-        document_version_id: str,
-        strategy_version: str,
-        content_hash: str,
-    ) -> str:
-        """Return exact identity for content under one document and strategy version."""
-
-        return encoded_identifier(
-            "chunk",
-            {
-                "logical_chunk_id": logical_chunk_id,
-                "document_version_id": document_version_id,
-                "strategy_version": strategy_version,
-                "content_hash": content_hash,
-            },
-        )
-
-    def table_id(
-        self,
-        *,
-        document_id: str,
-        section_path: Sequence[str],
-        stable_table_location: Mapping[str, object],
-    ) -> str:
-        """Return stable identity for one logical table location."""
-
-        return encoded_identifier(
-            "table",
-            {
-                "document_id": document_id,
-                "section_path": normalize_section_path(section_path),
-                "stable_table_location": dict(stable_table_location),
-            },
-        )
-
-    def table_version_id(
-        self,
-        *,
-        table_id: str,
-        source_version: str,
-        content_hash: str,
-    ) -> str:
-        """Return exact identity for a version of one logical table."""
-
-        return encoded_identifier(
-            "table-version",
-            {
-                "table_id": table_id,
-                "source_version": source_version,
-                "content_hash": content_hash,
-            },
-        )
-
-    def permission_set_id(
-        self,
-        *,
-        tenant_id: str,
-        permissions: Mapping[str, object],
-    ) -> str:
-        """Hash permission data so canonical records never expose raw ACL values."""
-
-        return encoded_identifier(
-            "permission-set",
-            {"tenant_id": tenant_id, "permissions": dict(permissions)},
         )
 
     def identify(

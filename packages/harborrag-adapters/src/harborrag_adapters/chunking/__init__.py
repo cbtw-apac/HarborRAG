@@ -1,4 +1,9 @@
 from harborrag_adapters.chunking.base import ChunkRequest, HarborBaseChunk
+from harborrag_adapters.chunking.confluence import (
+    ConfluenceMacroHandlerRegistry,
+    ConfluencePageInput,
+    ConfluencePageNormalizer,
+)
 from harborrag_adapters.chunking.htmlsplitter import HtmlStructureSplitter
 from harborrag_adapters.chunking.jsonsplitter import JsonStructureSplitter
 from harborrag_adapters.chunking.markdownsplitter import MarkdownStructureSplitter
@@ -11,6 +16,9 @@ from harborrag_adapters.chunking.registry import (
 
 __all__ = [
     "ChunkRequest",
+    "ConfluenceMacroHandlerRegistry",
+    "ConfluencePageInput",
+    "ConfluencePageNormalizer",
     "HarborBaseChunk",
     "HarborChunk",
     "HarborChunkRegistry",

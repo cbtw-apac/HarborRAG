@@ -5,6 +5,7 @@ from harborrag_engine.ingestion.base import (
 )
 from harborrag_engine.ingestion.chunking import (
     CanonicalChunkRepository,
+    CanonicalTableChunker,
     ChunkingConfig,
     ChunkingLimits,
     ChunkingPlan,
@@ -18,6 +19,12 @@ from harborrag_engine.ingestion.chunking import (
     ChunkPersistenceService,
     ChunkRoute,
     ChunkStrategyRegistry,
+    MatrixProjectionMode,
+    TableChunkingPolicy,
+    TableChunkingRequest,
+    TableChunkingResult,
+    TableClassificationThresholds,
+    TableShape,
     build_default_chunking_service,
 )
 from harborrag_engine.ingestion.normalizer import DocumentNormalizer
@@ -26,6 +33,7 @@ __all__ = [
     "BaseChunker",
     "BaseDocumentNormalizer",
     "CanonicalChunkRepository",
+    "CanonicalTableChunker",
     "ChunkManifest",
     "ChunkManifestRepository",
     "ChunkPersistenceService",
@@ -41,5 +49,11 @@ __all__ = [
     "ChunkStrategyRegistry",
     "DocumentNormalizer",
     "HarborChunker",
+    "MatrixProjectionMode",
+    "TableChunkingPolicy",
+    "TableChunkingRequest",
+    "TableChunkingResult",
+    "TableClassificationThresholds",
+    "TableShape",
     "build_default_chunking_service",
 ]

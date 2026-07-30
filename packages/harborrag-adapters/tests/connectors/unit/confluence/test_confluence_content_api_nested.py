@@ -3,12 +3,35 @@
 from __future__ import annotations
 
 import pytest
-from confluence_test_helpers import FakeConfluenceClient, cloud_config
+from confluence_test_helpers import FakeConfluenceClient, cloud_config, dc_config
 
 from harborrag_adapters.connectors.confluence.content import ConfluenceContentAPI
+from harborrag_adapters.connectors.confluence.query import (
+    CLOUD_CONTENT_EXPAND,
+    CONTENT_EXPAND,
+)
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+@pytest.mark.parametrize(
+    ("config", "expected_expand"),
+    [
+        (cloud_config(), CLOUD_CONTENT_EXPAND),
+        (dc_config(), CONTENT_EXPAND),
+    ],
+)
+def test_get_content_requests_adf_only_when_the_deployment_supports_it(
+    config,
+    expected_expand,
+):
+    client = FakeConfluenceClient()
+    client.add("content/1", {"id": "1"})
+
+    ConfluenceContentAPI(client, config).get_content("1")
+
+    assert client.calls == [("content/1", {"expand": expected_expand})]
 
 
 def test_fetch_comments_stops_on_short_final_page():

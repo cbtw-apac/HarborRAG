@@ -142,6 +142,11 @@ discovered and processed — each gets its own output file (default: 3).
 Confluence and JIRA fail if an attempted attachment ends in `failed` or
 `unsupported`. A source with no attachments can still pass.
 
+Local fails only on a genuine parse error, or on a parser returning empty
+content for a file that itself has non-blank bytes. A source file that is
+itself empty or whitespace-only still passes, matching Confluence/JIRA's
+tolerance of blank page/issue bodies.
+
 ## Parser selection
 
 PDF and image parsing come from `config/parsers.yaml` (falling back to

@@ -58,3 +58,4 @@ class ConfluenceMetadata(ConnectorMetadata):
     children: list[ConfluencePageReference]
     depth: int
     breadcrumb: list[str]
+    body_representation: str | None = None

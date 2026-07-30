@@ -23,9 +23,10 @@ def format_query_timestamp(value: datetime) -> str:
 
 
 CONTENT_EXPAND = (
-    "body.export_view,body.storage,version,metadata.labels,history,space,"
+    "body.storage,body.export_view,version,metadata.labels,history,space,"
     "extensions.position,ancestors,children.page"
 )
+CLOUD_CONTENT_EXPAND = f"body.atlas_doc_format,{CONTENT_EXPAND}"
 LIGHT_EXPAND = "version,metadata.labels,space"
 COMMENT_EXPAND = "body.storage,history"
 DEFAULT_PAGE_SIZE = 25

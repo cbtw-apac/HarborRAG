@@ -61,7 +61,18 @@ def display_url(
 def body_html_from_content(content: dict[str, Any]) -> str:
     """Extract the best HTML body representation from expanded content."""
     body = content.get("body", {})
-    return body.get("export_view", {}).get("value") or body.get("storage", {}).get("value") or ""
+    return body.get("storage", {}).get("value") or body.get("export_view", {}).get("value") or ""
+
+
+def body_representation_from_content(content: dict[str, Any]) -> str | None:
+    """Record which current connector-compatible body representation was selected."""
+
+    body = content.get("body", {})
+    if body.get("storage", {}).get("value"):
+        return "storage"
+    if body.get("export_view", {}).get("value"):
+        return "rendered_html"
+    return None
 
 
 def build_source_record(
@@ -136,6 +147,7 @@ def build_document_metadata(
         children=hierarchy.children,
         depth=hierarchy.depth,
         breadcrumb=hierarchy.breadcrumb,
+        body_representation=body_representation_from_content(content),
     )
 
 

@@ -37,10 +37,24 @@ from .schemas import (
     ChunkValidationResult,
 )
 from .strategies import ChunkStrategy
+from .table import (
+    CanonicalTableChunker,
+    InvalidTableLocatorError,
+    MatrixProjectionMode,
+    TableChunkingError,
+    TableChunkingPolicy,
+    TableChunkingRequest,
+    TableChunkingResult,
+    TableClassificationError,
+    TableClassificationThresholds,
+    TableShape,
+    TableShapeClassifier,
+)
 from .validation import ChunkValidator
 
 __all__ = [
     "CanonicalChunkRepository",
+    "CanonicalTableChunker",
     "ChunkCandidate",
     "ChunkManifest",
     "ChunkManifestRepository",
@@ -69,8 +83,18 @@ __all__ = [
     "ChunkingService",
     "ChunkValidationResult",
     "InvalidChunkingPlanError",
+    "InvalidTableLocatorError",
+    "MatrixProjectionMode",
     "OversizedChunkError",
     "SelectedChunkRoute",
+    "TableChunkingError",
+    "TableChunkingPolicy",
+    "TableChunkingRequest",
+    "TableChunkingResult",
+    "TableClassificationError",
+    "TableClassificationThresholds",
+    "TableShape",
+    "TableShapeClassifier",
     "UnknownChunkingStrategyError",
     "build_default_chunking_service",
     "default_chunking_profiles",
