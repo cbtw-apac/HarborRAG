@@ -3,11 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from harborrag_core.chunking import (
-    SourceLocator,
-    TableChunkLocator,
-    TableProjectionType,
-)
+from harborrag_core.chunking import TableChunkLocator, TableProjectionType
 from harborrag_core.domain import (
     CanonicalDocument,
     Document,
@@ -15,8 +11,6 @@ from harborrag_core.domain import (
     DocumentBlockKind,
     DocumentProvenance,
     TableArtifact,
-    TableCell,
-    TableCellType,
     TableGridSlot,
 )
 
@@ -50,58 +44,6 @@ def test_canonical_document_is_the_existing_document_contract_with_additive_stru
     assert CanonicalDocument is Document
     assert document.blocks[0].ordered_child_block_ids == ("block:p",)
     assert document.raw is None
-
-
-def test_table_artifact_retains_source_topology_without_copying_merged_values():
-    merged = TableCell(
-        cell_id="cell:merged",
-        row_index=0,
-        column_index=0,
-        row_span=2,
-        text="Service",
-        value="Service",
-        cell_type=TableCellType.HEADER,
-        is_header=True,
-    )
-    value = TableCell(
-        cell_id="cell:value",
-        row_index=1,
-        column_index=1,
-        text="2",
-        value=2,
-        cell_type=TableCellType.NUMBER,
-    )
-    artifact = TableArtifact(
-        table_id="table:1",
-        table_version_id="table-version:1",
-        document_id="document:1",
-        document_version_id="document-version:1",
-        source_version="1",
-        source_block_id="source-table",
-        ordinal=0,
-        row_count=2,
-        column_count=2,
-        header_row_indices=(0,),
-        column_names=("Service", "CPU"),
-        header_hierarchy=(("Service",), ("CPU",)),
-        cells=(merged, value),
-        logical_grid=(
-            (
-                TableGridSlot(cell_id="cell:merged"),
-                None,
-            ),
-            (
-                TableGridSlot(cell_id="cell:merged", inherited=True),
-                TableGridSlot(cell_id="cell:value"),
-            ),
-        ),
-        content_hash="sha256",
-        source_locator=SourceLocator(source_element_ids=("source-table",)),
-    )
-
-    assert len(artifact.cells) == 2
-    assert artifact.logical_grid[1][0].inherited is True
-    assert artifact.source_cell(1, 0) is merged
 
 
 def test_extended_table_locator_validates_columns_fragments_and_projection():
@@ -218,6 +160,13 @@ def test_invalid_table_grid_reference_and_child_parent_are_rejected():
             },
             "non-empty",
         ),
+        (
+            {
+                "kind": DocumentBlockKind.PARAGRAPH,
+                "container_path": ("Panel", ""),
+            },
+            "non-empty",
+        ),
     ],
 )
 def test_document_block_structural_invariants(values: dict[str, object], message: str) -> None:
@@ -249,84 +198,31 @@ def test_document_block_rejects_blank_identifiers_and_duplicate_children() -> No
         )
 
 
-def _minimal_artifact_values() -> dict[str, object]:
-    cell = TableCell(
-        cell_id="cell",
-        row_index=0,
-        column_index=0,
-        text="value",
-        value="value",
+def test_document_block_rejects_duplicate_and_out_of_order_ordinals() -> None:
+    first = DocumentBlock(
+        block_id="a", kind=DocumentBlockKind.PARAGRAPH, ordinal=0, parent_block_id="root"
     )
-    return {
-        "table_id": "table:1",
-        "table_version_id": "table-version:1",
-        "document_id": "document:1",
-        "document_version_id": "document-version:1",
-        "source_version": "1",
-        "source_block_id": "source-table",
-        "ordinal": 0,
-        "row_count": 1,
-        "column_count": 1,
-        "column_names": ("Column",),
-        "header_hierarchy": (("Column",),),
-        "cells": (cell,),
-        "logical_grid": ((TableGridSlot(cell_id="cell"),),),
-        "content_hash": "sha256",
-    }
-
-
-@pytest.mark.parametrize(
-    ("change", "message"),
-    [
-        ({"row_count": 2}, "row count"),
-        ({"column_count": 2}, "column_count"),
-        ({"column_names": ()}, "column_names"),
-        ({"header_hierarchy": ()}, "header_hierarchy"),
-        ({"header_row_indices": (1,)}, "header row"),
-        ({"header_column_indices": (1,)}, "header column"),
-    ],
-)
-def test_table_artifact_shape_invariants(change, message):
-    values = _minimal_artifact_values()
-    values.update(change)
-
-    with pytest.raises(ValidationError, match=message):
-        TableArtifact(**values)
-
-
-def test_table_artifact_rejects_duplicate_cells_and_out_of_bounds_spans():
-    values = _minimal_artifact_values()
-    cell = values["cells"][0]  # type: ignore[index]
-    values["cells"] = (cell, cell)
-    with pytest.raises(ValidationError, match="unique"):
-        TableArtifact(**values)
-
-    values = _minimal_artifact_values()
-    values["cells"] = (
-        TableCell(
-            cell_id="cell",
-            row_index=0,
-            column_index=0,
-            row_span=2,
-        ),
+    duplicate_ordinal = DocumentBlock(
+        block_id="b", kind=DocumentBlockKind.PARAGRAPH, ordinal=0, parent_block_id="root"
     )
-    with pytest.raises(ValidationError, match="span"):
-        TableArtifact(**values)
-
-    with pytest.raises(ValidationError, match="finite"):
-        TableCell(
-            cell_id="cell",
-            row_index=0,
-            column_index=0,
-            value=float("nan"),
+    with pytest.raises(ValidationError, match="ordinals"):
+        DocumentBlock(
+            block_id="root",
+            kind=DocumentBlockKind.DOCUMENT,
+            ordinal=0,
+            children=(first, duplicate_ordinal),
         )
 
-
-def test_empty_logical_grid_slot_resolves_to_no_source_cell():
-    values = _minimal_artifact_values()
-    values["cells"] = ()
-    values["logical_grid"] = ((None,),)
-
-    artifact = TableArtifact(**values)
-
-    assert artifact.source_cell(0, 0) is None
+    out_of_order_first = DocumentBlock(
+        block_id="a", kind=DocumentBlockKind.PARAGRAPH, ordinal=1, parent_block_id="root"
+    )
+    out_of_order_second = DocumentBlock(
+        block_id="b", kind=DocumentBlockKind.PARAGRAPH, ordinal=0, parent_block_id="root"
+    )
+    with pytest.raises(ValidationError, match="ordinals"):
+        DocumentBlock(
+            block_id="root",
+            kind=DocumentBlockKind.DOCUMENT,
+            ordinal=0,
+            children=(out_of_order_first, out_of_order_second),
+        )

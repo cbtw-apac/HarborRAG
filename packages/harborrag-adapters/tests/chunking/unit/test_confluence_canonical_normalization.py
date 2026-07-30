@@ -209,6 +209,37 @@ def test_link_nested_inside_a_quote_paragraph_is_not_duplicated():
     assert len(links) == 1
     assert links[0].parent_block_id == paragraph_block.block_id
     assert len(document.relations) == 1
+    relation = document.relations[0]
+    assert relation.predicate == "links_to"
+    assert relation.target_id == "99"
+    assert relation.target_type == "document"
+
+
+def test_nested_macro_of_the_same_kind_is_not_duplicated():
+    # A raw text run as direct macro content (not wrapped in a paragraph)
+    # is the case that exposes same-kind nesting bugs: a paragraph child
+    # would already be excluded regardless of the nested macro's own kind,
+    # masking a regression that only shows up when nothing else shields it.
+    inner = {
+        "type": "extension",
+        "attrs": {"extensionKey": "vendor-inner", "parameters": {}},
+        "content": [{"type": "text", "text": "Inner raw text"}],
+    }
+    outer = {
+        "type": "bodiedExtension",
+        "attrs": {"extensionKey": "vendor-outer", "parameters": {}},
+        "content": [inner],
+    }
+    page = page_input([outer])
+
+    document = ConfluencePageNormalizer().normalize(page)
+    blocks = tuple(walk(document.blocks[0]))
+    unsupported = [block for block in blocks if block.kind == DocumentBlockKind.UNSUPPORTED]
+
+    assert len(unsupported) == 2
+    texts = [block.text for block in unsupported]
+    assert texts.count("Inner raw text") == 1
+    assert None in texts
 
 
 def test_body_representation_fallback_is_explicit_and_unparseable_pages_fail():

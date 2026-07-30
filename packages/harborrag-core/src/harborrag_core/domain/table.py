@@ -138,6 +138,25 @@ class TableArtifact(StrictModel):
             raise ValueError("logical_grid references an unknown source cell")
         if cell_ids - referenced:
             raise ValueError("table cells must be referenced by the logical grid")
+        self._validate_slot_spans()
+
+    def _validate_slot_spans(self) -> None:
+        occupied_count = 0
+        for cell in self.cells:
+            for row in range(cell.row_index, cell.row_index + cell.row_span):
+                for column in range(cell.column_index, cell.column_index + cell.column_span):
+                    slot = self.logical_grid[row][column]
+                    is_origin = row == cell.row_index and column == cell.column_index
+                    if slot is None or slot.cell_id != cell.cell_id:
+                        raise ValueError("logical_grid slot does not match its source cell span")
+                    if slot.inherited != (not is_origin):
+                        raise ValueError(
+                            "logical_grid slot inherited flag does not match its span position"
+                        )
+                    occupied_count += 1
+        total_slots = sum(1 for row in self.logical_grid for slot in row if slot is not None)
+        if occupied_count != total_slots:
+            raise ValueError("logical_grid contains slots outside every cell's declared span")
 
     @cached_property
     def _cells_by_id(self) -> Mapping[str, TableCell]:

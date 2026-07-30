@@ -70,7 +70,7 @@ class ConfluenceBlockHandlers(abc.ABC):
         if kind is None:
             self._append_group(parent, node, context)
             return
-        text = node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS - {node.kind})
+        text = node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS)
         draft = self._draft(
             node,
             kind,
@@ -129,7 +129,7 @@ class ConfluenceBlockHandlers(abc.ABC):
             parent,
             context,
             BlockPresentation(
-                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS - {"macro"}) or None,
+                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS) or None,
                 title=handling.title,
                 attributes={
                     "macro_key": key,
@@ -232,7 +232,7 @@ class ConfluenceBlockHandlers(abc.ABC):
             parent,
             context,
             BlockPresentation(
-                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS - {"unsupported"}) or None,
+                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS) or None,
                 attributes={"source_kind": node.kind},
             ),
         )
