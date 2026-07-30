@@ -7,7 +7,10 @@ from typing import Any
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, Text
 
 from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
-from harborrag_core.schemas.documents import ChunkRecord, DocumentRecord
+from harborrag_core.schemas.documents import (
+    ChunkRecord,
+    DocumentRecord,
+)
 
 METADATA = MetaData()
 
@@ -58,14 +61,32 @@ OUTBOX = Table(
 
 VECTOR_COLLECTIONS_KEY = "vector_collections"
 CANONICAL_CHUNK_KEY = "_harborrag_chunk"
-CANONICAL_CHUNK_FIELDS = (
-    "logical_chunk_id",
-    "artifact_id",
-    "artifact_revision_id",
-    "role",
-    "source_span",
-    "context",
+COLUMN_OWNED_CHUNK_FIELDS = frozenset(
+    {
+        "chunk_id",
+        "tenant_id",
+        "document_id",
+        "document_version_id",
+        "ordinal",
+        "content",
+        "content_hash",
+        "token_count",
+        "metadata",
+        "created_at",
+    }
 )
+
+
+def _stored_chunk_payload_fields(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    if not value.get("schema_version"):
+        return value
+    return {
+        key: field_value
+        for key, field_value in value.items()
+        if key in ChunkRecord.model_fields and key not in COLUMN_OWNED_CHUNK_FIELDS
+    }
 
 
 def document_from_row(row: Any) -> DocumentRecord:
@@ -92,38 +113,27 @@ def document_from_row(row: Any) -> DocumentRecord:
 
 def chunk_from_row(row: Any) -> ChunkRecord:
     metadata = dict(row["metadata"] or {})
-    canonical = metadata.pop(CANONICAL_CHUNK_KEY, {})
-    canonical_fields = (
-        {key: canonical[key] for key in CANONICAL_CHUNK_FIELDS if key in canonical}
-        if isinstance(canonical, dict)
-        else {}
-    )
-    return ChunkRecord.model_validate(
-        {
-            "chunk_revision_id": row["id"],
-            "tenant_id": row["tenant_id"],
-            "document_id": row["document_id"],
-            "document_version_id": row["document_version_id"],
-            "ordinal": row["chunk_index"],
-            "content": row["content"],
-            "content_hash": row["content_hash"],
-            "token_count": row["token_count"],
-            "metadata": metadata,
-            "created_at": row["created_at"],
-            **canonical_fields,
-        }
-    )
+    stored = _stored_chunk_payload_fields(metadata.pop(CANONICAL_CHUNK_KEY, {}))
+    payload = {
+        **stored,
+        "chunk_id": row["id"],
+        "tenant_id": row["tenant_id"],
+        "document_id": row["document_id"],
+        "document_version_id": row["document_version_id"],
+        "ordinal": row["chunk_index"],
+        "content": row["content"],
+        "content_hash": row["content_hash"],
+        "token_count": row["token_count"] or 0,
+        "metadata": metadata,
+        "created_at": row["created_at"],
+    }
+    return ChunkRecord.from_legacy_payload(payload)
 
 
 def chunk_metadata(record: ChunkRecord) -> dict[str, Any]:
     serialized = record.model_dump(mode="json")
     metadata = dict(serialized["metadata"])
     metadata[CANONICAL_CHUNK_KEY] = {
-        "logical_chunk_id": str(record.logical_chunk_id),
-        "artifact_id": record.artifact_id,
-        "artifact_revision_id": record.artifact_revision_id,
-        "role": record.role,
-        "source_span": serialized["source_span"],
-        "context": serialized["context"],
+        key: value for key, value in serialized.items() if key not in COLUMN_OWNED_CHUNK_FIELDS
     }
     return metadata

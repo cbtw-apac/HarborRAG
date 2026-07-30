@@ -128,7 +128,7 @@ class TokenBudgetPacker:
                 candidate_count <= profile.target_tokens
                 or (
                     current_count < profile.minimum_tokens
-                    and candidate_count <= profile.maximum_tokens
+                    and candidate_count <= profile.soft_maximum_tokens
                 )
             )
             if can_pack:

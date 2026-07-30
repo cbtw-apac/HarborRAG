@@ -51,7 +51,7 @@ def _reference(ordinal: int) -> ChunkReference:
 
 
 def _record(reference: ChunkReference) -> ChunkRecord:
-    return ChunkRecord(
+    return ChunkRecord.from_legacy(
         tenant_id=TENANT,
         document_id="document-1",
         document_version_id="document-version-1",
