@@ -4,7 +4,9 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-_SENSITIVE_KEY_PATTERN = re.compile(r"(?i)api[_-]?key|token|secret|password|credential")
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|token|secret|password|credential|authorization"
+)
 
 _LABELED_PATTERNS = [
     re.compile(
@@ -32,20 +34,31 @@ def redact_secrets(text: str, replacement: str = "<redacted>") -> str:
     return result
 
 
+def _redact_value(value: Any, replacement: str) -> Any:
+    if isinstance(value, Mapping):
+        return redact_mapping(value, replacement)
+    if isinstance(value, (list, tuple)):
+        return type(value)(_redact_value(item, replacement) for item in value)
+    if isinstance(value, str):
+        return redact_secrets(value, replacement)
+    return value
+
+
 def redact_mapping(data: Mapping[str, Any], replacement: str = "<redacted>") -> dict[str, Any]:
     """Recursively mask values whose key looks credential-shaped.
 
     Defense-in-depth for DTO boundaries that serialize free-form config
     (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN is
     masked regardless of what invariants upstream write-side code is
-    supposed to enforce.
+    supposed to enforce. Mappings nested inside lists/tuples are recursed
+    into, and string values are additionally passed through
+    redact_secrets() to catch secrets embedded in free-form text (e.g. a
+    header line under a non-sensitive key).
     """
     result: dict[str, Any] = {}
     for key, value in data.items():
         if _SENSITIVE_KEY_PATTERN.search(key):
             result[key] = replacement
-        elif isinstance(value, Mapping):
-            result[key] = redact_mapping(value, replacement)
         else:
-            result[key] = value
+            result[key] = _redact_value(value, replacement)
     return result
