@@ -51,7 +51,10 @@ class CanonicalTableChunker:
         capped = any("chunk cap reached" in warning for warning in table_plan.warnings)
         if capped:
             warnings.append("table dense evidence safeguard reached; remaining evidence omitted")
+        evidence_capped = False
         for planned in table_plan.chunks:
+            if planned.role == TableChunkRole.EVIDENCE and evidence_capped:
+                continue
             built = self._factory.build(
                 request,
                 classification,
@@ -67,6 +70,7 @@ class CanonicalTableChunker:
                     or next_dense_tokens > plan.table_policy.maximum_dense_table_tokens
                 ):
                     capped = True
+                    evidence_capped = True
                     warnings.append(
                         "table dense evidence safeguard reached; remaining evidence omitted"
                     )
@@ -129,7 +133,7 @@ class CanonicalTableChunker:
             classification=classification,
             chunks=fallback.chunks,
             warnings=(
-                *table_plan.warnings,
+                *fallback.warnings,
                 "small table exceeded hard token budget; used long-table row grouping",
             ),
         )

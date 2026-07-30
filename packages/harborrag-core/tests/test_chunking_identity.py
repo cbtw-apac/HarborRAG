@@ -29,3 +29,24 @@ def test_canonical_identity_policy_rejects_ambiguous_inputs_and_remains_stable()
         encoded_identifier(" ", {})
     with pytest.raises(ChunkIdentityError, match="not supported"):
         canonical_identity_payload(object())
+
+
+def test_canonical_identity_payload_rejects_non_string_keys_and_cycles():
+    with pytest.raises(ChunkIdentityError, match="must be strings"):
+        canonical_identity_payload({1: "x"})
+
+    with pytest.raises(ChunkIdentityError, match="unique"):
+        canonical_identity_payload({"a ": 1, "a": 2})
+
+    cyclic_list: list[object] = []
+    cyclic_list.append(cyclic_list)
+    with pytest.raises(ChunkIdentityError, match="cycles"):
+        canonical_identity_payload(cyclic_list)
+
+    cyclic_dict: dict[str, object] = {}
+    cyclic_dict["self"] = cyclic_dict
+    with pytest.raises(ChunkIdentityError, match="cycles"):
+        canonical_identity_payload(cyclic_dict)
+
+    shared = {"value": 1}
+    assert canonical_identity_payload({"a": shared, "b": shared})

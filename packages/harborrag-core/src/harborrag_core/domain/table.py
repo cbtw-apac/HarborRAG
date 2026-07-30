@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
+from functools import cached_property
 from math import isfinite
 
 from pydantic import Field, field_validator, model_validator
@@ -131,12 +133,15 @@ class TableArtifact(StrictModel):
                 or cell.column_index + cell.column_span > self.column_count
             ):
                 raise ValueError("table cell span exceeds logical grid")
-        if any(
-            slot is not None and slot.cell_id not in cell_ids
-            for row in self.logical_grid
-            for slot in row
-        ):
+        referenced = {slot.cell_id for row in self.logical_grid for slot in row if slot is not None}
+        if any(slot_id not in cell_ids for slot_id in referenced):
             raise ValueError("logical_grid references an unknown source cell")
+        if cell_ids - referenced:
+            raise ValueError("table cells must be referenced by the logical grid")
+
+    @cached_property
+    def _cells_by_id(self) -> Mapping[str, TableCell]:
+        return {cell.cell_id: cell for cell in self.cells}
 
     def source_cell(self, row_index: int, column_index: int) -> TableCell | None:
         """Resolve one logical slot to its retained source cell."""
@@ -144,4 +149,4 @@ class TableArtifact(StrictModel):
         slot = self.logical_grid[row_index][column_index]
         if slot is None:
             return None
-        return next(cell for cell in self.cells if cell.cell_id == slot.cell_id)
+        return self._cells_by_id[slot.cell_id]

@@ -44,7 +44,7 @@ class AdfDocumentParser:
             document = json.loads(value) if isinstance(value, str) else dict(value)
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise ConfluenceNormalizationError("Confluence ADF body is not valid JSON") from exc
-        if document.get("type") != "doc":
+        if not isinstance(document, Mapping) or document.get("type") != "doc":
             raise ConfluenceNormalizationError("Confluence ADF root must have type 'doc'")
         return self._node(document, path=(0,))
 

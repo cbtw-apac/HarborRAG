@@ -166,13 +166,33 @@ class CanonicalIdentityBuilder:
         )
 
 
-def _normalize_value(value: object) -> object:
+def _normalize_value(
+    value: object,
+    active_containers: set[int] | None = None,
+) -> object:
+    active_containers = set() if active_containers is None else active_containers
     if isinstance(value, str):
         return normalize_identity_text(value)
     if isinstance(value, Mapping):
-        return {str(key): _normalize_value(item) for key, item in value.items()}
+        if id(value) in active_containers:
+            raise ChunkIdentityError("identity input must not contain cycles")
+        active_containers = active_containers | {id(value)}
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ChunkIdentityError("identity mapping keys must be strings")
+            normalized_key = normalize_identity_text(key)
+            if normalized_key in normalized:
+                raise ChunkIdentityError(
+                    "identity mapping keys must remain unique after normalization"
+                )
+            normalized[normalized_key] = _normalize_value(item, active_containers)
+        return normalized
     if isinstance(value, (list, tuple)):
-        return [_normalize_value(item) for item in value]
+        if id(value) in active_containers:
+            raise ChunkIdentityError("identity input must not contain cycles")
+        active_containers = active_containers | {id(value)}
+        return [_normalize_value(item, active_containers) for item in value]
     if value is None or isinstance(value, (bool, int, float)):
         return value
     raise ChunkIdentityError(f"identity input type is not supported: {type(value).__name__}")

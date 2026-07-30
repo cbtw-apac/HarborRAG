@@ -89,6 +89,11 @@ class Document:
 
     def __post_init__(self) -> None:
         require_id(self.id, label="Document")
+        table_ids = [artifact.table_id for artifact in self.table_artifacts]
+        if len(set(table_ids)) != len(table_ids):
+            raise ValueError("Document table_artifacts must have unique table_id values")
+        if any(artifact.document_id != self.id for artifact in self.table_artifacts):
+            raise ValueError("Document table_artifacts must reference this document id")
 
 
 CanonicalDocument = Document

@@ -148,6 +148,8 @@ def test_extended_table_locator_validates_columns_fragments_and_projection():
         TableChunkLocator(**(locator.model_dump() | {"tab_path": (" ",)}))
     with pytest.raises(ValidationError, match="below fragment_count"):
         TableChunkLocator(**(locator.model_dump() | {"fragment_index": 2, "fragment_count": 2}))
+    with pytest.raises(ValidationError, match="within column_count"):
+        TableChunkLocator(**(locator.model_dump() | {"selected_column_indices": (0, 7)}))
 
 
 def test_invalid_table_grid_reference_and_child_parent_are_rejected():
@@ -218,10 +220,12 @@ def test_invalid_table_grid_reference_and_child_parent_are_rejected():
         ),
     ],
 )
-def test_document_block_structural_invariants(values, message):
+def test_document_block_structural_invariants(values: dict[str, object], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         DocumentBlock(block_id="block", ordinal=0, **values)
 
+
+def test_document_block_rejects_blank_identifiers_and_duplicate_children() -> None:
     with pytest.raises(ValidationError, match="non-empty"):
         DocumentBlock(
             block_id="block",

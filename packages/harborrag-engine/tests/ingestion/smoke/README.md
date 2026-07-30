@@ -268,7 +268,7 @@ Run it only against disposable services and a least-privilege embedding
 credential. The check makes two small embedding requests and may consume paid
 quota.
 
-### Prerequisites
+### Indexing prerequisites
 
 Install the real clients:
 
@@ -314,7 +314,7 @@ Relevant overrides are `HARBOR_SMOKE_QDRANT_URL`,
 `HARBOR_SMOKE_QDRANT_PREFIX`, `FALKORDB_HOST`, `FALKORDB_PORT`,
 `FALKORDB_USERNAME`, `FALKORDB_PASSWORD`, and `FALKORDB_SSL`.
 
-### Run
+### Indexing run
 
 From the repository root:
 
@@ -346,7 +346,7 @@ Set `HARBORRAG_INDEXING_PERFORMANCE_RECORDS` to change the batch size and
 The tests validate stored vector and graph identities after timing the stage,
 then remove their uniquely named probe collection and graph records.
 
-### Exit codes
+### Indexing exit codes
 
 | Code | Meaning |
 | --- | --- |

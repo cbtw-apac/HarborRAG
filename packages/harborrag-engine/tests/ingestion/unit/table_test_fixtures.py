@@ -114,6 +114,7 @@ def make_plan(**policy_changes: object) -> ChunkingPlan:
         "maximum_rows_per_chunk": 3,
         "target_tokens_per_chunk": 180,
         "maximum_columns_per_group": 3,
+        "maximum_key_columns": 2,
     }
     policy_values.update(policy_changes)
     return ChunkingPlan(

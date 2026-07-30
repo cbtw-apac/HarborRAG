@@ -94,9 +94,15 @@ def test_tabs_expands_panels_and_unknown_macros_preserve_context_and_visible_bod
     assert evidence.attributes["tab_set_id"]
     assert evidence.attributes["tab_id"]
     assert "Advanced" in unsupported.container_path
-    assert "visible fallback body" in (unsupported.text or "")
     assert unsupported.attributes["parameters"] == {"title": "Widget"}
     assert document.warnings == ("unsupported Confluence macro preserved: vendor-secret-widget",)
+    # The fallback body is a nested paragraph, not duplicated onto the
+    # unsupported block's own aggregated text.
+    assert unsupported.text is None
+    fallback = next(block for block in blocks if block.text == "visible fallback body")
+    assert fallback.kind == DocumentBlockKind.PARAGRAPH
+    assert fallback.parent_block_id == unsupported.block_id
+    assert "visible fallback body" in [element.content for element in document.content]
 
 
 def test_links_media_and_unknown_empty_macro_are_recoverable_without_signed_urls():
@@ -148,6 +154,61 @@ def test_links_media_and_unknown_empty_macro_are_recoverable_without_signed_urls
         "links_to",
         "has_attachment",
     }
+
+
+def test_nested_paragraphs_in_quotes_and_list_items_are_not_duplicated():
+    page = page_input(
+        [
+            {"type": "blockquote", "content": [paragraph("Quoted text")]},
+            {
+                "type": "bulletList",
+                "content": [
+                    {"type": "listItem", "content": [paragraph("Item text")]},
+                ],
+            },
+        ]
+    )
+
+    document = ConfluencePageNormalizer().normalize(page)
+    blocks = tuple(walk(document.blocks[0]))
+    quote = next(block for block in blocks if block.kind == DocumentBlockKind.QUOTE)
+    list_item = next(block for block in blocks if block.kind == DocumentBlockKind.LIST_ITEM)
+
+    assert quote.text is None
+    assert list_item.text is None
+    assert [element.content for element in document.content] == ["Quoted text", "Item text"]
+
+
+def test_link_nested_inside_a_quote_paragraph_is_not_duplicated():
+    page = page_input(
+        [
+            {
+                "type": "blockquote",
+                "content": [
+                    paragraph(
+                        "See docs",
+                        marks=[
+                            {
+                                "type": "link",
+                                "attrs": {
+                                    "href": "https://example.atlassian.net/wiki/spaces/ENG/pages/99"
+                                },
+                            }
+                        ],
+                    )
+                ],
+            },
+        ]
+    )
+
+    document = ConfluencePageNormalizer().normalize(page)
+    blocks = tuple(walk(document.blocks[0]))
+    links = [block for block in blocks if block.kind == DocumentBlockKind.LINK_REFERENCE]
+    paragraph_block = next(block for block in blocks if block.kind == DocumentBlockKind.PARAGRAPH)
+
+    assert len(links) == 1
+    assert links[0].parent_block_id == paragraph_block.block_id
+    assert len(document.relations) == 1
 
 
 def test_body_representation_fallback_is_explicit_and_unparseable_pages_fail():

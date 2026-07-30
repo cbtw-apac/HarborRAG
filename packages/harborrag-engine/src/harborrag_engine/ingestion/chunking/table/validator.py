@@ -92,7 +92,7 @@ class TableChunkValidator:
             raise InvalidTableLocatorError("table locator references a different table version")
         if not 0 <= locator.row_start <= locator.row_end < artifact.row_count:
             raise InvalidTableLocatorError("table locator row range is outside the artifact")
-        if any(index >= artifact.column_count for index in locator.selected_column_indices):
+        if any(not 0 <= index < artifact.column_count for index in locator.selected_column_indices):
             raise InvalidTableLocatorError("table locator selected column is outside the artifact")
         if not set(locator.key_column_indices).issubset(locator.selected_column_indices):
             raise InvalidTableLocatorError("repeated key columns are missing from selected columns")

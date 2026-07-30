@@ -163,7 +163,9 @@ class TableRenderer:
     def _render_cell(cell: TableCell | None) -> str:
         if cell is None:
             return ""
-        value = cell.text.replace("\t", " ").replace("\r\n", "\n").replace("\r", "\n")
+        value = (
+            cell.text.replace("\t", " ").replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+        )
         if cell.nested_table_ids:
             references = ", ".join(cell.nested_table_ids)
             value = f"{value}\nNested table references: {references}".strip()

@@ -42,6 +42,8 @@ class TableClassificationThresholds:
             raise ValueError("long_minimum_rows must exceed small_maximum_rows")
         if self.wide_minimum_columns <= self.small_maximum_columns:
             raise ValueError("wide_minimum_columns must exceed small_maximum_columns")
+        if self.large_minimum_rows <= self.long_minimum_rows:
+            raise ValueError("large_minimum_rows must exceed long_minimum_rows")
         if not 0 <= self.matrix_confidence <= 1:
             raise ValueError("matrix_confidence must be between zero and one")
         if not 0 <= self.time_series_confidence <= 1:
@@ -90,3 +92,5 @@ class TableChunkingPolicy:
             raise ValueError("key_column_confidence must be between zero and one")
         if len(set(self.explicit_key_columns)) != len(self.explicit_key_columns):
             raise ValueError("explicit_key_columns must not contain duplicates")
+        if self.maximum_key_columns >= self.maximum_columns_per_group:
+            raise ValueError("maximum_key_columns must be below maximum_columns_per_group")

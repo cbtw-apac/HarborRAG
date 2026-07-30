@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import re
 from collections.abc import Mapping
 from urllib.parse import urlsplit, urlunsplit
@@ -25,9 +26,15 @@ _BLOCK_KIND_BY_NODE = {
     "panel": DocumentBlockKind.PANEL,
     "expand": DocumentBlockKind.EXPAND,
 }
+# Node kinds independently populated as their own block draft somewhere in
+# `_append_node`'s dispatch (generic block kinds, tables, macros, and preserved
+# unsupported nodes). A container's own `visible_text()` aggregate must exclude
+# these kinds wherever it also independently populates them, or the same source
+# text is emitted twice: once via the aggregate, once via the nested block.
+_NESTED_BLOCK_KINDS = frozenset({*_BLOCK_KIND_BY_NODE, "table", "macro", "unsupported"})
 
 
-class ConfluenceBlockHandlers:
+class ConfluenceBlockHandlers(abc.ABC):
     """Append non-heading nodes while the hierarchy builder owns section policy."""
 
     _document_id: str
@@ -63,11 +70,7 @@ class ConfluenceBlockHandlers:
         if kind is None:
             self._append_group(parent, node, context)
             return
-        text = node.visible_text(
-            exclude_kinds=frozenset({"list", "table"})
-            if node.kind == "list_item"
-            else frozenset({"table"})
-        )
+        text = node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS - {node.kind})
         draft = self._draft(
             node,
             kind,
@@ -126,7 +129,7 @@ class ConfluenceBlockHandlers:
             parent,
             context,
             BlockPresentation(
-                text=node.visible_text(exclude_kinds=frozenset({"table"})) or None,
+                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS - {"macro"}) or None,
                 title=handling.title,
                 attributes={
                     "macro_key": key,
@@ -140,7 +143,13 @@ class ConfluenceBlockHandlers:
             ),
         )
         parent.children.append(draft)
-        self._populate(draft, node.children, self._container_context(context, draft))
+        child_context = self._container_context(context, draft)
+        child_nodes = tuple(
+            child for child in node.children if child.kind not in {"text", "link", "media"}
+        )
+        if child_nodes:
+            self._populate(draft, child_nodes, child_context)
+        self._append_inline_references(draft, node, child_context)
 
     def _append_table(
         self,
@@ -223,12 +232,18 @@ class ConfluenceBlockHandlers:
             parent,
             context,
             BlockPresentation(
-                text=node.visible_text(exclude_kinds=frozenset({"table"})) or None,
+                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS - {"unsupported"}) or None,
                 attributes={"source_kind": node.kind},
             ),
         )
         parent.children.append(draft)
-        self._populate(draft, node.children, context)
+        child_context = self._container_context(context, draft)
+        child_nodes = tuple(
+            child for child in node.children if child.kind not in {"text", "link", "media"}
+        )
+        if child_nodes:
+            self._populate(draft, child_nodes, child_context)
+        self._append_inline_references(draft, node, child_context)
 
     def _append_inline_references(
         self,
@@ -236,11 +251,18 @@ class ConfluenceBlockHandlers:
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Create reference blocks for direct link/media children only.
+
+        Every other child kind is independently populated by `_populate`
+        (dispatched through `_append_node`), which recursively handles its own
+        descendants — including any nested link/media — through this same
+        method called on itself. Recursing here too would re-emit those
+        already-handled references a second time under the wrong parent.
+        """
+
         for child in node.children:
             if child.kind in {"link", "media"}:
                 self._append_reference(parent, child, context)
-            elif child.kind not in {"table", "list", "list_item"}:
-                self._append_inline_references(parent, child, context)
 
     @staticmethod
     def _reference_attributes(node: ConfluenceNode) -> dict[str, object]:
@@ -286,14 +308,15 @@ class ConfluenceBlockHandlers:
             if key in allowed and isinstance(value, (str, int, bool))
         }
 
+    @abc.abstractmethod
     def _populate(
         self,
         parent: BlockDraft,
         nodes: tuple[ConfluenceNode, ...],
         base_context: BlockContext,
-    ) -> None:
-        raise NotImplementedError
+    ) -> None: ...
 
+    @abc.abstractmethod
     def _draft(
         self,
         node: ConfluenceNode,
@@ -301,15 +324,14 @@ class ConfluenceBlockHandlers:
         parent: BlockDraft,
         context: BlockContext,
         presentation: BlockPresentation,
-    ) -> BlockDraft:
-        raise NotImplementedError
+    ) -> BlockDraft: ...
 
+    @abc.abstractmethod
     def _container_context(
         self,
         context: BlockContext,
         draft: BlockDraft,
-    ) -> BlockContext:
-        raise NotImplementedError
+    ) -> BlockContext: ...
 
 
 def _safe_url(value: str) -> str:

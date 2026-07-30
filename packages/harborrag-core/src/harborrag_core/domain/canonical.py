@@ -68,13 +68,18 @@ class DocumentBlock(StrictModel):
             raise ValueError("heading blocks require heading_level")
         if self.kind != DocumentBlockKind.HEADING and self.heading_level is not None:
             raise ValueError("heading_level is only valid for heading blocks")
-        if any(not part.strip() for part in (*self.section_path, *self.tab_path)):
+        if any(
+            not part.strip() for part in (*self.section_path, *self.tab_path, *self.container_path)
+        ):
             raise ValueError("canonical block paths must contain non-empty values")
         child_ids = tuple(child.block_id for child in self.children)
         if len(set(child_ids)) != len(child_ids):
             raise ValueError("canonical block child IDs must be unique")
         if any(child.parent_block_id != self.block_id for child in self.children):
             raise ValueError("canonical block children must reference their parent")
+        ordinals = tuple(child.ordinal for child in self.children)
+        if list(ordinals) != sorted(set(ordinals)):
+            raise ValueError("canonical block children must have unique ascending ordinals")
         return self
 
     @property
