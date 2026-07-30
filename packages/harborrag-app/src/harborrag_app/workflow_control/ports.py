@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 
 from .schemas import AppResponse
 
@@ -74,6 +75,41 @@ class BaseAppService(ABC):
 
     async def get_source(self, source_id: str) -> AppResponse:
         """One source by id; raises HarborNotFoundError when missing."""
+        raise NotImplementedError
+
+    async def create_source(
+        self,
+        *,
+        project_id: str,
+        source_type: str,
+        name: str,
+        config: Mapping[str, object],
+        schedule: str | None,
+        actor: str,
+    ) -> AppResponse:
+        """Create a source (ML2 write side); data={"source": SourceConfig}."""
+        raise NotImplementedError
+
+    async def update_source(
+        self,
+        source_id: str,
+        *,
+        updates: dict[str, object],
+        actor: str,
+    ) -> AppResponse:
+        """Update a source's mutable fields.
+
+        ``updates`` carries only the keys the caller actually set (name,
+        config, schedule, status) -- a key's absence means "leave alone",
+        distinct from a present ``None``, e.g. clearing ``schedule`` back to
+        manual-only sync. Callers build this from a partial-update payload
+        via Pydantic's ``exclude_unset``, not by threading None-defaulted
+        keyword args (schedule legitimately holds None).
+        """
+        raise NotImplementedError
+
+    async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
+        """Delete a source and forget its secrets."""
         raise NotImplementedError
 
     async def list_activity(self, limit: int = 50) -> AppResponse:

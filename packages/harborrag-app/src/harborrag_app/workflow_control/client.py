@@ -22,6 +22,7 @@ from .errors import public_error_message
 from .ports import BaseAppService
 from .reads import ControlPlaneReadsMixin
 from .schemas import AppResponse
+from .writes import ControlPlaneWritesMixin
 
 type ClientFactory = Callable[
     [TemporalRuntimeConfig],
@@ -35,7 +36,7 @@ type RetrievalFactory = Callable[
 logger = logging.getLogger("harborrag.app.workflow_control.client")
 
 
-class AppService(ControlPlaneReadsMixin, BaseAppService):
+class AppService(ControlPlaneReadsMixin, ControlPlaneWritesMixin, BaseAppService):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
 
     def __init__(
