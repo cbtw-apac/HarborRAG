@@ -78,9 +78,8 @@ Avoid asserting private implementation details when a public request/result or t
 
 ## Real-system smoke checks
 
-Standalone scripts under each
-`packages/harborrag-adapters/tests/<module>/smoke/` directory are manual and
-opt-in. They may access private content, paid providers, local services, or
+Standalone scripts under each `packages/<package>/tests/<module>/smoke/`
+directory are manual and opt-in. They may access private content, paid providers, local services, or
 heavyweight models. They are intentionally outside normal pytest discovery.
 
 Connector examples:
@@ -103,6 +102,14 @@ Parser example:
 
 ```bash
 python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/report.pdf --pdf-profile fast
+```
+
+Engine ingestion examples — chunking needs no external service, indexing needs
+real stores:
+
+```bash
+LOCAL_SOURCE_PATH=./docs python packages/harborrag-engine/tests/ingestion/smoke/chunking.py
+python packages/harborrag-engine/tests/ingestion/smoke/indexing.py
 ```
 
 Repository stack and runner:
