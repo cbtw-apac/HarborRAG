@@ -21,6 +21,7 @@ class RuntimeSettings(BaseSettings):
 
     env: Literal["dev", "prod"] = "dev"
     control_db_url: str = "sqlite+aiosqlite:///./harborrag_control.db"
+    secrets_file_path: Path = Path(".harborrag/secrets.json")
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"

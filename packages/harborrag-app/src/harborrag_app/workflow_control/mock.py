@@ -18,6 +18,7 @@ from harborrag_core.testing.fakes import (
     FakeMemberRepository,
     FakeProjectRepository,
     FakeProviderRepository,
+    FakeSecrets,
     FakeSettingsRepository,
     FakeSourceRepository,
 )
@@ -42,6 +43,7 @@ def mock_app_service(
         settings=FakeSettingsRepository(settings or WorkspaceSettings()),
         providers=FakeProviderRepository(),
         members=FakeMemberRepository(),
+        secrets=FakeSecrets(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

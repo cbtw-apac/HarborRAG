@@ -16,6 +16,7 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
+from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -36,6 +37,7 @@ class ControlPlaneRepositories:
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
+    secrets: SecretsPort
 
 
 @dataclass(slots=True)
@@ -83,6 +85,7 @@ class CompositionRoot:
             SqlProviderRepository,
             SqlSettingsRepository,
         )
+        from harborrag_adapters.repositories.secrets.file import FileSecretsRepository
         from harborrag_core.contracts.errors import HarborConfigurationError
         from harborrag_runtime.config.settings import (
             DEFAULT_CONTROL_DB_URL,
@@ -119,6 +122,7 @@ class CompositionRoot:
             settings=SqlSettingsRepository(sessions),
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
+            secrets=FileSecretsRepository(settings.secrets_file_path),
         )
         return cls(
             control_plane=repositories,
