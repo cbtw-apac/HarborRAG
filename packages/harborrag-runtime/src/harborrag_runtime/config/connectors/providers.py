@@ -30,6 +30,7 @@ _PROVIDER_ALIASES: Mapping[str, str] = {
     "filesystem": "local",
     "files": "local",
     "local_files": "local",
+    "local_file": "local",
     "microsoft_sharepoint": "sharepoint",
     "sharepoint_online": "sharepoint",
 }
