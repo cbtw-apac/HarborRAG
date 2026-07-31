@@ -88,6 +88,22 @@ def extend_with_limit[T](
     target.extend(page)
 
 
+def truncate_with_limit[T](target: list[T], values: Iterable[T], *, limit: int | None) -> bool:
+    """Append one page of nested API results, capping ``target`` at ``limit``.
+
+    Returns whether ``values`` had to be truncated, so callers can stop
+    paginating once the cap is reached instead of fetching further pages.
+    """
+    if limit is None:
+        target.extend(values)
+        return False
+    remaining = max(limit - len(target), 0)
+    page = list(itertools.islice(values, remaining + 1))
+    truncated = len(page) > remaining
+    target.extend(page[:remaining])
+    return truncated
+
+
 def enforce_collection_limit(
     *,
     count: int,

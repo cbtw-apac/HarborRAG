@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Iterator
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.policies.validation import (
-    enforce_collection_limit,
-    extend_with_limit,
-)
+from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .client import ConfluenceClient
@@ -119,7 +117,7 @@ class ConfluenceContentAPI:
         )
 
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch all comments for one content item while enforcing configured caps."""
+        """Fetch comments for one content item, truncated to the configured cap."""
         content_id = validate_content_id(content_id)
         comments: list[dict[str, Any]] = []
         start = 0
@@ -134,19 +132,13 @@ class ConfluenceContentAPI:
                 },
             )
             results = response.get("results", [])
-            extend_with_limit(
-                comments,
-                results,
-                limit=self.config.max_comments,
-                label=f"Confluence comments for {content_id}",
-                setting_name="max_comments",
-            )
-            if not _has_next_page(response, results, self.config.page_size):
+            truncated = truncate_with_limit(comments, results, limit=self.config.max_comments)
+            if truncated or not _has_next_page(response, results, self.config.page_size):
                 return comments
             start += len(results)
 
     def list_attachments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch attachment metadata for one content item within configured caps."""
+        """Fetch attachment metadata for one content item, truncated to the configured cap."""
         content_id = validate_content_id(content_id)
         attachments: list[dict[str, Any]] = []
         start = 0
@@ -156,14 +148,8 @@ class ConfluenceContentAPI:
                 params={"limit": self.config.page_size, "start": start},
             )
             results = response.get("results", [])
-            extend_with_limit(
-                attachments,
-                results,
-                limit=self.config.max_attachments,
-                label=f"Confluence attachments for {content_id}",
-                setting_name="max_attachments",
-            )
-            if not _has_next_page(response, results, self.config.page_size):
+            truncated = truncate_with_limit(attachments, results, limit=self.config.max_attachments)
+            if truncated or not _has_next_page(response, results, self.config.page_size):
                 return attachments
             start += len(results)
 
@@ -195,15 +181,34 @@ class ConfluenceContentAPI:
         recursive: bool,
         seen: set[str],
     ) -> Iterator[str]:
-        """Traverse child page IDs iteratively, bounded by max_child_pages.
+        """Traverse child page IDs, truncated at max_child_pages.
+
+        ``islice`` stops pulling from the underlying generator as soon as the
+        cap is reached, so traversal never fetches pages beyond what's needed
+        -- ``max_child_pages`` caps the discovery count by stopping, not by
+        failing the whole traversal once exceeded.
+        """
+        ids = self._child_page_ids_unbounded(content_id, recursive=recursive, seen=seen)
+        if self.config.max_child_pages is None:
+            yield from ids
+            return
+        yield from itertools.islice(ids, self.config.max_child_pages)
+
+    def _child_page_ids_unbounded(
+        self,
+        content_id: str,
+        *,
+        recursive: bool,
+        seen: set[str],
+    ) -> Iterator[str]:
+        """Traverse child page IDs iteratively, with no count limit applied.
 
         An explicit stack replaces recursive generator delegation so a deep or
         broad page hierarchy cannot grow the Python call stack or raise
-        RecursionError; ``max_child_pages`` caps the total discovery count.
+        RecursionError.
         """
         root_id = validate_content_id(content_id)
         stack = [root_id]
-        discovered = 0
         while stack:
             current_id = stack.pop()
             start = 0
@@ -221,13 +226,6 @@ class ConfluenceContentAPI:
                     if child_id in seen:
                         continue
                     seen.add(child_id)
-                    discovered += 1
-                    enforce_collection_limit(
-                        count=discovered,
-                        limit=self.config.max_child_pages,
-                        label=f"Confluence child pages for {root_id}",
-                        setting_name="max_child_pages",
-                    )
                     yield child_id
                     if recursive:
                         stack.append(child_id)

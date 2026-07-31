@@ -64,6 +64,10 @@ def build_connector(
     from .ocr_parser import attachment_custom_parsers
 
     definition = connector_catalog().get(name)
+    if not definition.enabled:
+        raise ConnectorConfigurationError(
+            f"Connector {name!r} is disabled (enabled: false) and cannot be built"
+        )
     overrides: dict[str, Any] = {}
     if definition.provider in _ATTACHMENT_PROVIDERS:
         overrides["include_attachments"] = include_attachments
