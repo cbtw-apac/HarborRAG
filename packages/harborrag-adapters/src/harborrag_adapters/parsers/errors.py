@@ -72,3 +72,23 @@ class EncryptedPdfError(ParseError):
     This terminates a PDF backend fallback chain: no downstream engine can
     extract text from an encrypted document, so retrying wastes OCR budget.
     """
+
+
+class TextDecodingError(ParseError):
+    """Raised when input bytes cannot be confidently decoded as text.
+
+    Statistical encoding detection (e.g. charset_normalizer) can report a
+    low-risk guess for byte sequences that are actually corrupted UTF-8 with
+    only a handful of invalid bytes: single-byte legacy codepages accept
+    almost any byte value, so a few bad bytes surrounded by ASCII text get
+    "confidently" reinterpreted as unrelated characters (commonly Cyrillic
+    under cp1251) instead of surfacing the corruption.
+    """
+
+    def __init__(self, *, byte_length: int, guessed_encoding: str | None = None) -> None:
+        detail = (
+            f" (best guess {guessed_encoding!r} was not trustworthy)" if guessed_encoding else ""
+        )
+        super().__init__(f"Could not confidently decode {byte_length} bytes as text{detail}.")
+        self.byte_length = byte_length
+        self.guessed_encoding = guessed_encoding

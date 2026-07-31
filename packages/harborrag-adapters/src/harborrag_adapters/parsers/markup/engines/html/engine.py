@@ -13,7 +13,6 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.markup.base import HarborMarkupEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -43,10 +42,7 @@ class HtmlMarkupEngine(HarborMarkupEngine):
             ),
         )
         data = guard_input_size(read_parse_input_bytes(parse_input))
-        try:
-            html = read_parse_input_text(ParseInput(content=data))
-        except UnicodeDecodeError as exc:
-            raise ParseError(f"Could not decode HTML input: {exc}") from exc
+        html = read_parse_input_text(ParseInput(content=data))
         content, text_engine = html_to_text_with_engine(html)
         elements = (
             [

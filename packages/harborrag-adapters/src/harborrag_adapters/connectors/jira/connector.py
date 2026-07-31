@@ -9,7 +9,7 @@ from typing import Any
 from harborrag_adapters.connectors.attachments.processing import AttachmentProcessor
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.policies.validation import enforce_collection_limit
+from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorPage,
@@ -148,12 +148,11 @@ class JiraConnector(BaseConnector):
             self.config.include_attachments and record.metadata.get("include_attachments", True)
         )
         if include_attachments:
-            raw_attachments = issue.get("fields", {}).get("attachment") or []
-            enforce_collection_limit(
-                count=len(raw_attachments),
+            raw_attachments: list[dict[str, Any]] = []
+            truncate_with_limit(
+                raw_attachments,
+                issue.get("fields", {}).get("attachment") or [],
                 limit=self.config.max_attachments,
-                label=f"JIRA attachments for {issue_key}",
-                setting_name="max_attachments",
             )
             attachments = self._attachments.process(raw_attachments)
 

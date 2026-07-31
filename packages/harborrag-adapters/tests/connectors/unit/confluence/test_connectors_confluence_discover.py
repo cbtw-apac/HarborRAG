@@ -37,6 +37,27 @@ def test_discover_paginates_and_filters_excluded_labels():
     assert client.calls[1][1]["cursor"] == "abc"
 
 
+def test_discover_excludes_live_docs_even_when_content_types_is_page():
+    # Live docs report type: "page" -- only subtype: "live" distinguishes
+    # them, which the CQL content_types filter can't see, so discovery must
+    # reject them client-side regardless of the configured content_types.
+    live_doc = light_content("2", "Live Doc")
+    live_doc["subtype"] = "live"
+    client = FakeConfluenceClient()
+    client.add(
+        "content/search",
+        {"results": [light_content("1", "Keep"), live_doc], "_links": {}},
+    )
+    connector = ConfluenceConnector(
+        cloud_config(content_types=["page"], page_size=10),
+        client=client,
+    )
+
+    records = list(connector.discover())
+
+    assert [record.metadata["content_id"] for record in records] == ["1"]
+
+
 def test_cql_from_query_treats_pattern_as_safe_text_search_not_raw_cql():
     connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())
 

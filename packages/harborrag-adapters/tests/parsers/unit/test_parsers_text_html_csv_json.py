@@ -11,9 +11,31 @@ from harborrag_adapters.parsers.compat import (
     MarkdownParser,
     TextParser,
 )
+from harborrag_adapters.parsers.errors import ParseError, TextDecodingError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+# A handful of invalid UTF-8 bytes inside an otherwise-ASCII document. Before
+# the encoding-detection fix, `charset_normalizer` would report a "confident"
+# single-byte-codepage guess (commonly cp1251/Cyrillic) for this shape of
+# input and every engine below would silently ingest the mis-decoded text
+# instead of raising.
+_CORRUPTED_ASCII_BYTES = (
+    b"Hello world, this is a normal ASCII document with one bad byte: \x81 right there."
+)
+
+
+@pytest.mark.parametrize(
+    "parser_cls",
+    [TextParser, MarkdownParser, HtmlParser, CsvParser, JsonParser],
+)
+def test_parsers_raise_typed_error_on_undecodable_bytes(parser_cls):
+    with pytest.raises(TextDecodingError) as excinfo:
+        parser_cls().parse(ParseInput(content=_CORRUPTED_ASCII_BYTES, filename="bad"))
+    # TextDecodingError is a ParseError, so bulk ingestion callers that only
+    # know about the generic quarantine contract still catch it.
+    assert isinstance(excinfo.value, ParseError)
 
 
 def test_text_parser_compacts_and_emits_paragraph():

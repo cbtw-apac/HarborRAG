@@ -13,7 +13,6 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.text.base import HarborTextEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -98,10 +97,7 @@ class PlainTextEngine(HarborTextEngine):
             ),
         )
         guard_input_size(read_parse_input_bytes(parse_input))
-        try:
-            text = read_parse_input_text(parse_input)
-        except UnicodeDecodeError as exc:
-            raise ParseError(f"Could not decode text input: {exc}") from exc
+        text = read_parse_input_text(parse_input)
         content = compact_text(text)
         elements = (
             [
