@@ -9,6 +9,7 @@ from bootstrap import (
     attachments_passed,
     build_connector,
     build_harbor_parser,
+    connector_catalog,
     load_env,
     output_path_for,
     print_document,
@@ -137,6 +138,13 @@ def run_confluence(
         print_failure("confluence", exc)
         return 1
     print_document("confluence", document)
+
+    if not connector_catalog().get("confluence").settings.get("include_attachments", False):
+        print(
+            "\n[confluence] include_attachments is false in config/connectors.yaml; "
+            "skipping the attachment pass"
+        )
+        return 0
 
     print(f"\n[confluence] === load with attachments ({len(records)} record(s)) ===")
     harbor_parser = build_harbor_parser()
