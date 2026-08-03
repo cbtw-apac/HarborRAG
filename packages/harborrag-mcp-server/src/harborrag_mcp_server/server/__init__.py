@@ -38,7 +38,7 @@ def create_mcp_server(
     if auth is None and not allow_unauthenticated_local:
         raise RuntimeError(
             "MCP transport requires authentication; "
-            "set allow_unauthenticated_local=True only for local stdio"
+            "set allow_unauthenticated_local=True only for local development"
         )
     try:
         from fastmcp import FastMCP
