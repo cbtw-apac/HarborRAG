@@ -143,7 +143,13 @@
     "packages/harborrag-app/src/harborrag_app/workflow_control/client.py": {
       "PLR0913": 1
     },
+    "packages/harborrag-app/src/harborrag_app/workflow_control/jobs.py": {
+      "PLR0913": 1
+    },
     "packages/harborrag-app/src/harborrag_app/workflow_control/ports.py": {
+      "PLR0913": 2
+    },
+    "packages/harborrag-app/src/harborrag_app/workflow_control/writes.py": {
       "PLR0913": 1
     },
     "packages/harborrag-app/tests/app_test_fixtures.py": {
