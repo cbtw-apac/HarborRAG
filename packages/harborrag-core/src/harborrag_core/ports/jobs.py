@@ -1,7 +1,13 @@
 """Job queue port (plan ST6): the seam Temporal replaces in Phase 7.
 
-M0 ships the Protocol; tests provide a fake, while the SQLAlchemy queue with real
-lease/retry semantics is M2 (ported from qdrant-loader 1.0.3).
+M0 shipped the Protocol only, with a SQLAlchemy queue (lease/retry semantics
+ported from qdrant-loader 1.0.3) planned for M2. That plan changed: M2 instead
+bridges persisted Job rows directly onto the Temporal ingestion path that
+already existed in this codebase (see workflow_control.jobs.JobsMixin), since
+Temporal already provides durable execution, retry, and replay -- a second,
+SQL-backed queue running the same jobs would duplicate that. This Protocol
+has no adapter and nothing in the app constructs one; it stays defined for a
+possible future non-Temporal job runtime, not as a gap to fill.
 """
 
 from __future__ import annotations
