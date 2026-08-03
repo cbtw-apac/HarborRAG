@@ -64,7 +64,12 @@ class ControlPlaneWritesMixin:
         )
         created = await control_plane.sources.create(source)
         await _log_activity(
-            control_plane, actor, "created", created.id, f"Created source {created.name!r}"
+            control_plane,
+            actor,
+            "created",
+            "source",
+            created.id,
+            f"Created source {created.name!r}",
         )
         return AppResponse(True, {"source": created})
 
@@ -98,7 +103,12 @@ class ControlPlaneWritesMixin:
             source.secret_refs = secret_refs
         updated = await control_plane.sources.update(source)
         await _log_activity(
-            control_plane, actor, "updated", updated.id, f"Updated source {updated.name!r}"
+            control_plane,
+            actor,
+            "updated",
+            "source",
+            updated.id,
+            f"Updated source {updated.name!r}",
         )
         return AppResponse(True, {"source": updated})
 
@@ -112,7 +122,12 @@ class ControlPlaneWritesMixin:
             await control_plane.secrets.delete(ref)
         await control_plane.sources.delete(source_id)
         await _log_activity(
-            control_plane, actor, "deleted", source_id, f"Deleted source {source.name!r}"
+            control_plane,
+            actor,
+            "deleted",
+            "source",
+            source_id,
+            f"Deleted source {source.name!r}",
         )
         return AppResponse(True, {"source_id": source_id})
 
@@ -188,6 +203,7 @@ async def _log_activity(
     control_plane: ControlPlaneRepositories,
     actor: str,
     verb: str,
+    entity_type: str,
     entity_id: str,
     summary: str,
 ) -> None:
@@ -198,7 +214,7 @@ async def _log_activity(
             id=f"act_{uuid4().hex}",
             actor=actor,
             verb=verb,
-            entity_type="source",
+            entity_type=entity_type,
             entity_id=entity_id,
             summary=summary,
         )

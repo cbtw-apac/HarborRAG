@@ -11,6 +11,7 @@ from uuid import uuid4
 from pydantic_core import to_jsonable_python
 
 from harborrag_core.contracts.errors import HarborUnavailableError
+from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
@@ -19,6 +20,7 @@ from harborrag_runtime.temporal.client import TemporalRuntimeClient
 from harborrag_runtime.temporal.schemas import IngestionRunInput
 
 from .errors import public_error_message
+from .jobs import JobsMixin
 from .ports import BaseAppService
 from .reads import ControlPlaneReadsMixin
 from .schemas import AppResponse
@@ -36,7 +38,7 @@ type RetrievalFactory = Callable[
 logger = logging.getLogger("harborrag.app.workflow_control.client")
 
 
-class AppService(ControlPlaneReadsMixin, ControlPlaneWritesMixin, BaseAppService):
+class AppService(ControlPlaneReadsMixin, ControlPlaneWritesMixin, JobsMixin, BaseAppService):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
 
     def __init__(
@@ -62,6 +64,12 @@ class AppService(ControlPlaneReadsMixin, ControlPlaneWritesMixin, BaseAppService
         if control_plane is None:
             raise HarborUnavailableError("control-plane database is not configured")
         return control_plane
+
+    def _event_bus(self) -> EventBusPort:
+        event_bus = self._composition.event_bus
+        if event_bus is None:
+            raise HarborUnavailableError("event bus is not configured")
+        return event_bus
 
     def health(self) -> AppResponse:
         diagnostics = self._composition.diagnostics()

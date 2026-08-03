@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+
+from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.domain.job import JobStatus, JobType
 
 from .schemas import AppResponse
 
@@ -111,6 +114,63 @@ class BaseAppService(ABC):
     async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
         """Delete a source and forget its secrets."""
         raise NotImplementedError
+
+    async def create_job(
+        self,
+        source_id: str,
+        *,
+        job_type: JobType = "bulk_ingest",
+        dry_run: bool = False,
+        run_id: str | None = None,
+        manifest_id: str | None = None,
+        generation_id: str | None = None,
+        max_artifacts: int | None = None,
+        wait: bool = False,
+        actor: str,
+    ) -> AppResponse:
+        """Create a Job for a source and start it via the Temporal ingestion path.
+
+        data={"job": Job, "run": ..., "workflow": ..., ["result": ...]}.
+        """
+        raise NotImplementedError
+
+    async def list_jobs(
+        self,
+        *,
+        source_id: str | None = None,
+        status: JobStatus | None = None,
+    ) -> AppResponse:
+        """Jobs filtered by source and/or status; data={"jobs": [Job, ...]}."""
+        raise NotImplementedError
+
+    async def get_job(self, job_id: str) -> AppResponse:
+        """One job merged with its live Temporal state; data={"job", "live"}."""
+        raise NotImplementedError
+
+    async def get_job_result(self, job_id: str) -> AppResponse:
+        """One job merged with its terminal Temporal result; data={"job", "result"}."""
+        raise NotImplementedError
+
+    async def control_job(
+        self,
+        job_id: str,
+        action: str,
+        *,
+        artifact_ids: tuple[str, ...] = (),
+        graceful: bool = True,
+        actor: str,
+    ) -> AppResponse:
+        """Pause/resume/cancel/retry a job's run; data={"job", "action", "artifact_ids"}."""
+        raise NotImplementedError
+
+    async def sync_job_progress(self) -> AppResponse:
+        """Poll every running job's live Temporal state once; data={"synced": int}."""
+        raise NotImplementedError
+
+    async def stream_job_events(self, job_id: str) -> AsyncIterator[HarborEvent]:
+        """Backlog replay then a live tail of a job's events; raises HarborNotFoundError."""
+        raise NotImplementedError
+        yield  # type: ignore[unreachable] # pragma: no cover - makes this an async generator
 
     async def list_activity(self, limit: int = 50) -> AppResponse:
         """Most recent audit entries; data={"activity": [...]}."""
