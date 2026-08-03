@@ -174,6 +174,8 @@ def _state(context: typer.Context) -> CliState:
 def _operation_message(command: str, action: str | None) -> str:
     if command == "doctor":
         return "Checking Temporal runtime…"
+    if command == "chat":
+        return "Generating chat response…"
     messages = {
         "start": "Starting ingestion workflow…",
         "status": "Loading ingestion status…",
@@ -181,7 +183,6 @@ def _operation_message(command: str, action: str | None) -> str:
         "pause": "Pausing ingestion…",
         "resume": "Resuming ingestion…",
         "cancel": "Cancelling ingestion…",
-        "retry": "Submitting artifact retries…",
     }
     return (
         messages.get(action, "Running HarborRAG command…")

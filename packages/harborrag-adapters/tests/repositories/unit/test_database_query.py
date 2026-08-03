@@ -65,7 +65,7 @@ async def test_ready_without_vectors_scans_in_bounded_batches() -> None:
     result = await repository.list_ready_without_vectors(
         "docs",
         limit=1,
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert [record.id for record in result] == ["doc-250"]
@@ -78,7 +78,7 @@ async def test_ready_without_vectors_returns_empty_list_for_non_positive_limit()
     repository = SQLDocumentRepository(None, "sqlite", "test", telemetry)
 
     result = await repository.list_ready_without_vectors(
-        "docs", limit=0, context=StorageOperationContext(tenant_id="tenant-a")
+        "docs", limit=0, context=StorageOperationContext.system(tenant_id="tenant-a")
     )
 
     assert result == []
@@ -91,7 +91,7 @@ async def test_ready_without_vectors_stops_when_a_page_returns_no_rows() -> None
     repository = SQLDocumentRepository(session, "sqlite", "test", telemetry)
 
     result = await repository.list_ready_without_vectors(
-        "docs", limit=5, context=StorageOperationContext(tenant_id="tenant-a")
+        "docs", limit=5, context=StorageOperationContext.system(tenant_id="tenant-a")
     )
 
     assert result == []
@@ -105,7 +105,7 @@ async def test_chunk_bulk_upsert_returns_early_for_empty_records() -> None:
 
     # A session of None would blow up if bulk_upsert touched it; reaching the end of
     # this call without error proves the empty-list early return was taken.
-    await repository.bulk_upsert([], context=StorageOperationContext(tenant_id="tenant-a"))
+    await repository.bulk_upsert([], context=StorageOperationContext.system(tenant_id="tenant-a"))
 
 
 @pytest.mark.asyncio
@@ -113,6 +113,8 @@ async def test_chunk_get_many_returns_early_for_empty_ids() -> None:
     telemetry = RepositoryTelemetry(None, family=StorageFamily.DATABASE, backend="sqlite")
     repository = SQLChunkRepository(None, "sqlite", "test", telemetry)
 
-    result = await repository.get_many([], context=StorageOperationContext(tenant_id="tenant-a"))
+    result = await repository.get_many(
+        [], context=StorageOperationContext.system(tenant_id="tenant-a")
+    )
 
     assert result == []

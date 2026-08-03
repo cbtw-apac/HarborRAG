@@ -1,4 +1,4 @@
-from .assignment import ChunkIdentity, ChunkIdentityBuilder, ChunkIdentityService
+from .assignment import ChunkIdentity, ChunkIdentityBuilder, ChunkIdentityInput
 from .fingerprint import (
     canonical_identity_payload,
     content_fingerprint,
@@ -10,7 +10,7 @@ from .fingerprint import (
 __all__ = [
     "ChunkIdentity",
     "ChunkIdentityBuilder",
-    "ChunkIdentityService",
+    "ChunkIdentityInput",
     "canonical_identity_payload",
     "content_fingerprint",
     "encoded_identifier",

@@ -22,7 +22,10 @@ def _build_config(dsn: str) -> Config:
     """Alembic config pointing at the packaged migration scripts."""
     config = Config()
     config.set_main_option("script_location", str(_SCRIPT_LOCATION))
-    config.set_main_option("sqlalchemy.url", dsn)
+    # Alembic stores main options in a ConfigParser. Percent-encoded
+    # credentials must therefore escape percent signs at the configuration
+    # boundary; reading the option in env.py restores the original DSN.
+    config.set_main_option("sqlalchemy.url", dsn.replace("%", "%%"))
     return config
 
 

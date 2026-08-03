@@ -11,7 +11,7 @@ from harborrag_adapters.repositories.telemetry import RepositoryTelemetry
 from harborrag_core.schemas.state import CheckpointRecord, WorkflowState
 from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 
-CONTEXT = StorageOperationContext(tenant_id="tenant-a")
+CONTEXT = StorageOperationContext.system(tenant_id="tenant-a")
 
 
 class FakeStatePipeline:

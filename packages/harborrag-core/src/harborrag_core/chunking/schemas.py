@@ -1,22 +1,42 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from re import fullmatch
+from typing import Self
 
 from pydantic import Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
 from harborrag_core.schemas.ids import ChunkId
 
-from .source_schemas import SourceLocator
+
+class _ExtensibleIdentifier(StrEnum):
+    """String enum whose known values are documented but not a closed set."""
+
+    @classmethod
+    def _missing_(cls, value: object) -> Self | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().casefold()
+        if fullmatch(r"[a-z][a-z0-9_-]{0,63}", normalized) is None:
+            return None
+        member = str.__new__(cls, normalized)
+        member._name_ = f"CUSTOM_{normalized.upper().replace('-', '_')}"
+        member._value_ = normalized
+        return member
 
 
-class ConnectorType(StrEnum):
+class ConnectorType(_ExtensibleIdentifier):
+    """Connector identifier with constants for built-in providers."""
+
     CONFLUENCE = "confluence"
     JIRA = "jira"
     LOCAL = "local"
 
 
-class DocumentKind(StrEnum):
+class DocumentKind(_ExtensibleIdentifier):
+    """Document classification with constants for built-in source shapes."""
+
     CONFLUENCE_PAGE = "confluence_page"
     JIRA_ISSUE = "jira_issue"
     ATTACHMENT = "attachment"
@@ -24,13 +44,17 @@ class DocumentKind(StrEnum):
 
 
 class ChunkKind(StrEnum):
-    ROUTE = "route"
-    EVIDENCE = "evidence"
+    TEXT = "text"
     TABLE = "table"
     CODE = "code"
     COMMENT = "comment"
     EVENT = "event"
     JIRA_FIELD = "jira_field"
+
+
+class RecordKind(StrEnum):
+    ROUTE = "route"
+    EVIDENCE = "evidence"
 
 
 class ContainerKind(StrEnum):
@@ -43,10 +67,18 @@ class ContainerKind(StrEnum):
 
 
 class RelationType(StrEnum):
+    HAS_SECTION = "has_section"
+    HAS_TABLE = "has_table"
+    HAS_COMMENT = "has_comment"
     CHILD_OF = "child_of"
+    PARENT_OF = "parent_of"
     LINKS_TO = "links_to"
+    INCLUDES = "includes"
+    EMBEDS = "embeds"
     HAS_ATTACHMENT = "has_attachment"
     ATTACHED_TO = "attached_to"
+    REPLY_TO = "reply_to"
+    COMMENT_ON = "comment_on"
     BLOCKS = "blocks"
     DUPLICATES = "duplicates"
     RELATES_TO = "relates_to"
@@ -160,27 +192,3 @@ class ChunkQuality(StrictModel):
         if len(set(values)) != len(values):
             raise ValueError("chunk quality issues must not contain duplicates")
         return values
-
-
-class ChunkSourceSpan(SourceLocator):
-    """Compatibility wrapper for the former source-span contract."""
-
-
-class ChunkContext(StrictModel):
-    """Compatibility view of the former retrieval context contract."""
-
-    title: str | None = None
-    structural_path: tuple[str, ...] = ()
-    parent_title: str | None = None
-    previous_chunk_id: ChunkId | None = None
-    next_chunk_id: ChunkId | None = None
-
-    @model_validator(mode="after")
-    def validate_values(self) -> ChunkContext:
-        if self.title is not None and not self.title.strip():
-            raise ValueError("context title must be non-empty when provided")
-        if self.parent_title is not None and not self.parent_title.strip():
-            raise ValueError("context parent_title must be non-empty when provided")
-        if any(not part.strip() for part in self.structural_path):
-            raise ValueError("context structural_path parts must be non-empty")
-        return self

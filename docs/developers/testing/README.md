@@ -104,19 +104,17 @@ Parser example:
 python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/report.pdf --pdf-profile fast
 ```
 
-Engine ingestion examples — chunking needs no external service, indexing needs
-real stores:
+The deployed ingestion smoke covers chunk content, Postgres publication,
+Qdrant retrieval, FalkorDB traversal, and Temporal runtime state:
 
 ```bash
-LOCAL_SOURCE_PATH=./docs python packages/harborrag-engine/tests/ingestion/smoke/chunking.py
-python packages/harborrag-engine/tests/ingestion/smoke/indexing.py
+python packages/harborrag-runtime/tests/runtime_ingestion/smoke/ingestion_flow.py
 ```
 
 Repository stack and runner:
 
 ```bash
-export DATABASE_ENV_FILE=env/.env.database
-scripts/deployment/database_up.sh
+scripts/deployment/dev.sh data
 
 HARBOR_SMOKE_ENV_FILE=env/.env.database \
   python packages/harborrag-adapters/tests/repositories/smoke/run_all.py

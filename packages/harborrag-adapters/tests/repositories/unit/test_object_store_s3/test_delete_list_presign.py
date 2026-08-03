@@ -12,7 +12,7 @@ from .fakes import ExtendedFakeS3Raw, FakeS3ClientWithLifecycle, make_extended_s
 
 @pytest.mark.asyncio
 async def test_delete_true_when_present_false_when_absent() -> None:
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     raw = ExtendedFakeS3Raw({"Metadata": {"tenant_id": "tenant-a"}, "ETag": '"e"'})
     store = make_extended_store(raw)
@@ -27,7 +27,7 @@ async def test_delete_true_when_present_false_when_absent() -> None:
 
 @pytest.mark.asyncio
 async def test_list_paginates_and_filters_foreign_tenant_and_missing_items() -> None:
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     raw = ExtendedFakeS3Raw({"Metadata": {"tenant_id": "tenant-a"}, "ETag": '"e"'})
 
     missing_physical = physical_object_key("tenant-a", "docs/missing")
@@ -65,7 +65,7 @@ async def test_presign_download_includes_version_id_when_present() -> None:
         "bucket",
         "key",
         expires_seconds=60,
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert url.startswith("https://example.test/bucket/")
@@ -82,7 +82,7 @@ async def test_presign_download_omits_version_id_when_absent() -> None:
         "bucket",
         "key",
         expires_seconds=60,
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert "VersionId" not in raw.presign_calls[0][1]

@@ -7,7 +7,12 @@ from collections.abc import Iterator
 import pytest
 
 from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.registry import ConnectorRegistry
+from harborrag_adapters.connectors.document_transform import ConnectorDocumentTransform
+from harborrag_adapters.connectors.registry import (
+    ConnectorProviderDefinition,
+    ConnectorRegistry,
+    connector_registry,
+)
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -41,6 +46,41 @@ def test_registry_create_instantiates():
     registry = ConnectorRegistry()
     registry.register("dummy", _DummyConnector)
     assert isinstance(registry.create("dummy"), _DummyConnector)
+
+
+def test_registry_exposes_one_definition_for_canonical_name_and_aliases():
+    registry = ConnectorRegistry()
+    definition = ConnectorProviderDefinition(
+        name="dummy",
+        provider_cls=_DummyConnector,
+        aliases=("dm",),
+        config_factory=dict,
+        constructor_dependencies={"parser": "attachment_parser"},
+        config_path_fields=("source_path",),
+        document_kind="page",
+    )
+
+    registry.register_provider(definition)
+
+    assert registry.get_definition("dm") is definition
+    assert registry.canonical_name("dm") == "dummy"
+    assert registry.canonical_names() == ["dummy"]
+    assert definition.constructor_dependencies == {"parser": "attachment_parser"}
+
+
+@pytest.mark.parametrize("provider_name", ["confluence", "jira", "local"])
+def test_builtin_provider_owns_its_document_transform(provider_name: str) -> None:
+    definition = connector_registry.get_definition(provider_name)
+
+    assert definition.document_transform_factory is not None
+    assert isinstance(definition.document_transform_factory(), ConnectorDocumentTransform)
+
+
+@pytest.mark.parametrize("provider_name", ["github", "sharepoint"])
+def test_generic_provider_does_not_require_a_document_transform(provider_name: str) -> None:
+    definition = connector_registry.get_definition(provider_name)
+
+    assert definition.document_transform_factory is None
 
 
 def test_registry_duplicate_key_different_class_raises():

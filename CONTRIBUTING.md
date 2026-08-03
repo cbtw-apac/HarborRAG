@@ -41,7 +41,7 @@ Keep changes focused. Do not combine generated files, broad formatting, or unrel
 | --- | --- |
 | `harborrag-core` | Provider-neutral domain objects, shared schemas, model contracts, errors, and security helpers |
 | `harborrag-adapters` | External connectors, parsers, model transports, repository providers, and provider validation |
-| `harborrag-engine` | Ingestion, retrieval, indexing, graph mapping, and evidence orchestration |
+| `harborrag-engine` | Pure ingestion transformations, representation/projection mapping, retrieval, and evidence orchestration |
 | `harborrag-runtime` | Configuration loading, composition, jobs, supervision, schedules, and durable-workflow boundaries |
 | `harborrag-app` | Application services, CLI commands, and HTTP controllers |
 | `harborrag-mcp-server` | MCP tool/server interfaces, policy, and audit behavior |
@@ -52,7 +52,7 @@ The allowed HarborRAG imports are:
 ```text
 harborrag_core      -> none
 harborrag_adapters  -> core
-harborrag_engine    -> core, adapters
+harborrag_engine    -> core
 harborrag_runtime   -> core, adapters, engine
 harborrag_app       -> core, engine, runtime
 harborrag_mcp_server -> core, engine, runtime
@@ -66,16 +66,17 @@ Run `make deps-check` after changing cross-package imports.
 | Goal | Location |
 | --- | --- |
 | Add a connector | `packages/harborrag-adapters/src/harborrag_adapters/connectors/<provider>/` |
-| Add a PDF parser backend | `packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf_engine/<backend>.py` |
+| Add a PDF parser backend | `packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf/engines/<backend>.py` |
+| Change Confluence canonical normalization | `packages/harborrag-adapters/src/harborrag_adapters/connectors/confluence/normalization/` |
 | Add a vector repository | `packages/harborrag-adapters/src/harborrag_adapters/repositories/vector/<backend>/` |
 | Add a chat/model provider | `packages/harborrag-adapters/src/harborrag_adapters/models/<family>/` |
-| Add a chunking strategy | `packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/strategies/` |
+| Add a source chunking strategy | `packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/sources/` |
 | Change ingestion business behavior | `packages/harborrag-engine/src/harborrag_engine/ingestion/` |
 | Change retrieval ranking | `packages/harborrag-engine/src/harborrag_engine/retrieval/` |
 | Add an API endpoint | `packages/harborrag-app/src/harborrag_app/api/routes/` |
 | Add a CLI command | `packages/harborrag-app/src/harborrag_app/cli/commands/` |
 | Add an MCP tool | `packages/harborrag-mcp-server/src/harborrag_mcp_server/tools/` |
-| Add durable execution | `packages/harborrag-runtime/src/harborrag_runtime/temporal/workflows/` |
+| Add durable execution | `packages/harborrag-runtime/src/harborrag_runtime/temporal/` |
 
 A new backend should add its implementation folder, configuration example, and
 contract-test registration. It should not require changes to engine pipelines,
@@ -90,7 +91,7 @@ Place provider code under the matching family in `packages/harborrag-adapters/sr
 
 ```text
 connectors/<provider>/
-parsers/ or parsers/pdf_engine/
+parsers/ or parsers/pdf/engines/
 models/{chat,embed,rerank}/
 repositories/{vector,graph,cache,object_store,database,state}/<provider>/
 ```

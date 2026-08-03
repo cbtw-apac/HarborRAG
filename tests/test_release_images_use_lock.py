@@ -51,21 +51,25 @@ def test_worker_image_contains_only_worker_packages() -> None:
     dockerfile = DOCKERFILES["worker"].read_text(encoding="utf-8")
     install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
-    assert "-e packages/harborrag-runtime" in install_block
+    assert "-e 'packages/harborrag-runtime[temporal]'" in install_block
     assert "-e packages/harborrag-app" not in install_block
     assert "-e packages/harborrag-mcp-server" not in install_block
     assert "-e packages/harborrag\n" not in install_block
 
 
-def test_api_image_contains_only_control_plane_runtime_dependencies() -> None:
+def test_api_image_contains_control_plane_and_retrieval_dependencies() -> None:
     dockerfile = DOCKERFILES["api"].read_text(encoding="utf-8")
     install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
-    assert "--package harborrag-app --extra api" in install_block
+    assert "--extra api --extra production" in install_block
     assert "--package harborrag-adapters" in install_block
-    assert "--extra control-plane --extra postgres" in install_block
-    assert "-e 'packages/harborrag-adapters[control-plane,postgres]'" in install_block
-    assert "-e 'packages/harborrag-app[api]'" in install_block
+    assert "--extra control-plane --extra falkordb --extra llm" in install_block
+    assert "--extra postgres --extra qdrant --extra s3" in install_block
+    assert (
+        "-e 'packages/harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]'"
+        in install_block
+    )
+    assert "-e 'packages/harborrag-app[api,production]'" in install_block
     assert "pdf-docling" not in install_block
     assert "torch==" not in install_block
 
@@ -77,6 +81,7 @@ def test_api_image_bundles_configuration_and_runs_unprivileged() -> None:
     assert "USER harborrag" in dockerfile
     assert "HEALTHCHECK " in dockerfile
     assert "/api/v1/health" in dockerfile
+    assert "/api/v1/readyz" not in dockerfile
     assert "build-essential" not in dockerfile
     assert "exec uvicorn harborrag_app.api.app:create_fastapi_app --factory" in dockerfile
     assert '--host \\"$HARBORRAG_HOST\\" --port \\"$HARBORRAG_PORT\\"' in dockerfile
@@ -90,14 +95,15 @@ def test_release_images_run_as_the_unprivileged_application_user(image: str) -> 
     assert "--uid 10001" in dockerfile
 
 
-def test_mcp_image_does_not_install_unrelated_transports() -> None:
+def test_mcp_image_installs_its_declared_runtime_stack() -> None:
     dockerfile = DOCKERFILES["mcp"].read_text(encoding="utf-8")
     install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
     assert "-e 'packages/harborrag-mcp-server[mcp]'" in install_block
     assert "-e packages/harborrag-app" not in install_block
-    assert "-e packages/harborrag-runtime" not in install_block
-    assert "run(transport='stdio')" in dockerfile
+    assert "-e packages/harborrag-runtime" in install_block
+    assert "COPY config ./config" in dockerfile
+    assert 'ENTRYPOINT ["python", "-m", "harborrag_mcp_server"]' in dockerfile
 
 
 def test_worker_uses_the_audited_cpu_torch_release() -> None:

@@ -68,6 +68,7 @@ class ConnectorCapabilities:
     users: bool = False
     relationships: bool = True
     local_files: bool = False
+    concurrent_describe: bool = False
 
 
 @dataclass

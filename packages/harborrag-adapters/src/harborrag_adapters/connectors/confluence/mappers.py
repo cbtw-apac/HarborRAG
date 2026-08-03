@@ -160,12 +160,37 @@ def _author(content: dict[str, Any]) -> str | None:
 
 def _comment_metadata(comment: dict[str, Any]) -> ConfluenceCommentMetadata:
     history = comment.get("history", {})
+    version = comment.get("version") or {}
+    extensions = comment.get("extensions") or {}
+    location = str(extensions.get("location") or "").casefold()
     return ConfluenceCommentMetadata(
         id=comment.get("id"),
         body=comment.get("body", {}).get("storage", {}).get("value", ""),
         author=history.get("createdBy", {}).get("displayName"),
         created_at=history.get("createdDate") or history.get("createdAt"),
+        updated_at=(version.get("when") or (history.get("lastUpdated") or {}).get("when")),
+        comment_kind=("INLINE_COMMENT" if location == "inline" else "PAGE_COMMENT"),
+        parent_comment_id=_parent_comment_id(comment),
+        status=(str(comment["status"]) if comment.get("status") is not None else None),
     )
+
+
+def _parent_comment_id(comment: dict[str, Any]) -> str | None:
+    direct = comment.get("parentId") or comment.get("parent_id")
+    if direct is not None and str(direct).strip():
+        return str(direct)
+    ancestors = comment.get("ancestors")
+    if not isinstance(ancestors, list):
+        return None
+    for ancestor in reversed(ancestors):
+        if not isinstance(ancestor, dict):
+            continue
+        if str(ancestor.get("type") or "").casefold() != "comment":
+            continue
+        identifier = ancestor.get("id")
+        if identifier is not None and str(identifier).strip():
+            return str(identifier)
+    return None
 
 
 def _hierarchy_metadata(content: dict[str, Any]) -> ConfluenceHierarchyMetadata:

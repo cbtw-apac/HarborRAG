@@ -5,13 +5,33 @@ description = "Meta-package public facade for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "harborrag-core==0.1.0", 
-    "harborrag-adapters==0.1.0", 
-    "harborrag-engine==0.1.0", 
-    "harborrag-runtime==0.1.0", 
-    "harborrag-app==0.1.0", 
-    "harborrag-mcp-server==0.1.0"
-    ]
+    "harborrag-core==0.1.0",
+    "harborrag-runtime==0.1.0",
+]
+
+[project.optional-dependencies]
+local = [
+    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant,s3,tables]==0.1.0",
+]
+chat = ["harborrag-adapters[llm]==0.1.0"]
+cli = ["harborrag-app==0.1.0"]
+server = [
+    "harborrag-app[api]==0.1.0",
+    "harborrag-runtime[production,temporal]==0.1.0",
+]
+temporal = ["harborrag-runtime[temporal]==0.1.0"]
+mcp = ["harborrag-mcp-server[mcp]==0.1.0"]
+qdrant = ["harborrag-adapters[qdrant]==0.1.0"]
+falkordb = ["harborrag-adapters[falkordb]==0.1.0"]
+postgres = ["harborrag-adapters[control-plane,postgres]==0.1.0"]
+s3 = ["harborrag-adapters[s3]==0.1.0"]
+redis = ["harborrag-adapters[redis]==0.1.0"]
+all = [
+    "harborrag-adapters[parsers-all]==0.1.0",
+    "harborrag-app[api]==0.1.0",
+    "harborrag-mcp-server[mcp]==0.1.0",
+    "harborrag-runtime[production,temporal]==0.1.0",
+]
 
 [build-system]
 requires = ["hatchling"]

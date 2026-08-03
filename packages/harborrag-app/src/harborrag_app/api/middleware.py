@@ -7,6 +7,7 @@ header so clients and logs can correlate.
 
 from __future__ import annotations
 
+import re
 from uuid import uuid4
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -14,6 +15,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 TRACE_HEADER = "X-Request-Id"
+_VALID_TRACE_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def _trace_id(request: Request) -> str:
+    supplied = request.headers.get(TRACE_HEADER)
+    if supplied is not None and _VALID_TRACE_ID.fullmatch(supplied):
+        return supplied
+    return uuid4().hex
 
 
 class TraceIdMiddleware(BaseHTTPMiddleware):
@@ -21,7 +30,7 @@ class TraceIdMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Populate request.state.trace_id and mirror it into the response."""
-        trace_id = request.headers.get(TRACE_HEADER) or uuid4().hex
+        trace_id = _trace_id(request)
         request.state.trace_id = trace_id
         response = await call_next(request)
         response.headers[TRACE_HEADER] = trace_id

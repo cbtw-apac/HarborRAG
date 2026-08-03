@@ -15,7 +15,11 @@ from harborrag_adapters.parsers.common.utils import (
 from harborrag_adapters.parsers.document.engines.docx.engine import DocxParser
 from harborrag_adapters.parsers.document.engines.epub.engine import EpubParser
 from harborrag_adapters.parsers.document.engines.odt.engine import OdtParser
-from harborrag_adapters.parsers.errors import ParseError, UnsupportedFormatError
+from harborrag_adapters.parsers.errors import (
+    ParseError,
+    PasswordProtectedError,
+    UnsupportedFormatError,
+)
 from harborrag_adapters.parsers.image.engines.ocr.engine import ImageParser
 from harborrag_adapters.parsers.markup.engines.html.engine import HtmlParser
 from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownParser
@@ -67,6 +71,7 @@ __all__ = [
     "PaddleOcrBackend",
     "PaddleOcrBackendOptions",
     "ParseError",
+    "PasswordProtectedError",
     "PdfBackend",
     "PdfParseResult",
     "PdfParser",

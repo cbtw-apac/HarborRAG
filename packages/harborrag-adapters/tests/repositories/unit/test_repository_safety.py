@@ -77,7 +77,7 @@ def test_provider_map_wraps_explicit_missing_dependency_error() -> None:
 
 
 def test_tenant_mismatch_uses_storage_authorization_error() -> None:
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     with pytest.raises(HarborStorageAuthorizationError):
         ensure_tenant(
             "tenant-b",
@@ -98,7 +98,7 @@ async def test_falkordb_advanced_query_is_never_executed() -> None:
         FalkorDBGraphConfig(),
         client=FakeFalkorClient(),  # type: ignore[arg-type]
     )
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     assert repository.capabilities.advanced_native_query is False
     with pytest.raises(HarborUnsafeQueryError):

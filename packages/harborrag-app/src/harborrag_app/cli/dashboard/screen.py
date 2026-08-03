@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import ClassVar
 
 from rich.text import Text
@@ -23,6 +24,8 @@ from .rendering import (
 )
 from .schemas import DashboardSnapshot, as_integer
 from .styles import DASHBOARD_CSS
+
+logger = logging.getLogger("harborrag.app.cli.dashboard")
 
 type BindingSpec = Binding | tuple[str, str] | tuple[str, str, str]
 
@@ -97,6 +100,11 @@ class IngestionDashboard(App[None]):
         try:
             response = await self.service.ingestion_status(self.run_id)
         except Exception as exc:  # noqa: BLE001 - dashboard must remain interactive
+            logger.error(
+                "Dashboard status refresh failed run_id=%s error_type=%s",
+                self.run_id,
+                type(exc).__name__,
+            )
             self._render_error(str(exc) or type(exc).__name__)
             return
         if not response.ok:
@@ -133,6 +141,12 @@ class IngestionDashboard(App[None]):
         try:
             response = await self.service.control_ingestion(self.run_id, action)
         except Exception as exc:  # noqa: BLE001 - dashboard must remain interactive
+            logger.error(
+                "Dashboard workflow control failed run_id=%s action=%s error_type=%s",
+                self.run_id,
+                action,
+                type(exc).__name__,
+            )
             self.notify(
                 str(exc) or type(exc).__name__,
                 title="Control failed",

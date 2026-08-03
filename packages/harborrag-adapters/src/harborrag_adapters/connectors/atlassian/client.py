@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
+from threading import Lock, get_ident, local
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
@@ -21,6 +23,11 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_error_detail,
     same_origin,
+)
+from harborrag_adapters.connectors.rate_limiting import (
+    ConnectorRateLimiter,
+    LocalIntervalRateLimiter,
+    RateLimitIdentity,
 )
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -52,6 +59,16 @@ class AtlassianHttpConfig(Protocol):
     max_attachment_size_bytes: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class AtlassianClientContext:
+    """Stable HTTP and rate-limit identity for one Atlassian client."""
+
+    base_url: str
+    provider_label: str
+    logger: logging.Logger
+    rate_limit_identity: RateLimitIdentity
+
+
 class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
     """Rate-limited requests client with shared errors and download safety."""
 
@@ -59,18 +76,21 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         self,
         config: ConfigT,
         *,
-        base_url: str,
-        provider_label: str,
-        logger: logging.Logger,
+        context: AtlassianClientContext,
+        rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
         self.config = config
-        self.base_url = base_url.rstrip("/")
+        self.base_url = context.base_url.rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
-        self._provider_label = provider_label
-        self._logger = logger
-        self._min_interval = 60.0 / config.requests_per_minute
-        self._last_request_at = 0.0
+        self._owner_thread = get_ident()
+        self._thread_sessions = local()
+        self._sessions = {self.session}
+        self._sessions_lock = Lock()
+        self._provider_label = context.provider_label
+        self._logger = context.logger
+        self._rate_limit_identity = context.rate_limit_identity
+        self._rate_limiter = rate_limiter or LocalIntervalRateLimiter()
 
     def _json_response(
         self,
@@ -93,7 +113,13 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             )
         return payload
 
-    def _download_bytes(self, url: str, *, label: str) -> bytes | None:
+    def _download_bytes(
+        self,
+        url: str,
+        *,
+        label: str,
+        max_bytes: int | None = None,
+    ) -> bytes | None:
         """Download a capped body, following at most one trusted media redirect."""
         try:
             safe_url = require_same_origin_url(url, self.base_url, label=label)
@@ -109,10 +135,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         if 300 <= response.status_code < 400:
             response = self._follow_trusted_redirect(response, label=label)
         try:
-            content = read_capped_content(
-                response,
-                self.config.max_attachment_size_bytes,
-            )
+            configured_cap = self.config.max_attachment_size_bytes
+            caps = tuple(cap for cap in (configured_cap, max_bytes) if cap is not None)
+            content = read_capped_content(response, min(caps) if caps else None)
         except ResponseTooLargeError as exc:
             raise FetchError(str(exc)) from exc
         return content or None
@@ -158,9 +183,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         """Send one HTTP request with rate limiting and retry handling."""
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
-            self._acquire()
+            self._acquire(url)
             try:
-                response = self.session.request(
+                response = self._session_for_thread().request(
                     method,
                     url,
                     timeout=self.config.request_timeout_seconds,
@@ -196,15 +221,41 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool."""
 
-        self.session.close()
+        with self._sessions_lock:
+            sessions = tuple(self._sessions)
+            self._sessions.clear()
+        for session in sessions:
+            session.close()
 
-    def _acquire(self) -> None:
-        """Throttle requests according to the configured per-minute budget."""
-        now = time.monotonic()
-        wait = self._min_interval - (now - self._last_request_at)
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_at = time.monotonic()
+    def _session_for_thread(self) -> requests.Session:
+        """Return an independently pooled session for concurrent descriptors."""
+
+        if get_ident() == self._owner_thread:
+            return self.session
+        session: requests.Session | None = getattr(self._thread_sessions, "session", None)
+        if session is not None:
+            return session
+        session = requests.Session()
+        session.headers.update(self.session.headers)
+        session.auth = self.session.auth
+        session.cookies.update(self.session.cookies)
+        session.verify = self.session.verify
+        session.cert = self.session.cert
+        session.proxies.update(self.session.proxies)
+        with self._sessions_lock:
+            self._sessions.add(session)
+        self._thread_sessions.session = session
+        return session
+
+    def _acquire(self, url: str) -> None:
+        """Throttle requests in the source API-family lane."""
+
+        path = urlparse(url).path.lower()
+        api_family = "rest" if "/rest/api/" in path else "attachment"
+        self._rate_limiter.acquire(
+            self._rate_limit_identity.scope(api_family),
+            requests_per_minute=self.config.requests_per_minute,
+        )
 
     def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
         """Sleep before retrying, honoring provider retry headers."""

@@ -15,6 +15,8 @@ from harborrag_core.models.embed import (
 )
 from harborrag_core.models.errors import HarborEmbedMalformedResponseError
 
+from ..normalization import nonnegative_int as _nonnegative_int
+from ..normalization import safe_provider_metadata as _safe_provider_metadata
 from .configs import HarborEmbedProviderConfig
 
 
@@ -192,17 +194,3 @@ def _l2_normalize(vector: tuple[float, ...]) -> tuple[float, ...]:
     if norm == 0:
         raise HarborEmbedMalformedResponseError("cannot normalize a zero embedding vector")
     return tuple(number / norm for number in vector)
-
-
-def _nonnegative_int(value: Any) -> int:
-    return int(value) if isinstance(value, int | float) and value >= 0 else 0
-
-
-def _safe_provider_metadata(hidden: Mapping[str, Any]) -> dict[str, Any]:
-    allowed = {"region_name", "cache_hit", "model_id", "response_ms"}
-    return {
-        key: hidden[key]
-        for key in allowed
-        if key in hidden
-        and (isinstance(hidden.get(key), str | int | float | bool) or hidden.get(key) is None)
-    }

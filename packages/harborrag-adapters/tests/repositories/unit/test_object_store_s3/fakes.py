@@ -81,6 +81,18 @@ class ExtendedFakeS3Raw(FakeS3Raw):
         self.delete_calls: list[dict[str, Any]] = []
         self.list_pages: list[dict[str, Any]] = [{"Contents": [], "IsTruncated": False}]
         self.presign_calls: list[tuple[str, dict[str, Any], int]] = []
+        self.buckets: set[str] = set()
+        self.create_bucket_calls: list[dict[str, Any]] = []
+
+    async def head_bucket(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs["Bucket"] not in self.buckets:
+            raise FakeClientError("NoSuchBucket")
+        return {}
+
+    async def create_bucket(self, **kwargs: Any) -> dict[str, Any]:
+        self.create_bucket_calls.append(kwargs)
+        self.buckets.add(kwargs["Bucket"])
+        return {}
 
     async def head_object(self, **kwargs: Any) -> dict[str, Any]:
         if self.head_error:

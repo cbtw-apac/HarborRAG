@@ -36,8 +36,10 @@ def cleanup_test_artifacts():
         "test-coverage.xml",
         "coverage-website.xml",
         "htmlcov-website",
-        ".coverage*",
-        "*.coverage",
+        # Keep names exact: pytest-cov owns .coverage.* worker databases while
+        # this session is running, and deleting them races xdist shutdown.
+        ".coverage.test",
+        "test.coverage",
         "temp_test_dir",
         "custom-site",
         "custom-templates",
@@ -90,8 +92,8 @@ def clean_workspace(project_root_dir):
         "custom-templates",
         "site",
         "temp_test_dir",
-        "*.coverage",
-        ".coverage*",
+        ".coverage.test",
+        "test.coverage",
     ]
 
     for pattern in cleanup_patterns:

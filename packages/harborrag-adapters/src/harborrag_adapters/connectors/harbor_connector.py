@@ -6,6 +6,7 @@ from typing import Any
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
+from .descriptors import ConnectorDocumentDescriptor
 from .registry import connector_registry
 from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
@@ -57,6 +58,14 @@ class HarborConnector:
     def load(self, record: SourceRecord) -> RawDocument:
         """Proxy one-record loading to the selected provider."""
         return self.provider.load(record)
+
+    def describe(
+        self,
+        record: SourceRecord,
+    ) -> ConnectorDocumentDescriptor:
+        """Proxy compact admission discovery to the selected provider."""
+
+        return self.provider.describe(record)
 
     def load_raw_documents(
         self,

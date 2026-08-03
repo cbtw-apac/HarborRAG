@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
+
+    from harborrag_runtime.sdk import HarborRAG
 
 
 def list_tools() -> list[dict[str, object]]:
@@ -19,19 +24,21 @@ def list_tools() -> list[dict[str, object]]:
     ]
 
 
-def call_tool(
+async def call_tool(
     name: str, arguments: dict[str, object] | None = None, **kwargs: Any
 ) -> dict[str, object]:
     payload = dict(arguments or {})
     payload.update(kwargs)
-    return McpServer().call_tool(name, payload)
+    return await McpServer().call_tool(name, payload)
 
 
 def create_mcp_server(
     *,
     registry: McpServer | None = None,
+    runtime: HarborRAG | None = None,
     auth: AuthProvider | None = None,
     allow_unauthenticated_local: bool = False,
+    manage_runtime_lifecycle: bool = False,
 ) -> object:
     """Create a real FastMCP transport around the bounded in-process registry."""
 
@@ -49,8 +56,16 @@ def create_mcp_server(
         ) from exc
 
     audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
-    facade = registry or McpServer(audit=McpAuditLog(path=audit_path))
-    transport = FastMCP("HarborRAG", auth=auth)
+    facade = registry or McpServer(
+        runtime=runtime,
+        audit=McpAuditLog(path=audit_path),
+    )
+    lifespan = None
+    if manage_runtime_lifecycle:
+        if runtime is None:
+            raise ValueError("runtime lifecycle management requires a runtime")
+        lifespan = _runtime_lifespan(runtime)
+    transport = FastMCP("HarborRAG", auth=auth, lifespan=lifespan)
 
     for spec in facade.list_tools():
         transport.add_tool(
@@ -60,18 +75,32 @@ def create_mcp_server(
                 parameters=spec.input_schema,
                 fn=_tool_handler(facade, spec.name),
                 return_type=dict,
-                run_in_thread=True,
+                run_in_thread=False,
             )
         )
     return transport
+
+
+def _runtime_lifespan(
+    runtime: HarborRAG,
+) -> Any:
+    @asynccontextmanager
+    async def lifespan(server: object) -> AsyncIterator[None]:
+        del server
+        try:
+            yield
+        finally:
+            await runtime.aclose()
+
+    return lifespan
 
 
 def _tool_handler(
     server: McpServer,
     tool_name: str,
 ) -> Any:
-    def invoke(**arguments: object) -> dict[str, object]:
-        return server.call_tool(
+    async def invoke(**arguments: object) -> dict[str, object]:
+        return await server.call_tool(
             tool_name,
             arguments,
             principal_id=_request_principal_id(),

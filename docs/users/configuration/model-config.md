@@ -48,6 +48,24 @@ with ChatClientFactory.create(config) as client:
 
 Embedding and reranking use `HarborEmbedClientConfig`/`HarborEmbedClient` and `HarborRerankClientConfig`/`HarborRerankingClient` respectively.
 
+## Application chat composition
+
+The HTTP API, CLI, and MCP server do not construct this adapter directly. The
+runtime lazily loads the `chat` family from `HARBORRAG_MODEL_CONFIG_PATH`, owns
+one asynchronous client lifecycle, and exposes it through `HarborRAG.chat`.
+Public callers may select a logical model but cannot provide a deployment,
+credential, base URL, header, tool definition, or provider-specific parameter.
+
+Stored prompts are intentionally separate from model configuration. The
+runtime's typed prompt catalog packages the `default` and `concise` Markdown
+templates; see [Chat](../chat/README.md) for transport behavior and prompt
+selection.
+
+The repository's runnable `config/models.yaml` uses
+`HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and `HARBOR_CHAT_API_KEY` for its
+`primary` chat deployment. The more general example files above use provider
+variables such as `OPENAI_API_KEY` instead.
+
 ## Environment and secret references
 
 `${NAME}` is required. `${NAME:-default}` supplies a default and should be reserved for non-secret operational values. References are expanded while loading, so validation fails before any provider call when a required variable is missing.

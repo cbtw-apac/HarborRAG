@@ -1,7 +1,7 @@
 """Coverage for the CLI render paths not exercised by the status view.
 
 ``CliRenderer.render`` dispatches on command/action, and several branches --
-doctor, start, the pause/resume/cancel/retry controls, the generic tree
+doctor, start, the pause/resume/cancel controls, the generic tree
 fallback, and the error path -- had no test. These assert the operator-visible
 text for each, since that output is the CLI's entire contract.
 """
@@ -71,8 +71,9 @@ def test_start_lists_run_identity_and_a_pending_stage_table() -> None:
                 "run_id": "run-1",
                 "tenant_id": "tenant-1",
                 "connector_name": "local_file",
-                "manifest_id": "manifest-1",
-                "generation_id": "gen-1",
+                "connector_type": "local",
+                "connection_id": "local_file",
+                "source_scope_id": "docs",
             },
             "workflow": {"workflow_id": "wf-1"},
         },
@@ -117,28 +118,6 @@ def test_control_action_is_acknowledged() -> None:
     text = output.getvalue()
     assert "Pause accepted" in text
     assert "run-1" in text
-
-
-def test_retry_reports_a_pluralised_artifact_count() -> None:
-    renderer, output, _ = make_renderer()
-    response = AppResponse(
-        True,
-        {"action": "retry", "run_id": "run-1", "artifact_ids": ["a-1", "a-2"]},
-    )
-
-    renderer.render(response, command="ingest", action="retry")
-
-    assert "2 artifacts" in output.getvalue()
-
-
-def test_retry_reports_a_single_artifact_without_a_plural() -> None:
-    renderer, output, _ = make_renderer()
-    response = AppResponse(True, {"action": "retry", "run_id": "run-1", "artifact_ids": ["a-1"]})
-
-    renderer.render(response, command="ingest", action="retry")
-
-    text = output.getvalue()
-    assert "1 artifact)" in text
 
 
 # --------------------------------------------------------------------------

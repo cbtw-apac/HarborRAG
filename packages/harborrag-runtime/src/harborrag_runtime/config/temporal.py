@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from harborrag_runtime.errors import RuntimeConfigurationError
-from harborrag_runtime.temporal.retry import ActivityRetryConfig
-from harborrag_runtime.temporal.schemas import WorkflowOptions
-from harborrag_runtime.temporal.task_queues import TaskQueueConfig
 
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
@@ -81,10 +78,10 @@ class TemporalConnectionConfig:
 @dataclass(frozen=True, slots=True)
 class WorkerConfig:
     identity: str = "harborrag-runtime"
-    max_concurrent_activities: int = 32
-    max_concurrent_workflow_tasks: int = 16
-    max_concurrent_activity_polls: int = 8
-    max_concurrent_workflow_polls: int = 5
+    max_concurrent_activities: int = 2
+    max_concurrent_workflow_tasks: int = 4
+    max_concurrent_activity_polls: int = 2
+    max_concurrent_workflow_polls: int = 2
     graceful_shutdown_seconds: int = 30
 
     def __post_init__(self) -> None:
@@ -101,45 +98,20 @@ class WorkerConfig:
 
 @dataclass(frozen=True, slots=True)
 class TemporalRuntimeConfig:
-    """One cohesive configuration consumed by clients, workflows, and workers."""
+    """Connection and capacity settings shared by the client and worker."""
 
     connection: TemporalConnectionConfig = TemporalConnectionConfig()
-    task_queues: TaskQueueConfig = TaskQueueConfig()
-    retries: ActivityRetryConfig = ActivityRetryConfig()
     worker: WorkerConfig = WorkerConfig()
-    partition_size: int = 50
-    partition_concurrency: int = 4
-    artifact_concurrency: int = 16
-    continue_after_partitions: int = 100
-    continue_after_artifacts: int = 2_000
     workflow_execution_timeout_seconds: int = 2_592_000
     workflow_task_timeout_seconds: int = 10
 
     def __post_init__(self) -> None:
         values = (
-            self.partition_size,
-            self.partition_concurrency,
-            self.artifact_concurrency,
-            self.continue_after_partitions,
-            self.continue_after_artifacts,
             self.workflow_execution_timeout_seconds,
             self.workflow_task_timeout_seconds,
         )
         if any(value < 1 for value in values):
-            raise RuntimeConfigurationError("Runtime workflow limits and timeouts must be positive")
-
-    def workflow_options(self) -> WorkflowOptions:
-        """Freeze workflow-affecting configuration into workflow input."""
-
-        return WorkflowOptions(
-            task_queues=self.task_queues,
-            retries=self.retries,
-            partition_size=self.partition_size,
-            partition_concurrency=self.partition_concurrency,
-            artifact_concurrency=self.artifact_concurrency,
-            continue_after_partitions=self.continue_after_partitions,
-            continue_after_artifacts=self.continue_after_artifacts,
-        )
+            raise RuntimeConfigurationError("Temporal workflow timeouts must be positive")
 
     @classmethod
     def from_settings(cls, settings: RuntimeSettings) -> TemporalRuntimeConfig:
@@ -150,12 +122,20 @@ class TemporalRuntimeConfig:
                 target=settings.temporal_target,
                 namespace=settings.temporal_namespace,
                 identity=settings.temporal_identity,
-                api_key=settings.temporal_api_key,
+                api_key=(
+                    settings.temporal_api_key.get_secret_value()
+                    if settings.temporal_api_key is not None
+                    else None
+                ),
                 tls=TemporalTLSConfig(enabled=settings.temporal_tls),
                 allow_insecure_remote=settings.temporal_allow_insecure_remote,
             ),
-            worker=WorkerConfig(identity=settings.temporal_identity),
-            partition_size=settings.ingestion_partition_size,
-            partition_concurrency=settings.partition_concurrency,
-            artifact_concurrency=settings.artifact_concurrency,
+            worker=WorkerConfig(
+                identity=settings.temporal_identity,
+                max_concurrent_activities=settings.temporal_max_concurrent_activities,
+                max_concurrent_workflow_tasks=settings.temporal_max_concurrent_workflow_tasks,
+                max_concurrent_activity_polls=settings.temporal_max_concurrent_activity_polls,
+                max_concurrent_workflow_polls=settings.temporal_max_concurrent_workflow_polls,
+                graceful_shutdown_seconds=settings.temporal_graceful_shutdown_seconds,
+            ),
         )

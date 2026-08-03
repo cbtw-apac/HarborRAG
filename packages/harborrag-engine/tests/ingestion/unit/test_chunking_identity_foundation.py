@@ -9,8 +9,6 @@ from harborrag_engine.ingestion.chunking import (
     ChunkHierarchyValidator,
     ChunkIdentityBuilder,
     ChunkIdentityError,
-    normalize_section_path,
-    parent_section_path,
 )
 from harborrag_engine.ingestion.chunking.identity import (
     canonical_identity_payload,
@@ -39,7 +37,7 @@ def test_chunk_identity_vector_uses_section_range_kind_version_and_content() -> 
     logical_chunk_id = builder.logical_chunk_id(
         section_id=section_id,
         stable_source_range={"end": 9, "start": 2},
-        chunk_kind=ChunkKind.EVIDENCE,
+        chunk_kind=ChunkKind.TEXT,
     )
     chunk_id = builder.chunk_id(
         logical_chunk_id=logical_chunk_id,
@@ -52,20 +50,9 @@ def test_chunk_identity_vector_uses_section_range_kind_version_and_content() -> 
         "section:a8a37e6033c96e7c7e21b2dac5e587a9464407136e7dd27448cd71791bf9e91a"
     )
     assert logical_chunk_id == (
-        "logical-chunk:5b7fb31ab21a6c8caa82c6b9aec7b82e9dc1b049d069f999bd85c8ae00dfedd0"
+        "logical-chunk:0dcf20f28ea8d683c47f335f24af35ce397096e189de61dc0872167f6e5573f9"
     )
-    assert chunk_id == ("chunk:f21deae287b88ee6493961536dfc00472b38c7b8dfc237a3ab28f59f8c160cd6")
-    identity = builder.identify(
-        document_id="document-1",
-        document_version_id="version-1",
-        strategy_version="strategy-1",
-        section_path=("Architecture",),
-        structural_anchor="paragraph-1",
-        local_part_index=0,
-        chunk_kind=ChunkKind.EVIDENCE,
-        content_hash="content-hash",
-    )
-    assert identity.chunk_revision_id == identity.chunk_id
+    assert chunk_id == ("chunk:1e2d730dfd898c57ec9a242a321976f5909b852e371cec2eb77de096e5f33ef4")
 
 
 def test_dictionary_order_whitespace_and_unicode_follow_one_policy() -> None:
@@ -115,7 +102,7 @@ def test_exact_chunk_identity_changes_only_for_exact_identity_inputs() -> None:
     assert first != changed_strategy
 
 
-def test_table_identity_is_stable_by_location_and_versioned_by_content() -> None:
+def test_table_identity_is_stable_by_location_and_by_content() -> None:
     builder = ChunkIdentityBuilder()
     first = builder.table_id(
         document_id="document-1",
@@ -138,17 +125,6 @@ def test_table_identity_is_stable_by_location_and_versioned_by_content() -> None
         source_version="1",
         content_hash="hash-b",
     )
-
-
-def test_section_path_normalization_preserves_ordered_ancestry() -> None:
-    path = (" Architecture ", "Cafe\u0301\tDesign ")
-
-    assert normalize_section_path(path) == ("Architecture", "Café Design")
-    assert parent_section_path(path) == ("Architecture",)
-    assert parent_section_path(("Architecture",)) is None
-    assert parent_section_path(()) is None
-    with pytest.raises(ChunkHierarchyError, match="non-empty"):
-        normalize_section_path(("Architecture", " "))
 
 
 def test_hierarchy_validator_rejects_duplicate_ordinals_and_unknown_neighbors() -> None:

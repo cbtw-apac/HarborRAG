@@ -6,6 +6,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
     validate_https_url,
@@ -81,12 +82,7 @@ class SharePointSiteConfig:
             raise ValueError("page_size must be between 1 and 999")
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)
 
-        self.allowed_extensions = {_normalize_extension(value) for value in self.allowed_extensions}
+        self.allowed_extensions = {normalize_extension(value) for value in self.allowed_extensions}
         self.excluded_extensions = {
-            _normalize_extension(value) for value in self.excluded_extensions
+            normalize_extension(value) for value in self.excluded_extensions
         }
-
-
-def _normalize_extension(value: str) -> str:
-    value = value.lower().strip()
-    return value if value.startswith(".") else f".{value}"

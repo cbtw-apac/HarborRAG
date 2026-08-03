@@ -12,8 +12,13 @@ class HealthTool(BaseMcpTool):
         input_schema={"type": "object", "additionalProperties": False},
     )
 
-    def call(self, arguments: dict[str, object]) -> dict[str, object]:
-        del arguments
+    async def call(
+        self,
+        arguments: dict[str, object],
+        *,
+        principal_id: str,
+    ) -> dict[str, object]:
+        del arguments, principal_id
         return {
             "ok": True,
             "diagnostics": {

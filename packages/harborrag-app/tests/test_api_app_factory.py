@@ -1,4 +1,4 @@
-"""create_fastapi_app boots with routers, middleware, and envelopes (ST2/ST9)."""
+"""create_fastapi_app boots with routes, metrics, middleware, and envelopes."""
 
 from __future__ import annotations
 
@@ -22,12 +22,46 @@ def test_health_and_openapi_served() -> None:
 
 
 @pytest.mark.blackbox
-def test_readyz_ready_with_development_composition() -> None:
-    """/readyz reports ready when the development app service is healthy."""
+def test_convenience_routes_redirect_to_canonical_docs() -> None:
+    """Browser-friendly root paths redirect without entering the API schema."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:
-        response = client.get("/api/v1/readyz")
+        root = client.get("/", follow_redirects=False)
+        docs = client.get("/docs", follow_redirects=False)
+
+        assert root.status_code == 307
+        assert root.headers["location"] == "/api/v1/docs"
+        assert docs.status_code == 307
+        assert docs.headers["location"] == "/api/v1/docs"
+        assert "/" not in client.get("/api/v1/openapi.json").json()["paths"]
+
+
+@pytest.mark.blackbox
+def test_metrics_exposes_api_and_process_observations() -> None:
+    """Prometheus receives low-cardinality HTTP and process observations."""
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        client.get("/api/v1/health")
+        response = client.get("/api/v1/metrics")
         assert response.status_code == 200
-        assert response.json()["status"] == "ready"
+        assert response.headers["content-type"].startswith("text/plain;")
+        assert "harborrag_api_info" in response.text
+        assert "process_resident_memory_bytes" in response.text
+        request_lines = [
+            line
+            for line in response.text.splitlines()
+            if line.startswith("harborrag_api_http_requests_total{")
+        ]
+        assert request_lines == [
+            'harborrag_api_http_requests_total{method="GET",route="/api/v1/health",'
+            'status_code="200"} 1.0'
+        ]
+        assert 'status_code="200"' in response.text
+
+
+@pytest.mark.blackbox
+def test_removed_operational_routes_are_not_exposed() -> None:
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        assert client.get("/api/v1/readyz").status_code == 404
+        assert client.get("/api/v1/diagnostics").status_code == 404
 
 
 @pytest.mark.blackbox
@@ -38,6 +72,16 @@ def test_trace_id_minted_and_echoed() -> None:
         assert minted.headers.get("x-request-id")
         echoed = client.get("/api/v1/health", headers={"X-Request-Id": "trace-123"})
         assert echoed.headers["x-request-id"] == "trace-123"
+
+
+@pytest.mark.blackbox
+@pytest.mark.parametrize("invalid", ["", "x" * 65, "spaces are invalid", "forged\ntrace"])
+def test_invalid_trace_id_is_replaced(invalid: str) -> None:
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        response = client.get("/api/v1/health", headers={"X-Request-Id": invalid})
+        trace_id = response.headers["x-request-id"]
+        assert trace_id != invalid
+        assert len(trace_id) == 32
 
 
 @pytest.mark.blackbox
@@ -53,12 +97,16 @@ def test_unknown_route_returns_enveloped_404_with_trace_id() -> None:
 
 @pytest.mark.blackbox
 def test_docs_disabled_by_settings() -> None:
-    """docs_enabled=False removes the Swagger UI route."""
+    """docs_enabled=False closes docs while root remains a useful health link."""
     with TestClient(
         create_fastapi_app(ApiSettings(docs_enabled=False)),
         raise_server_exceptions=False,
     ) as client:
         assert client.get("/api/v1/docs").status_code == 404
+        assert client.get("/docs").status_code == 404
+        root = client.get("/", follow_redirects=False)
+        assert root.status_code == 307
+        assert root.headers["location"] == "/api/v1/health"
 
 
 @pytest.mark.blackbox

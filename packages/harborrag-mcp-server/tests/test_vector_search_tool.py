@@ -1,176 +1,133 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
-from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-from harborrag_mcp_server.server import call_tool, list_tools
+from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.vector_search import VectorSearchTool
+from harborrag_mcp_server.tools.vector_search import (
+    AdvancedVectorSearchTool,
+    VectorSearchTool,
+)
+from harborrag_runtime.sdk import RetrievalLane
 
 
-@dataclass
-class StaticPipeline:
-    results: list[RetrievalResult]
-    last_query: RetrievalQuery | None = None
+class StaticRetrievalFacade:
+    def __init__(self, results: list[RetrievalResult]) -> None:
+        self.results = results
+        self.last_request = None
 
-    def retrieve(self, query: RetrievalQuery) -> list[RetrievalResult]:
-        self.last_query = query
+    async def search(self, request):
+        self.last_request = request
         ordered = sorted(self.results, key=lambda item: item.score, reverse=True)
-        return ordered[: query.top_k]
-
-
-def test_vector_search_returns_ranked_results() -> None:
-    tool = VectorSearchTool(
-        pipeline=StaticPipeline(
-            [
-                RetrievalResult("vec-1", "HarborRAG vector search result one", 0.95),
-                RetrievalResult("vec-2", "HarborRAG vector search result two", 0.82),
-            ]
+        return SimpleNamespace(
+            request_id="retrieval-1",
+            lane=request.lane,
+            results=tuple(ordered[: request.top_k]),
+            diagnostics={"candidate_hits": len(ordered)},
         )
+
+
+def runtime(results: list[RetrievalResult]):
+    retrieval = StaticRetrievalFacade(results)
+    return SimpleNamespace(retrieval=retrieval), retrieval
+
+
+@pytest.mark.asyncio
+async def test_normal_vector_search_uses_hybrid_without_graph_observation() -> None:
+    harbor, retrieval = runtime([RetrievalResult("vec-1", "one", 0.95)])
+
+    result = await VectorSearchTool(runtime=harbor).call(
+        {"query": "HarborRAG vector", "tenant_id": "demo", "top_k": 1},
+        principal_id="subject-1",
     )
 
-    result = tool.call({"query": "HarborRAG vector", "filters": {"tenant_id": "demo"}})
-
     assert result["ok"] is True
-    assert result["query"] == "HarborRAG vector"
-    assert result["score_threshold"] == 0.3
-    assert len(result["results"]) > 0
+    request = retrieval.last_request
+    assert request.access.principal_id == "subject-1"
+    assert request.access.tenant_id == "demo"
+    assert request.lane == RetrievalLane.HYBRID
+    assert request.observe_graph is False
+    assert result["results"][0]["id"] == "vec-1"
 
 
-def test_vector_search_respects_top_k() -> None:
-    pipeline = StaticPipeline(
-        [RetrievalResult(f"id-{i}", f"result {i}", float(10 - i)) for i in range(10)]
+@pytest.mark.asyncio
+async def test_advanced_vector_search_forwards_controls_and_threshold() -> None:
+    harbor, retrieval = runtime(
+        [RetrievalResult("high", "alpha", 0.9), RetrievalResult("low", "beta", 0.2)]
     )
-    tool = VectorSearchTool(pipeline=pipeline)
 
-    result = tool.call({"query": "result", "top_k": 3, "filters": {"tenant_id": "demo"}})
-
-    assert result["ok"] is True
-    assert result["top_k"] == 3
-    assert len(result["results"]) == 3
-
-
-def test_vector_search_forwards_filters_to_pipeline() -> None:
-    pipeline = StaticPipeline([RetrievalResult("x", "result", 0.9)])
-    tool = VectorSearchTool(pipeline=pipeline)
-
-    result = tool.call({"query": "result", "filters": {"tenant_id": "demo"}})
-
-    assert result["ok"] is True
-    assert pipeline.last_query is not None
-    assert pipeline.last_query.filters == {"tenant_id": "demo"}
-
-
-def test_vector_search_score_threshold_filters_results() -> None:
-    pipeline = StaticPipeline(
-        [
-            RetrievalResult("high", "alpha", 0.9),
-            RetrievalResult("low", "beta", 0.2),
-        ]
+    result = await AdvancedVectorSearchTool(runtime=harbor).call(
+        {
+            "query": "alpha",
+            "tenant_id": "demo",
+            "lane": "dense",
+            "filters": {"category": "runbook"},
+            "observe_graph": False,
+            "score_threshold": 0.8,
+        },
+        principal_id="subject-1",
     )
-    tool = VectorSearchTool(pipeline=pipeline)
 
-    result = tool.call({"query": "alpha", "score_threshold": 0.8, "filters": {"tenant_id": "demo"}})
-
-    assert result["ok"] is True
+    request = retrieval.last_request
+    assert request.lane == RetrievalLane.DENSE
+    assert request.filters == {"category": "runbook"}
+    assert request.observe_graph is False
     assert [item["id"] for item in result["results"]] == ["high"]
 
 
-def test_vector_search_rejects_invalid_inputs() -> None:
-    tool = VectorSearchTool()
-
-    assert tool.call({})["ok"] is False
-    assert tool.call({"query": "   "})["ok"] is False
-    assert tool.call({"query": "x", "top_k": 0})["ok"] is False
-    assert tool.call({"query": "x", "top_k": 21})["ok"] is False
-    assert tool.call({"query": "x", "top_k": "bad"})["ok"] is False
-    assert tool.call({"query": "x", "filters": "bad"})["ok"] is False
-    assert tool.call({"query": "x", "score_threshold": -0.1})["ok"] is False
-    assert tool.call({"query": "x", "score_threshold": 1.1})["ok"] is False
-    assert tool.call({"query": "x", "filters": {}})["ok"] is False
-    assert tool.call({"query": "x", "filters": {"tenant_id": "  "}})["ok"] is False
-    assert (
-        tool.call({"query": "x", "filters": {"tenant_id": "demo"}})["error"]
-        == "vector_search backend is not configured"
-    )
-
-
-def test_vector_search_schema_matches_policy_budget() -> None:
-    tool = VectorSearchTool()
-
-    assert tool.spec.name == "vector_search"
-    assert tool.spec.input_schema["required"] == ["query", "filters"]
-    assert tool.spec.input_schema["properties"]["top_k"]["maximum"] == 20
-    assert tool.spec.input_schema["properties"]["filters"]["required"] == ["tenant_id"]
-
-
-def test_vector_search_is_reachable_via_server_and_facades() -> None:
-    server = McpServer()
-
-    names = [spec.name for spec in server.list_tools()]
-    assert "vector_search" in names
-
-    payload = {"query": "harbor", "filters": {"tenant_id": "demo"}}
-    via_server = server.call_tool("vector_search", payload)
-    via_facade = call_tool("vector_search", payload)
-
-    assert via_server["ok"] is False
-    assert via_facade["ok"] is False
-    assert via_server["error"] == "vector_search backend is not configured"
-    assert "vector_search" in [spec["name"] for spec in list_tools()]
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool,arguments",
+    [
+        (VectorSearchTool(), {}),
+        (VectorSearchTool(), {"query": " ", "tenant_id": "demo"}),
+        (VectorSearchTool(), {"query": "x", "tenant_id": " ", "top_k": 1}),
+        (VectorSearchTool(), {"query": "x", "tenant_id": "demo", "top_k": True}),
+        (VectorSearchTool(), {"query": "x", "tenant_id": "demo", "top_k": 21}),
+        (
+            AdvancedVectorSearchTool(),
+            {"query": "x", "tenant_id": "demo", "lane": "invalid"},
+        ),
+        (
+            AdvancedVectorSearchTool(),
+            {"query": "x", "tenant_id": "demo", "filters": "invalid"},
+        ),
+        (
+            AdvancedVectorSearchTool(),
+            {"query": "x", "tenant_id": "demo", "score_threshold": True},
+        ),
+    ],
+)
+async def test_vector_tools_reject_invalid_direct_inputs(tool, arguments) -> None:
+    assert (await tool.call(arguments, principal_id="subject-1"))["ok"] is False
 
 
-def test_vector_search_works_when_server_is_configured() -> None:
-    pipeline = StaticPipeline(
-        [RetrievalResult("vec-1", "HarborRAG vector search result one", 0.95)]
-    )
-    server = McpServer(tools=[VectorSearchTool(pipeline=pipeline)])
+def test_vector_schemas_split_basic_and_advanced_controls() -> None:
+    normal = VectorSearchTool.spec.input_schema
+    advanced = AdvancedVectorSearchTool.spec.input_schema
 
-    result = server.call_tool(
-        "vector_search",
-        {"query": "HarborRAG", "filters": {"tenant_id": "demo"}},
-    )
-
-    assert result["ok"] is True
-    assert len(result["results"]) == 1
+    assert normal["required"] == ["query", "tenant_id"]
+    assert set(normal["properties"]) == {"query", "tenant_id", "top_k"}
+    assert {"lane", "filters", "observe_graph", "score_threshold"} <= set(advanced["properties"])
+    assert normal["properties"]["top_k"]["maximum"] == 20
 
 
-def test_vector_search_facade_records_audit_trail(monkeypatch: pytest.MonkeyPatch) -> None:
-    import harborrag_mcp_server.server.server as server_module
-    from harborrag_mcp_server.audit import McpAuditLog
-
-    fresh_audit = McpAuditLog()
-    monkeypatch.setattr(server_module, "_default_audit_log", fresh_audit)
-
-    call_tool("vector_search", {"query": "audit facade", "filters": {"tenant_id": "demo"}})
-
-    assert [entry["event"] for entry in fresh_audit.entries] == [
-        "tool_invocation_attempted",
-        "tool_invocation_completed",
-    ]
-    assert fresh_audit.entries[0]["tool"] == "vector_search"
-
-
-def test_vector_search_facade_respects_policy_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    import harborrag_mcp_server.server as server_facade
+@pytest.mark.asyncio
+async def test_server_enforces_vector_result_budget() -> None:
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.policy import McpToolPolicy
 
+    harbor, _ = runtime([RetrievalResult("vec-1", "one", 0.95)])
     server = McpServer(
-        tools=[
-            VectorSearchTool(
-                pipeline=StaticPipeline(
-                    [RetrievalResult("vec-1", "HarborRAG vector search result one", 0.95)]
-                )
-            )
-        ],
+        tools=[VectorSearchTool(runtime=harbor)],
         policy=McpToolPolicy(max_results=0),
         audit=McpAuditLog(),
     )
 
-    monkeypatch.setattr(server_facade, "McpServer", lambda: server)
-
     with pytest.raises(ValueError, match="MCP result budget exceeded"):
-        call_tool("vector_search", {"query": "over budget", "filters": {"tenant_id": "demo"}})
+        await server.call_tool(
+            "vector_search",
+            {"query": "over budget", "tenant_id": "demo"},
+        )

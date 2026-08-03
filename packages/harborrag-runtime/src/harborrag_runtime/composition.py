@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from harborrag_runtime.config.settings import RuntimeSettings
+
+logger = logging.getLogger("harborrag.runtime.composition")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +58,7 @@ class CompositionRoot:
         if self._control_db_engine is not None:
             await self._control_db_engine.dispose()
             self._control_db_engine = None
+            logger.info("Control-plane composition resources closed")
 
     @classmethod
     def production(
@@ -90,7 +94,13 @@ class CompositionRoot:
         )
 
         settings = settings or RuntimeSettings()
-        dsn = settings.control_db_url
+        dsn = settings.control_db_url.get_secret_value()
+        scheme = dsn.split(":", 1)[0]
+        logger.info(
+            "Control-plane composition started environment=%s database_scheme=%s",
+            settings.env,
+            scheme,
+        )
         if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
             raise HarborConfigurationError(
                 "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
@@ -101,6 +111,11 @@ class CompositionRoot:
         try:
             run_migrations(dsn)
         except Exception as exc:  # noqa: BLE001 - health reports boot degradation
+            logger.error(
+                "Control-plane migrations failed database_scheme=%s error_type=%s",
+                scheme,
+                type(exc).__name__,
+            )
             return cls(
                 control_db=_failed_database_status(
                     dsn,
@@ -109,6 +124,11 @@ class CompositionRoot:
             )
 
         control_db = _probe_control_db(dsn)
+        if control_db.get("ping") != "ok":
+            logger.warning(
+                "Control-plane probe failed database_scheme=%s",
+                scheme,
+            )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
         repositories = ControlPlaneRepositories(
@@ -120,11 +140,18 @@ class CompositionRoot:
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
         )
-        return cls(
+        composition = cls(
             control_plane=repositories,
             control_db=control_db,
             _control_db_engine=engine,
         )
+        logger.info(
+            "Control-plane composition completed database_scheme=%s ready=%s migration=%s",
+            scheme,
+            control_db.get("ping") == "ok",
+            control_db.get("migrations"),
+        )
+        return composition
 
     def diagnostics(self) -> dict[str, object]:
         """Return process-safe component health without exposing adapter objects."""
@@ -173,6 +200,11 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
         try:
             return asyncio.run(_probe())
         except Exception as exc:  # noqa: BLE001 - diagnostics must remain available
+            logger.warning(
+                "Control-plane database probe raised database_scheme=%s error_type=%s",
+                dsn.split(":", 1)[0],
+                type(exc).__name__,
+            )
             return _failed_database_status(dsn, str(exc))
 
     try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import Any
 
@@ -18,11 +19,13 @@ from .query import (
     CLOUD_CONTENT_EXPAND,
     COMMENT_EXPAND,
     CONTENT_EXPAND,
-    LIGHT_EXPAND,
+    DESCRIPTOR_EXPAND,
     build_search_params,
     extract_cursor,
     validate_content_id,
 )
+
+logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
 class ConfluenceContentAPI:
@@ -82,10 +85,19 @@ class ConfluenceContentAPI:
             limit=provider_limit,
             start=start,
             cursor=cursor_token,
-            expand=LIGHT_EXPAND,
+            # Discovery needs the version and hierarchy fields later used by
+            # ConfluenceDescriptorBuilder. Returning them with the search page
+            # avoids one additional content/{id} request for every result.
+            expand=DESCRIPTOR_EXPAND,
         )
         response = self.client.get_json("content/search", params=params)
         results = list(response.get("results", []))
+        logger.debug(
+            "Confluence search page fetched cursor_kind=%s start=%d records=%d",
+            "cursor" if cursor_token is not None else "offset",
+            start,
+            len(results),
+        )
         next_url = response.get("_links", {}).get("next")
         next_token = extract_cursor(next_url)
         if next_token:
@@ -101,7 +113,7 @@ class ConfluenceContentAPI:
         content_id = validate_content_id(content_id)
         return self.client.get_json(
             f"content/{content_id}",
-            params={"expand": LIGHT_EXPAND},
+            params={"expand": DESCRIPTOR_EXPAND},
         )
 
     def get_content(self, content_id: str) -> dict[str, Any]:
@@ -118,8 +130,34 @@ class ConfluenceContentAPI:
             },
         )
 
+    def get_content_descriptor(self, content_id: str) -> dict[str, Any]:
+        """Fetch source-version, hierarchy, and retrieval metadata without body."""
+
+        content_id = validate_content_id(content_id)
+        return self.client.get_json(
+            f"content/{content_id}",
+            params={"expand": DESCRIPTOR_EXPAND},
+        )
+
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
         """Fetch all comments for one content item while enforcing configured caps."""
+
+        return self._fetch_comments(content_id, expand=COMMENT_EXPAND)
+
+    def list_comment_descriptors(
+        self,
+        content_id: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch comment identities and versions without requesting comment bodies."""
+
+        return self._fetch_comments(content_id, expand="history,version")
+
+    def _fetch_comments(
+        self,
+        content_id: str,
+        *,
+        expand: str,
+    ) -> list[dict[str, Any]]:
         content_id = validate_content_id(content_id)
         comments: list[dict[str, Any]] = []
         start = 0
@@ -128,12 +166,27 @@ class ConfluenceContentAPI:
                 f"content/{content_id}/child/comment",
                 params={
                     "depth": "all",
-                    "expand": COMMENT_EXPAND,
+                    "expand": expand,
                     "limit": self.config.page_size,
                     "start": start,
                 },
             )
             results = response.get("results", [])
+            reported_total = _integer(response.get("total"), default=None)
+            logger.debug(
+                "Confluence comments page fetched content_id=%s start=%d records=%d total=%s",
+                content_id,
+                start,
+                len(results),
+                reported_total,
+            )
+            if reported_total is not None:
+                enforce_collection_limit(
+                    count=reported_total,
+                    limit=self.config.max_comments,
+                    label=f"Confluence comments for {content_id}",
+                    setting_name="max_comments",
+                )
             extend_with_limit(
                 comments,
                 results,
@@ -156,6 +209,12 @@ class ConfluenceContentAPI:
                 params={"limit": self.config.page_size, "start": start},
             )
             results = response.get("results", [])
+            logger.debug(
+                "Confluence attachments page fetched content_id=%s start=%d records=%d",
+                content_id,
+                start,
+                len(results),
+            )
             extend_with_limit(
                 attachments,
                 results,
@@ -175,6 +234,7 @@ class ConfluenceContentAPI:
         """Yield requested content IDs and optionally traverse child pages."""
         include_children = bool(query.filters.get("include_children"))
         seen: set[str] = set()
+        discovered_children = [0]
         for raw_content_id in content_ids:
             content_id = validate_content_id(raw_content_id)
             if content_id in seen:
@@ -186,6 +246,7 @@ class ConfluenceContentAPI:
                     content_id,
                     recursive=query.recursive,
                     seen=seen,
+                    _discovered=discovered_children,
                 )
 
     def child_page_ids(
@@ -194,6 +255,7 @@ class ConfluenceContentAPI:
         *,
         recursive: bool,
         seen: set[str],
+        _discovered: list[int] | None = None,
     ) -> Iterator[str]:
         """Traverse child page IDs iteratively, bounded by max_child_pages.
 
@@ -203,7 +265,7 @@ class ConfluenceContentAPI:
         """
         root_id = validate_content_id(content_id)
         stack = [root_id]
-        discovered = 0
+        discovered = _discovered if _discovered is not None else [0]
         while stack:
             current_id = stack.pop()
             start = 0
@@ -213,6 +275,12 @@ class ConfluenceContentAPI:
                     params={"limit": self.config.page_size, "start": start},
                 )
                 results = response.get("results", [])
+                logger.debug(
+                    "Confluence child page fetched parent_id=%s start=%d records=%d",
+                    current_id,
+                    start,
+                    len(results),
+                )
                 for child in results:
                     child_id = str(child.get("id") or "")
                     if not child_id:
@@ -221,9 +289,9 @@ class ConfluenceContentAPI:
                     if child_id in seen:
                         continue
                     seen.add(child_id)
-                    discovered += 1
+                    discovered[0] += 1
                     enforce_collection_limit(
-                        count=discovered,
+                        count=discovered[0],
                         limit=self.config.max_child_pages,
                         label=f"Confluence child pages for {root_id}",
                         setting_name="max_child_pages",

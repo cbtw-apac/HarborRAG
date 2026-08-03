@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -14,35 +14,31 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from harborrag_app.cli.rendering_values import (
+    STATUS_STYLES,
+    boolean,
+    details_table,
+    integer,
+    mapping,
+    optional_integer,
+    sequence,
+    status_text,
+    text,
+)
 from harborrag_app.cli.stages import build_stage_table, headline_status
 from harborrag_app.workflow_control import AppResponse
 
-_STATUS_STYLES = {
-    "pending": "yellow",
-    "running": "cyan",
-    "paused": "yellow",
-    "cancelling": "yellow",
-    "cancelled": "dim",
-    "completed": "green",
-    "failed": "red",
-    # Temporal execution statuses, which use American spelling and cover
-    # outcomes the workflow cannot report about itself.
-    "canceled": "dim",
-    "terminated": "red",
-    "timed_out": "red",
-    "continued_as_new": "cyan",
-}
+# Metric cells are laid out in a fixed grid; the width is a presentation choice, not data.
+_METRIC_COLUMNS = 3
+_PROGRESS_BAR_WIDTH = 40
 
 _METRICS = (
     ("Discovered", "discovered", "cyan"),
     ("Processed", "processed", "blue"),
-    ("Succeeded", "succeeded", "green"),
+    ("Published", "published", "green"),
     ("Unchanged", "unchanged", "dim"),
-    ("Skipped", "skipped", "yellow"),
     ("Failed", "failed", "red"),
-    ("Quarantined", "quarantined", "magenta"),
-    ("Cancelled", "cancelled", "dim"),
-    ("Partitions", "partitions", "cyan"),
+    ("Batches", "completed_batches", "cyan"),
 )
 
 
@@ -90,99 +86,116 @@ class CliRenderer:
         if not response.ok:
             self._error(response)
             return
-        if command == "doctor":
-            self._doctor(response.data)
-        elif command == "status" or action == "status":
-            self._status(response.data)
-        elif action == "start":
-            self._started(response.data)
-        elif action == "wait":
-            self._result(response.data)
-        elif action in {"pause", "resume", "cancel", "retry"}:
-            self._control(response.data)
-        else:
+        view = self._view_for(command, action)
+        if view is None:
             self.console.print(self._tree("Result", response.data))
+            return
+        view(response.data)
+
+    def _view_for(
+        self,
+        command: str,
+        action: str | None,
+    ) -> Callable[[Mapping[str, Any]], None] | None:
+        """Select the view for a command/action pair, or None for the generic tree."""
+
+        by_command = {"doctor": self._doctor, "chat": self._chat, "status": self._status}
+        by_action = {
+            "status": self._status,
+            "start": self._started,
+            "wait": self._result,
+            "pause": self._control,
+            "resume": self._control,
+            "cancel": self._control,
+        }
+        return by_command.get(command) or by_action.get(action or "")
+
+    def _chat(self, data: Mapping[str, Any]) -> None:
+        message = mapping(data.get("message"))
+        content = text(message.get("content", ""))
+        model = text(data.get("model", "unknown"))
+        provider = text(data.get("provider", "unknown"))
+        title = Text.assemble(("HarborChat", "bold cyan"), " ", model, " ", provider)
+        self.console.print(Panel(content, title=title, border_style="cyan"))
 
     def _doctor(self, data: Mapping[str, Any]) -> None:
-        runtime = self._mapping(data.get("runtime"))
+        runtime = mapping(data.get("runtime"))
         ready = bool(runtime.get("ready"))
-        table = self._details_table()
-        table.add_row("Provider", self._text(runtime.get("provider", "unknown")))
-        table.add_row("Target", self._text(runtime.get("target", "—")))
-        table.add_row("Namespace", self._text(runtime.get("namespace", "—")))
+        table = details_table()
+        table.add_row("Provider", text(runtime.get("provider", "unknown")))
+        table.add_row("Target", text(runtime.get("target", "—")))
+        table.add_row("Namespace", text(runtime.get("namespace", "—")))
         title = Text("✓ Runtime ready" if ready else "Runtime unavailable")
         title.stylize("bold green" if ready else "bold red")
         self.console.print(Panel(table, title=title, border_style="green" if ready else "red"))
 
     def _started(self, data: Mapping[str, Any]) -> None:
-        run = self._mapping(data.get("run"))
-        workflow = self._mapping(data.get("workflow"))
-        table = self._details_table()
+        run = mapping(data.get("run"))
+        workflow = mapping(data.get("workflow"))
+        table = details_table()
         rows = (
             ("Run", run.get("run_id")),
             ("Tenant", run.get("tenant_id")),
             ("Connector", run.get("connector_name")),
-            ("Manifest", run.get("manifest_id")),
-            ("Generation", run.get("generation_id")),
+            ("Type", run.get("connector_type")),
+            ("Connection", run.get("connection_id")),
+            ("Scope", run.get("source_scope_id")),
             ("Workflow", workflow.get("workflow_id")),
         )
         for label, value in rows:
-            table.add_row(label, self._text(value, style="cyan" if label == "Run" else None))
+            table.add_row(label, text(value, style="cyan" if label == "Run" else None))
         self.console.print(Panel(table, title="[bold green]✓ Ingestion started[/]"))
         if "result" in data:
-            self.console.print(self._summary_panel(self._mapping(data["result"])))
+            self.console.print(self._summary_panel(mapping(data["result"])))
         else:
             self.console.print(build_stage_table("pending", {}))
 
     def _status(self, data: Mapping[str, Any]) -> None:
-        status = self._mapping(data.get("status"))
-        progress = self._mapping(data.get("progress"))
+        status = mapping(data.get("status"))
+        progress = mapping(data.get("progress"))
         if not progress:
-            progress = self._mapping(status.get("progress"))
+            progress = mapping(status.get("progress"))
         value = str(status.get("status", "unknown")).lower()
-        header = self._details_table()
-        header.add_row("Run", self._text(status.get("run_id", "—"), style="cyan"))
-        header.add_row("Status", self._status_text(value))
+        header = details_table()
+        header.add_row("Run", text(status.get("run_id", "—"), style="cyan"))
+        header.add_row("Status", status_text(value))
         # Temporal's own execution status is the only field that turns terminal
         # when a workflow crashes, so show it next to the workflow's self-report
         # rather than leaving "running" as the last word on a dead run.
         execution = str(data.get("execution_status", "")).lower()
         if execution:
-            header.add_row("Execution", self._status_text(execution))
+            header.add_row("Execution", status_text(execution))
         headline = headline_status(value, execution)
-        header.add_row("Partition", self._text(status.get("current_partition", "—")))
-        header.add_row("Paused", self._boolean(status.get("paused", False)))
+        header.add_row("Partition", text(status.get("current_partition", "—")))
+        header.add_row("Paused", boolean(status.get("paused", False)))
         header.add_row(
             "Cancellation requested",
-            self._boolean(status.get("cancel_requested", False)),
+            boolean(status.get("cancel_requested", False)),
         )
         title = Text(
             f"Ingestion {headline}",
-            style=f"bold {_STATUS_STYLES.get(headline, 'white')}",
+            style=f"bold {STATUS_STYLES.get(headline, 'white')}",
         )
         self.console.print(Panel(header, title=title))
         self.console.print(
             build_stage_table(
                 headline,
                 progress,
-                current_partition=self._optional_integer(status.get("current_partition")),
+                current_partition=optional_integer(status.get("current_partition")),
             )
         )
         self.console.print(self._progress(progress))
         self._artifact_sections(data)
 
     def _result(self, data: Mapping[str, Any]) -> None:
-        self.console.print(self._summary_panel(self._mapping(data.get("result"))))
+        self.console.print(self._summary_panel(mapping(data.get("result"))))
 
     def _control(self, data: Mapping[str, Any]) -> None:
         action = str(data.get("action", "updated"))
         run_id = str(data.get("run_id", "—"))
-        artifacts = self._sequence(data.get("artifact_ids"))
         message = Text()
         message.append(f"{action.capitalize()} accepted", style="bold green")
         message.append(f" for {run_id}")
-        if artifacts:
-            message.append(f" ({len(artifacts)} artifact{'s' if len(artifacts) != 1 else ''})")
         self.console.print(Panel(message, border_style="green"))
 
     def _error(self, response: AppResponse) -> None:
@@ -197,16 +210,32 @@ class CliRenderer:
 
     def _summary_panel(self, summary: Mapping[str, Any]) -> Panel:
         status = str(summary.get("status", "unknown")).lower()
-        details = self._details_table()
-        details.add_row("Run", self._text(summary.get("run_id", "—"), style="cyan"))
-        details.add_row("Manifest", self._text(summary.get("manifest_id", "—")))
-        details.add_row("Status", self._status_text(status))
+        details = details_table()
         details.add_row(
-            "Reconciliation",
-            self._text(summary.get("reconciliation_ref") or "—"),
+            "Run",
+            text(summary.get("task_id", summary.get("run_id", "—")), style="cyan"),
         )
-        progress = self._mapping(summary.get("progress"))
-        title = Text(f"Ingestion {status}", style=f"bold {_STATUS_STYLES.get(status, 'white')}")
+        details.add_row("Scan", text(summary.get("scan_id", "—")))
+        details.add_row("Status", status_text(status))
+        progress = mapping(summary.get("progress"))
+        if not progress:
+            progress = {
+                key: summary[key]
+                for key in (
+                    "discovered",
+                    "published",
+                    "unchanged",
+                    "failed",
+                )
+                if key in summary
+            }
+            progress = {
+                **progress,
+                "processed": sum(
+                    integer(progress.get(key)) for key in ("published", "unchanged", "failed")
+                ),
+            }
+        title = Text(f"Ingestion {status}", style=f"bold {STATUS_STYLES.get(status, 'white')}")
         return Panel(
             Group(
                 details,
@@ -219,29 +248,33 @@ class CliRenderer:
         )
 
     def _progress(self, progress: Mapping[str, Any]) -> RenderableType:
-        discovered = self._integer(progress.get("discovered"))
-        processed = self._integer(progress.get("processed"))
+        discovered = integer(progress.get("discovered"))
+        processed = integer(progress.get("processed"))
         grid = Table.grid(expand=True)
         grid.add_column(ratio=1)
         grid.add_column(justify="right")
         if discovered:
             grid.add_row(
-                ProgressBar(total=discovered, completed=min(processed, discovered), width=40),
+                ProgressBar(
+                    total=discovered,
+                    completed=min(processed, discovered),
+                    width=_PROGRESS_BAR_WIDTH,
+                ),
                 Text(f"{processed:,}/{discovered:,}", style="bold"),
             )
         else:
             grid.add_row(Text("Waiting for discovery", style="dim"), Text("0/0", style="dim"))
 
         metrics = Table(box=box.SIMPLE, expand=True, show_header=False, pad_edge=False)
-        for _ in range(3):
+        for _ in range(_METRIC_COLUMNS):
             metrics.add_column(ratio=1)
         cells: list[RenderableType] = []
         for label, key, style in _METRICS:
-            cells.append(Text(f"{label}  {self._integer(progress.get(key)):,}", style=style))
-        while len(cells) % 3:
+            cells.append(Text(f"{label}  {integer(progress.get(key)):,}", style=style))
+        while len(cells) % _METRIC_COLUMNS:
             cells.append(Text(""))
-        for offset in range(0, len(cells), 3):
-            metrics.add_row(*cells[offset : offset + 3])
+        for offset in range(0, len(cells), _METRIC_COLUMNS):
+            metrics.add_row(*cells[offset : offset + _METRIC_COLUMNS])
         return Group(grid, metrics)
 
     def _artifact_sections(self, data: Mapping[str, Any]) -> None:
@@ -250,7 +283,7 @@ class CliRenderer:
             ("Quarantined artifacts", data.get("quarantined_artifacts"), "magenta"),
         )
         for title, values, style in sections:
-            items = self._sequence(values)
+            items = sequence(values)
             if items:
                 self.console.print(
                     Panel(
@@ -259,18 +292,18 @@ class CliRenderer:
                         border_style=style,
                     )
                 )
-        pending = self._sequence(data.get("pending_resolutions"))
+        pending = sequence(data.get("pending_resolutions"))
         if pending:
             table = Table(title="Pending resolutions", box=box.SIMPLE)
             table.add_column("Artifact", style="cyan")
             table.add_column("Reason")
             table.add_column("Resume stage")
             for value in pending:
-                item = self._mapping(value)
+                item = mapping(value)
                 table.add_row(
-                    self._text(item.get("artifact_id", "—")),
-                    self._text(item.get("reason", "—")),
-                    self._text(item.get("resume_stage", "—")),
+                    text(item.get("artifact_id", "—")),
+                    text(item.get("reason", "—")),
+                    text(item.get("resume_stage", "—")),
                 )
             self.console.print(table)
 
@@ -288,43 +321,6 @@ class CliRenderer:
             elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
                 branch = tree.add(Text(label, style="bold"))
                 for item in value:
-                    branch.add(self._text(item))
+                    branch.add(text(item))
             else:
-                tree.add(Text.assemble((f"{label}: ", "bold"), self._text(value)))
-
-    @staticmethod
-    def _details_table() -> Table:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="bold", justify="right")
-        table.add_column()
-        return table
-
-    @staticmethod
-    def _mapping(value: Any) -> Mapping[str, Any]:
-        return value if isinstance(value, Mapping) else {}
-
-    @staticmethod
-    def _sequence(value: Any) -> Sequence[Any]:
-        return value if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) else ()
-
-    @staticmethod
-    def _integer(value: Any) -> int:
-        return value if isinstance(value, int) and not isinstance(value, bool) else 0
-
-    @staticmethod
-    def _optional_integer(value: Any) -> int | None:
-        return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-    @staticmethod
-    def _text(value: Any, *, style: str | None = None) -> Text:
-        text = "—" if value is None or value == "" else str(value)
-        return Text(text, style=style) if style else Text(text)
-
-    @staticmethod
-    def _boolean(value: Any) -> Text:
-        enabled = bool(value)
-        return Text("yes" if enabled else "no", style="yellow" if enabled else "dim")
-
-    @staticmethod
-    def _status_text(value: str) -> Text:
-        return Text(value.upper(), style=f"bold {_STATUS_STYLES.get(value, 'white')}")
+                tree.add(Text.assemble((f"{label}: ", "bold"), text(value)))

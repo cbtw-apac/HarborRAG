@@ -1,10 +1,42 @@
+from dataclasses import replace
+
 import pytest
 
-from harborrag_core.contracts.chunking import TextRefinementRequest, TextSplit
+from harborrag_core.chunking import ChunkKind
+from harborrag_core.contracts.chunking import TextRefinementRequest, TextSplit, TokenCounter
 from harborrag_core.domain.element import DocumentElement
 from harborrag_engine.ingestion.chunking import ChunkingError, ChunkingPlan
+from harborrag_engine.ingestion.chunking.config import ChunkingProfile
+from harborrag_engine.ingestion.chunking.schemas import ChunkingRequest, ChunkUnit
+from harborrag_engine.ingestion.chunking.sources.canonical import (
+    CanonicalDocumentChunkingStrategy,
+)
 
-from .chunking_helpers import make_document, make_profile, make_request, make_service
+from .chunking_helpers import (
+    CharacterCounter,
+    make_document,
+    make_profile,
+    make_request,
+    make_service,
+)
+
+
+class AlternateAnchorStrategy:
+    name = "alternate"
+    version = "1"
+
+    def __init__(self, token_counter: TokenCounter) -> None:
+        self._canonical = CanonicalDocumentChunkingStrategy(token_counter)
+
+    def create_units(
+        self,
+        request: ChunkingRequest,
+        profile: ChunkingProfile,
+    ) -> tuple[ChunkUnit, ...]:
+        return tuple(
+            replace(unit, anchor=f"alternate:{unit.anchor}")
+            for unit in self._canonical.create_units(request, profile)
+        )
 
 
 def test_service_uses_headings_as_context_without_emitting_heading_chunks() -> None:
@@ -22,13 +54,12 @@ def test_service_uses_headings_as_context_without_emitting_heading_chunks() -> N
     result = make_service(profile).chunk(make_request(document))
 
     assert [record.content for record in result.chunks] == ["alpha\n\nbeta", "gamma"]
-    assert [record.context.structural_path for record in result.chunks] == [
+    assert [record.hierarchy.section_path for record in result.chunks] == [
         ("One",),
         ("Two",),
     ]
-    assert result.chunks[0].context.structural_path == ("One",)
-    assert result.chunks[0].source_span is not None
-    assert result.chunks[0].source_span.source_element_ids == ("p1", "p2")
+    assert result.chunks[0].hierarchy.section_path == ("One",)
+    assert result.chunks[0].citation_locator.source_element_ids == ("p1", "p2")
     assert result.manifest.validation.valid
 
 
@@ -57,7 +88,7 @@ def test_plan_soft_maximum_limits_peer_merging_below_hard_maximum() -> None:
         ]
     )
     plan = ChunkingPlan(
-        profile="document",
+        profile="canonical",
         strategy_version="strategy-1",
         minimum_tokens=3,
         target_tokens=6,
@@ -100,7 +131,7 @@ def test_table_chunks_preserve_rows_and_header_metadata() -> None:
     assert len(result.chunks) == 3
     assert result.chunks[1].metadata["table_header"] == "A\tB"
     assert not result.chunks[1].content.startswith("A\tB")
-    assert all(record.role == "table" for record in result.chunks)
+    assert all(record.chunk_kind == ChunkKind.TABLE for record in result.chunks)
 
 
 def test_canonical_identity_separates_logical_chunk_from_revision() -> None:
@@ -116,9 +147,9 @@ def test_canonical_identity_separates_logical_chunk_from_revision() -> None:
 
     assert first == repeated
     assert first.chunks[0].logical_chunk_id == changed.chunks[0].logical_chunk_id
-    assert first.chunks[0].chunk_revision_id != changed.chunks[0].chunk_revision_id
+    assert first.chunks[0].chunk_id != changed.chunks[0].chunk_id
     assert "id" not in first.chunks[0].model_fields
-    assert first.chunks[0].created_at is None
+    assert "created_at" not in first.chunks[0].model_fields
 
 
 def test_configuration_changes_manifest_but_not_canonical_identity() -> None:
@@ -148,9 +179,9 @@ def test_strategy_version_and_document_version_change_exact_chunk_identity() -> 
     document = make_document([DocumentElement("p1", "paragraph", "content")])
     service = make_service(profile)
     first = service.chunk(
-        make_request(document, artifact_revision_id="document-version-1"),
+        make_request(document, document_version_id="document-version-1"),
         ChunkingPlan(
-            profile="document",
+            profile="canonical",
             strategy_version="strategy-1",
             minimum_tokens=2,
             target_tokens=10,
@@ -159,9 +190,9 @@ def test_strategy_version_and_document_version_change_exact_chunk_identity() -> 
         ),
     )
     changed_strategy = service.chunk(
-        make_request(document, artifact_revision_id="document-version-1"),
+        make_request(document, document_version_id="document-version-1"),
         ChunkingPlan(
-            profile="document",
+            profile="canonical",
             strategy_version="strategy-2",
             minimum_tokens=2,
             target_tokens=10,
@@ -170,9 +201,9 @@ def test_strategy_version_and_document_version_change_exact_chunk_identity() -> 
         ),
     )
     changed_document = service.chunk(
-        make_request(document, artifact_revision_id="document-version-2"),
+        make_request(document, document_version_id="document-version-2"),
         ChunkingPlan(
-            profile="document",
+            profile="canonical",
             strategy_version="strategy-1",
             minimum_tokens=2,
             target_tokens=10,
@@ -190,46 +221,41 @@ def test_strategy_version_and_document_version_change_exact_chunk_identity() -> 
 def test_strategy_changes_logical_identity() -> None:
     document = make_document([DocumentElement("p1", "paragraph", "content")])
     request = make_request(document)
-    generic = make_service(
-        make_profile(name="generic", strategy="generic", target=10, maximum=12)
+    counter = CharacterCounter()
+    alternate = make_service(
+        make_profile(name="alternate", strategy="alternate", target=10, maximum=12),
+        additional_strategies=(AlternateAnchorStrategy(counter),),
     ).chunk(request)
-    structured = make_service(make_profile(target=10, maximum=12)).chunk(request)
+    canonical = make_service(make_profile(target=10, maximum=12)).chunk(request)
 
-    assert generic.chunks[0].logical_chunk_id != structured.chunks[0].logical_chunk_id
-
-
-def test_generic_strategy_splits_near_target_and_preserves_order() -> None:
-    profile = make_profile(
-        name="generic",
-        strategy="generic",
-        target=4,
-        maximum=10,
-    )
-    document = make_document([DocumentElement("p1", "paragraph", "abcdefgh")])
-
-    result = make_service(profile).chunk(make_request(document))
-
-    assert [record.content for record in result.chunks] == ["abcd", "efgh"]
-    assert [record.metadata["generic_part_index"] for record in result.chunks] == [
-        0,
-        1,
-    ]
-    assert len({record.logical_chunk_id for record in result.chunks}) == 2
+    assert alternate.chunks[0].logical_chunk_id != canonical.chunks[0].logical_chunk_id
 
 
-def test_generic_strategy_rejects_empty_refiner_output_for_nonblank_content() -> None:
+def test_canonical_strategy_rejects_empty_oversized_refinement() -> None:
     class EmptyRefiner:
         def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
             del request
             return ()
 
-    profile = make_profile(
-        name="generic",
-        strategy="generic",
-        target=4,
-        maximum=10,
-    )
+    profile = make_profile(target=4, maximum=4)
     document = make_document([DocumentElement("p1", "paragraph", "content")])
 
-    with pytest.raises(ChunkingError, match="returned no splits"):
+    with pytest.raises(ChunkingError, match="returned no units"):
         make_service(profile, refiner=EmptyRefiner()).chunk(make_request(document))
+
+
+def test_oversized_table_ignores_whitespace_only_refiner_splits() -> None:
+    class WhitespaceRefiner:
+        def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
+            del request
+            return (
+                TextSplit(content="   ", token_count=3),
+                TextSplit(content="abc", token_count=3),
+            )
+
+    profile = make_profile(target=3, maximum=3)
+    document = make_document([DocumentElement("table-1", "table", "   abc")])
+
+    result = make_service(profile, refiner=WhitespaceRefiner()).chunk(make_request(document))
+
+    assert [record.content for record in result.chunks] == ["abc"]

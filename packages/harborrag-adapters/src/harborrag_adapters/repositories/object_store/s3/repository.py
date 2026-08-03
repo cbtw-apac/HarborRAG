@@ -18,7 +18,7 @@ from harborrag_adapters.repositories.telemetry import (
     StorageTelemetryHook,
 )
 from harborrag_core.schemas.object_store import ObjectStoreCapabilities
-from harborrag_core.schemas.storage import (
+from harborrag_core.storage import (
     HealthStatus,
     RepositoryHealth,
     StorageFamily,
@@ -79,6 +79,34 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
 
     async def close(self) -> None:
         await self._database.close()
+
+    async def ensure_buckets(self, buckets: tuple[str, ...]) -> None:
+        """Create missing S3-compatible buckets without changing existing ones."""
+
+        for bucket in buckets:
+            try:
+                await self.client.head_bucket(Bucket=bucket)
+                continue
+            except ClientError as exc:
+                if self._client_error_code(exc) not in {
+                    "404",
+                    "NoSuchBucket",
+                    "NotFound",
+                }:
+                    raise
+            create_options: dict[str, Any] = {"Bucket": bucket}
+            if self._config.region and self._config.region != "us-east-1":
+                create_options["CreateBucketConfiguration"] = {
+                    "LocationConstraint": self._config.region
+                }
+            try:
+                await self.client.create_bucket(**create_options)
+            except ClientError as exc:
+                if self._client_error_code(exc) not in {
+                    "BucketAlreadyExists",
+                    "BucketAlreadyOwnedByYou",
+                }:
+                    raise
 
     async def health(self) -> RepositoryHealth:
         try:

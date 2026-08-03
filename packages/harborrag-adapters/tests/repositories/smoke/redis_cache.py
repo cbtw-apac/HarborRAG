@@ -29,7 +29,7 @@ def _redis_url() -> str:
 
 async def _run() -> str:
     suffix = probe_suffix()
-    context = StorageOperationContext(tenant_id=f"smoke-{suffix}")
+    context = StorageOperationContext.system(tenant_id=f"smoke-{suffix}")
     key = f"probe-{suffix}"
     backend = RedisCacheBackend(
         RedisCacheConfig(

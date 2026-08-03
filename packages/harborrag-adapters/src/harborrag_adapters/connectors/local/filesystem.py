@@ -84,7 +84,7 @@ class LocalFileSystem:
         depth: int = 0,
         seen_dirs: set[Path] | None = None,
     ) -> Iterator[tuple[Path, bool]]:
-        """Yield candidate files (with symlink provenance) respecting recursion and symlink policy."""
+        """Yield files with symlink provenance under the configured traversal policy."""
         if start_path.is_symlink() and not self.config.follow_symlinks:
             return
         if not self.within_source_scope(start_path):

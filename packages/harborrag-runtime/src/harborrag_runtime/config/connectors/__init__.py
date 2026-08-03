@@ -1,3 +1,4 @@
+from harborrag_runtime.config.connectors.fingerprints import connector_fingerprint
 from harborrag_runtime.config.connectors.loader import (
     CONNECTOR_CONFIG_VERSION,
     load_connector_catalog,
@@ -13,5 +14,6 @@ __all__ = [
     "ConnectorCatalog",
     "ConnectorConfigurationError",
     "ConnectorDefinition",
+    "connector_fingerprint",
     "load_connector_catalog",
 ]

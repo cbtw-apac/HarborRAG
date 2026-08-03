@@ -6,12 +6,14 @@ import os
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-from harborrag_mcp_server.tools.vector_search import VectorSearchTool
+from harborrag_mcp_server.tools.vector_search import AdvancedVectorSearchTool
+from harborrag_runtime.sdk import RetrievalLane
 
 _DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
 SMOKE_DIMENSION = 8
@@ -42,11 +44,11 @@ class QdrantRetrievalPipeline:
     _client: Any = field(default=None, init=False, repr=False)
 
     async def __aenter__(self) -> QdrantRetrievalPipeline:
-        from qdrant_client import AsyncQdrantClient
+        from qdrant_client import QdrantClient
         from qdrant_client.http import models
 
-        self._client = AsyncQdrantClient(url=self.url, prefer_grpc=False)
-        await self._client.recreate_collection(
+        self._client = QdrantClient(url=self.url, prefer_grpc=False)
+        self._client.recreate_collection(
             collection_name=self.collection,
             vectors_config=models.VectorParams(
                 size=self.dimension,
@@ -58,7 +60,7 @@ class QdrantRetrievalPipeline:
     async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         del exc_type, exc, tb
         if self._client is not None:
-            await self._client.close()
+            self._client.close()
             self._client = None
 
     async def seed(self, points: list[tuple[str, str, dict[str, Any]]]) -> None:
@@ -67,13 +69,18 @@ class QdrantRetrievalPipeline:
         assert self._client is not None
         vector_points = [
             models.PointStruct(
-                id=pt_id,
+                id=str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"{self.collection}:{pt_id}",
+                    )
+                ),
                 vector=self.embed_fn(text),
                 payload={**payload, "text": text, "tenant_id": self.tenant_id},
             )
             for pt_id, text, payload in points
         ]
-        await self._client.upsert(
+        self._client.upsert(
             collection_name=self.collection,
             points=vector_points,
             wait=True,
@@ -81,7 +88,7 @@ class QdrantRetrievalPipeline:
 
     async def delete_collection(self) -> None:
         assert self._client is not None
-        await self._client.delete_collection(collection_name=self.collection)
+        self._client.delete_collection(collection_name=self.collection)
 
     async def aretrieve(
         self,
@@ -104,12 +111,13 @@ class QdrantRetrievalPipeline:
             ]
         )
 
-        raw = await self._client.search(
+        response = self._client.query_points(
             collection_name=self.collection,
-            query_vector=self.embed_fn(query.text),
+            query=self.embed_fn(query.text),
             limit=query.top_k,
             score_threshold=score_threshold,
             query_filter=field_filters,
+            with_payload=True,
         )
         return [
             RetrievalResult(
@@ -118,7 +126,7 @@ class QdrantRetrievalPipeline:
                 score=item.score,
                 metadata={k: v for k, v in (item.payload or {}).items() if k != "text"},
             )
-            for item in raw
+            for item in response.points
         ]
 
 
@@ -202,40 +210,61 @@ def test_qdrant_pipeline_filter_works(seeded_pipeline: QdrantRetrievalPipeline) 
 def test_vector_search_tool_threshold_with_qdrant_seeded_scores(
     seeded_pipeline: QdrantRetrievalPipeline,
 ) -> None:
+    query_text = "HarborRAG vector search integration"
     live_results = _sync_retrieve(
         seeded_pipeline,
-        "HarborRAG",
+        query_text,
         top_k=10,
         filters={"category": "rag"},
     )
     if len(live_results) < 2:
         pytest.skip("Not enough Qdrant results to validate threshold filtering")
 
-    class QdrantToolPipeline:
+    class QdrantToolRetrieval:
         def __init__(self, pipeline: QdrantRetrievalPipeline) -> None:
             self._pipeline = pipeline
 
-        def retrieve(self, query: RetrievalQuery) -> list[RetrievalResult]:
-            import asyncio
-
-            return asyncio.run(
-                self._pipeline.aretrieve(
-                    query,
-                    filters={k: v for k, v in query.filters.items() if k != "tenant_id"},
-                )
+        async def search(self, request):
+            results = await self._pipeline.aretrieve(
+                RetrievalQuery(
+                    text=request.query,
+                    top_k=request.top_k,
+                    filters=request.filters,
+                ),
+                filters=request.filters,
+            )
+            return SimpleNamespace(
+                request_id="qdrant-smoke",
+                lane=RetrievalLane.HYBRID,
+                results=tuple(results),
+                diagnostics={"candidate_hits": len(results)},
             )
 
-    tool = VectorSearchTool(pipeline=QdrantToolPipeline(seeded_pipeline))
-    threshold = sorted((item.score for item in live_results), reverse=True)[0]
-
-    result = tool.call(
-        {
-            "query": "HarborRAG",
-            "top_k": 10,
-            "score_threshold": threshold,
-            "filters": {"tenant_id": "smoke", "category": "rag"},
-        }
+    tool = AdvancedVectorSearchTool(
+        runtime=SimpleNamespace(retrieval=QdrantToolRetrieval(seeded_pipeline))
+    )
+    threshold = max(
+        0.0,
+        min(
+            1.0,
+            sorted((item.score for item in live_results), reverse=True)[0],
+        ),
     )
 
-    assert result["ok"] is True
+    import asyncio
+
+    result = asyncio.run(
+        tool.call(
+            {
+                "query": query_text,
+                "tenant_id": "smoke",
+                "top_k": 10,
+                "score_threshold": threshold,
+                "filters": {"category": "rag"},
+            },
+            principal_id="smoke-test",
+        )
+    )
+
+    assert result["ok"] is True, repr(result)
     assert all(item["score"] >= threshold for item in result["results"])

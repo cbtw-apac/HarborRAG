@@ -1,0 +1,9 @@
+# Stable SDK/runtime facade configuration. Package versions remain 0.1.0.
+execution_mode: direct
+discover_plugins: false
+
+runtime:
+  env: dev
+  connector_config_path: config/connectors.yaml
+  parser_config_path: config/parsers.yaml
+  model_config_path: config/models.yaml

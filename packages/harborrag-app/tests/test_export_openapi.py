@@ -16,16 +16,25 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     rendered = export_openapi()
     schema = json.loads(rendered)
     assert schema["info"]["title"] == "HarborRAG Control Plane API"
-    assert schema["info"]["version"] == "1.0.0-draft"
+    assert schema["info"]["version"] == "0.1.0"
     paths = schema["paths"]
     assert {
+        "/api/v1/metrics",
         "/api/v1/health",
-        "/api/v1/readyz",
-        "/api/v1/diagnostics",
-        "/api/v1/ingestions",
-        "/api/v1/ingestions/{run_id}",
-        "/api/v1/ingestions/{run_id}/result",
-        "/api/v1/ingestions/{run_id}/actions",
+        "/v1/ingestions",
+        "/v1/ingestions/{task_id}",
+        "/v1/ingestions/{task_id}/documents",
+        "/v1/ingestions/{task_id}/cancel",
+        "/v1/ingestions/{task_id}/retry-failures",
+        "/v1/chat/completions",
+        "/v1/retrieval/vector",
+        "/v1/retrieval/graph/triplets",
+        "/v1/retrieval/graph/paths",
+        "/v1/retrieval/graph/subgraphs",
+        "/v1/admin/projections/{tenant}",
     } <= set(paths)
+    assert "/v1/retrieval/search" not in paths
+    assert "/api/v1/readyz" not in paths
+    assert "/api/v1/diagnostics" not in paths
     assert "HTTPBearer" in schema["components"]["securitySchemes"]
     assert rendered == export_openapi()

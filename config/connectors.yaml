@@ -1,7 +1,10 @@
 version: 1
 
+# Each key under `connectors` is a public ingestion API `connection_id`.
+# Requests select a preconfigured connection by this key; credentials remain
+# environment references and must never be sent in the HTTP request.
 connectors:
-  local:
+  harborrag-workspace:
     provider: local
     enabled: true
     environment:
@@ -20,7 +23,7 @@ connectors:
       checksum_mode: stat
       fail_on_error: false
 
-  confluence:
+  confluence-main:
     provider: confluence
     enabled: true
     environment:
@@ -31,8 +34,8 @@ connectors:
       content_types: [page]
       include_labels: []
       exclude_labels: []
-      include_comments: false
-      include_attachments: false
+      include_comments: true
+      include_attachments: true
       max_attachment_size_bytes: 26214400
       max_comments: 1000
       max_attachments: 1000
@@ -47,7 +50,7 @@ connectors:
       token_env: CONFLUENCE_TOKEN
       email_env: CONFLUENCE_EMAIL
 
-  jira:
+  jira-main:
     provider: jira
     enabled: true
     environment:
@@ -58,7 +61,7 @@ connectors:
       issue_types: []
       statuses: []
       labels: []
-      include_comments: false
+      include_comments: true
       include_attachments: true
       include_changelog: false
       include_attachment_text_in_content: true

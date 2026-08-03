@@ -19,4 +19,8 @@ class Principal:
 
     subject: str
     role: Role
+    tenant_ids: frozenset[str]
     token_kind: str = "jwt"
+
+    def can_access_tenant(self, tenant_id: str) -> bool:
+        return "*" in self.tenant_ids or tenant_id in self.tenant_ids

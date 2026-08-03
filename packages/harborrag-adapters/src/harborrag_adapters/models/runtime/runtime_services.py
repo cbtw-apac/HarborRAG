@@ -50,7 +50,6 @@ class ModelRuntimeServices:
 def build_runtime_services(
     config: ModelClientConfig,
     *,
-    family: str,
     cache: ModelResponseCache | None = None,
     routing_state: RoutingStateStore | None = None,
     singleflight: SingleFlightCoordinator | None = None,

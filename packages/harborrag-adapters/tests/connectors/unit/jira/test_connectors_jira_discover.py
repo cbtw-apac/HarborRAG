@@ -74,6 +74,26 @@ def test_discover_supports_direct_issue_keys_without_search():
     assert records[0].metadata["url"] == f"{CLOUD_BASE}/browse/ENG-1"
 
 
+def test_discover_carries_exact_attachment_selection_to_admission():
+    connector = JiraConnector(cloud_config(), client=FakeJiraClient())
+
+    record = next(
+        connector.discover(
+            ConnectorQuery(
+                filters={
+                    "issue_keys": ["ENG-1"],
+                    "attachment_ids": ["a2", "a1"],
+                }
+            )
+        )
+    )
+
+    assert record.metadata["_selected_attachment_ids"] == (
+        "a2",
+        "a1",
+    )
+
+
 def test_discover_stops_once_query_limit_reached_during_search():
     client = FakeJiraClient()
     client.add_post(

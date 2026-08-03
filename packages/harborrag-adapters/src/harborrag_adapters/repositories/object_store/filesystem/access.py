@@ -17,7 +17,7 @@ from harborrag_adapters.repositories.object_store.keys import (
     validate_object_key,
 )
 from harborrag_core.schemas.object_store import ObjectMetadata, PutObjectRequest
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 _BUCKET = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
 _META_SUFFIX = ".harbor-meta.json"

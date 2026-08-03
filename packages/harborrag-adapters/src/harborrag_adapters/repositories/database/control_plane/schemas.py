@@ -8,14 +8,14 @@ stays deterministic.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.types import TypeDecorator
+
+from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -26,31 +26,6 @@ NAMING_CONVENTION = {
 }
 
 JSONVariant = sa.JSON().with_variant(JSONB(), "postgresql")
-
-
-class UTCDateTime(TypeDecorator[datetime]):
-    """DateTime that always round-trips timezone-aware UTC values.
-
-    SQLite drops tzinfo; this restores UTC on load so domain dataclasses
-    (which require aware datetimes) compare equal after a round-trip.
-    """
-
-    impl = sa.DateTime(timezone=True)
-    cache_ok = True
-
-    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        """Normalize incoming values to UTC (naive input is rejected)."""
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            raise ValueError("control-plane datetimes must be timezone-aware")
-        return value.astimezone(UTC)
-
-    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        """Re-attach UTC on drivers (SQLite) that return naive datetimes."""
-        if value is not None and value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value
 
 
 class Base(DeclarativeBase):

@@ -46,7 +46,7 @@ async def test_get_edges_maps_provider_rows_into_graph_edges() -> None:
         FalkorDBGraphConfig(),
         client=client,  # type: ignore[arg-type]
     )
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     edges = await repository.get_edges(["e1"], context=context)
 

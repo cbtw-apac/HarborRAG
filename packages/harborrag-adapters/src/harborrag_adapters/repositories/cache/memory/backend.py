@@ -10,7 +10,7 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     StorageTelemetryHook,
 )
-from harborrag_core.schemas.storage import (
+from harborrag_core.storage import (
     HealthStatus,
     RepositoryHealth,
     StorageFamily,

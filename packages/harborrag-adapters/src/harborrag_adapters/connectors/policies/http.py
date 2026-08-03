@@ -22,7 +22,7 @@ class StreamingResponse(Protocol):
 
     @property
     def headers(self) -> Mapping[str, str]:
-        """Response headers, read-only so covariant mappings (e.g. requests') satisfy this Protocol."""
+        """Read-only response headers compatible with covariant SDK mappings."""
         ...
 
     def iter_content(self, chunk_size: int) -> Iterator[bytes]:
@@ -96,10 +96,10 @@ def read_capped_content(
     for chunk in response.iter_content(chunk_size=chunk_size):
         if not chunk:
             continue
-        buffer.extend(chunk)
-        if max_bytes is not None and len(buffer) > max_bytes:
+        if max_bytes is not None and len(buffer) + len(chunk) > max_bytes:
             response.close()
             raise ResponseTooLargeError(f"Downloaded body exceeds cap {max_bytes} bytes")
+        buffer.extend(chunk)
     return bytes(buffer)
 
 

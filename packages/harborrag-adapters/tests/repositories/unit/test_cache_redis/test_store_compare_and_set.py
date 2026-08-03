@@ -27,7 +27,7 @@ async def test_compare_and_set_preserves_redis_tag_index() -> None:
         "old",
         "new",
         ttl=None,
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert replaced is True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
@@ -40,6 +41,8 @@ class JiraCommentMetadata:
     created_at: Any
     updated_at: Any
     body: str
+    parent_comment_id: str | None = None
+    comment_kind: str = "JIRA_COMMENT"
 
 
 @dataclass(slots=True)
@@ -62,6 +65,28 @@ class JiraChangelogMetadata:
 
 
 @dataclass(slots=True)
+class JiraFieldContext:
+    """Project and issue-type scope in which a custom field was observed."""
+
+    project_id: str | None
+    project_key: str | None
+    issue_type_id: str | None
+    issue_type_name: str | None
+
+
+class JiraCustomFieldKind(StrEnum):
+    """Retrieval-safe classification of a typed Jira custom-field value."""
+
+    PROSE = "prose"
+    OPTION = "option"
+    NUMBER = "number"
+    BOOLEAN = "boolean"
+    DATE = "date"
+    USER = "user"
+    ATTRIBUTE = "attribute"
+
+
+@dataclass(slots=True)
 class JiraCustomFieldMetadata:
     """Custom field value preserved with JIRA field metadata."""
 
@@ -71,6 +96,14 @@ class JiraCustomFieldMetadata:
     custom_type: Any
     value: Any
     text: str
+    value_kind: JiraCustomFieldKind
+    context: JiraFieldContext
+
+    @property
+    def is_searchable_prose(self) -> bool:
+        """Return whether the field belongs in independent dense evidence."""
+
+        return self.value_kind == JiraCustomFieldKind.PROSE
 
 
 @dataclass(slots=True, kw_only=True)

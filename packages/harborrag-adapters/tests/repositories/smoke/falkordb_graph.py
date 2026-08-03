@@ -28,7 +28,7 @@ async def _run() -> tuple[str, str]:
     source_id = f"source-{suffix}"
     target_id = f"target-{suffix}"
     edge_id = f"edge-{suffix}"
-    context = StorageOperationContext(tenant_id=f"smoke-{suffix}")
+    context = StorageOperationContext.system(tenant_id=f"smoke-{suffix}")
     password = os.getenv("FALKORDB_PASSWORD")
     backend = FalkorDBGraphRepository(
         FalkorDBGraphConfig(

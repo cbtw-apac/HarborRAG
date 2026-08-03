@@ -1,3 +1,5 @@
+# Required by the Temporal server image. Keep local development behavior
+# explicit instead of relying on an image-internal dynamic-config path.
 system.forceSearchAttributesCacheRefreshOnRead:
   - value: true
     constraints: {}

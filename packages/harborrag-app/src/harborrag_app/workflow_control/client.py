@@ -4,33 +4,79 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
-from dataclasses import replace
-from uuid import uuid4
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
+from typing import Protocol
 
-from pydantic_core import to_jsonable_python
-
+from harborrag_core.models.chat import HarborChatRequest
+from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
+from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.retrieval import RuntimeRetrievalService
-from harborrag_runtime.temporal.client import TemporalRuntimeClient
-from harborrag_runtime.temporal.schemas import IngestionRunInput
+from harborrag_runtime.projection_admin import ProjectionAdministrationService
+from harborrag_runtime.sdk import (
+    HarborRAG,
+    HarborRAGConfig,
+    RetrievalLane,
+)
+from harborrag_runtime.temporal.client import IngestionTemporalClient
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
+from harborrag_runtime.temporal.submission import (
+    SourceSubmission,
+    build_source_input,
+)
+from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
 
-from .errors import public_error_message
+from .app_resources import AppResources
+from .chat import ChatApplicationService
+from .errors import failure_response
+from .graph_retrieval import GraphRetrievalService
+from .ingestion_models import IngestionCreateCommand
+from .ingestion_service import IngestionApplicationService, PublicTaskStore
 from .ports import BaseAppService
+from .retrieval_query import retrieve
 from .schemas import AppResponse
+from .temporal_ingestion import TemporalIngestionOperations
 
 type ClientFactory = Callable[
     [TemporalRuntimeConfig],
-    Awaitable[TemporalRuntimeClient],
+    Awaitable[IngestionTemporalClient],
 ]
-type RetrievalFactory = Callable[
+type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
+type SourceInputBuilder = Callable[
+    [RuntimeSettings, SourceSubmission],
+    SourceIngestionInput,
+]
+type ProjectionAdminFactory = Callable[
     [RuntimeSettings],
-    Awaitable[RuntimeRetrievalService],
+    ProjectionAdministrationService,
 ]
+type CloseOperation = Callable[[], Awaitable[None]]
+
+
+class TaskRegistry(PublicTaskStore, Protocol):
+    async def close(self) -> None: ...
+
+
+type TaskRegistryFactory = Callable[[RuntimeSettings], Awaitable[TaskRegistry]]
 
 logger = logging.getLogger("harborrag.app.workflow_control.client")
+
+
+def _retrieval_runtime(settings: RuntimeSettings) -> HarborRAG:
+    return HarborRAG(HarborRAGConfig(runtime=settings))
+
+
+@dataclass(frozen=True, slots=True)
+class AppServiceFactories:
+    """Collaborator factories, grouped so composition stays overridable in tests."""
+
+    client: ClientFactory = IngestionTemporalClient.connect
+    retrieval_runtime: RetrievalRuntimeFactory = _retrieval_runtime
+    source_input_builder: SourceInputBuilder = build_source_input
+    task_registry: TaskRegistryFactory = IngestionTaskRegistry.connect
+    projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
 
 
 class AppService(BaseAppService):
@@ -41,18 +87,32 @@ class AppService(BaseAppService):
         composition: CompositionRoot,
         settings: RuntimeSettings | None = None,
         *,
-        client_factory: ClientFactory = TemporalRuntimeClient.connect,
-        retrieval_factory: RetrievalFactory = RuntimeRetrievalService.connect,
+        factories: AppServiceFactories | None = None,
     ) -> None:
         self._composition = composition
         self._settings = settings or RuntimeSettings()
         self._runtime_config = TemporalRuntimeConfig.from_settings(self._settings)
-        self._client_factory = client_factory
-        self._retrieval_factory = retrieval_factory
-        self._client: TemporalRuntimeClient | None = None
-        self._retrieval: RuntimeRetrievalService | None = None
-        self._client_lock = asyncio.Lock()
-        self._retrieval_lock = asyncio.Lock()
+        selected = factories or AppServiceFactories()
+        self._source_input_builder = selected.source_input_builder
+        self._resources = AppResources(
+            self._settings,
+            runtime_config=self._runtime_config,
+            factories=selected,
+        )
+        self._public_ingestions = IngestionApplicationService(
+            self._settings,
+            client_provider=self._resources.runtime_client,
+            task_store_provider=self._resources.public_task_store,
+            source_input_builder=self._source_input_builder,
+        )
+        self._chat = ChatApplicationService(self._resources.runtime_sdk)
+        self._graph = GraphRetrievalService(self._resources.runtime_sdk)
+        self._temporal = TemporalIngestionOperations(
+            self._settings,
+            runtime_client=self._resources.runtime_client,
+            task_registry=self._resources.task_registry,
+            source_input_builder=self._source_input_builder,
+        )
 
     def health(self) -> AppResponse:
         diagnostics = self._composition.diagnostics()
@@ -70,10 +130,25 @@ class AppService(BaseAppService):
             error="use 'harborrag ingest start' to submit the Temporal ingestion workflow",
         )
 
+    async def chat_completion(
+        self,
+        request: HarborChatRequest,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        prompt: ChatPrompt | None = None,
+    ) -> AppResponse:
+        return await self._chat.complete(
+            request,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            prompt=prompt,
+        )
+
     async def runtime_health(self) -> AppResponse:
         try:
             async with asyncio.timeout(self._settings.temporal_health_timeout_seconds):
-                client = await self._runtime_client()
+                client = await self._resources.runtime_client()
                 ready = await client.health()
             return AppResponse(
                 ready,
@@ -88,230 +163,173 @@ class AppService(BaseAppService):
                 None if ready else "Temporal workflow service is not ready",
             )
         except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return self._failure(exc, "check Temporal runtime health")
+            return failure_response(logger, exc, "check Temporal runtime health")
 
-    async def start_ingestion(
+    async def submit(
+        self,
+        command: IngestionCreateCommand,
+        *,
+        idempotency_key: str | None,
+    ) -> dict[str, object]:
+        return await self._public_ingestions.submit(
+            command,
+            idempotency_key=idempotency_key,
+        )
+
+    async def get_task(self, task_id: str) -> dict[str, object]:
+        return await self._public_ingestions.get_task(task_id)
+
+    async def recover_pending_submissions(self, *, limit: int = 100) -> int:
+        return await self._public_ingestions.recover_pending_submissions(limit=limit)
+
+    async def list_documents(
+        self,
+        *,
+        task_id: str,
+        status: str | None,
+        cursor: str | None,
+        limit: int,
+    ) -> dict[str, object]:
+        return await self._public_ingestions.list_documents(
+            task_id=task_id,
+            status=status,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    async def cancel(self, task_id: str) -> dict[str, object]:
+        return await self._public_ingestions.cancel(task_id)
+
+    async def retry_failures(
+        self,
+        *,
+        task_id: str,
+        document_ids: list[str],
+    ) -> dict[str, object]:
+        return await self._public_ingestions.retry_failures(
+            task_id=task_id,
+            document_ids=document_ids,
+        )
+
+    async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-neutral
+        self,
+        query: str,
+        *,
+        tenant_id: str | None = None,
+        principal_id: str = "harborrag-cli",
+        top_k: int = 10,
+        filters: Mapping[str, object] | None = None,
+        lane: RetrievalLane = RetrievalLane.HYBRID,
+        observe_graph: bool = False,
+        include_content: bool = False,
+        include_metadata: bool = False,
+        score_threshold: float = 0.0,
+    ) -> AppResponse:
+        return await retrieve(
+            self._resources.runtime_sdk,
+            self._settings,
+            query,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            top_k=top_k,
+            filters=filters,
+            lane=lane,
+            observe_graph=observe_graph,
+            include_content=include_content,
+            include_metadata=include_metadata,
+            score_threshold=score_threshold,
+        )
+
+    async def retrieve_graph_triplets(
+        self,
+        query: GraphTripletQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        return await self._graph.triplets(query, tenant_id=tenant_id, principal_id=principal_id)
+
+    async def retrieve_graph_paths(
+        self,
+        query: GraphPathQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        return await self._graph.paths(query, tenant_id=tenant_id, principal_id=principal_id)
+
+    async def retrieve_graph_subgraph(
+        self,
+        query: GraphSubgraphQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        return await self._graph.subgraph(query, tenant_id=tenant_id, principal_id=principal_id)
+
+    async def start_ingestion(  # noqa: PLR0913 - stable service port
         self,
         *,
         tenant_id: str,
         connector_name: str,
         run_id: str | None = None,
-        manifest_id: str | None = None,
-        generation_id: str | None = None,
+        connection_id: str | None = None,
+        source_scope_id: str | None = None,
+        path: str | None = None,
+        pattern: str | None = None,
+        recursive: bool = True,
+        updated_after: str | None = None,
         max_artifacts: int | None = None,
+        include_attachments: bool = True,
+        filters: Mapping[str, object] | None = None,
+        force_reprocess: bool = False,
         wait: bool = False,
     ) -> AppResponse:
-        suffix = uuid4().hex
-        run_id = run_id or f"ingestion-{suffix}"
-        manifest_id = manifest_id or f"manifest-{suffix}"
-        generation_id = generation_id or f"generation-{suffix}"
-        request = IngestionRunInput(
-            run_id=run_id,
+        return await self._temporal.start_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,
-            manifest_id=manifest_id,
-            generation_id=generation_id,
-            options=replace(
-                self._runtime_config.workflow_options(),
-                max_artifacts=max_artifacts,
-            ),
+            run_id=run_id,
+            connection_id=connection_id,
+            source_scope_id=source_scope_id,
+            path=path,
+            pattern=pattern,
+            recursive=recursive,
+            updated_after=updated_after,
+            max_artifacts=max_artifacts,
+            include_attachments=include_attachments,
+            filters=filters,
+            force_reprocess=force_reprocess,
+            wait=wait,
         )
-        try:
-            client = await self._runtime_client()
-            reference = await client.start_ingestion(request)
-        except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return self._failure(exc, "start ingestion run %r", run_id)
-        logger.info(
-            "Started ingestion run %r for tenant %r using connector %r as workflow %r",
-            run_id,
-            tenant_id,
-            connector_name,
-            reference.workflow_id,
-        )
-        data = {
-            "run": to_jsonable_python(request),
-            "workflow": to_jsonable_python(reference),
-        }
-        if not wait:
-            return AppResponse(True, data)
-        # The run is already submitted, so a failed or cancelled outcome must
-        # still return the workflow reference: without it the caller has no ID
-        # to inspect or retry the run they just started.
-        try:
-            data["result"] = to_jsonable_python(await client.result(run_id))
-        except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            failure = self._failure(exc, "await result for ingestion run %r", run_id)
-            return AppResponse(False, {**data, **failure.data}, failure.error)
-        return AppResponse(True, data)
 
     async def ingestion_status(self, run_id: str) -> AppResponse:
-        """Combine the workflow's self-reported state with Temporal's own view.
-
-        ``status`` is what the workflow tracks about itself and stays "running"
-        when the workflow crashes, because a crashed workflow never records its
-        own failure. ``execution_status`` is the server-side truth, so callers
-        polling for completion have something that actually reaches a terminal
-        value. Both are returned rather than one overwriting the other: the
-        workflow view carries pause/cancel intent the server view cannot express.
-        """
-
-        try:
-            client = await self._runtime_client()
-            (
-                status,
-                progress,
-                failed,
-                quarantined,
-                pending,
-                execution_status,
-            ) = await asyncio.gather(
-                client.get_status(run_id),
-                client.get_progress(run_id),
-                client.get_failed_artifacts(run_id),
-                client.get_quarantined_artifacts(run_id),
-                client.get_pending_resolutions(run_id),
-                client.execution_status(run_id),
-            )
-            return AppResponse(
-                True,
-                {
-                    "status": to_jsonable_python(status),
-                    "execution_status": execution_status,
-                    "progress": to_jsonable_python(progress),
-                    "failed_artifacts": list(failed),
-                    "quarantined_artifacts": list(quarantined),
-                    "pending_resolutions": to_jsonable_python(pending),
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return self._failure(exc, "read status for ingestion run %r", run_id)
+        return await self._temporal.ingestion_status(run_id)
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
-        try:
-            result = await (await self._runtime_client()).result(run_id)
-            return AppResponse(True, {"result": to_jsonable_python(result)})
-        except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return self._failure(exc, "await result for ingestion run %r", run_id)
+        return await self._temporal.ingestion_result(run_id)
 
-    async def retrieve(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        top_k: int = 10,
-        include_content: bool = False,
-    ) -> AppResponse:
-        try:
-            report = await (await self._retrieval_service()).retrieve(
-                query,
-                tenant_id=tenant_id,
-                top_k=top_k,
-            )
-            results = []
-            for rank, item in enumerate(report.results, start=1):
-                result = {
-                    "rank": rank,
-                    "id": item.id,
-                    "score": item.score,
-                    "source": item.metadata.get("retrieval_source", "hybrid"),
-                }
-                if include_content:
-                    result["content"] = item.text
-                results.append(result)
-            return AppResponse(
-                True,
-                {
-                    "request_id": report.request_id,
-                    "results": results,
-                    "diagnostics": to_jsonable_python(report.diagnostics),
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return self._failure(exc, "retrieve for tenant %r", tenant_id)
+    async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
+        return await self._temporal.control_ingestion(run_id, action)
 
-    async def control_ingestion(
+    async def projection_inventory(self, tenant: str) -> dict[str, object]:
+        return (await self._resources.projection_administration().inspect(tenant)).as_dict()
+
+    async def delete_projections(
         self,
-        run_id: str,
-        action: str,
+        tenant: str,
         *,
-        artifact_ids: tuple[str, ...] = (),
-        graceful: bool = True,
-    ) -> AppResponse:
-        try:
-            client = await self._runtime_client()
-            if action == "pause":
-                await client.pause(run_id)
-            elif action == "resume":
-                await client.resume(run_id)
-            elif action == "cancel":
-                await client.cancel(run_id, graceful=graceful)
-            elif action == "retry":
-                if not artifact_ids:
-                    raise ValueError("retry requires at least one artifact id")
-                await client.retry_failed(run_id, artifact_ids)
-            else:
-                raise ValueError(f"unsupported ingestion action: {action!r}")
-            logger.info("Applied %r to ingestion run %r", action, run_id)
-            return AppResponse(
-                True,
-                {
-                    "run_id": run_id,
-                    "action": action,
-                    "artifact_ids": list(artifact_ids),
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return self._failure(exc, "apply %r to ingestion run %r", action, run_id)
+        confirmation: str,
+        stores: frozenset[str],
+    ) -> dict[str, object]:
+        result = await self._resources.projection_administration().delete(
+            tenant,
+            confirmation=confirmation,
+            stores=stores,
+        )
+        return result.as_dict()
 
     async def aclose(self) -> None:
         try:
-            if self._retrieval is not None:
-                await self._retrieval.aclose()
+            await self._resources.aclose()
         finally:
             await self._composition.aclose()
-
-    async def _runtime_client(self) -> TemporalRuntimeClient:
-        if self._client is not None:
-            return self._client
-        async with self._client_lock:
-            if self._client is None:
-                self._client = await self._client_factory(self._runtime_config)
-        return self._client
-
-    async def _retrieval_service(self) -> RuntimeRetrievalService:
-        if self._retrieval is not None:
-            return self._retrieval
-        async with self._retrieval_lock:
-            if self._retrieval is None:
-                self._retrieval = await self._retrieval_factory(self._settings)
-        return self._retrieval
-
-    @staticmethod
-    def _failure(
-        exc: Exception,
-        message: str = "Application service call failed",
-        *args: object,
-    ) -> AppResponse:
-        """Return a reviewed message, logging a traceback only when one is needed.
-
-        ``public_error_message`` collapses anything outside its allowlist to a
-        bare class name so provider responses and internal storage paths never
-        reach a caller. For those the log is the only channel carrying the
-        cause, so the traceback is recorded at ERROR.
-
-        When the message is already public the envelope tells the caller
-        everything, and a traceback would be pure duplication -- the CLI sets
-        ``pretty_exceptions_enable=False`` precisely so handled failures render
-        as a panel rather than a stack trace. Those log at DEBUG instead.
-        """
-
-        public = public_error_message(exc)
-        if public == type(exc).__name__:
-            logger.error(message, *args, exc_info=exc)
-        else:
-            logger.debug(message, *args, exc_info=exc)
-        return AppResponse(
-            False,
-            data={"error_type": type(exc).__name__},
-            error=public,
-        )

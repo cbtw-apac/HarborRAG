@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Self
 
-from harborrag_core.schemas.storage import RepositoryHealth
+from harborrag_core.storage import RepositoryHealth
 
 logger = logging.getLogger(__name__)
 

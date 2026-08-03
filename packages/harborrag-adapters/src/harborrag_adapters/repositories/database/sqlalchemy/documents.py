@@ -22,7 +22,7 @@ from harborrag_adapters.repositories.telemetry import (
 )
 from harborrag_core.schemas.documents import DocumentRecord, DocumentStatus
 from harborrag_core.schemas.ids import DocumentId
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 from .schemas import DOCUMENTS, VECTOR_COLLECTIONS_KEY, document_from_row
 

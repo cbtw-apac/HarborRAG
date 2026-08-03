@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from harborrag_core.ingestion import ParserRejectedDocumentError, UnsupportedDocumentError
 
-class ParseError(RuntimeError):
+
+class ParseError(ParserRejectedDocumentError, RuntimeError):
     """Raised when a parser cannot extract text from an input it owns."""
 
 
-class UnsupportedFormatError(ParseError):
+class PasswordProtectedError(ParseError):
+    """Raised when an encrypted document requires a password to be parsed."""
+
+
+class UnsupportedFormatError(UnsupportedDocumentError, ParseError):
     """Raised when no registered parser supports an input."""
 
 

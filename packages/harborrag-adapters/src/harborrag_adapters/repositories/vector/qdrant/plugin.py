@@ -8,7 +8,7 @@ from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorCon
 from harborrag_adapters.repositories.vector.qdrant.repository import (
     QdrantVectorRepository,
 )
-from harborrag_core.schemas.storage import StorageFamily
+from harborrag_core.storage import StorageFamily
 
 
 class QdrantVectorPlugin(RepositoryPlugin[QdrantVectorConfig, QdrantVectorRepository]):

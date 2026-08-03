@@ -78,6 +78,21 @@ class JsonStructuredEngine(HarborStructuredEngine):
                 metadata={"root_type": type(data).__name__},
             )
         ]
+        parser_logger.info(
+            "Parsed JSON %s root_type=%s content_chars=%d elements=%d",
+            input_label(parse_input),
+            type(data).__name__,
+            len(content),
+            len(elements),
+            extra=parser_log_extra(
+                input=parse_input,
+                parser_name=self.parser_name,
+                parser_engine=self.parser_engine,
+                root_type=type(data).__name__,
+                content_chars=len(content),
+                elements=len(elements),
+            ),
+        )
         return ParsedDocument(
             content=content,
             elements=elements,

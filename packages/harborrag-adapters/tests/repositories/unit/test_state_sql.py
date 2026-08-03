@@ -68,7 +68,7 @@ async def test_first_lease_claim_uses_atomic_insert_path() -> None:
         "resource",
         "owner",
         timedelta(seconds=30),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert lease is not None
@@ -88,7 +88,7 @@ async def test_unique_lease_conflict_returns_no_lease() -> None:
         "resource",
         "owner-b",
         timedelta(seconds=30),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert lease is None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,11 @@ def _production(tmp_path: Path) -> CompositionRoot:
 
 
 @pytest.mark.whitebox
-def test_production_composition_migrates_and_reports_ready(tmp_path: Path) -> None:
+def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplog) -> None:
     """production() runs migrations, probes the DB, and reports ready
     diagnostics with the stamped migration version."""
-    composition = _production(tmp_path)
+    with caplog.at_level(logging.INFO, logger="harborrag.runtime.composition"):
+        composition = _production(tmp_path)
     assert composition.mode == "production"
     diagnostics = composition.diagnostics()
     assert diagnostics["mode"] == "production"
@@ -32,6 +34,8 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path) -> No
     assert control_db["ping"] == "ok"
     assert control_db["migrations"] == "0001"
     assert control_db["scheme"] == "sqlite+aiosqlite"
+    assert "Control-plane composition completed" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0001" in caplog.text
 
 
 @pytest.mark.asyncio

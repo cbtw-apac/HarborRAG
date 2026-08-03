@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from harborrag_core.schemas.storage import StorageFamily
+from harborrag_core.storage import StorageFamily
 
 
 @dataclass(slots=True)

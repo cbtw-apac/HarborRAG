@@ -1,3 +1,4 @@
+from harborrag_core.chunking import ChunkKind
 from harborrag_core.domain.element import DocumentElement
 
 from ..chunking_helpers import make_document, make_profile, make_request, make_service
@@ -40,20 +41,19 @@ def test_jira_strategy_preserves_fields_and_comment_boundaries() -> None:
 
     result = make_service(profile).chunk(make_request(document))
 
-    assert [record.role for record in result.chunks] == [
-        "jira.summary",
-        "jira.description",
-        "jira.acceptance_criteria",
-        "jira.comment",
-        "jira.comment",
+    assert [record.chunk_kind for record in result.chunks] == [
+        ChunkKind.TEXT,
+        ChunkKind.TEXT,
+        ChunkKind.TEXT,
+        ChunkKind.COMMENT,
+        ChunkKind.COMMENT,
     ]
     assert [record.metadata.get("comment_id") for record in result.chunks[-2:]] == [
         "1001",
         "1002",
     ]
     assert result.chunks[3].metadata["author"] == "Ada"
-    assert result.chunks[3].source_span is not None
-    assert result.chunks[3].source_span.source_element_ids == ("comment-1",)
+    assert result.chunks[3].citation_locator.source_element_ids == ("comment-1",)
 
 
 def test_long_jira_comment_splits_only_inside_its_stable_anchor() -> None:
@@ -80,7 +80,7 @@ def test_long_jira_comment_splits_only_inside_its_stable_anchor() -> None:
     result = make_service(profile).chunk(make_request(document))
 
     assert [record.content for record in result.chunks] == ["abcd", "efgh", "ij"]
-    assert all(record.role == "jira.comment" for record in result.chunks)
+    assert all(record.chunk_kind == ChunkKind.COMMENT for record in result.chunks)
     assert all(record.metadata["comment_id"] == "1001" for record in result.chunks)
     assert [record.metadata["local_part_index"] for record in result.chunks] == [
         0,
@@ -138,14 +138,14 @@ def test_jira_connector_markdown_recovers_fields_and_child_entity_boundaries() -
 
     result = make_service(profile).chunk(make_request(document))
 
-    assert [record.role for record in result.chunks] == [
-        "jira.summary",
-        "jira.description",
-        "jira.comment",
-        "jira.attachment",
+    assert [record.chunk_kind for record in result.chunks] == [
+        ChunkKind.TEXT,
+        ChunkKind.TEXT,
+        ChunkKind.COMMENT,
+        ChunkKind.TEXT,
     ]
     assert result.chunks[0].content == "HARBOR-1: HarborRAG\n\nType: Bug\nStatus: Open"
-    assert result.chunks[0].context.structural_path == (
+    assert result.chunks[0].hierarchy.section_path == (
         "HarborRAG",
         "overview",
     )
@@ -155,7 +155,7 @@ def test_jira_connector_markdown_recovers_fields_and_child_entity_boundaries() -
     assert result.chunks[2].metadata["comment_id"] == "1001"
     assert result.chunks[2].metadata["author"] == "Ada"
     assert result.chunks[3].metadata["attachment_id"] == "2001"
-    assert result.chunks[3].context.structural_path == (
+    assert result.chunks[3].hierarchy.section_path == (
         "HarborRAG",
         "evidence.txt",
     )

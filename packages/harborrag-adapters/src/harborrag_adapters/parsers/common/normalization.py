@@ -80,6 +80,7 @@ class _FallbackHTMLTextParser(StdlibHTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Track skipped and block-level tags while parsing HTML."""
+        del attrs
         if tag in self._SKIP_TAGS:
             self._skip_depth += 1
         if tag in self._BLOCK_TAGS:

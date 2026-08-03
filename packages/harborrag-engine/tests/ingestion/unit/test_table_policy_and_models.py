@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from harborrag_core.chunking import TableProjectionType
+from harborrag_core.chunking import ConnectorType, DocumentKind, TableProjectionType
 from harborrag_engine.ingestion.chunking import (
     MatrixProjectionMode,
     TableChunkingPolicy,
@@ -109,9 +109,11 @@ def test_table_model_contracts_are_immutable_and_validate_context():
             artifact=artifact,
             tenant_id="",
             connection_id="connection",
-            source_scope="scope",
-            page_title="page",
-            space="space",
+            source_scope_id="scope",
+            document_title="page",
+            connector_type=ConnectorType.CONFLUENCE,
+            document_kind=DocumentKind.CONFLUENCE_PAGE,
+            source_context={"space": "space"},
         )
 
 

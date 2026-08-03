@@ -1,161 +1,183 @@
+"""Basic and advanced vector retrieval tools."""
+
 from __future__ import annotations
 
-import math
-from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborValidationError
-from harborrag_core.domain.retrieval import RetrievalQuery
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
+from harborrag_runtime.contracts import RetrievalLane, RetrievalRequest
+
+from .base import BaseMcpTool, McpToolSpec
+from .retrieval_inputs import (
+    TENANT_PROPERTY,
+    access,
+    boolean,
+    integer,
+    mapping,
+    number,
+    text,
+)
+
+if TYPE_CHECKING:
+    from harborrag_runtime.contracts import RetrievalResponse
+    from harborrag_runtime.sdk import HarborRAG
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = McpToolPolicy().max_results
 
-_DEFAULT_SCORE_THRESHOLD = 0.3
+
+def _results(response: RetrievalResponse, threshold: float = 0.0) -> list[dict[str, object]]:
+    return [asdict(result) for result in response.results if result.score >= threshold]
 
 
 @dataclass(slots=True)
 class VectorSearchTool(BaseMcpTool):
-    """Search the vector store and return ranked retrieval results.
+    """Simple hybrid vector search with a deliberately small input surface."""
 
-    Wraps an injected retrieval pipeline from the runtime.
-
-    Optional pre-search parameters:
-    - ``score_threshold``: drop results whose score is below this value (0.0–1.0).
-    - ``filters``: key/value metadata pairs forwarded to the pipeline as
-      :attr:`RetrievalQuery.filters` so adapters can push them to the index.
-    """
-
-    pipeline: object | None = None
+    runtime: HarborRAG | None = None
     spec = McpToolSpec(
         "vector_search",
-        "Search the vector store and return ranked results.",
+        "Search tenant-scoped vectors with the default hybrid retrieval policy.",
         {
             "type": "object",
-            "required": ["query", "filters"],
+            "required": ["query", "tenant_id"],
             "properties": {
-                "query": {"type": "string", "description": "Natural-language search query."},
+                "query": {"type": "string", "minLength": 1},
+                "tenant_id": TENANT_PROPERTY,
                 "top_k": {
                     "type": "integer",
-                    "description": f"Maximum number of results to return (default {_DEFAULT_TOP_K}).",
                     "minimum": 1,
                     "maximum": _MAX_TOP_K,
                     "default": _DEFAULT_TOP_K,
                 },
-                "score_threshold": {
-                    "type": "number",
-                    "description": (
-                        "Minimum score in [0, 1]. Defaults to 0.3; results below "
-                        "this threshold are dropped before returning."
-                    ),
-                    "minimum": 0.0,
-                    "maximum": 1.0,
-                    "default": _DEFAULT_SCORE_THRESHOLD,
-                },
-                "filters": {
-                    "type": "object",
-                    "description": (
-                        "Required key/value metadata filters. Must include tenant_id "
-                        "for retrieval scope."
-                    ),
-                    "required": ["tenant_id"],
-                    "properties": {
-                        "tenant_id": {
-                            "type": "string",
-                            "minLength": 1,
-                            "description": "Required tenant scope for retrieval.",
-                        }
-                    },
-                },
             },
+            "additionalProperties": False,
         },
     )
 
-    @staticmethod
-    def _validate_query(arguments: dict[str, object]) -> str:
-        raw_query = arguments.get("query", "")
-        if not isinstance(raw_query, str):
-            raise HarborValidationError("query must be a non-empty string")
-        query_text = raw_query.strip()
-        if not query_text:
-            raise HarborValidationError("query must be a non-empty string")
-        return query_text
-
-    @staticmethod
-    def _validate_top_k(arguments: dict[str, object]) -> int:
-        raw_top_k = arguments.get("top_k", _DEFAULT_TOP_K)
-        if not isinstance(raw_top_k, int | str | bytes | bytearray):
-            raise HarborValidationError("top_k must be an integer")
+    async def call(
+        self,
+        arguments: dict[str, object],
+        *,
+        principal_id: str,
+    ) -> dict[str, object]:
         try:
-            top_k = int(raw_top_k)
-        except (TypeError, ValueError):
-            raise HarborValidationError("top_k must be an integer") from None
-        if top_k < 1 or top_k > _MAX_TOP_K:
-            raise HarborValidationError(f"top_k must be between 1 and {_MAX_TOP_K}")
-        return top_k
-
-    @staticmethod
-    def _validate_filters(arguments: dict[str, object]) -> dict[str, object]:
-        raw_filters = arguments.get("filters")
-        if not isinstance(raw_filters, Mapping):
-            raise HarborValidationError("filters is required and must be an object")
-        filters = dict(raw_filters)
-
-        tenant_id = filters.get("tenant_id")
-        if not isinstance(tenant_id, str) or not tenant_id.strip():
-            raise HarborValidationError("filters.tenant_id must be a non-empty string")
-        return filters
-
-    @staticmethod
-    def _validate_score_threshold(arguments: dict[str, object]) -> float:
-        raw_threshold = arguments.get("score_threshold", _DEFAULT_SCORE_THRESHOLD)
-        if not isinstance(raw_threshold, int | float | str | bytes | bytearray):
-            raise HarborValidationError("score_threshold must be a number")
-        try:
-            score_threshold = float(raw_threshold)
-        except (TypeError, ValueError):
-            raise HarborValidationError("score_threshold must be a number") from None
-        if not math.isfinite(score_threshold) or score_threshold < 0.0 or score_threshold > 1.0:
-            raise HarborValidationError("score_threshold must be between 0.0 and 1.0")
-        return score_threshold
-
-    def call(self, arguments: dict[str, object]) -> dict[str, object]:
-        try:
-            query_text = self._validate_query(arguments)
-            top_k = self._validate_top_k(arguments)
-            filters = self._validate_filters(arguments)
-            score_threshold = self._validate_score_threshold(arguments)
-        except HarborValidationError as exc:
+            request = RetrievalRequest(
+                access=access(arguments, principal_id),
+                query=text(arguments, "query"),
+                top_k=integer(
+                    arguments,
+                    "top_k",
+                    _DEFAULT_TOP_K,
+                    minimum=1,
+                    maximum=_MAX_TOP_K,
+                ),
+                lane=RetrievalLane.HYBRID,
+                observe_graph=False,
+            )
+        except (HarborValidationError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
+        return await _search(self.runtime, request)
 
-        if self.pipeline is None:
-            return {
-                "ok": False,
-                "error": "vector_search backend is not configured",
-            }
-        if not hasattr(self.pipeline, "retrieve"):
-            return {
-                "ok": False,
-                "error": "vector_search backend does not implement retrieve(query)",
-            }
 
-        retrieval_query = RetrievalQuery(
-            text=query_text,
-            top_k=top_k,
-            filters=filters,
-        )
+@dataclass(slots=True)
+class AdvancedVectorSearchTool(BaseMcpTool):
+    """Vector search with explicit lane, filters, graph observation, and threshold."""
+
+    runtime: HarborRAG | None = None
+    spec = McpToolSpec(
+        "vector_search_advanced",
+        "Search tenant-scoped vectors with explicit retrieval controls.",
+        {
+            "type": "object",
+            "required": ["query", "tenant_id"],
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "tenant_id": TENANT_PROPERTY,
+                "top_k": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": _MAX_TOP_K,
+                    "default": _DEFAULT_TOP_K,
+                },
+                "lane": {
+                    "type": "string",
+                    "enum": [lane.value for lane in RetrievalLane],
+                    "default": RetrievalLane.HYBRID.value,
+                },
+                "filters": {
+                    "type": "object",
+                    "not": {"required": ["tenant_id"]},
+                    "default": {},
+                },
+                "observe_graph": {"type": "boolean", "default": False},
+                "score_threshold": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.0,
+                },
+            },
+            "additionalProperties": False,
+        },
+    )
+
+    async def call(
+        self,
+        arguments: dict[str, object],
+        *,
+        principal_id: str,
+    ) -> dict[str, object]:
         try:
-            results = self.pipeline.retrieve(retrieval_query)
-        except Exception:
-            return {"ok": False, "error": "vector_search backend failed to retrieve results"}
+            lane_value = text(
+                {"lane": arguments.get("lane", RetrievalLane.HYBRID.value)},
+                "lane",
+            )
+            lane = RetrievalLane(lane_value)
+            threshold = number(
+                arguments,
+                "score_threshold",
+                0.0,
+                minimum=0.0,
+                maximum=1.0,
+            )
+            request = RetrievalRequest(
+                access=access(arguments, principal_id),
+                query=text(arguments, "query"),
+                top_k=integer(
+                    arguments,
+                    "top_k",
+                    _DEFAULT_TOP_K,
+                    minimum=1,
+                    maximum=_MAX_TOP_K,
+                ),
+                filters=mapping(arguments, "filters"),
+                lane=lane,
+                observe_graph=boolean(arguments, "observe_graph", False),
+            )
+        except (HarborValidationError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return await _search(self.runtime, request, threshold=threshold)
 
-        results = [r for r in results if r.score >= score_threshold]
 
-        return {
-            "ok": True,
-            "query": query_text,
-            "top_k": top_k,
-            "score_threshold": score_threshold,
-            "results": [asdict(r) for r in results],
-        }
+async def _search(
+    runtime: HarborRAG | None,
+    request: RetrievalRequest,
+    *,
+    threshold: float = 0.0,
+) -> dict[str, object]:
+    if runtime is None:
+        return {"ok": False, "error": "vector retrieval backend is not configured"}
+    try:
+        response = await runtime.retrieval.search(request)
+    except Exception:
+        return {"ok": False, "error": "vector retrieval backend failed"}
+    return {
+        "ok": True,
+        "request_id": response.request_id,
+        "lane": response.lane.value,
+        "results": _results(response, threshold),
+        "diagnostics": response.diagnostics,
+    }

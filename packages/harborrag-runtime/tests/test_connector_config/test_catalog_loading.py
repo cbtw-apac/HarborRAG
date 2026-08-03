@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -9,13 +10,31 @@ from harborrag_runtime.config import load_connector_catalog
 from .conftest import REPO_ROOT, write_config
 
 
-def test_repository_example_is_valid_and_builds_enabled_local_connector() -> None:
-    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.example.yaml")
+def test_repository_example_is_valid_and_builds_enabled_local_connector(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="harborrag.runtime.config.connectors"):
+        catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.example.yaml")
 
-    assert catalog.names(enabled_only=True) == ["local-docs"]
-    assert catalog.names() == ["local-docs"]
+    assert catalog.names(enabled_only=True) == ["harborrag-workspace"]
+    assert catalog.names() == ["harborrag-workspace"]
     connectors = catalog.build_enabled(environment={"LOCAL_SOURCE_PATH": str(REPO_ROOT / "docs")})
-    assert list(connectors) == ["local-docs"]
+    assert list(connectors) == ["harborrag-workspace"]
+    assert "Connector catalog loaded" in caplog.text
+    assert "definitions=1 enabled=1" in caplog.text
+
+
+def test_repository_runtime_connections_match_the_public_api_contract() -> None:
+    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.yaml")
+
+    assert catalog.names() == [
+        "confluence-main",
+        "harborrag-workspace",
+        "jira-main",
+    ]
+    assert {name: catalog.get(name).provider for name in catalog.names()} == {
+        "confluence-main": "confluence",
+        "harborrag-workspace": "local",
+        "jira-main": "jira",
+    }
 
 
 def test_loads_named_connectors_and_builds_file_relative_local_source(

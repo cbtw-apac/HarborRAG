@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
 
-from harborrag_core.chunking import ChunkRecord, TableProjectionType
+from harborrag_core.chunking import (
+    ChunkRecord,
+    ConnectorType,
+    DocumentKind,
+    TableProjectionType,
+)
 from harborrag_core.domain import TableArtifact
 
 
@@ -70,21 +75,28 @@ class TableChunkingRequest:
     artifact: TableArtifact
     tenant_id: str
     connection_id: str
-    source_scope: str
-    page_title: str
-    space: str
+    source_scope_id: str
+    document_title: str
+    connector_type: ConnectorType
+    document_kind: DocumentKind
+    source_context: Mapping[str, str] = field(default_factory=dict)
     permissions: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         values = (
             self.tenant_id,
             self.connection_id,
-            self.source_scope,
-            self.page_title,
-            self.space,
+            self.source_scope_id,
+            self.document_title,
         )
         if any(not value.strip() for value in values):
             raise ValueError("table chunking request context must be non-empty")
+        context = {
+            str(key).strip(): str(value).strip() for key, value in self.source_context.items()
+        }
+        if any(not key or not value for key, value in context.items()):
+            raise ValueError("table source context values must be non-empty")
+        object.__setattr__(self, "source_context", MappingProxyType(context))
         object.__setattr__(self, "permissions", MappingProxyType(dict(self.permissions)))
 
 

@@ -4,7 +4,7 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageAuthorizationError,
     StorageErrorContext,
 )
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 
 def ensure_tenant(

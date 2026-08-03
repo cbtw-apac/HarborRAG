@@ -118,7 +118,9 @@ class CanonicalTableChunker:
             ),
             plan.table_policy.route_preview_rows,
         )
-        approximate_prefix = request.page_title + request.space
+        approximate_prefix = request.document_title + "".join(
+            value for _, value in sorted(request.source_context.items())
+        )
         if self._token_counter.count(f"{approximate_prefix}\n\n{evidence}") <= (
             plan.hard_maximum_tokens
         ):

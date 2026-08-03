@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Mapping
 from typing import Any
@@ -15,7 +16,7 @@ except ImportError:  # pragma: no cover - optional dependency
 class FalkorDBClient(AsyncLifecycle):
     """Owns the official asynchronous FalkorDB client and selected graph."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - mirrors provider connection configuration
         self,
         *,
         host: str,
@@ -41,6 +42,7 @@ class FalkorDBClient(AsyncLifecycle):
             "socket_timeout": operation_timeout_seconds,
         }
         self._graph_name = graph_name
+        self._operation_slots = asyncio.BoundedSemaphore(max_connections)
         self._database: Any = None
         self._graph: Any = None
 
@@ -85,12 +87,38 @@ class FalkorDBClient(AsyncLifecycle):
             self._graph = None
 
     async def ping(self) -> None:
-        await self.raw.list_graphs()
+        async with self._operation_slots:
+            await self.raw.list_graphs()
 
     async def write(self, statement: str, parameters: Mapping[str, Any]) -> Any:
         """Execute one parameterized FalkorDB write query."""
-        return await self.graph.query(statement, params=dict(parameters))
+        async with self._operation_slots:
+            return await self.graph.query(statement, params=dict(parameters))
 
     async def read(self, statement: str, parameters: Mapping[str, Any]) -> Any:
         """Execute one parameterized FalkorDB read-only query."""
-        return await self.graph.ro_query(statement, params=dict(parameters))
+        async with self._operation_slots:
+            return await self.graph.ro_query(statement, params=dict(parameters))
+
+    async def create_unique_node_constraint(
+        self,
+        *,
+        label: str,
+        properties: tuple[str, ...],
+    ) -> Any:
+        """Create a native FalkorDB unique-node constraint."""
+
+        if not label or not properties:
+            raise ValueError("constraint label and properties must be non-empty")
+        async with self._operation_slots:
+            return await self.raw.execute_command(
+                "GRAPH.CONSTRAINT",
+                "CREATE",
+                self._graph_name,
+                "UNIQUE",
+                "NODE",
+                label,
+                "PROPERTIES",
+                len(properties),
+                *properties,
+            )

@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from harborrag_adapters.connectors.atlassian.query import is_cloud_hostname as is_cloud_hostname
+
 
 def format_query_timestamp(value: datetime) -> str:
     """Render a datetime for CQL/JQL as UTC ``yyyy/MM/dd HH:mm``.
@@ -28,20 +30,12 @@ CONTENT_EXPAND = (
 )
 CLOUD_CONTENT_EXPAND = f"body.atlas_doc_format,{CONTENT_EXPAND}"
 LIGHT_EXPAND = "version,metadata.labels,space"
+DESCRIPTOR_EXPAND = "version,metadata.labels,history,space,ancestors,children.page"
 COMMENT_EXPAND = "body.storage,history"
 DEFAULT_PAGE_SIZE = 25
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _CONTENT_ID_RE = re.compile(r"^[0-9]+$")
-
-
-def is_cloud_hostname(base_url: str) -> bool:
-    """Return whether a base URL looks like Atlassian Cloud."""
-    try:
-        hostname = urlparse(str(base_url)).hostname
-    except ValueError:
-        return False
-    return bool(hostname and hostname.endswith(".atlassian.net"))
 
 
 def extract_cursor(next_url: str | None) -> str | None:

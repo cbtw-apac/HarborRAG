@@ -9,7 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import doctor, ingest, retrieve
+from harborrag_app.cli.commands import chat, doctor, ingest, retrieve
 from harborrag_app.cli.runner import CliState
 from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
 
@@ -58,6 +58,11 @@ app.add_typer(
     help="Submit, observe, and control ingestion runs.",
     rich_help_panel="Ingestion",
 )
+app.command(
+    "chat",
+    help="Generate a response with the configured chat model.",
+    rich_help_panel="Chat",
+)(chat.command)
 app.command(
     "retrieve",
     help="Search active Qdrant vectors with FalkorDB context expansion.",

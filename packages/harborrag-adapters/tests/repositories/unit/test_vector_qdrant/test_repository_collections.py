@@ -14,7 +14,7 @@ from harborrag_adapters.repositories.vector.qdrant import (
 )
 from harborrag_adapters.repositories.vector.qdrant.repository import QdrantVectorRepository
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import VectorCollectionSpec
+from harborrag_core.schemas.vector import VectorIndexSpec
 
 from .fakes import (
     Distance,
@@ -33,14 +33,14 @@ async def test_delete_collection_removes_only_the_tenant_scoped_physical_collect
         make_config(),
         client=FakeQdrantClient(raw),  # type: ignore[arg-type]
     )
-    context = StorageOperationContext(tenant_id="tenant-a")
-    other_context = StorageOperationContext(tenant_id="tenant-b")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    other_context = StorageOperationContext.system(tenant_id="tenant-b")
     key = repository._queries.spec_key("docs", context)
     other_key = repository._queries.spec_key("docs", other_context)
-    repository._specs[key] = VectorCollectionSpec(name="docs", dimension=3)
-    repository._specs[other_key] = VectorCollectionSpec(name="docs", dimension=3)
+    repository._specs[key] = VectorIndexSpec(index_name="docs", dimension=3)
+    repository._specs[other_key] = VectorIndexSpec(index_name="docs", dimension=3)
 
-    await repository.delete_collection("docs", context=context)
+    await repository.delete_index("docs", context=context)
 
     assert raw.delete_collection_calls == [repository._queries.collection_name("docs", context)]
     assert key not in repository._specs
@@ -51,11 +51,11 @@ async def test_delete_collection_removes_only_the_tenant_scoped_physical_collect
 async def test_ensure_collection_rejects_non_tenant_scoped_spec() -> None:
     raw = FakeRawQdrant()
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(name="docs", dimension=3, tenant_scoped=False)
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3, tenant_scoped=False)
 
     with pytest.raises(HarborStorageValidationError):
-        await repository.ensure_collection(spec, context=context)
+        await repository.ensure_index(spec, context=context)
 
 
 @pytest.mark.asyncio
@@ -67,16 +67,45 @@ async def test_ensure_collection_creates_new_collection_with_metadata_indexes(
     raw = ExtendedRawQdrant()
     raw.exists = False
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(name="docs", dimension=3, metadata_indexes=["source", "kind"])
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3, metadata_indexes=["source", "kind"])
 
-    await repository.ensure_collection(spec, context=context)
+    await repository.ensure_index(spec, context=context)
 
     assert raw.create_collection_calls[0]["collection_name"] == repository._queries.collection_name(
         "docs", context
     )
     assert len(raw.create_payload_index_calls) == 2
     assert repository._specs[repository._queries.spec_key("docs", context)] is spec
+
+
+@pytest.mark.asyncio
+async def test_ensure_collection_creates_named_dense_and_idf_sparse_lanes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
+    raw = ExtendedRawQdrant()
+    raw.exists = False
+    repository = QdrantVectorRepository(
+        make_config(),
+        client=FakeQdrantClient(raw),  # type: ignore[arg-type]
+    )
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(
+        index_name="docs",
+        dimension=3,
+        dense_vector_name="dense",
+        sparse_vector_name="sparse",
+        sparse_idf=True,
+    )
+
+    await repository.ensure_index(spec, context=context)
+
+    call = raw.create_collection_calls[0]
+    assert set(call["vectors_config"]) == {"dense"}
+    assert set(call["sparse_vectors_config"]) == {"sparse"}
+    assert call["sparse_vectors_config"]["sparse"].modifier is ExtendedModels.Modifier.IDF
 
 
 @pytest.mark.asyncio
@@ -98,10 +127,10 @@ async def test_ensure_collection_accepts_concurrent_creator_and_validates_schema
         make_config(),
         client=FakeQdrantClient(raw),  # type: ignore[arg-type]
     )
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(name="docs", dimension=3, metadata_indexes=["source"])
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3, metadata_indexes=["source"])
 
-    await repository.ensure_collection(spec, context=context)
+    await repository.ensure_index(spec, context=context)
 
     assert len(raw.create_collection_calls) == 1
     assert len(raw.create_payload_index_calls) == 1
@@ -109,7 +138,7 @@ async def test_ensure_collection_accepts_concurrent_creator_and_validates_schema
 
 
 @pytest.mark.asyncio
-async def test_ensure_collection_uses_boolean_index_for_active_lifecycle_field(
+async def test_ensure_collection_uses_keyword_indexes_for_projection_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
@@ -120,24 +149,24 @@ async def test_ensure_collection_uses_boolean_index_for_active_lifecycle_field(
         make_config(),
         client=FakeQdrantClient(raw),  # type: ignore[arg-type]
     )
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(
-        name="docs",
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(
+        index_name="docs",
         dimension=3,
-        metadata_indexes=["source", "is_active"],
+        metadata_indexes=["source", "record_kind"],
     )
 
-    await repository.ensure_collection(spec, context=context)
+    await repository.ensure_index(spec, context=context)
 
     schemas = {call["field_name"]: call["field_schema"] for call in raw.create_payload_index_calls}
     assert schemas == {
         "source": ExtendedModels.PayloadSchemaType.KEYWORD,
-        "is_active": ExtendedModels.PayloadSchemaType.BOOL,
+        "record_kind": ExtendedModels.PayloadSchemaType.KEYWORD,
     }
 
 
 @pytest.mark.asyncio
-async def test_ensure_collection_repairs_legacy_active_keyword_index(
+async def test_ensure_collection_repairs_mismatched_projection_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(repository_module, "qm", ExtendedModels)
@@ -145,26 +174,27 @@ async def test_ensure_collection_repairs_legacy_active_keyword_index(
     raw = ExtendedRawQdrant()
     raw.exists = True
     raw.existing_payload_schema = {
-        "is_active": SimpleNamespace(data_type=ExtendedModels.PayloadSchemaType.KEYWORD)
+        "record_kind": SimpleNamespace(data_type=ExtendedModels.PayloadSchemaType.BOOL)
     }
     repository = QdrantVectorRepository(
         make_config(),
         client=FakeQdrantClient(raw),  # type: ignore[arg-type]
     )
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(name="docs", dimension=3, metadata_indexes=["is_active"])
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3, metadata_indexes=["record_kind"])
 
-    await repository.ensure_collection(spec, context=context)
+    await repository.ensure_index(spec, context=context)
 
     assert raw.delete_payload_index_calls == [
         {
             "collection_name": repository._queries.collection_name("docs", context),
-            "field_name": "is_active",
+            "field_name": "record_kind",
             "wait": True,
         }
     ]
     assert (
-        raw.create_payload_index_calls[0]["field_schema"] is ExtendedModels.PayloadSchemaType.BOOL
+        raw.create_payload_index_calls[0]["field_schema"]
+        is ExtendedModels.PayloadSchemaType.KEYWORD
     )
 
 
@@ -180,10 +210,10 @@ async def test_ensure_collection_matches_existing_and_only_adds_missing_indexes(
     raw.existing_distance = Distance.COSINE
     raw.existing_payload_schema = {"source": object()}
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(name="docs", dimension=3, metadata_indexes=["source", "kind"])
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3, metadata_indexes=["source", "kind"])
 
-    await repository.ensure_collection(spec, context=context)
+    await repository.ensure_index(spec, context=context)
 
     assert raw.create_collection_calls == []
     assert len(raw.create_payload_index_calls) == 1
@@ -198,11 +228,11 @@ async def test_ensure_collection_raises_when_existing_dimension_mismatches() -> 
     raw.existing_dimension = 5
     raw.existing_distance = Distance.COSINE
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
-    context = StorageOperationContext(tenant_id="tenant-a")
-    spec = VectorCollectionSpec(name="docs", dimension=3)
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3)
 
     with pytest.raises(HarborStorageValidationError):
-        await repository.ensure_collection(spec, context=context)
+        await repository.ensure_index(spec, context=context)
 
 
 @pytest.mark.asyncio
@@ -210,9 +240,9 @@ async def test_collection_exists_delegates_to_database_client() -> None:
     raw = FakeRawQdrant()
     raw.exists = True
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
-    assert await repository.collection_exists("docs", context=context) is True
+    assert await repository.index_exists("docs", context=context) is True
 
 
 @pytest.mark.asyncio
@@ -220,12 +250,12 @@ async def test_delete_collection_when_absent_only_clears_cache() -> None:
     raw = FakeRawQdrant()
     raw.exists = False
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
-    context = StorageOperationContext(tenant_id="tenant-a")
-    repository._specs[repository._queries.spec_key("docs", context)] = VectorCollectionSpec(
-        name="docs", dimension=3
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    repository._specs[repository._queries.spec_key("docs", context)] = VectorIndexSpec(
+        index_name="docs", dimension=3
     )
 
-    await repository.delete_collection("docs", context=context)
+    await repository.delete_index("docs", context=context)
 
     assert raw.delete_collection_calls == []
     assert repository._queries.spec_key("docs", context) not in repository._specs

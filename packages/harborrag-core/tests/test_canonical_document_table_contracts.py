@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from harborrag_core.chunking import TableChunkLocator, TableProjectionType
 from harborrag_core.domain import (
-    CanonicalDocument,
     Document,
     DocumentBlock,
     DocumentBlockKind,
@@ -30,7 +29,7 @@ def test_canonical_document_is_the_existing_document_contract_with_additive_stru
         children=(paragraph,),
     )
 
-    document = CanonicalDocument(
+    document = Document(
         id="confluence://ENG/42",
         title="Guide",
         content=[],
@@ -41,7 +40,6 @@ def test_canonical_document_is_the_existing_document_contract_with_additive_stru
         warnings=("recoverable",),
     )
 
-    assert CanonicalDocument is Document
     assert document.blocks[0].ordered_child_block_ids == ("block:p",)
     assert document.raw is None
 

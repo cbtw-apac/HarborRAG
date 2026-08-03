@@ -3,6 +3,7 @@ from harborrag_runtime.config.connectors import (
     ConnectorCatalog,
     ConnectorConfigurationError,
     ConnectorDefinition,
+    connector_fingerprint,
     load_connector_catalog,
 )
 from harborrag_runtime.config.errors import ConfigurationError
@@ -36,6 +37,7 @@ __all__ = [
     "TemporalRuntimeConfig",
     "TemporalTLSConfig",
     "WorkerConfig",
+    "connector_fingerprint",
     "load_connector_catalog",
     "load_parser_catalog",
 ]

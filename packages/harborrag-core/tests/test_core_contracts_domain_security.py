@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from harborrag_core.contracts.errors import HarborError
+from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
-from harborrag_core.domain.normalized_document import Document, DocumentRelation
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.provider import Provider

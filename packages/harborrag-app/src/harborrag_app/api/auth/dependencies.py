@@ -62,7 +62,12 @@ def get_principal(
     """
     settings: ApiSettings = request.app.state.settings
     if settings.auth_mode == "none":
-        return Principal(subject="dev", role="owner", token_kind="none")
+        return Principal(
+            subject="dev",
+            role="owner",
+            tenant_ids=frozenset({"*"}),
+            token_kind="none",
+        )
     if credentials is None:
         raise HarborAuthError("missing bearer token")
     verifier: BaseTokenVerifier = request.app.state.token_verifier
@@ -81,3 +86,10 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
         return principal
 
     return dependency
+
+
+def authorize_tenant(principal: Principal, tenant_id: str) -> None:
+    """Reject cross-tenant access even when the caller has a high global role."""
+
+    if not principal.can_access_tenant(tenant_id):
+        raise HarborAuthError("tenant access is not permitted", forbidden=True)

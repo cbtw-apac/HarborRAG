@@ -13,7 +13,9 @@ from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
 from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.chunking import ConnectorType
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion import DocumentIdentityBuilder
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 
@@ -25,8 +27,8 @@ def test_load_reads_file_bytes_and_builds_metadata(tmp_path: Path):
 
     document = connector.load(record)
 
-    assert document.id == path.resolve().as_uri()
-    assert document.source == path.resolve().as_uri()
+    assert document.id == "docs/README.md"
+    assert document.source == "local:///docs/README.md"
     assert document.content == b"# Hello"
     assert document.content_type == guess_mime_type(path)
     assert document.metadata["source_system"] == "local"
@@ -34,6 +36,9 @@ def test_load_reads_file_bytes_and_builds_metadata(tmp_path: Path):
     assert document.metadata["record_id"] == "docs/README.md"
     assert document.metadata["title"] == "README.md"
     assert document.metadata["relative_path"] == "docs/README.md"
+    assert document.metadata["parent_relative_path"] == "docs"
+    assert "path" not in document.metadata
+    assert "parent_path" not in document.metadata
     assert len(document.metadata["checksum"]) == 64
     assert "mime_type" not in document.metadata
 
@@ -145,6 +150,27 @@ def test_load_by_paths_loads_each_file(tmp_path: Path):
     documents = list(connector.load_by_paths([path]))
 
     assert [d.content for d in documents] == [b"hello"]
+
+
+def test_moving_source_root_preserves_public_and_document_identity(tmp_path: Path) -> None:
+    first_path = write_file(tmp_path / "mount-a" / "docs" / "guide.md", b"guide")
+    second_path = write_file(tmp_path / "mount-b" / "docs" / "guide.md", b"guide")
+    first = next(LocalFileConnector(config(first_path.parents[1])).discover())
+    second = next(LocalFileConnector(config(second_path.parents[1])).discover())
+    identities = DocumentIdentityBuilder()
+
+    assert first.id == second.id == "docs/guide.md"
+    assert first.locator == second.locator == "docs/guide.md"
+    assert first.metadata["relative_path"] == second.metadata["relative_path"]
+    assert identities.document_id(
+        connector_type=ConnectorType.LOCAL,
+        connection_id="local-docs",
+        source_item_id=first.id,
+    ) == identities.document_id(
+        connector_type=ConnectorType.LOCAL,
+        connection_id="local-docs",
+        source_item_id=second.id,
+    )
 
 
 def test_process_file_callback_exception_swallowed_without_fail_on_error(

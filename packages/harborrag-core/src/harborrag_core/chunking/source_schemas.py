@@ -43,6 +43,10 @@ class SourceLocator(StrictModel):
         return self
 
 
+class CitationLocator(SourceLocator):
+    """Typed retrieval citation for one canonical chunk."""
+
+
 class ChunkSecurity(StrictModel):
     """Opaque permission identity without credentials or raw access-control entries."""
 

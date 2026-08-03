@@ -23,7 +23,7 @@ ROOT_LOGGER_NAME = "harborrag"
 LEVEL_ENV_VAR = "HARBORRAG_LOG_LEVEL"
 DEFAULT_LEVEL = "INFO"
 
-_LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(message)s"
+_LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(module)s.%(funcName)s:%(lineno)d %(message)s"
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 

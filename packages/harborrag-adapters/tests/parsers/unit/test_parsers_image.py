@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import sys
 from types import SimpleNamespace
 
@@ -45,3 +46,15 @@ def test_rapidocr_extracts_ordered_lines_and_reuses_engine(monkeypatch) -> None:
 def test_image_parser_rejects_unknown_ocr_engine() -> None:
     with pytest.raises(ValueError, match="Unsupported image OCR engine"):
         ImageParser(ocr_engine="unknown")
+
+
+def test_image_parser_treats_no_ocr_text_as_empty_success(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(ImageParser, "_extract_text", lambda *_args: None)
+
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.parsers.image"):
+        document = ImageParser().parse(ParseInput(content=_png_bytes(), filename="blank.png"))
+
+    assert document.content == ""
+    assert document.elements == []
+    assert "Parsed image OCR blank.png" in caplog.text
+    assert "content_chars=0 elements=0" in caplog.text

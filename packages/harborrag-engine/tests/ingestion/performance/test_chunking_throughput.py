@@ -49,4 +49,4 @@ def test_document_chunking_preserves_context_at_interactive_throughput() -> None
     assert result.diagnostics.source_units == paragraph_count
     assert result.manifest.total_chunk_count == len(result.chunks)
     assert all((chunk.token_count or 0) <= 700 for chunk in result.chunks)
-    assert all(chunk.context.structural_path for chunk in result.chunks)
+    assert all(chunk.hierarchy.section_path for chunk in result.chunks)

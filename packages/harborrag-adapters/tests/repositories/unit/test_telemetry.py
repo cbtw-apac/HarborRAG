@@ -22,7 +22,7 @@ from harborrag_core.schemas.telemetry import (
 
 
 def make_context(tenant: str = "tenant-a") -> StorageOperationContext:
-    return StorageOperationContext(tenant_id=tenant)
+    return StorageOperationContext.system(tenant_id=tenant)
 
 
 def make_started(operation: str = "op") -> StorageOperationStarted:

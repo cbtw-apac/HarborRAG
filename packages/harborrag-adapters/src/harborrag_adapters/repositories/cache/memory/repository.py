@@ -11,7 +11,7 @@ from harborrag_adapters.repositories.cache.base import (
 from harborrag_adapters.repositories.cache.memory.state import MemoryCacheState
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 from harborrag_core.schemas.cache import CacheEntry
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 
 class MemoryCacheRepository(HarborCacheStore):

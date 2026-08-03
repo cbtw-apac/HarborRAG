@@ -20,7 +20,7 @@ from harborrag_adapters.repositories.telemetry import (
 )
 from harborrag_core.schemas.ids import WorkflowId
 from harborrag_core.schemas.state import WorkflowState
-from harborrag_core.schemas.storage import (
+from harborrag_core.storage import (
     StorageOperationContext,
 )
 

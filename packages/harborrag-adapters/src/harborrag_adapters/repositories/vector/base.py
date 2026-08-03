@@ -4,16 +4,17 @@ from abc import abstractmethod
 from collections.abc import Sequence
 
 from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
-from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import (
+from harborrag_core.indexing import (
     HybridSearchQuery,
-    VectorCollectionSpec,
-    VectorPoint,
-    VectorScanPage,
+    SparseSearchQuery,
+    VectorIndexRecord,
+    VectorIndexScanPage,
+    VectorIndexSpec,
     VectorSearchQuery,
     VectorSearchResult,
     VectorStoreCapabilities,
 )
+from harborrag_core.storage import StorageOperationContext
 
 
 class HarborVectorRepository(RepositoryLifecycle):
@@ -25,16 +26,16 @@ class HarborVectorRepository(RepositoryLifecycle):
         """Return features supported by the selected vector backend."""
 
     @abstractmethod
-    async def ensure_collection(
+    async def ensure_index(
         self,
-        spec: VectorCollectionSpec,
+        spec: VectorIndexSpec,
         *,
         context: StorageOperationContext,
     ) -> None:
         """Create or validate a collection through an idempotent operation."""
 
     @abstractmethod
-    async def collection_exists(
+    async def index_exists(
         self,
         name: str,
         *,
@@ -43,7 +44,7 @@ class HarborVectorRepository(RepositoryLifecycle):
         """Return whether a tenant-scoped collection exists."""
 
     @abstractmethod
-    async def delete_collection(
+    async def delete_index(
         self,
         name: str,
         *,
@@ -52,29 +53,29 @@ class HarborVectorRepository(RepositoryLifecycle):
         """Delete a tenant-scoped collection."""
 
     @abstractmethod
-    async def upsert(
+    async def upsert_records(
         self,
-        collection: str,
-        points: Sequence[VectorPoint],
+        index_name: str,
+        records: Sequence[VectorIndexRecord],
         *,
         context: StorageOperationContext,
     ) -> None:
         """Insert or replace already-generated vector points."""
 
     @abstractmethod
-    async def get(
+    async def get_records(
         self,
-        collection: str,
+        index_name: str,
         ids: Sequence[str],
         *,
         context: StorageOperationContext,
-    ) -> list[VectorPoint]:
+    ) -> list[VectorIndexRecord]:
         """Load vector points by stable HarborRAG identifiers."""
 
     @abstractmethod
-    async def delete(
+    async def delete_records(
         self,
-        collection: str,
+        index_name: str,
         ids: Sequence[str],
         *,
         context: StorageOperationContext,
@@ -82,14 +83,14 @@ class HarborVectorRepository(RepositoryLifecycle):
         """Delete vector points by stable HarborRAG identifiers."""
 
     @abstractmethod
-    async def scan(
+    async def scan_records(
         self,
-        collection: str,
+        index_name: str,
         *,
         limit: int,
         cursor: str | None,
         context: StorageOperationContext,
-    ) -> VectorScanPage:
+    ) -> VectorIndexScanPage:
         """Scan vector points with a provider-independent cursor."""
 
     @abstractmethod
@@ -100,6 +101,15 @@ class HarborVectorRepository(RepositoryLifecycle):
         context: StorageOperationContext,
     ) -> list[VectorSearchResult]:
         """Execute normalized dense similarity search."""
+
+    @abstractmethod
+    async def sparse_search(
+        self,
+        query: SparseSearchQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> list[VectorSearchResult]:
+        """Execute normalized sparse similarity search."""
 
     @abstractmethod
     async def hybrid_search(

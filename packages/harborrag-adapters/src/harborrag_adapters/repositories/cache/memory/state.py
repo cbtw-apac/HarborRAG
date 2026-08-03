@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from harborrag_adapters.repositories.policies.key_encoding import escape_key_part
 from harborrag_adapters.repositories.telemetry import RepositoryTelemetry
 from harborrag_core.schemas.cache import CacheEntry, LockHandle
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 
 @dataclass(slots=True)

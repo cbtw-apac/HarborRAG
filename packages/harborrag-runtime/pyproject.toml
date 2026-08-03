@@ -1,7 +1,7 @@
 [project]
 name = "harborrag-runtime"
 version = "0.1.0"
-description = "Production composition and durable Temporal ingestion workflows for HarborRAG."
+description = "Direct and durable production execution for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
@@ -11,13 +11,17 @@ dependencies = [
     "PyYAML>=6.0.0",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
-    "temporalio>=1.30,<2",
-    "cloudpickle>=3.1,<4",
+    "opentelemetry-api>=1.43,<2",
+    "prometheus-client>=0.19,<1",
 ]
 
 [project.optional-dependencies]
+temporal = [
+    "temporalio>=1.30,<2",
+    "cloudpickle>=3.1,<4",
+]
 production = [
-    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,postgres,qdrant]==0.1.0",
+    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]==0.1.0",
 ]
 dev = [
     "types-PyYAML>=6.0,<7",

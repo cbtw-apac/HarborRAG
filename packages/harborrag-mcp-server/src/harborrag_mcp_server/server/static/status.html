@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HarborRAG MCP</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: #07111f; color: #dbeafe; }
+    main { width: min(980px, calc(100% - 40px)); padding: 36px; border: 1px solid #1e3a5f;
+      border-radius: 18px; background: #0b1728; box-shadow: 0 24px 70px #0008; }
+    .status { display: inline-flex; gap: 8px; align-items: center; color: #86efac; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; }
+    h1 { margin: 12px 0 8px; color: #f8fafc; font-size: clamp(2rem, 7vw, 3.6rem); }
+    p { color: #9fb3ca; line-height: 1.65; }
+    .endpoint { margin: 24px 0; padding: 16px; border-radius: 10px; background: #07111f; }
+    code { color: #7dd3fc; }
+    ul { columns: 2; padding-left: 22px; line-height: 1.9; }
+    label { display: block; margin: 18px 0 6px; color: #bfd3e7; }
+    input, textarea, select { box-sizing: border-box; width: 100%; border: 1px solid #274867;
+      border-radius: 8px; padding: 11px; background: #07111f; color: #dbeafe; }
+    textarea { min-height: 320px; resize: vertical; font: 13px/1.5 ui-monospace, monospace; }
+    textarea.compact { min-height: 96px; }
+    button { margin: 12px 8px 0 0; border: 0; border-radius: 8px; padding: 10px 15px;
+      background: #0284c7; color: white; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .6; }
+    button.secondary { background: #334155; }
+    section { margin-top: 30px; padding-top: 22px; border-top: 1px solid #1e3a5f; }
+    .field { margin-top: 14px; }
+    .field label { margin: 0 0 6px; }
+    .required { color: #fca5a5; }
+    pre { max-height: 440px; overflow: auto; padding: 16px; border-radius: 10px;
+      background: #07111f; color: #bfdbfe; white-space: pre-wrap; overflow-wrap: anywhere; }
+    #message, #tool-message { min-height: 24px; color: #86efac; }
+    small { color: #6f879f; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="status"><span class="dot"></span>HTTP transport ready</div>
+    <h1>HarborRAG MCP</h1>
+    <p>An authenticated Streamable HTTP endpoint for tenant-scoped vector and graph retrieval.</p>
+    <div class="endpoint">MCP endpoint: <code>__MCP_ENDPOINT__</code><br>Health: <code>/healthz</code></div>
+    <h2>Available tools</h2>
+    <ul>__MCP_TOOLS__</ul>
+    <section>
+    <h2>Owner access</h2>
+    <label for="token">Bearer token</label>
+    <input id="token" type="password" autocomplete="off" placeholder="HARBORRAG_MCP_BEARER_TOKEN">
+    <small>The token is kept only in this page's memory and is never persisted by the browser.</small>
+    </section>
+    <section>
+    <h2>Tool Playground</h2>
+    <p>Load the effective tool catalog for a tenant, complete the generated arguments, and execute through the same policy and audit path used by MCP clients.</p>
+    <label for="tenant">Tenant ID</label>
+    <input id="tenant" autocomplete="off" placeholder="DEFAULT">
+    <button id="load-tools">Load tools</button>
+    <label for="tool">Tool</label>
+    <select id="tool" disabled><option value="">Load tools first</option></select>
+    <p id="tool-description"></p>
+    <div id="tool-form"></div>
+    <button id="run-tool" disabled>Run tool</button>
+    <p id="tool-message" role="status"></p>
+    <label for="tool-output">Result</label>
+    <pre id="tool-output">No tool has been run.</pre>
+    </section>
+    <section>
+    <h2>Owner configuration</h2>
+    <p>Load and edit the validated JSON representation. Successful saves are persisted atomically to YAML.</p>
+    <label for="configuration">Configuration</label>
+    <textarea id="configuration" spellcheck="false" placeholder="Load configuration first"></textarea>
+    <button id="load">Load</button><button id="save">Save</button>
+    <button id="reload" class="secondary">Reload YAML</button>
+    <p id="message" role="status"></p>
+    </section>
+    <small>Clients and this UI must send <code>Authorization: Bearer &lt;token&gt;</code>.</small>
+  </main>
+  <script nonce="__MCP_NONCE__">
+    const token = document.querySelector('#token');
+    const editor = document.querySelector('#configuration');
+    const message = document.querySelector('#message');
+    const tenant = document.querySelector('#tenant');
+    const toolSelect = document.querySelector('#tool');
+    const toolDescription = document.querySelector('#tool-description');
+    const toolForm = document.querySelector('#tool-form');
+    const toolMessage = document.querySelector('#tool-message');
+    const toolOutput = document.querySelector('#tool-output');
+    const runTool = document.querySelector('#run-tool');
+    let revision = null;
+    let toolCatalog = [];
+    const headers = () => ({'Authorization': `Bearer ${token.value}`, 'Content-Type': 'application/json'});
+    const show = (value, failed = false) => { message.textContent = value; message.style.color = failed ? '#fca5a5' : '#86efac'; };
+    const showTool = (value, failed = false) => { toolMessage.textContent = value; toolMessage.style.color = failed ? '#fca5a5' : '#86efac'; };
+    async function responseJson(response) {
+      let body;
+      try { body = await response.json(); } catch (error) { throw new Error(`Invalid server response (${response.status})`); }
+      if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+      return body;
+    }
+    async function readResponse(response) {
+      const body = await responseJson(response);
+      revision = body.revision;
+      editor.value = JSON.stringify(body.configuration, null, 2);
+      show(body.restart_required ? 'Saved. Restart required to refresh advertised schemas.' : 'Configuration is active.');
+    }
+    function appendOption(select, value, label) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      select.append(option);
+    }
+    function renderToolForm() {
+      toolForm.replaceChildren();
+      const tool = toolCatalog.find(item => item.name === toolSelect.value);
+      toolDescription.textContent = tool ? tool.description : '';
+      runTool.disabled = !tool;
+      if (!tool) return;
+      const schema = tool.input_schema || {};
+      const required = new Set(schema.required || []);
+      for (const [name, property] of Object.entries(schema.properties || {})) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'field';
+        const label = document.createElement('label');
+        label.htmlFor = `argument-${name}`;
+        label.textContent = name;
+        if (required.has(name)) {
+          const marker = document.createElement('span');
+          marker.className = 'required';
+          marker.textContent = ' *';
+          label.append(marker);
+        }
+        let control;
+        if (Array.isArray(property.enum)) {
+          control = document.createElement('select');
+          if (!required.has(name) && property.default === undefined) appendOption(control, '', 'Not set');
+          for (const value of property.enum) appendOption(control, String(value), String(value));
+        } else if (property.type === 'boolean') {
+          control = document.createElement('select');
+          if (!required.has(name) && property.default === undefined) appendOption(control, '', 'Not set');
+          appendOption(control, 'true', 'true');
+          appendOption(control, 'false', 'false');
+        } else if (property.type === 'object' || property.type === 'array') {
+          control = document.createElement('textarea');
+          control.className = 'compact';
+          control.spellcheck = false;
+        } else {
+          control = document.createElement('input');
+          control.type = property.type === 'integer' || property.type === 'number' ? 'number' : 'text';
+          if (property.type === 'integer') control.step = '1';
+          if (property.type === 'number') control.step = 'any';
+          if (property.minimum !== undefined) control.min = String(property.minimum);
+          if (property.maximum !== undefined) control.max = String(property.maximum);
+          if (property.minLength !== undefined) control.minLength = property.minLength;
+        }
+        control.id = `argument-${name}`;
+        control.dataset.name = name;
+        control.dataset.type = property.type || 'string';
+        control.dataset.required = required.has(name) ? 'true' : 'false';
+        let defaultValue = property.default;
+        if (name === 'tenant_id' && tenant.value.trim()) defaultValue = tenant.value.trim();
+        if (defaultValue !== undefined) {
+          control.value = property.type === 'object' || property.type === 'array'
+            ? JSON.stringify(defaultValue, null, 2) : String(defaultValue);
+        }
+        wrapper.append(label, control);
+        const constraints = [];
+        if (property.minimum !== undefined) constraints.push(`min ${property.minimum}`);
+        if (property.maximum !== undefined) constraints.push(`max ${property.maximum}`);
+        if (constraints.length) {
+          const help = document.createElement('small');
+          help.textContent = constraints.join(', ');
+          wrapper.append(help);
+        }
+        toolForm.append(wrapper);
+      }
+    }
+    function collectArguments() {
+      const argumentsValue = {};
+      for (const control of toolForm.querySelectorAll('[data-name]')) {
+        const name = control.dataset.name;
+        const type = control.dataset.type;
+        const raw = control.value.trim();
+        if (!raw && control.dataset.required !== 'true') continue;
+        if (!raw) throw new Error(`${name} is required`);
+        if (type === 'integer' || type === 'number') {
+          const value = Number(raw);
+          if (!Number.isFinite(value) || (type === 'integer' && !Number.isInteger(value)))
+            throw new Error(`${name} must be a valid ${type}`);
+          argumentsValue[name] = value;
+        } else if (type === 'boolean') {
+          argumentsValue[name] = raw === 'true';
+        } else if (type === 'object' || type === 'array') {
+          const value = JSON.parse(raw);
+          if (type === 'array' && !Array.isArray(value)) throw new Error(`${name} must be a JSON array`);
+          if (type === 'object' && (value === null || Array.isArray(value) || typeof value !== 'object'))
+            throw new Error(`${name} must be a JSON object`);
+          argumentsValue[name] = value;
+        } else {
+          argumentsValue[name] = raw;
+        }
+      }
+      return argumentsValue;
+    }
+    document.querySelector('#load-tools').addEventListener('click', async () => {
+      try {
+        const query = tenant.value.trim() ? `?${new URLSearchParams({tenant_id: tenant.value.trim()})}` : '';
+        const body = await responseJson(await fetch(`/api/tools${query}`, {headers: headers()}));
+        toolCatalog = body.tools;
+        toolSelect.replaceChildren();
+        if (!toolCatalog.length) appendOption(toolSelect, '', 'No tools enabled');
+        for (const tool of toolCatalog) appendOption(toolSelect, tool.name, tool.name);
+        toolSelect.disabled = !toolCatalog.length;
+        renderToolForm();
+        showTool(`Loaded ${toolCatalog.length} tool(s).`);
+      } catch (error) { showTool(error.message, true); }
+    });
+    toolSelect.addEventListener('change', renderToolForm);
+    runTool.addEventListener('click', async () => {
+      runTool.disabled = true;
+      toolOutput.textContent = 'Running...';
+      try {
+        const body = await responseJson(await fetch('/api/tools/call', {
+          method: 'POST', headers: headers(),
+          body: JSON.stringify({name: toolSelect.value, arguments: collectArguments()})
+        }));
+        toolOutput.textContent = JSON.stringify(body.result, null, 2);
+        const failed = body.result && body.result.ok === false;
+        showTool(failed ? (body.result.error || 'Tool returned an error.') : 'Tool completed.', failed);
+      } catch (error) {
+        toolOutput.textContent = error.message;
+        showTool(error.message, true);
+      } finally {
+        runTool.disabled = !toolSelect.value;
+      }
+    });
+    document.querySelector('#load').addEventListener('click', async () => {
+      try { await readResponse(await fetch('/api/config', {headers: headers()})); } catch (error) { show(error.message, true); }
+    });
+    document.querySelector('#save').addEventListener('click', async () => {
+      try {
+        const configuration = JSON.parse(editor.value);
+        await readResponse(await fetch('/api/config', {method: 'PUT', headers: headers(), body: JSON.stringify({configuration, expected_revision: revision})}));
+      } catch (error) { show(error.message, true); }
+    });
+    document.querySelector('#reload').addEventListener('click', async () => {
+      try { await readResponse(await fetch('/api/config/reload', {method: 'POST', headers: headers()})); } catch (error) { show(error.message, true); }
+    });
+  </script>
+</body>
+</html>

@@ -8,6 +8,9 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
 
 from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
@@ -18,17 +21,22 @@ from harborrag_adapters.repositories.database.control_plane.jobs import (
     SqlJobRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import (
+    _build_config,
     run_migrations,
 )
 from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
     SqlSourceRepository,
 )
+from harborrag_adapters.repositories.database.control_plane.schemas import Base
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_adapters.repositories.database.control_plane.workspace import (
     SqlMemberRepository,
     SqlProviderRepository,
     SqlSettingsRepository,
+)
+from harborrag_adapters.repositories.database.ingestion_control.schema import (
+    METADATA as INGESTION_METADATA,
 )
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
@@ -54,7 +62,27 @@ EXPECTED_TABLES = {
     "workspace_settings",
     "members",
     "mcp_query_log",
+    "source_scopes",
+    "source_scans",
+    "source_items",
+    "documents",
+    "document_versions",
+    "ingestion_tasks",
+    "task_document_results",
+    "document_failures",
+    "projection_manifests",
+    "projection_cleanup_jobs",
+    "reindex_jobs",
 }
+
+
+@pytest.mark.whitebox
+def test_migration_config_preserves_percent_encoded_credentials() -> None:
+    dsn = "postgresql+asyncpg://harbor:p%40ss%25word@db:5432/harbor"
+
+    config = _build_config(dsn)
+
+    assert config.get_main_option("sqlalchemy.url") == dsn
 
 
 @pytest_asyncio.fixture
@@ -88,7 +116,7 @@ async def test_in_memory_engine_keeps_data_alive_across_connections() -> None:
 
 @pytest.mark.whitebox
 def test_migrations_create_all_tables_and_are_idempotent(tmp_path: Path) -> None:
-    """0001 creates the 12 plan §6 tables; a second run is a no-op."""
+    """Migrations create both control planes; a second run is a no-op."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
     run_migrations(dsn)  # idempotent: upgrade head twice must not fail
@@ -97,6 +125,76 @@ def test_migrations_create_all_tables_and_are_idempotent(tmp_path: Path) -> None
     sync_engine.dispose()
     assert EXPECTED_TABLES <= tables
     assert "alembic_version" in tables
+
+
+@pytest.mark.whitebox
+def test_migration_baseline_matches_current_metadata(tmp_path: Path) -> None:
+    """The squashed baseline must not drift from either database metadata tree."""
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        with sync_engine.connect() as connection:
+            context = MigrationContext.configure(connection)
+            differences = compare_metadata(
+                context,
+                [Base.metadata, INGESTION_METADATA],
+            )
+    finally:
+        sync_engine.dispose()
+    assert differences == []
+
+
+@pytest.mark.whitebox
+def test_legacy_0007_database_upgrades_to_authoritative_tenancy(
+    tmp_path: Path,
+) -> None:
+    """The squashed baseline must retain a working upgrade path from 0007."""
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    config = _build_config(dsn)
+    command.downgrade(config, "0007")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        inspector = sa.inspect(sync_engine)
+        for table_name in ("source_scopes", "documents", "ingestion_tasks"):
+            assert "tenant_id" not in {
+                column["name"] for column in inspector.get_columns(table_name)
+            }
+    finally:
+        sync_engine.dispose()
+
+    command.upgrade(config, "head")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        inspector = sa.inspect(sync_engine)
+        for table_name in ("source_scopes", "documents", "ingestion_tasks"):
+            tenant = next(
+                column
+                for column in inspector.get_columns(table_name)
+                if column["name"] == "tenant_id"
+            )
+            assert tenant["nullable"] is False
+    finally:
+        sync_engine.dispose()
+
+
+@pytest.mark.whitebox
+def test_consolidated_baseline_downgrades_cleanly(tmp_path: Path) -> None:
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+
+    command.downgrade(_build_config(dsn), "base")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        assert set(sa.inspect(sync_engine).get_table_names()) <= {"alembic_version"}
+    finally:
+        sync_engine.dispose()
 
 
 @pytest.mark.asyncio

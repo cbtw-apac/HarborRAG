@@ -23,22 +23,24 @@ COPY packages/harborrag-runtime/src/harborrag_runtime/__init__.py ./packages/har
 COPY packages/harborrag-app/pyproject.toml packages/harborrag-app/README.md ./packages/harborrag-app/
 COPY packages/harborrag-app/src/harborrag_app/__init__.py ./packages/harborrag-app/src/harborrag_app/
 
-RUN uv export --quiet --frozen --package harborrag-app --extra api \
+RUN uv export --quiet --frozen --package harborrag-app \
+        --extra api --extra production \
         --no-dev --no-hashes --no-emit-workspace \
         --output-file /tmp/harborrag-lock.txt \
     && uv export --quiet --frozen --package harborrag-adapters \
-        --extra control-plane --extra postgres \
+        --extra control-plane --extra falkordb --extra llm \
+        --extra postgres --extra qdrant --extra s3 \
         --no-dev --no-hashes --no-emit-workspace \
-        --output-file /tmp/harborrag-control-plane-lock.txt \
+        --output-file /tmp/harborrag-retrieval-lock.txt \
     && uv pip install --system \
         --constraint /tmp/harborrag-lock.txt \
-        --constraint /tmp/harborrag-control-plane-lock.txt \
+        --constraint /tmp/harborrag-retrieval-lock.txt \
         -e packages/harborrag-core \
-        -e 'packages/harborrag-adapters[control-plane,postgres]' \
+        -e 'packages/harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]' \
         -e packages/harborrag-engine \
-        -e packages/harborrag-runtime \
-        -e 'packages/harborrag-app[api]' \
-    && rm -f /tmp/harborrag-lock.txt /tmp/harborrag-control-plane-lock.txt \
+        -e 'packages/harborrag-runtime[temporal]' \
+        -e 'packages/harborrag-app[api,production]' \
+    && rm -f /tmp/harborrag-lock.txt /tmp/harborrag-retrieval-lock.txt \
     && groupadd --gid 10001 harborrag \
     && useradd --uid 10001 --gid harborrag --no-log-init \
         --home-dir /var/lib/harborrag --create-home \
@@ -59,4 +61,5 @@ USER harborrag
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"HARBORRAG_PORT\"]}/api/v1/health', timeout=3).close()"
 
+STOPSIGNAL SIGTERM
 CMD ["sh", "-c", "exec uvicorn harborrag_app.api.app:create_fastapi_app --factory --host \"$HARBORRAG_HOST\" --port \"$HARBORRAG_PORT\""]

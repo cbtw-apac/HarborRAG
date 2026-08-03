@@ -34,12 +34,13 @@ forbidden_modules =
     harborrag_runtime
 
 [importlinter:contract:3]
-name = Engine never depends on transports
+name = Engine depends only on core
 type = forbidden
 source_modules =
     harborrag_engine
 forbidden_modules =
     harborrag
+    harborrag_adapters
     harborrag_app
     harborrag_mcp_server
     harborrag_runtime

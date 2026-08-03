@@ -12,7 +12,7 @@ from harborrag_adapters.repositories.cache.redis.store import (
 from harborrag_adapters.repositories.telemetry import RepositoryTelemetry
 from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 
-CONTEXT_V2 = StorageOperationContext(tenant_id="tenant-a")
+CONTEXT_V2 = StorageOperationContext.system(tenant_id="tenant-a")
 
 
 class FakePipeline:

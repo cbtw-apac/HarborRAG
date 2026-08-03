@@ -60,6 +60,18 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
             ),
         )
 
+        # A zero-byte spreadsheet carries no rows, just like a zero-byte CSV.
+        # Treat it as an empty successful extraction rather than handing it to
+        # openpyxl/xlrd, which report a container-format failure.
+        if not source_bytes:
+            return ParsedDocument(
+                content="",
+                elements=[],
+                parser_name=self.parser_name,
+                parser_version=self.parser_version,
+                metadata=self.metadata_for(parse_input, sheets=[]),
+            )
+
         if parse_input_suffix(parse_input) == ".xls":
             content, elements, sheet_names = self._parse_xls(parse_input, source_bytes)
         else:

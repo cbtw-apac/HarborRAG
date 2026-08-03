@@ -1,8 +1,7 @@
-from harborrag_core.chunking import ChunkContext, ChunkRecord, ChunkSourceSpan
+from harborrag_core.chunking import ChunkRecord
 
-from .canonical import ContainerBlock, DocumentBlock, DocumentBlockKind
+from .document import Document, DocumentBlock, DocumentBlockKind, DocumentRelation
 from .element import DocumentElement
-from .normalized_document import CanonicalDocument, Document, DocumentRelation
 from .parser import ParsedDocument, ParseInput, ParserFormat
 from .provenance import DocumentProvenance
 from .raw_document import RawDocument
@@ -19,11 +18,7 @@ from .table import (
 )
 
 __all__ = [
-    "CanonicalDocument",
-    "ChunkContext",
     "ChunkRecord",
-    "ChunkSourceSpan",
-    "ContainerBlock",
     "Document",
     "DocumentBlock",
     "DocumentBlockKind",

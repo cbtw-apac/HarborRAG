@@ -12,12 +12,14 @@ from harborrag_core.chunking import (
     ChunkSecurity,
     ConnectorType,
     DocumentKind,
+    RecordKind,
 )
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.schemas.ids import ChunkId
-from harborrag_engine.ingestion import HarborChunker
+from harborrag_engine.ingestion import BaseChunker
 from harborrag_engine.ingestion.chunking import (
     ChunkIdentityBuilder,
+    ChunkIdentityInput,
     ChunkingDiagnostics,
     ChunkingPlan,
     ChunkingResult,
@@ -32,7 +34,7 @@ from harborrag_engine.ingestion.chunking.identity import content_fingerprint
 from .chunking_helpers import make_document, make_request
 
 
-class FakeCanonicalChunker(HarborChunker):
+class FakeCanonicalChunker(BaseChunker):
     """Minimal contract proof with no adapter, connector, or storage dependency."""
 
     def __init__(self) -> None:
@@ -42,14 +44,16 @@ class FakeCanonicalChunker(HarborChunker):
         content = request.document.content[0].content or ""
         content_hash = content_fingerprint(content)
         identity = self._identity.identify(
-            document_id=request.document.id,
-            document_version_id=request.artifact_revision_id,
-            strategy_version=plan.strategy_version,
-            section_path=("Body",),
-            structural_anchor=request.document.content[0].id,
-            local_part_index=0,
-            chunk_kind=ChunkKind.EVIDENCE,
-            content_hash=content_hash,
+            ChunkIdentityInput(
+                document_id=request.document.id,
+                document_version_id=request.document_version_id,
+                strategy_version=plan.strategy_version,
+                section_path=("Body",),
+                structural_anchor=request.document.content[0].id,
+                local_part_index=0,
+                chunk_kind=ChunkKind.TEXT,
+                content_hash=content_hash,
+            )
         )
         record = ChunkRecord(
             strategy_version=plan.strategy_version,
@@ -58,17 +62,17 @@ class FakeCanonicalChunker(HarborChunker):
             content_hash=content_hash,
             connector_type=ConnectorType.LOCAL,
             document_kind=DocumentKind.LOCAL_FILE,
-            chunk_kind=ChunkKind.EVIDENCE,
+            record_kind=RecordKind.EVIDENCE,
+            chunk_kind=ChunkKind.TEXT,
             tenant_id=request.tenant_id,
             connection_id="fake",
-            source_scope=request.tenant_id,
-            source_item_id=request.artifact_id,
-            source_version=request.artifact_revision_id,
+            source_scope_id=request.tenant_id,
+            source_item_id=request.document.id,
+            source_version=request.document_version_id,
             document_id=request.document.id,
-            document_version_id=request.artifact_revision_id,
+            document_version_id=request.document_version_id,
             ordinal=0,
             content=content,
-            contextual_prefix="Document: Contract",
             embedding_text=f"Document: Contract\n\n{content}",
             search_text=f"{request.document.id}\n{content}",
             token_count=len(content),
@@ -80,7 +84,7 @@ class FakeCanonicalChunker(HarborChunker):
         )
         reference = ChunkReference(
             logical_chunk_id=str(record.logical_chunk_id),
-            chunk_revision_id=str(record.chunk_id),
+            chunk_id=str(record.chunk_id),
             ordinal=0,
             content_hash=record.content_hash,
             token_count=record.token_count,
@@ -88,8 +92,8 @@ class FakeCanonicalChunker(HarborChunker):
         validation = ChunkValidationResult(valid=True)
         manifest = ChunkManifest(
             tenant_id=request.tenant_id,
-            artifact_id=request.artifact_id,
-            artifact_revision_id=request.artifact_revision_id,
+            document_id=request.document.id,
+            document_version_id=request.document_version_id,
             chunker_name="fake",
             chunker_version=plan.strategy_version,
             configuration_hash="chunk-config:fake",
@@ -100,8 +104,8 @@ class FakeCanonicalChunker(HarborChunker):
             fingerprint="chunk-manifest:fake",
         )
         return ChunkingResult(
-            artifact_id=request.artifact_id,
-            artifact_revision_id=request.artifact_revision_id,
+            document_id=request.document.id,
+            document_version_id=request.document_version_id,
             strategy="fake",
             profile=plan.profile,
             profile_hash=manifest.configuration_hash,
@@ -144,7 +148,6 @@ def test_chunking_plan_defaults_and_normalizes_identifiers() -> None:
     assert plan.profile == "contract"
     assert plan.strategy_version == "strategy-1"
     assert plan.create_evidence_chunks
-    assert plan.boundary_overlap_sentences == 0
 
 
 @pytest.mark.parametrize(
@@ -156,7 +159,6 @@ def test_chunking_plan_defaults_and_normalizes_identifiers() -> None:
         {"minimum_tokens": 3, "target_tokens": 2},
         {"target_tokens": 4, "soft_maximum_tokens": 3},
         {"soft_maximum_tokens": 5, "hard_maximum_tokens": 4},
-        {"boundary_overlap_sentences": -1},
     ),
 )
 def test_chunking_plan_rejects_invalid_values(invalid_values: dict[str, object]) -> None:
@@ -179,14 +181,14 @@ def test_fake_chunker_proves_canonical_contract_and_result_shape() -> None:
         soft_maximum_tokens=9,
         hard_maximum_tokens=10,
     )
-    chunker: HarborChunker = FakeCanonicalChunker()
+    chunker: BaseChunker = FakeCanonicalChunker()
 
     first = chunker.chunk(request, plan)
     repeated = chunker.chunk(request, plan)
 
     assert first == repeated
     assert first.document_id == request.document.id
-    assert first.document_version_id == request.artifact_revision_id
+    assert first.document_version_id == request.document_version_id
     assert first.strategy_version == "strategy-7"
     assert first.warnings == ()
     assert first.statistics == ChunkingStatistics(0, 1, 0, len("contract"), 0)

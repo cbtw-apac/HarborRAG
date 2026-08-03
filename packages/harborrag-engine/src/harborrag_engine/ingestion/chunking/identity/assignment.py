@@ -17,11 +17,19 @@ class ChunkIdentity:
     logical_chunk_id: str
     chunk_id: str
 
-    @property
-    def chunk_revision_id(self) -> str:
-        """Compatibility access for the former exact chunk identity name."""
 
-        return self.chunk_id
+@dataclass(frozen=True, slots=True)
+class ChunkIdentityInput:
+    """Typed inputs that determine one logical and immutable chunk identity."""
+
+    document_id: str
+    document_version_id: str
+    strategy_version: str
+    section_path: Sequence[str]
+    structural_anchor: str
+    local_part_index: int
+    chunk_kind: ChunkKind
+    content_hash: str
 
 
 class ChunkIdentityBuilder(CanonicalIdentityBuilder):
@@ -49,38 +57,26 @@ class ChunkIdentityBuilder(CanonicalIdentityBuilder):
 
     def identify(
         self,
-        *,
-        document_id: str,
-        document_version_id: str,
-        strategy_version: str,
-        section_path: Sequence[str],
-        structural_anchor: str,
-        local_part_index: int,
-        chunk_kind: ChunkKind,
-        content_hash: str,
+        values: ChunkIdentityInput,
     ) -> ChunkIdentity:
         """Generate stable logical and content-specific revision identities."""
 
         section_id = self.section_id(
-            document_id=document_id,
-            section_path=section_path,
+            document_id=values.document_id,
+            section_path=values.section_path,
         )
         logical_id = self.logical_chunk_id(
             section_id=section_id,
             stable_source_range={
-                "anchor": structural_anchor,
-                "part": local_part_index,
+                "anchor": values.structural_anchor,
+                "part": values.local_part_index,
             },
-            chunk_kind=chunk_kind,
+            chunk_kind=values.chunk_kind,
         )
         chunk_id = self.chunk_id(
             logical_chunk_id=logical_id,
-            document_version_id=document_version_id,
-            strategy_version=strategy_version,
-            content_hash=content_hash,
+            document_version_id=values.document_version_id,
+            strategy_version=values.strategy_version,
+            content_hash=values.content_hash,
         )
         return ChunkIdentity(section_id, logical_id, chunk_id)
-
-
-class ChunkIdentityService(ChunkIdentityBuilder):
-    """Compatibility name for the existing engine identity collaborator."""

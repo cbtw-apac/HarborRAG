@@ -1,7 +1,7 @@
 # HarborRAG CLI
 
 The `harborrag_app.cli` package is the operator-facing command-line boundary.
-It renders workflow and retrieval results, but delegates all operations to the
+It renders workflow, retrieval, and chat results, but delegates all operations to the
 same transport-neutral application service used by the Control Plane API.
 
 The installed command is `harborrag`.
@@ -20,6 +20,7 @@ The base package is sufficient for help and presentation code. Live commands
 also require their configured services:
 
 - `doctor` and `ingest` require Temporal;
+- `chat` requires the configured chat provider and model credentials;
 - `retrieve` requires the configured embedding provider, Qdrant, FalkorDB,
   and the ingestion object store;
 - production control-plane composition requires its SQL database.
@@ -27,22 +28,36 @@ also require their configured services:
 The repository development topology can be started with:
 
 ```bash
-scripts/deployment/dev_up.sh --detach
+scripts/deployment/dev.sh up
 ```
+
+Build and run the non-root CLI image from the repository root:
+
+```bash
+docker build -f deploy/docker/Dockerfile.cli -t harborrag-cli .
+docker run --rm \
+  --env-file env/.env.models \
+  harborrag-cli chat "Explain HarborRAG" --prompt concise
+```
+
+The image contains the tracked configuration and prompt templates. Mount
+`config/` at `/app/config:ro` when an operator-managed configuration should
+replace the image copy. Database, Temporal, and retrieval commands additionally
+need their service environment variables and network connectivity.
 
 ## Command overview
 
 | Command | Purpose |
 | --- | --- |
 | `harborrag doctor` | Check Temporal connectivity and readiness |
+| `harborrag chat` | Generate a one-shot model response with a stored prompt |
 | `harborrag ingest start` | Submit a durable ingestion run |
 | `harborrag ingest status` | Read current progress and attention queues |
 | `harborrag ingest wait` | Wait for the terminal result |
 | `harborrag ingest watch` | Open the interactive Textual dashboard |
 | `harborrag ingest pause` | Request a durable pause |
 | `harborrag ingest resume` | Resume a paused run |
-| `harborrag ingest cancel` | Cancel gracefully or immediately |
-| `harborrag ingest retry` | Retry selected failed artifacts |
+| `harborrag ingest cancel` | Cancel at a safe workflow boundary |
 | `harborrag retrieve` | Run tenant-scoped Qdrant and FalkorDB retrieval |
 
 Use `harborrag COMMAND --help` or
@@ -58,6 +73,23 @@ harborrag doctor --json
 `doctor` connects to the configured Temporal frontend and reports its target,
 namespace, and readiness. It does not submit a workflow.
 
+## Chat
+
+```bash
+harborrag chat \
+  "Explain HarborRAG" \
+  --tenant DEFAULT \
+  --prompt concise \
+  --model primary \
+  --temperature 0.2 \
+  --max-tokens 300
+```
+
+The command uses the same prompt catalog and `AsyncHarborChatClient` lifecycle
+as the HTTP and MCP transports. `--prompt` accepts `default` or `concise` and
+defaults to `default`. Use `--system` for an additional request-specific system
+message. Chat is one-shot; the CLI does not persist conversation history.
+
 ## Ingestion
 
 Submit a bounded local-connector run:
@@ -69,16 +101,19 @@ harborrag ingest start \
   --limit 100
 ```
 
-Omit `--limit` to process every discovered artifact. Run, manifest, and index
-generation IDs are generated when omitted:
+Omit `--limit` to process every discovered document. A run ID is generated
+when omitted. Connection and source-scope IDs are deterministic unless supplied
+explicitly:
 
 ```bash
 harborrag ingest start \
   --tenant tenant-1 \
   --connector local \
   --run-id release-notes-2026-07 \
-  --manifest-id manifest-2026-07 \
-  --generation-id generation-2026-07 \
+  --connection-id engineering-files \
+  --source-scope-id engineering-release-notes \
+  --pattern '*.md' \
+  --no-attachments \
   --wait
 ```
 
@@ -108,15 +143,13 @@ See [dashboard/README.md](dashboard/README.md) for the presentation boundary.
 harborrag ingest pause RUN_ID
 harborrag ingest resume RUN_ID
 harborrag ingest cancel RUN_ID
-harborrag ingest cancel RUN_ID --force
-harborrag ingest retry RUN_ID \
-  --artifact ARTIFACT_ID \
-  --artifact ANOTHER_ARTIFACT_ID
 ```
 
-Cancellation is graceful by default so the workflow can reconcile state.
-`--force` requests immediate cancellation. Retry requires at least one
-repeatable `--artifact` option.
+Cancellation waits for a safe source-batch boundary, persists `CANCELLED`, and
+drains eligible projection cleanup jobs. Activity retries are automatic. To
+replay a terminal failure, submit a new run for the same source scope; the
+pipeline resumes from raw, canonical, chunk, or projection artifacts when
+their fingerprints remain reusable.
 
 ## Hybrid retrieval
 
@@ -156,6 +189,7 @@ Every one-shot command supports `--json`:
 
 ```bash
 harborrag ingest status RUN_ID --json
+harborrag chat "Explain HarborRAG" --prompt concise --json
 harborrag retrieve "deployment requirements" \
   --tenant tenant-1 \
   --json |
@@ -193,7 +227,7 @@ Relevant `HARBORRAG_` variables include:
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations and diagnostics |
 | `HARBORRAG_TEMPORAL_TARGET` | `localhost:7233` | `doctor` and all ingestion commands |
 | `HARBORRAG_TEMPORAL_NAMESPACE` | `harborrag` | Temporal workflow lookup |
-| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` | Query embedding configuration |
+| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` | Chat and query embedding configuration |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Vector retrieval |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | Graph expansion |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | Graph expansion |

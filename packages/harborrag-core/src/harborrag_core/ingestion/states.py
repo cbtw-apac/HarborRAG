@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class BindingKind(StrEnum):
+    """Describe how an independently ingestible source object is bound."""
+
+    ROOT = "ROOT"
+    ATTACHMENT = "ATTACHMENT"
+    EMBEDDED = "EMBEDDED"
+    CONTAINED = "CONTAINED"
+
+
+class SourceAdmissionDecision(StrEnum):
+    """Describe the result of source admission and change detection."""
+
+    NEW = "NEW"
+    UPDATED = "UPDATED"
+    UNCHANGED = "UNCHANGED"
+    METADATA_CHANGED = "METADATA_CHANGED"
+    FORCE_REPROCESS = "FORCE_REPROCESS"
+    METADATA_ONLY = "METADATA_ONLY"
+    UNSUPPORTED = "UNSUPPORTED"
+    SECURITY_REJECTED = "SECURITY_REJECTED"
+    REMOVED_CANDIDATE = "REMOVED_CANDIDATE"
+
+
+class SourceScanState(StrEnum):
+    STARTED = "STARTED"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class IngestionTaskState(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class DocumentVersionState(StrEnum):
+    PENDING = "PENDING"
+    RAW_CAPTURED = "RAW_CAPTURED"
+    CANONICAL_READY = "CANONICAL_READY"
+    CHUNKS_READY = "CHUNKS_READY"
+    REPRESENTATIONS_READY = "REPRESENTATIONS_READY"
+    PROJECTIONS_STAGED = "PROJECTIONS_STAGED"
+    VERIFIED = "VERIFIED"
+    ACTIVE = "ACTIVE"
+    RETIRED = "RETIRED"
+    FAILED = "FAILED"
+
+
+class FailureCategory(StrEnum):
+    TRANSIENT = "TRANSIENT"
+    RATE_LIMITED = "RATE_LIMITED"
+    PARSER_FALLBACKABLE = "PARSER_FALLBACKABLE"
+    UNSUPPORTED = "UNSUPPORTED"
+    SOURCE_FORBIDDEN = "SOURCE_FORBIDDEN"
+    INVALID_CONFIGURATION = "INVALID_CONFIGURATION"
+    CANONICAL_VALIDATION = "CANONICAL_VALIDATION"
+    CHUNK_VALIDATION = "CHUNK_VALIDATION"
+    ENCODER_FAILURE = "ENCODER_FAILURE"
+    VECTOR_WRITE_FAILURE = "VECTOR_WRITE_FAILURE"
+    GRAPH_WRITE_FAILURE = "GRAPH_WRITE_FAILURE"
+    VERIFICATION_FAILURE = "VERIFICATION_FAILURE"
+    PUBLICATION_FAILURE = "PUBLICATION_FAILURE"
+
+
+class KnowledgeNodeKind(StrEnum):
+    DOCUMENT = "Document"
+    SECTION = "Section"
+    TABLE = "Table"
+    COMMENT = "Comment"
+
+
+class CleanupJobState(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class ReindexJobState(StrEnum):
+    """Describe the durable lifecycle of a connector-free reindex job."""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"

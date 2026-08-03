@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 
+from harborrag_adapters.connectors.file_filters import normalize_extension as normalize_extension
+
 DEFAULT_EXCLUDED_DIR_NAMES = {
     ".git",
     ".hg",
@@ -26,12 +28,6 @@ DEFAULT_EXCLUDED_DIR_NAMES = {
 def resolve_path(value: str | Path) -> Path:
     """Expand and resolve a local path without requiring it to exist."""
     return Path(value).expanduser().resolve(strict=False)
-
-
-def normalize_extension(value: str) -> str:
-    """Normalize extension filters to lowercased dot-prefixed values."""
-    value = value.lower().strip()
-    return value if value.startswith(".") else f".{value}"
 
 
 def file_extension(path: Path) -> str:

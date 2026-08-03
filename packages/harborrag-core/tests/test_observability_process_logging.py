@@ -36,7 +36,9 @@ def test_configure_installs_one_handler_and_emits_records() -> None:
 
     logging.getLogger("harborrag.runtime.example").info("worker started")
 
-    assert "worker started" in stream.getvalue()
+    output = stream.getvalue()
+    assert "worker started" in output
+    assert "test_observability_process_logging.test_configure_installs_one_handler" in output
 
 
 def test_repeat_configuration_does_not_stack_handlers() -> None:

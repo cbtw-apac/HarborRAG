@@ -5,12 +5,17 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from io import BytesIO
 
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import ParseError, PasswordProtectedError
 
 DEFAULT_MAX_INPUT_BYTES = 512 * 1024 * 1024  # 512 MiB raw input
 MAX_ARCHIVE_MEMBERS = 10_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB total
 MAX_ARCHIVE_COMPRESSION_RATIO = 200  # per-member uncompressed / compressed
+_OLE_COMPOUND_FILE_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_OOXML_ENCRYPTION_STREAMS = (
+    "EncryptedPackage".encode("utf-16-le"),
+    "EncryptionInfo".encode("utf-16-le"),
+)
 
 
 @contextmanager
@@ -101,3 +106,40 @@ def open_guarded_zip(data: bytes) -> zipfile.ZipFile:
     # total/ratio checks against its (necessarily accurate, since forging
     # it down just self-truncates) declared size.
     return archive
+
+
+def raise_if_password_protected_document(
+    data: bytes,
+    *,
+    format_name: str,
+    archive: zipfile.ZipFile | None = None,
+) -> None:
+    """Identify supported encrypted office containers before parser libraries run.
+
+    Password-protected OOXML documents are OLE compound files containing the
+    ``EncryptionInfo`` and ``EncryptedPackage`` streams. ODT encryption stays
+    inside a ZIP container and is declared in ``META-INF/manifest.xml``. Some
+    producers also use the ZIP encryption flag, which is checked for both
+    formats.
+    """
+
+    normalized_format = format_name.lower().strip()
+    if data.startswith(_OLE_COMPOUND_FILE_SIGNATURE):
+        if normalized_format == "docx" and all(
+            stream_name in data for stream_name in _OOXML_ENCRYPTION_STREAMS
+        ):
+            raise PasswordProtectedError("DOCX is password-protected")
+        return
+
+    if archive is None:
+        return
+    if any(info.flag_bits & 0x1 for info in archive.infolist()):
+        raise PasswordProtectedError(f"{normalized_format.upper()} is password-protected")
+    if normalized_format != "odt":
+        return
+    try:
+        manifest = archive.read("META-INF/manifest.xml")
+    except KeyError:
+        return
+    if b"encryption-data" in manifest:
+        raise PasswordProtectedError("ODT is password-protected")

@@ -3,8 +3,10 @@
 Deployment assets are at mixed maturity. The database Compose file supports
 local adapter smoke tests, the Temporal Compose file provides a runnable
 PostgreSQL-backed development server, and the development helper composes those
-services with the control-plane API. Production and MCP deployments still
-require application-specific composition.
+services with the control-plane API. The checked-in API, CLI, worker, and MCP
+Dockerfiles are runnable local images. Production topology and remote MCP
+exposure still require operator-owned
+composition and security policy.
 
 ## Local repository services
 
@@ -18,15 +20,22 @@ require application-specific composition.
 The service image tags are pinned directly in the Compose file. The environment
 template only controls ports, credentials, and startup behavior.
 
+FalkorDB persists RDB snapshots in its named volume. Do not enable AOF for this
+service: FalkorDB 4.20.1 can create and restore the knowledge-graph uniqueness
+constraint from a snapshot, but crashes when Redis replays the asynchronous
+`GRAPH.CONSTRAINT` command from AOF. The separate Redis service continues to use
+AOF persistence.
+
 Prepare a protected environment file:
 
 ```bash
 cp env-example/.env.database.example env/.env.database
-export DATABASE_ENV_FILE=env/.env.database
-scripts/deployment/database_up.sh
+scripts/deployment/dev.sh data
 ```
 
-The script requires `DATABASE_ENV_FILE` and passes it to Docker Compose. It does not create the file automatically. Change the example password before using the stack outside an isolated developer machine.
+The unified deployment helper accepts `DATABASE_ENV_FILE` overrides and passes
+the selected file to Docker Compose. Change the example password before using
+the stack outside an isolated developer machine.
 
 The stack owns the stable `harborrag-data-network`. Application containers and
 the Temporal worker may join this network, but Temporal control-plane services
@@ -37,48 +46,104 @@ Use the repository smoke runner in [Testing](../testing/README.md#real-system-sm
 
 ## Monitoring stack
 
-`docker-compose.monitoring.yml` defines Prometheus, Grafana, and Loki using files under `deploy/prometheus`, `deploy/grafana`, and `deploy/loki`. It is infrastructure scaffolding: the current application does not expose a production metrics/logging integration wired to this stack.
-
-The helper script expects a root `.env` or tries to copy a missing `.env.example`, so create `.env` explicitly before using it:
+`docker-compose.monitoring.yml` defines Prometheus, Grafana, and Loki using
+files under `deploy/prometheus`, `deploy/grafana`, and `deploy/loki`.
+Prometheus joins `harborrag-data-network`; API metrics at `/api/v1/metrics`
+require an admin bearer token, while the default configuration scrapes
+the ingestion worker on port `9464`. The API exports request count,
+latency, in-flight, Python runtime, and process metrics using bounded route
+template labels. The worker exports bounded stage, document, artifact,
+chunk, retry, cleanup, verification, stale-candidate, and connector
+rate-limiting metrics. Dashboard and alert policy remain
+deployment-specific.
 
 ```bash
-touch .env
-scripts/deployment/monitoring_up.sh
+scripts/deployment/dev.sh monitoring
 ```
 
 Set non-default Grafana credentials in that environment for any non-local use.
 
 ## Application Compose files
 
-`scripts/deployment/dev_up.sh` is the supported local entrypoint for the full
-development topology. On its first invocation it creates protected environment
-files from `env-example/`, then stops so placeholder credentials can be
-reviewed. Run it again to start the data services, Temporal, a Temporal worker,
-and the API:
+`scripts/deployment/dev.sh` is the only deployment entrypoint. Run `bootstrap`
+once to create protected environment files from `env-example/`, including the
+API-only `env/.env.api`, then review the placeholders. The `up` command starts
+data services, Temporal, a Temporal worker, and the API, returning only after
+the API process health check succeeds:
 
 ```bash
-scripts/deployment/dev_up.sh
+scripts/deployment/dev.sh bootstrap
+scripts/deployment/dev.sh up
+```
+
+When the database and Temporal stacks are already running, start or rebuild
+only the API with:
+
+```bash
+scripts/deployment/dev.sh api
 ```
 
 The API binds to `127.0.0.1:8000` by default. Override
 `HARBORRAG_API_BIND_ADDRESS` or `HARBORRAG_API_PORT` when another local binding
-is required. Set `HARBORRAG_DEV_START_WORKER=0` to omit the ingestion worker.
-Stop the API and its development dependencies in reverse order with:
+is required. Authentication and CORS values belong in the ignored
+`env/.env.api`. The API receives chat and embedding credentials from
+`env/.env.models` for chat completions and synchronous vector retrieval, while
+connector credentials remain isolated in ingestion workers. Use
+`dev.sh up --no-worker` to omit the worker. Stop the
+development topology in reverse order with:
 
 ```bash
-scripts/deployment/dev_down.sh
+scripts/deployment/dev.sh down
 ```
 
-The remaining application Compose files describe intended topology but are not
-complete production deployments:
+Individual ownership is explicit: `temporal` never starts a worker, `worker`
+only starts the worker, and `api` starts the API with `--no-deps`.
 
-| File | Current boundary |
-| --- | --- |
-| `docker-compose.yml` | Legacy API/CLI composition; external data services are not defined in the file |
-| `docker-compose.dev.yml` | API portion of the supported `dev_up.sh` topology |
-| `docker-compose.prod.yml` | Production outline; external data services and deployment-specific secrets remain operator concerns |
-| `docker-compose.temporal.yml` | Runnable local Temporal server and built-in worker profile |
-| `docker-compose.all.yml` | Legacy include composition; use `dev_up.sh` for the validated development topology |
+`deploy/compose/docker-compose.yml` is the single API composition. It joins the
+external data network created by `docker-compose.database.yml` and connects to
+the Temporal service created by `docker-compose.temporal.yml`. Environment
+policy, rather than duplicated development and production Compose files,
+controls the API mode. Production deployments must supply authentication and
+their own secret/TLS/network policy.
+
+## CLI and MCP images
+
+Build the standalone operator images from the repository root:
+
+```bash
+docker build -f deploy/docker/Dockerfile.cli -t harborrag-cli .
+docker build -f deploy/docker/Dockerfile.mcp -t harborrag-mcp .
+
+docker run --rm harborrag-cli --help
+docker run --rm harborrag-mcp --check
+```
+
+Both images include the shared runtime, model and retrieval dependencies,
+checked-in configuration, and packaged chat prompts. They run as the non-root
+`harborrag` user. Configuration paths inside the images point to `/app/config`;
+mount a replacement directory there read-only when deploying a different
+catalog.
+
+The CLI image uses `harborrag` as its entry point. Provide
+`env/.env.models` for chat and the relevant service settings for retrieval or
+ingestion commands:
+
+```bash
+docker run --rm \
+  --env-file env/.env.models \
+  harborrag-cli chat "Explain HarborRAG." --prompt concise
+```
+
+The MCP image uses `python -m harborrag_mcp_server` as its entry point and
+defaults to stdio. An MCP client must keep stdin attached with `-i`; real tool
+calls also require protected model/database settings and network-reachable data
+services. Its writable JSONL audit path is
+`/var/lib/harborrag/.harborrag/mcp-audit.jsonl`.
+
+Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP
+transport and local status/configuration UI. Remote MCP needs TLS and a
+production JWT/JWKS verifier and is intentionally not provided by the local
+container command.
 
 ## Model assets
 
@@ -94,4 +159,7 @@ infrastructure-as-code.
 
 ## Production readiness checklist
 
-Before an application deployment can be considered production-ready, the repository still needs implemented service entry points, unified configuration/composition, authentication and authorization, tenant context propagation, migrations, health/readiness semantics, secret management, TLS/network policy, backup/restore, observability wiring, resource limits, and end-to-end tests against pinned service versions.
+Before an internet-facing deployment can be considered production-ready,
+operators still need deployment-specific authorization policy, TLS/network
+policy, secret delivery, backup/restore, resource limits, alert thresholds, and
+end-to-end tests against their chosen source systems.

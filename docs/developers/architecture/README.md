@@ -4,18 +4,20 @@ HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow down
 
 Accepted choices and their consequences are recorded in the
 [architecture decision records](../../adr/README.md).
+Operational guidance for the clean vector/graph boundary is in the
+[projection rebuild runbook](projection-rebuild.md).
 
 ## Active package map
 
 | Package | Responsibility | Current maturity |
 | --- | --- | --- |
-| `harborrag-core` | Domain objects, validated model/storage schemas, common errors, security | Implemented contracts |
-| `harborrag-adapters` | Connectors, parsers, model clients, repositories | Broadest implemented layer |
-| `harborrag-engine` | Ingestion, retrieval, indexing, graph orchestration | Implemented engine stages and policies |
-| `harborrag-runtime` | Config catalogs, production composition, Temporal orchestration | Durable workflows and application integration boundary |
-| `harborrag-app` | Application service, CLI, HTTP boundary | Temporal-backed CLI plus health and diagnostics API |
-| `harborrag-mcp-server` | Tool/server interfaces, policy, audit | Audited in-process health transport |
-| `harborrag` | Public re-exports | `Document` and `CompositionRoot` |
+| `harborrag-core` | Bounded domain records, identifiers, errors, access context, and ports | Provider-independent language |
+| `harborrag-adapters` | Connectors, parsers, model clients, and repository implementations | External I/O boundary |
+| `harborrag-engine` | Provider-independent ingestion/retrieval policies and transformations | Business behavior and invariants |
+| `harborrag-runtime` | Composition, direct/Temporal executors, lifecycle, scheduling, and config loading | Execution boundary |
+| `harborrag-app` | HTTP, CLI, authentication, and presentation mapping | User transport |
+| `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy, and audit | Agent transport |
+| `harborrag` | Stable SDK re-exports and optional installation bundle | `HarborRAG` public facade |
 
 ## Dependency direction
 
@@ -24,10 +26,10 @@ Accepted choices and their consequences are recorded in the
 ```text
 harborrag_core      -> no HarborRAG package
 harborrag_adapters  -> core
-harborrag_engine    -> core, adapters
+harborrag_engine    -> core
 harborrag_runtime   -> core, adapters, engine
-harborrag_app       -> core, engine, runtime
-harborrag_mcp_server -> core, engine, runtime
+harborrag_app       -> core, runtime
+harborrag_mcp_server -> core, runtime
 harborrag           -> any active package
 ```
 
@@ -39,7 +41,8 @@ uv run make deps-check
 ```
 
 Import-linter is the required CI boundary gate. The AST dependency checker provides
-additional coverage for dynamic imports and package-local tests. Neither scans
+additional source-tree coverage for dynamic imports. Cross-layer integration tests
+may compose several packages and are not treated as production dependencies. Neither scans
 runtime call graphs, so review still needs to catch indirect boundary leaks, provider
 objects in public schemas, and service layers bypassed through callbacks.
 
@@ -80,8 +83,10 @@ storage schemas and RetrievalResult
   schemas. Deterministic identity policy and chunk planning remain engine responsibilities.
 - `models/` — chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
   Client-boundary protocols now live in `ports/` (ADR-0009), not here.
-- `schemas/` — typed IDs plus document, vector, graph, cache, state, object-store, telemetry, and storage-operation schemas.
-- `security/` — secret redaction, URL policy, and `URLPolicyError`.
+- `indexing/` and `storage/` — public bounded-context facades for vector/graph projection records,
+  capabilities, storage access context, and health. Legacy implementation modules under `schemas/`
+  are internal organization, not cross-package import paths.
+- `security/` — required `AccessContext`, secret redaction, URL policy, and `URLPolicyError`.
 - `contracts/` — the shared `HarborError` hierarchy, `HarborEvent`, and chunking-strategy protocols
   (`TextRefiner`, `StructureSplitter`, `JsonStructureSplitter`, `TokenCounter`).
 - `ports/` — every boundary-facing `Protocol` in core: repository/infra ports (control plane, event bus,
@@ -96,7 +101,12 @@ Most storage schemas derive from strict Pydantic bases; several older/simple dom
 
 `BaseConnector` defines synchronous discovery and loading. Built-in providers register aliases at `harborrag_adapters.connectors` import time. `HarborConnector` constructs a provider by name.
 
-Connectors own authentication, provider pagination, filtering, retry hints, safe URL/path handling, source-specific caps, and normalization to `SourceRecord`/`RawDocument`. They do not own workflow scheduling or global ingestion concurrency.
+Connectors own authentication, provider pagination, filtering, retry hints,
+safe URL/path handling, source-specific caps, normalization to
+`SourceRecord`/`RawDocument`, and optional provider-specific transformation of
+generic canonical documents. Runtime discovers that transformation through the
+connector registry. Connectors do not own workflow scheduling or global
+ingestion concurrency.
 
 ### Parsers
 
@@ -125,19 +135,36 @@ Repository families are asynchronous and tenant-aware. `StorageOperationContext`
 
 Family clients construct backends by provider name. Plugin/config modules isolate optional imports. Public methods return core schemas and sanitized health data rather than raw SDK responses.
 
+These repository implementations are the production persistence path. Runtime
+factories construct the PostgreSQL/SQLite, object-store, Qdrant, FalkorDB, cache,
+and state repositories and inject them behind core ports. Engine deliberately does
+not import `harborrag_adapters.repositories`: doing so would couple business policy
+to provider implementations and reverse the dependency direction.
+
 ## Engine and runtime
 
-`harborrag-engine` defines normalization, chunking, indexing, retrieval/evidence,
-graph mapping, reciprocal-rank fusion, rewriting, and reranking boundaries. The
-runtime composes its ingestion services without moving provider logic into the
-engine.
+`harborrag-engine` owns publication, projection-verification, document-version,
+cleanup, retrieval-candidate, ranking, graph-expansion, and failure-classification
+policy. External model and storage operations are called through core ports. It
+never imports adapters or a provider SDK.
 
 `harborrag-runtime` owns:
 
-- versioned connector and parser catalog loaders;
+- schema-validated connector and parser catalog loaders;
 - production control-plane composition and health diagnostics;
-- versioned Temporal contracts, workflows, activities, clients, and worker lifecycle;
+- Temporal contracts, workflows, activities, clients, and worker lifecycle;
 - the runtime dependency graph that connects adapters and engine services.
+- `DirectIngestionExecutor` for local/library execution and
+  `TemporalIngestionExecutor` for durable distributed execution;
+- the stable async `HarborRAG` facade used by transports;
+- `harborrag_runtime.chat`, which lazily composes the asynchronous chat client,
+  owns its lifecycle, and resolves typed server-owned prompts;
+- explicit, opt-in Python entry-point plugin discovery.
+
+Runtime schedules publication and cleanup and chooses retry/time-out/concurrency
+behavior. It does not independently decide whether a version is publishable or a
+projection is valid; those rules remain in engine so direct execution, Temporal,
+tests, and reindex use the same behavior.
 
 Framework-independent lifecycle/observer interfaces and job/repository ports live
 in `harborrag-core`. Provider-specific assembly belongs here or in application
@@ -146,17 +173,53 @@ bootstrap code, not in provider adapters.
 ## App and MCP boundaries
 
 The app CLI calls `BaseAppService` rather than adapters. Production ingestion
-commands delegate to `TemporalRuntimeClient`. HTTP ingestion routes remain
-future work.
+commands and HTTP ingestion routes resolve a secret-free source contract,
+persist a pending task in Postgres, and delegate to
+`IngestionTemporalClient`. The deployed worker registers only the canonical
+source, batch, document, failed-document retry, and reindex workflows.
 
-The MCP facade follows the same rule. `McpServer` provides audited,
-policy-checked in-process dispatch for the health tool. No external protocol
-transport is implemented yet.
+Chat follows one shared runtime path:
+
+```text
+HTTP route ──> ChatApplicationService ──┐
+CLI command ─> BaseAppService ──────────┼─> HarborRAG.chat
+MCP tool ───────────────────────────────┘       │
+                                                ├─> RuntimeChatService
+                                                ├─> PromptCatalog
+                                                └─> AsyncHarborChatClient
+```
+
+HTTP and CLI map through the application service; MCP calls the same
+`HarborRAG.chat` facade directly. Stored prompts and chat-client lifecycle stay
+in runtime, provider translation stays in adapters, and public schemas remain
+provider-neutral. None of these handlers construct a model client.
+
+The MCP facade follows the same rule for retrieval. Vector retrieval calls
+`HarborRAG.retrieval.search()` and supplies a required `AccessContext` built
+from the authenticated MCP principal and tenant. It never calls app routes,
+repositories, or provider clients directly.
+
+## Authority and projections
+
+PostgreSQL is authoritative for document/version state and atomic publication.
+Immutable canonical artifacts are retained for connector-free reindex. Qdrant and
+FalkorDB are version-addressed, verified projections: failed cleanup is retried and
+is not treated as a distributed rollback.
+
+Vector, graph, and object-store operations require `StorageOperationContext`. Core
+defines the principal/tenant access requirement, engine decides filtering policy,
+and data-plane adapters enforce the tenant at the storage boundary. Temporal
+identifiers and worker retry metadata are deliberately excluded from canonical
+storage context.
 
 ## Configuration boundaries
 
 - Runtime loads strict versioned connector/parser YAML catalogs.
 - Model clients load strict family sections from YAML, JSON, or mappings.
+- Runtime chat prompts are packaged Markdown resources selected by a typed
+  public name; credentials and provider routing never belong in prompt files.
+- MCP tool defaults, limits, enablement, and tenant overrides live in the
+  separate versioned `config/mcp.yaml` catalog.
 - Engine config/policy are constructed in Python.
 - There is no unified, auto-discovered application/workspace configuration.
 

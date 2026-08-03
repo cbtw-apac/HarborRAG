@@ -58,6 +58,28 @@ def test_discover_supports_direct_content_ids_without_search():
     assert records[0].metadata["space_key"] == "ENG"
 
 
+def test_discover_carries_exact_attachment_selection_to_admission() -> None:
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Direct"))
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    record = next(
+        connector.discover(
+            ConnectorQuery(
+                filters={
+                    "content_ids": ["1"],
+                    "attachment_ids": ["a2", "a1"],
+                }
+            )
+        )
+    )
+
+    assert record.metadata["_selected_attachment_ids"] == (
+        "a2",
+        "a1",
+    )
+
+
 def test_discover_rejects_direct_content_ids_outside_configured_space():
     client = FakeConfluenceClient()
     client.add("content/1", light_content("1", "Direct", space_key="OPS"))

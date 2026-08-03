@@ -13,7 +13,6 @@ from harborrag_engine.ingestion.chunking.config import (
     ChunkingConfig,
     ChunkingLimits,
     ChunkingProfile,
-    ChunkRoute,
 )
 from harborrag_engine.ingestion.chunking.schemas import ChunkReference
 
@@ -99,62 +98,6 @@ def test_profile_strips_its_identity_and_exposes_limits() -> None:
 
 
 # --------------------------------------------------------------------------
-# ChunkRoute
-# --------------------------------------------------------------------------
-
-
-def test_route_requires_a_profile_and_a_condition() -> None:
-    with pytest.raises(ValueError, match="route profile must be non-empty"):
-        ChunkRoute(profile="   ", source_kind="jira")
-    with pytest.raises(ValueError, match="at least one match condition"):
-        ChunkRoute(profile="document")
-
-
-def test_route_normalises_its_conditions() -> None:
-    route = ChunkRoute(
-        profile="  document  ",
-        source_kind="  Confluence  ",
-        content_type="  Text/HTML; charset=utf-8  ",
-        content_category="  Document  ",
-    )
-
-    assert route.profile == "document"
-    assert route.source_kind == "confluence"
-    # The media-type parameter is dropped so routing keys stay comparable.
-    assert route.content_type == "text/html"
-    assert route.content_category == "document"
-
-
-def test_route_matching_treats_unset_conditions_as_wildcards() -> None:
-    route = ChunkRoute(profile="document", source_kind="confluence")
-
-    assert route.matches(
-        source_kind="confluence",
-        content_type="text/html",
-        content_category="document",
-    )
-    assert not route.matches(
-        source_kind="jira",
-        content_type="text/html",
-        content_category="document",
-    )
-
-
-def test_route_matching_requires_every_configured_condition() -> None:
-    route = ChunkRoute(
-        profile="document",
-        source_kind="confluence",
-        content_category="document",
-    )
-
-    assert not route.matches(
-        source_kind="confluence",
-        content_type="text/html",
-        content_category="table",
-    )
-
-
-# --------------------------------------------------------------------------
 # ChunkingConfig
 # --------------------------------------------------------------------------
 
@@ -173,18 +116,18 @@ def test_config_rejects_a_profile_key_name_mismatch() -> None:
         ChunkingConfig(
             default_profile="mislabelled",
             profiles={"mislabelled": profile},
-            routes=(),
+            source_profiles={},
         )
 
 
-def test_config_rejects_a_route_to_an_unknown_profile() -> None:
+def test_config_rejects_a_source_mapping_to_an_unknown_profile() -> None:
     profile = ChunkingProfile(name="document", strategy="structural")
 
-    with pytest.raises(ValueError, match="route references unknown profile: missing"):
+    with pytest.raises(ValueError, match="source mapping references unknown profiles: missing"):
         ChunkingConfig(
             default_profile="document",
             profiles={"document": profile},
-            routes=(ChunkRoute(profile="missing", source_kind="jira"),),
+            source_profiles={"jira": "missing"},
         )
 
 
@@ -193,19 +136,29 @@ def test_config_freezes_its_profile_mapping() -> None:
     config = ChunkingConfig(
         default_profile="document",
         profiles={"document": profile},
-        routes=(),
+        source_profiles={" Confluence ": "document"},
     )
 
     with pytest.raises(TypeError):
         config.profiles["document"] = profile  # type: ignore[index]
+    with pytest.raises(TypeError):
+        config.source_profiles["jira"] = "document"  # type: ignore[index]
+    assert config.source_profiles == {"confluence": "document"}
+
+
+def test_config_resolves_source_profiles_and_explicit_overrides() -> None:
+    config = ChunkingConfig()
+
+    assert config.profile_for("CONFLUENCE").name == "confluence"
+    assert config.profile_for("unregistered").name == "canonical"
+    assert config.profile_for("jira", "canonical").name == "canonical"
 
 
 def test_config_defaults_are_internally_consistent() -> None:
     config = ChunkingConfig()
 
     assert config.default_profile in config.profiles
-    for route in config.routes:
-        assert route.profile in config.profiles
+    assert set(config.source_profiles.values()) <= set(config.profiles)
 
 
 # --------------------------------------------------------------------------
@@ -217,7 +170,7 @@ def test_config_defaults_are_internally_consistent() -> None:
     ("changes", "message"),
     [
         ({"logical_chunk_id": ""}, "identity values must be non-empty"),
-        ({"chunk_revision_id": ""}, "identity values must be non-empty"),
+        ({"chunk_id": ""}, "identity values must be non-empty"),
         ({"ordinal": -1}, "ordinal must be non-negative"),
         ({"token_count": 0}, "ordinal must be non-negative"),
         ({"content_hash": ""}, "content_hash must be non-empty"),
@@ -229,7 +182,7 @@ def test_chunk_reference_rejects_invalid_identity(
 ) -> None:
     fields: dict[str, object] = {
         "logical_chunk_id": "logical-1",
-        "chunk_revision_id": "rev-1",
+        "chunk_id": "chunk:1",
         "ordinal": 0,
         "content_hash": "hash-1",
         "token_count": 4,
@@ -243,7 +196,7 @@ def test_chunk_reference_rejects_invalid_identity(
 def test_chunk_reference_body_uri_is_optional() -> None:
     reference = ChunkReference(
         logical_chunk_id="logical-1",
-        chunk_revision_id="rev-1",
+        chunk_id="chunk:1",
         ordinal=0,
         content_hash="hash-1",
         token_count=4,

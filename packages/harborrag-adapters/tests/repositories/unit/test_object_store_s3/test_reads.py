@@ -18,7 +18,7 @@ async def test_get_bytes_without_range_reads_entire_object() -> None:
         "bucket",
         "key",
         byte_range=None,
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert data == b"hello world"
@@ -35,7 +35,7 @@ async def test_get_bytes_with_byte_range_sets_range_header() -> None:
         "bucket",
         "key",
         byte_range=(0, 4),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert raw.get_object_calls[0]["Range"] == "bytes=0-4"
@@ -53,7 +53,7 @@ async def test_iter_bytes_streams_in_chunks() -> None:
             "bucket",
             "key",
             chunk_size=4,
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
     ]
 
@@ -73,7 +73,7 @@ async def test_head_returns_normalized_metadata() -> None:
     store = make_extended_store(raw)
 
     metadata = await store.head(
-        "bucket", "key", context=StorageOperationContext(tenant_id="tenant-a")
+        "bucket", "key", context=StorageOperationContext.system(tenant_id="tenant-a")
     )
 
     assert metadata.reference.etag == "etag-value"
@@ -84,7 +84,7 @@ async def test_head_returns_normalized_metadata() -> None:
 
 @pytest.mark.asyncio
 async def test_exists_true_for_owned_object_false_otherwise() -> None:
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     raw = ExtendedFakeS3Raw({"Metadata": {"tenant_id": "tenant-a"}, "ETag": '"e"'})
     store = make_extended_store(raw)
@@ -102,7 +102,9 @@ async def test_authorize_unmapped_client_error_is_reraised() -> None:
     store = make_extended_store(raw)
 
     with pytest.raises(FakeClientError):
-        await store.exists("bucket", "key", context=StorageOperationContext(tenant_id="tenant-a"))
+        await store.exists(
+            "bucket", "key", context=StorageOperationContext.system(tenant_id="tenant-a")
+        )
 
 
 @pytest.mark.asyncio
@@ -115,5 +117,5 @@ async def test_authorize_cross_tenant_object_is_not_found() -> None:
             "bucket",
             "key",
             byte_range=None,
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )

@@ -7,14 +7,7 @@ from .control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
-from .events import EventBusPort
-from .indexing import (
-    GraphGenerationRepositoryPort,
-    GraphIndexRepositoryPort,
-    VectorGenerationRepositoryPort,
-    VectorIndexRepositoryPort,
-)
-from .jobs import JobQueuePort
+from .indexing import KnowledgeGraphRepositoryPort, VectorIndexRepositoryPort
 from .model_clients import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
@@ -23,30 +16,23 @@ from .model_clients import (
     HarborEmbedClientProtocol,
     HarborRerankClientProtocol,
 )
-from .runtime import AsyncLifecyclePort, RuntimeObserverPort
-from .secrets import SecretsPort
+from .retrieval import GraphRetrievalRepositoryPort
 
 __all__ = [
     "ActivityRepositoryPort",
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
-    "AsyncLifecyclePort",
-    "EventBusPort",
-    "GraphGenerationRepositoryPort",
-    "GraphIndexRepositoryPort",
+    "GraphRetrievalRepositoryPort",
     "HarborChatClientProtocol",
     "HarborEmbedClientProtocol",
     "HarborRerankClientProtocol",
-    "JobQueuePort",
     "JobRepositoryPort",
+    "KnowledgeGraphRepositoryPort",
     "MemberRepositoryPort",
     "ProjectRepositoryPort",
     "ProviderRepositoryPort",
-    "RuntimeObserverPort",
-    "SecretsPort",
     "SettingsRepositoryPort",
     "SourceRepositoryPort",
-    "VectorGenerationRepositoryPort",
     "VectorIndexRepositoryPort",
 ]

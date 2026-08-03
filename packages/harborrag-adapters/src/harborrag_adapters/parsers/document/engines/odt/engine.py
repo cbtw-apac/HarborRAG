@@ -13,6 +13,7 @@ from harborrag_adapters.parsers.common.utils import (
 from harborrag_adapters.parsers.common.validation import (
     guard_input_size,
     open_guarded_zip,
+    raise_if_password_protected_document,
     wrap_parse_errors,
 )
 from harborrag_adapters.parsers.document.base import HarborDocumentEngine
@@ -76,7 +77,13 @@ class OdtDocumentEngine(HarborDocumentEngine):
             ),
         )
         with wrap_parse_errors(self.parser_engine):
-            open_guarded_zip(source_bytes).close()
+            raise_if_password_protected_document(source_bytes, format_name="odt")
+            with open_guarded_zip(source_bytes) as archive:
+                raise_if_password_protected_document(
+                    source_bytes,
+                    format_name="odt",
+                    archive=archive,
+                )
             document = load(BytesIO(source_bytes))
             paragraphs = [teletype.extractText(node) for node in _iter_paragraphs(document.text)]
         content = compact_text("\n".join(text for text in paragraphs if text))

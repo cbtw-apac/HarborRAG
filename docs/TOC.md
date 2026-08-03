@@ -10,6 +10,8 @@
 ## User guides
 
 - [User Documentation](users/README.md)
+- [Chat](users/chat/README.md)
+- [Ingestion Modes](users/ingestion-modes.md)
 - [CLI Reference](users/cli-reference/README.md)
 - [Configuration](users/configuration/README.md)
   - [Connector Configuration](users/configuration/connector-config.md)
@@ -34,4 +36,4 @@
 - [Changelog](../CHANGELOG.md)
 - [License](../LICENSE)
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-08-02

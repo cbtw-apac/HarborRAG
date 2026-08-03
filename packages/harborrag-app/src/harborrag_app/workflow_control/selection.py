@@ -16,17 +16,15 @@ def select_app_service() -> tuple[BaseAppService, str]:
 
 
 def development_app_service() -> BaseAppService:
-    """Build a real AppService without provisioning a control-plane database."""
+    """Build a real AppService against the migrated local control-plane database."""
 
     from harborrag_app.workflow_control.client import AppService
     from harborrag_runtime.composition import CompositionRoot
     from harborrag_runtime.config.settings import RuntimeSettings
 
     settings = RuntimeSettings()
-    composition = CompositionRoot(
-        control_db={"ping": "ok", "scheme": "development"},
-        mode="development",
-    )
+    composition = CompositionRoot.production(settings)
+    composition.mode = "development"
     return AppService(composition, settings)
 
 

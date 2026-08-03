@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from harborrag_core.chunking import ChunkKind
+from harborrag_core.chunking import ChunkKind, ChunkRecord, RecordKind
 from harborrag_core.contracts.chunking import SourceSpan, SplitBoundaryKind
-from harborrag_core.domain.normalized_document import Document
-from harborrag_core.schemas.documents import ChunkRecord
+from harborrag_core.domain.document import Document
 
 
 def _freeze_metadata(values: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -77,14 +76,14 @@ class ChunkReference:
     """Lightweight manifest reference to a separately persisted chunk body."""
 
     logical_chunk_id: str
-    chunk_revision_id: str
+    chunk_id: str
     ordinal: int
     content_hash: str
     token_count: int
     body_uri: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.logical_chunk_id or not self.chunk_revision_id:
+        if not self.logical_chunk_id or not self.chunk_id:
             raise ValueError("chunk reference identity values must be non-empty")
         if self.ordinal < 0 or self.token_count < 1:
             raise ValueError(
@@ -105,11 +104,11 @@ class ChunkValidationResult:
 
 @dataclass(frozen=True, slots=True)
 class ChunkManifest:
-    """Lightweight, reproducible manifest for one artifact revision."""
+    """Lightweight, reproducible manifest for one document version."""
 
     tenant_id: str
-    artifact_id: str
-    artifact_revision_id: str
+    document_id: str
+    document_version_id: str
     chunker_name: str
     chunker_version: str
     configuration_hash: str
@@ -123,8 +122,8 @@ class ChunkManifest:
         if not all(
             (
                 self.tenant_id,
-                self.artifact_id,
-                self.artifact_revision_id,
+                self.document_id,
+                self.document_version_id,
                 self.chunker_name,
                 self.chunker_version,
                 self.configuration_hash,
@@ -140,13 +139,12 @@ class ChunkManifest:
 
 @dataclass(frozen=True, slots=True)
 class ChunkingRequest:
-    """Stable inputs and explicit routing hints for one artifact revision."""
+    """Stable inputs and explicit routing hints for one document version."""
 
     tenant_id: str
-    artifact_id: str
-    artifact_revision_id: str
+    document_version_id: str
     document: Document
-    source_kind: str = ""
+    connector_type: str = ""
     content_type: str = ""
     profile_name: str | None = None
 
@@ -155,19 +153,22 @@ class ChunkingRequest:
             value.strip()
             for value in (
                 self.tenant_id,
-                self.artifact_id,
-                self.artifact_revision_id,
+                self.document.id,
+                self.document_version_id,
             )
         ):
             raise ValueError("chunking request identity values must be non-empty")
-        source_kind = (self.source_kind.strip() or self.document.provenance.source).lower()
+        connector_type = (
+            self.connector_type.strip()
+            or str(self.document.provenance.extra.get("connector_type") or "")
+        ).lower()
         content_type = (self.content_type.strip() or self._document_content_type()).lower()
         content_type = content_type.split(";", 1)[0].strip()
-        if not source_kind.strip() or not content_type.strip():
+        if not connector_type.strip() or not content_type.strip():
             raise ValueError("chunking request routing values must be non-empty")
         if self.profile_name is not None and not self.profile_name.strip():
             raise ValueError("profile_name must be non-empty when provided")
-        object.__setattr__(self, "source_kind", source_kind)
+        object.__setattr__(self, "connector_type", connector_type)
         object.__setattr__(self, "content_type", content_type)
         if self.profile_name is not None:
             object.__setattr__(self, "profile_name", self.profile_name.strip())
@@ -222,16 +223,14 @@ class ChunkingStatistics:
 class ChunkingResult:
     """Canonical chunks, diagnostics, and their lightweight manifest."""
 
-    artifact_id: str
-    artifact_revision_id: str
+    document_id: str
+    document_version_id: str
     strategy: str
     profile: str
     profile_hash: str
     chunks: tuple[ChunkRecord, ...]
     diagnostics: ChunkingDiagnostics
     manifest: ChunkManifest
-    document_id: str = field(init=False)
-    document_version_id: str = field(init=False)
     strategy_version: str = field(init=False)
     warnings: tuple[str, ...] = field(init=False)
     statistics: ChunkingStatistics = field(init=False)
@@ -242,8 +241,8 @@ class ChunkingResult:
         if not all(
             value.strip()
             for value in (
-                self.artifact_id,
-                self.artifact_revision_id,
+                self.document_id,
+                self.document_version_id,
                 self.strategy,
                 self.profile,
                 self.profile_hash,
@@ -251,8 +250,8 @@ class ChunkingResult:
         ):
             raise ValueError("chunking result identity values must be non-empty")
         if (
-            self.artifact_id != self.manifest.artifact_id
-            or self.artifact_revision_id != self.manifest.artifact_revision_id
+            self.document_id != self.manifest.document_id
+            or self.document_version_id != self.manifest.document_version_id
             or self.strategy != self.manifest.chunker_name
             or self.profile_hash != self.manifest.configuration_hash
         ):
@@ -270,25 +269,15 @@ class ChunkingResult:
         for record, reference in zip(self.chunks, self.manifest.chunks, strict=True):
             if (
                 str(record.tenant_id) != self.manifest.tenant_id
-                or record.artifact_id != self.artifact_id
-                or record.artifact_revision_id != self.artifact_revision_id
+                or str(record.document_id) != self.document_id
+                or str(record.document_version_id) != self.document_version_id
                 or str(record.logical_chunk_id) != reference.logical_chunk_id
-                or str(record.chunk_revision_id) != reference.chunk_revision_id
+                or str(record.chunk_id) != reference.chunk_id
                 or record.ordinal != reference.ordinal
                 or record.content_hash != reference.content_hash
                 or (record.token_count or 0) != reference.token_count
             ):
                 raise ValueError("chunking record does not match its manifest reference")
-        object.__setattr__(
-            self,
-            "document_id",
-            str(self.chunks[0].document_id) if self.chunks else self.artifact_id,
-        )
-        object.__setattr__(
-            self,
-            "document_version_id",
-            (str(self.chunks[0].document_version_id) if self.chunks else self.artifact_revision_id),
-        )
         object.__setattr__(self, "strategy_version", self.manifest.chunker_version)
         object.__setattr__(self, "warnings", self.manifest.validation.warnings)
         object.__setattr__(
@@ -296,17 +285,11 @@ class ChunkingResult:
             "statistics",
             ChunkingStatistics(
                 route_chunk_count=sum(
-                    record.chunk_kind == ChunkKind.ROUTE for record in self.chunks
+                    record.record_kind == RecordKind.ROUTE for record in self.chunks
                 ),
                 evidence_chunk_count=sum(
-                    record.chunk_kind
-                    in {
-                        ChunkKind.EVIDENCE,
-                        ChunkKind.CODE,
-                        ChunkKind.COMMENT,
-                        ChunkKind.EVENT,
-                        ChunkKind.JIRA_FIELD,
-                    }
+                    record.record_kind == RecordKind.EVIDENCE
+                    and record.chunk_kind != ChunkKind.TABLE
                     for record in self.chunks
                 ),
                 table_chunk_count=sum(

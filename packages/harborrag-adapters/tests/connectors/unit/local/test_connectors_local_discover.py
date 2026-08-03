@@ -37,7 +37,7 @@ def test_discover_recurses_and_filters_files(tmp_path: Path):
         "README.md",
         "src/app.py",
     ]
-    assert records[0].id.startswith("file:")
+    assert [record.id for record in records] == ["README.md", "src/app.py"]
     assert records[0].source_type == guess_mime_type(tmp_path / "README.md")
     assert records[0].checksum.startswith("stat:")
     assert "mime_type" not in records[0].metadata

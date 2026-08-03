@@ -6,8 +6,8 @@ from harborrag_core.chunking import TableProjectionType
 from harborrag_core.contracts import TokenCounter
 from harborrag_core.domain import TableArtifact
 
-from ..table_policy import TableChunkingPolicy
 from .models import PlannedTableChunk, TableChunkRole
+from .policy import TableChunkingPolicy
 from .rendering import TableRenderer
 
 

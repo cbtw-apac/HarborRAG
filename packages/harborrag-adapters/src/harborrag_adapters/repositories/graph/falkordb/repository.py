@@ -10,9 +10,6 @@ from harborrag_adapters.repositories.errors import (
 from harborrag_adapters.repositories.graph.base import HarborGraphRepository
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
-from harborrag_adapters.repositories.graph.falkordb.generation import (
-    FalkorGenerationMixin,
-)
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_adapters.repositories.graph.falkordb.reader import FalkorDBGraphReader
 from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
@@ -29,7 +26,7 @@ from harborrag_core.schemas.graph import (
     GraphSubgraph,
 )
 from harborrag_core.schemas.ids import EntityId, RelationshipId
-from harborrag_core.schemas.storage import (
+from harborrag_core.storage import (
     HealthStatus,
     RepositoryHealth,
     StorageFamily,
@@ -37,7 +34,7 @@ from harborrag_core.schemas.storage import (
 )
 
 
-class FalkorDBGraphRepository(FalkorGenerationMixin, HarborGraphRepository):
+class FalkorDBGraphRepository(HarborGraphRepository):
     """Persists tenant-scoped graph records through FalkorDB openCypher queries."""
 
     def __init__(
@@ -190,33 +187,6 @@ class FalkorDBGraphRepository(FalkorGenerationMixin, HarborGraphRepository):
                 {"rows": rows},
             )
 
-    @traced_repository_operation("activate_generation")
-    async def activate_generation(
-        self,
-        *,
-        artifact_id: str,
-        generation_id: str,
-        previous_generation_id: str | None,
-        context: StorageOperationContext,
-    ) -> None:
-        """Expose a complete graph projection and retire its predecessor."""
-
-        if previous_generation_id is not None:
-            await self._set_generation_state(
-                artifact_id,
-                previous_generation_id,
-                index_state="retired",
-                is_active=False,
-                context=context,
-            )
-        await self._set_generation_state(
-            artifact_id,
-            generation_id,
-            index_state="active",
-            is_active=True,
-            context=context,
-        )
-
     @traced_repository_operation("get_nodes")
     async def get_nodes(
         self,
@@ -296,7 +266,6 @@ class FalkorDBGraphRepository(FalkorGenerationMixin, HarborGraphRepository):
             "CREATE INDEX FOR (n:HarborEntity) ON (n.tenant_id)",
             "CREATE INDEX FOR (n:HarborEntity) ON (n.id)",
             "CREATE INDEX FOR (n:HarborEntity) ON (n.artifact_id)",
-            "CREATE INDEX FOR (n:HarborEntity) ON (n.generation_id)",
             "CREATE INDEX FOR (n:HarborEntity) ON (n.is_active)",
         ):
             try:

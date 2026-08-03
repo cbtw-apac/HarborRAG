@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta, timezone
+
 import pytest
 
 from harborrag_adapters.repositories.backends import sqlalchemy as sqlalchemy_module
-from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient, UTCDateTime
 from harborrag_adapters.repositories.backends.sqlite import sqlite_url
 
 
@@ -18,6 +20,22 @@ def make_client(
         pool_recycle_seconds=1800,
         echo=False,
     )
+
+
+def test_utc_datetime_normalizes_aware_values_and_rejects_naive_values() -> None:
+    column_type = UTCDateTime()
+    source = datetime(2026, 8, 2, 12, tzinfo=timezone(timedelta(hours=7)))
+
+    assert column_type.process_bind_param(source, None) == datetime(2026, 8, 2, 5, tzinfo=UTC)
+    with pytest.raises(ValueError, match="must be timezone-aware"):
+        column_type.process_bind_param(datetime(2026, 8, 2, 5), None)
+
+
+def test_utc_datetime_restores_timezone_for_naive_driver_values() -> None:
+    column_type = UTCDateTime()
+    value = datetime(2026, 8, 2, 5)
+
+    assert column_type.process_result_value(value, None) == value.replace(tzinfo=UTC)
 
 
 def test_require_url_prefix_accepts_matching_prefix() -> None:

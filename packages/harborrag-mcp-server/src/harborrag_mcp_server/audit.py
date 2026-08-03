@@ -64,6 +64,26 @@ class McpAuditLog:
             event["error_type"] = _bounded(error_type)
         self._record(event)
 
+    def configuration_change(
+        self,
+        *,
+        action: str,
+        principal_id: str,
+        previous_revision: str,
+        current_revision: str,
+    ) -> None:
+        """Record configuration metadata without persisting configuration values."""
+        self._record(
+            {
+                "event": "configuration_changed",
+                "action": _bounded(action),
+                "principal_id": _bounded(principal_id),
+                "previous_revision": _bounded(previous_revision),
+                "current_revision": _bounded(current_revision),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+
     def _record(self, event: dict[str, object]) -> None:
         with self._lock:
             self.entries.append(event)

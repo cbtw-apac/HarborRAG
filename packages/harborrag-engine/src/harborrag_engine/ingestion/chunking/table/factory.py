@@ -9,9 +9,9 @@ from harborrag_core.chunking import (
     ChunkQuality,
     ChunkRecord,
     ChunkSecurity,
-    ConnectorType,
+    CitationLocator,
     ContainerKind,
-    DocumentKind,
+    RecordKind,
     SourceAttribute,
     TableChunkLocator,
     content_fingerprint,
@@ -21,7 +21,7 @@ from harborrag_core.contracts import TokenCounter
 from harborrag_core.schemas.ids import ChunkId, DocumentId, DocumentVersionId, TenantId
 
 from ..config import ChunkingPlan
-from ..identity import ChunkIdentityBuilder
+from ..identity import ChunkIdentityBuilder, ChunkIdentityInput
 from .errors import TableChunkingError
 from .fragmentation import TokenBudgetFragmenter
 from .models import (
@@ -110,14 +110,16 @@ class TableChunkFactory:
             f"fragment:{fragment.index}"
         )
         identity = self._identity.identify(
-            document_id=artifact.document_id,
-            document_version_id=artifact.document_version_id,
-            strategy_version=plan.strategy_version,
-            section_path=artifact.section_path,
-            structural_anchor=anchor,
-            local_part_index=fragment.index,
-            chunk_kind=ChunkKind.TABLE,
-            content_hash=content_hash,
+            ChunkIdentityInput(
+                document_id=artifact.document_id,
+                document_version_id=artifact.document_version_id,
+                strategy_version=plan.strategy_version,
+                section_path=artifact.section_path,
+                structural_anchor=anchor,
+                local_part_index=fragment.index,
+                chunk_kind=ChunkKind.TABLE,
+                content_hash=content_hash,
+            )
         )
         embedding_text = (
             f"{fragment.contextual_prefix}\n\n{fragment.content}"
@@ -142,23 +144,25 @@ class TableChunkFactory:
             chunk_id=ChunkId(identity.chunk_id),
             logical_chunk_id=ChunkId(identity.logical_chunk_id),
             content_hash=content_hash,
-            connector_type=ConnectorType.CONFLUENCE,
-            document_kind=DocumentKind.CONFLUENCE_PAGE,
+            connector_type=request.connector_type,
+            document_kind=request.document_kind,
+            record_kind=(
+                RecordKind.ROUTE if planned.role == TableChunkRole.ROUTE else RecordKind.EVIDENCE
+            ),
             chunk_kind=ChunkKind.TABLE,
             tenant_id=TenantId(request.tenant_id),
             connection_id=request.connection_id,
-            source_scope=request.source_scope,
+            source_scope_id=request.source_scope_id,
             source_item_id=artifact.document_id,
             source_version=artifact.source_version,
             document_id=DocumentId(artifact.document_id),
             document_version_id=DocumentVersionId(artifact.document_version_id),
             ordinal=fragment.ordinal,
             content=fragment.content,
-            contextual_prefix=fragment.contextual_prefix,
             embedding_text=embedding_text,
             search_text=fragment.search_text,
             token_count=token_count,
-            source_locator=artifact.source_locator,
+            citation_locator=CitationLocator.model_validate(artifact.source_locator.model_dump()),
             hierarchy=self._hierarchy(request),
             security=ChunkSecurity(
                 permission_set_id=self._identity.permission_set_id(
@@ -239,7 +243,7 @@ class TableChunkFactory:
             for index, title in enumerate(artifact.tab_path)
         )
         return ChunkHierarchy(
-            document_title=request.page_title,
+            document_title=request.document_title,
             section_path=artifact.section_path,
             section_id=section_id,
             parent_section_id=ancestry[-1] if ancestry else None,
@@ -255,9 +259,12 @@ class TableChunkFactory:
     ) -> str:
         artifact = request.artifact
         lines = [
-            "Connector: Confluence",
-            f"Space: {request.space}",
-            f"Page: {request.page_title}",
+            f"Connector: {request.connector_type.value.replace('_', ' ').title()}",
+            f"Document: {request.document_title}",
+            *(
+                f"{key.replace('_', ' ').title()}: {value}"
+                for key, value in sorted(request.source_context.items())
+            ),
         ]
         if artifact.tab_path:
             lines.append(f"Tab: {' > '.join(artifact.tab_path)}")
@@ -283,8 +290,8 @@ class TableChunkFactory:
             (
                 request.artifact.document_id,
                 request.artifact.table_id,
-                request.page_title,
-                request.space,
+                request.document_title,
+                *(value for _, value in sorted(request.source_context.items())),
                 *request.artifact.section_path,
                 *request.artifact.tab_path,
                 exact,

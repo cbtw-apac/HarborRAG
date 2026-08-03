@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 from chunking_test_fixtures import chunk_values, make_chunk
 from pydantic import ValidationError
@@ -13,11 +11,11 @@ from harborrag_core.chunking import (
     ChunkRecord,
     ChunkRelation,
     ChunkSecurity,
+    CitationLocator,
     ConnectorType,
     DocumentKind,
     RelationType,
     SourceAttribute,
-    SourceLocator,
     TableChunkLocator,
 )
 
@@ -26,7 +24,7 @@ def test_valid_evidence_chunk_preserves_distinct_text_representations() -> None:
     chunk = make_chunk()
 
     assert chunk.content == "Canonical evidence"
-    assert chunk.contextual_prefix.startswith("Document:")
+    assert chunk.embedding_text.startswith("Document:")
     assert chunk.embedding_text.endswith(chunk.content)
     assert "page-123" in chunk.search_text
     assert chunk.hierarchy.section_path == ("Architecture", "Chunking")
@@ -51,7 +49,7 @@ def test_valid_jira_field_chunk_preserves_field_snapshot() -> None:
     assert chunk.source_attributes[0].display_name == "Customer impact"
 
 
-def test_valid_table_chunk_has_versioned_row_locator_and_key_columns() -> None:
+def test_valid_table_chunk_has_row_locator_and_key_columns() -> None:
     locator = TableChunkLocator(
         table_id="table:stable",
         table_version_id="table-version:7",
@@ -98,7 +96,8 @@ def test_chunk_models_are_immutable_strict_and_serialize_enums_as_strings() -> N
     serialized = chunk.model_dump(mode="json")
     assert serialized["connector_type"] == "confluence"
     assert serialized["document_kind"] == "confluence_page"
-    assert serialized["chunk_kind"] == "evidence"
+    assert serialized["record_kind"] == "evidence"
+    assert serialized["chunk_kind"] == "text"
     assert "FrozenMetadata" in repr(chunk.metadata)
 
 
@@ -119,14 +118,12 @@ def test_chunk_metadata_is_recursively_immutable_and_json_safe() -> None:
 def test_optional_chunk_fields_may_be_absent() -> None:
     chunk = make_chunk(
         language=None,
-        created_at=None,
-        source_locator=SourceLocator(),
+        citation_locator=CitationLocator(),
         hierarchy=ChunkHierarchy(),
         quality=ChunkQuality(),
     )
 
     assert chunk.language is None
-    assert chunk.created_at is None
     assert chunk.table_locator is None
 
 
@@ -137,13 +134,7 @@ def test_optional_chunk_fields_may_be_absent() -> None:
         ({"token_count": -1}, "greater than or equal to 0"),
         ({"document_id": ""}, "at least 1 character"),
         ({"document_version_id": ""}, "at least 1 character"),
-        (
-            {
-                "quality": ChunkQuality(score=0.5),
-                "created_at": datetime(2026, 1, 1),  # noqa: DTZ001
-            },
-            "timezone",
-        ),
+        ({"record_kind": "invalid"}, "Input should be 'route' or 'evidence'"),
     ],
 )
 def test_chunk_rejects_invalid_required_state(

@@ -13,6 +13,7 @@ from harborrag_runtime.config.connectors.providers import (
     config_factory,
     config_field_names,
     supported_provider_names,
+    validate_literal_collection_shapes,
 )
 from harborrag_runtime.config.connectors.schemas import ConnectorDefinition
 from harborrag_runtime.config.errors import ConnectorConfigurationError
@@ -92,6 +93,14 @@ def _parse_definition(
         setting_environment,
         secret_environment,
     )
+    factory = config_factory(provider)
+    if factory is not None:
+        try:
+            validate_literal_collection_shapes(factory, settings)
+        except ValueError as exc:
+            raise ConnectorConfigurationError(
+                f"Connector {name!r} ({provider}) is invalid: {exc}"
+            ) from exc
     _validate_yaml_boundaries(
         name,
         settings,

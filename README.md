@@ -94,6 +94,8 @@ test -f env/.env.parser || \
   cp env-example/.env.parser.example env/.env.parser
 test -f env/.env.models || \
   cp env-example/.env.models.example env/.env.models
+test -f env/.env.mcp || \
+  cp env-example/.env.mcp.example env/.env.mcp
 
 chmod 600 env/.env.*
 ```
@@ -115,15 +117,8 @@ strong `POSTGRES_PASSWORD` in `env/.env.database`, and configure the Temporal
 worker in `env/.env.temporal`:
 
 ```dotenv
-TEMPORAL_POSTGRES_PASSWORD=replace-with-a-long-random-password
-TEMPORAL_START_WORKER=1
 HARBORRAG_TEMPORAL_WORKER_REPLICAS=2
 ```
-
-`temporal_up.sh` keeps the stored PostgreSQL role password synchronized with
-`TEMPORAL_POSTGRES_PASSWORD` when the existing development volume is reused.
-Use the script after changing the password; invoking Compose directly does not
-perform that synchronization.
 
 ### 2. Start data services, Temporal, and workers
 
@@ -131,8 +126,9 @@ Start the data stack first because it creates the external network used by the
 workers:
 
 ```bash
-DATABASE_ENV_FILE=env/.env.database bash scripts/deployment/database_up.sh
-TEMPORAL_ENV_FILE=env/.env.temporal bash scripts/deployment/temporal_up.sh
+scripts/deployment/dev.sh data
+scripts/deployment/dev.sh temporal
+scripts/deployment/dev.sh worker
 ```
 
 After the application image compatibility issue above is resolved, the first
@@ -185,8 +181,9 @@ uv run --package harborrag-app harborrag ingest resume RUN_ID
 uv run --package harborrag-app harborrag ingest cancel RUN_ID
 ```
 
-Cancellation is graceful unless `--force` is supplied. A later ingestion may
-report artifacts as `unchanged`; this is the expected revision-based fast path.
+Cancellation is applied at a safe source-batch boundary. A later ingestion may
+report documents as `unchanged`; this is the expected admission fast path and
+does not invoke parsing, chunking, or encoding.
 
 Follow worker logs during a run:
 
@@ -206,18 +203,21 @@ controls, and troubleshooting details.
 
 | Target | Status |
 | --- | --- |
-| Local development | Host-based uv workflow supported; data Compose definitions valid; Alpine application images currently blocked |
+| Local development | Host-based uv workflow and the containerized ingestion worker are supported |
 | Integration testing | Supported |
-| Controlled single-host staging | Blocked until immutable application images build and pass ingestion smoke tests |
+| Controlled single-host staging | Supported after the manual ingestion release gate passes against the deployed candidate |
 | Public or multi-tenant production | Not yet supplied as a complete topology |
 
-Before a public production launch, replace local SQLite/filesystem ingestion
-state with concurrency-safe managed storage, use Temporal Cloud or a hardened
-self-hosted Temporal deployment, build immutable worker images, add TLS and
-network policies, integrate a secret manager, implement API authentication and
-authorization, wire production observability, and test backup/restore. See
-[Deployment](docs/developers/deployment/README.md) for the complete readiness
-boundary.
+The ingestion release gate validates the Postgres control plane, immutable
+MinIO artifacts, Qdrant and FalkorDB projections, Redis-loss behavior, Temporal
+workflows, authoritative retrieval, and connector-free reindexing. See the
+[deployed ingestion smoke guide](packages/harborrag-runtime/tests/runtime_ingestion/smoke/README.md).
+
+Before a public production launch, use Temporal Cloud or a hardened self-hosted
+Temporal deployment, add TLS and network policies, integrate a secret manager,
+implement API authentication, authorization, ACL projection, and multi-tenancy,
+wire production observability, and test backup/restore. See [Deployment](docs/developers/deployment/README.md)
+for the complete readiness boundary.
 
 ## Try the implemented adapters
 
@@ -265,14 +265,30 @@ Model configuration resolves `${VARIABLE}` references during loading, so missing
 ### Run the local MCP stdio transport
 
 ```bash
-uv run --package harborrag-mcp-server \
-  python -c \
-  "from harborrag_mcp_server import create_mcp_server; create_mcp_server(allow_unauthenticated_local=True).run(transport='stdio')"
+scripts/deployment/mcp.sh --check
 ```
 
-The unauthenticated override is restricted to local stdio and opens no network
-listener. Network transports require an authentication provider. See
+The check performs a protocol handshake and lists the advertised tools. For
+normal use, configure your MCP client to launch `scripts/deployment/mcp.sh`.
+The stdio server is not an interactive terminal or HTTP service, and it opens
+no network listener. Network transports require an authentication provider. See
 [MCP Tools](docs/users/detailed-guides/mcp-server/README.md).
+
+For a local authenticated HTTP endpoint and browser status page:
+
+```bash
+scripts/deployment/dev.sh bootstrap
+scripts/deployment/mcp.sh --http
+```
+
+Open `http://127.0.0.1:8010/`; MCP clients connect to
+`http://127.0.0.1:8010/mcp` with the bearer token stored in the protected
+`env/.env.mcp` file.
+The page provides an owner-only Tool Playground and an editor for the validated
+[`config/mcp.yaml`](config/mcp.yaml). Enter the bearer token, load the effective
+tools for a tenant, complete the generated argument form, and run retrieval
+without a separate MCP client. Playground calls use the same schema, policy,
+tenant configuration, and audit path as MCP calls.
 
 ## Workspace packages
 
@@ -314,6 +330,7 @@ See [Architecture](docs/developers/architecture/README.md) for the exact allowed
 | `env-example/.env.connector.example` | Connector and connector-smoke environment template |
 | `env-example/.env.parser.example` | Optional parser/OCR environment template |
 | `env-example/.env.models.example` | Model and model-smoke environment template |
+| `env-example/.env.mcp.example` | Local MCP transport and bearer-token template |
 | `env-example/.env.database.example` | Local repository-stack template |
 | `env-example/.env.temporal.example` | Local PostgreSQL/Temporal-stack template |
 

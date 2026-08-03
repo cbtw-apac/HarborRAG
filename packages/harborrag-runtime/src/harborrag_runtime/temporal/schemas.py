@@ -1,327 +1,334 @@
-"""Versioned, compact schemas stored in Temporal workflow history."""
-
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
-from harborrag_runtime.temporal.artifact_schemas import (
-    ArtifactActivityInput as ArtifactActivityInput,
+from harborrag_runtime.temporal.source_query import ProcessingProfileInput, SourceQuery
+
+_SOURCE_TASK_STATES = frozenset(
+    "PENDING RUNNING PAUSED CANCELLING COMPLETED PARTIAL FAILED CANCELLED".split()
 )
-from harborrag_runtime.temporal.artifact_schemas import (
-    ArtifactActivityResult as ArtifactActivityResult,
-)
-from harborrag_runtime.temporal.artifact_schemas import (
-    ArtifactReference,
-    ArtifactStatus,
-    PendingResolution,
-    RunStatus,
-)
-from harborrag_runtime.temporal.artifact_schemas import (
-    ArtifactStage as ArtifactStage,
-)
-from harborrag_runtime.temporal.artifact_schemas import (
-    ArtifactStageState as ArtifactStageState,
-)
-from harborrag_runtime.temporal.artifact_schemas import (
-    ResolutionDecision as ResolutionDecision,
-)
-from harborrag_runtime.temporal.artifact_schemas import (
-    ResolutionReceipt as ResolutionReceipt,
-)
-from harborrag_runtime.temporal.retry import ActivityRetryConfig
-from harborrag_runtime.temporal.schema_version import PAYLOAD_VERSION
-from harborrag_runtime.temporal.task_queues import TaskQueueConfig
 
 
 @dataclass(frozen=True, slots=True)
-class DiscoveryInput:
-    run_id: str
-    tenant_id: str
-    manifest_id: str
-    connector_name: str
-    cursor: str | None
-    page_size: int
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class DiscoveryResult:
-    artifacts: tuple[ArtifactReference, ...]
-    next_cursor: str | None
-    checkpoint_ref: str
-    done: bool
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class HeartbeatProgress:
-    stage: str
-    completed: int
-    total: int | None = None
-    cursor: str | None = None
-    checkpoint_ref: str | None = None
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactWorkflowInput:
-    run_id: str
-    tenant_id: str
-    manifest_id: str
-    artifact: ArtifactReference
-    generation_id: str
-    options: WorkflowOptions
-    attempt: int = 0
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactResult:
-    artifact_id: str
-    status: ArtifactStatus
-    artifact_revision_id: str | None = None
-    generation_id: str | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    pending_resolution: PendingResolution | None = None
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactOutcomeCheckpoint:
-    """Compact reference and current retryable terminal outcome for one artifact."""
-
-    reference: ArtifactReference
-    result: ArtifactResult
-    version: int = PAYLOAD_VERSION
+class WorkflowArtifactReference:
+    bucket: str
+    key: str
+    sha256: str
+    byte_size: int
+    media_type: str
+    byte_offset: int | None = None
+    byte_length: int | None = None
 
     def __post_init__(self) -> None:
-        if (
-            self.version != PAYLOAD_VERSION
-            or self.reference.artifact_id != self.result.artifact_id
-            or self.result.status not in {ArtifactStatus.FAILED, ArtifactStatus.QUARANTINED}
+        if not self.bucket.strip() or not self.key.strip():
+            raise ValueError("artifact bucket and key must be non-empty")
+        if len(self.sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in self.sha256
         ):
-            raise ValueError("artifact outcome checkpoint is invalid or unsupported")
+            raise ValueError("artifact sha256 must be lowercase hexadecimal")
+        if not self.media_type.strip():
+            raise ValueError("artifact media_type must be non-empty")
+        if self.byte_size < 0:
+            raise ValueError("artifact byte_size must not be negative")
+        if (self.byte_offset is None) != (self.byte_length is None):
+            raise ValueError("artifact range values must be set together")
+        if self.byte_offset is not None:
+            assert self.byte_length is not None
+            if self.byte_offset < 0 or self.byte_length < 0:
+                raise ValueError("artifact range values must not be negative")
+            if self.byte_offset + self.byte_length > self.byte_size:
+                raise ValueError("artifact range exceeds the artifact size")
 
 
 @dataclass(frozen=True, slots=True)
-class RunProgress:
-    discovered: int = 0
-    processed: int = 0
-    succeeded: int = 0
+class DocumentDispatchSummary:
+    published: int = 0
     unchanged: int = 0
     failed: int = 0
-    skipped: int = 0
-    quarantined: int = 0
-    cancelled: int = 0
-    partitions: int = 0
 
-    def add_artifact(self, status: ArtifactStatus) -> RunProgress:
-        field = {
-            ArtifactStatus.SUCCEEDED: "succeeded",
-            ArtifactStatus.UNCHANGED: "unchanged",
-            ArtifactStatus.FAILED: "failed",
-            ArtifactStatus.SKIPPED: "skipped",
-            ArtifactStatus.QUARANTINED: "quarantined",
-            ArtifactStatus.CANCELLED: "cancelled",
-        }.get(status)
-        values = {"processed": self.processed + 1}
-        if field is not None:
-            values[field] = getattr(self, field) + 1
-        return replace(self, **values)
+    def add(self, status: str) -> DocumentDispatchSummary:
+        return DocumentDispatchSummary(
+            published=self.published + (status == "published"),
+            unchanged=self.unchanged + (status == "unchanged"),
+            failed=self.failed + (status == "failed"),
+        )
 
-    def merge(self, other: RunProgress) -> RunProgress:
-        return RunProgress(
-            discovered=self.discovered + other.discovered,
-            processed=self.processed + other.processed,
-            succeeded=self.succeeded + other.succeeded,
+    def merge(self, other: DocumentDispatchSummary) -> DocumentDispatchSummary:
+        return DocumentDispatchSummary(
+            published=self.published + other.published,
             unchanged=self.unchanged + other.unchanged,
             failed=self.failed + other.failed,
-            skipped=self.skipped + other.skipped,
-            quarantined=self.quarantined + other.quarantined,
-            cancelled=self.cancelled + other.cancelled,
-            partitions=self.partitions + other.partitions,
         )
 
-    def replace_artifact(
-        self,
-        previous: ArtifactStatus,
-        current: ArtifactStatus,
-    ) -> RunProgress:
-        """Replace a prior terminal outcome without counting another artifact."""
-
-        fields = {
-            ArtifactStatus.SUCCEEDED: "succeeded",
-            ArtifactStatus.UNCHANGED: "unchanged",
-            ArtifactStatus.FAILED: "failed",
-            ArtifactStatus.SKIPPED: "skipped",
-            ArtifactStatus.QUARANTINED: "quarantined",
-            ArtifactStatus.CANCELLED: "cancelled",
-        }
-        previous_field = fields.get(previous)
-        current_field = fields.get(current)
-        values: dict[str, int] = {}
-        if previous_field is not None:
-            values[previous_field] = getattr(self, previous_field) - 1
-        if current_field is not None:
-            values[current_field] = (
-                values.get(
-                    current_field,
-                    getattr(self, current_field),
-                )
-                + 1
-            )
-        return replace(self, **values)
-
 
 @dataclass(frozen=True, slots=True)
-class PartitionInput:
-    run_id: str
-    tenant_id: str
-    manifest_id: str
-    partition_number: int
-    artifacts: tuple[ArtifactReference, ...]
-    generation_id: str
-    options: WorkflowOptions
-    attempt: int = 0
-    version: int = PAYLOAD_VERSION
+class SourceContinuation:
+    """Small durable cursor carried across bounded workflow histories."""
 
-
-@dataclass(frozen=True, slots=True)
-class PartitionResult:
-    partition_number: int
-    progress: RunProgress
-    failed_artifacts: tuple[str, ...] = ()
-    quarantined_artifacts: tuple[str, ...] = ()
-    pending_resolutions: tuple[PendingResolution, ...] = ()
-    artifact_results: tuple[ArtifactResult, ...] = ()
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class RunContinuationState:
-    """Operator-visible state that must survive continue-as-new."""
-
-    artifact_outcomes: tuple[ArtifactOutcomeCheckpoint, ...] = ()
-    pending_resolutions: tuple[PendingResolution, ...] = ()
-    retry_requested: tuple[str, ...] = ()
-    partition_concurrency: int | None = None
-    artifact_concurrency: int | None = None
-    retry_attempt: int = 0
-    cancel_requested: bool = False
-    version: int = PAYLOAD_VERSION
+    scan_id: str
+    plan_reference: WorkflowArtifactReference
+    document_count: int
+    next_document_index: int
+    batch_number: int
+    summary: DocumentDispatchSummary
 
     def __post_init__(self) -> None:
-        capacities = (self.partition_concurrency, self.artifact_concurrency)
-        if (
-            self.version != PAYLOAD_VERSION
-            or self.retry_attempt < 0
-            or any(value is not None and value < 1 for value in capacities)
-        ):
-            raise ValueError("run continuation state is invalid or unsupported")
-        artifact_ids = [checkpoint.reference.artifact_id for checkpoint in self.artifact_outcomes]
-        if len(artifact_ids) != len(set(artifact_ids)):
-            raise ValueError("run continuation outcomes must have unique artifact IDs")
+        if not self.scan_id.strip():
+            raise ValueError("continued source scan ID must be non-empty")
+        if not 0 <= self.next_document_index <= self.document_count:
+            raise ValueError("continued source document cursor is invalid")
+        if self.document_count < 0 or self.batch_number < 0:
+            raise ValueError("continued source counters must not be negative")
 
 
 @dataclass(frozen=True, slots=True)
-class WorkflowOptions:
-    """Workflow-stable snapshot of orchestration configuration."""
-
-    task_queues: TaskQueueConfig = TaskQueueConfig()
-    retries: ActivityRetryConfig = ActivityRetryConfig()
-    max_artifacts: int | None = None
-    partition_size: int = 50
-    partition_concurrency: int = 4
-    artifact_concurrency: int = 16
-    continue_after_partitions: int = 100
-    continue_after_artifacts: int = 2_000
-    version: int = PAYLOAD_VERSION
-
-    def __post_init__(self) -> None:
-        values = (
-            self.partition_size,
-            self.partition_concurrency,
-            self.artifact_concurrency,
-            self.continue_after_partitions,
-            self.continue_after_artifacts,
-        )
-        if (
-            self.version != PAYLOAD_VERSION
-            or any(value < 1 for value in values)
-            or (self.max_artifacts is not None and self.max_artifacts < 1)
-        ):
-            raise ValueError("workflow orchestration limits must be positive")
-
-
-@dataclass(frozen=True, slots=True)
-class IngestionRunInput:
-    run_id: str
+class SourceIngestionInput:
+    task_id: str
     tenant_id: str
     connector_name: str
-    manifest_id: str
-    generation_id: str
-    options: WorkflowOptions = WorkflowOptions()
-    source_cursor: str | None = None
-    next_partition: int = 0
-    progress: RunProgress = RunProgress()
-    paused: bool = False
-    continuation: RunContinuationState = RunContinuationState()
-    version: int = PAYLOAD_VERSION
+    connector_type: str
+    connection_id: str
+    source_scope_id: str
+    configuration_fingerprint: str
+    processing: ProcessingProfileInput
+    query: SourceQuery = SourceQuery()
+    force_reprocess: bool = False
+    discovery_page_size: int = 50
+    discovery_concurrency: int = 4
+    document_concurrency: int = 8
+    missing_threshold: int = 2
+    batch_size: int = 200
+    continue_after_batches: int = 25
+    continuation: SourceContinuation | None = None
 
     def __post_init__(self) -> None:
         values = (
-            self.run_id,
+            self.task_id,
             self.tenant_id,
             self.connector_name,
-            self.manifest_id,
-            self.generation_id,
+            self.connector_type,
+            self.connection_id,
+            self.source_scope_id,
+            self.configuration_fingerprint,
         )
-        if self.version != PAYLOAD_VERSION or any(not value.strip() for value in values):
-            raise ValueError("ingestion run input is invalid or unsupported")
+        if any(not value.strip() for value in values):
+            raise ValueError("source input identities must be non-empty")
+        if len(self.task_id) > 128:
+            raise ValueError("source task ID must not exceed 128 characters")
+        if not 1 <= self.batch_size <= 300:
+            raise ValueError("source batch_size must be between 1 and 300")
+        if not 1 <= self.document_concurrency <= 100:
+            raise ValueError("document_concurrency must be between 1 and 100")
+        if not 1 <= self.discovery_page_size <= 300:
+            raise ValueError("discovery_page_size must be between 1 and 300")
+        if not 1 <= self.discovery_concurrency <= 32:
+            raise ValueError("discovery_concurrency must be between 1 and 32")
+        if self.missing_threshold < 1:
+            raise ValueError("missing_threshold must be positive")
+        if not 1 <= self.continue_after_batches <= 100:
+            raise ValueError("continue_after_batches must be between 1 and 100")
 
 
 @dataclass(frozen=True, slots=True)
-class IngestionSummary:
-    run_id: str
-    manifest_id: str
-    status: RunStatus
-    progress: RunProgress
-    reconciliation_ref: str | None = None
-    version: int = PAYLOAD_VERSION
+class SourceDiscoveryResult:
+    scan_id: str
+    plan_reference: WorkflowArtifactReference
+    document_count: int
 
 
 @dataclass(frozen=True, slots=True)
-class WorkflowStatusView:
-    run_id: str
-    status: RunStatus
-    progress: RunProgress
-    current_partition: int | None
+class SourceBatchInput:
+    task_id: str
+    tenant_id: str
+    connector_name: str
+    plan_reference: WorkflowArtifactReference
+    start_index: int
+    end_index: int
+    batch_number: int
+    document_concurrency: int
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentIngestionInput:
+    task_id: str
+    tenant_id: str
+    connector_name: str
+    plan_reference: WorkflowArtifactReference
+    document_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class RawCaptureResult:
+    document: DocumentIngestionInput
+    document_id: str
+    document_version_id: str | None
+    decision: str
+    connector_type: str | None = None
+    content_hash: str | None = None
+    source_artifact: WorkflowArtifactReference | None = None
+    metadata_artifact: WorkflowArtifactReference | None = None
+
+    def __post_init__(self) -> None:
+        if not self.document_id.strip() or not self.decision.strip():
+            raise ValueError("raw capture result identity must be non-empty")
+        raw_values = (
+            self.connector_type,
+            self.content_hash,
+            self.source_artifact,
+            self.metadata_artifact,
+        )
+        has_raw = all(value is not None for value in raw_values)
+        if any(value is not None for value in raw_values) and not has_raw:
+            raise ValueError("raw capture reference must be complete")
+        if not has_raw and self.document_version_id is None:
+            raise ValueError("raw capture without bytes requires an active document version")
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedDocument:
+    document: DocumentIngestionInput
+    document_id: str
+    document_version_id: str
+    decision: str
+    canonical_reference: WorkflowArtifactReference | None = None
+
+    def __post_init__(self) -> None:
+        if any(
+            not value.strip()
+            for value in (
+                self.document_id,
+                self.document_version_id,
+                self.decision,
+            )
+        ):
+            raise ValueError("prepared document identity must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentFailureInput:
+    document: DocumentIngestionInput
+    prepared: PreparedDocument | None
+    failed_stage: str
+    error_type: str
+
+    def __post_init__(self) -> None:
+        if not self.failed_stage.strip() or not self.error_type.strip():
+            raise ValueError("document failure stage and type must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFinalizationInput:
+    source: SourceIngestionInput
+    scan_id: str
+    plan_reference: WorkflowArtifactReference
+    summary: DocumentDispatchSummary
+
+
+@dataclass(frozen=True, slots=True)
+class SourceCancellationInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("cancelled source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFailureInput:
+    task_id: str
+    error_code: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip() or not self.error_code.strip():
+            raise ValueError("source failure task ID and error code must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceIngestionResult:
+    task_id: str
+    scan_id: str
+    discovered: int
+    published: int
+    unchanged: int
+    failed: int
+    removal_candidates: tuple[str, ...]
+    unresolved_relations: int
+    status: str = "COMPLETED"
+
+    def __post_init__(self) -> None:
+        if self.status not in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
+            raise ValueError("source result has an unsupported status")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceIngestionStatus:
+    task_id: str
+    status: str
     paused: bool
     cancel_requested: bool
-    version: int = PAYLOAD_VERSION
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("source status task ID must be non-empty")
+        if self.status not in _SOURCE_TASK_STATES:
+            raise ValueError("source status is invalid")
 
 
 @dataclass(frozen=True, slots=True)
-class ConcurrencyUpdate:
-    partition_concurrency: int
-    artifact_concurrency: int
-    version: int = PAYLOAD_VERSION
-
-
-@dataclass(frozen=True, slots=True)
-class ReconciliationInput:
-    run_id: str
+class RetryFailuresInput:
+    retry_task_id: str
+    original_task_id: str
     tenant_id: str
-    manifest_id: str
-    generation_id: str
-    progress: RunProgress
-    cancelled: bool = False
-    version: int = PAYLOAD_VERSION
+    document_ids: tuple[str, ...]
+    document_concurrency: int = 8
+
+    def __post_init__(self) -> None:
+        if any(
+            not value.strip()
+            for value in (self.retry_task_id, self.original_task_id, self.tenant_id)
+        ):
+            raise ValueError("retry task identities must be non-empty")
+        if not self.document_ids or any(not value.strip() for value in self.document_ids):
+            raise ValueError("retry task document IDs must be non-empty")
+        if len(set(self.document_ids)) != len(self.document_ids):
+            raise ValueError("retry task document IDs must be unique")
+        if not 1 <= self.document_concurrency <= 100:
+            raise ValueError("retry document_concurrency must be between 1 and 100")
 
 
 @dataclass(frozen=True, slots=True)
-class ReconciliationResult:
-    reconciliation_ref: str
-    status: RunStatus
-    version: int = PAYLOAD_VERSION
+class RetryPreparationResult:
+    plan_reference: WorkflowArtifactReference
+    document_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RetryDocumentInput:
+    retry_task_id: str
+    original_task_id: str
+    tenant_id: str
+    plan_reference: WorkflowArtifactReference
+    document_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class RetryDocumentFailureInput:
+    document: RetryDocumentInput
+    error_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class RetryFinalizationInput:
+    retry_task_id: str
+    selected: int
+    summary: DocumentDispatchSummary
+
+
+@dataclass(frozen=True, slots=True)
+class RetryFailuresResult:
+    retry_task_id: str
+    selected: int
+    published: int
+    unchanged: int
+    failed: int
+    status: str

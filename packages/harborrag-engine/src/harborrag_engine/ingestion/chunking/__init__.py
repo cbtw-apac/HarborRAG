@@ -3,7 +3,6 @@ from .config import (
     ChunkingLimits,
     ChunkingPlan,
     ChunkingProfile,
-    ChunkRoute,
     default_chunking_profiles,
 )
 from .errors import (
@@ -15,16 +14,9 @@ from .errors import (
     OversizedChunkError,
     UnknownChunkingStrategyError,
 )
-from .hierarchy import ChunkHierarchyValidator, normalize_section_path, parent_section_path
-from .identity import ChunkIdentityBuilder
-from .manifest import (
-    CanonicalChunkRepository,
-    ChunkManifestRepository,
-    ChunkPersistenceService,
-)
-from .pipeline import ChunkingService, build_default_chunking_service
-from .registry import ChunkStrategyRegistry
-from .router import ChunkingRouter, SelectedChunkRoute
+from .identity import ChunkIdentityBuilder, ChunkIdentityInput
+from .pipeline import ChunkingService, build_chunking_service
+from .records import ChunkHierarchyValidator, ChunkValidator, ChunkVersionRebinder
 from .schemas import (
     ChunkCandidate,
     ChunkingDiagnostics,
@@ -36,37 +28,33 @@ from .schemas import (
     ChunkUnit,
     ChunkValidationResult,
 )
-from .strategies import ChunkStrategy
-from .table import (
-    CanonicalTableChunker,
+from .sources import ChunkStrategy, ChunkStrategyRegistry
+from .table.classifier import TableShapeClassifier
+from .table.errors import (
     InvalidTableLocatorError,
-    MatrixProjectionMode,
     TableChunkingError,
-    TableChunkingPolicy,
-    TableChunkingRequest,
-    TableChunkingResult,
     TableClassificationError,
-    TableClassificationThresholds,
-    TableShape,
-    TableShapeClassifier,
 )
-from .validation import ChunkValidator
+from .table.models import TableChunkingRequest, TableChunkingResult, TableShape
+from .table.policy import (
+    MatrixProjectionMode,
+    TableChunkingPolicy,
+    TableClassificationThresholds,
+)
+from .table.service import CanonicalTableChunker
 
 __all__ = [
-    "CanonicalChunkRepository",
     "CanonicalTableChunker",
     "ChunkCandidate",
     "ChunkManifest",
-    "ChunkManifestRepository",
-    "ChunkPersistenceService",
     "ChunkReference",
-    "ChunkRoute",
     "ChunkStrategyRegistry",
     "ChunkStrategy",
     "ChunkUnit",
     "ChunkHierarchyError",
     "ChunkHierarchyValidator",
     "ChunkIdentityBuilder",
+    "ChunkIdentityInput",
     "ChunkIdentityError",
     "ChunkValidationError",
     "ChunkValidator",
@@ -79,14 +67,13 @@ __all__ = [
     "ChunkingRequest",
     "ChunkingResult",
     "ChunkingStatistics",
-    "ChunkingRouter",
     "ChunkingService",
     "ChunkValidationResult",
+    "ChunkVersionRebinder",
     "InvalidChunkingPlanError",
     "InvalidTableLocatorError",
     "MatrixProjectionMode",
     "OversizedChunkError",
-    "SelectedChunkRoute",
     "TableChunkingError",
     "TableChunkingPolicy",
     "TableChunkingRequest",
@@ -96,8 +83,6 @@ __all__ = [
     "TableShape",
     "TableShapeClassifier",
     "UnknownChunkingStrategyError",
-    "build_default_chunking_service",
+    "build_chunking_service",
     "default_chunking_profiles",
-    "normalize_section_path",
-    "parent_section_path",
 ]

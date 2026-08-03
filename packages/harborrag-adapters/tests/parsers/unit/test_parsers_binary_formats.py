@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from harbor_test_builders import (
     build_epub_bytes,
@@ -76,6 +78,14 @@ def test_excel_parser_extracts_sheet_text_and_names():
     assert document.elements[0].metadata["sheet"] == "Sheet1"
 
 
+def test_excel_parser_treats_zero_byte_file_as_empty_workbook():
+    document = ExcelParser().parse(ParseInput(content=b"", filename="empty.xlsx"))
+
+    assert document.content == ""
+    assert document.elements == []
+    assert document.metadata["sheets"] == []
+
+
 def test_fixture_builders_preserve_explicit_empty_collections():
     import io
     import zipfile
@@ -106,14 +116,16 @@ def test_excel_parser_advertises_legacy_xls_route():
     assert ExcelParser().can_parse(ParseInput(content=b"x", filename="legacy.xls"))
 
 
-def test_epub_parser_preserves_spine_section_order():
+def test_epub_parser_preserves_spine_section_order(caplog):
     epub = build_epub_bytes(["Alpha section", "Beta section", "Gamma section"])
-    document = EpubParser().parse(ParseInput(content=epub, filename="b.epub"))
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.parsers.epub"):
+        document = EpubParser().parse(ParseInput(content=epub, filename="b.epub"))
 
     assert document.content == "Alpha section\n\nBeta section\n\nGamma section"
     assert [element.metadata["order"] for element in document.elements] == [1, 2, 3]
     assert document.metadata["sections"] == 3
     assert document.warnings is None
+    assert "Parsed EPUB b.epub sections=3" in caplog.text
 
 
 def test_epub_parser_warns_on_missing_referenced_section():
@@ -136,3 +148,36 @@ def test_epub_parser_warns_on_missing_referenced_section():
     assert document.warnings is not None
     assert any("ch2.xhtml" in warning for warning in document.warnings)
     assert [element.metadata["order"] for element in document.elements] == [1]
+
+
+def test_epub_parser_emits_package_title_once_when_xhtml_duplicates_it():
+    import io
+    import zipfile
+
+    original = build_epub_bytes(["Body text"])
+    buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(original)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename == "OEBPS/content.opf":
+                payload = payload.replace(
+                    b"<metadata/>",
+                    b'<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                    b"Harbor Book</dc:title></metadata>",
+                )
+            elif info.filename == "OEBPS/ch1.xhtml":
+                payload = (
+                    b"<html><head><title>Harbor Book</title></head>"
+                    b"<body><h1>Harbor Book</h1><p>Body text</p></body></html>"
+                )
+            sink.writestr(info, payload)
+
+    document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="book.epub"))
+
+    assert document.content == "Harbor Book\n\nBody text"
+    assert document.content.count("Harbor Book") == 1
+    assert document.metadata["title"] == "Harbor Book"
+    assert document.elements[0].type == "heading"

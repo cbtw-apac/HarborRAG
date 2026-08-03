@@ -18,7 +18,7 @@ The runtime loader reads versioned YAML containing named connector instances. St
 version: 1
 
 connectors:
-  local-docs:
+  harborrag-workspace:
     provider: local
     enabled: true
     environment:
@@ -30,7 +30,12 @@ connectors:
       max_file_size_bytes: 104857600
 ```
 
-Each key under `connectors` is an application-level name. Multiple names may use the same provider.
+Each key under `connectors` is an application-level name and the public
+ingestion API `connection_id`. Multiple names may use the same provider. API
+requests select a configured key; they never provide connector credentials or
+repeat provider settings such as source scope, paths, comments, or attachments.
+The request's `mode` controls unchanged-document admission, not connector
+configuration; see [Ingestion modes](../ingestion-modes.md).
 
 | Field | Meaning |
 | --- | --- |
@@ -51,7 +56,7 @@ catalog = load_connector_catalog("config/connectors.example.yaml")
 print(catalog.names(enabled_only=True))
 
 local_docs = catalog.build(
-    "local-docs",
+    "harborrag-workspace",
     environment={"LOCAL_SOURCE_PATH": "docs"},
 )
 ```
@@ -74,6 +79,33 @@ github = catalog.build(
 ```
 
 Relative local `source_path` values written directly in YAML resolve against the YAML file's directory. An environment-backed relative path resolves against the process working directory. A code override for `source_path` also resolves from the process context.
+
+### Select local content deliberately
+
+The local connector treats every matching file as source content; it cannot
+infer that a text file containing timestamps, ANSI escapes, or error lines is
+"only a system log." Restrict discovery before ingestion so generated logs,
+exports, caches, and build output never become canonical documents:
+
+```yaml
+connectors:
+  harborrag-workspace:
+    provider: local
+    enabled: true
+    environment:
+      source_path: LOCAL_SOURCE_PATH
+    settings:
+      allowed_extensions: [md, markdown, txt, pdf]
+      excluded_extensions: [log]
+      exclude_paths: [logs, build, dist]
+      exclude_globs: ["*.log", "**/*.log", "**/logs/**", "**/*.jsonl"]
+      include_hidden: false
+```
+
+`allowed_extensions` is an allowlist. `excluded_extensions`, `exclude_paths`,
+and `exclude_globs` remove candidates from that set. Filters affect future
+discovery; removing an already published document still follows the normal
+source reconciliation and cleanup lifecycle.
 
 ## Secrets and dynamic values
 

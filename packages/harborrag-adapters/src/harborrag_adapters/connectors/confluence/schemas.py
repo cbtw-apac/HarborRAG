@@ -28,6 +28,10 @@ class ConfluenceCommentMetadata:
     body: str
     author: Any
     created_at: Any
+    updated_at: Any = None
+    comment_kind: str = "PAGE_COMMENT"
+    parent_comment_id: str | None = None
+    status: str | None = None
 
 
 @dataclass(slots=True)

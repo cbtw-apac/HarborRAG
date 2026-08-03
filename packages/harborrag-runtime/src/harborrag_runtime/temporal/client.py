@@ -1,11 +1,8 @@
-"""HarborRAG-owned public client for Temporal ingestion operations."""
-
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable
 from datetime import timedelta
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from temporalio.client import Client, TLSConfig, WorkflowHandle
 from temporalio.common import WorkflowIDReusePolicy
@@ -16,40 +13,40 @@ from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import (
     RuntimeConnectionError,
     WorkflowNotFoundError,
-    WorkflowNotRetryableError,
     WorkflowNotRunningError,
     WorkflowOperationError,
-    WorkflowRunAlreadyStartedError,
     WorkflowSubmissionError,
 )
-from harborrag_runtime.temporal.identity import (
-    RuntimeWorkflowRef,
-    artifact_workflow_id,
-    ingestion_workflow_id,
+
+from .identity import RuntimeWorkflowRef
+from .maintenance_schemas import (
+    ReindexInput,
+    ReindexResult,
 )
-from harborrag_runtime.temporal.schemas import (
-    ConcurrencyUpdate,
-    IngestionRunInput,
-    IngestionSummary,
-    PendingResolution,
-    ResolutionDecision,
-    ResolutionReceipt,
-    RunProgress,
-    WorkflowStatusView,
+from .policies import DISCOVERY_QUEUE, INDEX_QUEUE
+from .schemas import (
+    RetryFailuresInput,
+    RetryFailuresResult,
+    SourceIngestionInput,
+    SourceIngestionResult,
+    SourceIngestionStatus,
 )
 
 ResultT = TypeVar("ResultT")
 
 
-class TemporalRuntimeClient:
-    """Expose ingestion operations without leaking Temporal handles to callers."""
+class IngestionTemporalClient:
+    """Submit and inspect Postgres-authoritative source ingestion workflows."""
 
     def __init__(self, client: Client, config: TemporalRuntimeConfig) -> None:
         self._client = client
         self._config = config
 
     @classmethod
-    async def connect(cls, config: TemporalRuntimeConfig) -> TemporalRuntimeClient:
+    async def connect(
+        cls,
+        config: TemporalRuntimeConfig,
+    ) -> IngestionTemporalClient:
         connection = config.connection
         tls: bool | TLSConfig | None = None
         if connection.tls.enabled:
@@ -67,237 +64,210 @@ class TemporalRuntimeClient:
                 api_key=connection.api_key,
                 tls=tls,
             )
-        except (RPCError, OSError) as exc:
+        except (RPCError, OSError) as error:
             raise RuntimeConnectionError(
                 f"Could not connect to Temporal target {connection.target!r}"
-            ) from exc
+            ) from error
         return cls(client, config)
 
-    async def start_ingestion(self, request: IngestionRunInput) -> RuntimeWorkflowRef:
-        workflow_id = ingestion_workflow_id(request.run_id)
+    async def start(
+        self,
+        request: SourceIngestionInput,
+    ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
         try:
-            handle = await self._client.start_workflow(
-                "harborrag.ingestion_run",
+            return await self._client.start_workflow(
+                "harborrag.source_ingestion",
                 request,
-                id=workflow_id,
-                task_queue=self._config.task_queues.discovery,
+                id=self._workflow_id(request.task_id),
+                task_queue=DISCOVERY_QUEUE,
                 execution_timeout=timedelta(
                     seconds=self._config.workflow_execution_timeout_seconds
                 ),
                 task_timeout=timedelta(seconds=self._config.workflow_task_timeout_seconds),
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                result_type=SourceIngestionResult,
             )
-        except WorkflowAlreadyStartedError as exc:
-            # REJECT_DUPLICATE means a reused run ID is a caller conflict, not
-            # an upstream fault; name it so transports can answer 409.
-            raise WorkflowRunAlreadyStartedError(
-                f"Could not start ingestion run {request.run_id!r}: the run ID is already in use"
-            ) from exc
-        except RPCError as exc:
+        except WorkflowAlreadyStartedError:
+            return self._source_handle(request.task_id)
+        except RPCError as error:
             raise WorkflowSubmissionError(
-                f"Could not start ingestion run {request.run_id!r}"
-            ) from exc
+                f"Could not start ingestion task {request.task_id!r}"
+            ) from error
+
+    async def start_ingestion(
+        self,
+        request: SourceIngestionInput,
+    ) -> RuntimeWorkflowRef:
+        handle = await self.start(request)
         return RuntimeWorkflowRef(
-            run_id=request.run_id,
+            run_id=request.task_id,
+            workflow_id=self._workflow_id(request.task_id),
+            first_execution_run_id=handle.first_execution_run_id,
+        )
+
+    async def start_retry_failures(
+        self,
+        request: RetryFailuresInput,
+    ) -> RuntimeWorkflowRef:
+        workflow_id = f"harborrag-retry:{request.retry_task_id}"
+        try:
+            handle = await self._client.start_workflow(
+                "harborrag.retry_failures",
+                request,
+                id=workflow_id,
+                task_queue=DISCOVERY_QUEUE,
+                execution_timeout=timedelta(
+                    seconds=self._config.workflow_execution_timeout_seconds
+                ),
+                task_timeout=timedelta(seconds=self._config.workflow_task_timeout_seconds),
+                id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                result_type=RetryFailuresResult,
+            )
+        except WorkflowAlreadyStartedError:
+            handle = self._client.get_workflow_handle(workflow_id)
+        except RPCError as error:
+            raise WorkflowSubmissionError(
+                f"Could not start retry task {request.retry_task_id!r}"
+            ) from error
+        return RuntimeWorkflowRef(
+            run_id=request.retry_task_id,
             workflow_id=workflow_id,
             first_execution_run_id=handle.first_execution_run_id,
         )
 
     async def health(self) -> bool:
-        """Check that the configured Temporal workflow service is reachable."""
-
         try:
             return bool(await self._client.service_client.check_health())
-        except (RPCError, OSError) as exc:
-            raise RuntimeConnectionError("Temporal workflow service health check failed") from exc
+        except (RPCError, OSError) as error:
+            raise RuntimeConnectionError("Temporal workflow service health check failed") from error
 
-    async def result(self, run_id: str) -> IngestionSummary:
-        handle = self._run_handle(run_id)
+    async def result(self, task_id: str) -> SourceIngestionResult:
         return await self._operation(
-            f"read result for ingestion run {run_id!r}",
-            handle.result(),
+            f"read result for ingestion task {task_id!r}",
+            self._source_handle(task_id).result(),
         )
 
-    async def get_status(self, run_id: str) -> WorkflowStatusView:
-        return await self._query(run_id, "get_status", WorkflowStatusView)
+    async def progress(self, task_id: str) -> dict[str, int]:
+        return await self.get_progress(task_id)
 
-    async def execution_status(self, run_id: str) -> str:
-        """Return Temporal's own view of the execution, lowercased.
+    async def get_progress(self, task_id: str) -> dict[str, int]:
+        return await self._operation(
+            f"read progress for ingestion task {task_id!r}",
+            self._source_handle(task_id).query("get_progress", result_type=dict),
+        )
 
-        ``get_status`` reports state the workflow tracks about itself, so a run
-        whose workflow crashed still answers "running" -- the workflow never got
-        to record its own failure. This reads the server-side execution status
-        instead, which is the only source that can report a terminal failure,
-        termination, or timeout. One of: running, completed, failed, canceled,
-        terminated, continued_as_new, timed_out, or unknown.
-        """
+    async def get_status(self, task_id: str) -> SourceIngestionStatus:
+        return await self._operation(
+            f"read status for ingestion task {task_id!r}",
+            self._source_handle(task_id).query(
+                "get_status",
+                result_type=SourceIngestionStatus,
+            ),
+        )
 
-        handle = self._run_handle(run_id)
+    async def execution_status(self, task_id: str) -> str:
         description = await self._operation(
-            f"describe ingestion run {run_id!r}",
-            handle.describe(),
+            f"describe ingestion task {task_id!r}",
+            self._source_handle(task_id).describe(),
         )
-        status = description.status
-        return status.name.lower() if status is not None else "unknown"
+        return description.status.name.lower() if description.status is not None else "unknown"
 
-    async def get_progress(self, run_id: str) -> RunProgress:
-        return await self._query(run_id, "get_progress", RunProgress)
+    async def pause(self, task_id: str) -> None:
+        await self._signal(task_id, "pause")
 
-    async def get_failed_artifacts(self, run_id: str) -> tuple[str, ...]:
-        return await self._query(run_id, "get_failed_artifacts", tuple)
+    async def resume(self, task_id: str) -> None:
+        await self._signal(task_id, "resume")
 
-    async def get_quarantined_artifacts(self, run_id: str) -> tuple[str, ...]:
-        return await self._query(run_id, "get_quarantined_artifacts", tuple)
-
-    async def get_pending_resolutions(self, run_id: str) -> tuple[PendingResolution, ...]:
-        return await self._query(run_id, "get_pending_resolutions", tuple)
-
-    async def get_current_partition(self, run_id: str) -> int | None:
-        return await self._query(run_id, "get_current_partition", int)
-
-    async def pause(self, run_id: str) -> None:
-        await self._signal_run(run_id, "pause")
-
-    async def resume(self, run_id: str) -> None:
-        await self._signal_run(run_id, "resume")
-
-    async def retry_failed(self, run_id: str, artifact_ids: tuple[str, ...]) -> None:
-        """Request a retry, refusing one that cannot do anything at all.
-
-        The run workflow only checkpoints failed and quarantined artifacts, so a
-        retry naming anything else does nothing on the next retry check. When no
-        requested artifact is currently retryable, signalling would report
-        success for an action that never happens, so the request is refused.
-
-        A request with at least one retryable artifact is forwarded whole. The
-        workflow keeps unmatched IDs queued rather than discarding them, so an
-        artifact still in flight can be honoured by a later retry check --
-        rejecting the request here would lose that.
-        """
-
-        await self._require_retryable(run_id, artifact_ids)
-        await self._signal_run(run_id, "retry_failed", artifact_ids)
-
-    async def _require_retryable(self, run_id: str, artifact_ids: tuple[str, ...]) -> None:
-        failed, quarantined = await asyncio.gather(
-            self.get_failed_artifacts(run_id),
-            self.get_quarantined_artifacts(run_id),
-        )
-        retryable = set(failed) | set(quarantined)
-        if retryable.isdisjoint(artifact_ids):
-            raise WorkflowNotRetryableError(
-                f"Could not retry artifacts for {run_id!r}: "
-                f"{', '.join(sorted(artifact_ids))} "
-                "are not failed or quarantined in this run"
-            )
-
-    async def adjust_concurrency(
-        self,
-        run_id: str,
-        update: ConcurrencyUpdate,
-    ) -> ConcurrencyUpdate:
-        handle = self._run_handle(run_id)
-        operation = handle.execute_update(
-            "adjust_concurrency",
-            update,
-            result_type=ConcurrencyUpdate,
-        )
-        return await self._operation(f"adjust concurrency for {run_id!r}", operation)
-
-    async def skip_artifact(self, run_id: str, artifact_id: str, *, attempt: int = 0) -> None:
-        handle = self._artifact_handle(run_id, artifact_id, attempt)
-        await self._operation(
-            f"skip artifact {artifact_id!r}",
-            handle.signal("skip_artifact"),
-        )
-
-    async def submit_resolution(
-        self,
-        run_id: str,
-        decision: ResolutionDecision,
-        *,
-        attempt: int = 0,
-    ) -> ResolutionReceipt:
-        handle = self._artifact_handle(run_id, decision.artifact_id, attempt)
-        operation = handle.execute_update(
-            "submit_resolution",
-            decision,
-            result_type=ResolutionReceipt,
-        )
-        return await self._operation(
-            f"submit resolution for artifact {decision.artifact_id!r}",
-            operation,
-        )
-
-    async def cancel(self, run_id: str, *, graceful: bool = True) -> None:
-        if graceful:
-            await self._signal_run(run_id, "request_graceful_cancel")
-            return
-        handle = self._run_handle(run_id)
+    async def cancel(self, task_id: str) -> None:
         await self._control(
-            run_id,
-            f"cancel ingestion run {run_id!r}",
-            handle.cancel(),
+            task_id,
+            f"request graceful cancellation for ingestion task {task_id!r}",
+            self._source_handle(task_id).signal("request_graceful_cancel"),
         )
 
-    async def _query(self, run_id: str, name: str, result_type: type[ResultT]) -> ResultT:
-        handle = self._run_handle(run_id)
-        operation = handle.query(name, result_type=result_type)
-        return await self._operation(f"query {name} for {run_id!r}", operation)
+    async def start_reindex(
+        self,
+        request: ReindexInput,
+    ) -> WorkflowHandle[ReindexInput, ReindexResult]:
+        return await self._client.start_workflow(
+            "harborrag.reindex",
+            request,
+            id=f"harborrag-reindex:{request.reindex_job_id}",
+            task_queue=INDEX_QUEUE,
+            execution_timeout=timedelta(seconds=self._config.workflow_execution_timeout_seconds),
+            task_timeout=timedelta(seconds=self._config.workflow_task_timeout_seconds),
+            id_reuse_policy=(WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY),
+            result_type=ReindexResult,
+        )
 
-    async def _signal_run(self, run_id: str, name: str, arg: object | None = None) -> None:
-        handle = self._run_handle(run_id)
-        operation = handle.signal(name) if arg is None else handle.signal(name, arg)
-        await self._control(run_id, f"signal {name} for {run_id!r}", operation)
+    async def reindex_result(
+        self,
+        reindex_job_id: str,
+    ) -> ReindexResult:
+        handle = self._client.get_workflow_handle(
+            f"harborrag-reindex:{reindex_job_id}",
+            result_type=ReindexResult,
+        )
+        return cast(
+            ReindexResult,
+            await self._operation(
+                f"read result for reindex job {reindex_job_id!r}",
+                handle.result(),
+            ),
+        )
 
-    async def _control(self, run_id: str, label: str, operation: Awaitable[object]) -> None:
-        """Run a control operation, naming a finished run rather than a missing one."""
+    async def _signal(self, task_id: str, name: str) -> None:
+        await self._control(
+            task_id,
+            f"signal {name} for ingestion task {task_id!r}",
+            self._source_handle(task_id).signal(name),
+        )
 
+    async def _control(
+        self,
+        task_id: str,
+        label: str,
+        operation: Awaitable[object],
+    ) -> None:
         try:
             await self._operation(label, operation)
         except WorkflowNotFoundError:
-            raise await self._closed_or_missing(run_id, label) from None
+            raise await self._closed_or_missing(task_id, label) from None
 
-    async def _closed_or_missing(self, run_id: str, label: str) -> WorkflowOperationError:
-        """Tell a finished run apart from one that never existed.
-
-        Temporal answers NOT_FOUND for any control operation aimed at a closed
-        execution, so the raw error claims the run does not exist even though
-        queries against it still succeed. Queries are unaffected, so describing
-        the execution resolves which case this is; when that also reports
-        NOT_FOUND the run is genuinely absent.
-        """
-
-        try:
-            status = await self.execution_status(run_id)
-        except WorkflowOperationError:
-            return WorkflowNotFoundError(f"Could not {label}: run not found")
-        return WorkflowNotRunningError(
-            f"Could not {label}: the run already finished (execution {status})"
-        )
-
-    def _run_handle(self, run_id: str) -> WorkflowHandle:
-        return self._client.get_workflow_handle(
-            ingestion_workflow_id(run_id),
-            result_type=IngestionSummary,
-        )
-
-    def _artifact_handle(
+    async def _closed_or_missing(
         self,
-        run_id: str,
-        artifact_id: str,
-        attempt: int,
-    ) -> WorkflowHandle:
-        return self._client.get_workflow_handle(artifact_workflow_id(run_id, artifact_id, attempt))
+        task_id: str,
+        label: str,
+    ) -> WorkflowOperationError:
+        try:
+            status = await self.execution_status(task_id)
+        except WorkflowOperationError:
+            return WorkflowNotFoundError(f"Could not {label}: task not found")
+        return WorkflowNotRunningError(
+            f"Could not {label}: the task already finished (execution {status})"
+        )
+
+    def _source_handle(
+        self,
+        task_id: str,
+    ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
+        return self._client.get_workflow_handle(
+            self._workflow_id(task_id),
+            result_type=SourceIngestionResult,
+        )
 
     @staticmethod
-    async def _operation(label: str, operation: Awaitable[ResultT]) -> ResultT:
+    def _workflow_id(task_id: str) -> str:
+        return f"harborrag-source:{task_id}"
+
+    @staticmethod
+    async def _operation(
+        label: str,
+        operation: Awaitable[ResultT],
+    ) -> ResultT:
         try:
             return await operation
-        except RPCError as exc:
-            # A missing run is a caller mistake, not an upstream fault; keep it
-            # distinguishable so transports can answer "not found" instead of
-            # reporting Temporal as broken.
-            if exc.status is RPCStatusCode.NOT_FOUND:
-                raise WorkflowNotFoundError(f"Could not {label}: run not found") from exc
-            raise WorkflowOperationError(f"Could not {label}") from exc
+        except RPCError as error:
+            if error.status is RPCStatusCode.NOT_FOUND:
+                raise WorkflowNotFoundError(f"Could not {label}: task not found") from error
+            raise WorkflowOperationError(f"Could not {label}") from error

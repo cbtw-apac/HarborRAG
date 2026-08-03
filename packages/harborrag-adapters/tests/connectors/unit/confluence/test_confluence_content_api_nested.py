@@ -10,6 +10,7 @@ from harborrag_adapters.connectors.confluence.query import (
     CLOUD_CONTENT_EXPAND,
     CONTENT_EXPAND,
 )
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -197,3 +198,14 @@ def test_child_page_ids_honors_server_clamped_page_limit():
 
     assert ids == ["2", "3", "4"]
     assert client.calls[1][1]["start"] == 2
+
+
+def test_with_children_enforces_one_limit_across_all_requested_roots():
+    client = FakeConfluenceClient()
+    client.add("content/1/child/page", {"results": [{"id": "3"}]})
+    client.add("content/2/child/page", {"results": [{"id": "4"}]})
+    api = ConfluenceContentAPI(client, cloud_config(max_child_pages=1))
+    query = ConnectorQuery(recursive=False, filters={"include_children": True})
+
+    with pytest.raises(DocumentProcessingError, match="max_child_pages"):
+        list(api.with_children(["1", "2"], query))

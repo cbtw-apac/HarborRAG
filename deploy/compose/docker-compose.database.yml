@@ -14,7 +14,10 @@ services:
     image: falkordb/falkordb:v4.20.1
     restart: unless-stopped
     environment:
-      REDIS_ARGS: "--appendonly yes --appendfsync everysec"
+      # GRAPH.CONSTRAINT is asynchronous and cannot be replayed safely from
+      # AOF by this FalkorDB release. Persist snapshots in the named volume so
+      # constraints and graph data both survive container restarts.
+      REDIS_ARGS: "--appendonly no --save 60 1"
     ports:
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_PORT:-6379}:6379"
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_BROWSER_PORT:-3000}:3000"
@@ -73,6 +76,31 @@ services:
     networks:
       - harborrag-data-network
 
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command:
+      - server
+      - /data
+      - --console-address
+      - ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-harborrag}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-change-me}
+    ports:
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - harborrag-data-network
+
 networks:
   harborrag-data-network:
     name: harborrag-data-network
@@ -83,3 +111,4 @@ volumes:
   falkordb_data:
   redis_data:
   pg_data:
+  minio_data:

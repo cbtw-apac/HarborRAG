@@ -11,7 +11,3 @@ class TableChunkingError(ChunkingError):
 
 class InvalidTableLocatorError(TableChunkingError):
     """Raised when a table chunk does not resolve to source cells."""
-
-
-class TableChunkLimitExceededError(TableChunkingError):
-    """Raised when a strict caller requests more table chunks than policy permits."""

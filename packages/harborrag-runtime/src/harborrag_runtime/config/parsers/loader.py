@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from harborrag_runtime.config.errors import ParserConfigurationError
@@ -13,6 +14,8 @@ from harborrag_runtime.config.parsers.parsing import parse_parser_definitions
 from harborrag_runtime.config.parsers.schemas import ParserCatalog
 
 PARSER_CONFIG_VERSION = 1
+
+logger = logging.getLogger("harborrag.runtime.config.parsers")
 
 _ROOT_KEYS = frozenset({"parsers", "version"})
 
@@ -47,8 +50,16 @@ def load_parser_catalog(path: str | Path) -> ParserCatalog:
         label="parsers",
         error_type=ParserConfigurationError,
     )
-    return ParserCatalog(
+    catalog = ParserCatalog(
         parse_parser_definitions(raw_parsers),
         source_path=source_path,
         version=version,
     )
+    logger.info(
+        "Parser catalog loaded path=%s version=%d definitions=%d enabled=%d",
+        source_path,
+        version,
+        len(catalog.parsers),
+        len(catalog.names(enabled_only=True)),
+    )
+    return catalog

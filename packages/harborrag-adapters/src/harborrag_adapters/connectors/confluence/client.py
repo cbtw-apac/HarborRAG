@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
-from harborrag_adapters.connectors.atlassian.client import AtlassianRestClient
+from harborrag_adapters.connectors.atlassian.client import (
+    AtlassianClientContext,
+    AtlassianRestClient,
+)
+from harborrag_adapters.connectors.rate_limiting import (
+    ConnectorRateLimiter,
+    RateLimitIdentity,
+)
 
 from .config import ConfluenceDeploymentType, ConfluenceSpaceConfig
 
@@ -27,7 +34,7 @@ class ConfluenceClient(Protocol):
     ) -> dict[str, Any]:
         """Return a decoded Confluence response object."""
 
-    def download_bytes(self, url: str) -> bytes | None:
+    def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
         """Download bytes from a trusted Confluence URL."""
 
     def close(self) -> None:
@@ -37,12 +44,26 @@ class ConfluenceClient(Protocol):
 class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
     """Authenticated, rate-limited Confluence REST client."""
 
-    def __init__(self, config: ConfluenceSpaceConfig) -> None:
+    def __init__(
+        self,
+        config: ConfluenceSpaceConfig,
+        *,
+        rate_limiter: ConnectorRateLimiter | None = None,
+    ) -> None:
         super().__init__(
             config,
-            base_url=config.base_url,
-            provider_label="Confluence",
-            logger=logger,
+            context=AtlassianClientContext(
+                base_url=config.base_url,
+                provider_label="Confluence",
+                logger=logger,
+                rate_limit_identity=RateLimitIdentity.from_http_source(
+                    connector_type="confluence",
+                    deployment_type=str(config.deployment_type),
+                    base_url=config.base_url,
+                    credential_parts=(config.email or "", config.token or ""),
+                ),
+            ),
+            rate_limiter=rate_limiter,
         )
         if config.deployment_type == ConfluenceDeploymentType.CLOUD:
             if config.email is None or config.token is None:
@@ -65,9 +86,13 @@ class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
             params=params,
         )
 
-    def download_bytes(self, url: str) -> bytes | None:
+    def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
         """Download attachment bytes only from the configured Confluence origin."""
-        return self._download_bytes(url, label="Confluence download")
+        return self._download_bytes(
+            url,
+            label="Confluence download",
+            max_bytes=max_bytes,
+        )
 
     def _api_url(self, endpoint: str) -> str:
         """Build a Confluence REST API URL from a relative endpoint."""

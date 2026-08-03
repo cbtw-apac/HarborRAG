@@ -5,96 +5,100 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from harborrag_core.schemas.graph import GraphEdge, GraphNode
-from harborrag_core.schemas.ids import EntityId, RelationshipId
+from harborrag_core.ingestion import (
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    GraphProjectionVerification,
+    KnowledgeGraphTraversal,
+)
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import VectorCollectionSpec, VectorPoint
+from harborrag_core.schemas.vector import VectorIndexRecord, VectorIndexSpec
 
 
 class VectorIndexRepositoryPort(Protocol):
-    """Persist and read back vector points during staged indexing."""
+    """Persist and read provider-independent records in logical indexes."""
 
-    async def ensure_collection(
+    async def ensure_index(
         self,
-        spec: VectorCollectionSpec,
+        spec: VectorIndexSpec,
         *,
         context: StorageOperationContext,
     ) -> None: ...
 
-    async def upsert(
+    async def upsert_records(
         self,
-        collection: str,
-        points: Sequence[VectorPoint],
+        index_name: str,
+        records: Sequence[VectorIndexRecord],
         *,
         context: StorageOperationContext,
     ) -> None: ...
 
-    async def get(
+    async def get_records(
         self,
-        collection: str,
+        index_name: str,
         ids: Sequence[str],
         *,
         context: StorageOperationContext,
-    ) -> list[VectorPoint]: ...
+    ) -> list[VectorIndexRecord]: ...
 
-
-class GraphIndexRepositoryPort(Protocol):
-    """Persist and read back graph records during staged indexing."""
-
-    async def upsert_nodes(
+    async def delete_records(
         self,
-        nodes: Sequence[GraphNode],
+        index_name: str,
+        ids: Sequence[str],
         *,
         context: StorageOperationContext,
     ) -> None: ...
 
-    async def upsert_edges(
+
+class KnowledgeGraphRepositoryPort(Protocol):
+    """Persist, verify, and read version-addressed knowledge projections."""
+
+    async def connect(self) -> None: ...
+
+    async def close(self) -> None: ...
+
+    async def write_projection(
         self,
-        edges: Sequence[GraphEdge],
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
         *,
         context: StorageOperationContext,
     ) -> None: ...
 
-    async def get_nodes(
+    async def verify_projection(
         self,
-        ids: Sequence[EntityId],
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
         *,
+        available_chunk_ids: Sequence[str],
         context: StorageOperationContext,
-    ) -> list[GraphNode]: ...
+    ) -> GraphProjectionVerification: ...
 
-    async def get_edges(
+    async def traverse(
         self,
-        ids: Sequence[RelationshipId],
+        start_node_key: str,
         *,
+        max_depth: int,
+        max_nodes: int,
+        direction: str,
         context: StorageOperationContext,
-    ) -> list[GraphEdge]: ...
+    ) -> KnowledgeGraphTraversal: ...
 
-
-class VectorGenerationRepositoryPort(Protocol):
-    """Apply the deferred visibility changes for a validated vector plan."""
-
-    async def activate_generation(
+    async def delete_version(
         self,
-        collection: str,
+        document_version_id: str,
         *,
-        artifact_id: str,
-        generation_id: str,
-        activate_ids: Sequence[str],
-        retire_ids: Sequence[str],
-        delete_ids: Sequence[str],
-        tombstone_ids: Sequence[str],
         context: StorageOperationContext,
     ) -> None: ...
 
-
-class GraphGenerationRepositoryPort(Protocol):
-    """Apply the deferred visibility changes for a validated graph plan."""
-
-    async def activate_generation(
+    async def tenant_projection_counts(
         self,
         *,
-        artifact_id: str,
-        generation_id: str,
-        previous_generation_id: str | None,
+        context: StorageOperationContext,
+    ) -> tuple[int, int]: ...
+
+    async def delete_tenant_projection(
+        self,
+        *,
         context: StorageOperationContext,
     ) -> None: ...

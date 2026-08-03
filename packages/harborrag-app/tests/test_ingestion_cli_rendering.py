@@ -69,9 +69,9 @@ def test_start_renderer_hides_internal_options_and_shows_operator_ids() -> None:
                 "run_id": "run-1",
                 "tenant_id": "tenant-1",
                 "connector_name": "local-docs",
-                "manifest_id": "manifest-1",
-                "generation_id": "generation-1",
-                "options": {"internal": "not-rendered"},
+                "connector_type": "local",
+                "connection_id": "local-docs",
+                "source_scope_id": "docs",
             },
             "workflow": {"workflow_id": "ingestion/run-1"},
         },
@@ -96,10 +96,13 @@ def test_completed_result_shows_every_stage_as_complete() -> None:
         True,
         {
             "result": {
-                "run_id": "run-1",
-                "manifest_id": "manifest-1",
-                "status": "completed",
-                "progress": {"discovered": 3, "processed": 3, "succeeded": 3},
+                "task_id": "run-1",
+                "scan_id": "scan-1",
+                "status": "COMPLETED",
+                "discovered": 3,
+                "published": 3,
+                "unchanged": 0,
+                "failed": 0,
             }
         },
     )

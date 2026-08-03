@@ -13,7 +13,7 @@ class BaseMcpServer(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def call_tool(
+    async def call_tool(
         self,
         name: str,
         arguments: dict[str, object] | None = None,

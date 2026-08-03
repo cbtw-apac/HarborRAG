@@ -2,25 +2,37 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.policies.validation import extend_with_limit
+from harborrag_adapters.connectors.policies.validation import (
+    enforce_collection_limit,
+    extend_with_limit,
+)
 
 from .client import JiraClient
 from .config import JiraDeploymentType, JiraProjectConfig
 from .mappers import changelog_histories
 from .query import search_body, search_jql_body, validate_issue_key
 
-DISCOVERY_FIELDS = (
+logger = logging.getLogger("harborrag.adapters.connectors.jira")
+
+ISSUE_EXPAND = ("renderedFields", "names", "schema")
+DESCRIPTOR_FIELDS = (
     "summary",
     "issuetype",
     "status",
     "labels",
     "updated",
     "project",
+    "parent",
+    "subtasks",
+    "issuelinks",
+    "attachment",
 )
-ISSUE_EXPAND = ("renderedFields", "names", "schema")
+DISCOVERY_FIELDS = DESCRIPTOR_FIELDS
+DISCOVERY_DESCRIPTOR_KEY = "_jira_discovery_descriptor"
 
 
 class JiraIssueAPI:
@@ -103,6 +115,15 @@ class JiraIssueAPI:
         )
         return response
 
+    def get_issue_descriptor(self, issue_key: str) -> dict[str, Any]:
+        """Fetch admission and relation fields without requesting issue prose."""
+
+        issue_key = validate_issue_key(issue_key)
+        return self.client.get_json(
+            f"issue/{issue_key}",
+            params={"fields": ",".join(DESCRIPTOR_FIELDS)},
+        )
+
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
         """Fetch all comments for one issue while enforcing configured caps."""
         issue_key = validate_issue_key(issue_key)
@@ -114,6 +135,21 @@ class JiraIssueAPI:
                 params={"startAt": start_at, "maxResults": self.config.page_size},
             )
             values = response.get("comments", [])
+            total = response.get("total")
+            logger.debug(
+                "JIRA comments page fetched issue_key=%s start=%d records=%d total=%s",
+                issue_key,
+                start_at,
+                len(values),
+                total,
+            )
+            if total is not None:
+                enforce_collection_limit(
+                    count=int(total),
+                    limit=self.config.max_comments,
+                    label=f"JIRA comments for {issue_key}",
+                    setting_name="max_comments",
+                )
             extend_with_limit(
                 comments,
                 values,
@@ -122,7 +158,6 @@ class JiraIssueAPI:
                 setting_name="max_comments",
             )
             start_at += len(values)
-            total = response.get("total")
             if total is not None and start_at >= int(total):
                 return comments
             if len(values) < self.config.page_size:
@@ -139,6 +174,13 @@ class JiraIssueAPI:
                 params={"startAt": start_at, "maxResults": self.config.page_size},
             )
             values = response.get("values") or response.get("histories") or []
+            logger.debug(
+                "JIRA changelog page fetched issue_key=%s start=%d records=%d total=%s",
+                issue_key,
+                start_at,
+                len(values),
+                response.get("total"),
+            )
             extend_with_limit(
                 histories,
                 changelog_histories(response),
@@ -171,6 +213,11 @@ class JiraIssueAPI:
                 ),
             )
             issues = response.get("issues") or []
+            logger.debug(
+                "JIRA search page fetched deployment=cloud records=%d has_next=%s",
+                len(issues),
+                bool(response.get("nextPageToken")) and not bool(response.get("isLast")),
+            )
             yield from issues
 
             next_page_token = response.get("nextPageToken")
@@ -191,6 +238,12 @@ class JiraIssueAPI:
                 ),
             )
             issues = response.get("issues") or []
+            logger.debug(
+                "JIRA search page fetched deployment=datacenter start=%d records=%d total=%s",
+                start_at,
+                len(issues),
+                response.get("total"),
+            )
             if not issues:
                 return
             yield from issues
