@@ -116,7 +116,7 @@ def test_load_skips_cross_origin_attachment_download_urls():
     assert "outside trusted origin" in document.metadata["attachments"][0]["reason"]
 
 
-def test_load_rejects_comment_pages_over_configured_limit():
+def test_load_truncates_comments_over_configured_limit():
     client = FakeConfluenceClient()
     client.add("content/1", full_content())
     client.add(
@@ -133,11 +133,12 @@ def test_load_rejects_comment_pages_over_configured_limit():
         client=client,
     )
 
-    with pytest.raises(DocumentProcessingError, match="max_comments"):
-        connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+
+    assert [comment["id"] for comment in document.metadata["comments"]] == ["c1"]
 
 
-def test_load_rejects_attachment_pages_over_configured_limit():
+def test_load_truncates_attachments_over_configured_limit():
     client = FakeConfluenceClient()
     client.add("content/1", full_content())
     client.add(
@@ -152,10 +153,29 @@ def test_load_rejects_attachment_pages_over_configured_limit():
     connector = ConfluenceConnector(
         cloud_config(include_attachments=True, max_attachments=1),
         client=client,
+        parser=FakeAttachmentParser(),
     )
 
-    with pytest.raises(DocumentProcessingError, match="max_attachments"):
-        connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+
+    assert len(document.metadata["attachments"]) == 1
+
+
+def test_load_truncates_children_metadata_over_configured_limit():
+    client = FakeConfluenceClient()
+    content = full_content()
+    content["children"] = {
+        "page": {"results": [{"id": "9", "title": "Child"}, {"id": "10", "title": "Child 2"}]}
+    }
+    client.add("content/1", content)
+    connector = ConfluenceConnector(
+        cloud_config(max_child_pages=1),
+        client=client,
+    )
+
+    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+
+    assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
 
 
 def test_load_raises_on_missing_required_fields():
@@ -176,7 +196,21 @@ def test_load_raises_when_content_filtered_out_by_labels():
     client.add("content/1", content)
     connector = ConfluenceConnector(cloud_config(exclude_labels=["archived"]), client=client)
 
-    with pytest.raises(DocumentProcessingError, match="does not match label filters"):
+    with pytest.raises(DocumentProcessingError, match="does not match content filters"):
+        connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+
+
+def test_load_raises_for_live_doc_content_even_when_content_types_is_page():
+    # Live docs report type: "page" like ordinary pages -- only "subtype:
+    # live" distinguishes them, which content_types (a CQL type filter)
+    # cannot see. There's no supported way to opt into ingesting them.
+    client = FakeConfluenceClient()
+    content = full_content()
+    content["subtype"] = "live"
+    client.add("content/1", content)
+    connector = ConfluenceConnector(cloud_config(content_types=["page"]), client=client)
+
+    with pytest.raises(DocumentProcessingError, match="does not match content filters"):
         connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
 

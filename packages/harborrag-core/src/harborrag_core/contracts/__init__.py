@@ -25,6 +25,7 @@ from .errors import (
     HarborValidationError,
 )
 from .events import HarborEvent
+from .table import TableArtifactRepository
 
 __all__ = [
     "HarborAuthError",
@@ -46,6 +47,7 @@ __all__ = [
     "SplitBoundaryKind",
     "StructureSplitter",
     "StructureSplitRequest",
+    "TableArtifactRepository",
     "TextRefinementRequest",
     "TextRefiner",
     "TextSplit",

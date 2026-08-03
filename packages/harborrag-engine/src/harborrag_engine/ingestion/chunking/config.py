@@ -3,18 +3,74 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import cast
+
+from .errors import InvalidChunkingPlanError
+from .table_policy import TableChunkingPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkingPlan:
+    """Validated source-independent configuration for one chunking execution."""
+
+    profile: str = "default"
+    strategy_version: str = "1"
+
+    create_route_chunks: bool = True
+    create_context_parents: bool = True
+    create_evidence_chunks: bool = True
+
+    target_tokens: int = 700
+    minimum_tokens: int = 100
+    soft_maximum_tokens: int = 900
+    hard_maximum_tokens: int = 1100
+    boundary_overlap_sentences: int = 0
+
+    index_comments: bool = True
+    index_events: bool = True
+    contextualize_embeddings: bool = True
+    table_policy: TableChunkingPolicy = field(default_factory=TableChunkingPolicy)
+
+    def __post_init__(self) -> None:
+        profile = self.profile.strip()
+        strategy_version = self.strategy_version.strip()
+        if not profile:
+            raise InvalidChunkingPlanError("profile must be non-empty")
+        if not strategy_version:
+            raise InvalidChunkingPlanError("strategy_version must be non-empty")
+        object.__setattr__(self, "profile", profile)
+        object.__setattr__(self, "strategy_version", strategy_version)
+        if self.minimum_tokens <= 0:
+            raise InvalidChunkingPlanError("minimum_tokens must be positive")
+        limits = (
+            self.minimum_tokens,
+            self.target_tokens,
+            self.soft_maximum_tokens,
+            self.hard_maximum_tokens,
+        )
+        if limits != tuple(sorted(limits)):
+            raise InvalidChunkingPlanError(
+                "token limits must satisfy minimum_tokens <= target_tokens "
+                "<= soft_maximum_tokens <= hard_maximum_tokens"
+            )
+        if self.boundary_overlap_sentences < 0:
+            raise InvalidChunkingPlanError("boundary_overlap_sentences must not be negative")
 
 
 @dataclass(frozen=True, slots=True)
 class ChunkingLimits:
-    """Token limits with a soft target and absolute maximum."""
+    """Token limits with target, soft packing ceiling, and hard maximum."""
 
     minimum_tokens: int = 100
     target_tokens: int = 700
     maximum_tokens: int = 1100
     overlap_tokens: int = 80
+    soft_maximum_tokens: int | None = None
 
     def __post_init__(self) -> None:
+        soft_maximum = self.soft_maximum_tokens
+        if soft_maximum is None:
+            soft_maximum = self.maximum_tokens
         if self.minimum_tokens < 0:
             raise ValueError("minimum_tokens must not be negative")
         if self.target_tokens < 1:
@@ -23,10 +79,15 @@ class ChunkingLimits:
             raise ValueError("minimum_tokens must not exceed target_tokens")
         if self.maximum_tokens < self.target_tokens:
             raise ValueError("maximum_tokens must not be below target_tokens")
+        if soft_maximum < self.target_tokens:
+            raise ValueError("soft_maximum_tokens must not be below target_tokens")
+        if soft_maximum > self.maximum_tokens:
+            raise ValueError("soft_maximum_tokens must not exceed maximum_tokens")
         if self.overlap_tokens < 0:
             raise ValueError("overlap_tokens must not be negative")
         if self.overlap_tokens >= self.target_tokens:
             raise ValueError("overlap_tokens must be below target_tokens")
+        object.__setattr__(self, "soft_maximum_tokens", soft_maximum)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +128,12 @@ class ChunkingProfile:
         """Return the hard maximum chunk size."""
 
         return self.limits.maximum_tokens
+
+    @property
+    def soft_maximum_tokens(self) -> int:
+        """Return the soft ceiling used for packing and peer merging."""
+
+        return cast(int, self.limits.soft_maximum_tokens)
 
     @property
     def overlap_tokens(self) -> int:

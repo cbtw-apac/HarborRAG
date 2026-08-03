@@ -45,10 +45,7 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
             ),
         )
         guard_input_size(read_parse_input_bytes(parse_input))
-        try:
-            text = read_parse_input_text(parse_input)
-        except UnicodeDecodeError as exc:
-            raise ParseError(f"Could not decode CSV input: {exc}") from exc
+        text = read_parse_input_text(parse_input)
         sample = text[:4096]
         try:
             dialect = csv.Sniffer().sniff(sample)

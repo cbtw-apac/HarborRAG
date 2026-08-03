@@ -3,12 +3,35 @@
 from __future__ import annotations
 
 import pytest
-from confluence_test_helpers import FakeConfluenceClient, cloud_config
+from confluence_test_helpers import FakeConfluenceClient, cloud_config, dc_config
 
 from harborrag_adapters.connectors.confluence.content import ConfluenceContentAPI
+from harborrag_adapters.connectors.confluence.query import (
+    CLOUD_CONTENT_EXPAND,
+    CONTENT_EXPAND,
+)
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+@pytest.mark.parametrize(
+    ("config", "expected_expand"),
+    [
+        (cloud_config(), CLOUD_CONTENT_EXPAND),
+        (dc_config(), CONTENT_EXPAND),
+    ],
+)
+def test_get_content_requests_adf_only_when_the_deployment_supports_it(
+    config,
+    expected_expand,
+):
+    client = FakeConfluenceClient()
+    client.add("content/1", {"id": "1"})
+
+    ConfluenceContentAPI(client, config).get_content("1")
+
+    assert client.calls == [("content/1", {"expand": expected_expand})]
 
 
 def test_fetch_comments_stops_on_short_final_page():
@@ -105,6 +128,34 @@ def test_list_attachments_honors_server_clamped_page_limit():
     assert client.calls[1][1]["start"] == 2
 
 
+def test_fetch_comments_truncates_at_max_comments_without_fetching_next_page():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/1/child/comment",
+        {"results": [{"id": "c1"}, {"id": "c2"}]},
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=2, max_comments=1))
+
+    comments = api.fetch_comments("1")
+
+    assert [c["id"] for c in comments] == ["c1"]
+    assert len(client.calls) == 1
+
+
+def test_list_attachments_truncates_at_max_attachments_without_fetching_next_page():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/1/child/attachment",
+        {"results": [{"id": "a1"}, {"id": "a2"}]},
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=2, max_attachments=1))
+
+    attachments = api.list_attachments("1")
+
+    assert [a["id"] for a in attachments] == ["a1"]
+    assert len(client.calls) == 1
+
+
 def test_with_children_skips_duplicate_ids():
     api = ConfluenceContentAPI(FakeConfluenceClient(), cloud_config())
 
@@ -154,6 +205,38 @@ def test_child_page_ids_paginates_across_multiple_pages():
     ids = list(api.child_page_ids("1", recursive=False, seen=set()))
 
     assert ids == ["2", "3", "4"]
+
+
+def test_child_page_ids_truncates_at_max_child_pages_without_fetching_next_page():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/1/child/page",
+        {"results": [{"id": "2"}, {"id": "3"}]},
+    )
+    api = ConfluenceContentAPI(client, cloud_config(page_size=2, max_child_pages=1))
+
+    ids = list(api.child_page_ids("1", recursive=False, seen=set()))
+
+    assert ids == ["2"]
+    assert len(client.calls) == 1
+
+
+def test_child_page_ids_truncates_across_multiple_root_ids_independently():
+    # max_child_pages caps discovery per root, not globally across a batch of
+    # roots requested through with_children -- each root gets its own budget.
+    client = FakeConfluenceClient()
+    client.add("content/1/child/page", {"results": [{"id": "2"}, {"id": "3"}]})
+    client.add("content/10/child/page", {"results": [{"id": "11"}, {"id": "12"}]})
+    api = ConfluenceContentAPI(client, cloud_config(page_size=10, max_child_pages=1))
+
+    ids = list(
+        api.with_children(
+            ["1", "10"],
+            ConnectorQuery(filters={"include_children": True}, recursive=False),
+        )
+    )
+
+    assert ids == ["1", "2", "10", "11"]
 
 
 def test_child_page_ids_honors_server_clamped_page_limit():

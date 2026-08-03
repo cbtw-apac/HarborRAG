@@ -52,7 +52,7 @@ def build_indexing_request(config: IndexingConfig) -> IndexingRequest:
         references.append(reference)
         path = ("Indexing smoke", f"Section {ordinal + 1}")
         records.append(
-            ChunkRecord(
+            ChunkRecord.from_legacy(
                 logical_chunk_id=logical_id,
                 chunk_revision_id=revision_id,
                 tenant_id=tenant_id,

@@ -1,9 +1,20 @@
+from harborrag_core.chunking.errors import ChunkIdentityError as ChunkIdentityError
+
+
 class ChunkingError(ValueError):
     """Base error for deterministic chunking failures."""
 
 
 class ChunkValidationError(ChunkingError):
     """Raised when a chunk manifest violates a correctness invariant."""
+
+
+class ChunkHierarchyError(ChunkingError):
+    """Raised when chunk ancestry or neighbor references are inconsistent."""
+
+
+class InvalidChunkingPlanError(ChunkingError):
+    """Raised when common chunking-plan limits or identifiers are invalid."""
 
 
 class UnknownChunkingStrategyError(ChunkingError):

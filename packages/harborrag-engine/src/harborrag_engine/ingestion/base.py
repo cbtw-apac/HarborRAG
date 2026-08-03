@@ -8,6 +8,7 @@ from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
 
 if TYPE_CHECKING:
+    from harborrag_engine.ingestion.chunking.config import ChunkingPlan
     from harborrag_engine.ingestion.chunking.schemas import (
         ChunkingRequest,
         ChunkingResult,
@@ -22,9 +23,25 @@ class BaseDocumentNormalizer(ABC):
         raise NotImplementedError
 
 
-class BaseChunker(ABC):
-    """Split a normalized document into canonical records and a manifest."""
+class HarborChunker(ABC):
+    """Create canonical chunks from a normalized-document request and plan."""
 
     @abstractmethod
-    def chunk(self, request: ChunkingRequest) -> ChunkingResult:
+    def chunk(
+        self,
+        request: ChunkingRequest,
+        plan: ChunkingPlan,
+    ) -> ChunkingResult:
+        raise NotImplementedError
+
+
+class BaseChunker(HarborChunker):
+    """Compatibility base for callers that still use configured engine profiles."""
+
+    @abstractmethod
+    def chunk(
+        self,
+        request: ChunkingRequest,
+        plan: ChunkingPlan | None = None,
+    ) -> ChunkingResult:
         raise NotImplementedError

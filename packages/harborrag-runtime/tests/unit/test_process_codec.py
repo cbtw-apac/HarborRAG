@@ -15,6 +15,7 @@ from harborrag_engine.ingestion.chunking.schemas import (
     ChunkReference,
     ChunkValidationResult,
 )
+from harborrag_runtime.temporal.ingestioncodec import load_chunk_record
 from harborrag_runtime.temporal.process_codec import (
     ProcessResultKind,
     decode_process_response,
@@ -34,7 +35,7 @@ def _document() -> Document:
 
 
 def _chunking_result() -> ChunkingResult:
-    record = ChunkRecord(
+    record = ChunkRecord.from_legacy(
         logical_chunk_id="logical-1",
         chunk_revision_id="revision-1",
         tenant_id="tenant-1",
@@ -97,6 +98,29 @@ def test_process_result_round_trip_uses_explicit_typed_codecs(kind, value) -> No
 
     assert status == "result"
     assert decoded == value
+
+
+def test_process_codec_delegates_legacy_chunk_payload_migration() -> None:
+    record = load_chunk_record(
+        {
+            "logical_chunk_id": "logical-1",
+            "chunk_revision_id": "revision-1",
+            "tenant_id": "tenant-1",
+            "document_id": "document-1",
+            "document_version_id": "document-version-1",
+            "artifact_id": "artifact-1",
+            "artifact_revision_id": "artifact-revision-1",
+            "ordinal": 0,
+            "role": "body",
+            "content": "text",
+            "content_hash": "content-hash",
+            "token_count": None,
+            "created_at": None,
+        }
+    )
+
+    assert record.chunk_id == "revision-1"
+    assert record.token_count == 0
 
 
 def test_process_error_carries_only_bounded_type_information() -> None:

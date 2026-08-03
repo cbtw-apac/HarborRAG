@@ -103,20 +103,6 @@ def _render_jira_output(
         *render_metadata_section(metadata, JIRA_METADATA_FIELDS),
         body,
     ]
-    if attachments:
-        lines += ["", "## Attachments", ""]
-        for attachment in attachments:
-            lines += [f"### {attachment.get('title') or 'attachment'}", ""]
-            asset_rel = (asset_paths or {}).get(attachment.get("id", ""))
-            if asset_rel:
-                lines += [f"![{attachment.get('title') or 'image'}]({asset_rel})", ""]
-            attachment_text = attachment.get("text")
-            if attachment_text:
-                lines += [attachment_text, ""]
-            elif not asset_rel:
-                status = attachment.get("status")
-                reason = attachment.get("reason")
-                lines += [f"_{status}{f': {reason}' if reason else ''}_", ""]
     return "\n".join(lines)
 
 

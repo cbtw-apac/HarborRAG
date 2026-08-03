@@ -79,6 +79,38 @@ def test_fetch_changelog_continues_to_next_page_when_page_is_full():
     assert client.get_calls[1][1]["startAt"] == 2
 
 
+def test_fetch_comments_truncates_at_max_comments_without_fetching_next_page():
+    client = FakeJiraClient()
+    client.add_get(
+        "issue/ENG-1/comment",
+        {"startAt": 0, "total": 2, "comments": [{"id": "c1"}, {"id": "c2"}]},
+    )
+    api = JiraIssueAPI(client, cloud_config(page_size=2, max_comments=1))
+
+    comments = api.fetch_comments("ENG-1")
+
+    assert [comment["id"] for comment in comments] == ["c1"]
+    assert len(client.get_calls) == 1
+
+
+def test_fetch_changelog_truncates_at_max_changelog_items_without_fetching_next_page():
+    client = FakeJiraClient()
+    client.add_get(
+        "issue/ENG-1/changelog",
+        {
+            "startAt": 0,
+            "total": 2,
+            "values": [{"id": "h1", "items": []}, {"id": "h2", "items": []}],
+        },
+    )
+    api = JiraIssueAPI(client, cloud_config(page_size=2, max_changelog_items=1))
+
+    histories = api.fetch_changelog("ENG-1")
+
+    assert [history["id"] for history in histories] == ["h1"]
+    assert len(client.get_calls) == 1
+
+
 def test_get_issue_does_not_expand_changelog_when_enabled():
     client = FakeJiraClient()
     client.add_get("issue/ENG-1", issue())

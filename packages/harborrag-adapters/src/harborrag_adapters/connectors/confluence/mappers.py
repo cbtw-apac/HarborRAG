@@ -61,7 +61,18 @@ def display_url(
 def body_html_from_content(content: dict[str, Any]) -> str:
     """Extract the best HTML body representation from expanded content."""
     body = content.get("body", {})
-    return body.get("export_view", {}).get("value") or body.get("storage", {}).get("value") or ""
+    return body.get("storage", {}).get("value") or body.get("export_view", {}).get("value") or ""
+
+
+def body_representation_from_content(content: dict[str, Any]) -> str | None:
+    """Record which current connector-compatible body representation was selected."""
+
+    body = content.get("body", {})
+    if body.get("storage", {}).get("value"):
+        return "storage"
+    if body.get("export_view", {}).get("value"):
+        return "rendered_html"
+    return None
 
 
 def build_source_record(
@@ -101,6 +112,7 @@ def build_document_metadata(
     *,
     comments: list[dict[str, Any]] | None = None,
     attachments: list[AttachmentMetadata] | None = None,
+    max_child_pages: int | None = None,
 ) -> ConfluenceMetadata:
     """Build parsed provenance metadata for a loaded Confluence page."""
     content_id = str(content.get("id") or "")
@@ -112,7 +124,7 @@ def build_document_metadata(
     body_html = body_html_from_content(content)
     attachment_values = attachments or []
     comment_values = comments or []
-    hierarchy = _hierarchy_metadata(content)
+    hierarchy = _hierarchy_metadata(content, max_child_pages=max_child_pages)
 
     checksum = hashlib.sha256(
         f"{content_id}:{version.get('number')}:{body_html}".encode()
@@ -136,6 +148,7 @@ def build_document_metadata(
         children=hierarchy.children,
         depth=hierarchy.depth,
         breadcrumb=hierarchy.breadcrumb,
+        body_representation=body_representation_from_content(content),
     )
 
 
@@ -156,7 +169,11 @@ def _comment_metadata(comment: dict[str, Any]) -> ConfluenceCommentMetadata:
     )
 
 
-def _hierarchy_metadata(content: dict[str, Any]) -> ConfluenceHierarchyMetadata:
+def _hierarchy_metadata(
+    content: dict[str, Any],
+    *,
+    max_child_pages: int | None = None,
+) -> ConfluenceHierarchyMetadata:
     ancestors = [
         ConfluencePageReference(
             id=item.get("id"),
@@ -165,13 +182,16 @@ def _hierarchy_metadata(content: dict[str, Any]) -> ConfluenceHierarchyMetadata:
         )
         for item in content.get("ancestors", [])
     ]
+    child_results = content.get("children", {}).get("page", {}).get("results", [])
+    if max_child_pages is not None:
+        child_results = child_results[:max_child_pages]
     children = [
         ConfluencePageReference(
             id=item.get("id"),
             title=item.get("title"),
             type=item.get("type", "page"),
         )
-        for item in content.get("children", {}).get("page", {}).get("results", [])
+        for item in child_results
     ]
     breadcrumb = [str(item.title) for item in ancestors if item.title]
     return ConfluenceHierarchyMetadata(

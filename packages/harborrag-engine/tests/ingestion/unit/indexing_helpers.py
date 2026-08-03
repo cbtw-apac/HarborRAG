@@ -85,7 +85,7 @@ def make_record(
     text = content or f"text for {reference.logical_chunk_id}"
     span = ChunkSourceSpan(page_start=page_start, page_end=page_end)
     context = ChunkContext(title="HarborRAG", structural_path=structural_path)
-    return ChunkRecord(
+    return ChunkRecord.from_legacy(
         logical_chunk_id=reference.logical_chunk_id,
         chunk_revision_id=reference.chunk_revision_id,
         tenant_id=tenant_id,
