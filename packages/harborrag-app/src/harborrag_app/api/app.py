@@ -9,6 +9,7 @@ lifespan builds the app service through runtime composition.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import logging
 from collections.abc import AsyncIterator
@@ -22,6 +23,7 @@ from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.middleware import TraceIdMiddleware
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.progress_bridge import run_job_progress_bridge
 from harborrag_app.workflow_control.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.observability.process_logging import configure_logging
@@ -46,9 +48,13 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # while still driving the real Temporal runtime, so an operator who expects
     # production composition must be able to see which branch was taken.
     logger.info("Application service composed in %s mode", mode)
+    progress_task = asyncio.create_task(run_job_progress_bridge(service))
     try:
         yield
     finally:
+        progress_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await progress_task
         logger.info("Closing the application service")
         close = getattr(service, "aclose", None)
         if close is not None:

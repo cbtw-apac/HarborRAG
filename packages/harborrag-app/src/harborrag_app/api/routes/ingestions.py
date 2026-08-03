@@ -10,15 +10,9 @@ from fastapi.responses import JSONResponse
 
 from harborrag_app.api.auth.dependencies import require_role
 from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.errors import error_envelope
+from harborrag_app.api.routes._ingestion_rendering import render_ingestion_response
 from harborrag_app.api.schemas import IngestionControlInput, IngestionWorkflowInput
-from harborrag_app.workflow_control import AppResponse, BaseAppService
-from harborrag_runtime.errors import (
-    WorkflowNotFoundError,
-    WorkflowNotRetryableError,
-    WorkflowNotRunningError,
-    WorkflowRunAlreadyStartedError,
-)
+from harborrag_app.workflow_control import BaseAppService
 
 logger = logging.getLogger("harborrag.app.api.ingestions")
 
@@ -60,7 +54,7 @@ async def start_ingestion(
         wait=payload.wait,
     )
     status_code = 200 if payload.wait else 202
-    return _render(
+    return render_ingestion_response(
         request,
         response,
         operation="start",
@@ -78,7 +72,7 @@ async def ingestion_status(
 
     del principal
     response = await _service(request).ingestion_status(run_id)
-    return _render(request, response, operation="status")
+    return render_ingestion_response(request, response, operation="status")
 
 
 @router.get("/{run_id}/result")
@@ -91,7 +85,7 @@ async def ingestion_result(
 
     del principal
     response = await _service(request).ingestion_result(run_id)
-    return _render(request, response, operation="result")
+    return render_ingestion_response(request, response, operation="result")
 
 
 @router.post("/{run_id}/actions")
@@ -114,59 +108,8 @@ async def control_ingestion(
         artifact_ids=tuple(payload.artifact_ids),
         graceful=payload.graceful,
     )
-    return _render(request, response, operation=payload.action)
+    return render_ingestion_response(request, response, operation=payload.action)
 
 
 def _service(request: Request) -> BaseAppService:
     return cast(BaseAppService, request.app.state.app_service)
-
-
-# Failures the caller can act on, rather than upstream faults. Anything absent
-# from this map is a 502: the application service only surfaces failures that
-# originate behind this boundary, and reporting those as client errors would
-# send operators looking in the wrong place.
-_CLIENT_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
-    WorkflowNotFoundError.__name__: (404, "ingestion_run_not_found"),
-    WorkflowNotRunningError.__name__: (409, "ingestion_run_not_running"),
-    WorkflowNotRetryableError.__name__: (409, "ingestion_artifacts_not_retryable"),
-    WorkflowRunAlreadyStartedError.__name__: (409, "ingestion_run_already_started"),
-}
-
-
-def _render(
-    request: Request,
-    response: AppResponse,
-    *,
-    operation: str,
-    success_status: int = 200,
-) -> JSONResponse:
-    """Map an application response onto an HTTP status and error envelope.
-
-    A run the caller named but Temporal does not have is a 404, and a run whose
-    state conflicts with the request -- already finished, or a run ID already in
-    use -- is a 409. Reporting either as a 502 sends operators looking for a
-    broken Temporal cluster.
-    """
-
-    if response.ok:
-        logger.info("Ingestion operation completed", extra={"operation": operation})
-        return JSONResponse(status_code=success_status, content=response.data)
-
-    error_type = str(response.data.get("error_type", "runtime_operation_failed"))
-    status_code, code = _CLIENT_ERROR_RESPONSES.get(
-        error_type,
-        (502, "ingestion_operation_failed"),
-    )
-    logger.warning(
-        "Ingestion operation failed",
-        extra={"operation": operation, "error_type": error_type, "status_code": status_code},
-    )
-    return JSONResponse(
-        status_code=status_code,
-        content=error_envelope(
-            request,
-            code,
-            response.error or "Ingestion operation failed",
-            {"operation": operation, "error_type": error_type},
-        ),
-    )

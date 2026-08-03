@@ -1,7 +1,8 @@
 """Router registry for the Control Plane API (ST2).
 
 Milestones append routers here (M1: projects/sources/activity/settings/metrics,
-M2: jobs + streams, ...); the factory mounts everything under /api/v1.
+M2: jobs done, streams still pending, ...); the factory mounts everything
+under /api/v1.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from harborrag_app.api.routes import (
     diagnostics,
     health,
     ingestions,
+    jobs,
     metrics,
     projects,
     settings,
@@ -31,4 +33,5 @@ def all_routers() -> list[APIRouter]:
         settings.router,
         metrics.router,
         ingestions.router,
+        jobs.router,
     ]
