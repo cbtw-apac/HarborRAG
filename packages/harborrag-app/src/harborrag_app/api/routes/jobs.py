@@ -22,7 +22,7 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.routes._ingestion_rendering import render_ingestion_response
 from harborrag_app.api.schemas import HarborAPISchema, IngestionControlInput
-from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.workflow_control import AppResponse, BaseAppService, JobRunOptions
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
 
@@ -109,11 +109,13 @@ async def create_job(
         source_id,
         job_type=payload.job_type,
         dry_run=payload.dry_run,
-        run_id=payload.run_id,
-        manifest_id=payload.manifest_id,
-        generation_id=payload.generation_id,
-        max_artifacts=payload.max_artifacts,
-        wait=payload.wait,
+        options=JobRunOptions(
+            run_id=payload.run_id,
+            manifest_id=payload.manifest_id,
+            generation_id=payload.generation_id,
+            max_artifacts=payload.max_artifacts,
+            wait=payload.wait,
+        ),
         actor=principal.subject,
     )
     status_code = 200 if payload.wait else 202

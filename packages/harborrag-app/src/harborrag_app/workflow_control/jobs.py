@@ -20,12 +20,13 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
 )
 from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
 from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.providers import canonical_provider_name, config_factory
 
-from .schemas import AppResponse
+from .schemas import AppResponse, JobRunOptions
 from .writes import _log_activity
 
 # Temporal's execution_status (temporal/client.py) mapped to the terminal
@@ -97,11 +98,7 @@ class JobsMixin:
         *,
         job_type: JobType = "bulk_ingest",
         dry_run: bool = False,
-        run_id: str | None = None,
-        manifest_id: str | None = None,
-        generation_id: str | None = None,
-        max_artifacts: int | None = None,
-        wait: bool = False,
+        options: JobRunOptions = JobRunOptions(),
         actor: str,
     ) -> AppResponse:
         """Create a Job for a source and start it on the Temporal path.
@@ -118,7 +115,7 @@ class JobsMixin:
         if config_factory(connector_name) is None:
             raise HarborCapabilityError(f"source_type {source.source_type!r} is not supported")
 
-        job_id = run_id or f"job_{uuid4().hex}"
+        job_id = options.run_id or f"job_{uuid4().hex}"
         if await control_plane.jobs.get(job_id) is not None:
             raise HarborConflictError(f"job {job_id!r} already exists")
 
@@ -136,21 +133,24 @@ class JobsMixin:
             tenant_id=source.project_id,
             connector_name=connector_name,
             run_id=job.id,
-            manifest_id=manifest_id,
-            generation_id=generation_id,
-            max_artifacts=max_artifacts,
-            wait=wait,
+            manifest_id=options.manifest_id,
+            generation_id=options.generation_id,
+            max_artifacts=options.max_artifacts,
+            wait=options.wait,
         )
         if ingestion_response.ok:
             job.status = "running"
             await control_plane.jobs.save(job)
             await _log_activity(
                 control_plane,
-                actor,
-                "created",
-                "job",
-                job.id,
-                f"Triggered {job_type} job for source {source.name!r}",
+                ActivityEntry(
+                    id=f"act_{uuid4().hex}",
+                    actor=actor,
+                    verb="created",
+                    entity_type="job",
+                    entity_id=job.id,
+                    summary=f"Triggered {job_type} job for source {source.name!r}",
+                ),
             )
             return AppResponse(True, {"job": job, **ingestion_response.data})
 
@@ -159,11 +159,14 @@ class JobsMixin:
         await control_plane.jobs.save(job)
         await _log_activity(
             control_plane,
-            actor,
-            "failed",
-            "job",
-            job.id,
-            f"Failed to start {job_type} job for source {source.name!r}",
+            ActivityEntry(
+                id=f"act_{uuid4().hex}",
+                actor=actor,
+                verb="failed",
+                entity_type="job",
+                entity_id=job.id,
+                summary=f"Failed to start {job_type} job for source {source.name!r}",
+            ),
         )
         return AppResponse(
             False,
@@ -233,11 +236,14 @@ class JobsMixin:
             await control_plane.jobs.save(job)
         await _log_activity(
             control_plane,
-            actor,
-            action,
-            "job",
-            job_id,
-            f"Applied {action!r} to job {job_id!r}",
+            ActivityEntry(
+                id=f"act_{uuid4().hex}",
+                actor=actor,
+                verb=action,
+                entity_type="job",
+                entity_id=job_id,
+                summary=f"Applied {action!r} to job {job_id!r}",
+            ),
         )
         return AppResponse(True, {"job": job, **response.data})
 

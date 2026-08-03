@@ -65,11 +65,14 @@ class ControlPlaneWritesMixin:
         created = await control_plane.sources.create(source)
         await _log_activity(
             control_plane,
-            actor,
-            "created",
-            "source",
-            created.id,
-            f"Created source {created.name!r}",
+            ActivityEntry(
+                id=f"act_{uuid4().hex}",
+                actor=actor,
+                verb="created",
+                entity_type="source",
+                entity_id=created.id,
+                summary=f"Created source {created.name!r}",
+            ),
         )
         return AppResponse(True, {"source": created})
 
@@ -104,11 +107,14 @@ class ControlPlaneWritesMixin:
         updated = await control_plane.sources.update(source)
         await _log_activity(
             control_plane,
-            actor,
-            "updated",
-            "source",
-            updated.id,
-            f"Updated source {updated.name!r}",
+            ActivityEntry(
+                id=f"act_{uuid4().hex}",
+                actor=actor,
+                verb="updated",
+                entity_type="source",
+                entity_id=updated.id,
+                summary=f"Updated source {updated.name!r}",
+            ),
         )
         return AppResponse(True, {"source": updated})
 
@@ -123,11 +129,14 @@ class ControlPlaneWritesMixin:
         await control_plane.sources.delete(source_id)
         await _log_activity(
             control_plane,
-            actor,
-            "deleted",
-            "source",
-            source_id,
-            f"Deleted source {source.name!r}",
+            ActivityEntry(
+                id=f"act_{uuid4().hex}",
+                actor=actor,
+                verb="deleted",
+                entity_type="source",
+                entity_id=source_id,
+                summary=f"Deleted source {source.name!r}",
+            ),
         )
         return AppResponse(True, {"source_id": source_id})
 
@@ -199,23 +208,7 @@ def _is_unchanged_ref(value: object, existing_value: object) -> bool:
     return value["secret_ref"] == existing_value["secret_ref"]
 
 
-async def _log_activity(
-    control_plane: ControlPlaneRepositories,
-    actor: str,
-    verb: str,
-    entity_type: str,
-    entity_id: str,
-    summary: str,
-) -> None:
+async def _log_activity(control_plane: ControlPlaneRepositories, entry: ActivityEntry) -> None:
     """Append one audit row; config values are already ref-shaped by this
     point, so summaries built from name/id alone never carry secrets."""
-    await control_plane.activity.append(
-        ActivityEntry(
-            id=f"act_{uuid4().hex}",
-            actor=actor,
-            verb=verb,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            summary=summary,
-        )
-    )
+    await control_plane.activity.append(entry)

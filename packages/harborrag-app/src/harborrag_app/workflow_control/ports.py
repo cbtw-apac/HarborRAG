@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Mapping
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import JobStatus, JobType
 
-from .schemas import AppResponse
+from .schemas import AppResponse, JobRunOptions
 
 
 class BaseAppService(ABC):
@@ -121,11 +121,7 @@ class BaseAppService(ABC):
         *,
         job_type: JobType = "bulk_ingest",
         dry_run: bool = False,
-        run_id: str | None = None,
-        manifest_id: str | None = None,
-        generation_id: str | None = None,
-        max_artifacts: int | None = None,
-        wait: bool = False,
+        options: JobRunOptions = JobRunOptions(),
         actor: str,
     ) -> AppResponse:
         """Create a Job for a source and start it via the Temporal ingestion path.

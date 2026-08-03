@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from harborrag_app.workflow_control.client import AppService
+from harborrag_app.workflow_control.schemas import JobRunOptions
 from harborrag_core.contracts.errors import (
     HarborCapabilityError,
     HarborConflictError,
@@ -182,12 +183,16 @@ async def test_create_job_rejects_a_run_id_already_used_by_another_job() -> None
     source = _local_file_source()
     service = _build_service(projects=[project], sources=[source])
     existing = (
-        await service.create_job(source.id, run_id="job-dup", actor="alice@example.com")
+        await service.create_job(
+            source.id, options=JobRunOptions(run_id="job-dup"), actor="alice@example.com"
+        )
     ).data["job"]
     assert existing.status == "running"
 
     with pytest.raises(HarborConflictError):
-        await service.create_job(source.id, run_id="job-dup", actor="alice@example.com")
+        await service.create_job(
+            source.id, options=JobRunOptions(run_id="job-dup"), actor="alice@example.com"
+        )
 
     control_plane = service._control_plane()
     stored = await control_plane.jobs.get("job-dup")
