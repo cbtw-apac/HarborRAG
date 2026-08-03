@@ -22,7 +22,11 @@ from harborrag_core.testing.fakes import (
     FakeSettingsRepository,
     FakeSourceRepository,
 )
-from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
+from harborrag_runtime.composition import (
+    CompositionRoot,
+    ControlPlaneRepositories,
+    build_in_process_event_bus,
+)
 
 from .client import AppService
 
@@ -47,6 +51,7 @@ def mock_app_service(
     )
     composition = CompositionRoot(
         control_plane=control_plane,
+        event_bus=build_in_process_event_bus(),
         control_db={"ping": "ok", "scheme": "development"},
         mode="development",
     )

@@ -16,6 +16,7 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
+from harborrag_core.ports.events import EventBusPort
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
@@ -47,6 +48,7 @@ class CompositionRoot:
     engine_config: EngineConfig = field(default_factory=EngineConfig)
     engine_policy: EnginePolicy = field(default_factory=EnginePolicy)
     control_plane: ControlPlaneRepositories | None = None
+    event_bus: EventBusPort | None = None
     control_db: dict[str, Any] = field(default_factory=dict)
     mode: str = "production"
     _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
@@ -126,6 +128,7 @@ class CompositionRoot:
         )
         return cls(
             control_plane=repositories,
+            event_bus=build_in_process_event_bus(),
             control_db=control_db,
             _control_db_engine=engine,
         )
@@ -146,6 +149,18 @@ class CompositionRoot:
                 "max_concurrency": self.engine_policy.max_concurrency,
             },
         }
+
+
+def build_in_process_event_bus() -> EventBusPort:
+    """Construct the dev/single-process EventBusPort adapter.
+
+    A thin runtime-layer wrapper so app-layer composition (mock_app_service)
+    never imports harborrag_adapters directly -- app may depend on runtime,
+    never on adapters (see .importlinter contract 5).
+    """
+    from harborrag_adapters.events.in_process import InProcessEventBus
+
+    return InProcessEventBus()
 
 
 def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:
