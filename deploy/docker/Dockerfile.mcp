@@ -10,17 +10,17 @@ COPY pyproject.toml uv.lock README.md ./
 COPY packages ./packages
 
 RUN uv export --quiet --frozen --package harborrag-mcp-server --extra mcp \
-        --no-dev --no-hashes --no-emit-workspace \
-        --output-file /tmp/harborrag-lock.txt \
+    --no-dev --no-hashes --no-emit-workspace \
+    --output-file /tmp/harborrag-lock.txt \
     && uv pip install --system --constraint /tmp/harborrag-lock.txt \
-        -e 'packages/harborrag-mcp-server[mcp]' \
+    -e 'packages/harborrag-mcp-server[mcp]' \
     && rm -f /tmp/harborrag-lock.txt \
     && groupadd --gid 10001 harborrag \
     && useradd --uid 10001 --gid harborrag --no-log-init \
-        --home-dir /var/lib/harborrag --create-home \
-        --shell /usr/sbin/nologin harborrag
+    --home-dir /var/lib/harborrag --create-home \
+    --shell /usr/sbin/nologin harborrag
 
 WORKDIR /var/lib/harborrag
 USER harborrag
 
-CMD ["python", "-c", "from harborrag_mcp_server.server import create_mcp_server; create_mcp_server(allow_unauthenticated_local=True).run(transport='stdio')"]
+CMD ["python", "-c", "from harborrag_mcp_server.server import create_mcp_server; create_mcp_server(host='127.0.0.1', allow_unauthenticated_local=True).run(transport='stdio')"]

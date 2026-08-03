@@ -21,9 +21,12 @@ def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monkeypatch
     monkeypatch.setenv("HARBORRAG_MCP_AUDIT_PATH", str(tmp_path / "audit.jsonl"))
 
     with pytest.raises(RuntimeError, match="requires authentication"):
-        create_mcp_server()
+        create_mcp_server(host="127.0.0.1")
 
-    transport = create_mcp_server(allow_unauthenticated_local=True)
+    with pytest.raises(RuntimeError, match="non-loopback host"):
+        create_mcp_server(host="0.0.0.0", allow_unauthenticated_local=True)
+
+    transport = create_mcp_server(host="127.0.0.1", allow_unauthenticated_local=True)
     tools = asyncio.run(transport.list_tools())  # type: ignore[attr-defined]
 
     assert type(transport).__module__.startswith("fastmcp.")

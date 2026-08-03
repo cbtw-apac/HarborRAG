@@ -32,6 +32,7 @@ Or open http://localhost:8000/docs for an interactive Swagger UI.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import uuid
@@ -53,6 +54,7 @@ from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 
 _COLLECTION = "mcp_vector_search_demo"
 _CHUNK_CHARS = 800
+_LOGGER = logging.getLogger(__name__)
 
 
 def _split_into_chunks(text: str, *, max_chars: int = _CHUNK_CHARS) -> list[str]:
@@ -150,18 +152,17 @@ class QdrantEmbeddedPipeline:
     async def aretrieve(self, query: RetrievalQuery) -> list[RetrievalResult]:
         if self._dimension is None:
             return []
-        tenant_id = query.filters.get("tenant_id")
-        query_filter = (
-            qdrant_models.Filter(
-                must=[
-                    qdrant_models.FieldCondition(
-                        key="tenant_id",
-                        match=qdrant_models.MatchValue(value=tenant_id),
-                    )
-                ]
-            )
-            if tenant_id is not None
-            else None
+        tenant_id = (query.filters or {}).get("tenant_id")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            return []
+
+        query_filter = qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="tenant_id",
+                    match=qdrant_models.MatchValue(value=tenant_id),
+                )
+            ]
         )
         response = await self.qdrant.query_points(
             collection_name=_COLLECTION,
@@ -230,7 +231,8 @@ def ingest(payload: IngestRequest) -> dict[str, Any]:
             text=payload.text,
         )
     except Exception as exc:  # embedding/Qdrant failures surface as a clear 502
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        _LOGGER.exception("Ingest request failed")
+        raise HTTPException(status_code=502, detail="Ingestion failed") from exc
     return {"ok": True, "chunks_indexed": chunk_count}
 
 
@@ -247,9 +249,11 @@ def search(payload: SearchRequest) -> dict[str, Any]:
             },
         )
     except (ValueError, PermissionError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _LOGGER.exception("Vector search request failed")
+        raise HTTPException(status_code=400, detail="Vector search request failed") from exc
     if not result.get("ok", False):
-        raise HTTPException(status_code=400, detail=result.get("error"))
+        detail = result.get("error") or "Vector search failed"
+        raise HTTPException(status_code=400, detail=detail)
     return result
 
 

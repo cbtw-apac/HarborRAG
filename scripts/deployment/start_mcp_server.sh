@@ -10,9 +10,9 @@
 # transport otherwise requires (see
 # harborrag_mcp_server.server.create_mcp_server). The README restricts that
 # override to local stdio, which opens no network listener. Running it over
-# HTTP here is a local development/testing convenience only - this script
-# refuses to bind anywhere but loopback, and the port must never be exposed
-# beyond localhost.
+# HTTP here is a local development/testing convenience only. Loopback-only
+# validation is enforced in create_mcp_server when unauthenticated mode is
+# enabled.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -20,12 +20,6 @@ cd "${ROOT_DIR}"
 
 HARBORRAG_MCP_HOST="${HARBORRAG_MCP_HOST:-127.0.0.1}"
 HARBORRAG_MCP_PORT="${HARBORRAG_MCP_PORT:-8765}"
-
-if [[ "${HARBORRAG_MCP_HOST}" != "127.0.0.1" && "${HARBORRAG_MCP_HOST}" != "localhost" ]]; then
-  echo "Refusing to bind HARBORRAG_MCP_HOST=${HARBORRAG_MCP_HOST}: this unauthenticated" >&2
-  echo "override is for local development only. Use 127.0.0.1 or localhost." >&2
-  exit 2
-fi
 
 echo "Starting the HarborRAG MCP server (unauthenticated, local-only) on http://${HARBORRAG_MCP_HOST}:${HARBORRAG_MCP_PORT}/mcp"
 
@@ -35,7 +29,10 @@ exec uv run python -c "
 import os
 from harborrag_mcp_server import create_mcp_server
 
-server = create_mcp_server(allow_unauthenticated_local=True)
+server = create_mcp_server(
+  host=os.environ['HARBORRAG_MCP_HOST'],
+  allow_unauthenticated_local=True,
+)
 server.run(
     transport='http',
     host=os.environ['HARBORRAG_MCP_HOST'],

@@ -29,6 +29,7 @@ def call_tool(
 
 def create_mcp_server(
     *,
+    host: str,
     registry: McpServer | None = None,
     auth: AuthProvider | None = None,
     allow_unauthenticated_local: bool = False,
@@ -39,6 +40,11 @@ def create_mcp_server(
         raise RuntimeError(
             "MCP transport requires authentication; "
             "set allow_unauthenticated_local=True only for local development"
+        )
+    if auth is None and allow_unauthenticated_local and not _is_loopback_host(host):
+        raise RuntimeError(
+            f"Refusing unauthenticated MCP server on non-loopback host: {host}. "
+            "Use 127.0.0.1, localhost, or ::1."
         )
     try:
         from fastmcp import FastMCP
@@ -79,6 +85,11 @@ def _tool_handler(
 
     invoke.__name__ = tool_name
     return invoke
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = host.strip().lower().strip("[]")
+    return normalized in {"127.0.0.1", "localhost", "::1"}
 
 
 def _request_principal_id() -> str:
