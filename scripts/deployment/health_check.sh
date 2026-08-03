@@ -57,7 +57,7 @@ while ((${#pending[@]} > 0)); do
     health="$(docker compose "${compose_db_args[@]}" ps --format '{{.Health}}' "${svc}" 2>/dev/null || true)"
     [[ "${health}" == "healthy" ]] || still_pending+=("${svc}")
   done
-  pending=("${still_pending[@]}")
+  pending=("${still_pending[@]+"${still_pending[@]}"}")
   ((${#pending[@]} > 0)) && sleep 2
 done
 

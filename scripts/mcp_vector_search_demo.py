@@ -35,11 +35,12 @@ import asyncio
 import logging
 import os
 import re
+import threading
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -55,6 +56,7 @@ from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 _COLLECTION = "mcp_vector_search_demo"
 _CHUNK_CHARS = 800
 _LOGGER = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 def _split_into_chunks(text: str, *, max_chars: int = _CHUNK_CHARS) -> list[str]:
@@ -95,10 +97,8 @@ class QdrantEmbeddedPipeline:
     """Sync-facing retrieval pipeline backed by an in-memory Qdrant collection.
 
     VectorSearchTool.call() is synchronous end-to-end (see vector_search.py),
-    so this exposes plain `.ingest()`/`.retrieve()` methods that drive the
-    async embedding/Qdrant calls via `asyncio.run()` — the same compatibility
-    pattern harborrag_engine.retrieval.pipeline.RetrievalPipeline.retrieve()
-    uses for non-async callers.
+    so this exposes plain `.ingest()`/`.retrieve()` methods that submit work
+    to one dedicated event-loop thread which owns async Qdrant operations.
     """
 
     embed_client: HarborEmbedClient
@@ -106,6 +106,28 @@ class QdrantEmbeddedPipeline:
         default_factory=lambda: AsyncQdrantClient(location=":memory:")
     )
     _dimension: int | None = field(default=None, init=False, repr=False)
+    _loop: asyncio.AbstractEventLoop = field(init=False, repr=False)
+    _loop_thread: threading.Thread = field(init=False, repr=False)
+    _closed: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(
+            target=self._run_loop,
+            name="mcp-vector-search-demo-loop",
+            daemon=True,
+        )
+        self._loop_thread.start()
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def _run_on_loop(self, coro: Coroutine[Any, Any, _T]) -> _T:
+        if self._closed:
+            raise RuntimeError("retrieval pipeline is closed")
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
 
     def _embed(self, text: str) -> list[float]:
         response = self.embed_client.embed(text)
@@ -147,7 +169,9 @@ class QdrantEmbeddedPipeline:
         return len(points)
 
     def ingest(self, *, tenant_id: str, document_id: str, text: str) -> int:
-        return asyncio.run(self.aingest(tenant_id=tenant_id, document_id=document_id, text=text))
+        return self._run_on_loop(
+            self.aingest(tenant_id=tenant_id, document_id=document_id, text=text)
+        )
 
     async def aretrieve(self, query: RetrievalQuery) -> list[RetrievalResult]:
         if self._dimension is None:
@@ -181,11 +205,24 @@ class QdrantEmbeddedPipeline:
         ]
 
     def retrieve(self, query: RetrievalQuery) -> list[RetrievalResult]:
-        return asyncio.run(self.aretrieve(query))
+        return self._run_on_loop(self.aretrieve(query))
 
-    async def aclose(self) -> None:
+    async def _aclose_resources(self) -> None:
         await self.embed_client.aclose()
         await self.qdrant.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            self._run_on_loop(self._aclose_resources())
+        finally:
+            self._closed = True
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._loop_thread.join(timeout=5)
+
+    async def aclose(self) -> None:
+        await asyncio.to_thread(self.close)
 
 
 _pipeline = QdrantEmbeddedPipeline(embed_client=_build_embed_client())

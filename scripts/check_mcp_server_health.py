@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import os
 import sys
 import time
@@ -101,5 +100,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(main())
+    asyncio.run(main())
