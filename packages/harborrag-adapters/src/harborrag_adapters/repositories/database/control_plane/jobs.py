@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlalchemy as sa
@@ -87,6 +88,23 @@ class SqlJobRepository:
                     created_at=event.created_at,
                 )
             )
+
+    async def list_events(self, job_id: str) -> Sequence[HarborEvent]:
+        """The job's event log in append order (WS/SSE reconnect replay source)."""
+        statement = (
+            sa.select(JobEventRow).where(JobEventRow.job_id == job_id).order_by(JobEventRow.seq)
+        )
+        async with self.sessions() as session:
+            rows = await session.scalars(statement)
+            return [
+                HarborEvent(
+                    name=row.name,
+                    trace_id=row.trace_id,
+                    payload=dict(row.payload_json),
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ]
 
     async def count_by_status(self) -> dict[str, int]:
         """Job counts grouped by status via SQL GROUP BY, not a full-table load."""

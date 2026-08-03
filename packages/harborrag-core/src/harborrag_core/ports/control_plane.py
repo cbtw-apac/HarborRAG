@@ -7,6 +7,7 @@ never on the adapter classes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from harborrag_core.contracts.events import HarborEvent
@@ -75,6 +76,15 @@ class JobRepositoryPort(Protocol):
 
     async def append_event(self, job_id: str, event: HarborEvent) -> None:
         """Append to the job's ordered event log (WS reconnect replay source)."""
+
+    async def list_events(self, job_id: str) -> Sequence[HarborEvent]:
+        """The job's event log in append order (WS reconnect replay source).
+
+        Return type is Sequence, not the bare `list`, to sidestep a name
+        collision: this Protocol also defines a method literally called
+        `list`, and mypy resolves an annotation's `list[...]` against the
+        enclosing class's own namespace once that name is bound there.
+        """
 
     async def count_by_status(self) -> dict[str, int]:
         """Job counts grouped by status, without loading each row (dashboard metrics)."""

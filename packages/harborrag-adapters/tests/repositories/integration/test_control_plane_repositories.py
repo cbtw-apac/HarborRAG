@@ -181,6 +181,11 @@ async def test_job_repository_roundtrip_and_event_log(
         )
     assert seqs == [1, 2]
 
+    events = await repo.list_events("j1")
+    assert [event.trace_id for event in events] == ["t1", "t2"]
+    assert events[0].payload == {"s": "running"}
+    assert await repo.list_events("j2") == []
+
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox

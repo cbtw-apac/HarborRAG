@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass, field
 
 from harborrag_core.contracts.events import HarborEvent
@@ -139,6 +139,10 @@ class FakeJobRepository:
     async def append_event(self, job_id: str, event: HarborEvent) -> None:
         """Append to the job's ordered event log."""
         self.events.setdefault(job_id, []).append(event)
+
+    async def list_events(self, job_id: str) -> Sequence[HarborEvent]:
+        """The job's event log in append order."""
+        return list(self.events.get(job_id, []))
 
     async def count_by_status(self) -> dict[str, int]:
         """Job counts grouped by status."""
