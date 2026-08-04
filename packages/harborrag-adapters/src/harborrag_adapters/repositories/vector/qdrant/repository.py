@@ -36,10 +36,13 @@ from harborrag_core.schemas.vector import (
     VectorStoreCapabilities,
 )
 
+qm: Any
 try:
-    from qdrant_client import models as qm
+    from qdrant_client import models as _qm
 except ImportError:  # pragma: no cover - optional dependency
-    qm = None  # type: ignore[assignment]
+    qm = None
+else:
+    qm = _qm
 
 
 class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):

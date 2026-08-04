@@ -20,11 +20,9 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 class BaseConnector:
     provider_name: str
 
-    def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        ...
+    def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]: ...
 
-    def load(self, record: SourceRecord) -> RawDocument:
-        ...
+    def load(self, record: SourceRecord) -> RawDocument: ...
 ```
 
 The expected flow is:

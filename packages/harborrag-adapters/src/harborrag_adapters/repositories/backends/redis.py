@@ -4,10 +4,13 @@ from typing import Any, Protocol
 
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
+redis: Any
 try:
-    import redis.asyncio as redis
+    import redis.asyncio as _redis_asyncio
 except ImportError:  # pragma: no cover - optional dependency
-    redis = None  # type: ignore[assignment]
+    redis = None
+else:
+    redis = _redis_asyncio
 
 
 class RedisClientProtocol(Protocol):

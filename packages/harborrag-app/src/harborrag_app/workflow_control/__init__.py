@@ -1,4 +1,5 @@
 from .client import AppService
+from .mock import mock_app_service
 from .ports import BaseAppService
 from .schemas import AppResponse
 from .selection import (
@@ -14,6 +15,7 @@ __all__ = [
     "BaseAppService",
     "development_app_service",
     "get_app_service",
+    "mock_app_service",
     "runtime_app_service",
     "select_app_service",
 ]

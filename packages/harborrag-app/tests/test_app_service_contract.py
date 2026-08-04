@@ -10,6 +10,7 @@ from app_test_fixtures import MockAppService
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control import BaseAppService
+from harborrag_app.workflow_control.schemas import AppResponse
 
 
 class BrokenService(BaseAppService):
@@ -20,6 +21,29 @@ class BrokenService(BaseAppService):
 
     def ingest_once(self):
         return super().ingest_once()
+
+    # Implement newly-abstract read methods by delegating to the
+    # abstract base implementations to ensure they raise
+    async def list_projects(self) -> AppResponse:
+        return await super().list_projects()
+
+    async def get_project(self, project_id: str) -> AppResponse:
+        return await super().get_project(project_id)
+
+    async def list_sources(self, project_id: str | None = None) -> AppResponse:
+        return await super().list_sources(project_id)
+
+    async def get_source(self, source_id: str) -> AppResponse:
+        return await super().get_source(source_id)
+
+    async def list_activity(self, limit: int = 50) -> AppResponse:
+        return await super().list_activity(limit)
+
+    async def get_settings(self) -> AppResponse:
+        return await super().get_settings()
+
+    async def get_metrics(self) -> AppResponse:
+        return await super().get_metrics()
 
 
 def test_app_service_abstract_methods_raise() -> None:

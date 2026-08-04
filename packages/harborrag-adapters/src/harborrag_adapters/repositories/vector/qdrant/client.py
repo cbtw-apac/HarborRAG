@@ -6,10 +6,13 @@ from typing import Any
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
+AsyncQdrantClient: Any
 try:
-    from qdrant_client import AsyncQdrantClient
+    from qdrant_client import AsyncQdrantClient as _AsyncQdrantClient
 except ImportError:  # pragma: no cover - optional dependency
-    AsyncQdrantClient = None  # type: ignore[assignment,misc]
+    AsyncQdrantClient = None
+else:
+    AsyncQdrantClient = _AsyncQdrantClient
 
 
 class QdrantDBClient(AsyncLifecycle):

@@ -9,7 +9,7 @@ from harborrag_core.domain import (
     RetrievalResult,
     SourceRecord,
 )
-from harborrag_core.security.redaction import redact_secrets
+from harborrag_core.security.redaction import redact_mapping, redact_secrets
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
 __all__ = [
@@ -24,5 +24,6 @@ __all__ = [
     "SourceRecord",
     "URLPolicy",
     "URLPolicyError",
+    "redact_mapping",
     "redact_secrets",
 ]

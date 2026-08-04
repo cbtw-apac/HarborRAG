@@ -166,6 +166,9 @@ async def test_job_repository_roundtrip_and_event_log(
     assert await repo.list(status="failed") == []
     assert [j.id for j in await repo.list(source_id="s1")] == ["j1"]
 
+    await repo.save(Job(id="j2", source_id="s1", project_id="p1", job_type="bulk_ingest"))
+    assert await repo.count_by_status() == {"running": 1, "queued": 1}
+
     await repo.append_event(
         "j1", HarborEvent(name="job_status", trace_id="t1", payload={"s": "running"})
     )
