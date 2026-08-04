@@ -10,8 +10,12 @@ exercised without detaching or throttling the test runner itself.
 from __future__ import annotations
 
 import os
-import resource
 from typing import Any
+
+try:
+    import resource
+except ModuleNotFoundError:  # pragma: no cover - Windows/other non-POSIX platforms
+    resource = None
 
 import pytest
 
@@ -71,6 +75,13 @@ def _dump(call: Any, args: tuple[Any, ...]) -> bytes:
     return cloudpickle.dumps((call, args))
 
 
+def _stub_setsid_if_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    if hasattr(os, "setsid"):
+        monkeypatch.setattr(os, "setsid", lambda: None)
+    else:
+        monkeypatch.setattr(os, "name", "nt", raising=False)
+
+
 # --------------------------------------------------------------------------
 # Child entry point
 # --------------------------------------------------------------------------
@@ -80,7 +91,7 @@ def _dump(call: Any, args: tuple[Any, ...]) -> bytes:
 def test_process_main_sends_result_and_narrows_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(os, "setsid", lambda: None)
+    _stub_setsid_if_available(monkeypatch)
     monkeypatch.setattr(
         "harborrag_runtime.temporal.process_isolation._apply_resource_limits",
         lambda limits: None,
@@ -101,7 +112,7 @@ def test_process_main_sends_only_the_exception_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The error envelope must not carry the child's exception text (S6)."""
-    monkeypatch.setattr(os, "setsid", lambda: None)
+    _stub_setsid_if_available(monkeypatch)
     monkeypatch.setattr(
         "harborrag_runtime.temporal.process_isolation._apply_resource_limits",
         lambda limits: None,
@@ -120,7 +131,7 @@ def test_process_main_sends_only_the_exception_type(
 def test_process_main_rejects_an_oversized_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(os, "setsid", lambda: None)
+    _stub_setsid_if_available(monkeypatch)
     monkeypatch.setattr(
         "harborrag_runtime.temporal.process_isolation._apply_resource_limits",
         lambda limits: None,
@@ -138,7 +149,7 @@ def test_process_main_rejects_an_oversized_result(
 @pytest.mark.usefixtures("isolated_environ")
 def test_process_main_survives_a_broken_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
     """A dead parent must not turn into an unhandled child traceback."""
-    monkeypatch.setattr(os, "setsid", lambda: None)
+    _stub_setsid_if_available(monkeypatch)
     monkeypatch.setattr(
         "harborrag_runtime.temporal.process_isolation._apply_resource_limits",
         lambda limits: None,
@@ -156,6 +167,7 @@ def test_process_main_survives_a_broken_pipe(monkeypatch: pytest.MonkeyPatch) ->
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(resource is None, reason="resource module is unavailable on this platform")
 def test_apply_resource_limits_clamps_to_the_existing_hard_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -174,6 +186,7 @@ def test_apply_resource_limits_clamps_to_the_existing_hard_limit(
     assert recorded[resource.RLIMIT_CPU] == (128, 128)
 
 
+@pytest.mark.skipif(resource is None, reason="resource module is unavailable on this platform")
 def test_apply_resource_limits_uses_the_request_when_hard_is_unlimited(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -193,6 +206,7 @@ def test_apply_resource_limits_uses_the_request_when_hard_is_unlimited(
     assert recorded[resource.RLIMIT_NOFILE] == (99, 99)
 
 
+@pytest.mark.skipif(resource is None, reason="resource module is unavailable on this platform")
 def test_apply_resource_limits_is_a_noop_off_posix(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "name", "nt")
     called: list[object] = []

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 _SENSITIVE_KEY_PATTERN = re.compile(
-    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|(?<![a-z])token(?!izer)|secret|password|credential|authorization"
+    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|(?:^|[^a-z0-9_])token(?!izer)|secret|password|credential|authorization"
 )
 
 _LABELED_PATTERNS = [

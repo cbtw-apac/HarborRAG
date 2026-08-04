@@ -108,8 +108,6 @@ class FakeSourceRepository:
         self.sources.pop(source_id, None)
 
 
-@dataclass(slots=True)
-@dataclass(slots=True)
 # Use shared test fakes from harborrag_core.testing.fakes to avoid
 # duplication and drift when ports change.
 
