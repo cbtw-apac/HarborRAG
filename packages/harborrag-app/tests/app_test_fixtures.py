@@ -8,6 +8,7 @@ from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_core.contracts.errors import HarborAuthError
+from harborrag_core.domain.settings import WorkspaceSettings
 
 
 @dataclass(slots=True)
@@ -119,3 +120,24 @@ class MockAppService(BaseAppService):
             True,
             {"run_id": run_id, "action": action, "artifact_ids": list(artifact_ids)},
         )
+
+    async def list_projects(self) -> AppResponse:
+        return AppResponse(True, {"projects": []})
+
+    async def get_project(self, project_id: str) -> AppResponse:
+        return AppResponse(True, {"project": None})
+
+    async def list_sources(self, project_id: str | None = None) -> AppResponse:
+        return AppResponse(True, {"sources": []})
+
+    async def get_source(self, source_id: str) -> AppResponse:
+        return AppResponse(True, {"source": None})
+
+    async def list_activity(self, limit: int = 50) -> AppResponse:
+        return AppResponse(True, {"activity": []})
+
+    async def get_settings(self) -> AppResponse:
+        return AppResponse(True, {"settings": WorkspaceSettings()})
+
+    async def get_metrics(self) -> AppResponse:
+        return AppResponse(True, {"metrics": {}})

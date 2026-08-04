@@ -6,9 +6,8 @@ from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass, field
 
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.job import Job, JobStatus
+from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.project import Project
@@ -17,7 +16,6 @@ from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.testing.fakes import FakeJobRepository, FakeActivityRepository
 
 
 @dataclass(slots=True)
@@ -111,8 +109,6 @@ class FakeSourceRepository:
 
 
 @dataclass(slots=True)
-
-
 @dataclass(slots=True)
 # Use shared test fakes from harborrag_core.testing.fakes to avoid
 # duplication and drift when ports change.
