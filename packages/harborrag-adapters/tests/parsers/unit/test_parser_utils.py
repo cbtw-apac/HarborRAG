@@ -15,6 +15,21 @@ def test_html_to_text_bytes_and_entities() -> None:
     assert "x()" not in out
 
 
+def test_html_to_text_excludes_head_title() -> None:
+    """`<title>` lives in `<head>`; `get_text()` would otherwise include it
+    ahead of the body, duplicating a differently-worded page/document title
+    that also appears as a heading in the body (seen via the EPUB engine)."""
+    from harborrag_adapters.parsers.common.normalization import html_to_text
+
+    out = html_to_text(
+        "<html><head><title>Page Title</title><meta charset='utf-8'></head>"
+        "<body><h1>Body Heading</h1><p>Body text</p></body></html>"
+    )
+    assert "Page Title" not in out
+    assert "Body Heading" in out
+    assert "Body text" in out
+
+
 def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
     import builtins
     from typing import Any
@@ -45,6 +60,30 @@ def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
     assert "B" in text
     assert "hide()" not in text
     assert fallback_closed is True
+
+
+def test_fallback_html_parser_excludes_head_title(monkeypatch) -> None:
+    import builtins
+    from typing import Any
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "bs4":
+            raise ImportError
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    from harborrag_adapters.parsers.common.normalization import html_to_text_with_engine
+
+    text, engine = html_to_text_with_engine(
+        "<html><head><title>Page Title</title></head>"
+        "<body><h1>Body Heading</h1></body></html>"
+    )
+    assert engine == "python/html.parser"
+    assert "Page Title" not in text
+    assert "Body Heading" in text
 
 
 def test_wrap_parse_errors_passthrough_and_normalize() -> None:

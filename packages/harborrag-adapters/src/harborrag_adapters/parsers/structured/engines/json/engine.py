@@ -45,7 +45,12 @@ class JsonStructuredEngine(HarborStructuredEngine):
                 parser_engine=self.parser_engine,
             ),
         )
-        guard_input_size(read_parse_input_bytes(parse_input))
+        source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
+        if not source_bytes:
+            # An empty string is not valid JSON syntax, so `json.loads`
+            # would otherwise reject it. There is nothing to parse, so
+            # succeed with empty output like the other engines.
+            return self.empty_result(parse_input, root_type=None, raw={"json": None})
         data: Any
         try:
             source = read_parse_input_text(parse_input)

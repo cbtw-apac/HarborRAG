@@ -55,11 +55,17 @@ class EpubDocumentEngine(HarborDocumentEngine):
     suffixes: ClassVar[frozenset[str]] = frozenset({"epub"})
     content_types: ClassVar[frozenset[str]] = frozenset({"application/epub+zip"})
 
-    def parse(self, input: ParseInput) -> ParsedDocument:
+    def parse(self, input: ParseInput) -> ParsedDocument:  # noqa: C901
         """Read EPUB HTML documents, convert them to text, and preserve section order."""
 
         parse_input = self.coerce_input(input)
         _ensure_defusedxml()
+        source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
+        if not source_bytes:
+            # 0 bytes is never a valid zip archive, so zipfile would
+            # otherwise reject it as corrupt. There is nothing to parse, so
+            # succeed with empty output like the other engines.
+            return self.empty_result(parse_input, sections=0, title=None)
         try:
             parser_logger.debug(
                 "Extracting EPUB text from %s",
@@ -71,7 +77,7 @@ class EpubDocumentEngine(HarborDocumentEngine):
                 ),
             )
             warnings: list[str] = []
-            with open_guarded_zip(guard_input_size(read_parse_input_bytes(parse_input))) as archive:
+            with open_guarded_zip(source_bytes) as archive:
                 document_paths = self._document_paths(archive)
                 publication_title = self._publication_title(archive)
                 discovered_title: str | None = None
@@ -101,9 +107,23 @@ class EpubDocumentEngine(HarborDocumentEngine):
                             metadata={"path": path, "order": index},
                         )
                     )
-        except zipfile.BadZipFile as exc:
+        except ParseError:
+            # `ParseError` is itself a `RuntimeError` subclass (see
+            # harborrag_adapters.parsers.errors), so it would otherwise be
+            # caught and flattened by the broader `RuntimeError` clause below
+            # -- re-raise typed errors already raised deeper in this method
+            # (e.g. a missing OPF member) unchanged.
+            raise
+        except (zipfile.BadZipFile, RuntimeError) as exc:
+            # `zipfile` raises a bare `RuntimeError` (not `BadZipFile`) when a
+            # member is password-protected/encrypted. Surface that as the same
+            # typed, recoverable `ParseError` instead of letting it crash the
+            # caller -- container.xml/the OPF are read before any per-section
+            # try/except gets a chance to catch it.
+            is_encrypted = isinstance(exc, RuntimeError) and "encrypted" in str(exc).lower()
             parser_logger.warning(
-                "Invalid EPUB archive: %s",
+                "%s: %s",
+                "Encrypted EPUB archive" if is_encrypted else "Invalid EPUB archive",
                 input_label(parse_input),
                 extra=parser_log_extra(
                     input=parse_input,
@@ -111,6 +131,8 @@ class EpubDocumentEngine(HarborDocumentEngine):
                     parser_engine=self.parser_engine,
                 ),
             )
+            if is_encrypted:
+                raise ParseError("EPUB archive is password-protected/encrypted") from exc
             raise ParseError("Invalid EPUB archive") from exc
 
         title = publication_title or discovered_title
@@ -194,6 +216,7 @@ class EpubDocumentEngine(HarborDocumentEngine):
                 item_id = node.attrib.get("id")
                 href = node.attrib.get("href")
                 media_type = node.attrib.get("media-type", "")
+                properties = node.attrib.get("properties", "").split()
                 if (
                     item_id
                     and href
@@ -202,7 +225,14 @@ class EpubDocumentEngine(HarborDocumentEngine):
                         "application/xhtml+xml",
                         "text/html",
                     }
+                    and "nav" not in properties
                 ):
+                    # The EPUB3 navigation document (``properties="nav"``) is a
+                    # generated table of contents, not reading content. Some
+                    # spines still list it (so readers can open it as a page),
+                    # but extracting it as a section duplicates the chapter
+                    # titles it links to. The fallback path already excludes
+                    # `nav.xhtml`/`toc.xhtml` by name for the same reason.
                     manifest[item_id] = posixpath.normpath(posixpath.join(opf_dir, href))
             elif tag == "itemref":
                 idref = node.attrib.get("idref")

@@ -41,6 +41,19 @@ def test_read_text_raises_on_undecodable_bytes_instead_of_replacing() -> None:
         read_parse_input_text(ParseInput(content=b"\xff\xfe\x00bad\x81"))
 
 
+def test_read_text_raises_instead_of_cp1251_mojibake_on_longer_invalid_utf8() -> None:
+    """A short invalid byte string can fail statistical detection outright and
+    mask this bug. Enough surrounding plain-ASCII text gives a single-byte
+    detector (e.g. cp1251) real "confidence", so it used to return mis-decoded
+    Cyrillic-looking text instead of raising -- confirm it raises instead."""
+    data = (
+        b"Hello world, this is a report.\xff\xfe\x00 more text after invalid "
+        b"bytes here to pad length quite a bit so statistics work."
+    )
+    with pytest.raises(UnicodeDecodeError):
+        read_parse_input_text(ParseInput(content=data))
+
+
 def test_coerce_shapes() -> None:
     pi = ParseInput(content="x")
     assert coerce_parse_input(pi) is pi

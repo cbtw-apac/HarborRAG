@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from harborrag_core.ingestion import ExecutionCapabilityError
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse
+from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse, HarborChatStreamChunk
 from harborrag_engine.retrieval import RetrievalLane
 
 from .chat import ChatFacade, ChatPrompt, RuntimeChatService
@@ -130,6 +131,14 @@ class HarborRAG:
         prompt: ChatPrompt | None = None,
     ) -> HarborChatResponse:
         return await self._chat_runtime.complete(request, prompt=prompt)
+
+    def _chat_stream(
+        self,
+        request: HarborChatRequest,
+        *,
+        prompt: ChatPrompt | None = None,
+    ) -> AsyncIterator[HarborChatStreamChunk]:
+        return self._chat_runtime.stream(request, prompt=prompt)
 
     async def aclose(self) -> None:
         close_operations = []

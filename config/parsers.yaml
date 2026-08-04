@@ -19,9 +19,7 @@ parsers:
           accelerator_device: auto
           accelerator_threads: 4
           pdf_backend: pypdfium2
-          max_num_pages: 500
           max_file_size: 104857600
-          page_range: [1, 500]
           raises_on_error: true
           export_format: markdown
           strict_text: false

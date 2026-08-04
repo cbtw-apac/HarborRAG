@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -15,7 +15,6 @@ from app_test_graph_records import (
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.errors import IngestionAlreadyCompletedError
 from harborrag_app.workflow_control.ingestion_models import IngestionCreateCommand
-from harborrag_core.models.chat import HarborChatRequest
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.sdk import RetrievalLane
@@ -56,40 +55,93 @@ class MockAppService(BaseAppService):
 
     async def chat_completion(
         self,
-        request: HarborChatRequest,
+        query: str,
         *,
         tenant_id: str,
         principal_id: str,
-        prompt: ChatPrompt | None = None,
+        system: ChatPrompt | None = None,
     ) -> AppResponse:
         self.chat_calls.append(
             {
-                "request": request,
+                "query": query,
                 "tenant_id": tenant_id,
                 "principal_id": principal_id,
-                "prompt": prompt,
+                "system": system,
             }
         )
-        return AppResponse(
-            True,
+        return AppResponse(True, self._chat_payload(query))
+
+    def chat_stream(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        system: ChatPrompt | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        self.chat_calls.append(
             {
-                "id": "chat-1",
-                "created": 1_785_600_000,
-                "model": request.logical_model or "primary",
+                "query": query,
+                "tenant_id": tenant_id,
+                "principal_id": principal_id,
+                "system": system,
+            }
+        )
+        return self._chat_stream_events(query)
+
+    async def _chat_stream_events(self, query: str) -> AsyncIterator[dict[str, object]]:
+        yield {
+            "kind": "citations",
+            "citations": ({"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},),
+        }
+        yield {
+            "kind": "chunk",
+            "chunk": {
+                "event": "text_delta",
+                "model": "primary",
                 "provider": "mock",
                 "provider_model": "mock-chat",
-                "message": {"role": "assistant", "content": "Harbor response"},
-                "finish_reason": "stop",
-                "usage": {
-                    "prompt_tokens": 5,
-                    "completion_tokens": 2,
-                    "total_tokens": 7,
-                },
-                "latency_ms": 1.5,
-                "retry_count": 0,
-                "fallback_count": 0,
+                "content": self._chat_payload(query)["message"]["content"],
+                "reasoning": None,
+                "finish_reason": None,
+                "usage": None,
             },
-        )
+        }
+        yield {
+            "kind": "chunk",
+            "chunk": {
+                "event": "completed",
+                "model": "primary",
+                "provider": "mock",
+                "provider_model": "mock-chat",
+                "content": None,
+                "reasoning": None,
+                "finish_reason": "stop",
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+            },
+        }
+
+    @staticmethod
+    def _chat_payload(query: str) -> dict[str, object]:
+        del query
+        return {
+            "id": "chat-1",
+            "created": 1_785_600_000,
+            "model": "primary",
+            "provider": "mock",
+            "provider_model": "mock-chat",
+            "message": {"role": "assistant", "content": "Harbor response"},
+            "finish_reason": "stop",
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 2,
+                "total_tokens": 7,
+            },
+            "latency_ms": 1.5,
+            "retry_count": 0,
+            "fallback_count": 0,
+            "citations": [{"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}],
+        }
 
     async def submit(
         self,

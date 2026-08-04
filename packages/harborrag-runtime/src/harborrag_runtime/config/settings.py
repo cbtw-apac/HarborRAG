@@ -82,6 +82,8 @@ class RuntimeSettings(BaseSettings):
     sparse_b: float = Field(default=0.75, ge=0, le=1)
     sparse_fixed_avg_len: float = Field(default=256.0, gt=0)
     retrieval_dense_weight: float = Field(default=0.7, ge=0, le=1)
+    chat_retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    chat_retrieval_graph_search: bool = False
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:

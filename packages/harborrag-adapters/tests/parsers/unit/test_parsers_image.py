@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 
 from harborrag_adapters.parsers.compat import ImageParser
+from harborrag_adapters.parsers.errors import ParseError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -58,3 +59,16 @@ def test_image_parser_treats_no_ocr_text_as_empty_success(monkeypatch, caplog) -
     assert document.elements == []
     assert "Parsed image OCR blank.png" in caplog.text
     assert "content_chars=0 elements=0" in caplog.text
+
+
+def test_image_parser_raises_typed_error_instead_of_crashing_on_decompression_bomb(
+    monkeypatch,
+) -> None:
+    """`Image.open()` runs its own pixel-count guard against Pillow's global
+    `MAX_IMAGE_PIXELS` before our own `max_pixels` check gets a chance to run,
+    raising `DecompressionBombError` (a bare `Exception`, not `OSError`). That
+    used to escape uncaught instead of surfacing as a typed `ParseError`."""
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)
+
+    with pytest.raises(ParseError, match="Image OCR failed"):
+        ImageParser().parse(ParseInput(content=_png_bytes(), filename="huge.png"))

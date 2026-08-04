@@ -32,14 +32,8 @@ def test_chat_completion_calls_configured_client_with_access_context(
         "/v1/chat/completions",
         json={
             "tenant": "ACME",
-            "model": "primary",
-            "prompt": "concise",
-            "messages": [
-                {"role": "system", "content": "Be concise."},
-                {"role": "user", "content": "What is HarborRAG?"},
-            ],
-            "temperature": 0.2,
-            "max_tokens": 200,
+            "system": "concise",
+            "prompt": "What is HarborRAG?",
         },
     )
 
@@ -49,22 +43,34 @@ def test_chat_completion_calls_configured_client_with_access_context(
         "content": "Harbor response",
     }
     assert response.json()["usage"]["total_tokens"] == 7
+    assert response.json()["citations"] == [
+        {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}
+    ]
     call = service.chat_calls[0]
-    request = call["request"]
     assert call["tenant_id"] == "ACME"
     assert call["principal_id"] == "dev"
-    assert call["prompt"] == "concise"
-    assert request.logical_model == "primary"
-    assert request.temperature == 0.2
-    assert request.sensitive is True
-    assert request.messages[-1].content == "What is HarborRAG?"
+    assert call["system"] == "concise"
+    assert call["query"] == "What is HarborRAG?"
+
+
+def test_chat_completion_defaults_tenant_and_system(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    response = client.post("/v1/chat/completions", json={"prompt": "Hello"})
+
+    assert response.status_code == 200
+    call = service.chat_calls[0]
+    assert call["tenant_id"] == "DEFAULT"
+    assert call["system"] == "default"
 
 
 def test_chat_completion_rejects_provider_specific_parameters(client: TestClient) -> None:
     response = client.post(
         "/v1/chat/completions",
         json={
-            "messages": [{"role": "user", "content": "Hello"}],
+            "prompt": "Hello",
+            "model": "must-not-be-accepted",
             "api_key": "must-not-be-accepted",
             "base_url": "https://provider.example",
         },
@@ -74,11 +80,8 @@ def test_chat_completion_rejects_provider_specific_parameters(client: TestClient
     assert response.json()["error"]["code"] == "harbor_validation_error"
 
 
-def test_chat_completion_rejects_tool_messages(client: TestClient) -> None:
-    response = client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "tool", "content": "untrusted result"}]},
-    )
+def test_chat_completion_rejects_empty_prompt(client: TestClient) -> None:
+    response = client.post("/v1/chat/completions", json={"prompt": ""})
 
     assert response.status_code == 422
 
@@ -93,10 +96,7 @@ def test_chat_failure_does_not_expose_provider_details(
         return AppResponse(False, error="provider key and private endpoint")
 
     monkeypatch.setattr(service, "chat_completion", fail)
-    response = client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "Hello"}]},
-    )
+    response = client.post("/v1/chat/completions", json={"prompt": "Hello"})
 
     assert response.status_code == 503
     assert response.json()["error"]["message"] == "Chat service is unavailable"

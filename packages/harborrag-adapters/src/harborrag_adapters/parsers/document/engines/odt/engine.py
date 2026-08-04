@@ -66,6 +66,11 @@ class OdtDocumentEngine(HarborDocumentEngine):
             ) from exc
 
         source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
+        if not source_bytes:
+            # 0 bytes is never a valid zip archive, so odfpy/zipfile would
+            # otherwise reject it as corrupt. There is nothing to parse, so
+            # succeed with empty output like the other engines.
+            return self.empty_result(parse_input)
         parser_logger.debug(
             "Extracting ODT text from %s",
             input_label(parse_input),

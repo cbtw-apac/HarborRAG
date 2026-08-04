@@ -9,6 +9,10 @@ from typing import ClassVar
 
 from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.models import ParserAttempt, ParseRequest, ParseResult
+from harborrag_adapters.parsers.common.resources import (
+    read_parse_input_bytes,
+    request_to_parse_input,
+)
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
     input_label,
@@ -24,12 +28,15 @@ from harborrag_adapters.parsers.pdf.config import (
     PDFProfileConfig,
     PDFRouterConfig,
 )
+from harborrag_adapters.parsers.pdf.models import PDFParseResult
 from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
 from harborrag_adapters.parsers.pdf.quality import PDFQualityEvaluator
 from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry, PDFEngineRouter
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("pdf")
+
+_EMPTY_INPUT_ENGINE = "empty-input"
 
 
 class HarborPDFParser(HarborParser):
@@ -91,6 +98,19 @@ class HarborPDFParser(HarborParser):
         attempts: list[ParserAttempt] = []
         warnings: list[str] = []
         minimum_score = self._router.minimum_quality_score(request)
+
+        if self._is_empty_request(request):
+            parser_logger.info(
+                "PDF input %s is empty (0 bytes); returning empty content",
+                request.filename or request.source_uri,
+            )
+            metadata = request.options.get("metadata", {})
+            return self._normalizer.normalize(
+                result=self._empty_result(),
+                attempts=[self._empty_attempt()],
+                metadata=dict(metadata) if isinstance(metadata, dict) else {},
+                warnings=[],
+            )
 
         for engine in self._router.resolve_candidates(request):
             started = perf_counter()
@@ -178,6 +198,30 @@ class HarborPDFParser(HarborParser):
         warnings: list[str] = []
         minimum_score = self._router.minimum_quality_score(request)
 
+        if self._is_empty_source(input):
+            # An empty source has no content for any engine to reject or
+            # accept -- routing it through the fallback chain just collects
+            # N confusing per-engine failures ("could not open PDF", "invalid
+            # PDF format", ...) before raising `PDFParsingFailedError`. There
+            # is nothing to parse, so succeed with empty output instead of
+            # treating a 0-byte file as a hard failure.
+            parser_logger.info(
+                "PDF input %s is empty (0 bytes); returning empty content",
+                input_label(input),
+                extra=parser_log_extra(
+                    input=input,
+                    parser_name=self.parser_name,
+                    profile=self._profile_name,
+                ),
+            )
+            return self._normalizer.normalize_document(
+                parse_input=input,
+                result=self._empty_result(),
+                profile=self._profile_name,
+                attempts=[self._empty_attempt()],
+                warnings=[],
+            )
+
         for engine in self._router.resolve_candidates(request):
             parser_logger.debug(
                 "Trying PDF engine %s for %s",
@@ -254,6 +298,46 @@ class HarborPDFParser(HarborParser):
             warnings.append(f"{engine.name}: {quality.message}")
 
         raise PDFParsingFailedError(attempts=attempts)
+
+    @staticmethod
+    def _is_empty_request(request: ParseRequest) -> bool:
+        """Detect a 0-byte source without changing behavior on ambiguous input.
+
+        Every engine's default `async parse()` already converts the request
+        the same way (`HarborPDFEngine.parse`), so this can't introduce a new
+        failure mode for a request the engines would have accepted -- if
+        conversion fails here (e.g. a remote source with no pre-fetched
+        `options.content`), fall through to the normal per-engine loop
+        instead of surfacing that as a different exception up front.
+        """
+        try:
+            return not read_parse_input_bytes(request_to_parse_input(request))
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _is_empty_source(input: ParseInput) -> bool:
+        """Same emptiness check as `_is_empty_request`, for the `ParseInput`
+        boundary -- falls through to the normal per-engine loop rather than
+        raising early (e.g. an unreadable path) on anything but "0 bytes"."""
+        try:
+            return not read_parse_input_bytes(input)
+        except (OSError, ValueError):
+            return False
+
+    @staticmethod
+    def _empty_result() -> PDFParseResult:
+        return PDFParseResult(content="", engine=_EMPTY_INPUT_ENGINE, quality_score=1.0)
+
+    @staticmethod
+    def _empty_attempt() -> ParserAttempt:
+        return ParserAttempt(
+            engine=_EMPTY_INPUT_ENGINE,
+            success=True,
+            duration_ms=0.0,
+            quality_score=1.0,
+            message="input is empty (0 bytes); no engine attempted",
+        )
 
     @staticmethod
     def _router_config(

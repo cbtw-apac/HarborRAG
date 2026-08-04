@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from harborrag_core.models.chat import HarborChatRequest
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.composition import CompositionRoot
@@ -105,7 +104,7 @@ class AppService(BaseAppService):
             task_store_provider=self._resources.public_task_store,
             source_input_builder=self._source_input_builder,
         )
-        self._chat = ChatApplicationService(self._resources.runtime_sdk)
+        self._chat = ChatApplicationService(self._resources.runtime_sdk, self._settings)
         self._graph = GraphRetrievalService(self._resources.runtime_sdk)
         self._temporal = TemporalIngestionOperations(
             self._settings,
@@ -132,17 +131,32 @@ class AppService(BaseAppService):
 
     async def chat_completion(
         self,
-        request: HarborChatRequest,
+        query: str,
         *,
         tenant_id: str,
         principal_id: str,
-        prompt: ChatPrompt | None = None,
+        system: ChatPrompt | None = None,
     ) -> AppResponse:
         return await self._chat.complete(
-            request,
+            query,
             tenant_id=tenant_id,
             principal_id=principal_id,
-            prompt=prompt,
+            system=system,
+        )
+
+    def chat_stream(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        system: ChatPrompt | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        return self._chat.stream(
+            query,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            system=system,
         )
 
     async def runtime_health(self) -> AppResponse:

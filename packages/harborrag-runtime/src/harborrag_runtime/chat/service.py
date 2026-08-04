@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 
 from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatRequest,
     HarborChatResponse,
+    HarborChatStreamChunk,
 )
 from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -43,6 +44,17 @@ class RuntimeChatService:
         prepared = self._apply_prompt(request, prompt)
         client = await self._configured_client()
         return await client.achat(request=prepared)
+
+    async def stream(
+        self,
+        request: HarborChatRequest,
+        *,
+        prompt: ChatPrompt | None = None,
+    ) -> AsyncIterator[HarborChatStreamChunk]:
+        prepared = self._apply_prompt(request, prompt)
+        client = await self._configured_client()
+        async for chunk in client.astream(request=prepared):
+            yield chunk
 
     async def aclose(self) -> None:
         if self._client is None:

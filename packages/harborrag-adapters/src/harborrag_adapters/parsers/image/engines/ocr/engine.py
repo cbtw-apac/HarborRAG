@@ -103,6 +103,16 @@ class OcrImageEngine(HarborImageEngine):
                 ),
             )
             data = guard_input_size(read_parse_input_bytes(parse_input))
+            if not data:
+                # 0 bytes has no image format for Pillow to identify, so
+                # `Image.open()` would otherwise reject it as unreadable.
+                # There is nothing to OCR, so succeed with empty output like
+                # the other engines.
+                return self.empty_result(
+                    parse_input,
+                    ocr_engine=self.ocr_engine,
+                    lang=self.lang,
+                )
             with Image.open(BytesIO(data)) as image:
                 # Pillow's `open()` only reads the header, so the encoded size
                 # guard above doesn't bound the decoded pixel buffer. Check the
@@ -123,7 +133,14 @@ class OcrImageEngine(HarborImageEngine):
                 content = (self._extract_text(data, image) or "").strip()
         except ParseError:
             raise
-        except (RuntimeError, OSError, ValueError) as exc:
+        except (RuntimeError, OSError, ValueError, Image.DecompressionBombError) as exc:
+            # `Image.open()` runs its own pixel-count guard against Pillow's
+            # global `MAX_IMAGE_PIXELS` *before* our `max_pixels` check gets a
+            # chance to run (headers alone can push a file more than 2x over
+            # Pillow's default threshold). `DecompressionBombError` subclasses
+            # `Exception` directly, not `OSError`, so it must be listed
+            # explicitly or it escapes as an uncaught crash instead of the
+            # typed `ParseError` below.
             parser_logger.warning(
                 "Image OCR failed for %s: %s",
                 input_label(parse_input),

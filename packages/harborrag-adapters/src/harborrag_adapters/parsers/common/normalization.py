@@ -37,7 +37,10 @@ def html_to_text_with_engine(html: str | bytes) -> tuple[str, str]:
         return compact_text("\n".join(parser.parts)), "python/html.parser"
 
     soup = BeautifulSoup(html, "html.parser")
-    for node in soup(["script", "style", "noscript"]):
+    # `<title>` lives in `<head>`, which `get_text()` otherwise walks along
+    # with the body -- leaking the document/page title into the extracted
+    # text ahead of (and duplicating) any matching heading in the body.
+    for node in soup(["script", "style", "noscript", "head"]):
         node.decompose()
     return (
         compact_text(soup.get_text(separator="\n", strip=True)),
@@ -48,7 +51,7 @@ def html_to_text_with_engine(html: str | bytes) -> tuple[str, str]:
 class _FallbackHTMLTextParser(StdlibHTMLParser):
     """Small dependency-free visible-text extractor for HTML."""
 
-    _SKIP_TAGS = {"script", "style", "noscript"}
+    _SKIP_TAGS = {"script", "style", "noscript", "head"}
     _BLOCK_TAGS = {
         "address",
         "article",

@@ -90,7 +90,15 @@ def read_parse_input_bytes(value: ParseInput) -> bytes:
 
 
 def read_parse_input_text(value: ParseInput, encoding: str | None = None) -> str:
-    """Decode parser input with deterministic BOM and confidence handling."""
+    """Decode parser input with deterministic BOM handling.
+
+    Text-based formats (Markdown, HTML, JSON, ...) are a deterministic UTF
+    input boundary: falling back to a statistical single-byte detector (e.g.
+    `charset_normalizer`) when UTF-8 decoding fails can turn corrupt UTF-8
+    into valid-looking but incorrect text (commonly Cyrillic CP1251, since it
+    maps every byte value) instead of surfacing the corruption. Callers
+    should catch `UnicodeDecodeError` and raise a typed parse error.
+    """
     if isinstance(value.content, str):
         return value.content
     data = read_parse_input_bytes(value)
@@ -98,24 +106,8 @@ def read_parse_input_text(value: ParseInput, encoding: str | None = None) -> str
         return data.decode(encoding)
     for candidate in ("utf-8-sig", "utf-16"):
         if _has_bom(data, candidate):
-            try:
-                return data.decode(candidate)
-            except UnicodeDecodeError:
-                break
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        pass
-
-    try:
-        from charset_normalizer import from_bytes
-
-        best = from_bytes(data).best()
-        if best is not None:
-            return str(best)
-    except ImportError:
-        pass
-    raise UnicodeDecodeError("utf-8", data, 0, len(data), "no encoding detected with confidence")
+            return data.decode(candidate)
+    return data.decode("utf-8")
 
 
 def parse_input_supports(

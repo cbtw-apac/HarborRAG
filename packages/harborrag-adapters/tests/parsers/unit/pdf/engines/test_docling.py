@@ -42,9 +42,7 @@ def _encrypted_pdf_bytes() -> bytes:
 @pytest.mark.whitebox
 def test_docling_backend_options_build_convert_kwargs_without_importing_docling():
     options = DoclingBackendOptions(
-        max_num_pages=3,
         max_file_size=2048,
-        page_range=(1, 2),
         force_full_page_ocr=True,
         extra_convert_options={"custom": "value"},
     )
@@ -54,28 +52,16 @@ def test_docling_backend_options_build_convert_kwargs_without_importing_docling(
     assert configured.options.force_full_page_ocr is True
     assert configured._convert_kwargs() == {
         "raises_on_error": True,
-        "max_num_pages": 3,
         "max_file_size": 2048,
-        "page_range": (1, 2),
         "custom": "value",
     }
 
 
 @pytest.mark.whitebox
 def test_docling_backend_options_normalize_yaml_lists():
-    options = DoclingBackendOptions(
-        ocr_lang=["en"],  # type: ignore[arg-type]
-        page_range=[1, 2],  # type: ignore[arg-type]
-    )
+    options = DoclingBackendOptions(ocr_lang=["en"])  # type: ignore[arg-type]
 
     assert options.ocr_lang == ("en",)
-    assert options.page_range == (1, 2)
-
-
-@pytest.mark.whitebox
-def test_docling_backend_options_reject_invalid_page_range():
-    with pytest.raises(ValueError, match="exactly two"):
-        DoclingBackendOptions(page_range=[1])  # type: ignore[arg-type]
 
 
 @pytest.mark.whitebox

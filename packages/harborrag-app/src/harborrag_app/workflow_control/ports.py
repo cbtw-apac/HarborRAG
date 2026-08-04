@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 
-from harborrag_core.models.chat import HarborChatRequest
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.sdk import RetrievalLane
@@ -35,13 +34,25 @@ class BaseAppService(ABC):
 
     async def chat_completion(
         self,
-        request: HarborChatRequest,
+        query: str,
         *,
         tenant_id: str,
         principal_id: str,
-        prompt: ChatPrompt | None = None,
+        system: ChatPrompt | None = None,
     ) -> AppResponse:
-        """Generate one provider-neutral chat completion."""
+        """Generate one retrieval-grounded chat completion."""
+
+        raise NotImplementedError
+
+    def chat_stream(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        system: ChatPrompt | None = None,
+    ) -> AsyncIterator[dict[str, object]]:
+        """Stream one retrieval-grounded chat completion as ``{"kind": ...}`` events."""
 
         raise NotImplementedError
 

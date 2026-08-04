@@ -19,9 +19,7 @@ class DoclingPDFConfig:
     accelerator_device: str = "auto"
     accelerator_threads: int | None = 4
     pdf_backend: str | None = None
-    max_num_pages: int | None = None
     max_file_size: int | None = None
-    page_range: tuple[int, int] | None = None
     raises_on_error: bool = True
     export_format: str = "markdown"
     strict_text: bool = False
@@ -36,11 +34,6 @@ class DoclingPDFConfig:
         """Normalize collection values produced by YAML configuration."""
 
         self.ocr_lang = tuple(self.ocr_lang)
-        if self.page_range is not None:
-            page_range = tuple(self.page_range)
-            if len(page_range) != 2:
-                raise ValueError("page_range must contain exactly two page numbers")
-            self.page_range = (page_range[0], page_range[1])
 
 
 DoclingBackendOptions = DoclingPDFConfig
