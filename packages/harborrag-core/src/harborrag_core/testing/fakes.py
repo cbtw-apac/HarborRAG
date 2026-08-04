@@ -160,7 +160,9 @@ class FakeActivityRepository:
 
     async def list(self, limit: int = 50) -> list[ActivityEntry]:
         """Newest entries first."""
-        return list(reversed(self.entries))[:limit]
+        # Order by created_at timestamp to match SQL-backed repos and
+        # avoid surprises when tests seed out-of-order timestamps.
+        return sorted(self.entries, key=lambda e: e.created_at, reverse=True)[:limit]
 
 
 @dataclass(slots=True)
