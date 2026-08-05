@@ -64,22 +64,5 @@ tools:
     limits:
       max_depth: 8
       max_nodes: 20
-  chat:
-    enabled: true
-    defaults:
-      prompt: default
-      temperature: 0.2
-      max_tokens: 1024
-    limits:
-      temperature: 2.0
-      max_tokens: 32768
-  agent:
-    enabled: true
-    defaults:
-      prompt: default
-      graph_search: false
-      max_steps: 4
-    limits:
-      max_steps: 8
 
 tenants: {}

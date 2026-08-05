@@ -12,8 +12,10 @@
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
-| `chat` | Message, tenant, prompt, logical model, and bounded generation controls | Provider-neutral assistant message and usage |
-| `agent` | Message, tenant, optional session, step budget, graph switch, and history | Multi-hop answer, aggregate usage, and safe tool trace |
+
+Chat and agent are not exposed as MCP tools. They are served only through the
+HarborRAG REST API's `/v1/chat` and `/v1/agent` endpoints; see
+[Chat](../../chat/README.md).
 
 ### Choosing a graph tool
 
@@ -37,27 +39,6 @@ result = await server.call_tool(
     "vector_search",
     {"query": "publication policy", "tenant_id": "default"},
 )
-
-chat = await server.call_tool(
-    "chat",
-    {
-        "message": "Explain HarborRAG in one paragraph.",
-        "tenant_id": "default",
-        "session_id": "general-chat",
-        "prompt": "concise",
-    },
-)
-
-agent = await server.call_tool(
-    "agent",
-    {
-        "message": "Connect the release policy to its owning service.",
-        "tenant_id": "default",
-        "session_id": "release-review",
-        "graph_search": True,
-        "max_steps": 4,
-    },
-)
 ```
 
 Unknown tool names raise `ValueError`.
@@ -67,9 +48,8 @@ Unknown tool names raise `ValueError`.
 `McpServer` records every call attempt and outcome, validates each declared
 JSON schema, and enforces argument, result-count, and output-size budgets.
 Every tool call requires an explicit tenant. Retrieval propagates the caller's
-principal through the runtime access context; chat propagates it as model
-request metadata and marks the request sensitive. MCP audits store argument
-digests rather than raw query, prompt, or message text.
+principal through the runtime access context. MCP audits store argument
+digests rather than raw query text.
 
 Network transports must provide a FastMCP authentication provider.
 

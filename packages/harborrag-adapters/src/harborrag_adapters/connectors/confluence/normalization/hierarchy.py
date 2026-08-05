@@ -47,6 +47,7 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         self._warnings: list[str] = []
         self._relations: list[DocumentRelation] = []
         self._table_ordinal = 0
+        self._section_occurrences: dict[tuple[str, ...], int] = {}
 
     def build(self, root_node: ConfluenceNode) -> CanonicalBuildResult:
         root = BlockDraft(
@@ -122,7 +123,18 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         parent: BlockDraft,
     ) -> tuple[BlockDraft, BlockContext]:
         title = node.visible_text() or "Untitled section"
-        section_path = (*context.section_path, title)
+        # Two headings can share identical text at the same nesting depth (a
+        # repeated heading, or headings inside sibling panels/expands that
+        # don't otherwise affect the identity path). Without disambiguation
+        # they hash to the same section_id, which either violates the
+        # sibling-uniqueness invariant on DocumentBlock or silently aliases
+        # unrelated sections downstream. Only the repeat gets a suffix, so the
+        # common (non-duplicated) case keeps its original identity.
+        candidate_path = (*context.tab_path, *context.section_path, title)
+        occurrence = self._section_occurrences.get(candidate_path, 0)
+        self._section_occurrences[candidate_path] = occurrence + 1
+        path_title = title if occurrence == 0 else f"{title} ({occurrence + 1})"
+        section_path = (*context.section_path, path_title)
         # Tab titles participate in identity so equal headings in sibling tabs
         # remain independent without changing the human-readable section path.
         section_id = self._identity.section_id(

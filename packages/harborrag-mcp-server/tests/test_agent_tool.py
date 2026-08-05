@@ -14,7 +14,7 @@ from harborrag_core.models.chat import (
     HarborToolCall,
     HarborToolCallFunction,
 )
-from harborrag_mcp_server.tools.agent import AgentTool
+from harborrag_mcp_server.agent import AgentTool
 from harborrag_mcp_server.tools.base import McpToolSpec
 
 

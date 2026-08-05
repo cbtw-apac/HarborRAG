@@ -67,13 +67,14 @@ For a task created by an older worker, allow it to finish, deploy the corrected
 worker, and use `POST /v1/ingestions/{task_id}/retry-failures` for its retryable
 document failures.
 
-## Chat and MCP
+## Chat, Agent, and MCP
+
+Chat and agent are HTTP/CLI-only; MCP exposes only retrieval tools.
 
 | Symptom | Likely cause | Resolution |
 | --- | --- | --- |
 | Chat validation reports a missing `HARBOR_CHAT_*` value | `config/models.yaml` expands provider settings before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
-| HTTP chat returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
-| MCP returns `chat backend is not configured` | The server was constructed without the shared `HarborRAG` runtime, commonly from an older image or custom bootstrap | Rebuild `deploy/docker/Dockerfile.mcp` or construct `McpServer(runtime=HarborRAG(...))` |
+| HTTP chat or agent returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
 | MCP appears to do nothing when started in a terminal | Stdio MCP waits for a client protocol over pipes and has no port or interactive prompt | Run `scripts/deployment/mcp.sh --check`, or use `--http` and open `http://127.0.0.1:8010/` |
 | The browser cannot load or run tools | Missing/wrong owner token or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the ignored `env/.env.mcp`; never paste model API keys into the UI |
 | A tool change is saved but clients still list the old schema | FastMCP snapshots globally advertised schemas at startup | Restart when the UI reports `restart_required=true` |

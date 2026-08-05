@@ -68,7 +68,7 @@ uv run --package harborrag-app harborrag chat \
 This is a non-streaming, retrieval-grounded completion. Its JSON response
 contains a generated session ID; pass that ID with `--session` on later calls
 to recall recent conversation turns. See the
-[Chat guide](../users/chat/README.md) for HTTP and MCP usage.
+[Chat guide](../users/chat/README.md) for HTTP and CLI usage.
 
 ## 6. Run tests
 

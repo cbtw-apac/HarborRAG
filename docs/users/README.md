@@ -5,11 +5,11 @@ currently exposes a Temporal-backed ingestion control plane, authenticated
 retrieval and chat routes, one-shot CLI commands, and local MCP stdio or
 authenticated loopback HTTP transports.
 
-- [Chat](chat/README.md) — HTTP, CLI, MCP, prompts, model setup, and safety behavior.
+- [Chat](chat/README.md) — HTTP, CLI, prompts, model setup, and safety behavior.
 - [CLI Reference](cli-reference/README.md) — runnable workflow commands.
 - [Ingestion Modes](ingestion-modes.md) — incremental admission, forced evaluation, retries, and reindexing.
 - [Configuration](configuration/README.md) — connector, parser, model, engine, and tenant configuration.
-- [MCP Tools](detailed-guides/mcp-server/README.md) — retrieval and chat tools over stdio, loopback HTTP, or the browser playground.
+- [MCP Tools](detailed-guides/mcp-server/README.md) — retrieval tools over stdio, loopback HTTP, or the browser playground.
 - [Troubleshooting](troubleshooting/README.md) — setup, configuration, provider, and quality-gate failures.
 
 For direct Python usage of connectors, parsers, model clients, and repositories, also consult `packages/harborrag-adapters/README.md` and the family README nearest the implementation.

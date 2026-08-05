@@ -29,8 +29,6 @@ def test_module_check_lists_all_tools(capsys) -> None:
         "graph_path_search",
         "graph_subgraph_search",
         "graph_neighborhood",
-        "chat",
-        "agent",
     ]
 
 
@@ -108,8 +106,6 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
         "graph_path_search",
         "graph_subgraph_search",
         "graph_neighborhood",
-        "chat",
-        "agent",
     ]
     assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
 
@@ -140,7 +136,7 @@ async def test_mcp_base_methods_raise():
 
 
 @pytest.mark.asyncio
-async def test_mcp_registry_exposes_retrieval_and_chat_tools():
+async def test_mcp_registry_exposes_retrieval_tools():
     spec = McpToolSpec("tool", "description")
     assert spec.input_schema == {"type": "object"}
     assert (await HealthTool().call({}, principal_id="test"))["ok"] is True
@@ -152,8 +148,6 @@ async def test_mcp_registry_exposes_retrieval_and_chat_tools():
         "graph_path_search",
         "graph_subgraph_search",
         "graph_neighborhood",
-        "chat",
-        "agent",
     ]
     assert [tool.name for tool in server.list_tools()] == expected
     assert [item["name"] for item in list_tools()] == expected

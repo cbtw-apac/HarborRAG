@@ -1,4 +1,4 @@
-"""Bounded multi-turn agent exposed through the audited MCP registry."""
+"""Bounded multi-turn agent. Not registered in the MCP tool registry."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from harborrag_runtime.memory import (
     new_session_id,
 )
 
-from .base import BaseMcpTool, McpToolSpec
-from .retrieval_inputs import TENANT_PROPERTY, boolean, integer, optional_text, text
+from .tools.base import BaseMcpTool, McpToolSpec
+from .tools.retrieval_inputs import TENANT_PROPERTY, boolean, integer, optional_text, text
 
 if TYPE_CHECKING:
     from harborrag_mcp_server.server.base import BaseMcpServer

@@ -62,7 +62,7 @@ the catalog is ambiguous or a non-default logical model is required.
 
 ## Chat model environment
 
-HTTP, CLI, and MCP chat share `HARBORRAG_MODEL_CONFIG_PATH`. The checked-in
+HTTP and CLI chat share `HARBORRAG_MODEL_CONFIG_PATH`. The checked-in
 `config/models.yaml` references these protected values:
 
 | Variable | Meaning |

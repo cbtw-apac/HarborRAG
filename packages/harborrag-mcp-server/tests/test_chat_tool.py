@@ -11,7 +11,7 @@ from harborrag_core.models.chat import (
     HarborChatResponse,
     HarborChatUsage,
 )
-from harborrag_mcp_server.tools.chat import ChatTool
+from harborrag_mcp_server.chat import ChatTool
 from harborrag_runtime.chat import ChatPrompt
 
 

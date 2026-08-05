@@ -10,9 +10,11 @@ load the `chat` family from `config/models.yaml` and call
 | --- | --- | --- |
 | HTTP API | `POST /v1/chat/sessions`, then `GET /v1/chat/completions` | Applications and authenticated services |
 | HTTP API (streaming) | `GET /v1/chat/completions?stream=true` | Incremental rendering as the model responds |
+| HTTP API | `POST /v1/agent/sessions`, then `GET /v1/agent/completions` | Bounded multi-hop reasoning over retrieval tools |
 | CLI | `harborrag chat MESSAGE` | One-shot operator requests and scripts |
-| MCP | `chat` tool | Direct one-turn model chat with session memory |
-| MCP | `agent` tool | Bounded multi-hop reasoning over enabled retrieval tools |
+
+Chat and agent are not exposed as MCP tools; the retrieval tools (`vector_search`,
+`graph_triplet_search`, ...) are. See [MCP Tools](../detailed-guides/mcp-server/README.md).
 
 Chat and agent HTTP clients first create a session, then identify every
 completion with only that `session_id`. Completed turns are stored in the
@@ -87,7 +89,7 @@ insufficient:
 | `default` | General HarborRAG assistant behavior |
 | `concise` | Short, direct answers |
 
-HTTP and CLI use `default`. MCP callers may select either stored prompt.
+HTTP and CLI use `default`.
 
 Prompt names are a controlled public enum; callers cannot provide filesystem
 paths or replace the stored catalog. The templates live under
@@ -203,55 +205,61 @@ uv run --package harborrag-app harborrag chat \
 Use `--json` for the stable machine-readable command envelope, which includes
 the generated `session_id` and same `citations` field as the HTTP response.
 
-## MCP chat and agent
+## Agent
 
-The MCP `chat` tool requires `message` and `tenant_id`. Omit
-`session_id` on the first turn and reuse the generated value later. Optional
-arguments are `system`, `prompt`, `model`,
-`temperature`, and `max_tokens`. Unlike the HTTP
-and CLI surfaces, it calls the chat model directly without retrieval — pair it
-with the `vector_search` tool if the answer needs indexed HarborRAG content.
+Create a session, then run bounded multi-hop completions against it:
+
+```bash
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"tenant":"DEFAULT"}' \
+  http://127.0.0.1:8000/v1/agent/sessions
+
+curl --fail-with-body --get \
+  --data-urlencode 'tenant=DEFAULT' \
+  --data-urlencode 'session_id=session-...' \
+  --data-urlencode 'prompt=Connect the release policy to its owning service.' \
+  --data-urlencode 'graph_search=true' \
+  --data-urlencode 'max_steps=4' \
+  http://127.0.0.1:8000/v1/agent/completions
+```
+
+`session_id` and `prompt` are required; `tenant` defaults to `DEFAULT`,
+`graph_search` defaults to `false`, and `max_steps` defaults to `4` (1–8). The
+agent calls enabled read-only retrieval tools repeatedly, including parallel
+calls in a single step. When `graph_search` is false, graph tools are removed
+from the model's tool surface. When the step budget is exhausted, the model
+gets one final tool-free synthesis turn. The authenticated tenant and role
+requirements match `/v1/chat`.
+
+A successful response has this stable shape:
 
 ```json
 {
-  "message": "Explain HarborRAG in one paragraph.",
-  "tenant_id": "DEFAULT",
-  "session_id": "support-thread-456",
-  "prompt": "concise",
+  "id": "completion-id",
   "model": "primary",
-  "temperature": 0.2,
-  "max_tokens": 300
+  "provider": "openai",
+  "provider_model": "openai/model-name",
+  "message": {"role": "assistant", "content": "..."},
+  "finish_reason": "stop",
+  "usage": {"prompt_tokens": 42, "completion_tokens": 18, "total_tokens": 60},
+  "turns": 2,
+  "tool_call_count": 1,
+  "tool_calls": [{"step": 1, "tool": "vector_search", "ok": true}],
+  "session_id": "session-..."
 }
 ```
 
-The MCP `agent` tool requires `message` and `tenant_id`; it also
-accepts optional `session_id`, prior `history`, `prompt`, `max_steps`
-(1–8), and `graph_search`. It
-can call enabled read-only MCP tools repeatedly, including parallel calls in a
-single step. The authenticated tenant is forced into every invocation. When
-`graph_search` is false, graph tools and graph observation are removed from
-the model's tool surface. When the step budget is exhausted, the model gets
-one final tool-free synthesis turn.
-
-Run `scripts/deployment/mcp.sh --check` to verify that the tool is registered.
-Run `scripts/deployment/dev.sh bootstrap` first if the protected environment
-files do not exist. For browser use, start `scripts/deployment/mcp.sh --http`, open
-`http://127.0.0.1:8010/`, authenticate with the token stored in
-`env/.env.mcp`, and select `chat` in the Tool Playground.
-
-See [MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md)
-for stdio clients, HTTP endpoints, tool configuration, and Docker usage.
-
 ## Data and error behavior
 
-Every transport marks chat requests as sensitive, disabling model-response
-caching unless a separately reviewed model policy explicitly allows it. Raw
-prompts and model output are excluded from HarborRAG application logs and MCP
-audit records. MCP audits store an argument digest and outcome, not the raw
-request or bearer token.
+Every transport marks chat and agent requests as sensitive, disabling
+model-response caching unless a separately reviewed model policy explicitly
+allows it. Raw prompts and model output are excluded from HarborRAG
+application logs.
 
 Public transports expose normalized errors. Provider exceptions and secrets
-remain server-side. A `503` or streamed `error` from `/v1/chat/completions`,
-or `chat backend failed` from MCP usually means the model
-configuration, credentials, provider reachability, retrieval backend, or
-provider context limit must be checked in server logs.
+remain server-side. A `503` or streamed `error` from `/v1/chat/completions`
+or `/v1/agent/completions` usually means the model configuration,
+credentials, provider reachability, retrieval backend, or provider context
+limit must be checked in server logs.

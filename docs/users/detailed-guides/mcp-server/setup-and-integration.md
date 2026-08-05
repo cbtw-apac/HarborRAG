@@ -40,9 +40,9 @@ the registered tools without opening provider connections. The check opens an
 in-memory client session, performs the MCP initialization handshake, and asks
 the server for its tools.
 
-The normal catalog contains five retrieval tools and one `chat` tool. Chat is
-available when the launcher can compose the shared HarborRAG runtime and load
-the `chat` family from `config/models.yaml`.
+The normal catalog contains six retrieval tools. Chat and agent are not part
+of the MCP catalog; they are served only through the HarborRAG REST API's
+`/v1/chat` and `/v1/agent` endpoints.
 
 Do not run the stdio command as an interactive service. An MCP client must
 launch it with stdin and stdout connected to pipes. A direct terminal launch
@@ -87,11 +87,6 @@ catalog and generates argument controls from each tool's JSON schema. Select
 and audit boundaries as the MCP transport. Results are rendered as formatted
 text, never injected as HTML.
 
-Select `chat`, provide `message` and `tenant_id`, and optionally select a stored
-prompt or logical model to use chat from the browser. The playground sends the
-call to the local MCP server; it does not call a model provider directly or
-expose provider credentials to the page.
-
 ### Configure tools from the browser
 
 Open `http://127.0.0.1:8010/`, enter the same value used for
@@ -110,21 +105,6 @@ tools:
       top_k: 5
     limits:
       top_k: 10
-```
-
-Chat uses the same controls:
-
-```yaml
-tools:
-  chat:
-    enabled: true
-    defaults:
-      prompt: default
-      temperature: 0.2
-      max_tokens: 1024
-    limits:
-      temperature: 2.0
-      max_tokens: 32768
 ```
 
 These values control the public tool contract. Model provider, endpoint, and
@@ -175,9 +155,9 @@ HARBORRAG_MCP_DISABLED_TOOLS
 HARBORRAG_MCP_CONFIG_PATH
 ```
 
-The server exposes six retrieval tools—`vector_search`,
+The server exposes six retrieval tools: `vector_search`,
 `vector_search_advanced`, `graph_neighborhood`, `graph_triplet_search`,
-`graph_path_search`, and `graph_subgraph_search`—plus `chat`. Every tool accepts
+`graph_path_search`, and `graph_subgraph_search`. Every tool accepts
 an explicit tenant scope. The three selector-based graph tools need a node
 identifier the caller already holds—in practice a `chunk_id` from
 `vector_search`, which is the same string as a `Chunk` node key—while
@@ -188,12 +168,6 @@ budgets; post-execution result/output budgets; and an owner-only JSONL audit at
 `.harborrag/mcp-audit.jsonl` (override with `HARBORRAG_MCP_AUDIT_PATH`). Audit
 records contain a principal identifier, arguments digest, and outcome, never
 the bearer token or raw arguments.
-
-Chat accepts a message, the `default` or `concise` stored prompt, a configured
-logical model, and bounded generation controls. It never accepts provider API
-keys, base URLs, custom headers, tools, or arbitrary provider parameters. Chat
-requests are marked sensitive and raw messages or responses are not written to
-the MCP audit log.
 
 ## Container image
 

@@ -9,9 +9,7 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer
-from harborrag_mcp_server.tools.agent import AgentTool
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp_server.tools.chat import ChatTool
 from harborrag_mcp_server.tools.graph_search import (
     GraphNeighborhoodTool,
     GraphPathSearchTool,
@@ -71,8 +69,6 @@ class McpServer(BaseMcpServer):
                 GraphPathSearchTool(runtime=self.runtime),
                 GraphSubgraphSearchTool(runtime=self.runtime),
                 GraphNeighborhoodTool(runtime=self.runtime),
-                ChatTool(runtime=self.runtime, memory=self.memory),
-                AgentTool(runtime=self.runtime, tool_provider=self, memory=self.memory),
             ]
 
     def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:

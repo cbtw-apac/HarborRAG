@@ -177,19 +177,20 @@ persist a pending task in Postgres, and delegate to
 `IngestionTemporalClient`. The deployed worker registers only the canonical
 source, batch, document, failed-document retry, and reindex workflows.
 
-Chat follows one shared runtime path:
+Chat and agent are app-only surfaces; MCP does not expose them. Both follow
+one shared runtime path:
 
 ```text
 HTTP route ──> ChatApplicationService ──┐
 CLI command ─> BaseAppService ──────────┼─> HarborRAG.chat
-MCP tool ───────────────────────────────┘       │
-                                                ├─> RuntimeChatService
-                                                ├─> PromptCatalog
-                                                └─> AsyncHarborChatClient
+                                        │       │
+                                        │       ├─> RuntimeChatService
+                                        │       ├─> PromptCatalog
+                                        │       └─> AsyncHarborChatClient
 ```
 
-HTTP and CLI map through the application service; MCP calls the same
-`HarborRAG.chat` facade directly. Stored prompts and chat-client lifecycle stay
+HTTP and CLI map through the application service, which calls the
+`HarborRAG.chat` facade. Stored prompts and chat-client lifecycle stay
 in runtime, provider translation stays in adapters, and public schemas remain
 provider-neutral. None of these handlers construct a model client.
 

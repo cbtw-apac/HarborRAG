@@ -47,6 +47,63 @@ def test_heading_hierarchy_uses_nearest_shallower_heading_without_phantom_sectio
     ]
 
 
+def test_repeated_heading_titles_get_disambiguated_unique_identities():
+    page = page_input(
+        [
+            heading(1, "Overview"),
+            paragraph("first"),
+            heading(1, "Overview"),
+            paragraph("second"),
+            heading(1, "Overview"),
+            paragraph("third"),
+        ]
+    )
+
+    first = ConfluencePageNormalizer().normalize(page)
+    second = ConfluencePageNormalizer().normalize(page)
+    blocks = tuple(walk(first.blocks[0]))
+    sections = [block for block in blocks if block.kind == DocumentBlockKind.SECTION]
+
+    assert [section.section_path for section in sections] == [
+        ("Overview",),
+        ("Overview (2)",),
+        ("Overview (3)",),
+    ]
+    # The disambiguating suffix only decorates the internal identity path;
+    # the section's displayed title and heading text stay untouched.
+    assert [section.title for section in sections] == ["Overview", "Overview", "Overview"]
+    headings = [block for block in blocks if block.kind == DocumentBlockKind.HEADING]
+    assert [block.text for block in headings] == ["Overview", "Overview", "Overview"]
+
+    block_ids = [block.block_id for block in blocks]
+    assert len(set(block_ids)) == len(block_ids)
+    # Deterministic across independent normalizer runs over unchanged content.
+    assert block_ids == [block.block_id for block in walk(second.blocks[0])]
+
+
+def test_first_occurrence_of_a_repeated_heading_keeps_its_unsuffixed_identity():
+    unique_page = page_input([heading(1, "Overview"), paragraph("only")])
+    repeated_page = page_input(
+        [heading(1, "Overview"), paragraph("first"), heading(1, "Overview"), paragraph("second")]
+    )
+
+    unique_result = ConfluencePageNormalizer().normalize(unique_page)
+    repeated_result = ConfluencePageNormalizer().normalize(repeated_page)
+
+    unique_section = next(
+        block
+        for block in walk(unique_result.blocks[0])
+        if block.kind == DocumentBlockKind.SECTION
+    )
+    first_repeated_section = next(
+        block
+        for block in walk(repeated_result.blocks[0])
+        if block.kind == DocumentBlockKind.SECTION
+    )
+
+    assert unique_section.block_id == first_repeated_section.block_id
+
+
 def test_tabs_expands_panels_and_unknown_macros_preserve_context_and_visible_body():
     tab = {
         "type": "bodiedExtension",

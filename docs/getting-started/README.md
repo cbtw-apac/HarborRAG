@@ -2,7 +2,8 @@
 
 HarborRAG is an alpha, multi-package RAG framework. Its adapter layer contains
 real connectors, parsers, model clients, and storage providers; its runtime
-composes ingestion, retrieval, and chat for the HTTP, CLI, and MCP surfaces.
+composes ingestion, retrieval, and chat for the HTTP and CLI surfaces, and
+retrieval for the MCP surface.
 
 Follow this path:
 

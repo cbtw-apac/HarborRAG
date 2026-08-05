@@ -16,7 +16,7 @@ HarborRAG is under active alpha development. The distinction between implemented
 | Engine and runtime | Postgres-authoritative ingestion, durable Temporal workflows, immutable artifacts, hybrid vector projection, graph projection, retrieval, chat orchestration, stored prompts, and production dependency composition are implemented |
 | CLI | `doctor`, one-shot chat, Temporal-backed ingestion control, and authoritative retrieval commands |
 | HTTP API | FastAPI factory with liveness, Prometheus metrics, authenticated ingestion control, authoritative retrieval, and chat completions |
-| MCP | Audited, policy-bounded FastMCP transport exposing five tenant-scoped retrieval tools and chat over stdio or bearer-authenticated loopback HTTP with a local status/configuration UI |
+| MCP | Audited, policy-bounded FastMCP transport exposing six tenant-scoped retrieval tools over stdio or bearer-authenticated loopback HTTP with a local status/configuration UI |
 | Temporal deployment | PostgreSQL-backed local development stack; production deployment remains application/operator work |
 
 ## Why the package boundaries exist
