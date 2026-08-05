@@ -17,6 +17,7 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
 )
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_core.ingestion import (
+    GRAPH_SCHEMA_VERSION,
     GraphEdgeRecord,
     GraphNodeRecord,
     GraphProjectionVerification,
@@ -31,19 +32,30 @@ async def upsert_nodes(
     *,
     context: StorageOperationContext,
 ) -> None:
-    """Merge node rows by node_key, grouped so each label is one round trip."""
+    """Merge node rows by tenant, node_key, and schema version, one round trip per label."""
 
     grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for node in nodes:
+        if str(node.owner_id) != str(context.tenant_id):
+            raise ValueError("graph node owner does not match storage tenant context")
         row = _node_row(node, tenant_id=str(context.tenant_id))
         reject_runtime_fields(row)
-        grouped[NODE_LABELS[node.node_kind]].append(row)
+        grouped[NODE_LABELS[node.node_kind]].append(FalkorDBMapper.encode_properties(row))
     for label, rows in sorted(grouped.items()):
+        # tenant_id is part of the merge identity, not just a filter property. Version-owned
+        # node keys (DocumentVersion, Structure, Chunk) do not hash the tenant, so without
+        # it two tenants that produced the same document version would share one node.
+        # SET node = row replaces the whole property map instead of patching it, so a field
+        # dropped from a later projection cannot survive as stale state.
         await database.write(
             f"""
             UNWIND $rows AS row
-            MERGE (node:KnowledgeNode:{label} {{node_key: row.node_key}})
-            SET node += row
+            MERGE (node:KnowledgeNode:{label} {{
+                node_key: row.node_key,
+                graph_schema_version: row.graph_schema_version,
+                tenant_id: row.tenant_id
+            }})
+            SET node = row
             """,
             {"rows": rows},
         )
@@ -59,6 +71,8 @@ async def upsert_relations(
 
     grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for relation in relations:
+        if str(relation.owner_id) != str(context.tenant_id):
+            raise ValueError("graph relationship owner does not match storage tenant context")
         row = _relation_row(relation, tenant_id=str(context.tenant_id))
         reject_runtime_fields(row)
         grouped[RELATION_IDENTIFIERS[relation.relation_type]].append(
@@ -68,12 +82,20 @@ async def upsert_relations(
         await database.write(
             f"""
             UNWIND $rows AS row
-            MATCH (source:KnowledgeNode {{node_key: row.source_node_key}})
-            MATCH (target:KnowledgeNode {{node_key: row.target_node_key}})
+            MATCH (source:KnowledgeNode {{
+                node_key: row.source_node_key,
+                graph_schema_version: row.graph_schema_version,
+                tenant_id: row.tenant_id
+            }})
+            MATCH (target:KnowledgeNode {{
+                node_key: row.target_node_key,
+                graph_schema_version: row.graph_schema_version,
+                tenant_id: row.tenant_id
+            }})
             MERGE (source)-[relation:{relationship_type} {{
                 relation_id: row.relation_id
             }}]->(target)
-            SET relation += row
+            SET relation = row
             """,
             {"rows": rows},
         )
@@ -84,7 +106,6 @@ async def verify_projection(
     nodes: Sequence[GraphNodeRecord],
     relations: Sequence[GraphEdgeRecord],
     *,
-    available_chunk_ids: Sequence[str],
     context: StorageOperationContext,
 ) -> GraphProjectionVerification:
     """Read the staged projection back and compare it with its manifest."""
@@ -96,30 +117,38 @@ async def verify_projection(
         """
         MATCH (node:KnowledgeNode)
         WHERE node.tenant_id = $tenant_id AND node.node_key IN $node_keys
+          AND node.graph_schema_version = $graph_schema_version
         RETURN node.node_key AS node_key, count(node) AS occurrences
         """,
-        {"tenant_id": str(context.tenant_id), "node_keys": list(node_keys)},
+        {
+            "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "node_keys": list(node_keys),
+        },
     )
     relation_rows = await read_rows(
         database,
         """
         MATCH (source:KnowledgeNode)-[relation]->(target:KnowledgeNode)
         WHERE relation.tenant_id = $tenant_id
+          AND relation.graph_schema_version = $graph_schema_version
           AND relation.relation_id IN $relation_ids
         RETURN relation.relation_id AS relation_id,
                source.node_key AS source_node_key,
                target.node_key AS target_node_key,
-               relation.evidence_chunk_ids AS evidence_chunk_ids,
                count(relation) AS occurrences
         """,
-        {"tenant_id": str(context.tenant_id), "relation_ids": list(relation_ids)},
+        {
+            "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "relation_ids": list(relation_ids),
+        },
     )
     return build_graph_verification(
         node_keys=node_keys,
         relation_ids=relation_ids,
         node_rows=node_rows,
         relation_rows=relation_rows,
-        available_chunk_ids=frozenset(available_chunk_ids),
     )
 
 
@@ -127,17 +156,19 @@ def _node_row(node: GraphNodeRecord, *, tenant_id: str) -> dict[str, Any]:
     return {
         "node_key": node.node_key,
         "logical_id": node.logical_id,
-        "document_id": str(node.document_id),
-        "document_version_id": str(node.document_version_id),
         "node_kind": node.node_kind.value,
+        "entity_type": node.entity_type.value,
+        "graph_schema_version": node.graph_schema_version,
+        "ownership_scope": node.ownership_scope.value,
+        "owner_id": str(node.owner_id),
         "title": node.title,
-        "connector_type": (node.connector_type.value if node.connector_type is not None else None),
-        "document_kind": (node.document_kind.value if node.document_kind is not None else None),
-        "source_item_id": node.source_item_id,
-        "source_uri": node.source_uri,
-        "content_preview": node.content_preview,
         "section_path": list(node.section_path),
         "source_scope_id": node.source_scope_id,
+        "document_id": (str(node.document_id) if node.document_id is not None else None),
+        "document_version_id": (
+            str(node.document_version_id) if node.document_version_id is not None else None
+        ),
+        "attributes": node.attributes,
         "tenant_id": tenant_id,
     }
 
@@ -148,9 +179,16 @@ def _relation_row(relation: GraphEdgeRecord, *, tenant_id: str) -> dict[str, Any
         "relation_type": relation.relation_type.value,
         "source_node_key": relation.source_node_key,
         "target_node_key": relation.target_node_key,
-        "document_version_id": str(relation.document_version_id),
+        "graph_schema_version": relation.graph_schema_version,
+        "ownership_scope": relation.ownership_scope.value,
+        "owner_id": str(relation.owner_id),
+        "source_scope_id": relation.source_scope_id,
+        "document_id": (str(relation.document_id) if relation.document_id is not None else None),
+        "document_version_id": (
+            str(relation.document_version_id) if relation.document_version_id is not None else None
+        ),
+        "attributes": relation.attributes,
         "source_relation_version": relation.source_relation_version,
         "source_explicit": relation.source_explicit,
-        "evidence_chunk_ids": list(relation.evidence_chunk_ids),
         "tenant_id": tenant_id,
     }

@@ -65,6 +65,15 @@ class KnowledgeGraphReader(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class GraphDocumentSummary:
+    """One document the retrieved chunks belong to, with the sections they came from."""
+
+    document_id: str
+    title: str | None = None
+    sections: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class RetrievalDiagnostics:
     candidate_hits: int
     stale_candidates: int
@@ -75,6 +84,9 @@ class RetrievalDiagnostics:
     graph_relations: int
     graph_truncated: bool
     duration_ms: float
+    # Structural provenance for the results, empty unless graph observation ran. Kept
+    # last with a default so the positional shape of the existing fields is unchanged.
+    graph_documents: tuple[GraphDocumentSummary, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

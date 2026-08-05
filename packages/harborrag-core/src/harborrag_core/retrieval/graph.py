@@ -60,7 +60,13 @@ class GraphPathQuery(StrictModel):
     relationship_types: tuple[RelationType, ...] = ()
     max_depth: int = Field(default=4, ge=1, le=8)
     max_paths: int = Field(default=10, ge=1, le=100)
-    direction: GraphDirection = GraphDirection.OUTGOING
+    # BOTH, not OUTGOING: the spine is not uniformly directed. A chunk attaches to its
+    # structure as (:Chunk)-[:SUPPORTS]->(:Structure), which points *into* the spine,
+    # while (:DocumentVersion)-[:CONTAINS]->(:Structure) points down it. So the most
+    # natural question -- which document does this chunk belong to -- traverses one edge
+    # forwards and one backwards, and returns nothing when restricted to a single
+    # direction. Callers wanting a directed path must now ask for it explicitly.
+    direction: GraphDirection = GraphDirection.BOTH
 
     @model_validator(mode="after")
     def validate_endpoints(self) -> Self:
@@ -101,3 +107,88 @@ class GraphSubgraphQuery(StrictModel):
         if len(set(self.relationship_types)) != len(self.relationship_types):
             raise ValueError("subgraph relationship types must be unique")
         return self
+
+
+class GraphNeighborhoodQuery(StrictModel):
+    """Expand the graph around whatever a natural-language query retrieves.
+
+    Every other graph query needs a node selector the caller must already possess:
+    a ``node_key`` is an opaque hash, ``logical_id`` is internal, and ``title`` is unset
+    on chunk nodes and otherwise matches only in full. This query removes that
+    precondition by resolving its own seeds through the vector index, which is the one
+    component that accepts free text.
+    """
+
+    query: str = Field(min_length=1)
+    seed_limit: int = Field(default=3, ge=1, le=10)
+    relationship_types: tuple[RelationType, ...] = ()
+    max_depth: int = Field(default=2, ge=1, le=8)
+    max_nodes: int = Field(default=20, ge=1, le=100)
+    direction: GraphDirection = GraphDirection.BOTH
+
+    @model_validator(mode="after")
+    def validate_relationship_types(self) -> Self:
+        if len(set(self.relationship_types)) != len(self.relationship_types):
+            raise ValueError("neighborhood relationship types must be unique")
+        if not self.query.strip():
+            raise ValueError("neighborhood query must not be blank")
+        return self
+
+    def to_subgraph_query(self, start_node: str) -> GraphSubgraphQuery:
+        """Build the per-seed expansion that this neighborhood fans out into."""
+
+        return GraphSubgraphQuery(
+            start_node=start_node,
+            relationship_types=self.relationship_types,
+            max_depth=self.max_depth,
+            max_nodes=self.max_nodes,
+            direction=self.direction,
+        )
+
+
+def compact_node(node: GraphNodeRecord) -> dict[str, object]:
+    """Project a node to the fields a caller can act on.
+
+    A full ``model_dump`` also carries ``owner_id``, ``graph_schema_version``,
+    ``ownership_scope``, ``logical_id``, and the ``attributes`` blob. Those are write-side
+    bookkeeping: they cannot be used as a selector for a follow-up query and cannot be
+    cited, so for an LLM caller they are cost without benefit.
+    """
+
+    view: dict[str, object] = {
+        "node_key": node.node_key,
+        "node_kind": node.node_kind.value,
+        "entity_type": node.entity_type.value,
+    }
+    if node.title is not None:
+        view["title"] = node.title
+    if node.section_path:
+        view["section_path"] = list(node.section_path)
+    if node.document_id is not None:
+        view["document_id"] = str(node.document_id)
+    return view
+
+
+def compact_relation(relation: GraphEdgeRecord) -> dict[str, object]:
+    """Project a relation to its predicate and endpoints."""
+
+    return {
+        "relation_type": relation.relation_type.value,
+        "source_node_key": relation.source_node_key,
+        "target_node_key": relation.target_node_key,
+    }
+
+
+def compact_triplet(triplet: GraphTriplet) -> dict[str, object]:
+    return {
+        "subject": compact_node(triplet.subject),
+        "predicate": triplet.predicate.relation_type.value,
+        "object": compact_node(triplet.object),
+    }
+
+
+def compact_path(path: GraphPath) -> dict[str, object]:
+    return {
+        "nodes": [compact_node(node) for node in path.nodes],
+        "relations": [compact_relation(relation) for relation in path.relations],
+    }

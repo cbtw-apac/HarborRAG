@@ -4,21 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
-from harborrag_runtime.chat import ChatPrompt
+from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
+    GraphPathQuery,
+    GraphSubgraphQuery,
+    GraphTripletQuery,
+)
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.projection_admin import ProjectionAdministrationService
-from harborrag_runtime.sdk import (
-    HarborRAG,
-    HarborRAGConfig,
-    RetrievalLane,
-)
+from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig, RetrievalLane
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 from harborrag_runtime.temporal.submission import (
@@ -27,12 +27,15 @@ from harborrag_runtime.temporal.submission import (
 )
 from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
 
+from .agent import AgentApplicationService, AgentClientMixin
 from .app_resources import AppResources
 from .chat import ChatApplicationService
+from .chat_client import ChatClientMixin
 from .errors import failure_response
 from .graph_retrieval import GraphRetrievalService
 from .ingestion_models import IngestionCreateCommand
 from .ingestion_service import IngestionApplicationService, PublicTaskStore
+from .memory import ConversationSessionService, conversation_memory
 from .ports import BaseAppService
 from .retrieval_query import retrieve
 from .schemas import AppResponse
@@ -78,7 +81,7 @@ class AppServiceFactories:
     projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
 
 
-class AppService(BaseAppService):
+class AppService(AgentClientMixin, ChatClientMixin, BaseAppService):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
 
     def __init__(
@@ -104,7 +107,14 @@ class AppService(BaseAppService):
             task_store_provider=self._resources.public_task_store,
             source_input_builder=self._source_input_builder,
         )
-        self._chat = ChatApplicationService(self._resources.runtime_sdk, self._settings)
+        memory = conversation_memory(self._composition)
+        self._sessions = ConversationSessionService(memory)
+        self._chat = ChatApplicationService(
+            self._resources.runtime_sdk,
+            self._settings,
+            memory=memory,
+        )
+        self._agent = AgentApplicationService(self._resources.runtime_sdk, memory=memory)
         self._graph = GraphRetrievalService(self._resources.runtime_sdk)
         self._temporal = TemporalIngestionOperations(
             self._settings,
@@ -127,36 +137,6 @@ class AppService(BaseAppService):
         return AppResponse(
             False,
             error="use 'harborrag ingest start' to submit the Temporal ingestion workflow",
-        )
-
-    async def chat_completion(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        system: ChatPrompt | None = None,
-    ) -> AppResponse:
-        return await self._chat.complete(
-            query,
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            system=system,
-        )
-
-    def chat_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        system: ChatPrompt | None = None,
-    ) -> AsyncIterator[dict[str, object]]:
-        return self._chat.stream(
-            query,
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            system=system,
         )
 
     async def runtime_health(self) -> AppResponse:
@@ -280,6 +260,15 @@ class AppService(BaseAppService):
         principal_id: str,
     ) -> AppResponse:
         return await self._graph.subgraph(query, tenant_id=tenant_id, principal_id=principal_id)
+
+    async def retrieve_graph_neighborhood(
+        self,
+        query: GraphNeighborhoodQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        return await self._graph.neighborhood(query, tenant_id=tenant_id, principal_id=principal_id)
 
     async def start_ingestion(  # noqa: PLR0913 - stable service port
         self,

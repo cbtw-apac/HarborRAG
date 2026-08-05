@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from harborrag_core.chunking import ChunkKind, ChunkRecord
 from harborrag_core.ingestion import (
     ArtifactReference,
+    GraphEntityType,
+    GraphOwnershipScope,
     GraphProjectionVerification,
     IndexVerificationResult,
     KnowledgeNodeKind,
@@ -52,7 +54,6 @@ class ProjectionManifestBuilder:
         return ProjectionManifest(
             document_id=DocumentId(request.document_id),
             document_version_id=DocumentVersionId(request.document_version_id),
-            route_point_ids=tuple(record.point_id for record in request.vectors.route_records),
             evidence_point_ids=tuple(
                 record.point_id for record in request.vectors.evidence_records
             ),
@@ -76,10 +77,6 @@ class ProjectionVerifier:
         chunk_ids = {str(chunk.chunk_id) for chunk in request.chunks}
         if chunk_ids != set(request.manifest.chunk_ids):
             errors.append("chunk manifest does not match the canonical chunk set")
-        if set(request.manifest.route_point_ids) != {
-            record.point_id for record in request.vectors.route_records
-        }:
-            errors.append("route point manifest does not match the vector batch")
         if set(request.manifest.evidence_point_ids) != {
             record.point_id for record in request.vectors.evidence_records
         }:
@@ -104,6 +101,16 @@ class ProjectionVerifier:
                 chunk_ids,
             )
         )
+        graph_chunk_ids = {
+            node.logical_id
+            for node in request.graph.nodes
+            if node.node_kind == KnowledgeNodeKind.CHUNK
+        }
+        vector_chunk_ids = {
+            record.payload.chunk_id for record in request.vectors.evidence_records
+        }
+        if graph_chunk_ids != vector_chunk_ids:
+            errors.append("graph chunk nodes do not match vector evidence chunks")
         errors.extend(self._table_reference_errors(request.chunks, request.graph))
         if request.canonical_table_ids is not None:
             table_ids = {
@@ -130,7 +137,7 @@ class ProjectionVerifier:
         chunk_ids: set[str],
     ) -> list[str]:
         errors: list[str] = []
-        for record in (*vectors.route_records, *vectors.evidence_records):
+        for record in vectors.evidence_records:
             payload = record.payload
             if str(payload.document_id) != str(manifest.document_id):
                 errors.append("vector payload document ID mismatch")
@@ -172,7 +179,10 @@ class ProjectionVerifier:
     ) -> list[str]:
         errors: list[str] = []
         current_nodes = [
-            node for node in graph.nodes if str(node.document_id) == str(manifest.document_id)
+            node
+            for node in graph.nodes
+            if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+            and str(node.document_id) == str(manifest.document_id)
         ]
         if not current_nodes:
             errors.append("graph batch has no node for the candidate document")
@@ -182,10 +192,18 @@ class ProjectionVerifier:
         ):
             errors.append("graph node document-version ID mismatch")
         for relation in graph.relations:
-            if str(relation.document_version_id) != str(manifest.document_version_id):
+            if (
+                relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+                and str(relation.document_version_id) != str(manifest.document_version_id)
+            ):
                 errors.append("graph relation document-version ID mismatch")
-            if not set(relation.evidence_chunk_ids) <= chunk_ids:
-                errors.append("graph relation references an unknown evidence chunk")
+        graph_chunk_ids = {
+            node.logical_id
+            for node in graph.nodes
+            if node.node_kind == KnowledgeNodeKind.CHUNK
+        }
+        if not graph_chunk_ids <= chunk_ids:
+            errors.append("graph contains an unknown chunk node")
         return errors
 
     @staticmethod
@@ -201,7 +219,7 @@ class ProjectionVerifier:
         graph_table_ids = {
             node.logical_id
             for node in graph.nodes
-            if node.node_kind == KnowledgeNodeKind.TABLE
+            if node.entity_type == GraphEntityType.TABLE
             and str(node.document_id) == str(chunks[0].document_id)
         }
         if chunk_table_ids != graph_table_ids:

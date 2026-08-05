@@ -17,23 +17,17 @@ current stage. Disable one-shot output color with `harborrag --no-color ...`.
 ```bash
 harborrag chat MESSAGE \
   [--tenant TENANT_ID] \
-  [--system TEXT] \
-  [--prompt default|concise] \
-  [--model LOGICAL_MODEL] \
-  [--temperature 0..2] \
-  [--max-tokens 1..32768] \
+  [--session SESSION_ID] \
   [--json]
 ```
 
-`chat` makes one non-streaming call through the configured Harbor chat client.
-It defaults to tenant `DEFAULT`, stored prompt `default`, temperature `0.2`,
-and 1,024 maximum generated tokens. A request-specific `--system` message is
-inserted after the stored prompt. The command does not automatically retrieve
-evidence or persist the conversation.
+`chat` makes one non-streaming, retrieval-grounded call using the server-owned
+default system prompt. It defaults to tenant `DEFAULT`. Omit `--session` on
+the first turn to generate one; pass the
+returned session ID on later calls to recall the two latest completed turns.
 
 ```bash
-harborrag chat "Explain HarborRAG in one paragraph." \
-  --prompt concise --model primary --max-tokens 300
+harborrag chat "Explain HarborRAG in one paragraph." --json
 ```
 
 Provider settings and credentials come from `config/models.yaml` and the

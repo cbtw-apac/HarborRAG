@@ -83,7 +83,7 @@ class DocumentProjectionCoordinator:
             self._projection_artifacts.put_vector_projection(
                 document_id=document_id,
                 document_version_id=document_version_id,
-                points=(*vectors.route_records, *vectors.evidence_records),
+                points=vectors.evidence_records,
                 context=context,
             ),
             self._projection_artifacts.put_graph_projection(
@@ -112,7 +112,6 @@ class DocumentProjectionCoordinator:
             self._graph_store.verify_projection(
                 request.graph.nodes,
                 request.graph.relations,
-                available_chunk_ids=tuple(str(chunk.chunk_id) for chunk in request.chunks),
                 context=context,
             ),
         )

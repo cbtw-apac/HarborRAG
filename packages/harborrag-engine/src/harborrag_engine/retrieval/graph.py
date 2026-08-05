@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from asyncio import gather
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -9,10 +10,12 @@ from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     GraphEdgeRecord,
     GraphNodeRecord,
+    GraphOwnershipScope,
     KnowledgeGraphTraversal,
 )
 from harborrag_core.ports import GraphRetrievalRepositoryPort
 from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
     GraphPath,
     GraphPathQuery,
     GraphSubgraphQuery,
@@ -22,6 +25,18 @@ from harborrag_core.retrieval import (
 from harborrag_core.storage import StorageOperationContext
 
 from .active_versions import ActiveVersionResolver
+
+# Stale and unpublished records are dropped *after* the store has answered, so asking for
+# exactly what the caller wants yields fewer than that whenever the neighborhood contains
+# superseded versions. Widening the request first keeps the shortfall a property of the
+# graph rather than of the filter. The ceiling matches the le=100 bound on every query
+# model, so a widened request can never exceed what the contract allows.
+_CANDIDATE_MULTIPLIER = 4
+_MAX_CANDIDATES = 100
+
+
+def _candidate_limit(requested: int) -> int:
+    return min(_MAX_CANDIDATES, max(requested, requested * _CANDIDATE_MULTIPLIER))
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +83,7 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativeTripletResult:
-        candidate_limit = min(100, max(query.limit, query.limit * 4))
+        candidate_limit = _candidate_limit(query.limit)
         candidates = await self._repository.search_triplets(
             query.model_copy(update={"limit": candidate_limit}),
             context=context,
@@ -112,7 +127,7 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativePathResult:
-        candidate_limit = min(100, max(query.max_paths, query.max_paths * 4))
+        candidate_limit = _candidate_limit(query.max_paths)
         candidates = await self._repository.find_paths(
             query.model_copy(update={"max_paths": candidate_limit}),
             context=context,
@@ -148,11 +163,74 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativeSubgraphResult:
-        candidates = await self._repository.expand_subgraph(query, context=context)
+        candidates = await self._repository.expand_subgraph(
+            query.model_copy(update={"max_nodes": _candidate_limit(query.max_nodes)}),
+            context=context,
+        )
+        return await self._accept_subgraph(candidates, max_nodes=query.max_nodes)
+
+    async def neighborhood(
+        self,
+        seeds: Sequence[str],
+        query: GraphNeighborhoodQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> AuthoritativeSubgraphResult:
+        """Merge the expansions of several seeds into one deduplicated neighborhood.
+
+        Seeds are resolved by the caller, because only the vector index turns free text
+        into node keys and this layer holds no vector repository.
+        """
+
+        if not seeds:
+            return AuthoritativeSubgraphResult(
+                graph=KnowledgeGraphTraversal(nodes=(), relations=()),
+                diagnostics=GraphSearchDiagnostics(
+                    candidate_count=0,
+                    accepted_count=0,
+                    stale_count=0,
+                    unpublished_count=0,
+                    projection_truncated=False,
+                ),
+            )
+        expansions = await gather(
+            *(
+                self._repository.expand_subgraph(
+                    query.to_subgraph_query(seed).model_copy(
+                        update={"max_nodes": _candidate_limit(query.max_nodes)}
+                    ),
+                    context=context,
+                )
+                for seed in seeds
+            )
+        )
+        merged_nodes: dict[str, GraphNodeRecord] = {}
+        merged_relations: dict[str, GraphEdgeRecord] = {}
+        for expansion in expansions:
+            for node in expansion.nodes:
+                merged_nodes.setdefault(node.node_key, node)
+            for relation in expansion.relations:
+                merged_relations.setdefault(relation.relation_id, relation)
+        return await self._accept_subgraph(
+            KnowledgeGraphTraversal(
+                nodes=tuple(merged_nodes.values()),
+                relations=tuple(merged_relations.values()),
+                truncated=any(expansion.truncated for expansion in expansions),
+            ),
+            max_nodes=query.max_nodes,
+        )
+
+    async def _accept_subgraph(
+        self,
+        candidates: KnowledgeGraphTraversal,
+        *,
+        max_nodes: int,
+    ) -> AuthoritativeSubgraphResult:
         visibility = await self._visibility(candidates.nodes)
-        accepted_nodes = tuple(
+        active_nodes = tuple(
             node for node in candidates.nodes if visibility.get(node.node_key) == "active"
         )
+        accepted_nodes = active_nodes[:max_nodes]
         accepted_keys = {node.node_key for node in accepted_nodes}
         nodes_by_key = {node.node_key: node for node in accepted_nodes}
         accepted_relations = tuple(
@@ -164,18 +242,23 @@ class AuthoritativeGraphSearch:
         )
         stale = sum(state == "stale" for state in visibility.values())
         unpublished = sum(state == "unpublished" for state in visibility.values())
+        # Truncation now means "the graph holds more than you were given", which is what a
+        # caller needs to decide whether to widen. Rejected nodes alone do not set it: the
+        # request was widened before filtering, so a short result that was not cut means
+        # the neighborhood really is that small, and stale_count reports the rejections.
+        truncated = candidates.truncated or len(active_nodes) > max_nodes
         return AuthoritativeSubgraphResult(
             graph=KnowledgeGraphTraversal(
                 nodes=accepted_nodes,
                 relations=accepted_relations,
-                truncated=candidates.truncated,
+                truncated=truncated,
             ),
             diagnostics=GraphSearchDiagnostics(
                 candidate_count=len(candidates.nodes),
                 accepted_count=len(accepted_nodes),
                 stale_count=stale,
                 unpublished_count=unpublished,
-                projection_truncated=candidates.truncated,
+                projection_truncated=truncated,
             ),
         )
 
@@ -184,7 +267,14 @@ class AuthoritativeGraphSearch:
         nodes: Sequence[GraphNodeRecord],
     ) -> dict[str, str]:
         unique = {node.node_key: node for node in nodes}
-        document_ids = tuple(dict.fromkeys(str(node.document_id) for node in unique.values()))
+        document_ids = tuple(
+            dict.fromkeys(
+                str(node.document_id)
+                for node in unique.values()
+                if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+                and node.document_id is not None
+            )
+        )
         active = await self._active_versions.active_versions(document_ids)
         return {node.node_key: self._node_state(node, active) for node in unique.values()}
 
@@ -193,6 +283,8 @@ class AuthoritativeGraphSearch:
         node: GraphNodeRecord,
         active: Mapping[str, ActiveDocumentVersion],
     ) -> str:
+        if node.ownership_scope != GraphOwnershipScope.DOCUMENT_VERSION:
+            return "active"
         version = active.get(str(node.document_id))
         if version is None:
             return "unpublished"
@@ -222,9 +314,15 @@ class AuthoritativeGraphSearch:
         relation: GraphEdgeRecord,
         nodes: Mapping[str, GraphNodeRecord],
     ) -> bool:
+        if relation.ownership_scope != GraphOwnershipScope.DOCUMENT_VERSION:
+            return True
         endpoints = (
             nodes.get(relation.source_node_key),
             nodes.get(relation.target_node_key),
         )
-        versions = {str(node.document_version_id) for node in endpoints if node is not None}
+        versions = {
+            str(node.document_version_id)
+            for node in endpoints
+            if node is not None and node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+        }
         return str(relation.document_version_id) in versions

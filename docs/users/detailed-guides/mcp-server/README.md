@@ -8,10 +8,24 @@
 | --- | --- | --- |
 | `vector_search` | Query, tenant, top-k | Default hybrid vector results |
 | `vector_search_advanced` | Query, tenant, lane, filters, graph observation, threshold | Controlled vector results and diagnostics |
+| `graph_neighborhood` | Tenant and a natural-language question | Merged active neighborhood plus the `chunk_id` seeds it grew from |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
 | `chat` | Message, tenant, prompt, logical model, and bounded generation controls | Provider-neutral assistant message and usage |
+| `agent` | Message, tenant, optional session, step budget, graph switch, and history | Multi-hop answer, aggregate usage, and safe tool trace |
+
+### Choosing a graph tool
+
+`graph_triplet_search`, `graph_path_search`, and `graph_subgraph_search` all need a node
+selector you already hold. Only three things resolve: a `node_key`, a `logical_id`, or an
+exact full `title` — titles are unset on chunk nodes and are never matched partially.
+The practical selector is a `chunk_id` from `vector_search`, because chunk IDs and
+`Chunk` node keys are the same value.
+
+Starting from a question rather than a node, use `graph_neighborhood`: it resolves its own
+seeds through the vector index and returns the merged expansion around them.
+
 
 ```python
 from harborrag_mcp_server.server import McpServer, list_tools
@@ -29,7 +43,19 @@ chat = await server.call_tool(
     {
         "message": "Explain HarborRAG in one paragraph.",
         "tenant_id": "default",
+        "session_id": "general-chat",
         "prompt": "concise",
+    },
+)
+
+agent = await server.call_tool(
+    "agent",
+    {
+        "message": "Connect the release policy to its owning service.",
+        "tenant_id": "default",
+        "session_id": "release-review",
+        "graph_search": True,
+        "max_steps": 4,
     },
 )
 ```

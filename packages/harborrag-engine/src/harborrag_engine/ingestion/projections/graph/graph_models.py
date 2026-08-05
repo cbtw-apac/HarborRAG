@@ -10,6 +10,7 @@ from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphNodeRecord,
+    GraphOwnershipScope,
     GraphProjectionManifest,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
@@ -59,7 +60,13 @@ class GraphProjectionInput:
         document_ids = {str(chunk.document_id) for chunk in self.chunks}
         version_ids = {str(chunk.document_version_id) for chunk in self.chunks}
         scopes = {chunk.source_scope_id for chunk in self.chunks}
-        if len(document_ids) != 1 or len(version_ids) != 1 or len(scopes) != 1:
+        tenants = {str(chunk.tenant_id) for chunk in self.chunks}
+        if (
+            len(document_ids) != 1
+            or len(version_ids) != 1
+            or len(scopes) != 1
+            or len(tenants) != 1
+        ):
             raise ValueError("graph projection chunks must belong to one document version")
 
 
@@ -92,19 +99,54 @@ class GraphProjectionBatch:
             for relation in self.relations
         ):
             raise ValueError("every graph relation endpoint must exist in the batch")
+        nodes_by_key = {node.node_key: node for node in self.nodes}
+        for relation in self.relations:
+            endpoints = (
+                nodes_by_key[relation.source_node_key],
+                nodes_by_key[relation.target_node_key],
+            )
+            if any(node.owner_id != relation.owner_id for node in endpoints):
+                raise ValueError("graph relation owner must match both endpoints")
+            if relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION:
+                version_endpoints = tuple(
+                    node
+                    for node in endpoints
+                    if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+                )
+                if not version_endpoints or any(
+                    node.document_id != relation.document_id
+                    or node.document_version_id != relation.document_version_id
+                    for node in version_endpoints
+                ):
+                    raise ValueError("version-owned relation must match its version endpoint")
+            elif any(
+                node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+                for node in endpoints
+            ):
+                raise ValueError("stable relationship may not own a version endpoint")
         object.__setattr__(self, "manifest", self._build_manifest())
 
     def _build_manifest(self) -> GraphProjectionManifest:
-        relation_versions = {relation.document_version_id for relation in self.relations}
+        relation_versions = {
+            relation.document_version_id
+            for relation in self.relations
+            if relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+            and relation.document_version_id is not None
+        }
         if len(relation_versions) > 1:
             raise ValueError("graph relations must belong to one projected document version")
         document_version_id = (
             next(iter(relation_versions)) if relation_versions else self._single_node_version()
         )
         current_nodes = tuple(
-            node for node in self.nodes if node.document_version_id == document_version_id
+            node
+            for node in self.nodes
+            if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+            and node.document_version_id == document_version_id
         )
-        document_ids = {node.document_id for node in current_nodes}
+        document_ids = {
+            node.document_id for node in current_nodes if node.document_id is not None
+        }
         if len(document_ids) != 1:
             raise ValueError("graph projection cannot identify its owning document")
         records = [
@@ -132,7 +174,12 @@ class GraphProjectionBatch:
         )
 
     def _single_node_version(self) -> DocumentVersionId:
-        versions = {node.document_version_id for node in self.nodes}
+        versions = {
+            node.document_version_id
+            for node in self.nodes
+            if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+            and node.document_version_id is not None
+        }
         if len(versions) != 1:
             raise ValueError("relation-free graph projection must belong to one document version")
         return next(iter(versions))

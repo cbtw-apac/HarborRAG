@@ -11,12 +11,13 @@ from uuid import uuid4
 from harborrag_core.contracts.errors import HarborCapabilityError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
-from harborrag_core.ingestion import (
-    ContentReference,
-    DocumentIdentityBuilder,
-)
 from harborrag_core.models.embed import EmbeddingPurpose, HarborEmbedRequest
-from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
+from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
+    GraphPathQuery,
+    GraphSubgraphQuery,
+    GraphTripletQuery,
+)
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import (
@@ -41,7 +42,7 @@ from .contracts import (
     RuntimeRetrievalReport,
 )
 from .graph_observation import GraphObservation, GraphObserver
-from .validation import required_mapping, required_text, validate_retrieval_request
+from .validation import required_text, validate_retrieval_request
 
 _CHUNK_LOAD_CONCURRENCY = 8
 
@@ -60,7 +61,6 @@ class RuntimeRetrievalService:
         telemetry: IngestionTelemetry | None = None,
     ) -> None:
         self._embed = resources.embed_client
-        self._chunks = resources.chunk_reader
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
         self._policy = policy
@@ -75,9 +75,8 @@ class RuntimeRetrievalService:
         )
         self._close_resources = close_resources
         self._telemetry = telemetry or IngestionTelemetry()
-        self._identities = DocumentIdentityBuilder()
         self._observer = (
-            GraphObserver(resources.graph_repository, self._identities)
+            GraphObserver(resources.graph_repository)
             if resources.graph_repository is not None
             else None
         )
@@ -98,7 +97,7 @@ class RuntimeRetrievalService:
         options: RetrievalOptions | None = None,
         access: AccessContext | None = None,
     ) -> RuntimeRetrievalReport:
-        """Search projections, reject stale versions, and range-load full chunks."""
+        """Search active evidence vectors and return their canonical payload content."""
 
         validate_retrieval_request(query, tenant_id, top_k)
         selected = options or RetrievalOptions()
@@ -173,6 +172,7 @@ class RuntimeRetrievalService:
                 graph_relations=observation.relations,
                 graph_truncated=observation.truncated,
                 duration_ms=duration_ms,
+                graph_documents=observation.documents,
             ),
         )
 
@@ -183,7 +183,7 @@ class RuntimeRetrievalService:
         context: StorageOperationContext,
         request_id: str,
     ) -> tuple[list[RetrievalResult], int]:
-        """Range-load chunks concurrently, skipping candidates that cannot be read."""
+        """Validate candidates concurrently, skipping malformed payloads."""
 
         load_limit = asyncio.Semaphore(_CHUNK_LOAD_CONCURRENCY)
 
@@ -242,6 +242,34 @@ class RuntimeRetrievalService:
         return await self._require_graph_search().subgraph(
             query,
             context=self._graph_context(access, "graph-subgraph-search"),
+        )
+
+    async def search_graph_neighborhood(
+        self,
+        query: GraphNeighborhoodQuery,
+        *,
+        access: AccessContext,
+    ) -> tuple[tuple[str, ...], AuthoritativeSubgraphResult]:
+        """Resolve seeds from free text, then expand and merge around them.
+
+        This is the only graph entry point that does not require the caller to already
+        hold a node identifier. Seeds are ``chunk_id`` values from the vector index,
+        which are the same strings as ``Chunk`` node keys.
+        """
+
+        graph_search = self._require_graph_search()
+        report = await self.retrieve(
+            query.query,
+            tenant_id=str(access.tenant_id),
+            top_k=query.seed_limit,
+            access=access,
+            options=RetrievalOptions(lane=RetrievalLane.HYBRID, observe_graph=False),
+        )
+        seeds = tuple(dict.fromkeys(result.id for result in report.results))
+        return seeds, await graph_search.neighborhood(
+            seeds,
+            query,
+            context=self._graph_context(access, "graph-neighborhood-search"),
         )
 
     def _require_graph_search(self) -> AuthoritativeGraphSearch:
@@ -305,14 +333,11 @@ class RuntimeRetrievalService:
         context: StorageOperationContext,
     ) -> RetrievalResult:
         payload = candidate.payload
-        reference = ContentReference.model_validate(required_mapping(payload, "content_reference"))
-        chunk = await self._chunks.get_reference(reference, context=context)
+        del context
         chunk_id = required_text(payload, "chunk_id")
-        if str(chunk.chunk_id) != chunk_id:
-            raise ValueError("Qdrant content reference resolved to another chunk")
         return RetrievalResult(
             id=chunk_id,
-            text=chunk.content,
+            text=required_text(payload, "content"),
             score=candidate.score,
             metadata={
                 "document_id": required_text(payload, "document_id"),

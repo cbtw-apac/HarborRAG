@@ -7,6 +7,14 @@ from .control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
+from .conversation import (
+    ConversationIdentity,
+    ConversationMemory,
+    ConversationRepository,
+    ConversationSessions,
+    ConversationTurn,
+    new_session_id,
+)
 from .indexing import KnowledgeGraphRepositoryPort, VectorIndexRepositoryPort
 from .model_clients import (
     AsyncHarborChatClientProtocol,
@@ -23,6 +31,11 @@ __all__ = [
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
+    "ConversationIdentity",
+    "ConversationMemory",
+    "ConversationRepository",
+    "ConversationSessions",
+    "ConversationTurn",
     "GraphRetrievalRepositoryPort",
     "HarborChatClientProtocol",
     "HarborEmbedClientProtocol",
@@ -35,4 +48,5 @@ __all__ = [
     "SettingsRepositoryPort",
     "SourceRepositoryPort",
     "VectorIndexRepositoryPort",
+    "new_session_id",
 ]

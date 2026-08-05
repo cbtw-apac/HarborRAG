@@ -78,8 +78,8 @@ def test_submission_builds_deterministic_secret_free_source_identity(
     assert first.connector_type == "jira"
     assert first.connection_id == "docs"
     assert first.source_scope_id.startswith("scope-")
-    assert first.processing.vector_projection_schema == "vector-reviewable-payload"
-    assert first.processing.graph_projection_version == "structural-graph-reviewable-links"
+    assert first.processing.vector_projection_schema == "vector-v2"
+    assert first.processing.graph_projection_version == "graph-v2"
     assert first.discovery_page_size == 50
     assert first.discovery_concurrency == 4
     assert "first-secret" not in first.configuration_fingerprint

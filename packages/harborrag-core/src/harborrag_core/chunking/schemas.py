@@ -67,22 +67,62 @@ class ContainerKind(StrEnum):
 
 
 class RelationType(StrEnum):
+    """Relation predicates, split by whether the graph projection emits them.
+
+    Members are never removed: a relation_type value already written into a graph must
+    stay decodable, and GraphEntityType is deliberately an open set, so closing this one
+    would be inconsistent.
+    """
+
+    # Projected. These are the only predicates the graph builder emits today, and the
+    # only edge types present in a graph written by the current schema version.
+    HAS_DATA_SOURCE = "has_data_source"
+    CONTAINS = "contains"
+    HAS_VERSION = "has_version"
+    SUPPORTS = "supports"
+    PARENT_OF = "parent_of"
+    LINKS_TO = "links_to"
+    HAS_ATTACHMENT = "has_attachment"
+    REPLY_TO = "reply_to"
+    BLOCKS = "blocks"
+    DUPLICATES = "duplicates"
+    RELATES_TO = "relates_to"
+    POINTS_TO = "points_to"
+    RESOLVED_AT = "resolved_at"
+
+    # Reserved: accepted on input but never projected. CHILD_OF and ATTACHED_TO are
+    # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
+    # their own direction; the rest describe structure that CONTAINS already carries.
     HAS_SECTION = "has_section"
     HAS_TABLE = "has_table"
     HAS_COMMENT = "has_comment"
     CHILD_OF = "child_of"
-    PARENT_OF = "parent_of"
-    LINKS_TO = "links_to"
     INCLUDES = "includes"
     EMBEDS = "embeds"
-    HAS_ATTACHMENT = "has_attachment"
     ATTACHED_TO = "attached_to"
-    REPLY_TO = "reply_to"
     COMMENT_ON = "comment_on"
-    BLOCKS = "blocks"
-    DUPLICATES = "duplicates"
-    RELATES_TO = "relates_to"
     MENTIONS = "mentions"
+
+
+# The predicates a caller can usefully filter on. Offering the full enum in a tool schema
+# advertises nine predicates the projection never emits, so a filter on one of them
+# returns an empty result that is indistinguishable from a genuine miss. Reserved members
+# stay decodable on read; they are simply not selectable.
+PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
+    RelationType.HAS_DATA_SOURCE,
+    RelationType.CONTAINS,
+    RelationType.HAS_VERSION,
+    RelationType.SUPPORTS,
+    RelationType.PARENT_OF,
+    RelationType.LINKS_TO,
+    RelationType.HAS_ATTACHMENT,
+    RelationType.REPLY_TO,
+    RelationType.BLOCKS,
+    RelationType.DUPLICATES,
+    RelationType.RELATES_TO,
+    RelationType.POINTS_TO,
+    RelationType.RESOLVED_AT,
+)
 
 
 class ChunkContainer(StrictModel):

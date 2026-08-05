@@ -41,9 +41,12 @@ def test_retrieval_search_uses_request_tenant_and_authenticated_principal(
     )
 
     assert response.status_code == 200
-    assert response.json()["lane"] == "dense"
-    assert response.json()["results"][0]["content"] == "retrieved text"
-    assert response.json()["results"][0]["metadata"] == {"category": "architecture"}
+    payload = response.json()
+    assert payload["lane"] == "dense"
+    assert len(payload["results"]) <= 3
+    assert payload["results"][0]["content"] == "retrieved text"
+    assert payload["results"][0]["metadata"] == {"category": "architecture"}
+    assert "task_id" not in payload
     call = service.retrieval_calls[0]
     assert call["tenant_id"] == "DEFAULT"
     assert call["principal_id"] == "dev"
@@ -70,6 +73,16 @@ def test_retrieval_accepts_an_explicit_tenant(client: TestClient, service: MockA
 
     assert response.status_code == 200
     assert service.retrieval_calls[-1]["tenant_id"] == "ACME"
+    assert service.retrieval_calls[-1]["filters"] == {}
+
+
+def test_retrieval_filters_are_optional_in_openapi(client: TestClient) -> None:
+    schema = client.get("/api/v1/openapi.json").json()["components"]["schemas"][
+        "VectorSearchRequest"
+    ]
+
+    assert "filters" not in schema["required"]
+    assert "filters" not in schema["examples"][0]
 
 
 def test_retrieval_can_omit_content_and_metadata(client: TestClient) -> None:
@@ -146,13 +159,13 @@ def test_graph_triplet_search_uses_tenant_and_principal(
         json={
             "tenant": "ACME",
             "subject": "document:1",
-            "predicate": "has_section",
+            "predicate": "contains",
             "limit": 5,
         },
     )
 
     assert response.status_code == 200
-    assert response.json()["triplets"][0]["predicate"]["relation_type"] == "has_section"
+    assert response.json()["triplets"][0]["predicate"]["relation_type"] == "contains"
     call = service.graph_retrieval_calls[-1]
     assert call["operation"] == "triplets"
     assert call["tenant_id"] == "ACME"
@@ -176,7 +189,7 @@ def test_graph_path_search_exposes_typed_paths(
         json={
             "start_node": "document:1",
             "end_node": "section:1",
-            "relationship_types": ["has_section"],
+            "relationship_types": ["contains"],
             "max_depth": 3,
             "direction": "outgoing",
         },
@@ -186,7 +199,7 @@ def test_graph_path_search_exposes_typed_paths(
     assert len(response.json()["paths"][0]["nodes"]) == 2
     query = service.graph_retrieval_calls[-1]["query"]
     assert query.max_depth == 3
-    assert query.relationship_types[0].value == "has_section"
+    assert query.relationship_types[0].value == "contains"
 
 
 def test_graph_subgraph_search_exposes_nodes_and_relations(

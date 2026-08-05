@@ -9,9 +9,11 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer
+from harborrag_mcp_server.tools.agent import AgentTool
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp_server.tools.chat import ChatTool
 from harborrag_mcp_server.tools.graph_search import (
+    GraphNeighborhoodTool,
     GraphPathSearchTool,
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
@@ -20,6 +22,7 @@ from harborrag_mcp_server.tools.vector_search import (
     AdvancedVectorSearchTool,
     VectorSearchTool,
 )
+from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
 
 if TYPE_CHECKING:
     from harborrag_mcp_server.configuration import McpConfigurationStore
@@ -53,6 +56,7 @@ class McpServer(BaseMcpServer):
     """In-process MCP transport enforcing policy and audit boundaries."""
 
     runtime: HarborRAG | None = None
+    memory: ConversationRepository = field(default_factory=InMemoryConversationMemory)
     tools: list[BaseMcpTool] | None = None
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
@@ -66,7 +70,9 @@ class McpServer(BaseMcpServer):
                 GraphTripletSearchTool(runtime=self.runtime),
                 GraphPathSearchTool(runtime=self.runtime),
                 GraphSubgraphSearchTool(runtime=self.runtime),
-                ChatTool(runtime=self.runtime),
+                GraphNeighborhoodTool(runtime=self.runtime),
+                ChatTool(runtime=self.runtime, memory=self.memory),
+                AgentTool(runtime=self.runtime, tool_provider=self, memory=self.memory),
             ]
 
     def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:

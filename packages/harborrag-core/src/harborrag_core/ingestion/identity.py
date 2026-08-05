@@ -117,14 +117,57 @@ class DocumentIdentityBuilder:
         self,
         *,
         node_kind: KnowledgeNodeKind,
+        entity_type: str | None = None,
         logical_id: str,
         document_version_id: str,
     ) -> str:
         return encoded_identifier(
-            "graph-node",
+            "graph-v2-node",
             {
                 "node_kind": node_kind.value,
+                "entity_type": entity_type,
                 "logical_id": logical_id,
+                "document_version_id": document_version_id,
+            },
+        )
+
+    def tenant_node_key(self, *, tenant_id: str) -> str:
+        return encoded_identifier("graph-v2-tenant", {"tenant_id": tenant_id})
+
+    def data_source_node_key(self, *, tenant_id: str, source_scope_id: str) -> str:
+        return encoded_identifier(
+            "graph-v2-data-source",
+            {"tenant_id": tenant_id, "source_scope_id": source_scope_id},
+        )
+
+    def source_entity_node_key(
+        self,
+        *,
+        tenant_id: str,
+        source_scope_id: str,
+        entity_type: str,
+        provider_id: str,
+    ) -> str:
+        return encoded_identifier(
+            "graph-v2-source-entity",
+            {
+                "tenant_id": tenant_id,
+                "source_scope_id": source_scope_id,
+                "entity_type": entity_type,
+                "provider_id": provider_id,
+            },
+        )
+
+    def document_version_node_key(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+    ) -> str:
+        return encoded_identifier(
+            "graph-v2-document-version",
+            {
+                "document_id": document_id,
                 "document_version_id": document_version_id,
             },
         )

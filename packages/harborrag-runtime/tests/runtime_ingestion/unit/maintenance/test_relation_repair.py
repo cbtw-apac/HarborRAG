@@ -9,7 +9,11 @@ from pathlib import Path
 import pytest
 
 from harborrag_core.chunking import RelationType
-from harborrag_core.ingestion import DocumentIdentityBuilder, KnowledgeNodeKind
+from harborrag_core.ingestion import (
+    DocumentIdentityBuilder,
+    GraphEntityType,
+    KnowledgeNodeKind,
+)
 from harborrag_core.storage import StorageOperationContext
 from harborrag_runtime.ingestion import (
     DocumentReindexService,
@@ -103,7 +107,7 @@ async def test_source_batch_repairs_links_after_all_roots_publish(
         repaired_nodes, repaired_relations = resources.graph.write_batches[-1]
         assert repaired_relations
         assert all(relation.source_explicit for relation in repaired_relations)
-        assert all(node.node_kind == KnowledgeNodeKind.DOCUMENT for node in repaired_nodes)
+        assert all(node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY for node in repaired_nodes)
 
 
 @pytest.mark.asyncio
@@ -229,7 +233,8 @@ async def test_sequential_reindex_repairs_links_after_target_cleanup(
                 document_ids=(document_id,),
             )
 
-        assert not _links(resources)
+        # Schema-v2 source links are source-scope owned and survive version cleanup.
+        assert len(_links(resources)) == 1
 
         result = await repair.repair_reindexed(
             tenant_id="default",
@@ -237,15 +242,15 @@ async def test_sequential_reindex_repairs_links_after_target_cleanup(
             anchor_document_id=str(source_b.document_id),
         )
 
-        active = await control.document_versions.active_versions(document_ids)
         identities = DocumentIdentityBuilder()
         expected_endpoints = {
-            identities.node_key(
-                node_kind=KnowledgeNodeKind.DOCUMENT,
-                logical_id=document_id,
-                document_version_id=version.document_version_id,
+            identities.source_entity_node_key(
+                tenant_id="default",
+                source_scope_id="docs",
+                entity_type=GraphEntityType.LOCAL_FILE.value,
+                provider_id=source_item_id,
             )
-            for document_id, version in active.items()
+            for source_item_id in ("docs/a.txt", "docs/b.txt")
         }
         links = _links(resources)
         assert result.resolved_relations == 1

@@ -2,9 +2,8 @@
 
 HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow downward; SDK integrations and operator surfaces stay at the edges.
 
-Accepted choices and their consequences are recorded in the
-[architecture decision records](../../adr/README.md).
-Operational guidance for the clean vector/graph boundary is in the
+The store-by-store ownership contract — what belongs in PostgreSQL, the object store,
+Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary are in the
 [projection rebuild runbook](projection-rebuild.md).
 
 ## Active package map
@@ -82,7 +81,7 @@ storage schemas and RetrievalResult
 - `chunking/` — canonical immutable chunk, hierarchy, security, relation, source-attribute, and table
   schemas. Deterministic identity policy and chunk planning remain engine responsibilities.
 - `models/` — chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
-  Client-boundary protocols now live in `ports/` (ADR-0009), not here.
+  Client-boundary protocols now live in `ports/`, not here.
 - `indexing/` and `storage/` — public bounded-context facades for vector/graph projection records,
   capabilities, storage access context, and health. Legacy implementation modules under `schemas/`
   are internal organization, not cross-package import paths.
@@ -90,7 +89,7 @@ storage schemas and RetrievalResult
 - `contracts/` — the shared `HarborError` hierarchy, `HarborEvent`, and chunking-strategy protocols
   (`TextRefiner`, `StructureSplitter`, `JsonStructureSplitter`, `TokenCounter`).
 - `ports/` — every boundary-facing `Protocol` in core: repository/infra ports (control plane, event bus,
-  job queue, secrets, runtime lifecycle, vector/graph indexing) and, since ADR-0009, model-client protocols
+  job queue, secrets, runtime lifecycle, vector/graph indexing) and model-client protocols
   (`HarborChatClientProtocol` and its embed/rerank/async counterparts).
 
 Most storage schemas derive from strict Pydantic bases; several older/simple domain values are dataclasses. Add a shared concept to core only when more than one higher package needs a provider-neutral form.

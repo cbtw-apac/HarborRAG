@@ -198,13 +198,12 @@ class DocumentStagePipeline:
     def _log_outcome(outcome: DocumentReleaseOutcome) -> None:
         logger.info(
             "Document pipeline completed document_id=%s document_version_id=%s "
-            "decision=%s published=%s route_chunks=%d evidence_chunks=%d "
+            "decision=%s published=%s evidence_chunks=%d "
             "graph_nodes=%d graph_relations=%d",
             outcome.document_id,
             outcome.document_version_id,
             outcome.decision.value,
             outcome.published,
-            outcome.route_chunks,
             outcome.evidence_chunks,
             outcome.graph_nodes,
             outcome.graph_relations,

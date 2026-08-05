@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 import pytest
 from workflow_control_fixtures import FakeComposition
 
+from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.client import AppService, AppServiceFactories
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import (
@@ -31,6 +32,7 @@ class _ChatFacade:
         self.failure = failure
         self.stream_failure = stream_failure
         self.request: HarborChatRequest | None = None
+        self.requests: list[HarborChatRequest] = []
 
     async def complete(
         self,
@@ -42,6 +44,7 @@ class _ChatFacade:
         if self.failure is not None:
             raise self.failure
         self.request = request
+        self.requests.append(request)
         return HarborChatResponse(
             id="chat-1",
             logical_model="primary",
@@ -66,6 +69,7 @@ class _ChatFacade:
     ) -> AsyncIterator[HarborChatStreamChunk]:
         del prompt
         self.request = request
+        self.requests.append(request)
         return self._events()
 
     async def _events(self) -> AsyncIterator[HarborChatStreamChunk]:
@@ -79,6 +83,15 @@ class _ChatFacade:
         )
         if self.stream_failure is not None:
             raise self.stream_failure
+        yield HarborChatStreamChunk(
+            event=StreamEventType.COMPLETED,
+            logical_model="primary",
+            provider="mock",
+            provider_model="mock-chat",
+            deployment="internal-deployment",
+            finish_reason="stop",
+            usage=HarborChatUsage(prompt_tokens=2, completion_tokens=1, total_tokens=3),
+        )
 
 
 class _RetrievalFacade:
@@ -105,6 +118,19 @@ class _Runtime:
         return None
 
 
+async def _options(
+    service: AppService,
+    *,
+    tenant_id: str = "ACME",
+    principal_id: str = "reader-1",
+) -> ChatExecutionOptions:
+    created = await service.create_chat_session(
+        tenant_id=tenant_id,
+        principal_id=principal_id,
+    )
+    return ChatExecutionOptions(session_id=str(created.data["session_id"]))
+
+
 @pytest.mark.asyncio
 async def test_chat_completion_attaches_access_metadata_and_projects_response() -> None:
     chat = _ChatFacade()
@@ -123,17 +149,19 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),
     )
+    options = await _options(service)
 
     response = await service.chat_completion(
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
+        options=options,
     )
 
     assert response.ok is True
     assert chat.request is not None
     assert chat.request.metadata.tenant_id == "ACME"
-    assert chat.request.metadata.user_id == "reader-1"
+    assert chat.request.metadata.user_id is None
     assert chat.request.metadata.retrieval_query == "Hello"
     assert chat.request.metadata.chunk_ids == ("chunk-1",)
     assert len(chat.request.messages) == 1
@@ -159,11 +187,13 @@ async def test_chat_completion_hides_provider_failure_details() -> None:
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),
     )
+    options = await _options(service, tenant_id="DEFAULT")
 
     response = await service.chat_completion(
         "Hello",
         tenant_id="DEFAULT",
         principal_id="reader-1",
+        options=options,
     )
 
     assert response.ok is False
@@ -181,50 +211,44 @@ async def test_chat_completion_defaults_to_vector_only_retrieval() -> None:
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),
     )
+    options = await _options(service)
 
-    await service.chat_completion("Hello", tenant_id="ACME", principal_id="reader-1")
+    await service.chat_completion(
+        "Hello",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=options,
+    )
 
     assert retrieval.request is not None
     assert retrieval.request.observe_graph is False
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_emits_citations_then_chunks() -> None:
-    results = (
-        RetrievalResult(
-            id="chunk-1",
-            text="HarborRAG is a retrieval-augmented generation platform.",
-            score=0.9,
-            metadata={"document_id": "doc-1"},
-        ),
-    )
-    chat = _ChatFacade()
-    runtime = _Runtime(chat, _RetrievalFacade(results))
+async def test_chat_completion_allows_per_request_graph_search_override() -> None:
+    retrieval = _RetrievalFacade()
+    runtime = _Runtime(_ChatFacade(), retrieval)
     service = AppService(
         FakeComposition({"runtime": {"ready": True}}),
         factories=AppServiceFactories(
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),
     )
+    options = await _options(service)
 
-    events = [
-        event
-        async for event in service.chat_stream("Hello", tenant_id="ACME", principal_id="reader-1")
-    ]
-
-    assert [event["kind"] for event in events] == ["citations", "chunk"]
-    assert events[0]["citations"] == (
-        {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},
+    await service.chat_completion(
+        "Hello",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=ChatExecutionOptions(session_id=options.session_id, graph_search=True),
     )
-    assert events[1]["chunk"]["event"] == "text_delta"
-    assert events[1]["chunk"]["content"] == "Hello"
-    assert chat.request is not None
-    assert chat.request.messages[0].content.endswith("Question: Hello")
+
+    assert retrieval.request.observe_graph is True
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_ends_with_error_event_when_provider_stream_fails() -> None:
-    chat = _ChatFacade(stream_failure=RuntimeError("secret provider response"))
+async def test_chat_completion_recalls_only_two_latest_session_turns() -> None:
+    chat = _ChatFacade()
     runtime = _Runtime(chat)
     service = AppService(
         FakeComposition({"runtime": {"ready": True}}),
@@ -232,35 +256,40 @@ async def test_chat_stream_ends_with_error_event_when_provider_stream_fails() ->
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),
     )
+    options = await _options(service)
 
-    events = [
-        event
-        async for event in service.chat_stream("Hello", tenant_id="ACME", principal_id="reader-1")
-    ]
-
-    assert [event["kind"] for event in events] == ["citations", "chunk", "error"]
-    assert events[-1]["error"] == "RuntimeError"
-    assert "secret provider response" not in str(events)
-
-
-@pytest.mark.asyncio
-async def test_chat_stream_ends_with_error_event_when_retrieval_fails() -> None:
-    class _FailingRetrieval:
-        async def search(self, request: object) -> RetrievalResponse:
-            del request
-            raise RuntimeError("secret provider response")
-
-    runtime = _Runtime(_ChatFacade(), _FailingRetrieval())  # type: ignore[arg-type]
-    service = AppService(
-        FakeComposition({"runtime": {"ready": True}}),
-        factories=AppServiceFactories(
-            retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
-        ),
+    await service.chat_completion(
+        "First question",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=options,
+    )
+    await service.chat_completion(
+        "Second question",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=options,
+    )
+    await service.chat_completion(
+        "Third question",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=options,
+    )
+    await service.chat_completion(
+        "Fourth question",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=options,
     )
 
-    events = [
-        event
-        async for event in service.chat_stream("Hello", tenant_id="ACME", principal_id="reader-1")
+    fourth = chat.requests[3]
+    assert [message.content for message in fourth.messages] == [
+        "Second question",
+        "Hello",
+        "Third question",
+        "Hello",
+        "Fourth question",
     ]
-
-    assert events == [{"kind": "error", "error": "RuntimeError"}]
+    assert fourth.metadata.user_id is None
+    assert fourth.metadata.conversation_id == options.session_id

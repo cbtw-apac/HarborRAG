@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -16,17 +14,13 @@ from harborrag_core.indexing import (
 )
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.ingestion.projections.vector import (
-    EVIDENCE_INDEX,
-    ROUTE_INDEX,
-)
+from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
 
 from .active_versions import ActiveVersionCandidateValidator
 
 _INITIAL_OVERSAMPLE = 3
 _MINIMUM_WINDOW = 20
 _MAXIMUM_WINDOW = 1_000
-_RRF_K = 60
 
 
 class RetrievalLane(StrEnum):
@@ -102,7 +96,11 @@ class AuthoritativeSearchResult:
 
 
 class AuthoritativeProjectionSearch:
-    """Over-fetch Qdrant candidates and validate visibility in Postgres."""
+    """Over-fetch vector candidates and keep only Postgres-active document versions.
+
+    This validates version activeness, not access. There is no intra-tenant permission
+    model: isolation is physical, one vector collection per tenant.
+    """
 
     def __init__(
         self,
@@ -123,24 +121,16 @@ class AuthoritativeProjectionSearch:
             max(_MINIMUM_WINDOW, request.top_k * _INITIAL_OVERSAMPLE),
         )
         while True:
-            primary = await asyncio.gather(
-                self._search_collection(
-                    ROUTE_INDEX,
-                    request,
-                    top_k=window,
-                    context=context,
-                ),
-                self._search_collection(
-                    EVIDENCE_INDEX,
-                    request,
-                    top_k=window,
-                    context=context,
-                ),
+            evidence = await self._search_collection(
+                EVIDENCE_INDEX,
+                request,
+                top_k=window,
+                context=context,
             )
-            candidates = self._fuse(primary, (0.8, 1.0))
+            candidates = tuple(evidence)
             validated = await self._validator.validate(candidates)
             accepted = validated.accepted[: request.top_k]
-            exhausted = all(len(ranking) < window for ranking in primary)
+            exhausted = len(evidence) < window
             if len(accepted) >= request.top_k or exhausted or window == _MAXIMUM_WINDOW:
                 return AuthoritativeSearchResult(
                     candidates=accepted,
@@ -219,30 +209,4 @@ class AuthoritativeProjectionSearch:
                 filters=filters,
             ),
             context=context,
-        )
-
-    @staticmethod
-    def _fuse(
-        rankings: Sequence[Sequence[VectorSearchResult]],
-        weights: Sequence[float],
-    ) -> tuple[VectorSearchResult, ...]:
-        scores: dict[str, float] = {}
-        candidates: dict[str, VectorSearchResult] = {}
-        for ranking, weight in zip(rankings, weights, strict=True):
-            for rank, candidate in enumerate(ranking, start=1):
-                scores[candidate.id] = scores.get(candidate.id, 0.0) + weight / (_RRF_K + rank)
-                candidates.setdefault(candidate.id, candidate)
-        scale = (_RRF_K + 1) / max(sum(weights), 1.0)
-        return tuple(
-            VectorSearchResult(
-                id=candidate_id,
-                score=min(1.0, fused_score * scale),
-                raw_score=fused_score,
-                payload=candidates[candidate_id].payload,
-                vector=candidates[candidate_id].vector,
-            )
-            for candidate_id, fused_score in sorted(
-                scores.items(),
-                key=lambda item: (-item[1], item[0]),
-            )
         )

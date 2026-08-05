@@ -164,6 +164,7 @@ class FakeFalkorDBClient:
         self.read_calls: list[tuple[str, dict[str, Any]]] = []
         self.read_results: list[FakeQueryResult] = []
         self.constraint_calls: list[tuple[str, tuple[str, ...]]] = []
+        self.dropped_constraint_calls: list[tuple[str, tuple[str, ...]]] = []
         self.ping_error: Exception | None = None
 
     async def connect(self) -> None:
@@ -190,6 +191,14 @@ class FakeFalkorDBClient:
         properties: tuple[str, ...],
     ) -> None:
         self.constraint_calls.append((label, properties))
+
+    async def drop_unique_node_constraint(
+        self,
+        *,
+        label: str,
+        properties: tuple[str, ...],
+    ) -> None:
+        self.dropped_constraint_calls.append((label, properties))
 
 
 def raw_node(entity_id: str, tenant_id: str, labels: list[str], **extra: Any) -> dict[str, Any]:

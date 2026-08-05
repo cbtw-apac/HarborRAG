@@ -18,7 +18,10 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
     SparseEncoderProfile,
 )
+from harborrag_core.retrieval import GraphNeighborhoodQuery
+from harborrag_core.schemas.ids import TenantId
 from harborrag_core.schemas.vector import VectorSearchResult
+from harborrag_core.security import AccessContext
 from harborrag_engine.ingestion import BM25SparseEncoder
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.retrieval import (
@@ -77,12 +80,7 @@ class FakeVectorRepository:
                     "record_kind": "evidence",
                     "chunk_kind": "text",
                     "connector_type": "local",
-                    "content_reference": {
-                        "bucket": "harborrag-artifacts",
-                        "object_key": "chunks/document-1/version-1.jsonl",
-                        "byte_offset": 0,
-                        "byte_length": 50,
-                    },
+                    "content": "The activity timeout is 30 seconds.",
                 },
             )
         ]
@@ -157,7 +155,9 @@ class MixedVectorRepository(FakeVectorRepository):
         malformed = results[0].model_copy(
             update={
                 "id": "point-2",
-                "payload": {**results[0].payload, "chunk_id": "wrong-chunk"},
+                "payload": {
+                    key: value for key, value in results[0].payload.items() if key != "content"
+                },
             }
         )
         return [*results, malformed]
@@ -188,7 +188,7 @@ def _policy() -> RetrievalPolicy:
 
 
 @pytest.mark.asyncio
-async def test_hybrid_retrieval_validates_and_range_loads_canonical_chunk() -> None:
+async def test_hybrid_retrieval_returns_vector_payload_content() -> None:
     embed = FakeEmbedClient()
     vectors = FakeVectorRepository()
     chunks = FakeChunkReader()
@@ -217,10 +217,10 @@ async def test_hybrid_retrieval_validates_and_range_loads_canonical_chunk() -> N
     assert report.diagnostics.stale_candidates == 0
     assert embed.requests[0].sensitive is True
     assert embed.requests[0].cacheable is False
-    assert len(vectors.hybrid_queries) == 2
-    assert chunks.references[0][0].byte_offset == 0
-    assert chunks.references[0][0].byte_length == 50
+    assert len(vectors.hybrid_queries) == 1
+    assert chunks.references == []
     assert len(graph.queries) == 1
+    assert graph.queries[0][0] == "chunk-1"
 
 
 @pytest.mark.asyncio
@@ -246,7 +246,7 @@ async def test_sparse_retrieval_does_not_call_dense_encoder() -> None:
     assert not embed.requests
     assert not vectors.dense_queries
     assert not vectors.hybrid_queries
-    assert len(vectors.sparse_queries) == 2
+    assert len(vectors.sparse_queries) == 1
     assert all(query.filters is None for query, _ in vectors.sparse_queries)
 
 
@@ -347,3 +347,59 @@ async def test_retrieval_rejects_invalid_public_inputs(query, tenant_id, top_k) 
 
     with pytest.raises(ValueError):
         await service.retrieve(query, tenant_id=tenant_id, top_k=top_k)
+
+
+class SeedRecordingGraphRepository(FakeGraphRepository):
+    """Records the seeds a neighborhood expansion was asked to grow from."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.expanded: list[str] = []
+
+    async def expand_subgraph(self, query, *, context):
+        del context
+        self.expanded.append(query.start_node)
+        return KnowledgeGraphTraversal(nodes=(), relations=())
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_seeds_the_graph_with_vector_chunk_ids() -> None:
+    """The chunk_id a vector hit carries is the Chunk node key the graph expands from.
+
+    This is the only bridge into the graph -- every other selector is an opaque hash, an
+    internal id, or a title that is null on chunk nodes -- so the identity of these two
+    strings is the assumption the whole graph entry path rests on.
+    """
+
+    graph = SeedRecordingGraphRepository()
+    service = RuntimeRetrievalService(
+        resources=_resources(graph=graph),
+        policy=_policy(),
+    )
+
+    seeds, result = await service.search_graph_neighborhood(
+        GraphNeighborhoodQuery(query="how long is the activity timeout?"),
+        access=AccessContext(principal_id="reader-1", tenant_id=TenantId("tenant-1")),
+    )
+
+    assert seeds == ("chunk-1",)
+    assert graph.expanded == ["chunk-1"]
+    assert result.graph.nodes == ()
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_does_not_pay_for_graph_observation_while_seeding() -> None:
+    """The seeding search must not also trigger the observer -- that would double the work."""
+
+    graph = SeedRecordingGraphRepository()
+    service = RuntimeRetrievalService(
+        resources=_resources(graph=graph),
+        policy=_policy(),
+    )
+
+    await service.search_graph_neighborhood(
+        GraphNeighborhoodQuery(query="anything"),
+        access=AccessContext(principal_id="reader-1", tenant_id=TenantId("tenant-1")),
+    )
+
+    assert graph.queries == []

@@ -14,7 +14,7 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
     read_rows,
 )
 from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
-from harborrag_core.ingestion import KnowledgeGraphTraversal
+from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION, KnowledgeGraphTraversal
 from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphPathResult,
@@ -75,13 +75,19 @@ async def traverse(
                    {right}(related:KnowledgeNode)
         WHERE start.tenant_id = $tenant_id
           AND start.node_key = $start_node_key
-          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id)
+          AND start.graph_schema_version = $graph_schema_version
+          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
+                  AND node.graph_schema_version = $graph_schema_version)
+          AND all(relation IN relationships(path)
+                  WHERE relation.tenant_id = $tenant_id
+                    AND relation.graph_schema_version = $graph_schema_version)
         RETURN nodes(path) AS path_nodes,
                relationships(path) AS path_relations
         LIMIT $path_limit
         """,
         {
             "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "start_node_key": start_node_key,
             "path_limit": path_limit + 1,
         },
@@ -104,6 +110,9 @@ async def search_triplets(
         WHERE subject.tenant_id = $tenant_id
           AND object.tenant_id = $tenant_id
           AND predicate.tenant_id = $tenant_id
+          AND subject.graph_schema_version = $graph_schema_version
+          AND object.graph_schema_version = $graph_schema_version
+          AND predicate.graph_schema_version = $graph_schema_version
           AND ($subject IS NULL
                OR subject.node_key = $subject
                OR subject.logical_id = $subject
@@ -119,6 +128,7 @@ async def search_triplets(
         """,
         {
             "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "subject": query.subject,
             "predicate": query.predicate.value if query.predicate is not None else None,
             "object": query.object,
@@ -147,15 +157,19 @@ async def find_paths(
                    {right}(end:KnowledgeNode)
         WHERE start.tenant_id = $tenant_id
           AND end.tenant_id = $tenant_id
+          AND start.graph_schema_version = $graph_schema_version
+          AND end.graph_schema_version = $graph_schema_version
           AND (start.node_key = $start_node
                OR start.logical_id = $start_node
                OR toLower(start.title) = toLower($start_node))
           AND (end.node_key = $end_node
                OR end.logical_id = $end_node
                OR toLower(end.title) = toLower($end_node))
-          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id)
+          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
+                  AND node.graph_schema_version = $graph_schema_version)
           AND all(relation IN relationships(path)
                   WHERE relation.tenant_id = $tenant_id
+                    AND relation.graph_schema_version = $graph_schema_version
                     AND (size($relationship_types) = 0
                          OR relation.relation_type IN $relationship_types))
         RETURN nodes(path) AS path_nodes,
@@ -165,6 +179,7 @@ async def find_paths(
         """,
         {
             "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "start_node": query.start_node,
             "end_node": query.end_node,
             "relationship_types": [item.value for item in query.relationship_types],
@@ -193,12 +208,15 @@ async def expand_subgraph(
         MATCH path=(start:KnowledgeNode){left}[*1..{query.max_depth}]
                    {right}(related:KnowledgeNode)
         WHERE start.tenant_id = $tenant_id
+          AND start.graph_schema_version = $graph_schema_version
           AND (start.node_key = $start_node
                OR start.logical_id = $start_node
                OR toLower(start.title) = toLower($start_node))
-          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id)
+          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
+                  AND node.graph_schema_version = $graph_schema_version)
           AND all(relation IN relationships(path)
                   WHERE relation.tenant_id = $tenant_id
+                    AND relation.graph_schema_version = $graph_schema_version
                     AND (size($relationship_types) = 0
                          OR relation.relation_type IN $relationship_types))
         RETURN nodes(path) AS path_nodes,
@@ -207,6 +225,7 @@ async def expand_subgraph(
         """,
         {
             "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "start_node": query.start_node,
             "relationship_types": [item.value for item in query.relationship_types],
             "path_limit": path_limit + 1,

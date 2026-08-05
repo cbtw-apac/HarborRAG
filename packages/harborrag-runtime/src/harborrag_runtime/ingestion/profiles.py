@@ -8,8 +8,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 from .document.normalization import CANONICAL_NORMALIZER_VERSION
 
-GRAPH_PROJECTION_VERSION = "structural-graph-reviewable-links"
-VECTOR_PROJECTION_SCHEMA = "vector-reviewable-payload"
+GRAPH_PROJECTION_VERSION = "graph-v2"
+VECTOR_PROJECTION_SCHEMA = "vector-v2"
 
 
 def build_processing_profile(settings: RuntimeSettings) -> ProcessingProfile:

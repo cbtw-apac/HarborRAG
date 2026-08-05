@@ -62,6 +62,8 @@ EXPECTED_TABLES = {
     "workspace_settings",
     "members",
     "mcp_query_log",
+    "conversation_memory",
+    "conversation_sessions",
     "source_scopes",
     "source_scans",
     "source_items",

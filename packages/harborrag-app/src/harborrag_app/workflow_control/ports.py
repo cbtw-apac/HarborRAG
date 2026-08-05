@@ -3,10 +3,16 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping
 
-from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
-from harborrag_runtime.chat import ChatPrompt
+from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
+    GraphPathQuery,
+    GraphSubgraphQuery,
+    GraphTripletQuery,
+)
 from harborrag_runtime.sdk import RetrievalLane
 
+from .agent import AgentExecutionOptions
+from .chat.options import ChatExecutionOptions
 from .schemas import AppResponse
 
 
@@ -32,13 +38,38 @@ class BaseAppService(ABC):
         del limit
         return 0
 
+    async def create_chat_session(
+        self,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def chat_session_exists(
+        self,
+        session_id: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> bool:
+        raise NotImplementedError
+
+    async def create_agent_session(
+        self,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
     async def chat_completion(
         self,
         query: str,
         *,
         tenant_id: str,
         principal_id: str,
-        system: ChatPrompt | None = None,
+        options: ChatExecutionOptions,
     ) -> AppResponse:
         """Generate one retrieval-grounded chat completion."""
 
@@ -50,9 +81,21 @@ class BaseAppService(ABC):
         *,
         tenant_id: str,
         principal_id: str,
-        system: ChatPrompt | None = None,
+        options: ChatExecutionOptions,
     ) -> AsyncIterator[dict[str, object]]:
         """Stream one retrieval-grounded chat completion as ``{"kind": ...}`` events."""
+
+        raise NotImplementedError
+
+    async def agent_completion(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: AgentExecutionOptions,
+    ) -> AppResponse:
+        """Run one bounded multi-turn agent completion."""
 
         raise NotImplementedError
 
@@ -119,6 +162,15 @@ class BaseAppService(ABC):
     async def retrieve_graph_subgraph(
         self,
         query: GraphSubgraphQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def retrieve_graph_neighborhood(
+        self,
+        query: GraphNeighborhoodQuery,
         *,
         tenant_id: str,
         principal_id: str,

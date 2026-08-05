@@ -6,21 +6,15 @@ from dataclasses import dataclass
 from harborrag_adapters.repositories.graph.falkordb import (
     FalkorKnowledgeGraphRepository,
 )
-from harborrag_adapters.repositories.object_store import (
-    ChunkArtifactReader,
-    ImmutableArtifactReader,
-)
 from harborrag_adapters.repositories.object_store.s3 import S3ObjectStore
 from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.ingestion import (
-    ContentReference,
     DocumentIdentityBuilder,
-    KnowledgeNodeKind,
     reject_runtime_fields,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorIndexRecord
-from harborrag_engine.ingestion import EVIDENCE_INDEX, ROUTE_INDEX
+from harborrag_engine.ingestion import EVIDENCE_INDEX
 
 _REQUIRED_VECTOR_PAYLOAD_FIELDS = frozenset(
     {
@@ -34,9 +28,7 @@ _REQUIRED_VECTOR_PAYLOAD_FIELDS = frozenset(
         "document_kind",
         "source_scope_id",
         "source_item_id",
-        "content_reference",
         "content",
-        "preview",
         "section_path",
         "token_count",
         "content_hash",
@@ -66,12 +58,9 @@ class ChunkObservation:
     chunk_kind: str
     dense_dimensions: int
     sparse_terms: int
-    preview: str
     content: str
     payload_fields: tuple[str, ...]
     citation_fields: tuple[str, ...]
-    content_byte_offset: int
-    content_byte_length: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,11 +96,7 @@ async def inspect_projections(
         versions=versions,
         context=context,
     )
-    chunks = await _chunk_observations(
-        points,
-        reader=ChunkArtifactReader(ImmutableArtifactReader(stores.objects)),
-        context=context,
-    )
+    chunks = _chunk_observations(points)
     graphs = await _graph_observations(
         stores.graph,
         documents=documents,
@@ -128,7 +113,7 @@ async def _projection_points(
     context: StorageOperationContext,
 ) -> tuple[tuple[str, VectorIndexRecord], ...]:
     found: list[tuple[str, VectorIndexRecord]] = []
-    for collection in (ROUTE_INDEX, EVIDENCE_INDEX):
+    for collection in (EVIDENCE_INDEX,):
         cursor = None
         while True:
             page = await repository.scan_records(
@@ -150,40 +135,27 @@ async def _projection_points(
     return tuple(found)
 
 
-async def _chunk_observations(
+def _chunk_observations(
     points: tuple[tuple[str, VectorIndexRecord], ...],
-    *,
-    reader: ChunkArtifactReader,
-    context: StorageOperationContext,
 ) -> tuple[ChunkObservation, ...]:
     observations: list[ChunkObservation] = []
     for collection, point in points:
-        reference = validate_vector_payload(collection, point)
+        validate_vector_payload(collection, point)
         sparse = point.sparse_vector
         assert sparse is not None
-        assert reference.byte_offset is not None
-        assert reference.byte_length is not None
-        chunk = await reader.get_reference(reference, context=context)
-        if str(chunk.chunk_id) != point.payload.get("chunk_id"):
-            raise AssertionError("Qdrant byte range resolved to a different chunk")
-        if point.payload.get("content") != chunk.content:
-            raise AssertionError("Qdrant review content differs from the canonical chunk")
         citation = point.payload["citation_locator"]
         assert isinstance(citation, dict)
         observations.append(
             ChunkObservation(
                 collection=collection,
-                chunk_id=str(chunk.chunk_id),
-                document_id=str(chunk.document_id),
-                chunk_kind=chunk.chunk_kind.value,
+                chunk_id=str(point.payload["chunk_id"]),
+                document_id=str(point.payload["document_id"]),
+                chunk_kind=str(point.payload["chunk_kind"]),
                 dense_dimensions=len(point.vector),
                 sparse_terms=len(sparse.indices),
-                preview=str(point.payload.get("preview") or "")[:160],
-                content=chunk.content,
+                content=str(point.payload["content"]),
                 payload_fields=tuple(sorted(point.payload)),
                 citation_fields=tuple(sorted(citation)),
-                content_byte_offset=reference.byte_offset,
-                content_byte_length=reference.byte_length,
             )
         )
     return tuple(sorted(observations, key=lambda item: (item.collection, item.chunk_id)))
@@ -198,9 +170,8 @@ async def _graph_observations(
     identities = DocumentIdentityBuilder()
     observations = []
     for document_id, document_version_id in documents:
-        node_key = identities.node_key(
-            node_kind=KnowledgeNodeKind.DOCUMENT,
-            logical_id=document_id,
+        node_key = identities.document_version_node_key(
+            document_id=document_id,
             document_version_id=document_version_id,
         )
         traversal, outgoing, incoming = await asyncio.gather(
@@ -235,9 +206,12 @@ async def _graph_observations(
                 outgoing_relations=len(outgoing.relations),
                 incoming_relations=len(incoming.relations),
                 reviewable_nodes=sum(
-                    bool(node.title or node.content_preview) for node in traversal.nodes
+                    bool(node.title or node.attributes.get("source_item_id"))
+                    for node in traversal.nodes
                 ),
-                sourced_nodes=sum(bool(node.source_item_id) for node in traversal.nodes),
+                sourced_nodes=sum(
+                    bool(node.attributes.get("source_item_id")) for node in traversal.nodes
+                ),
                 truncated=(traversal.truncated or outgoing.truncated or incoming.truncated),
             )
         )
@@ -247,16 +221,12 @@ async def _graph_observations(
 def validate_vector_payload(
     collection: str,
     point: VectorIndexRecord,
-) -> ContentReference:
+) -> None:
     """Assert the retrieval payload is complete, bounded, and runtime-free."""
 
     reject_runtime_fields(point.payload)
     _assert_payload_shape(collection, point)
     _assert_vector_shape(point)
-    reference = ContentReference.model_validate(point.payload["content_reference"])
-    if not reference.byte_length:
-        raise AssertionError("Qdrant content reference must identify one byte range")
-    return reference
 
 
 def _assert_payload_shape(collection: str, point: VectorIndexRecord) -> None:
@@ -268,8 +238,7 @@ def _assert_payload_shape(collection: str, point: VectorIndexRecord) -> None:
         raise AssertionError(f"Qdrant payload has unknown fields: {sorted(unknown)}")
     if any(value is None for value in point.payload.values()):
         raise AssertionError("Qdrant payload must omit irrelevant null fields")
-    expected_kind = "route" if collection == ROUTE_INDEX else "evidence"
-    if point.payload["record_kind"] != expected_kind:
+    if collection != EVIDENCE_INDEX or point.payload["record_kind"] != "evidence":
         raise AssertionError("Qdrant record kind does not match its collection")
 
 
@@ -278,8 +247,6 @@ def _assert_vector_shape(point: VectorIndexRecord) -> None:
         raise AssertionError("Qdrant point is missing its dense vector")
     if point.sparse_vector is None or not point.sparse_vector.indices:
         raise AssertionError("Qdrant point is missing its sparse vector")
-    if len(str(point.payload["preview"])) > 320:
-        raise AssertionError("Qdrant preview exceeds its payload limit")
     if not isinstance(point.payload["citation_locator"], dict):
         raise AssertionError("Qdrant citation locator must be structured")
 
@@ -288,8 +255,6 @@ def _assert_projection_content(
     chunks: tuple[ChunkObservation, ...],
     graphs: tuple[GraphObservation, ...],
 ) -> None:
-    if not any(chunk.collection == ROUTE_INDEX for chunk in chunks):
-        raise AssertionError("Qdrant route collection has no smoke chunk")
     if not any(chunk.collection == EVIDENCE_INDEX for chunk in chunks):
         raise AssertionError("Qdrant evidence collection has no smoke chunk")
     if not any(chunk.chunk_kind == "table" for chunk in chunks):
@@ -301,7 +266,7 @@ def _assert_projection_content(
         "Postgres remains the publication authority",
     ):
         if expected.casefold() not in content.casefold():
-            raise AssertionError(f"range-loaded chunk content is missing: {expected}")
+            raise AssertionError(f"vector payload content is missing: {expected}")
     _assert_graph_content(graphs)
 
 
@@ -321,3 +286,5 @@ def _assert_graph_content(graphs: tuple[GraphObservation, ...]) -> None:
         raise AssertionError("document section structure is missing")
     if "has_table" not in relation_types:
         raise AssertionError("document table structure is missing")
+    if "supports" not in relation_types:
+        raise AssertionError("vector chunk IDs are not linked into the graph")

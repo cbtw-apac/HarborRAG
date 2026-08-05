@@ -1,27 +1,84 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
+
 from pydantic import Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
-from harborrag_core.chunking import ConnectorType, DocumentKind, RelationType
-from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
+from harborrag_core.chunking import RelationType
+from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
 
 from .artifact_contracts import ArtifactReference
+from .identity import reject_runtime_fields
 from .projection_vector import (
     VectorEvidenceRecord,
     VectorPayload,
     VectorProjectionBatch,
     VectorProjectionManifest,
-    VectorRouteRecord,
 )
-from .states import KnowledgeNodeKind
+from .states import GraphEntityType, GraphOwnershipScope, KnowledgeNodeKind
+
+GRAPH_SCHEMA_VERSION: Literal["2.0"] = "2.0"
+_MAX_GRAPH_ATTRIBUTES = 32
+_MAX_ATTRIBUTE_KEY_LENGTH = 64
+_MAX_ATTRIBUTE_TEXT_LENGTH = 1_024
+_MAX_ATTRIBUTE_SEQUENCE = 32
+_FORBIDDEN_ATTRIBUTE_TOKENS = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "body",
+        "content",
+        "credential",
+        "credentials",
+        "password",
+        "payload",
+        "preview",
+        "raw",
+        "secret",
+        "text",
+        "token",
+    }
+)
+_ALLOWED_ATTRIBUTE_FIELDS = frozenset(
+    {
+        "connector_type",
+        "connection_id",
+        "ctag",
+        "default_branch",
+        "display_name",
+        "document_kind",
+        "drive_type",
+        "etag",
+        "issue_type",
+        "issue_key",
+        "item_name",
+        "mode",
+        "name",
+        "ordinal",
+        "page_id",
+        "parent_relative_path",
+        "placeholder",
+        "project_key",
+        "provider_id",
+        "provider_key",
+        "relative_path",
+        "resolved_at",
+        "sha",
+        "source_item_id",
+        "source_uri",
+        "space_key",
+        "status",
+        "suffix",
+    }
+)
 
 __all__ = [
     "VectorEvidenceRecord",
     "VectorPayload",
     "VectorProjectionBatch",
     "VectorProjectionManifest",
-    "VectorRouteRecord",
 ]
 
 
@@ -32,24 +89,45 @@ class GraphEdgeRecord(StrictModel):
     relation_type: RelationType
     source_node_key: str = Field(min_length=1)
     target_node_key: str = Field(min_length=1)
-    document_version_id: DocumentVersionId
+    graph_schema_version: Literal["2.0"] = GRAPH_SCHEMA_VERSION
+    ownership_scope: GraphOwnershipScope
+    owner_id: TenantId
+    source_scope_id: str | None = None
+    document_id: DocumentId | None = None
+    document_version_id: DocumentVersionId | None = None
+    attributes: dict[str, Any] = Field(default_factory=dict)
     source_relation_version: str = Field(min_length=1)
     source_explicit: bool
-    evidence_chunk_ids: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_relation(self) -> GraphEdgeRecord:
         if self.source_node_key == self.target_node_key:
             raise ValueError("canonical relations must not self-reference")
-        if len(set(self.evidence_chunk_ids)) != len(self.evidence_chunk_ids):
-            raise ValueError("evidence chunk IDs must be unique")
+        _validate_ownership(
+            ownership_scope=self.ownership_scope,
+            source_scope_id=self.source_scope_id,
+            document_id=self.document_id,
+            document_version_id=self.document_version_id,
+            record="graph relationship",
+        )
+        required_scope = {
+            RelationType.HAS_DATA_SOURCE: GraphOwnershipScope.SOURCE_SCOPE,
+            RelationType.HAS_VERSION: GraphOwnershipScope.DOCUMENT_VERSION,
+            RelationType.SUPPORTS: GraphOwnershipScope.DOCUMENT_VERSION,
+            RelationType.RESOLVED_AT: GraphOwnershipScope.DOCUMENT_VERSION,
+        }.get(self.relation_type)
+        if required_scope is not None and self.ownership_scope != required_scope:
+            raise ValueError(
+                f"{self.relation_type.value} relationships require {required_scope.value} ownership"
+            )
+        _validate_attributes(self.attributes)
         return self
 
 
 class GraphProjectionManifest(StrictModel):
     """Deterministic identity and checksum for one structural graph batch."""
 
-    schema_version: str = "1.0"
+    schema_version: Literal["2.0"] = GRAPH_SCHEMA_VERSION
     document_id: DocumentId
     document_version_id: DocumentVersionId
     node_keys: tuple[str, ...] = Field(min_length=1)
@@ -66,23 +144,23 @@ class GraphProjectionManifest(StrictModel):
 
 
 class GraphNodeRecord(StrictModel):
-    """Projection-neutral graph node with bounded operator-facing context."""
+    """Projection-neutral graph identity; content remains in the vector store."""
 
     node_key: str = Field(min_length=1)
     node_kind: KnowledgeNodeKind
+    entity_type: GraphEntityType
     logical_id: str = Field(min_length=1)
-    document_id: DocumentId
-    document_version_id: DocumentVersionId
-    source_scope_id: str = Field(min_length=1)
-    title: str | None = None
-    connector_type: ConnectorType | None = None
-    document_kind: DocumentKind | None = None
-    source_item_id: str | None = None
-    source_uri: str | None = None
-    content_preview: str | None = Field(default=None, max_length=1_000)
+    graph_schema_version: Literal["2.0"] = GRAPH_SCHEMA_VERSION
+    ownership_scope: GraphOwnershipScope
+    owner_id: TenantId
+    source_scope_id: str | None = None
+    document_id: DocumentId | None = None
+    document_version_id: DocumentVersionId | None = None
+    title: str | None = Field(default=None, max_length=512)
     section_path: tuple[str, ...] = ()
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("title", "source_item_id", "source_uri", "content_preview")
+    @field_validator("title")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         if value is not None and not value.strip():
@@ -93,7 +171,110 @@ class GraphNodeRecord(StrictModel):
     def validate_review_context(self) -> GraphNodeRecord:
         if any(not value.strip() for value in self.section_path):
             raise ValueError("graph node section path entries must be non-empty")
+        expected_scope = {
+            KnowledgeNodeKind.TENANT: GraphOwnershipScope.TENANT,
+            KnowledgeNodeKind.DATA_SOURCE: GraphOwnershipScope.SOURCE_SCOPE,
+            KnowledgeNodeKind.SOURCE_ENTITY: GraphOwnershipScope.SOURCE_SCOPE,
+            KnowledgeNodeKind.DOCUMENT_VERSION: GraphOwnershipScope.DOCUMENT_VERSION,
+            KnowledgeNodeKind.STRUCTURE: GraphOwnershipScope.DOCUMENT_VERSION,
+            KnowledgeNodeKind.CHUNK: GraphOwnershipScope.DOCUMENT_VERSION,
+        }[self.node_kind]
+        if self.ownership_scope != expected_scope:
+            raise ValueError(
+                f"{self.node_kind.value} nodes require {expected_scope.value} ownership"
+            )
+        required_entity_type = {
+            KnowledgeNodeKind.TENANT: GraphEntityType.TENANT,
+            KnowledgeNodeKind.DATA_SOURCE: GraphEntityType.DATA_SOURCE,
+            KnowledgeNodeKind.DOCUMENT_VERSION: GraphEntityType.DOCUMENT_VERSION,
+            KnowledgeNodeKind.CHUNK: GraphEntityType.CHUNK,
+        }.get(self.node_kind)
+        if required_entity_type is not None and self.entity_type != required_entity_type:
+            raise ValueError(
+                f"{self.node_kind.value} nodes require entity_type={required_entity_type.value}"
+            )
+        _validate_ownership(
+            ownership_scope=self.ownership_scope,
+            source_scope_id=self.source_scope_id,
+            document_id=self.document_id,
+            document_version_id=self.document_version_id,
+            record="graph node",
+        )
+        _validate_attributes(self.attributes)
+        if self.node_kind == KnowledgeNodeKind.CHUNK and self.node_key != self.logical_id:
+            raise ValueError("chunk graph node_key must equal its exact chunk ID")
+        if self.entity_type in {
+            GraphEntityType.LOCAL_ROOT,
+            GraphEntityType.LOCAL_DIRECTORY,
+            GraphEntityType.LOCAL_FILE,
+        }:
+            for key in ("path", "relative_path", "parent_path", "parent_relative_path"):
+                value = self.attributes.get(key)
+                if isinstance(value, str) and value.startswith(("/", "\\")):
+                    raise ValueError("local graph paths must be portable relative paths")
         return self
+
+
+def _validate_ownership(
+    *,
+    ownership_scope: GraphOwnershipScope,
+    source_scope_id: str | None,
+    document_id: DocumentId | None,
+    document_version_id: DocumentVersionId | None,
+    record: str,
+) -> None:
+    if source_scope_id is not None and not source_scope_id.strip():
+        raise ValueError(f"{record} source_scope_id must be non-empty when supplied")
+    version_owned = ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+    if version_owned and (document_id is None or document_version_id is None):
+        raise ValueError(f"version-owned {record} requires document and version IDs")
+    if not version_owned and (document_id is not None or document_version_id is not None):
+        raise ValueError(f"only version-owned {record} may carry document and version IDs")
+    if ownership_scope == GraphOwnershipScope.TENANT and source_scope_id is not None:
+        raise ValueError(f"tenant-owned {record} must not carry source_scope_id")
+    if ownership_scope != GraphOwnershipScope.TENANT and source_scope_id is None:
+        raise ValueError(f"non-tenant {record} requires source_scope_id")
+
+
+def _validate_attributes(attributes: Mapping[str, Any]) -> None:
+    _validate_attribute_mapping(attributes, depth=0)
+
+
+def _validate_attribute_mapping(attributes: Mapping[str, Any], *, depth: int) -> None:
+    if len(attributes) > _MAX_GRAPH_ATTRIBUTES:
+        raise ValueError(f"graph attributes may contain at most {_MAX_GRAPH_ATTRIBUTES} entries")
+    reject_runtime_fields(attributes)
+    for key, value in attributes.items():
+        normalized = str(key).strip().casefold().replace("-", "_")
+        if not normalized or len(normalized) > _MAX_ATTRIBUTE_KEY_LENGTH:
+            raise ValueError("graph attribute keys must be bounded non-empty text")
+        tokens = set(normalized.split("_"))
+        if normalized in _FORBIDDEN_ATTRIBUTE_TOKENS or tokens & _FORBIDDEN_ATTRIBUTE_TOKENS:
+            raise ValueError(f"graph attribute field is not allowed: {key}")
+        if normalized not in _ALLOWED_ATTRIBUTE_FIELDS:
+            raise ValueError(f"graph attribute field is not allowlisted: {key}")
+        _validate_attribute_value(value, depth=depth)
+
+
+def _validate_attribute_value(value: Any, *, depth: int) -> None:
+    if value is None or isinstance(value, (bool, int, float)):
+        return
+    if isinstance(value, str):
+        if len(value) > _MAX_ATTRIBUTE_TEXT_LENGTH:
+            raise ValueError("graph attribute text exceeds the bounded metadata limit")
+        return
+    if isinstance(value, Mapping):
+        if depth >= 1 or len(value) > _MAX_GRAPH_ATTRIBUTES:
+            raise ValueError("graph attribute mappings must be shallow and bounded")
+        _validate_attribute_mapping(value, depth=depth + 1)
+        return
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        if len(value) > _MAX_ATTRIBUTE_SEQUENCE:
+            raise ValueError("graph attribute sequences exceed the bounded metadata limit")
+        for item in value:
+            _validate_attribute_value(item, depth=depth + 1)
+        return
+    raise ValueError("graph attributes support JSON-compatible metadata values only")
 
 
 class ProjectionManifest(StrictModel):
@@ -101,6 +282,11 @@ class ProjectionManifest(StrictModel):
 
     document_id: DocumentId
     document_version_id: DocumentVersionId
+    # Retired: the separate route collection is gone and nothing writes this. It stays
+    # because the manifest is persisted and StrictModel forbids unknown fields, so every
+    # manifest row written before the retirement carries the key. Most of those rows
+    # belong to versions that are still active and will therefore never be cleaned up,
+    # so the field cannot be retired by waiting for a drain. Always empty on new writes.
     route_point_ids: tuple[str, ...] = ()
     evidence_point_ids: tuple[str, ...] = ()
     graph_node_keys: tuple[str, ...] = ()
@@ -151,7 +337,6 @@ class GraphProjectionVerification(StrictModel):
     missing_node_keys: tuple[str, ...] = ()
     missing_relation_ids: tuple[str, ...] = ()
     dangling_relation_ids: tuple[str, ...] = ()
-    missing_evidence_chunk_ids: tuple[str, ...] = ()
     duplicate_node_keys: tuple[str, ...] = ()
     duplicate_relation_ids: tuple[str, ...] = ()
 
@@ -162,7 +347,6 @@ class GraphProjectionVerification(StrictModel):
                 self.missing_node_keys,
                 self.missing_relation_ids,
                 self.dangling_relation_ids,
-                self.missing_evidence_chunk_ids,
                 self.duplicate_node_keys,
                 self.duplicate_relation_ids,
             )
@@ -176,12 +360,30 @@ class GraphProjectionVerification(StrictModel):
         return self
 
 
-class VectorProjectionVerification(StrictModel):
-    """Read-after-write verification for both Qdrant projection collections."""
+class GraphSchemaMigrationVerification(StrictModel):
+    """Tenant-level gate required before schema-v1 graph records are removed."""
 
     valid: bool
-    expected_route_count: int = Field(ge=0)
-    actual_route_count: int = Field(ge=0)
+    missing_chunk_ids: tuple[str, ...] = ()
+    invalid_source_item_ids: tuple[str, ...] = ()
+    content_field_records: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> GraphSchemaMigrationVerification:
+        expected = not (
+            self.missing_chunk_ids
+            or self.invalid_source_item_ids
+            or self.content_field_records
+        )
+        if self.valid != expected:
+            raise ValueError("graph migration verification validity does not match findings")
+        return self
+
+
+class VectorProjectionVerification(StrictModel):
+    """Read-after-write verification for the Qdrant evidence collection."""
+
+    valid: bool
     expected_evidence_count: int = Field(ge=0)
     actual_evidence_count: int = Field(ge=0)
     missing_point_ids: tuple[str, ...] = ()
@@ -199,10 +401,7 @@ class VectorProjectionVerification(StrictModel):
                 self.mismatched_payload_point_ids,
             )
         )
-        counts_match = (
-            self.expected_route_count == self.actual_route_count
-            and self.expected_evidence_count == self.actual_evidence_count
-        )
+        counts_match = self.expected_evidence_count == self.actual_evidence_count
         if self.valid != (counts_match and not has_issues):
             raise ValueError("vector verification validity does not match its findings")
         return self

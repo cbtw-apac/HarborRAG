@@ -21,6 +21,7 @@ from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphNodeRecord,
     GraphProjectionVerification,
+    GraphSchemaMigrationVerification,
     KnowledgeGraphTraversal,
 )
 from harborrag_core.retrieval import (
@@ -98,14 +99,12 @@ class FalkorKnowledgeGraphRepository:
         nodes: Sequence[GraphNodeRecord],
         relations: Sequence[GraphEdgeRecord],
         *,
-        available_chunk_ids: Sequence[str],
         context: StorageOperationContext,
     ) -> GraphProjectionVerification:
         return await knowledge_writes.verify_projection(
             self._database,
             nodes,
             relations,
-            available_chunk_ids=available_chunk_ids,
             context=context,
         )
 
@@ -162,6 +161,54 @@ class FalkorKnowledgeGraphRepository:
         await knowledge_admin.delete_version(
             self._database,
             document_version_id,
+            context=context,
+        )
+
+    async def delete_source_item(
+        self,
+        source_item_node_key: str,
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await knowledge_admin.delete_source_item(
+            self._database,
+            source_item_node_key,
+            context=context,
+        )
+
+    async def delete_source_scope(
+        self,
+        source_scope_id: str,
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await knowledge_admin.delete_source_scope(
+            self._database,
+            source_scope_id,
+            context=context,
+        )
+
+    async def verify_schema_v2_migration(
+        self,
+        *,
+        evidence_chunk_ids: Sequence[str],
+        active_source_item_node_keys: Sequence[str],
+        context: StorageOperationContext,
+    ) -> GraphSchemaMigrationVerification:
+        return await knowledge_admin.verify_schema_v2_migration(
+            self._database,
+            evidence_chunk_ids=tuple(evidence_chunk_ids),
+            active_source_item_node_keys=tuple(active_source_item_node_keys),
+            context=context,
+        )
+
+    async def delete_legacy_tenant_projection(
+        self,
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await knowledge_admin.delete_legacy_tenant_projection(
+            self._database,
             context=context,
         )
 

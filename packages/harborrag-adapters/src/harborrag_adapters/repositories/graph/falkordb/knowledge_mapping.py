@@ -62,7 +62,6 @@ def build_graph_verification(
     relation_ids: tuple[str, ...],
     node_rows: Sequence[Mapping[str, Any]],
     relation_rows: Sequence[Mapping[str, Any]],
-    available_chunk_ids: frozenset[str],
 ) -> GraphProjectionVerification:
     """Compare a staged graph read-back with its deterministic manifest."""
     node_occurrences = {str(row["node_key"]): int(row["occurrences"]) for row in node_rows}
@@ -80,12 +79,6 @@ def build_graph_verification(
             or row.get("target_node_key") not in expected_nodes
         )
     )
-    referenced_chunks = {
-        str(chunk_id)
-        for row in relation_rows
-        for chunk_id in KnowledgeGraphMapper.decoded_list(row.get("evidence_chunk_ids"))
-    }
-    missing_evidence = tuple(sorted(referenced_chunks - available_chunk_ids))
     duplicate_nodes = tuple(sorted(key for key, count in node_occurrences.items() if count != 1))
     duplicate_relations = tuple(
         sorted(key for key, count in relation_occurrences.items() if count != 1)
@@ -97,7 +90,6 @@ def build_graph_verification(
             missing_nodes,
             missing_relations,
             dangling_relations,
-            missing_evidence,
             duplicate_nodes,
             duplicate_relations,
         )
@@ -111,7 +103,6 @@ def build_graph_verification(
         missing_node_keys=missing_nodes,
         missing_relation_ids=missing_relations,
         dangling_relation_ids=dangling_relations,
-        missing_evidence_chunk_ids=missing_evidence,
         duplicate_node_keys=duplicate_nodes,
         duplicate_relation_ids=duplicate_relations,
     )

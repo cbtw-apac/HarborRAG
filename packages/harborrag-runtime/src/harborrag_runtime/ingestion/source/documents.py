@@ -75,7 +75,6 @@ class SourceDocumentService:
                 result={
                     **self._document_summary(planned),
                     "decision": outcome.decision.value,
-                    "route_chunks": outcome.route_chunks,
                     "evidence_chunks": outcome.evidence_chunks,
                     "graph_nodes": outcome.graph_nodes,
                     "graph_relations": outcome.graph_relations,

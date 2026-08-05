@@ -11,7 +11,7 @@ from harborrag_app.cli import runner as cli_runner
 from harborrag_runtime.chat import ChatPrompt
 
 
-def test_chat_cli_forwards_tenant_and_system_prompt(monkeypatch, capsys) -> None:
+def test_chat_cli_creates_session_and_uses_default_prompt(monkeypatch, capsys) -> None:
     service = MockAppService()
     monkeypatch.setattr(cli_runner, "runtime_app_service", lambda: service)
 
@@ -21,8 +21,6 @@ def test_chat_cli_forwards_tenant_and_system_prompt(monkeypatch, capsys) -> None
             "Explain HarborRAG",
             "--tenant",
             "ACME",
-            "--system",
-            "concise",
             "--json",
         ]
     )
@@ -33,7 +31,8 @@ def test_chat_cli_forwards_tenant_and_system_prompt(monkeypatch, capsys) -> None
     call = service.chat_calls[0]
     assert call["tenant_id"] == "ACME"
     assert call["principal_id"] == "harborrag-cli"
-    assert call["system"] is ChatPrompt.CONCISE
+    assert call["system"] is ChatPrompt.DEFAULT
+    assert str(call["session_id"]).startswith("session-")
     assert call["query"] == "Explain HarborRAG"
 
 

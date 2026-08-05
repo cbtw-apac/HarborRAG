@@ -36,10 +36,8 @@ class ActiveVersions:
 class SearchRepository:
     def __init__(
         self,
-        routes: Sequence[VectorSearchResult],
-        evidence: Sequence[VectorSearchResult] = (),
+        evidence: Sequence[VectorSearchResult],
     ) -> None:
-        self._routes = list(routes)
         self._evidence = list(evidence)
         self.dense_queries = []
         self.sparse_queries = []
@@ -58,8 +56,8 @@ class SearchRepository:
         return self._select(query.index_name, query.top_k)
 
     def _select(self, collection: str, limit: int) -> list[VectorSearchResult]:
-        records = self._routes if "routes" in collection else self._evidence
-        return records[:limit]
+        del collection
+        return self._evidence[:limit]
 
 
 def _candidate(index: int, *, version: str) -> VectorSearchResult:
@@ -77,11 +75,11 @@ def _candidate(index: int, *, version: str) -> VectorSearchResult:
 
 @pytest.mark.asyncio
 async def test_search_expands_past_stale_top_k_candidates() -> None:
-    routes = [
+    evidence = [
         *(_candidate(index, version="stale") for index in range(25)),
         _candidate(25, version="active-25"),
     ]
-    repository = SearchRepository(routes)
+    repository = SearchRepository(evidence)
     search = AuthoritativeProjectionSearch(
         repository,
         ActiveVersionCandidateValidator(
@@ -108,8 +106,6 @@ async def test_search_expands_past_stale_top_k_candidates() -> None:
     assert result.diagnostics.stale_count == 25
     assert [query.top_k for query, _ in repository.dense_queries] == [
         20,
-        20,
-        40,
         40,
     ]
 
@@ -135,5 +131,5 @@ async def test_sparse_lane_uses_sparse_profile_without_payload_only_filters() ->
     assert [item.id for item in result.candidates] == ["point-1"]
     assert not repository.dense_queries
     assert not repository.hybrid_queries
-    assert len(repository.sparse_queries) == 2
+    assert len(repository.sparse_queries) == 1
     assert all(query.filters is None for query, _ in repository.sparse_queries)

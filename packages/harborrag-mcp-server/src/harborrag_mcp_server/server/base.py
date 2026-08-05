@@ -9,7 +9,7 @@ class BaseMcpServer(ABC):
     """Contract for an MCP server exposing only audited service-level tools."""
 
     @abstractmethod
-    def list_tools(self) -> list[McpToolSpec]:
+    def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:
         raise NotImplementedError
 
     @abstractmethod

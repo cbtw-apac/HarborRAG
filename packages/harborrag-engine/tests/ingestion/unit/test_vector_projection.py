@@ -70,7 +70,7 @@ def representation_set(chunks: tuple[ChunkRecord, ...]) -> RepresentationSet:
     )
 
 
-def test_vector_projection_splits_route_and_evidence_with_range_references() -> None:
+def test_vector_projection_writes_only_evidence_content() -> None:
     result = make_service(
         make_profile(name="jira", strategy="jira", target=100, maximum=120),
         configuration_version="3",
@@ -101,11 +101,8 @@ def test_vector_projection_splits_route_and_evidence_with_range_references() -> 
         )
     )
 
-    assert len(projection.route_records) == 2
     assert len(projection.evidence_records) == 1
-    route_payload = projection.route_records[0].payload
     evidence_payload = projection.evidence_records[0].payload
-    assert route_payload.record_kind.value == "route"
     assert evidence_payload.record_kind.value == "evidence"
     assert evidence_payload.document_version_id == "document-version:1"
     assert evidence_payload.issue_key == "AMAST-2"
@@ -115,16 +112,13 @@ def test_vector_projection_splits_route_and_evidence_with_range_references() -> 
     assert evidence_payload.document_kind.value == "jira_issue"
     assert evidence_payload.token_count > 0
     assert evidence_payload.content_hash
-    assert evidence_payload.content_reference.byte_offset == 2000
-    assert evidence_payload.content_reference.byte_length == 900
     serialized = evidence_payload.model_dump(mode="json", exclude_none=True)
+    assert "preview" not in serialized
+    assert "content_reference" not in serialized
     assert "is_active" not in serialized
     assert "workflow_id" not in serialized
     assert "exact_identifiers" not in serialized
-    assert projection.route_records[0].sparse_vector is not None
-    assert projection.manifest.route_point_ids == tuple(
-        record.point_id for record in projection.route_records
-    )
+    assert projection.evidence_records[0].sparse_vector is not None
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         VectorPayload.model_validate({**serialized, "raw_parser_metadata": {"x": 1}})
 

@@ -17,6 +17,7 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
+from harborrag_core.ports.conversation import ConversationRepository
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -39,6 +40,7 @@ class ControlPlaneRepositories:
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
+    conversation_memory: ConversationRepository
 
 
 @dataclass(slots=True)
@@ -67,6 +69,9 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
+        from harborrag_adapters.repositories.database.control_plane.conversation import (
+            SqlConversationMemoryRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.engine import (
             create_control_plane_engine,
             create_session_factory,
@@ -111,10 +116,18 @@ class CompositionRoot:
         try:
             run_migrations(dsn)
         except Exception as exc:  # noqa: BLE001 - health reports boot degradation
+            # The message, not just the type. Boot continues in a degraded state and the
+            # stored status is not printed by any CLI command, so this log is the only
+            # place the cause is ever stated. Logging "error_type=OperationalError" alone
+            # turns a fixable stamp problem into an unexplained failure that surfaces much
+            # later as a missing column in an unrelated query. The DSN stays out; the
+            # scheme is logged separately.
             logger.error(
-                "Control-plane migrations failed database_scheme=%s error_type=%s",
+                "Control-plane migrations failed database_scheme=%s error_type=%s error=%s%s",
                 scheme,
                 type(exc).__name__,
+                exc,
+                _migration_failure_hint(exc),
             )
             return cls(
                 control_db=_failed_database_status(
@@ -139,6 +152,7 @@ class CompositionRoot:
             settings=SqlSettingsRepository(sessions),
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
+            conversation_memory=SqlConversationMemoryRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,
@@ -173,6 +187,23 @@ class CompositionRoot:
 
 def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:
     return {"ping": "failed", "error": error, "scheme": dsn.split(":", 1)[0]}
+
+
+def _migration_failure_hint(exc: Exception) -> str:
+    """Name the one migration failure that looks like a bug but is a bookkeeping gap.
+
+    "table X already exists" on the first migration means the schema was built without
+    Alembic recording it, so the runner replays from base and collides with the tables
+    that are already there. Nothing is corrupt and no data is lost -- the version table
+    just needs stamping at the revision the schema already matches.
+    """
+
+    if "already exists" not in str(exc):
+        return ""
+    return (
+        " hint=the schema exists but is not stamped; "
+        "stamp alembic_version at the revision the schema already matches, then upgrade"
+    )
 
 
 def _probe_control_db(dsn: str) -> dict[str, Any]:

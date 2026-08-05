@@ -62,12 +62,13 @@ source env/.env.models
 set +a
 
 uv run --package harborrag-app harborrag chat \
-  "Explain HarborRAG in one paragraph." --prompt concise
+  "Explain HarborRAG in one paragraph." --json
 ```
 
-This is a one-shot, non-streaming completion. It does not automatically search
-indexed content or save a conversation. See the [Chat guide](../users/chat/README.md)
-for HTTP and MCP usage.
+This is a non-streaming, retrieval-grounded completion. Its JSON response
+contains a generated session ID; pass that ID with `--session` on later calls
+to recall recent conversation turns. See the
+[Chat guide](../users/chat/README.md) for HTTP and MCP usage.
 
 ## 6. Run tests
 

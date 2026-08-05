@@ -43,7 +43,6 @@ class DocumentReleaseOutcome:
     document_id: str
     document_version_id: str | None
     decision: SourceAdmissionDecision
-    route_chunks: int = 0
     evidence_chunks: int = 0
     graph_nodes: int = 0
     graph_relations: int = 0

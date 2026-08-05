@@ -285,7 +285,6 @@ def _store_report(observation: StoreObservation) -> dict[str, object]:
         "document_ids": observation.document_ids,
         "active_versions": observation.versions,
         "artifact_keys": observation.artifact_keys,
-        "route_chunks": observation.route_chunks,
         "evidence_chunks": observation.evidence_chunks,
         "chunks": [
             {

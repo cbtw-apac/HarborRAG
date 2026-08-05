@@ -131,7 +131,7 @@ ingestion commands:
 ```bash
 docker run --rm \
   --env-file env/.env.models \
-  harborrag-cli chat "Explain HarborRAG." --prompt concise
+  harborrag-cli chat "Explain HarborRAG." --json
 ```
 
 The MCP image uses `python -m harborrag_mcp_server` as its entry point and

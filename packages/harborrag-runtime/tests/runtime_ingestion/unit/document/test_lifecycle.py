@@ -111,7 +111,6 @@ async def test_cleanup_removes_retired_vector_and_graph_projections(
             point_id for collection in resources.vectors.points.values() for point_id in collection
         }
         retired_point_ids = {
-            *first_manifest.route_point_ids,
             *first_manifest.evidence_point_ids,
         }
         job = await control.reliability.cleanup_for_version(str(first.document_version_id))

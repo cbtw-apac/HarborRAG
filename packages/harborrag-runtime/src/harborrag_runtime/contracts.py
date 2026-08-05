@@ -9,6 +9,7 @@ from uuid import uuid4
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord
 from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
     GraphPath,
     GraphPathQuery,
     GraphSubgraphQuery,
@@ -136,6 +137,22 @@ class GraphSubgraphRequest:
 
 @dataclass(frozen=True, slots=True)
 class GraphSubgraphResponse:
+    nodes: tuple[GraphNodeRecord, ...]
+    relations: tuple[GraphEdgeRecord, ...]
+    diagnostics: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class GraphNeighborhoodRequest:
+    access: AccessContext
+    query: GraphNeighborhoodQuery
+
+
+@dataclass(frozen=True, slots=True)
+class GraphNeighborhoodResponse:
+    """A subgraph plus the seeds it grew from, so a caller can correlate the two."""
+
+    seeds: tuple[str, ...]
     nodes: tuple[GraphNodeRecord, ...]
     relations: tuple[GraphEdgeRecord, ...]
     diagnostics: dict[str, object]

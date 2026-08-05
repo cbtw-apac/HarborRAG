@@ -6,22 +6,30 @@ import json
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.errors import documented_error_responses
-from harborrag_core.contracts.errors import HarborConnectionError
+from harborrag_app.workflow_control.chat import ChatExecutionOptions
+from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
+from harborrag_runtime.chat import ChatPrompt
 
 from .dependencies import ChatServiceDependency
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .schemas import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatSessionCreateRequest,
+    ChatSessionResponse,
+)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 ERROR_RESPONSES = documented_error_responses(
     {
         422: "Invalid chat-completion request",
+        404: "Conversation session not found",
         503: "Chat service unavailable",
     }
 )
@@ -30,57 +38,75 @@ _UNAVAILABLE_MESSAGE = "Chat service is unavailable"
 
 
 @router.post(
+    "/sessions",
+    response_model=ChatSessionResponse,
+    responses=ERROR_RESPONSES,
+    status_code=201,
+)
+async def create_chat_session(
+    request: ChatSessionCreateRequest,
+    service: ChatServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+) -> ChatSessionResponse:
+    authorize_tenant(principal, request.tenant)
+    response = await service.create_chat_session(
+        tenant_id=request.tenant,
+        principal_id=principal.subject,
+    )
+    if not response.ok:
+        raise HarborConnectionError(_UNAVAILABLE_MESSAGE)
+    return ChatSessionResponse.model_validate(response.data)
+
+
+@router.get(
     "/completions",
     response_model=ChatCompletionResponse,
     response_model_exclude_none=True,
     responses=ERROR_RESPONSES,
 )
 async def create_chat_completion(
-    request: ChatCompletionRequest,
+    request: Annotated[ChatCompletionRequest, Query()],
     service: ChatServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
-) -> ChatCompletionResponse:
+) -> ChatCompletionResponse | StreamingResponse:
     authorize_tenant(principal, request.tenant)
+    if request.stream:
+        if not await service.chat_session_exists(
+            request.session_id,
+            tenant_id=request.tenant,
+            principal_id=principal.subject,
+        ):
+            raise HarborNotFoundError("Conversation session was not found")
+        return _stream_response(request, service, principal)
     response = await service.chat_completion(
         request.prompt,
         tenant_id=request.tenant,
         principal_id=principal.subject,
-        system=request.system,
+        options=_options(request, principal),
     )
     if not response.ok:
         raise HarborConnectionError(_UNAVAILABLE_MESSAGE)
     return ChatCompletionResponse.model_validate(response.data)
 
 
-@router.post(
-    "/stream",
-    responses=ERROR_RESPONSES,
-)
-async def create_chat_completion_stream(
+def _stream_response(
     request: ChatCompletionRequest,
     service: ChatServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Principal,
 ) -> StreamingResponse:
-    """Stream one retrieval-grounded chat completion as Server-Sent Events.
-
-    The response always starts as ``200 text/event-stream`` -- once streaming
-    begins, HTTP status can no longer change, so failures (including a
-    prepare-time failure such as an unreachable retrieval or chat backend)
-    surface as an in-band ``event: error`` frame rather than a 503 status.
-    """
-
-    authorize_tenant(principal, request.tenant)
-
     async def events() -> AsyncIterator[bytes]:
         async for event in service.chat_stream(
             request.prompt,
             tenant_id=request.tenant,
             principal_id=principal.subject,
-            system=request.system,
+            options=_options(request, principal),
         ):
             kind = event["kind"]
             if kind == "citations":
-                payload: object = {"citations": event["citations"]}
+                payload: object = {
+                    "citations": event["citations"],
+                    "session_id": event["session_id"],
+                }
                 name = "citations"
             elif kind == "chunk":
                 payload = event["chunk"]
@@ -92,4 +118,17 @@ async def create_chat_completion_stream(
             if kind == "error":
                 return
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _options(request: ChatCompletionRequest, principal: Principal) -> ChatExecutionOptions:
+    del principal
+    return ChatExecutionOptions(
+        system=ChatPrompt.DEFAULT,
+        graph_search=request.graph_search,
+        session_id=request.session_id,
+    )

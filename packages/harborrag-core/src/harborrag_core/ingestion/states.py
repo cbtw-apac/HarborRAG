@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from re import fullmatch
+from typing import Self
 
 
 class BindingKind(StrEnum):
@@ -72,10 +74,67 @@ class FailureCategory(StrEnum):
 
 
 class KnowledgeNodeKind(StrEnum):
-    DOCUMENT = "Document"
-    SECTION = "Section"
-    TABLE = "Table"
-    COMMENT = "Comment"
+    """Broad storage labels; provider-specific shape belongs in ``entity_type``."""
+
+    TENANT = "Tenant"
+    DATA_SOURCE = "DataSource"
+    SOURCE_ENTITY = "SourceEntity"
+    DOCUMENT_VERSION = "DocumentVersion"
+    STRUCTURE = "Structure"
+    CHUNK = "Chunk"
+
+
+class GraphOwnershipScope(StrEnum):
+    """Lifecycle owner for a graph node or relationship."""
+
+    TENANT = "TENANT"
+    SOURCE_SCOPE = "SOURCE_SCOPE"
+    DOCUMENT_VERSION = "DOCUMENT_VERSION"
+
+
+class GraphEntityType(StrEnum):
+    """Extensible semantic type independent from the broad graph label."""
+
+    TENANT = "tenant"
+    DATA_SOURCE = "data_source"
+    GENERIC_SOURCE_ITEM = "generic_source_item"
+    DOCUMENT_VERSION = "document_version"
+    SECTION = "section"
+    TABLE = "table"
+    COMMENT = "comment"
+    CHUNK = "chunk"
+
+    CONFLUENCE_SPACE = "confluence_space"
+    CONFLUENCE_PAGE = "confluence_page"
+    CONFLUENCE_ATTACHMENT = "confluence_attachment"
+    JIRA_PROJECT = "jira_project"
+    JIRA_ISSUE = "jira_issue"
+    JIRA_ATTACHMENT = "jira_attachment"
+    GITHUB_OWNER = "github_owner"
+    GITHUB_REPOSITORY = "github_repository"
+    GITHUB_DIRECTORY = "github_directory"
+    GITHUB_FILE = "github_file"
+    GITHUB_REF = "github_ref"
+    GITHUB_COMMIT = "github_commit"
+    SHAREPOINT_SITE = "sharepoint_site"
+    SHAREPOINT_DRIVE = "sharepoint_drive"
+    SHAREPOINT_FOLDER = "sharepoint_folder"
+    SHAREPOINT_FILE = "sharepoint_file"
+    LOCAL_ROOT = "local_root"
+    LOCAL_DIRECTORY = "local_directory"
+    LOCAL_FILE = "local_file"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Self | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().casefold()
+        if fullmatch(r"[a-z][a-z0-9_-]{0,63}", normalized) is None:
+            return None
+        member = str.__new__(cls, normalized)
+        member._name_ = f"CUSTOM_{normalized.upper().replace('-', '_')}"
+        member._value_ = normalized
+        return member
 
 
 class CleanupJobState(StrEnum):

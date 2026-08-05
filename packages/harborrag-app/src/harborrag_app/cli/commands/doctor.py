@@ -27,6 +27,9 @@ def command(
         context=context,
         command="doctor",
         as_json=as_json,
+        # Diagnostics must still run when the control plane is down -- that is precisely
+        # when an operator reaches for this command.
+        requires_control_plane=False,
     )
 
 

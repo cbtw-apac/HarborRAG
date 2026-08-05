@@ -7,7 +7,7 @@ responses. Connector execution, parsing, chunking, indexing, and Temporal
 workflow rules remain outside this package.
 
 Operational health and documentation routes remain under `/api/v1`. Stable
-public ingestion, retrieval, and chat resources are mounted under `/v1`.
+public ingestion, retrieval, chat, and agent resources are mounted under `/v1`.
 
 For browser convenience, `/` and `/docs` redirect to `/api/v1/docs` while
 documentation is enabled. When documentation is disabled, `/docs` remains
@@ -74,7 +74,10 @@ requests still go to the configured Temporal service.
 | `GET` | `/v1/ingestions/{task_id}/documents` | `reader` | Read cursor-paginated document outcomes |
 | `POST` | `/v1/ingestions/{task_id}/cancel` | `editor` | Request graceful cancellation |
 | `POST` | `/v1/ingestions/{task_id}/retry-failures` | `editor` | Retry selected or all retryable failures |
-| `POST` | `/v1/chat/completions` | `reader` | Generate chat with the configured logical model |
+| `POST` | `/v1/chat/sessions` | `reader` | Create a persisted chat session and greeting |
+| `GET` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
+| `POST` | `/v1/agent/sessions` | `reader` | Create a persisted agent session and greeting |
+| `GET` | `/v1/agent/completions` | `reader` | Bounded multi-turn model/tool completion |
 | `POST` | `/v1/retrieval/vector` | `reader` | Dense, sparse, or hybrid vector search |
 | `POST` | `/v1/retrieval/graph/triplets` | `reader` | Match subject-predicate-object records |
 | `POST` | `/v1/retrieval/graph/paths` | `reader` | Find bounded paths between graph nodes |
@@ -86,35 +89,56 @@ isolation through retrieval filters.
 
 ### Generate a chat completion
 
-Chat uses the `chat` section of `config/models.yaml` and resolves credentials
-from `env/.env.models`. Callers may select a configured logical model and safe
-generation controls, but cannot submit provider API keys, base URLs, custom
-headers, tools, or adapter-specific parameters.
+Chat uses the `chat` section of `config/models.yaml`, resolves credentials from
+`env/.env.models`, and retrieves tenant-scoped evidence before calling the
+model. Callers may choose per-request graph observation and streaming, but
+cannot submit a system prompt, provider
+credentials, model overrides, custom tools, or adapter-specific parameters.
 
 ```bash
 curl --fail-with-body \
   --request POST \
   --header 'Content-Type: application/json' \
-  --data '{
-    "tenant": "DEFAULT",
-    "model": "primary",
-    "prompt": "concise",
-    "messages": [
-      {"role": "system", "content": "Answer concisely."},
-      {"role": "user", "content": "What is HarborRAG?"}
-    ],
-    "temperature": 0.2,
-    "max_tokens": 300
-  }' \
+  --data '{"tenant":"DEFAULT"}' \
+  http://127.0.0.1:8000/v1/chat/sessions
+
+curl --fail-with-body --get \
+  --data-urlencode 'session_id=session-...' \
+  --data-urlencode 'prompt=What is HarborRAG?' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
-`prompt` selects a server-owned Markdown system template from the runtime chat
-prompt catalog. Available templates are `default` and `concise`; omit the field
-to prepend no server prompt. The resulting messages are passed to
-`AsyncHarborChatClient`. This endpoint does not automatically run retrieval or
-persist conversations. Requests are marked sensitive so model-response caching
-remains disabled.
+The POST response contains a generated `session_id` and greeting. The GET
+requires that session ID and a prompt. `stream=true` changes the response to
+SSE. The two latest PostgreSQL-backed turns are recalled under the tenant,
+authenticated principal, and session identity. Requests are marked sensitive
+so model-response caching remains disabled.
+
+### Run a multi-turn agent
+
+The agent uses the same model and memory identity but can execute multiple
+model/tool hops before synthesizing an answer. Only runtime-owned read tools
+are exposed. `graph_search` controls whether graph triplet, path, and subgraph
+tools are available, and `max_steps` bounds model/tool rounds from 1 to 8.
+
+```bash
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"tenant":"DEFAULT"}' \
+  http://127.0.0.1:8000/v1/agent/sessions
+
+curl --fail-with-body --get \
+  --data-urlencode 'session_id=session-...' \
+  --data-urlencode 'prompt=Connect this release policy to its owner.' \
+  --data-urlencode 'graph_search=true' \
+  --data-urlencode 'max_steps=4' \
+  http://127.0.0.1:8000/v1/agent/completions
+```
+
+The POST returns a `session_id` and greeting. Agent completions return
+aggregate token usage, turn count, and a safe tool trace containing tool names
+and success status. Raw tool arguments and results are not returned.
 
 The former `POST /v1/retrieval/search` route has been removed. Retrieval
 operations are intentionally not exposed as GET: query text and nested filters
@@ -128,6 +152,17 @@ Vector search has one contract for both simple and advanced callers. Omitting
 controls uses hybrid retrieval; advanced callers may select `dense`, `sparse`,
 or `hybrid`, apply metadata filters, observe graph context, set a score
 threshold, and control content or metadata projection.
+
+`filters` is optional. Omit it for an unfiltered search; when supplied, use
+real indexed metadata keys such as `{"category": "architecture"}`. The
+`additionalProp1` names shown by generic JSON-object schema renderers are
+placeholders, not fields recognized by HarborRAG.
+
+This is a synchronous `POST`: a successful response contains at most `top_k`
+ranked results immediately. It never returns an ingestion-style `task_id` and
+does not require a follow-up GET. The optional `request_id` in the response is
+only a trace/correlation identifier. A retrieval GET should be added only if
+search results become persisted resources.
 
 ```bash
 curl --fail-with-body \

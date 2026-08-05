@@ -10,6 +10,8 @@ ingestion/chunking/          # canonical route and evidence chunking
 ingestion/representations/   # dense/sparse representation policy
 ingestion/projections/       # Qdrant/Falkor projection construction and verification
 retrieval/                   # authoritative retrieval, fusion, reranking, and evidence
+agent/                       # bounded multi-hop model/tool orchestration
+conversation/                # compatibility exports for the core memory port
 ```
 
 ## Extension boundaries
@@ -19,6 +21,10 @@ retrieval/                   # authoritative retrieval, fusion, reranking, and e
 - Canonical chunking has maintained Confluence and Jira policies plus a
   source-neutral fallback for attachments and community connectors.
 - Provider writes and Temporal orchestration remain outside the engine.
+- Agent logic is provider- and transport-neutral; MCP and runtime prompt
+  adapters are injected at higher package boundaries.
+- Conversation identity and memory contracts live in core; PostgreSQL
+  persistence lives in adapters, outside chat and agent orchestration.
 
 ## Ingestion chunking
 

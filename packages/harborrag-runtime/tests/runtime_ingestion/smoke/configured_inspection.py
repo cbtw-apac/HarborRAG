@@ -15,10 +15,9 @@ from projection_inspection import validate_vector_payload
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
-    KnowledgeNodeKind,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_engine.ingestion import EVIDENCE_INDEX, ROUTE_INDEX
+from harborrag_engine.ingestion import EVIDENCE_INDEX
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.retrieval import (
@@ -121,9 +120,8 @@ async def _inspect_graph(
     if root is None:
         raise AssertionError("configured smoke root document is not active")
     traversal = await stores.graph.traverse(
-        identities.node_key(
-            node_kind=KnowledgeNodeKind.DOCUMENT,
-            logical_id=root_document_id,
+        identities.document_version_node_key(
+            document_id=root_document_id,
             document_version_id=str(root.document_version_id),
         ),
         max_depth=3,
@@ -145,7 +143,7 @@ async def _inspect_points(
     counts: Counter[str] = Counter()
     dimensions: set[int] = set()
     sparse_terms: list[int] = []
-    for collection in (ROUTE_INDEX, EVIDENCE_INDEX):
+    for collection in (EVIDENCE_INDEX,):
         cursor = None
         while True:
             page = await repository.scan_records(
@@ -165,10 +163,9 @@ async def _inspect_points(
             cursor = page.next_cursor
             if cursor is None:
                 break
-    if not counts[ROUTE_INDEX] or not counts[EVIDENCE_INDEX]:
-        raise AssertionError("configured smoke requires route and evidence points")
+    if not counts[EVIDENCE_INDEX]:
+        raise AssertionError("configured smoke requires evidence points")
     return {
-        "route_points": counts[ROUTE_INDEX],
         "evidence_points": counts[EVIDENCE_INDEX],
         "dense_dimensions": sorted(dimensions),
         "sparse_term_range": [

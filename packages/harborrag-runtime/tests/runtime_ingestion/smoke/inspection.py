@@ -18,7 +18,6 @@ from harborrag_core.ingestion import (
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     EVIDENCE_INDEX,
-    ROUTE_INDEX,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion_control_factory import build_ingestion_control
@@ -37,10 +36,6 @@ class StoreObservation:
     artifact_keys: tuple[str, ...]
     chunks: tuple[ChunkObservation, ...]
     graphs: tuple[GraphObservation, ...]
-
-    @property
-    def route_chunks(self) -> int:
-        return sum(chunk.collection == ROUTE_INDEX for chunk in self.chunks)
 
     @property
     def evidence_chunks(self) -> int:

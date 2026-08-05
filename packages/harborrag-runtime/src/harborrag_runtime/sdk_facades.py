@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 
 from .contracts import (
+    GraphNeighborhoodRequest,
+    GraphNeighborhoodResponse,
     GraphPathRequest,
     GraphPathResponse,
     GraphSubgraphRequest,
@@ -106,6 +108,22 @@ class GraphFacade:
         service = await self._owner._retrieval_service()
         result = await service.search_graph_subgraph(request.query, access=request.access)
         return GraphSubgraphResponse(
+            nodes=result.graph.nodes,
+            relations=result.graph.relations,
+            diagnostics=asdict(result.diagnostics),
+        )
+
+    async def neighborhood(
+        self,
+        request: GraphNeighborhoodRequest,
+    ) -> GraphNeighborhoodResponse:
+        service = await self._owner._retrieval_service()
+        seeds, result = await service.search_graph_neighborhood(
+            request.query,
+            access=request.access,
+        )
+        return GraphNeighborhoodResponse(
+            seeds=seeds,
             nodes=result.graph.nodes,
             relations=result.graph.relations,
             diagnostics=asdict(result.diagnostics),

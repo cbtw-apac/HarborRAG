@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from pydantic import Field, JsonValue, field_validator, model_validator
+from pydantic import ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_core.chunking import RelationType
@@ -23,10 +23,28 @@ class TenantScopedRetrievalRequest(ApiModel):
 
 
 class VectorSearchRequest(TenantScopedRetrievalRequest):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "query": "publication policy",
+                    "tenant": "DEFAULT",
+                    "top_k": 5,
+                    "lane": "hybrid",
+                    "include_content": True,
+                    "include_metadata": True,
+                }
+            ]
+        }
+    )
+
     query: str = Field(min_length=1, max_length=16_384)
     top_k: int = Field(default=10, ge=1, le=100)
     lane: RetrievalLane = RetrievalLane.HYBRID
-    filters: dict[str, JsonValue] = Field(default_factory=dict)
+    filters: dict[str, JsonValue] | None = Field(
+        default=None,
+        description="Optional metadata equality filters; omit for an unfiltered search.",
+    )
     observe_graph: bool = False
     score_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
     include_content: bool = True
@@ -34,8 +52,11 @@ class VectorSearchRequest(TenantScopedRetrievalRequest):
 
     @field_validator("filters")
     @classmethod
-    def reject_access_filters(cls, filters: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if "tenant_id" in filters:
+    def reject_access_filters(
+        cls,
+        filters: dict[str, JsonValue] | None,
+    ) -> dict[str, JsonValue] | None:
+        if filters is not None and "tenant_id" in filters:
             raise ValueError("tenant must be provided as the top-level request field")
         return filters
 
@@ -75,7 +96,9 @@ class GraphPathSearchRequest(TenantScopedRetrievalRequest):
     relationship_types: list[RelationType] = Field(default_factory=list)
     max_depth: int = Field(default=4, ge=1, le=8)
     max_paths: int = Field(default=10, ge=1, le=100)
-    direction: GraphDirection = GraphDirection.OUTGOING
+    # Matches GraphPathQuery: the spine mixes edge directions, so a directed default
+    # returns nothing for the most common question.
+    direction: GraphDirection = GraphDirection.BOTH
 
     @model_validator(mode="after")
     def validate_path(self) -> Self:
@@ -100,6 +123,23 @@ class GraphSubgraphSearchRequest(TenantScopedRetrievalRequest):
         return self
 
 
+class GraphNeighborhoodSearchRequest(TenantScopedRetrievalRequest):
+    """Expand the graph around a natural-language question, with no node selector."""
+
+    query: str = Field(min_length=1)
+    seed_limit: int = Field(default=3, ge=1, le=10)
+    relationship_types: list[RelationType] = Field(default_factory=list)
+    max_depth: int = Field(default=2, ge=1, le=8)
+    max_nodes: int = Field(default=20, ge=1, le=100)
+    direction: GraphDirection = GraphDirection.BOTH
+
+    @model_validator(mode="after")
+    def validate_relationship_types(self) -> Self:
+        if len(set(self.relationship_types)) != len(self.relationship_types):
+            raise ValueError("neighborhood relationship types must be unique")
+        return self
+
+
 class GraphSearchDiagnosticsResponse(ApiModel):
     candidate_count: int = Field(ge=0)
     accepted_count: int = Field(ge=0)
@@ -119,6 +159,13 @@ class GraphPathSearchResponse(ApiModel):
 
 
 class GraphSubgraphSearchResponse(ApiModel):
+    nodes: list[GraphNodeRecord]
+    relations: list[GraphEdgeRecord]
+    diagnostics: GraphSearchDiagnosticsResponse
+
+
+class GraphNeighborhoodSearchResponse(ApiModel):
+    seeds: list[str]
     nodes: list[GraphNodeRecord]
     relations: list[GraphEdgeRecord]
     diagnostics: GraphSearchDiagnosticsResponse

@@ -13,7 +13,6 @@ from harborrag_core.ingestion import (
     RepresentationSet,
     VectorEvidenceRecord,
     VectorProjectionBatch,
-    VectorRouteRecord,
 )
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.storage import StorageOperationContext
@@ -153,11 +152,6 @@ class ProjectionMaterialLoader:
 
 
 def vector_batch(
-    points: tuple[VectorRouteRecord | VectorEvidenceRecord, ...],
+    points: tuple[VectorEvidenceRecord, ...],
 ) -> VectorProjectionBatch:
-    return VectorProjectionBatch.assemble(
-        route_records=tuple(point for point in points if isinstance(point, VectorRouteRecord)),
-        evidence_records=tuple(
-            point for point in points if isinstance(point, VectorEvidenceRecord)
-        ),
-    )
+    return VectorProjectionBatch.assemble(evidence_records=tuple(points))

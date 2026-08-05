@@ -210,3 +210,41 @@ class McpQueryLogRow(Base):
     client: Mapped[str] = mapped_column(sa.Text, nullable=False)
     latency_ms: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+
+
+class ConversationSessionRow(Base):
+    """Persisted authenticated chat/agent session resource."""
+
+    __tablename__ = "conversation_sessions"
+
+    session_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ConversationMemoryRow(Base):
+    """Completed chat/agent turns isolated by authenticated session identity."""
+
+    __tablename__ = "conversation_memory"
+    __table_args__ = (
+        sa.Index(
+            "ix_conversation_memory_identity_created",
+            "tenant_id",
+            "principal_id",
+            "session_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        sa.ForeignKey("conversation_sessions.session_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_content: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    assistant_content: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

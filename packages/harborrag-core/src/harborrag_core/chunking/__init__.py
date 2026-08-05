@@ -11,6 +11,7 @@ from .identity import (
 from .metadata import ChunkMetadata, FrozenMetadata, thaw_metadata
 from .record import ChunkRecord
 from .schemas import (
+    PROJECTED_RELATION_TYPES,
     ChunkContainer,
     ChunkHierarchy,
     ChunkKind,
@@ -42,6 +43,7 @@ __all__ = [
     "ContainerKind",
     "DocumentKind",
     "FrozenMetadata",
+    "PROJECTED_RELATION_TYPES",
     "RelationType",
     "RecordKind",
     "SourceAttribute",

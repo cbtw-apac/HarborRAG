@@ -6,14 +6,14 @@ Owns the FastMCP transport, pre-execution policy, and durable audit boundary.
 
 ```text
 tools/base.py + tools/retrieval_inputs.py
-tools/chat.py + tools/vector_search.py + tools/graph_search.py
+tools/chat.py + tools/agent.py + tools/vector_search.py + tools/graph_search.py
 server/base.py + server/server.py
 ```
 
 ## Team deliverables
 
-- The shipped transport exposes five retrieval tools plus one bounded chat
-  tool backed by the shared runtime prompt catalog.
+- The shipped transport exposes five retrieval tools, one bounded chat tool,
+  and one multi-turn agent backed by the shared runtime prompt catalog.
 - Every attempt and outcome is durably audited with a principal identifier and
   arguments digest; raw arguments and tokens are never recorded.
 - Declared input schemas plus argument, result-count, and serialized-output
@@ -46,7 +46,7 @@ The launcher loads the protected database, model, API, and MCP environment files
 constructs the shared `HarborRAG` runtime, and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the six advertised tool names without connecting to
+MCP handshake and print the seven advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:
@@ -71,10 +71,16 @@ Open the browser page, enter the bearer token, provide a tenant ID, and select
 and executes the selected tool with **Run tool**. Tenant-specific enablement,
 defaults and limits are applied before execution, and each attempt is audited.
 
-The `chat` tool requires `message` and `tenant_id`. It accepts the `default` or
+The `chat` tool requires `message` and `tenant_id`. `session_id` is
+optional on the first call; reuse the generated response value for memory.
+It accepts the `default` or
 `concise` stored prompt, an optional request-specific system message, a logical
 model, temperature, and a bounded completion-token limit. Provider credentials
 remain process environment/configuration and are never accepted as tool input.
+The `agent` tool performs up to eight model/tool rounds over enabled read-only
+tools. Both tools use PostgreSQL conversation memory and recall the latest two
+completed turns; `graph_search` controls whether the agent can observe graph
+tools.
 
 The owner-only browser API is:
 

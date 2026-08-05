@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 from harborrag_core.chunking import ChunkRecord, RelationType
 from harborrag_core.domain.document import Document, DocumentRelation
-from harborrag_core.ingestion import GraphNodeRecord, KnowledgeNodeKind
+from harborrag_core.ingestion import GraphNodeRecord
 
 from .graph_models import (
     GraphDocumentTarget,
@@ -12,17 +12,21 @@ from .graph_models import (
     GraphProjectionInput,
     UnresolvedGraphRelation,
 )
-from .graph_state import (
-    GraphNodeSpec,
-    GraphProjectionContext,
-    GraphProjectionState,
-    GraphRelationSpec,
+from .graph_state import GraphProjectionContext, GraphProjectionState, GraphRelationSpec
+from .graph_structure import StructuralGraphProjector
+from .source_projectors import (
+    GraphSourceProjectorRegistry,
+    default_graph_source_projector_registry,
+    relation_entity_type,
+    source_provider_id,
 )
-from .graph_structure import StructuralGraphProjector, reviewable_preview
 
 
 class GraphProjectionBuilder:
-    """Build the non-LLM structural and source-explicit knowledge graph."""
+    """Build schema-v2 tenant, source, version, structure, and chunk topology."""
+
+    def __init__(self, registry: GraphSourceProjectorRegistry | None = None) -> None:
+        self._registry = registry or default_graph_source_projector_registry()
 
     def build_structural(
         self,
@@ -31,8 +35,6 @@ class GraphProjectionBuilder:
         chunks: tuple[ChunkRecord, ...],
         graph_projection_version: str,
     ) -> GraphProjectionBatch:
-        """Build the immutable per-version graph before link-target repair."""
-
         return self.build(
             GraphProjectionInput(
                 document=document,
@@ -45,6 +47,8 @@ class GraphProjectionBuilder:
     def build(self, request: GraphProjectionInput) -> GraphProjectionBatch:
         first = request.chunks[0]
         context = GraphProjectionContext(
+            tenant_id=first.tenant_id,
+            connection_id=first.connection_id,
             document_id=first.document_id,
             document_version_id=first.document_version_id,
             source_scope_id=first.source_scope_id,
@@ -55,47 +59,51 @@ class GraphProjectionBuilder:
             source_uri=first.citation_locator.uri,
         )
         state = GraphProjectionState(context)
-        evidence_chunks = (
-            tuple(chunk for chunk in request.chunks if chunk.record_kind.value == "evidence")
-            or request.chunks
+        tenant = state.tenant_node()
+        data_source = state.data_source_node()
+        state.relation(
+            GraphRelationSpec(
+                relation_type=RelationType.HAS_DATA_SOURCE,
+                source=tenant,
+                target=data_source,
+                source_explicit=False,
+            )
         )
-        current_document = state.current_node(
-            KnowledgeNodeKind.DOCUMENT,
-            context.document_id,
-            title=request.document.title,
-            content_preview=reviewable_preview(evidence_chunks),
+        document_version = state.document_version_node(title=request.document.title)
+        source_item = self._registry.resolve(first.connector_type.value).project(
+            state,
+            request.document,
+            data_source,
+            document_version,
         )
-        StructuralGraphProjector(state, request.chunks).project(current_document)
+        StructuralGraphProjector(state, request.chunks).project(document_version)
         unresolved = SourceRelationProjector(
             state=state,
-            current_document=current_document,
+            current_source_item=source_item,
             resolved_targets=request.resolved_targets,
         ).project(request.document.relations)
         return GraphProjectionBatch(
-            nodes=tuple(state.nodes[key] for key in sorted(state.nodes)),
-            relations=tuple(state.relations[key] for key in sorted(state.relations)),
+            nodes=tuple(state.nodes.values()),
+            relations=tuple(state.relations.values()),
             unresolved_relations=unresolved,
         )
 
 
 class SourceRelationProjector:
-    """Normalize source relations and defer targets that are not yet published."""
+    """Project source-native links between stable source entities."""
 
     def __init__(
         self,
         *,
         state: GraphProjectionState,
-        current_document: GraphNodeRecord,
+        current_source_item: GraphNodeRecord,
         resolved_targets: Mapping[str, GraphDocumentTarget],
     ) -> None:
         self._state = state
-        self._current = current_document
+        self._current = current_source_item
         self._targets = resolved_targets
 
-    def project(
-        self,
-        relations: list[DocumentRelation],
-    ) -> tuple[UnresolvedGraphRelation, ...]:
+    def project(self, relations: list[DocumentRelation]) -> tuple[UnresolvedGraphRelation, ...]:
         unresolved: list[UnresolvedGraphRelation] = []
         seen: set[tuple[RelationType, str, str]] = set()
         for relation in relations:
@@ -103,30 +111,39 @@ class SourceRelationProjector:
             if normalized is None:
                 continue
             relation_type, reverse = normalized
-            target = self._targets.get(relation.target_id)
-            if target is None:
+            resolved = self._targets.get(relation.target_id)
+            if resolved is None:
                 unresolved.append(
                     UnresolvedGraphRelation(
                         relation_type=relation_type.value,
                         target_source_item_id=relation.target_id,
                     )
                 )
-                continue
-            target_node = self._state.node(
-                GraphNodeSpec(
-                    kind=KnowledgeNodeKind.DOCUMENT,
-                    logical_id=target.document_id,
-                    document_id=target.document_id,
-                    document_version_id=target.document_version_id,
-                    source_scope_id=target.source_scope_id,
-                    title=target.title or target.source_item_id,
-                    source_item_id=target.source_item_id,
-                )
+            raw_target_id = (
+                resolved.source_item_id if resolved is not None else relation.target_id
             )
-            source_node, destination_node = (
-                (target_node, self._current) if reverse else (self._current, target_node)
+            target_id = source_provider_id(
+                self._state.context.connector_type.value,
+                raw_target_id,
             )
-            key = (relation_type, source_node.node_key, destination_node.node_key)
+            target_scope = (
+                resolved.source_scope_id
+                if resolved is not None
+                else self._state.context.source_scope_id
+            )
+            target = self._state.source_node(
+                relation_entity_type(
+                    self._state.context.connector_type.value,
+                    relation_type,
+                    relation.target_type,
+                ),
+                target_id,
+                title=((resolved.title or target_id) if resolved is not None else target_id),
+                source_scope_id=target_scope,
+                attributes=({} if resolved is not None else {"placeholder": True}),
+            )
+            source, destination = (target, self._current) if reverse else (self._current, target)
+            key = (relation_type, source.node_key, destination.node_key)
             if key in seen:
                 continue
             seen.add(key)
@@ -134,8 +151,8 @@ class SourceRelationProjector:
             self._state.relation(
                 GraphRelationSpec(
                     relation_type=relation_type,
-                    source=source_node,
-                    target=destination_node,
+                    source=source,
+                    target=destination,
                     source_explicit=True,
                     source_relation_version=(
                         str(supplied_version)
@@ -147,18 +164,14 @@ class SourceRelationProjector:
         return tuple(unresolved)
 
     @staticmethod
-    def _normalize(
-        relation: DocumentRelation,
-    ) -> tuple[RelationType, bool] | None:
+    def _normalize(relation: DocumentRelation) -> tuple[RelationType, bool] | None:
         predicate = relation.predicate.strip().lower().replace("-", "_").replace(" ", "_")
         registry: dict[str, tuple[RelationType, bool]] = {
             "has_attachment": (RelationType.HAS_ATTACHMENT, False),
             "attached_to": (RelationType.HAS_ATTACHMENT, True),
-            "child_of": (RelationType.CHILD_OF, False),
-            "parent_of": (RelationType.CHILD_OF, True),
+            "child_of": (RelationType.PARENT_OF, True),
+            "parent_of": (RelationType.PARENT_OF, False),
             "links_to": (RelationType.LINKS_TO, False),
-            "includes": (RelationType.INCLUDES, False),
-            "embeds": (RelationType.EMBEDS, False),
             "blocks": (RelationType.BLOCKS, False),
             "is_blocked_by": (RelationType.BLOCKS, True),
             "duplicates": (RelationType.DUPLICATES, False),

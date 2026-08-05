@@ -27,7 +27,6 @@ def test_admin_can_inspect_tenant_projection_names(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert [item["physical_name"] for item in response.json()["vector_collections"]] == [
-        "DEFAULT_routes",
         "DEFAULT_evidence",
     ]
     assert response.json()["graph_nodes"] == 12

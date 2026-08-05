@@ -11,6 +11,7 @@ from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp_server.tools.health import HealthTool
+from harborrag_runtime.memory import InMemoryConversationMemory
 
 
 def test_package_exposes_the_mcp_server_namespace() -> None:
@@ -27,7 +28,9 @@ def test_module_check_lists_all_tools(capsys) -> None:
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "graph_neighborhood",
         "chat",
+        "agent",
     ]
 
 
@@ -62,6 +65,7 @@ def test_module_runs_stdio_when_launched_with_a_pipe(monkeypatch) -> None:
             calls.append((transport, show_banner))
 
     monkeypatch.setattr(cli.sys, "stdin", PipedInput())
+    monkeypatch.setattr(cli, "_configured_memory", lambda _settings: InMemoryConversationMemory())
     monkeypatch.setattr(cli, "create_mcp_server", lambda **kwargs: FakeTransport())
 
     assert cli.main([]) == 0
@@ -103,7 +107,9 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "graph_neighborhood",
         "chat",
+        "agent",
     ]
     assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
 
@@ -145,7 +151,9 @@ async def test_mcp_registry_exposes_retrieval_and_chat_tools():
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "graph_neighborhood",
         "chat",
+        "agent",
     ]
     assert [tool.name for tool in server.list_tools()] == expected
     assert [item["name"] for item in list_tools()] == expected

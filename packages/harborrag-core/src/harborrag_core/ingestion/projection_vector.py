@@ -17,15 +17,12 @@ from harborrag_core.chunking import (
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
 from harborrag_core.schemas.vector import SparseVector
 
-from .artifact_contracts import ContentReference
-
 
 class VectorPayload(StrictModel):
-    """Reviewable retrieval payload shared by route and evidence projections.
+    """Minimal evidence payload stored beside a retrieval vector.
 
-    ``content_reference`` remains the immutable source of truth used by runtime
-    retrieval.  The display fields intentionally live beside the vectors so an
-    operator can inspect and diagnose an index without access to object storage.
+    Chunk text has one projection owner: ``content`` in the evidence collection.
+    Graph projections contain identifiers and relationships only.
     """
 
     chunk_id: str = Field(min_length=1)
@@ -39,9 +36,7 @@ class VectorPayload(StrictModel):
     source_scope_id: str = Field(min_length=1)
     source_item_id: str | None = Field(default=None, min_length=1)
     language: str | None = None
-    content_reference: ContentReference
-    content: str | None = Field(default=None, min_length=1)
-    preview: str = Field(min_length=1)
+    content: str = Field(min_length=1)
     document_title: str | None = None
     section_path: tuple[str, ...] = ()
     token_count: int | None = Field(default=None, ge=0)
@@ -97,14 +92,6 @@ class _VectorRecord(StrictModel):
         return values
 
 
-class VectorRouteRecord(_VectorRecord):
-    @model_validator(mode="after")
-    def validate_route(self) -> VectorRouteRecord:
-        if self.payload.record_kind != RecordKind.ROUTE:
-            raise ValueError("route vector record requires a route payload")
-        return self
-
-
 class VectorEvidenceRecord(_VectorRecord):
     @model_validator(mode="after")
     def validate_evidence(self) -> VectorEvidenceRecord:
@@ -117,29 +104,22 @@ class VectorProjectionManifest(StrictModel):
     schema_version: str = "1.0"
     document_id: DocumentId
     document_version_id: DocumentVersionId
-    route_point_ids: tuple[str, ...]
     evidence_point_ids: tuple[str, ...]
     payload_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def validate_point_ids(self) -> VectorProjectionManifest:
-        point_ids = (*self.route_point_ids, *self.evidence_point_ids)
-        if len(point_ids) != len(set(point_ids)):
+        if len(self.evidence_point_ids) != len(set(self.evidence_point_ids)):
             raise ValueError("vector projection point IDs must be unique")
         return self
 
 
 class VectorProjectionBatch(StrictModel):
-    route_records: tuple[VectorRouteRecord, ...]
     evidence_records: tuple[VectorEvidenceRecord, ...]
     manifest: VectorProjectionManifest
 
     @model_validator(mode="after")
     def validate_manifest(self) -> VectorProjectionBatch:
-        if tuple(record.point_id for record in self.route_records) != (
-            self.manifest.route_point_ids
-        ):
-            raise ValueError("route records do not match the vector projection manifest")
         if tuple(record.point_id for record in self.evidence_records) != (
             self.manifest.evidence_point_ids
         ):
@@ -148,16 +128,15 @@ class VectorProjectionBatch(StrictModel):
 
     @property
     def point_count(self) -> int:
-        return len(self.route_records) + len(self.evidence_records)
+        return len(self.evidence_records)
 
     @classmethod
     def assemble(
         cls,
         *,
-        route_records: tuple[VectorRouteRecord, ...],
         evidence_records: tuple[VectorEvidenceRecord, ...],
     ) -> VectorProjectionBatch:
-        records = (*route_records, *evidence_records)
+        records = evidence_records
         if not records:
             raise ValueError("vector projection batch must not be empty")
         document_ids = {record.payload.document_id for record in records}
@@ -171,12 +150,10 @@ class VectorProjectionBatch(StrictModel):
             sort_keys=True,
         ).encode("utf-8")
         return cls(
-            route_records=route_records,
             evidence_records=evidence_records,
             manifest=VectorProjectionManifest(
                 document_id=next(iter(document_ids)),
                 document_version_id=next(iter(version_ids)),
-                route_point_ids=tuple(record.point_id for record in route_records),
                 evidence_point_ids=tuple(record.point_id for record in evidence_records),
                 payload_sha256=sha256(payload_bytes).hexdigest(),
             ),

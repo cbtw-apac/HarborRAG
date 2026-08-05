@@ -6,12 +6,16 @@ from harborrag_runtime.sdk import RetrievalLane
 
 
 def graph_records() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
-    """Return one document node, one section node, and the relation between them."""
+    """Return one document-version node, one section, and their relation."""
 
     subject = {
         "node_key": "document:1",
-        "node_kind": "Document",
+        "node_kind": "DocumentVersion",
+        "entity_type": "document_version",
         "logical_id": "document:1",
+        "graph_schema_version": "2.0",
+        "ownership_scope": "DOCUMENT_VERSION",
+        "owner_id": "tenant-1",
         "document_id": "document:1",
         "document_version_id": "document-version:1",
         "source_scope_id": "scope:1",
@@ -19,8 +23,12 @@ def graph_records() -> tuple[dict[str, object], dict[str, object], dict[str, obj
     }
     object_node = {
         "node_key": "section:1",
-        "node_kind": "Section",
+        "node_kind": "Structure",
+        "entity_type": "section",
         "logical_id": "section:1",
+        "graph_schema_version": "2.0",
+        "ownership_scope": "DOCUMENT_VERSION",
+        "owner_id": "tenant-1",
         "document_id": "document:1",
         "document_version_id": "document-version:1",
         "source_scope_id": "scope:1",
@@ -28,13 +36,17 @@ def graph_records() -> tuple[dict[str, object], dict[str, object], dict[str, obj
     }
     relation = {
         "relation_id": "relation:1",
-        "relation_type": "has_section",
+        "relation_type": "contains",
         "source_node_key": "document:1",
         "target_node_key": "section:1",
+        "graph_schema_version": "2.0",
+        "ownership_scope": "DOCUMENT_VERSION",
+        "owner_id": "tenant-1",
+        "source_scope_id": "scope:1",
+        "document_id": "document:1",
         "document_version_id": "document-version:1",
         "source_relation_version": "1",
         "source_explicit": True,
-        "evidence_chunk_ids": ["chunk:1"],
     }
     return subject, object_node, relation
 
@@ -113,11 +125,6 @@ def projection_inventory_payload(tenant: str) -> dict[str, object]:
     return {
         "tenant": tenant,
         "vector_collections": [
-            {
-                "logical_name": "routes",
-                "physical_name": f"{tenant}_routes",
-                "exists": True,
-            },
             {
                 "logical_name": "evidence",
                 "physical_name": f"{tenant}_evidence",

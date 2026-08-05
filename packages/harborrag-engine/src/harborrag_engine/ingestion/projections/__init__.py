@@ -3,11 +3,12 @@ from .graph import (
     GraphProjectionBatch,
     GraphProjectionBuilder,
     GraphProjectionInput,
+    GraphSourceProjector,
+    GraphSourceProjectorRegistry,
     UnresolvedGraphRelation,
 )
 from .vector import (
     EVIDENCE_INDEX,
-    ROUTE_INDEX,
     VectorProjectionBatch,
     VectorProjectionBuilder,
     VectorProjectionInput,
@@ -27,7 +28,8 @@ __all__ = [
     "GraphProjectionBatch",
     "GraphProjectionBuilder",
     "GraphProjectionInput",
-    "ROUTE_INDEX",
+    "GraphSourceProjector",
+    "GraphSourceProjectorRegistry",
     "ProjectionManifestBuilder",
     "ProjectionManifestInput",
     "ProjectionVerificationInput",

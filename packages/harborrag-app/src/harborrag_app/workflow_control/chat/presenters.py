@@ -21,6 +21,8 @@ def citation_data(result: RetrievalResult) -> dict[str, object]:
 def chat_response_data(
     response: HarborChatResponse,
     results: Sequence[RetrievalResult] = (),
+    *,
+    session_id: str,
 ) -> dict[str, object]:
     """Project a provider response without leaking deployment metadata."""
 
@@ -40,6 +42,7 @@ def chat_response_data(
         "retry_count": response.retry_count,
         "fallback_count": response.fallback_count,
         "citations": tuple(citation_data(result) for result in results),
+        "session_id": session_id,
     }
 
 

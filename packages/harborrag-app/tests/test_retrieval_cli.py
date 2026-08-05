@@ -9,6 +9,7 @@ from app_test_fixtures import MockAppService
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control.client import AppService, AppServiceFactories
+from harborrag_app.workflow_control.retrieval_response import retrieval_response
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse
@@ -88,6 +89,28 @@ class FakeRetrievalRuntime:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+def test_retrieval_response_enforces_top_k_even_if_backend_over_returns() -> None:
+    response = RetrievalResponse(
+        request_id="retrieval-over-return",
+        lane=RetrievalLane.HYBRID,
+        results=tuple(
+            RetrievalResult(f"chunk-{index}", f"text-{index}", 1.0 - index / 10, {})
+            for index in range(4)
+        ),
+        diagnostics={},
+    )
+
+    projected = retrieval_response(
+        response,
+        include_content=True,
+        include_metadata=False,
+        top_k=2,
+    )
+
+    assert [item["id"] for item in projected.data["results"]] == ["chunk-0", "chunk-1"]
+    assert "task_id" not in projected.data
 
 
 @pytest.mark.asyncio

@@ -71,7 +71,6 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
         )
 
         assert first.published is True
-        assert first.route_chunks == 1
         assert first.evidence_chunks >= 1
         assert first.document_version_id is not None
         manifest = await control.reliability.projection_manifest(first.document_version_id)
@@ -109,7 +108,6 @@ async def test_contentless_document_is_skipped_as_unsupported(tmp_path: Path) ->
 
         assert outcome.decision == SourceAdmissionDecision.UNSUPPORTED
         assert outcome.published is False
-        assert outcome.route_chunks == 0
         assert outcome.evidence_chunks == 0
         assert embed.inputs == []
 

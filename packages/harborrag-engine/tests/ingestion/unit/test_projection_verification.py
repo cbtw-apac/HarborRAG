@@ -64,10 +64,12 @@ def test_cross_projection_verification_accepts_one_consistent_document_version()
 def test_cross_projection_verification_rejects_payload_version_drift() -> None:
     values = projection_values()
     vectors = values.vectors
-    route = vectors.route_records[0]
-    invalid_route = route.model_copy(
+    evidence = vectors.evidence_records[0]
+    invalid_evidence = evidence.model_copy(
         update={
-            "payload": route.payload.model_copy(update={"document_version_id": "stale-version"})
+            "payload": evidence.payload.model_copy(
+                update={"document_version_id": "stale-version"}
+            )
         }
     )
 
@@ -76,10 +78,12 @@ def test_cross_projection_verification_rejects_payload_version_drift() -> None:
             manifest=values.manifest,
             chunks=values.chunks,
             vectors=VectorProjectionBatch(
-                route_records=(invalid_route,),
-                evidence_records=vectors.evidence_records,
+                evidence_records=(invalid_evidence, *vectors.evidence_records[1:]),
                 manifest=vectors.manifest.model_copy(
-                    update={"route_point_ids": (invalid_route.point_id,)}
+                    update={"evidence_point_ids": tuple(
+                        record.point_id
+                        for record in (invalid_evidence, *vectors.evidence_records[1:])
+                    )}
                 ),
             ),
             graph=values.graph,
@@ -176,8 +180,6 @@ def projection_values() -> VerificationFixture:
         graph=graph,
         vector_result=VectorProjectionVerification(
             valid=True,
-            expected_route_count=len(vectors.route_records),
-            actual_route_count=len(vectors.route_records),
             expected_evidence_count=len(vectors.evidence_records),
             actual_evidence_count=len(vectors.evidence_records),
         ),

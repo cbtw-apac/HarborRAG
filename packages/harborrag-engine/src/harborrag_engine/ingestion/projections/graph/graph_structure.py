@@ -3,24 +3,17 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from harborrag_core.chunking import ChunkKind, ChunkRecord, RelationType
+from harborrag_core.chunking import ChunkKind, ChunkRecord, RecordKind, RelationType
 from harborrag_core.chunking.identity import encoded_identifier
-from harborrag_core.ingestion import GraphNodeRecord, KnowledgeNodeKind
+from harborrag_core.ingestion import (
+    GraphEntityType,
+    GraphNodeRecord,
+    GraphOwnershipScope,
+    KnowledgeNodeKind,
+)
 from harborrag_core.invariants import HarborInvariantError
 
-from .graph_state import GraphProjectionState, GraphRelationSpec
-
-_NODE_PREVIEW_CHARACTERS = 640
-
-
-def reviewable_preview(chunks: Sequence[ChunkRecord]) -> str | None:
-    """Build bounded, de-duplicated node content for graph inspection."""
-
-    parts = tuple(dict.fromkeys(chunk.content.strip() for chunk in chunks if chunk.content.strip()))
-    if not parts:
-        return None
-    content = "\n\n".join(parts)
-    return content[:_NODE_PREVIEW_CHARACTERS]
+from .graph_state import GraphNodeSpec, GraphProjectionState, GraphRelationSpec
 
 
 class StructuralGraphProjector:
@@ -35,17 +28,15 @@ class StructuralGraphProjector:
         self._chunks = tuple(chunks)
 
     def project(self, document_node: GraphNodeRecord) -> None:
-        sections, evidence = self._section_nodes()
-        self._section_relations(document_node, sections, evidence)
-        self._tables(document_node, sections)
-        self._comments(document_node, sections)
+        sections = self._section_nodes()
+        self._section_relations(document_node, sections)
+        tables = self._tables(document_node, sections)
+        comments = self._comments(document_node, sections)
+        self._chunk_nodes(document_node, sections, tables, comments)
 
     def _section_nodes(
         self,
-    ) -> tuple[
-        dict[tuple[str, ...], GraphNodeRecord],
-        dict[tuple[str, ...], tuple[str, ...]],
-    ]:
+    ) -> dict[tuple[str, ...], GraphNodeRecord]:
         evidence: defaultdict[tuple[str, ...], list[ChunkRecord]] = defaultdict(list)
         logical_ids: dict[tuple[str, ...], str] = {}
         for chunk in self._chunks:
@@ -62,43 +53,34 @@ class StructuralGraphProjector:
                     ),
                 )
         nodes = {
-            path: self._state.current_node(
-                KnowledgeNodeKind.SECTION,
+            path: self._state.structure_node(
+                GraphEntityType.SECTION,
                 logical_id,
                 title=path[-1],
-                content_preview=reviewable_preview(evidence[path]),
                 section_path=path,
             )
             for path, logical_id in logical_ids.items()
         }
-        return (
-            nodes,
-            {
-                path: tuple(dict.fromkeys(str(chunk.chunk_id) for chunk in chunks))
-                for path, chunks in evidence.items()
-            },
-        )
+        return nodes
 
     def _section_relations(
         self,
         document_node: GraphNodeRecord,
         sections: dict[tuple[str, ...], GraphNodeRecord],
-        evidence: dict[tuple[str, ...], tuple[str, ...]],
     ) -> None:
         for path, section in sections.items():
             if len(path) == 1:
-                relation_type = RelationType.HAS_SECTION
+                relation_type = RelationType.CONTAINS
                 source, target = document_node, section
             else:
-                relation_type = RelationType.CHILD_OF
-                source, target = section, sections[path[:-1]]
+                relation_type = RelationType.PARENT_OF
+                source, target = sections[path[:-1]], section
             self._state.relation(
                 GraphRelationSpec(
                     relation_type=relation_type,
                     source=source,
                     target=target,
                     source_explicit=False,
-                    evidence_chunk_ids=evidence[path],
                 )
             )
 
@@ -106,73 +88,70 @@ class StructuralGraphProjector:
         self,
         document_node: GraphNodeRecord,
         sections: dict[tuple[str, ...], GraphNodeRecord],
-    ) -> None:
+    ) -> dict[str, GraphNodeRecord]:
         table_chunks: defaultdict[str, list[ChunkRecord]] = defaultdict(list)
         for chunk in self._chunks:
             if chunk.chunk_kind == ChunkKind.TABLE:
                 if chunk.table_locator is None:
                     raise HarborInvariantError("chunk.table_locator must not be None here")
                 table_chunks[chunk.table_locator.table_id].append(chunk)
+        nodes: dict[str, GraphNodeRecord] = {}
         for table_id, records in sorted(table_chunks.items()):
-            table = self._state.current_node(
-                KnowledgeNodeKind.TABLE,
+            table = self._state.structure_node(
+                GraphEntityType.TABLE,
                 table_id,
                 title=(
                     self._metadata_text(records[0], "table_caption")
                     or self._table_title(records[0])
                 ),
-                content_preview=reviewable_preview(records),
                 section_path=records[0].hierarchy.section_path,
             )
+            nodes[table_id] = table
             source = sections.get(records[0].hierarchy.section_path, document_node)
             self._state.relation(
                 GraphRelationSpec(
-                    relation_type=RelationType.HAS_TABLE,
+                    relation_type=RelationType.CONTAINS,
                     source=source,
                     target=table,
                     source_explicit=False,
-                    evidence_chunk_ids=tuple(str(chunk.chunk_id) for chunk in records),
                 )
             )
+        return nodes
 
     def _comments(
         self,
         document_node: GraphNodeRecord,
         sections: dict[tuple[str, ...], GraphNodeRecord],
-    ) -> None:
+    ) -> dict[str, GraphNodeRecord]:
         comments = tuple(chunk for chunk in self._chunks if chunk.chunk_kind == ChunkKind.COMMENT)
         nodes: dict[str, GraphNodeRecord] = {}
         comment_ids: dict[str, str] = {}
         for chunk in comments:
             comment_id = self._comment_id(chunk)
             comment_ids[str(chunk.chunk_id)] = comment_id
-            comment = self._state.current_node(
-                KnowledgeNodeKind.COMMENT,
+            comment = self._state.structure_node(
+                GraphEntityType.COMMENT,
                 comment_id,
-                title=self._comment_title(chunk),
-                content_preview=reviewable_preview((chunk,)),
+                title=f"Comment {comment_id}",
                 section_path=chunk.hierarchy.section_path,
             )
             nodes[comment_id] = comment
-            evidence = (str(chunk.chunk_id),)
             self._state.relation(
                 GraphRelationSpec(
-                    relation_type=RelationType.HAS_COMMENT,
+                    relation_type=RelationType.CONTAINS,
                     source=document_node,
                     target=comment,
                     source_explicit=False,
-                    evidence_chunk_ids=evidence,
                 )
             )
             section = sections.get(chunk.hierarchy.section_path)
             if section is not None:
                 self._state.relation(
                     GraphRelationSpec(
-                        relation_type=RelationType.COMMENT_ON,
+                        relation_type=RelationType.LINKS_TO,
                         source=comment,
                         target=section,
                         source_explicit=True,
-                        evidence_chunk_ids=evidence,
                     )
                 )
         for chunk in comments:
@@ -186,7 +165,51 @@ class StructuralGraphProjector:
                     source=nodes[comment_id],
                     target=nodes[parent_id],
                     source_explicit=True,
-                    evidence_chunk_ids=(str(chunk.chunk_id),),
+                )
+            )
+        return {
+            chunk_id: nodes[comment_id]
+            for chunk_id, comment_id in comment_ids.items()
+        }
+
+    def _chunk_nodes(
+        self,
+        document_node: GraphNodeRecord,
+        sections: dict[tuple[str, ...], GraphNodeRecord],
+        tables: dict[str, GraphNodeRecord],
+        comments: dict[str, GraphNodeRecord],
+    ) -> None:
+        """Link vector evidence IDs to their nearest graph structure."""
+
+        for chunk in self._chunks:
+            if chunk.record_kind != RecordKind.EVIDENCE:
+                continue
+            chunk_id = str(chunk.chunk_id)
+            target = comments.get(chunk_id)
+            if target is None and chunk.table_locator is not None:
+                target = tables.get(chunk.table_locator.table_id)
+            if target is None:
+                target = sections.get(chunk.hierarchy.section_path, document_node)
+            chunk_node = self._state.node(
+                GraphNodeSpec(
+                    kind=KnowledgeNodeKind.CHUNK,
+                    entity_type=GraphEntityType.CHUNK,
+                    logical_id=chunk_id,
+                    node_key=chunk_id,
+                    ownership_scope=GraphOwnershipScope.DOCUMENT_VERSION,
+                    source_scope_id=chunk.source_scope_id,
+                    document_id=chunk.document_id,
+                    document_version_id=chunk.document_version_id,
+                    section_path=chunk.hierarchy.section_path,
+                    attributes={"ordinal": chunk.ordinal},
+                )
+            )
+            self._state.relation(
+                GraphRelationSpec(
+                    relation_type=RelationType.SUPPORTS,
+                    source=chunk_node,
+                    target=target,
+                    source_explicit=False,
                 )
             )
 
@@ -221,14 +244,6 @@ class StructuralGraphProjector:
     def _table_title(chunk: ChunkRecord) -> str:
         section = chunk.hierarchy.section_path[-1] if chunk.hierarchy.section_path else None
         return f"Table — {section}" if section else "Table"
-
-    @staticmethod
-    def _comment_title(chunk: ChunkRecord) -> str:
-        first_line = next(
-            (line.strip() for line in chunk.content.splitlines() if line.strip()),
-            "Comment",
-        )
-        return first_line[:120]
 
     @staticmethod
     def _metadata_text(chunk: ChunkRecord, key: str) -> str | None:

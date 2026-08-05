@@ -225,7 +225,9 @@ class GraphRelationRepairService:
             )
         )
         document_node_keys = {
-            node.node_key for node in graph.nodes if node.node_kind == KnowledgeNodeKind.DOCUMENT
+            node.node_key
+            for node in graph.nodes
+            if node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY
         }
         relations = tuple(
             relation
@@ -250,7 +252,6 @@ class GraphRelationRepairService:
         verification = await self._graph.verify_projection(
             nodes,
             relations,
-            available_chunk_ids=tuple(str(chunk.chunk_id) for chunk in chunks),
             context=context,
         )
         if not verification.valid:

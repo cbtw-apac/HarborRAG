@@ -7,18 +7,31 @@ from typing import Literal
 from pydantic import Field
 
 from harborrag_app.api.schemas import ApiModel
-from harborrag_runtime.chat import ChatPrompt
 
 
-class ChatCompletionRequest(ApiModel):
+class ChatSessionCreateRequest(ApiModel):
     tenant: str = Field(
         default="DEFAULT",
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     )
-    system: ChatPrompt = ChatPrompt.DEFAULT
+
+
+class ChatSessionResponse(ApiModel):
+    session_id: str
+    greeting: str
+
+
+class ChatCompletionRequest(ChatSessionCreateRequest):
+    session_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
     prompt: str = Field(min_length=1, max_length=65_536)
+    stream: bool = False
+    graph_search: bool | None = None
 
 
 class ChatMessageResponse(ApiModel):
@@ -54,3 +67,4 @@ class ChatCompletionResponse(ApiModel):
     retry_count: int = Field(ge=0)
     fallback_count: int = Field(ge=0)
     citations: tuple[ChatCitation, ...] = ()
+    session_id: str

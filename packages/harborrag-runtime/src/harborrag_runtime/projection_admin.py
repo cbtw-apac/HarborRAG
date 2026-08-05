@@ -14,7 +14,7 @@ from harborrag_core.storage import StorageOperationContext
 from .config.settings import RuntimeSettings
 from .storage_factory import build_knowledge_graph, build_vector_repository
 
-_VECTOR_INDEXES = ("routes", "evidence")
+_VECTOR_INDEXES = ("evidence",)
 _STORES = frozenset({"vector", "graph"})
 
 

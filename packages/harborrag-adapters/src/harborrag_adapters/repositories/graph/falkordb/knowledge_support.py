@@ -11,10 +11,12 @@ from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import KnowledgeNodeKind
 
 NODE_LABELS = {
-    KnowledgeNodeKind.DOCUMENT: "Document",
-    KnowledgeNodeKind.SECTION: "Section",
-    KnowledgeNodeKind.TABLE: "Table",
-    KnowledgeNodeKind.COMMENT: "Comment",
+    KnowledgeNodeKind.TENANT: "Tenant",
+    KnowledgeNodeKind.DATA_SOURCE: "DataSource",
+    KnowledgeNodeKind.SOURCE_ENTITY: "SourceEntity",
+    KnowledgeNodeKind.DOCUMENT_VERSION: "DocumentVersion",
+    KnowledgeNodeKind.STRUCTURE: "Structure",
+    KnowledgeNodeKind.CHUNK: "Chunk",
 }
 RELATION_IDENTIFIERS = {
     relation_type: FalkorDBMapper.safe_identifier(relation_type.value)

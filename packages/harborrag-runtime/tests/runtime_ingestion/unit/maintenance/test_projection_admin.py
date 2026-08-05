@@ -13,7 +13,7 @@ from harborrag_runtime.projection_admin import ProjectionAdministrationService
 
 class VectorRepository:
     def __init__(self) -> None:
-        self.existing = {"routes", "evidence"}
+        self.existing = {"evidence"}
         self.deleted: list[tuple[str, str]] = []
 
     async def connect(self) -> None: ...
@@ -64,11 +64,10 @@ async def test_inventory_and_vector_only_delete_stay_within_tenant() -> None:
     await service.close()
 
     assert [item.physical_name for item in inventory.vector_collections] == [
-        "harbor_ACME_routes",
         "harbor_ACME_evidence",
     ]
     assert (inventory.graph_nodes, inventory.graph_relations) == (7, 5)
-    assert vectors.deleted == [("ACME", "routes"), ("ACME", "evidence")]
+    assert vectors.deleted == [("ACME", "evidence")]
     assert graph.deleted == []
     assert deletion.reindex_required is True
 

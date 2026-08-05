@@ -8,13 +8,16 @@ load the `chat` family from `config/models.yaml` and call
 
 | Surface | Entry point | Best for |
 | --- | --- | --- |
-| HTTP API | `POST /v1/chat/completions` | Applications and authenticated services |
-| HTTP API (streaming) | `POST /v1/chat/stream` | Incremental rendering as the model responds |
+| HTTP API | `POST /v1/chat/sessions`, then `GET /v1/chat/completions` | Applications and authenticated services |
+| HTTP API (streaming) | `GET /v1/chat/completions?stream=true` | Incremental rendering as the model responds |
 | CLI | `harborrag chat MESSAGE` | One-shot operator requests and scripts |
-| MCP | `chat` tool | MCP clients and the local Tool Playground; not yet retrieval-grounded |
+| MCP | `chat` tool | Direct one-turn model chat with session memory |
+| MCP | `agent` tool | Bounded multi-hop reasoning over enabled retrieval tools |
 
-Chat does not persist a conversation or ingest its messages — each call is a
-single-turn retrieve-then-answer.
+Chat and agent HTTP clients first create a session, then identify every
+completion with only that `session_id`. Completed turns are stored in the
+configured PostgreSQL control database; the latest two turns are added to each
+prompt. Memory is not ingested into the RAG index.
 
 ## Configure the model
 
@@ -70,7 +73,8 @@ change, not a chat-layer one.
 
 Retrieval always runs hybrid (dense + sparse) vector search; graph search is
 strictly additive on top of it. Graph search adds latency, so it defaults to
-off.
+off. HTTP callers can override the deployment default for one request with
+`graph_search: true` or `graph_search: false`.
 
 ## Server-owned prompts
 
@@ -83,7 +87,7 @@ insufficient:
 | `default` | General HarborRAG assistant behavior |
 | `concise` | Short, direct answers |
 
-CLI and MCP use `default` unless another prompt is selected.
+HTTP and CLI use `default`. MCP callers may select either stored prompt.
 
 Prompt names are a controlled public enum; callers cannot provide filesystem
 paths or replace the stored catalog. The templates live under
@@ -91,7 +95,7 @@ paths or replace the stored catalog. The templates live under
 
 ## HTTP API
 
-Start the development API, then send a completion request:
+Start the development API, then create a persisted session:
 
 ```bash
 scripts/deployment/dev.sh api
@@ -99,11 +103,18 @@ scripts/deployment/dev.sh api
 curl --fail-with-body \
   --request POST \
   --header 'Content-Type: application/json' \
-  --data '{
-    "tenant": "DEFAULT",
-    "system": "concise",
-    "prompt": "Explain HarborRAG in one paragraph."
-  }' \
+  --data '{"tenant":"DEFAULT"}' \
+  http://127.0.0.1:8000/v1/chat/sessions
+```
+
+The `201` response contains `{"session_id":"session-...","greeting":"..."}`.
+Use that ID for a completion:
+
+```bash
+curl --fail-with-body --get \
+  --data-urlencode 'tenant=DEFAULT' \
+  --data-urlencode 'session_id=session-...' \
+  --data-urlencode 'prompt=Explain HarborRAG in one paragraph.' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
@@ -111,9 +122,10 @@ The route requires the `reader` role when API authentication is enabled. Add
 `Authorization: Bearer <token>` in that mode. The local development template
 uses `HARBORRAG_AUTH_MODE=none` and therefore needs no header.
 
-The request body is `tenant` (defaults to `DEFAULT`), `system` (`default` or
-`concise`, defaults to `default`), and `prompt` — a single 1–65,536 character
-string that is both the retrieval query and the user message.
+The GET query requires `session_id` and `prompt`; `tenant` defaults to
+`DEFAULT`, while `stream` and `graph_search` default to `false`. The HTTP
+service always uses its server-owned default system prompt. Unknown sessions,
+or sessions owned by another tenant or authenticated principal, return `404`.
 
 A successful response has this stable shape:
 
@@ -132,6 +144,7 @@ A successful response has this stable shape:
   },
   "retry_count": 0,
   "fallback_count": 0,
+  "session_id": "support:thread-456",
   "citations": [
     {"document_id": "document:...", "chunk_id": "chunk:...", "score": 0.83}
   ]
@@ -144,14 +157,15 @@ retrieval finds nothing relevant.
 
 ### Streaming
 
-`POST /v1/chat/stream` accepts the identical request body and streams
-Server-Sent Events instead of one JSON object:
+Set `stream=true` on `GET /v1/chat/completions` to receive Server-Sent Events
+instead of one JSON object:
 
 ```bash
-curl --no-buffer --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"tenant": "DEFAULT", "system": "concise", "prompt": "Explain HarborRAG in one paragraph."}' \
-  http://127.0.0.1:8000/v1/chat/stream
+curl --no-buffer --get \
+  --data-urlencode 'session_id=session-...' \
+  --data-urlencode 'prompt=Explain HarborRAG in one paragraph.' \
+  --data-urlencode 'stream=true' \
+  http://127.0.0.1:8000/v1/chat/completions
 ```
 
 The stream emits, in order: one `citations` event, then one or more model
@@ -164,22 +178,37 @@ starts, HTTP status can no longer change, so failures — including a
 prepare-time failure such as an unreachable retrieval or chat backend —
 surface as the in-band `error` event rather than a `503`.
 
+### Conversation memory
+
+Memory is keyed by `(tenant, authenticated principal, session_id)`.
+This prevents a caller from reading another principal's history even if it
+guesses the same session ID. The PostgreSQL adapter stores completed
+user/assistant turns and each request recalls only the latest two, in
+chronological order. Configure it through `HARBORRAG_CONTROL_DB_URL`, using a
+`postgresql+asyncpg://...` DSN in deployed environments.
+
+The provider-neutral `ConversationMemory` port lives in `harborrag-core`; its
+SQL implementation lives in `harborrag-adapters`. Chat and agent orchestration
+therefore do not depend on SQLAlchemy or PostgreSQL.
+
 ## CLI
 
 ```bash
 uv run --package harborrag-app harborrag chat \
   "Explain HarborRAG in one paragraph." \
   --tenant DEFAULT \
-  --system concise
+  --json
 ```
 
 Use `--json` for the stable machine-readable command envelope, which includes
-the same `citations` field as the HTTP response.
+the generated `session_id` and same `citations` field as the HTTP response.
 
-## MCP
+## MCP chat and agent
 
-The MCP `chat` tool requires `message` and `tenant_id`. Optional arguments are
-`system`, `prompt`, `model`, `temperature`, and `max_tokens`. Unlike the HTTP
+The MCP `chat` tool requires `message` and `tenant_id`. Omit
+`session_id` on the first turn and reuse the generated value later. Optional
+arguments are `system`, `prompt`, `model`,
+`temperature`, and `max_tokens`. Unlike the HTTP
 and CLI surfaces, it calls the chat model directly without retrieval — pair it
 with the `vector_search` tool if the answer needs indexed HarborRAG content.
 
@@ -187,12 +216,22 @@ with the `vector_search` tool if the answer needs indexed HarborRAG content.
 {
   "message": "Explain HarborRAG in one paragraph.",
   "tenant_id": "DEFAULT",
+  "session_id": "support-thread-456",
   "prompt": "concise",
   "model": "primary",
   "temperature": 0.2,
   "max_tokens": 300
 }
 ```
+
+The MCP `agent` tool requires `message` and `tenant_id`; it also
+accepts optional `session_id`, prior `history`, `prompt`, `max_steps`
+(1–8), and `graph_search`. It
+can call enabled read-only MCP tools repeatedly, including parallel calls in a
+single step. The authenticated tenant is forced into every invocation. When
+`graph_search` is false, graph tools and graph observation are removed from
+the model's tool surface. When the step budget is exhausted, the model gets
+one final tool-free synthesis turn.
 
 Run `scripts/deployment/mcp.sh --check` to verify that the tool is registered.
 Run `scripts/deployment/dev.sh bootstrap` first if the protected environment
@@ -212,7 +251,7 @@ audit records. MCP audits store an argument digest and outcome, not the raw
 request or bearer token.
 
 Public transports expose normalized errors. Provider exceptions and secrets
-remain server-side. A `503` from `/v1/chat/completions`, an `error` event from
-`/v1/chat/stream`, or `chat backend failed` from MCP usually means the model
+remain server-side. A `503` or streamed `error` from `/v1/chat/completions`,
+or `chat backend failed` from MCP usually means the model
 configuration, credentials, provider reachability, retrieval backend, or
 provider context limit must be checked in server logs.

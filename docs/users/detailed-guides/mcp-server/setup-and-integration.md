@@ -175,10 +175,13 @@ HARBORRAG_MCP_DISABLED_TOOLS
 HARBORRAG_MCP_CONFIG_PATH
 ```
 
-The server exposes five retrieval tools—`vector_search`,
-`vector_search_advanced`, `graph_triplet_search`, `graph_path_search`, and
-`graph_subgraph_search`—plus `chat`. Every tool accepts an explicit tenant
-scope. Advanced vector retrieval adds dense, sparse, or hybrid lanes, metadata
+The server exposes six retrieval tools—`vector_search`,
+`vector_search_advanced`, `graph_neighborhood`, `graph_triplet_search`,
+`graph_path_search`, and `graph_subgraph_search`—plus `chat`. Every tool accepts
+an explicit tenant scope. The three selector-based graph tools need a node
+identifier the caller already holds—in practice a `chunk_id` from
+`vector_search`, which is the same string as a `Chunk` node key—while
+`graph_neighborhood` resolves its own seeds from a natural-language question. Advanced vector retrieval adds dense, sparse, or hybrid lanes, metadata
 filters, graph observation control, and a score threshold. Calls pass
 pre-execution capability, declared JSON-schema validation, and argument
 budgets; post-execution result/output budgets; and an owner-only JSONL audit at

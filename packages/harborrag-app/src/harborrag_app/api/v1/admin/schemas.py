@@ -8,7 +8,7 @@ from harborrag_app.api.schemas import ApiModel
 
 
 class VectorCollectionInventory(ApiModel):
-    logical_name: Literal["routes", "evidence"]
+    logical_name: Literal["evidence"]
     physical_name: str
     exists: bool
 

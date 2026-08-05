@@ -1,16 +1,19 @@
 """Provider-independent vector and graph indexing records and queries."""
 
 from harborrag_core.ingestion import (
+    GRAPH_SCHEMA_VERSION,
     GraphEdgeRecord,
+    GraphEntityType,
     GraphNodeRecord,
+    GraphOwnershipScope,
     GraphProjectionManifest,
     GraphProjectionVerification,
+    GraphSchemaMigrationVerification,
     ProjectionManifest,
     VectorEvidenceRecord,
     VectorProjectionBatch,
     VectorProjectionManifest,
     VectorProjectionVerification,
-    VectorRouteRecord,
 )
 from harborrag_core.schemas.vector import (
     FilterOperator,
@@ -30,10 +33,14 @@ from harborrag_core.schemas.vector import (
 
 __all__ = [
     "FilterOperator",
+    "GRAPH_SCHEMA_VERSION",
     "GraphEdgeRecord",
+    "GraphEntityType",
     "GraphNodeRecord",
+    "GraphOwnershipScope",
     "GraphProjectionManifest",
     "GraphProjectionVerification",
+    "GraphSchemaMigrationVerification",
     "HybridSearchQuery",
     "ProjectionManifest",
     "SparseSearchQuery",
@@ -48,7 +55,6 @@ __all__ = [
     "VectorProjectionBatch",
     "VectorProjectionManifest",
     "VectorProjectionVerification",
-    "VectorRouteRecord",
     "VectorSearchQuery",
     "VectorSearchResult",
     "VectorStoreCapabilities",

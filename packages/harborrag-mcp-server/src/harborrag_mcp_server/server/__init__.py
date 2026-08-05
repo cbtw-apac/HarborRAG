@@ -64,7 +64,7 @@ def create_mcp_server(
     if manage_runtime_lifecycle:
         if runtime is None:
             raise ValueError("runtime lifecycle management requires a runtime")
-        lifespan = _runtime_lifespan(runtime)
+        lifespan = _runtime_lifespan(runtime, facade)
     transport = FastMCP("HarborRAG", auth=auth, lifespan=lifespan)
 
     for spec in facade.list_tools():
@@ -83,6 +83,7 @@ def create_mcp_server(
 
 def _runtime_lifespan(
     runtime: HarborRAG,
+    registry: McpServer,
 ) -> Any:
     @asynccontextmanager
     async def lifespan(server: object) -> AsyncIterator[None]:
@@ -90,7 +91,12 @@ def _runtime_lifespan(
         try:
             yield
         finally:
-            await runtime.aclose()
+            try:
+                await runtime.aclose()
+            finally:
+                close_memory = getattr(registry.memory, "aclose", None)
+                if close_memory is not None:
+                    await close_memory()
 
     return lifespan
 

@@ -5,14 +5,22 @@ from types import SimpleNamespace
 import pytest
 
 from harborrag_core.chunking import RelationType
-from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord, KnowledgeNodeKind
+from harborrag_core.ingestion import (
+    GraphEdgeRecord,
+    GraphEntityType,
+    GraphNodeRecord,
+    GraphOwnershipScope,
+    KnowledgeNodeKind,
+)
 from harborrag_core.retrieval import GraphPath, GraphTriplet
 from harborrag_mcp_server.tools.graph_search import (
+    GraphNeighborhoodTool,
     GraphPathSearchTool,
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
 )
 from harborrag_runtime.sdk import (
+    GraphNeighborhoodResponse,
     GraphPathResponse,
     GraphSubgraphResponse,
     GraphTripletResponse,
@@ -22,10 +30,11 @@ from harborrag_runtime.sdk import (
 def node(key: str, logical_id: str) -> GraphNodeRecord:
     return GraphNodeRecord(
         node_key=key,
-        node_kind=KnowledgeNodeKind.DOCUMENT,
+        node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
+        entity_type=GraphEntityType.GENERIC_SOURCE_ITEM,
         logical_id=logical_id,
-        document_id=logical_id,
-        document_version_id=f"version-{logical_id}",
+        ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+        owner_id="tenant-1",
         source_scope_id="scope-1",
         title=logical_id,
     )
@@ -37,7 +46,9 @@ def edge(source: GraphNodeRecord, target: GraphNodeRecord) -> GraphEdgeRecord:
         relation_type=RelationType.LINKS_TO,
         source_node_key=source.node_key,
         target_node_key=target.node_key,
-        document_version_id=source.document_version_id,
+        ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+        owner_id="tenant-1",
+        source_scope_id="scope-1",
         source_relation_version="source-v1",
         source_explicit=True,
     )
@@ -70,6 +81,15 @@ class StaticGraphFacade:
             diagnostics={"accepted_count": 1},
         )
 
+    async def neighborhood(self, request):
+        self.calls.append(request)
+        return GraphNeighborhoodResponse(
+            seeds=("chunk:seed-1",),
+            nodes=(self.source, self.target),
+            relations=(self.relation,),
+            diagnostics={"accepted_count": 2},
+        )
+
     async def expand_subgraph(self, request):
         self.calls.append(request)
         return GraphSubgraphResponse(
@@ -98,7 +118,11 @@ async def test_triplet_tool_forwards_access_and_predicate() -> None:
     assert request.access.principal_id == "reader-1"
     assert request.access.tenant_id == "demo"
     assert request.query.predicate == RelationType.LINKS_TO
-    assert result["triplets"][0]["predicate"]["relation_type"] == "links_to"
+    assert result["triplets"][0]["predicate"] == "links_to"
+    assert result["triplets"][0]["subject"]["node_key"] == "node-a"
+    # Write-side bookkeeping must not reach an LLM caller.
+    assert "owner_id" not in result["triplets"][0]["subject"]
+    assert "attributes" not in result["triplets"][0]["subject"]
 
 
 @pytest.mark.asyncio
@@ -163,6 +187,8 @@ async def test_subgraph_tool_returns_canonical_nodes_and_relations() -> None:
             {"tenant_id": "demo", "start_node": "a", "end_node": "b", "max_depth": 9},
         ),
         (GraphSubgraphSearchTool(), {"tenant_id": "demo", "start_node": "a", "max_nodes": 21}),
+        (GraphNeighborhoodTool(), {"tenant_id": "demo"}),
+        (GraphNeighborhoodTool(), {"tenant_id": "demo", "query": "q", "seed_limit": 11}),
     ],
 )
 async def test_graph_tools_reject_invalid_direct_inputs(tool, arguments) -> None:
@@ -170,6 +196,62 @@ async def test_graph_tools_reject_invalid_direct_inputs(tool, arguments) -> None
 
 
 def test_graph_tool_schemas_are_strict_and_tenant_scoped() -> None:
-    for tool in (GraphTripletSearchTool, GraphPathSearchTool, GraphSubgraphSearchTool):
+    for tool in (
+        GraphTripletSearchTool,
+        GraphPathSearchTool,
+        GraphSubgraphSearchTool,
+        GraphNeighborhoodTool,
+    ):
         assert "tenant_id" in tool.spec.input_schema["required"]
         assert tool.spec.input_schema["additionalProperties"] is False
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_tool_needs_no_node_selector() -> None:
+    harbor, graph = runtime()
+
+    result = await GraphNeighborhoodTool(runtime=harbor).call(
+        {"tenant_id": "demo", "query": "how do we release?"},
+        principal_id="reader-1",
+    )
+
+    assert result["ok"] is True
+    # The point of this tool: a free-text question is the only required input.
+    assert graph.calls[0].query.query == "how do we release?"
+    assert result["seeds"] == ["chunk:seed-1"]
+    assert [item["node_key"] for item in result["nodes"]] == ["node-a", "node-b"]
+
+
+def test_graph_tool_schemas_only_offer_projected_predicates() -> None:
+    schema = GraphTripletSearchTool.spec.input_schema
+    predicates = schema["properties"]["predicate"]["enum"]
+
+    assert "links_to" in predicates
+    # Reserved members are never emitted by the projection, so filtering on one can only
+    # ever return an empty result the caller would misread as a genuine miss.
+    for reserved in ("mentions", "child_of", "attached_to", "has_section"):
+        assert reserved not in predicates
+
+
+def test_path_search_defaults_to_an_undirected_walk() -> None:
+    schema = GraphPathSearchTool.spec.input_schema
+
+    # (:Chunk)-[:SUPPORTS]->(:Structure) points into the spine while CONTAINS points down
+    # it, so an outgoing-only default cannot reach a chunk's own document.
+    assert schema["properties"]["direction"]["default"] == "both"
+
+
+def test_mcp_and_agent_tool_schemas_are_the_same_definition() -> None:
+    from harborrag_runtime.agent.tool_specs import RUNTIME_AGENT_TOOL_SPECS
+
+    agent_specs = {spec.name: spec for spec in RUNTIME_AGENT_TOOL_SPECS}
+    for tool in (
+        GraphTripletSearchTool,
+        GraphPathSearchTool,
+        GraphSubgraphSearchTool,
+        GraphNeighborhoodTool,
+    ):
+        agent = agent_specs[tool.spec.name]
+        assert tool.spec.description == agent.description
+        assert tool.spec.input_schema["required"] == agent.input_schema["required"]
+        assert set(tool.spec.input_schema["properties"]) == set(agent.input_schema["properties"])

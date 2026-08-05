@@ -122,3 +122,26 @@ class FalkorDBClient(AsyncLifecycle):
                 len(properties),
                 *properties,
             )
+
+    async def drop_unique_node_constraint(
+        self,
+        *,
+        label: str,
+        properties: tuple[str, ...],
+    ) -> Any:
+        """Drop a native FalkorDB unique-node constraint."""
+
+        if not label or not properties:
+            raise ValueError("constraint label and properties must be non-empty")
+        async with self._operation_slots:
+            return await self.raw.execute_command(
+                "GRAPH.CONSTRAINT",
+                "DROP",
+                self._graph_name,
+                "UNIQUE",
+                "NODE",
+                label,
+                "PROPERTIES",
+                len(properties),
+                *properties,
+            )

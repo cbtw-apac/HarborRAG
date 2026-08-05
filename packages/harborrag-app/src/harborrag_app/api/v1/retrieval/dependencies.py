@@ -8,7 +8,12 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.schemas import AppResponse
-from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
+from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
+    GraphPathQuery,
+    GraphSubgraphQuery,
+    GraphTripletQuery,
+)
 from harborrag_runtime.sdk import RetrievalLane
 
 
@@ -47,6 +52,14 @@ class RetrievalService(Protocol):
     async def retrieve_graph_subgraph(
         self,
         query: GraphSubgraphQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse: ...
+
+    async def retrieve_graph_neighborhood(
+        self,
+        query: GraphNeighborhoodQuery,
         *,
         tenant_id: str,
         principal_id: str,

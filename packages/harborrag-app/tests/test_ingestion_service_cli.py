@@ -8,6 +8,7 @@ from app_test_fixtures import MockAppService
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
+from harborrag_app.workflow_control import AppResponse
 from harborrag_app.workflow_control.client import AppService, AppServiceFactories
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -207,3 +208,92 @@ def test_ingest_cli_uses_rich_human_summary(monkeypatch, capsys) -> None:
     assert "Ingestion started" in rendered
     assert "run-1" in rendered
     assert "local-docs" in rendered
+
+
+class DegradedControlPlaneService(MockAppService):
+    """A service that booted, but whose control-plane migrations failed.
+
+    This is the state composition deliberately leaves behind: the service exists and
+    accepts calls, while the schema behind it is stale.
+    """
+
+    def health(self) -> AppResponse:
+        return AppResponse(
+            False,
+            {
+                "diagnostics": {
+                    "mode": "production",
+                    "runtime": {
+                        "provider": "app_test_double",
+                        "ready": False,
+                        "control_db": {
+                            "ping": "failed",
+                            "error": (
+                                "migrations failed: (sqlite3.OperationalError) table "
+                                "projects already exists\n[SQL: CREATE TABLE projects ...]"
+                            ),
+                        },
+                    },
+                }
+            },
+            error="runtime not ready",
+        )
+
+
+def test_ingest_start_refuses_to_run_against_an_unmigrated_control_plane(
+    monkeypatch,
+    capsys,
+) -> None:
+    """Doing the work anyway defers the failure to an opaque missing-column error."""
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", DegradedControlPlaneService)
+
+    exit_code = cli.main(
+        ["ingest", "start", "--tenant", "tenant-1", "--connector", "local-docs", "--json"]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["data"]["error_type"] == "ControlPlaneUnavailable"
+    # The rendered sentence stays readable; the failing statement stays in the envelope.
+    assert "table projects already exists" in payload["error"]
+    assert "CREATE TABLE" not in payload["error"]
+    assert "CREATE TABLE" in payload["data"]["detail"]
+
+
+def test_doctor_still_runs_when_the_control_plane_is_degraded(monkeypatch, capsys) -> None:
+    """A degraded control plane is exactly when an operator reaches for diagnostics.
+
+    Doctor still exits non-zero here -- it is reporting the degradation, which is its
+    job. What matters is that it produced its own health report rather than being
+    short-circuited by the readiness gate, which would have told the operator to run
+    the command they were already running.
+    """
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", DegradedControlPlaneService)
+
+    exit_code = cli.main(["doctor", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["data"].get("error_type") != "ControlPlaneUnavailable"
+    assert "diagnostics" in payload["data"]
+
+
+def test_an_unreportable_health_check_does_not_block_the_command(monkeypatch, capsys) -> None:
+    """An inconclusive check must not become a second failure mode of its own."""
+
+    class NoHealthService(MockAppService):
+        def health(self) -> AppResponse:
+            raise RuntimeError("health unavailable")
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", NoHealthService)
+
+    exit_code = cli.main(
+        ["ingest", "start", "--tenant", "tenant-1", "--connector", "local-docs", "--json"]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ok"] is True

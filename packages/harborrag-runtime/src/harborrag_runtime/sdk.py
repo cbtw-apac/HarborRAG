@@ -15,6 +15,8 @@ from harborrag_engine.retrieval import RetrievalLane
 from .chat import ChatFacade, ChatPrompt, RuntimeChatService
 from .contracts import (
     ExecutionMode,
+    GraphNeighborhoodRequest,
+    GraphNeighborhoodResponse,
     GraphPathRequest,
     GraphPathResponse,
     GraphSubgraphRequest,
@@ -157,6 +159,8 @@ __all__ = [
     "ExecutionMode",
     "GraphPathRequest",
     "GraphPathResponse",
+    "GraphNeighborhoodRequest",
+    "GraphNeighborhoodResponse",
     "GraphSubgraphRequest",
     "GraphSubgraphResponse",
     "GraphTripletRequest",

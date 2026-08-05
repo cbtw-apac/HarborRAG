@@ -53,6 +53,7 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
             response,
             include_content=include_content,
             include_metadata=include_metadata,
+            top_k=top_k,
             score_threshold=score_threshold,
         )
     except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope

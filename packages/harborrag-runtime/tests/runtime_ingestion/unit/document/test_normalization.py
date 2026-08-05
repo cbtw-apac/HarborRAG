@@ -181,7 +181,7 @@ def test_confluence_comment_flows_to_comment_chunk_and_structural_graph() -> Non
     relation_types = {relation.relation_type.value for relation in graph.relations}
     assert comment.metadata["comment_id"] == "101"
     assert comment.content == "Looks ready."
-    assert {"has_comment", "comment_on"} <= relation_types
+    assert {"contains", "links_to"} <= relation_types
 
 
 def test_jira_normalization_separates_prose_comments_and_typed_attributes() -> None:

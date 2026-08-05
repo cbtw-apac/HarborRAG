@@ -251,7 +251,6 @@ class DocumentProjectionStages:
             document_id=prepared.document_id,
             document_version_id=prepared.document_version_id,
             decision=prepared.decision,
-            route_chunks=len(manifest.route_point_ids),
             evidence_chunks=len(manifest.evidence_point_ids),
             graph_nodes=len(manifest.graph_node_keys),
             graph_relations=len(manifest.graph_relation_ids),

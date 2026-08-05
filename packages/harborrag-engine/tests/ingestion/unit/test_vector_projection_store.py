@@ -3,18 +3,11 @@ from __future__ import annotations
 import pytest
 
 from harborrag_core.chunking import ChunkKind, CitationLocator, ConnectorType, RecordKind
-from harborrag_core.ingestion import (
-    ContentReference,
-    VectorEvidenceRecord,
-    VectorPayload,
-    VectorProjectionBatch,
-    VectorRouteRecord,
-)
+from harborrag_core.ingestion import VectorEvidenceRecord, VectorPayload, VectorProjectionBatch
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import SparseVector, VectorIndexRecord
 from harborrag_engine.ingestion import (
     EVIDENCE_INDEX,
-    ROUTE_INDEX,
     VectorProjectionPolicy,
     VectorProjectionStore,
 )
@@ -51,11 +44,8 @@ class InMemoryVectorRepository:
 
 def point(
     point_id: str,
-    *,
-    kind: RecordKind,
-) -> VectorRouteRecord | VectorEvidenceRecord:
-    record_type = VectorRouteRecord if kind == RecordKind.ROUTE else VectorEvidenceRecord
-    return record_type(
+) -> VectorEvidenceRecord:
+    return VectorEvidenceRecord(
         point_id=point_id,
         tenant_id="tenant-1",
         dense_vector=(0.1, 0.2, 0.3),
@@ -65,17 +55,11 @@ def point(
             logical_chunk_id=f"logical-chunk-{point_id}",
             document_id="document-1",
             document_version_id="version-1",
-            record_kind=kind,
+            record_kind=RecordKind.EVIDENCE,
             chunk_kind=ChunkKind.TEXT,
             connector_type=ConnectorType.LOCAL,
             source_scope_id="scope-1",
-            content_reference=ContentReference(
-                bucket="harborrag-artifacts",
-                object_key="chunks/document-1/version-1.jsonl",
-                byte_offset=0,
-                byte_length=10,
-            ),
-            preview="preview",
+            content="The timeout is 30 seconds.",
             citation_locator=CitationLocator(source_element_ids=("element-1",)),
             quality_score=1.0,
             relative_path="guide.md",
@@ -92,8 +76,7 @@ async def test_store_provisions_stages_and_verifies_named_hybrid_collections() -
     )
     context = StorageOperationContext.system(tenant_id="tenant-1")
     batch = VectorProjectionBatch.assemble(
-        route_records=(point("route", kind=RecordKind.ROUTE),),
-        evidence_records=(point("evidence", kind=RecordKind.EVIDENCE),),
+        evidence_records=(point("evidence"),),
     )
 
     await store.provision(context=context)
@@ -101,16 +84,13 @@ async def test_store_provisions_stages_and_verifies_named_hybrid_collections() -
     await store.stage(batch, context=context)
     verification = await store.verify(batch, context=context)
 
-    assert {spec.index_name for spec in repository.specs} == {
-        ROUTE_INDEX,
-        EVIDENCE_INDEX,
-    }
+    assert {spec.index_name for spec in repository.specs} == {EVIDENCE_INDEX}
     assert all(spec.dense_vector_name == "dense" for spec in repository.specs)
     assert all(spec.sparse_vector_name == "sparse" for spec in repository.specs)
     assert all(spec.sparse_idf is True for spec in repository.specs)
     assert verification.valid is True
-    assert repository.upsert_calls == 4
-    assert sum(len(points) for points in repository.points.values()) == 2
+    assert repository.upsert_calls == 2
+    assert sum(len(points) for points in repository.points.values()) == 1
 
 
 @pytest.mark.asyncio
@@ -122,24 +102,23 @@ async def test_store_verification_rejects_missing_and_mismatched_points() -> Non
     )
     context = StorageOperationContext.system(tenant_id="tenant-1")
     batch = VectorProjectionBatch.assemble(
-        route_records=(point("route", kind=RecordKind.ROUTE),),
-        evidence_records=(point("evidence", kind=RecordKind.EVIDENCE),),
+        evidence_records=(point("evidence-1"), point("evidence-2")),
     )
     await store.provision(context=context)
     await store.stage(batch, context=context)
-    stored = repository.points[ROUTE_INDEX]["route"]
-    repository.points[ROUTE_INDEX]["route"] = stored.model_copy(
+    stored = repository.points[EVIDENCE_INDEX]["evidence-1"]
+    repository.points[EVIDENCE_INDEX]["evidence-1"] = stored.model_copy(
         update={
             "payload": {
                 **stored.payload,
-                "record_kind": "evidence",
+                "record_kind": "route",
             }
         }
     )
-    repository.points[EVIDENCE_INDEX].clear()
+    repository.points[EVIDENCE_INDEX].pop("evidence-2")
 
     verification = await store.verify(batch, context=context)
 
     assert verification.valid is False
-    assert verification.missing_point_ids == ("evidence",)
-    assert verification.mismatched_payload_point_ids == ("route",)
+    assert verification.missing_point_ids == ("evidence-2",)
+    assert verification.mismatched_payload_point_ids == ("evidence-1",)

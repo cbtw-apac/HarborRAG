@@ -27,12 +27,18 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/ingestions/{task_id}/cancel",
         "/v1/ingestions/{task_id}/retry-failures",
         "/v1/chat/completions",
+        "/v1/chat/sessions",
+        "/v1/agent/completions",
+        "/v1/agent/sessions",
         "/v1/retrieval/vector",
         "/v1/retrieval/graph/triplets",
         "/v1/retrieval/graph/paths",
         "/v1/retrieval/graph/subgraphs",
         "/v1/admin/projections/{tenant}",
     } <= set(paths)
+    assert set(paths["/v1/chat/completions"]) >= {"get"}
+    assert "post" not in paths["/v1/chat/completions"]
+    assert set(paths["/v1/agent/completions"]) >= {"get"}
     assert "/v1/retrieval/search" not in paths
     assert "/api/v1/readyz" not in paths
     assert "/api/v1/diagnostics" not in paths

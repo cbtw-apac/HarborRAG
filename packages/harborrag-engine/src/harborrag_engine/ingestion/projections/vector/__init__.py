@@ -2,7 +2,6 @@
 
 from .vector import (
     EVIDENCE_INDEX,
-    ROUTE_INDEX,
     VectorProjectionBatch,
     VectorProjectionBuilder,
     VectorProjectionInput,
@@ -11,7 +10,6 @@ from .vector_store import VectorProjectionPolicy, VectorProjectionStore
 
 __all__ = [
     "EVIDENCE_INDEX",
-    "ROUTE_INDEX",
     "VectorProjectionBatch",
     "VectorProjectionBuilder",
     "VectorProjectionInput",

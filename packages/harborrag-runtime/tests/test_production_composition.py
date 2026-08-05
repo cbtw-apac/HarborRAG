@@ -32,10 +32,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0001"
+    assert control_db["migrations"] == "0009"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0001" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0009" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -110,3 +110,37 @@ async def test_dev_env_allows_default_control_db_url(
         assert composition.control_plane is not None
     finally:
         await composition.aclose()
+
+
+@pytest.mark.whitebox
+def test_migration_failure_logs_the_cause_not_just_the_exception_type(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    """Boot degrades silently, so this log is the only statement of the cause.
+
+    A schema built without Alembic recording it makes the runner replay from base and
+    collide with existing tables. Logging only ``error_type=OperationalError`` leaves no
+    way to tell that apart from a connection failure, and the real symptom surfaces much
+    later as a missing column in an unrelated query.
+    """
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    # Build the schema without stamping it, exactly as an un-migrated database looks.
+    import sqlite3
+
+    connection = sqlite3.connect(f"{tmp_path}/control.db")
+    connection.execute("CREATE TABLE projects (id TEXT NOT NULL, PRIMARY KEY (id))")
+    connection.commit()
+    connection.close()
+
+    with caplog.at_level(logging.ERROR, logger="harborrag.runtime.composition"):
+        composition = CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
+
+    message = caplog.text
+    assert "Control-plane migrations failed" in message
+    assert "already exists" in message, "the cause must reach the log, not just its type"
+    assert "hint=" in message, "the recoverable case must name its remedy"
+    runtime = composition.diagnostics()["runtime"]
+    assert isinstance(runtime, dict)
+    assert runtime["control_db"]["ping"] == "failed"

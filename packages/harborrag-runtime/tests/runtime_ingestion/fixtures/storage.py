@@ -48,7 +48,6 @@ class InMemoryKnowledgeGraph:
         nodes,
         relations,
         *,
-        available_chunk_ids,
         context,
     ) -> GraphProjectionVerification:
         del context
@@ -56,27 +55,16 @@ class InMemoryKnowledgeGraph:
         expected_relations = {relation.relation_id for relation in relations}
         actual_nodes = expected_nodes & self.nodes.keys()
         actual_relations = expected_relations & self.relations.keys()
-        missing_evidence = tuple(
-            sorted(
-                {
-                    chunk_id
-                    for relation in relations
-                    for chunk_id in relation.evidence_chunk_ids
-                    if chunk_id not in available_chunk_ids
-                }
-            )
-        )
         missing_nodes = tuple(sorted(expected_nodes - actual_nodes))
         missing_relations = tuple(sorted(expected_relations - actual_relations))
         return GraphProjectionVerification(
-            valid=not any((missing_nodes, missing_relations, missing_evidence)),
+            valid=not any((missing_nodes, missing_relations)),
             expected_node_count=len(nodes),
             actual_node_count=len(actual_nodes),
             expected_relation_count=len(relations),
             actual_relation_count=len(actual_relations),
             missing_node_keys=missing_nodes,
             missing_relation_ids=missing_relations,
-            missing_evidence_chunk_ids=missing_evidence,
         )
 
     async def delete_version(

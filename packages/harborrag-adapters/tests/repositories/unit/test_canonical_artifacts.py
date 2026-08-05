@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from harborrag_adapters.repositories.object_store import (
+    ARTIFACT_BUCKET,
     CanonicalDocumentArtifactRepository,
+    ImmutableArtifact,
     ImmutableArtifactReader,
     ImmutableArtifactWriter,
+    IngestionArtifactLayout,
     MemoryObjectStore,
     ProjectionArtifactRepository,
 )
@@ -18,9 +23,10 @@ from harborrag_core.chunking import (
 )
 from harborrag_core.domain import Document, DocumentElement, DocumentProvenance
 from harborrag_core.ingestion import (
-    ContentReference,
     GraphEdgeRecord,
+    GraphEntityType,
     GraphNodeRecord,
+    GraphOwnershipScope,
     KnowledgeNodeKind,
     VectorEvidenceRecord,
     VectorPayload,
@@ -87,8 +93,11 @@ async def test_projection_repository_round_trips_replayable_batches() -> None:
         )
         node = GraphNodeRecord(
             node_key="node-1",
-            node_kind=KnowledgeNodeKind.DOCUMENT,
+            node_kind=KnowledgeNodeKind.DOCUMENT_VERSION,
+            entity_type=GraphEntityType.DOCUMENT_VERSION,
             logical_id="document-1",
+            ownership_scope=GraphOwnershipScope.DOCUMENT_VERSION,
+            owner_id="tenant-1",
             document_id="document-1",
             document_version_id="version-1",
             source_scope_id="scope-1",
@@ -96,13 +105,16 @@ async def test_projection_repository_round_trips_replayable_batches() -> None:
         )
         relation = GraphEdgeRecord(
             relation_id="relation-1",
-            relation_type=RelationType.HAS_SECTION,
+            relation_type=RelationType.CONTAINS,
             source_node_key="node-1",
             target_node_key="node-2",
+            ownership_scope=GraphOwnershipScope.DOCUMENT_VERSION,
+            owner_id="tenant-1",
+            source_scope_id="scope-1",
+            document_id="document-1",
             document_version_id="version-1",
             source_relation_version="graph-v1",
             source_explicit=False,
-            evidence_chunk_ids=("chunk-1",),
         )
         point = VectorEvidenceRecord(
             point_id="00000000-0000-5000-8000-000000000001",
@@ -118,13 +130,7 @@ async def test_projection_repository_round_trips_replayable_batches() -> None:
                 chunk_kind=ChunkKind.TEXT,
                 connector_type=ConnectorType.LOCAL,
                 source_scope_id="scope-1",
-                content_reference=ContentReference(
-                    bucket="harborrag-artifacts",
-                    object_key="chunks/document-1/version-1.jsonl",
-                    byte_offset=0,
-                    byte_length=100,
-                ),
-                preview="The timeout is 30 seconds.",
+                content="The timeout is 30 seconds.",
                 citation_locator=CitationLocator(source_element_ids=("paragraph-1",)),
                 quality_score=1.0,
             ),
@@ -151,3 +157,64 @@ async def test_projection_repository_round_trips_replayable_batches() -> None:
             graph_reference,
             context=context(),
         ) == ((node,), (relation,))
+
+
+@pytest.mark.asyncio
+async def test_vector_projection_read_skips_retired_route_records() -> None:
+    # Artifacts written before the route collection was retired interleave route points
+    # with evidence points. Route points are no longer projected anywhere, so replaying
+    # such an artifact must drop them and still yield the evidence — not fail to parse.
+    store = MemoryObjectStore()
+    writer = ImmutableArtifactWriter(store)
+    reader = ImmutableArtifactReader(store)
+    repository = ProjectionArtifactRepository(writer, reader)
+
+    def payload(chunk_id: str, record_kind: str) -> dict[str, object]:
+        return {
+            "chunk_id": chunk_id,
+            "logical_chunk_id": f"logical-{chunk_id}",
+            "document_id": "document-1",
+            "document_version_id": "version-1",
+            "record_kind": record_kind,
+            "chunk_kind": "text",
+            "connector_type": "local",
+            "source_scope_id": "scope-1",
+            "content": "The timeout is 30 seconds.",
+            "citation_locator": {"source_element_ids": ["paragraph-1"]},
+            "quality_score": 1.0,
+            # Legacy payload keys that the current strict model no longer declares.
+            "preview": "The timeout...",
+            "content_reference": "s3://legacy/ref",
+        }
+
+    def record(point_id: str, chunk_id: str, record_kind: str) -> dict[str, object]:
+        return {
+            "point_id": point_id,
+            "tenant_id": "tenant-1",
+            "dense_vector": [0.1, 0.2],
+            "sparse_vector": {"indices": [1], "values": [1.0]},
+            "payload": payload(chunk_id, record_kind),
+        }
+
+    legacy_artifact = "\n".join(
+        json.dumps(value)
+        for value in (
+            record("00000000-0000-5000-8000-000000000001", "chunk-route", "route"),
+            record("00000000-0000-5000-8000-000000000002", "chunk-evidence", "evidence"),
+        )
+    )
+    reference = await writer.put(
+        ImmutableArtifact(
+            bucket=ARTIFACT_BUCKET,
+            key=IngestionArtifactLayout.vector_projection("document-1", "version-1"),
+            payload=legacy_artifact.encode("utf-8"),
+            media_type="application/x-ndjson",
+            artifact_kind="vector-projection",
+        ),
+        context=context(),
+    )
+
+    records = await repository.get_vector_projection(reference, context=context())
+
+    assert [record.payload.chunk_id for record in records] == ["chunk-evidence"]
+    assert all(record.payload.record_kind is RecordKind.EVIDENCE for record in records)

@@ -13,14 +13,12 @@ from harborrag_core.ingestion import (
     VectorEvidenceRecord,
     VectorProjectionBatch,
     VectorProjectionVerification,
-    VectorRouteRecord,
 )
 from harborrag_core.ports.indexing import VectorIndexRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 
 from .vector import (
     EVIDENCE_INDEX,
-    ROUTE_INDEX,
 )
 
 _PAYLOAD_INDEXES = [
@@ -63,7 +61,7 @@ class VectorProjectionPolicy:
 
 
 class VectorProjectionStore:
-    """Stage and verify two-collection dense/sparse Qdrant projections."""
+    """Stage and verify the single dense/sparse evidence projection."""
 
     def __init__(
         self,
@@ -74,11 +72,10 @@ class VectorProjectionStore:
         self._policy = policy
 
     async def provision(self, *, context: StorageOperationContext) -> None:
-        for index_name in (ROUTE_INDEX, EVIDENCE_INDEX):
-            await self._repository.ensure_index(
-                self._policy.index(index_name),
-                context=context,
-            )
+        await self._repository.ensure_index(
+            self._policy.index(EVIDENCE_INDEX),
+            context=context,
+        )
 
     async def stage(
         self,
@@ -86,14 +83,7 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> None:
-        route_points = self._points(batch.route_records)
         evidence_points = self._points(batch.evidence_records)
-        if route_points:
-            await self._repository.upsert_records(
-                ROUTE_INDEX,
-                route_points,
-                context=context,
-            )
         if evidence_points:
             await self._repository.upsert_records(
                 EVIDENCE_INDEX,
@@ -107,20 +97,14 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> VectorProjectionVerification:
-        route_points = self._points(batch.route_records)
         evidence_points = self._points(batch.evidence_records)
-        routes = await self._get(
-            ROUTE_INDEX,
-            route_points,
-            context=context,
-        )
         evidence = await self._get(
             EVIDENCE_INDEX,
             evidence_points,
             context=context,
         )
-        expected = {point.id: point for point in (*route_points, *evidence_points)}
-        actual = {point.id: point for point in (*routes, *evidence)}
+        expected = {point.id: point for point in evidence_points}
+        actual = {point.id: point for point in evidence}
         missing = tuple(sorted(expected.keys() - actual.keys()))
         invalid_dense = tuple(
             sorted(
@@ -150,16 +134,14 @@ class VectorProjectionStore:
             )
         )
         valid = not any((missing, invalid_dense, invalid_sparse, mismatched_payload)) and (
-            len(routes),
+            0,
             len(evidence),
         ) == (
-            len(route_points),
+            0,
             len(evidence_points),
         )
         return VectorProjectionVerification(
             valid=valid,
-            expected_route_count=len(route_points),
-            actual_route_count=len(routes),
             expected_evidence_count=len(evidence_points),
             actual_evidence_count=len(evidence),
             missing_point_ids=missing,
@@ -174,12 +156,6 @@ class VectorProjectionStore:
         *,
         context: StorageOperationContext,
     ) -> None:
-        if manifest.route_point_ids:
-            await self._repository.delete_records(
-                ROUTE_INDEX,
-                manifest.route_point_ids,
-                context=context,
-            )
         if manifest.evidence_point_ids:
             await self._repository.delete_records(
                 EVIDENCE_INDEX,
@@ -211,7 +187,7 @@ class VectorProjectionStore:
 
     @staticmethod
     def _points(
-        records: Sequence[VectorRouteRecord | VectorEvidenceRecord],
+        records: Sequence[VectorEvidenceRecord],
     ) -> tuple[VectorIndexRecord, ...]:
         return tuple(
             VectorIndexRecord(

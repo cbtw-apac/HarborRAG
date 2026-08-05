@@ -10,7 +10,9 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ingestion import (
     ExecutionCapabilityError,
     GraphEdgeRecord,
+    GraphEntityType,
     GraphNodeRecord,
+    GraphOwnershipScope,
     KnowledgeNodeKind,
 )
 from harborrag_core.models.chat import (
@@ -95,18 +97,20 @@ class _RetrievalService:
         self.graph_call = (query, access)
         subject = GraphNodeRecord(
             node_key="node-a",
-            node_kind=KnowledgeNodeKind.DOCUMENT,
+            node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
+            entity_type=GraphEntityType.GENERIC_SOURCE_ITEM,
             logical_id="document-a",
-            document_id="document-a",
-            document_version_id="version-a",
+            ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+            owner_id="tenant-1",
             source_scope_id="scope-1",
         )
         object_node = GraphNodeRecord(
             node_key="node-b",
-            node_kind=KnowledgeNodeKind.DOCUMENT,
+            node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
+            entity_type=GraphEntityType.GENERIC_SOURCE_ITEM,
             logical_id="document-b",
-            document_id="document-b",
-            document_version_id="version-b",
+            ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+            owner_id="tenant-1",
             source_scope_id="scope-1",
         )
         relation = GraphEdgeRecord(
@@ -114,7 +118,9 @@ class _RetrievalService:
             relation_type=RelationType.LINKS_TO,
             source_node_key="node-a",
             target_node_key="node-b",
-            document_version_id="version-a",
+            ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+            owner_id="tenant-1",
+            source_scope_id="scope-1",
             source_relation_version="source-v1",
             source_explicit=True,
         )
