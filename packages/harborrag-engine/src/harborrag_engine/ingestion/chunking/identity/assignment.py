@@ -1,31 +1,31 @@
 from __future__ import annotations
 
-import json
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from hashlib import sha256
+
+from harborrag_core.chunking import CanonicalIdentityBuilder, ChunkKind
 
 from ..config import ChunkingProfile
-
-
-def _hash(prefix: str, *values: object) -> str:
-    payload = json.dumps(
-        values,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"{prefix}:{sha256(payload).hexdigest()}"
+from .fingerprint import encoded_identifier
 
 
 @dataclass(frozen=True, slots=True)
 class ChunkIdentity:
     """Stable logical identity paired with an immutable revision identity."""
 
+    section_id: str
     logical_chunk_id: str
-    chunk_revision_id: str
+    chunk_id: str
+
+    @property
+    def chunk_revision_id(self) -> str:
+        """Compatibility access for the former exact chunk identity name."""
+
+        return self.chunk_id
 
 
-class ChunkIdentityService:
-    """Generate logical and immutable revision identities independently."""
+class ChunkIdentityBuilder(CanonicalIdentityBuilder):
+    """Build domain-separated deterministic chunk and table identities."""
 
     def configuration_hash(
         self,
@@ -37,7 +37,7 @@ class ChunkIdentityService:
     ) -> str:
         """Hash the complete chunker configuration that affects output."""
 
-        return _hash(
+        return encoded_identifier(
             "chunk-config",
             {
                 "configuration_version": configuration_version,
@@ -50,32 +50,37 @@ class ChunkIdentityService:
     def identify(
         self,
         *,
-        tenant_id: str,
-        artifact_id: str,
-        strategy_name: str,
+        document_id: str,
+        document_version_id: str,
+        strategy_version: str,
+        section_path: Sequence[str],
         structural_anchor: str,
         local_part_index: int,
-        role: str,
+        chunk_kind: ChunkKind,
         content_hash: str,
-        configuration_hash: str,
-        chunker_version: str,
     ) -> ChunkIdentity:
         """Generate stable logical and content-specific revision identities."""
 
-        logical_id = _hash(
-            "logical-chunk",
-            tenant_id,
-            artifact_id,
-            strategy_name,
-            structural_anchor,
-            local_part_index,
-            role,
+        section_id = self.section_id(
+            document_id=document_id,
+            section_path=section_path,
         )
-        revision_id = _hash(
-            "chunk-revision",
-            logical_id,
-            content_hash,
-            configuration_hash,
-            chunker_version,
+        logical_id = self.logical_chunk_id(
+            section_id=section_id,
+            stable_source_range={
+                "anchor": structural_anchor,
+                "part": local_part_index,
+            },
+            chunk_kind=chunk_kind,
         )
-        return ChunkIdentity(logical_id, revision_id)
+        chunk_id = self.chunk_id(
+            logical_chunk_id=logical_id,
+            document_version_id=document_version_id,
+            strategy_version=strategy_version,
+            content_hash=content_hash,
+        )
+        return ChunkIdentity(section_id, logical_id, chunk_id)
+
+
+class ChunkIdentityService(ChunkIdentityBuilder):
+    """Compatibility name for the existing engine identity collaborator."""

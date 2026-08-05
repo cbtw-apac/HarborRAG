@@ -37,7 +37,7 @@ class CompatiblePeerMerger:
             content = f"{previous.content}\n\n{current.content}"
             if (
                 self._packer.compatible(left_unit, right_unit)
-                and self._token_counter.count(content) <= profile.maximum_tokens
+                and self._token_counter.count(content) <= profile.soft_maximum_tokens
             ):
                 values[index - 1 : index + 1] = [
                     self._packer.build((*previous.units, *current.units))

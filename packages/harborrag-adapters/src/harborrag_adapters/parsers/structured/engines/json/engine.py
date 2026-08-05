@@ -53,7 +53,7 @@ class JsonStructuredEngine(HarborStructuredEngine):
                 data = [json.loads(line) for line in source.splitlines() if line.strip()]
             else:
                 data = json.loads(source)
-        except (json.JSONDecodeError, RecursionError, UnicodeDecodeError) as exc:
+        except (json.JSONDecodeError, RecursionError) as exc:
             # RecursionError comes from adversarially deep nesting; both are
             # expected "bad document" outcomes, not internal bugs.
             parser_logger.warning(

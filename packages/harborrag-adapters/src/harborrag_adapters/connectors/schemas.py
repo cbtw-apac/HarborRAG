@@ -94,3 +94,32 @@ class ConnectorPage:
 
     records: tuple[SourceRecord, ...]
     next_cursor: str | None
+
+
+SKIP_REASON_SIZE_LIMIT_EXCEEDED = "size_limit_exceeded"
+SKIP_REASON_UNREADABLE = "unreadable"
+SKIP_REASON_OUT_OF_SCOPE = "out_of_scope"
+SKIP_REASON_CALLBACK_REJECTED = "callback_rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorSkip:
+    """One source item a traversal deliberately dropped, with its reason.
+
+    Skips are reported rather than silently omitted so callers can tell "the
+    source contains nothing else" apart from "an item was excluded by a
+    configured limit or a source-side condition". Intended filtering
+    (extension, glob, pattern, ``updated_after``) is *not* a skip; only
+    exclusions a caller would want to see named belong here.
+
+    ``reason`` is one of the ``SKIP_REASON_*`` constants and is meant for
+    machine handling; ``detail`` is the human-readable explanation.
+    """
+
+    path: str
+    reason: str
+    detail: str
+
+    def to_dict(self) -> dict[str, str]:
+        """Serialize one skip for logs, reports, or run summaries."""
+        return {"path": self.path, "reason": self.reason, "detail": self.detail}

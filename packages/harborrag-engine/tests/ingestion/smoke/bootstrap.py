@@ -11,6 +11,7 @@ for source_path in (
     REPO_ROOT / "packages" / "harborrag-core" / "src",
     REPO_ROOT / "packages" / "harborrag-adapters" / "src",
     REPO_ROOT / "packages" / "harborrag-engine" / "src",
+    REPO_ROOT / "packages" / "harborrag-runtime" / "src",
 ):
     source = str(source_path)
     if source not in sys.path:
@@ -28,16 +29,15 @@ class SmokeNotConfigured(SmokeConfigurationError):
     """Report that a required real smoke target is unavailable."""
 
 
-def load_env() -> Path:
-    """Load a smoke dotenv file without replacing exported variables."""
+def load_env_file(path: Path) -> bool:
+    """Load one dotenv file without replacing exported variables."""
 
-    configured = os.getenv("HARBOR_SMOKE_ENV_FILE")
-    path = Path(configured).expanduser() if configured else REPO_ROOT / ".env"
-    if not path.is_absolute():
-        path = REPO_ROOT / path
-    if not path.is_file():
-        return path
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    resolved = path.expanduser()
+    if not resolved.is_absolute():
+        resolved = REPO_ROOT / resolved
+    if not resolved.is_file():
+        return False
+    for raw_line in resolved.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -45,6 +45,17 @@ def load_env() -> Path:
         name = name.strip()
         if name and name not in os.environ:
             os.environ[name] = _unquote(value)
+    return True
+
+
+def load_env() -> Path:
+    """Load a smoke dotenv file without replacing exported variables."""
+
+    configured = os.getenv("HARBOR_SMOKE_ENV_FILE")
+    path = Path(configured).expanduser() if configured else REPO_ROOT / ".env"
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    load_env_file(path)
     return path
 
 

@@ -159,6 +159,14 @@ def test_security_helpers():
     redacted_config = redact_mapping({"notes": "Authorization: Bearer bearer-secret-123"})
     assert "bearer-secret-123" not in redacted_config["notes"]
 
+    # Regression test: common token-based credential keys must be redacted,
+    # while non-secret token-like config keys such as max_tokens remain intact.
+    redacted_config = redact_mapping({"access_token": "x"})
+    assert redacted_config["access_token"] == "<redacted>"
+
+    redacted_config = redact_mapping({"max_tokens": 4096})
+    assert redacted_config["max_tokens"] == 4096
+
     URLPolicy().validate("https://example.com")
     with pytest.raises(URLPolicyError):
         URLPolicy().validate("ftp://example.com")

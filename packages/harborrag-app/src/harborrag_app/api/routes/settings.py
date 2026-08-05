@@ -19,4 +19,6 @@ async def get_settings(
 ) -> dict[str, Any]:
     """The workspace settings document, flat; an empty document if never written."""
     response = await service.get_settings()
+    # TODO(ML4): redact settings via harborrag_core.security.redaction.redact_mapping
+    # before returning if documents may contain webhook URLs or keys.
     return cast(dict[str, Any], response.data["settings"].data)

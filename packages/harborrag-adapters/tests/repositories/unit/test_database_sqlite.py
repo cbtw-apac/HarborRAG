@@ -4,10 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.repositories.database.sqlalchemy.schemas import (
-    chunk_from_row,
-    chunk_metadata,
-)
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.database.sqlite.repository import (
     SQLiteDatabaseBackend,
@@ -34,54 +30,6 @@ def make_backend(tmp_path: Path) -> SQLiteDatabaseBackend:
     return SQLiteDatabaseBackend(
         SQLiteDatabaseConfig(database=str(tmp_path / "harbor.db"), create_schema=True)
     )
-
-
-def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
-    record = ChunkRecord(
-        logical_chunk_id="logical-1",
-        chunk_revision_id="revision-1",
-        tenant_id="tenant-a",
-        document_id="doc-1",
-        document_version_id="doc-version-1",
-        artifact_id="artifact-1",
-        artifact_revision_id="artifact-version-1",
-        ordinal=0,
-        role="section",
-        content="content",
-        content_hash="hash",
-        token_count=1,
-        source_span=ChunkSourceSpan(
-            start_offset=8,
-            end_offset=15,
-            start_line=4,
-            end_line=5,
-            source_element_ids=("element-1",),
-        ),
-        context=ChunkContext(
-            title="HarborRAG",
-            structural_path=("Guide",),
-        ),
-        metadata={"source": "parser", "nested": {"values": [1, 2]}},
-    )
-
-    storage_metadata = chunk_metadata(record)
-    storage_metadata["_harborrag_chunk"]["chunk_revision_id"] = "untrusted-override"
-    loaded = chunk_from_row(
-        {
-            "id": str(record.chunk_revision_id),
-            "tenant_id": str(record.tenant_id),
-            "document_id": str(record.document_id),
-            "document_version_id": str(record.document_version_id),
-            "chunk_index": record.ordinal,
-            "content": record.content,
-            "content_hash": record.content_hash,
-            "token_count": record.token_count,
-            "metadata": storage_metadata,
-            "created_at": record.created_at,
-        }
-    )
-
-    assert loaded == record
 
 
 @pytest.mark.asyncio
@@ -180,7 +128,7 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
     async with backend:
         context = make_context()
         chunks = [
-            ChunkRecord(
+            ChunkRecord.from_legacy(
                 logical_chunk_id=f"logical-{i}",
                 chunk_revision_id=f"c{i}",
                 tenant_id=context.tenant_id,

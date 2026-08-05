@@ -24,6 +24,7 @@ from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorMetadata,
     ConnectorQuery,
+    ConnectorSkip,
 )
 from harborrag_adapters.connectors.sharepoint import (
     SharePointConnector,

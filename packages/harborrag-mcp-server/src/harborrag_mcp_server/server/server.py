@@ -9,6 +9,7 @@ from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp_server.tools.health import HealthTool
+from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 
 # Shared, process-wide default policy/audit singletons. The module-level
 # call_tool/list_tools facade constructs a fresh McpServer per invocation, so
@@ -36,7 +37,7 @@ def _result_count(result: dict[str, object]) -> int:
 class McpServer(BaseMcpServer):
     """In-process MCP transport enforcing policy and audit boundaries."""
 
-    tools: list[BaseMcpTool] = field(default_factory=lambda: [HealthTool()])
+    tools: list[BaseMcpTool] = field(default_factory=lambda: [HealthTool(), VectorSearchTool()])
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
 

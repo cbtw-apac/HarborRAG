@@ -7,7 +7,7 @@ from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
 from .registry import connector_registry
-from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery
+from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 
 class HarborConnector:
@@ -22,6 +22,11 @@ class HarborConnector:
     def capabilities(self) -> ConnectorCapabilities:
         """Expose the selected provider's advertised capabilities."""
         return self.provider.capabilities
+
+    @property
+    def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """Expose the provider's reported skips from its last traversal."""
+        return self.provider.skipped
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Proxy discovery to the selected provider."""

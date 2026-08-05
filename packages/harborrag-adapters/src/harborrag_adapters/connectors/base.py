@@ -10,7 +10,7 @@ from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
 from .exceptions import AuthenticationError
-from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery
+from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 logger = logging.getLogger("harborrag.adapters.connectors.base")
 
@@ -55,6 +55,18 @@ class BaseConnector(ABC):
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Yield lightweight records that identify loadable source items."""
         raise NotImplementedError
+
+    @property
+    def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """Items the most recent ``discover`` traversal dropped, with reasons.
+
+        Discovery must not silently omit an item it declined for a reportable
+        reason such as a configured size limit. Providers that enforce those
+        limits override this so callers can distinguish a reported skip from a
+        silent omission; the default is empty for providers that do not report
+        skips yet.
+        """
+        return ()
 
     @abstractmethod
     def load(self, record: SourceRecord) -> RawDocument:

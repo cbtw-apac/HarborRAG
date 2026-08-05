@@ -101,6 +101,38 @@ def _render_local_output(
     return "\n".join(lines)
 
 
+def _is_source_blank(path: Path) -> bool:
+    """A source file that is itself empty or whitespace-only can't be expected
+    to yield extracted content; treat that as a valid empty parse rather than
+    a parser failure, matching how the Confluence/Jira smoke checks never
+    fail on a page/issue with blank body text.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return False
+    if not raw:
+        return True
+    try:
+        return not raw.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return False
+
+
+def _print_skips(skipped) -> None:
+    """Report files discovery deliberately dropped, so none is silently omitted.
+
+    Skips are informational, not smoke failures: a file the configured
+    `max_file_size_bytes` excludes is correct behavior, and it must still be
+    named with its reason rather than vanishing from the output.
+    """
+    if not skipped:
+        return
+    print(f"[local] skipped {len(skipped)} path(s)")
+    for skip in skipped:
+        print(f"  - {skip.path}: {skip.detail} [{skip.reason}]")
+
+
 def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | None = None) -> int:
     load_env()
     try:
@@ -113,6 +145,7 @@ def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | N
     print(f"\n[local] discovered {len(records)} record(s)")
     for record in records:
         print(f"  - {record.id} ({record.source_type})")
+    _print_skips(connector.skipped)
     if not records:
         print("[local] no records discovered")
         return 1
@@ -128,9 +161,12 @@ def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | N
             overall_ok = False
             continue
         if not parsed.content.strip():
-            print(f"[local] failed: parser returned empty extracted content for {path}")
-            overall_ok = False
-            continue
+            if _is_source_blank(path):
+                print(f"[local] note: source file is empty or blank for {path}")
+            else:
+                print(f"[local] failed: parser returned empty extracted content for {path}")
+                overall_ok = False
+                continue
 
         print_parsed("local", parsed, source=str(path))
         if output:

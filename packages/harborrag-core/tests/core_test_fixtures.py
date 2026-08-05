@@ -6,9 +6,8 @@ from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass, field
 
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.job import Job, JobStatus
+from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.project import Project
@@ -109,60 +108,8 @@ class FakeSourceRepository:
         self.sources.pop(source_id, None)
 
 
-@dataclass(slots=True)
-class FakeJobRepository:
-    """Dict-backed JobRepositoryPort with per-job event logs."""
-
-    jobs: dict[str, Job] = field(default_factory=dict)
-    events: dict[str, list[HarborEvent]] = field(default_factory=dict)
-
-    async def list(
-        self,
-        status: JobStatus | None = None,
-        source_id: str | None = None,
-    ) -> list[Job]:
-        """Jobs filtered by status and/or source."""
-        result = list(self.jobs.values())
-        if status is not None:
-            result = [job for job in result if job.status == status]
-        if source_id is not None:
-            result = [job for job in result if job.source_id == source_id]
-        return result
-
-    async def get(self, job_id: str) -> Job | None:
-        """Job by id, or None."""
-        return self.jobs.get(job_id)
-
-    async def save(self, job: Job) -> Job:
-        """Insert or overwrite a job."""
-        self.jobs[job.id] = job
-        return job
-
-    async def append_event(self, job_id: str, event: HarborEvent) -> None:
-        """Append to the job's ordered event log."""
-        self.events.setdefault(job_id, []).append(event)
-
-    async def count_by_status(self) -> dict[str, int]:
-        """Job counts grouped by status."""
-        counts: dict[str, int] = {}
-        for job in self.jobs.values():
-            counts[job.status] = counts.get(job.status, 0) + 1
-        return counts
-
-
-@dataclass(slots=True)
-class FakeActivityRepository:
-    """List-backed ActivityRepositoryPort (append-only)."""
-
-    entries: list[ActivityEntry] = field(default_factory=list)
-
-    async def append(self, entry: ActivityEntry) -> None:
-        """Record one audit entry."""
-        self.entries.append(entry)
-
-    async def list(self, limit: int = 50) -> list[ActivityEntry]:
-        """Newest entries first."""
-        return list(reversed(self.entries))[:limit]
+# Use shared test fakes from harborrag_core.testing.fakes to avoid
+# duplication and drift when ports change.
 
 
 @dataclass(slots=True)

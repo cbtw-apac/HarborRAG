@@ -160,7 +160,7 @@ class ConfluenceConnector(BaseConnector):
 
         if not self._should_process_content(content):
             raise DocumentProcessingError(
-                f"Confluence content {content_id} does not match label filters"
+                f"Confluence content {content_id} does not match content filters"
             )
         comments = self._content.fetch_comments(content_id) if self.config.include_comments else []
         attachments = []
@@ -174,6 +174,7 @@ class ConfluenceConnector(BaseConnector):
             content,
             comments=comments,
             attachments=attachments,
+            max_child_pages=self.config.max_child_pages,
         )
         body_html = body_html_from_content(content)
         source_url = display_url(
@@ -253,7 +254,17 @@ class ConfluenceConnector(BaseConnector):
         return record
 
     def _should_process_content(self, content: dict[str, Any]) -> bool:
-        """Apply include/exclude label filters to Confluence content."""
+        """Apply include/exclude label filters and reject Confluence live docs.
+
+        Live docs report ``type: "page"`` like ordinary pages -- they're
+        differentiated only by ``subtype: "live"``, which CQL's
+        ``type in (...)`` clause can't see, so ``content_types`` alone can
+        never exclude them at the query level. There is currently no
+        supported way to opt into ingesting live docs, so they're rejected
+        unconditionally rather than gated by config.
+        """
+        if content.get("subtype") == "live":
+            return False
         labels = content.get("metadata", {}).get("labels", {}).get("results", [])
         label_names = {str(label.get("name")) for label in labels if isinstance(label, dict)}
         if self.config.exclude_labels and label_names.intersection(self.config.exclude_labels):

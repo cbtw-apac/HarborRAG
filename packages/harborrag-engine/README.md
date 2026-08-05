@@ -107,10 +107,12 @@ Run from the repository root:
 ```bash
 pytest packages/harborrag-engine/tests/ingestion/unit
 pytest packages/harborrag-engine/tests/ingestion/integration -m integration
+python packages/harborrag-engine/tests/ingestion/smoke/chunking.py
 python packages/harborrag-engine/tests/ingestion/smoke/indexing.py
 ```
 
 The vector integration test uses embedded Qdrant. The graph integration test
 requires a live FalkorDB service and `HARBORRAG_FALKORDB_INTEGRATION=1`.
-The standalone smoke check uses real embedding, Qdrant, and FalkorDB adapters;
-see `tests/ingestion/smoke/README.md` before running it.
+The chunking smoke check runs real connector, parser, and chunking stages and
+prints a JSON report; the indexing smoke check uses real embedding, Qdrant, and
+FalkorDB adapters. See `tests/ingestion/smoke/README.md` before running either.
