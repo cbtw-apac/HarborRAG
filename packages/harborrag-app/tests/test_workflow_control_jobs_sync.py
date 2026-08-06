@@ -1,16 +1,11 @@
-"""Source -> Job bridge (ML2 P2): create/list/get/result/control_job semantics."""
+"""Source -> Job bridge (ML2 P2): sync_job_progress/stream_job_events semantics."""
 
 from __future__ import annotations
 
 import pytest
 
 from harborrag_app.workflow_control.client import AppService
-from harborrag_app.workflow_control.schemas import JobRunOptions
-from harborrag_core.contracts.errors import (
-    HarborCapabilityError,
-    HarborConflictError,
-    HarborNotFoundError,
-)
+from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.testing.fakes import (
@@ -134,171 +129,138 @@ def _local_file_source(project_id: str = "proj-a") -> SourceConfig:
 
 
 @pytest.mark.asyncio
-async def test_create_job_starts_ingestion_and_persists_running() -> None:
+async def test_sync_job_progress_publishes_and_persists_on_first_observed_snapshot() -> None:
     project = Project(id="proj-a", name="A", collection="a")
     source = _local_file_source()
     service = _build_service(projects=[project], sources=[source])
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
 
-    response = await service.create_job(source.id, actor="alice@example.com")
+    synced = await service.sync_job_progress()
 
-    assert response.ok
-    job = response.data["job"]
-    assert job.status == "running"
-    assert job.source_id == source.id
-    assert job.project_id == "proj-a"
-    assert "run" in response.data
-    assert "workflow" in response.data
+    assert synced.data == {"synced": 1}
+    control_plane = service._control_plane()
+    events = await control_plane.jobs.list_events(job.id)
+    assert [event.name for event in events] == [f"job.{job.id}.progress"]
+    stored = await control_plane.jobs.get(job.id)
+    assert stored is not None
+    assert stored.payload["_last_progress"] is not None
+
+
+@pytest.mark.asyncio
+async def test_sync_job_progress_updates_counters_from_live_progress() -> None:
+    project = Project(id="proj-a", name="A", collection="a")
+    source = _local_file_source()
+    service = _build_service(projects=[project], sources=[source])
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
+    assert job.counters.documents_processed == 0
+
+    await service.sync_job_progress()
+
+    stored = await service._control_plane().jobs.get(job.id)
+    assert stored is not None
+    # FakeRuntimeClient.get_progress returns {"discovered": 2, "processed": 1}.
+    assert stored.counters.documents_processed == 1
+    assert stored.counters.errors == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_job_progress_publishes_nothing_when_snapshot_unchanged() -> None:
+    project = Project(id="proj-a", name="A", collection="a")
+    source = _local_file_source()
+    service = _build_service(projects=[project], sources=[source])
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
+    await service.sync_job_progress()
+
+    await service.sync_job_progress()
+
+    events = await service._control_plane().jobs.list_events(job.id)
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_job_progress_terminal_status_updates_job_and_emits_done() -> None:
+    project = Project(id="proj-a", name="A", collection="a")
+    source = _local_file_source()
+    service = _build_service(projects=[project], sources=[source])
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
+    await service.sync_job_progress()
+
+    service._client.execution_status_value = "completed"
+    await service.sync_job_progress()
 
     control_plane = service._control_plane()
     stored = await control_plane.jobs.get(job.id)
     assert stored is not None
-    assert stored.status == "running"
-    [entry] = await control_plane.activity.list()
-    assert entry.actor == "alice@example.com"
-    assert entry.verb == "created"
-    assert entry.entity_type == "job"
+    assert stored.status == "succeeded"
+    events = await control_plane.jobs.list_events(job.id)
+    assert [event.name for event in events] == [
+        f"job.{job.id}.progress",
+        f"job.{job.id}.progress",
+        f"job.{job.id}.done",
+    ]
+    # Terminal jobs drop out of the next tick's "running" sweep.
+    still_running = await control_plane.jobs.list(status="running")
+    assert still_running == []
 
 
 @pytest.mark.asyncio
-async def test_create_job_unknown_source_raises_not_found() -> None:
-    service = _build_service()
-    with pytest.raises(HarborNotFoundError):
-        await service.create_job("ghost", actor="alice@example.com")
-
-
-@pytest.mark.asyncio
-async def test_create_job_rejects_unsupported_source_type() -> None:
-    project = Project(id="proj-a", name="A", collection="a")
-    source = SourceConfig(
-        id="src-1", project_id="proj-a", source_type="notion", name="Notion space"
-    )
-    service = _build_service(projects=[project], sources=[source])
-    with pytest.raises(HarborCapabilityError):
-        await service.create_job(source.id, actor="alice@example.com")
-
-
-@pytest.mark.asyncio
-async def test_create_job_rejects_a_run_id_already_used_by_another_job() -> None:
-    project = Project(id="proj-a", name="A", collection="a")
-    source = _local_file_source()
-    service = _build_service(projects=[project], sources=[source])
-    existing = (
-        await service.create_job(
-            source.id, options=JobRunOptions(run_id="job-dup"), actor="alice@example.com"
-        )
-    ).data["job"]
-    assert existing.status == "running"
-
-    with pytest.raises(HarborConflictError):
-        await service.create_job(
-            source.id, options=JobRunOptions(run_id="job-dup"), actor="alice@example.com"
-        )
-
-    control_plane = service._control_plane()
-    stored = await control_plane.jobs.get("job-dup")
-    assert stored is not None
-    assert stored.status == "running"
-    start_calls = [call for call in service._client.calls if call[0] == "start_ingestion"]
-    assert len(start_calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_create_job_persists_failed_when_temporal_start_fails() -> None:
+async def test_sync_job_progress_skips_unreachable_job_without_raising() -> None:
     project = Project(id="proj-a", name="A", collection="a")
     source = _local_file_source()
     service = _build_service(projects=[project], sources=[source], failure=RuntimeError("boom"))
+    # Force the job into "running" directly (bypassing create_job's own
+    # failure handling) so sync_job_progress has a running job whose live
+    # Temporal calls fail.
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
+    job.status = "running"
+    await service._control_plane().jobs.save(job)
 
-    response = await service.create_job(source.id, actor="alice@example.com")
+    synced = await service.sync_job_progress()
 
-    assert not response.ok
-    job = response.data["job"]
+    assert synced.ok
+    events = await service._control_plane().jobs.list_events(job.id)
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_stream_job_events_yields_backlog_then_live_and_stops_after_done() -> None:
+    project = Project(id="proj-a", name="A", collection="a")
+    source = _local_file_source()
+    service = _build_service(projects=[project], sources=[source])
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
+    await service.sync_job_progress()
+
+    stream = service.stream_job_events(job.id)
+    backlog_event = await stream.__anext__()
+    assert backlog_event.name == f"job.{job.id}.progress"
+
+    service._client.execution_status_value = "completed"
+    await service.sync_job_progress()
+
+    live_progress = await stream.__anext__()
+    assert live_progress.name == f"job.{job.id}.progress"
+    live_done = await stream.__anext__()
+    assert live_done.name == f"job.{job.id}.done"
+
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_stream_job_events_unknown_job_raises_not_found() -> None:
+    service = _build_service()
+    with pytest.raises(HarborNotFoundError):
+        await service.stream_job_events("ghost").__anext__()
+
+
+@pytest.mark.asyncio
+async def test_stream_job_events_short_circuits_for_already_terminal_job() -> None:
+    project = Project(id="proj-a", name="A", collection="a")
+    source = _local_file_source()
+    service = _build_service(projects=[project], sources=[source], failure=RuntimeError("boom"))
+    job = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
     assert job.status == "failed"
-    assert job.last_error is not None
 
-    control_plane = service._control_plane()
-    stored = await control_plane.jobs.get(job.id)
-    assert stored is not None
-    assert stored.status == "failed"
-
-
-@pytest.mark.asyncio
-async def test_list_jobs_filters_by_source_and_status() -> None:
-    project = Project(id="proj-a", name="A", collection="a")
-    source_a = _local_file_source()
-    source_b = SourceConfig(
-        id="src-2", project_id="proj-a", source_type="local_file", name="Other docs"
-    )
-    service = _build_service(projects=[project], sources=[source_a, source_b])
-
-    await service.create_job(source_a.id, actor="alice@example.com")
-    await service.create_job(source_b.id, actor="alice@example.com")
-
-    all_jobs = (await service.list_jobs()).data["jobs"]
-    assert len(all_jobs) == 2
-
-    scoped = (await service.list_jobs(source_id=source_a.id)).data["jobs"]
-    assert [job.source_id for job in scoped] == [source_a.id]
-
-    running = (await service.list_jobs(status="running")).data["jobs"]
-    assert len(running) == 2
-
-
-@pytest.mark.asyncio
-async def test_get_job_merges_persisted_row_with_live_temporal_state() -> None:
-    project = Project(id="proj-a", name="A", collection="a")
-    source = _local_file_source()
-    service = _build_service(projects=[project], sources=[source])
-    created = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
-
-    response = await service.get_job(created.id)
-
-    assert response.ok
-    assert response.data["job"].id == created.id
-    assert response.data["live"]["execution_status"] == "running"
-
-
-@pytest.mark.asyncio
-async def test_get_job_unknown_id_raises_not_found() -> None:
-    service = _build_service()
-    with pytest.raises(HarborNotFoundError):
-        await service.get_job("ghost")
-
-
-@pytest.mark.asyncio
-async def test_get_job_result_merges_persisted_row_with_result() -> None:
-    project = Project(id="proj-a", name="A", collection="a")
-    source = _local_file_source()
-    service = _build_service(projects=[project], sources=[source])
-    created = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
-
-    response = await service.get_job_result(created.id)
-
-    assert response.ok
-    assert response.data["job"].id == created.id
-    assert response.data["result"] == {"status": "completed"}
-
-
-@pytest.mark.asyncio
-async def test_control_job_cancel_persists_cancelled_and_logs_activity() -> None:
-    project = Project(id="proj-a", name="A", collection="a")
-    source = _local_file_source()
-    service = _build_service(projects=[project], sources=[source])
-    created = (await service.create_job(source.id, actor="alice@example.com")).data["job"]
-
-    response = await service.control_job(created.id, "cancel", actor="bob@example.com")
-
-    assert response.ok
-    assert response.data["job"].status == "cancelled"
-    control_plane = service._control_plane()
-    stored = await control_plane.jobs.get(created.id)
-    assert stored is not None
-    assert stored.status == "cancelled"
-    verbs = [entry.verb for entry in await control_plane.activity.list()]
-    assert verbs == ["cancel", "created"]
-
-
-@pytest.mark.asyncio
-async def test_control_job_unknown_id_raises_not_found() -> None:
-    service = _build_service()
-    with pytest.raises(HarborNotFoundError):
-        await service.control_job("ghost", "cancel", actor="alice@example.com")
+    stream = service.stream_job_events(job.id)
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
