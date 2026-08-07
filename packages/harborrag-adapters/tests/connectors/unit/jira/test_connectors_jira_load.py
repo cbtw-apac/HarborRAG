@@ -135,7 +135,7 @@ def test_load_skips_cross_origin_attachment_download_urls():
     assert "outside trusted origin" in document.metadata["attachments"][0]["reason"]
 
 
-def test_load_rejects_comments_over_configured_limit():
+def test_load_truncates_comments_over_configured_limit():
     client = FakeJiraClient()
     client.add_get("issue/ENG-1", issue())
     client.add_get(
@@ -154,11 +154,12 @@ def test_load_rejects_comments_over_configured_limit():
         client=client,
     )
 
-    with pytest.raises(DocumentProcessingError, match="max_comments"):
-        connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
+    document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
+
+    assert [comment["id"] for comment in document.metadata["comments"]] == ["c1"]
 
 
-def test_load_rejects_attachments_over_configured_limit():
+def test_load_truncates_attachments_over_configured_limit():
     loaded_issue = issue()
     loaded_issue["fields"]["attachment"].append(
         {
@@ -178,10 +179,12 @@ def test_load_rejects_attachments_over_configured_limit():
             max_attachments=1,
         ),
         client=client,
+        parser=FakeAttachmentParser(),
     )
 
-    with pytest.raises(DocumentProcessingError, match="max_attachments"):
-        connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
+    document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
+
+    assert len(document.metadata["attachments"]) == 1
 
 
 def test_load_does_not_fetch_comments_or_parse_attachments_when_disabled():

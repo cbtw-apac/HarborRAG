@@ -13,7 +13,7 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import ParseError, TextDecodingError
 from harborrag_adapters.parsers.spreadsheet.base import HarborSpreadsheetEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -145,6 +145,11 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
                 )
                 self._warn(parse_input, warning)
                 warnings.append(warning)
+        if not lines and warnings:
+            # Every physical row failed to decode -- this isn't a few bad rows
+            # in an otherwise-good file, it's undecodable input that would
+            # otherwise silently surface as an empty document.
+            raise TextDecodingError(byte_length=len(data))
         return lines, warnings
 
     def _warn(self, parse_input: ParseInput, warning: str) -> None:

@@ -13,6 +13,7 @@ from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
     read_parse_input_text,
 )
+from harborrag_adapters.parsers.errors import TextDecodingError
 from harborrag_core.domain.parser import ParsedDocument, ParseInput, ParserFormat
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -37,21 +38,72 @@ def test_read_text_uses_confidence_detection_not_cp1252_mojibake() -> None:
 
 
 def test_read_text_raises_on_undecodable_bytes_instead_of_replacing() -> None:
-    with pytest.raises(UnicodeDecodeError):
+    with pytest.raises(TextDecodingError):
         read_parse_input_text(ParseInput(content=b"\xff\xfe\x00bad\x81"))
 
 
-def test_read_text_raises_instead_of_cp1251_mojibake_on_longer_invalid_utf8() -> None:
-    """A short invalid byte string can fail statistical detection outright and
-    mask this bug. Enough surrounding plain-ASCII text gives a single-byte
-    detector (e.g. cp1251) real "confidence", so it used to return mis-decoded
-    Cyrillic-looking text instead of raising -- confirm it raises instead."""
-    data = (
-        b"Hello world, this is a report.\xff\xfe\x00 more text after invalid "
-        b"bytes here to pad length quite a bit so statistics work."
-    )
-    with pytest.raises(UnicodeDecodeError):
+def test_read_text_raises_typed_error_instead_of_mojibake_on_corrupted_ascii() -> None:
+    # A handful of invalid UTF-8 bytes inside an otherwise-ASCII document must
+    # raise, not get silently reinterpreted as an unrelated legacy codepage
+    # (charset_normalizer commonly guesses cp1251/Cyrillic for this shape of
+    # input, since single-byte codepages accept almost any byte value).
+    data = b"Hello world, this is a normal ASCII document with one bad byte: \x81 right there."
+    with pytest.raises(TextDecodingError):
         read_parse_input_text(ParseInput(content=data))
+
+
+def test_read_text_still_detects_genuine_legacy_encoded_text() -> None:
+    text = "Привет мир, это тестовый документ на русском языке"
+    assert read_parse_input_text(ParseInput(content=text.encode("cp1251"))) == text
+
+
+def test_read_text_still_detects_bom_less_multi_byte_encoding() -> None:
+    # Multi-byte guesses (UTF-16/UTF-32/...) are trusted without the non-ASCII
+    # density gate that single-byte codepage guesses get: their code units are
+    # structured enough that a confident match on corrupted-but-mostly-ASCII
+    # bytes practically never happens, so a mostly-ASCII BOM-less UTF-16
+    # document (which decoded correctly before the cp1251 fix) must keep
+    # working rather than being rejected by the new density gate.
+    text = "This is a long plain English sentence with only one accented letter near the end: café"
+    assert read_parse_input_text(ParseInput(content=text.encode("utf-16-le"))) == text
+
+
+def test_read_text_prefers_cp1252_over_mistaken_cp1250_guess() -> None:
+    # cp1250 (Central European) and cp1252 (Western European) map ASCII
+    # identically and both accept almost any high byte, so charset_normalizer
+    # frequently mis-guesses a genuine cp1252 document as cp1250 (tied
+    # chaos=0.0) -- silently substituting the wrong accented characters
+    # (e.g. "naïve" -> "naďve", "señor" -> "seńor") instead of decoding
+    # correctly.
+    text = "Résumé of José García: über naïve façade, señor."
+    assert read_parse_input_text(ParseInput(content=text.encode("cp1252"))) == text
+
+
+def test_read_text_does_not_override_genuine_cp1250_document() -> None:
+    # The cp1252 re-check must not kick in for text that is actually Central
+    # European: cp1252 scores strictly worse (higher chaos) than cp1250 for
+    # genuine Polish/Czech text, so detection must still land on cp1250.
+    polish = "Dziękuję za wiadomość, proszę o odpowiedź jak najszybciej. Łódź, Wrocław, Kraków."
+    czech = "Děkuji za váš dopis, prosím o odpověď co nejdříve. Praha, Brno, Ostrava, Plzeň."
+    assert read_parse_input_text(ParseInput(content=polish.encode("cp1250"))) == polish
+    assert read_parse_input_text(ParseInput(content=czech.encode("cp1250"))) == czech
+
+
+def test_read_text_cp1250_cp1252_fix_does_not_affect_other_legacy_encodings() -> None:
+    # The cp1250/cp1252 re-check is scoped to that specific confusion pair; it
+    # must never trigger for unrelated single-byte codepages, which a broader
+    # "always prefer cp1252" heuristic would silently corrupt (verified: a
+    # Lithuanian cp1257 sample tied with cp1252 on chaos and was wrongly
+    # swapped under that broader approach).
+    samples = {
+        "cp1257": "Labas, šis yra testinis dokumentas lietuvių kalba. Ąžuolas, žąsis, čiuožėjas.",
+        "cp1253": "Καλημέρα, αυτό είναι ένα δοκίμιο στα ελληνικά.",
+        "cp1255": "שלום, זהו מסמך בדיקה בעברית לצורך אימות זיהוי הקידוד.",
+        "cp1256": "مرحبا، هذه وثيقة اختبار باللغة العربية للتحقق من الترميز.",
+        "cp1254": "Merhaba, bu Türkçe bir test belgesidir. Şeker, çiçek, güneş, öğretmen, ışık.",
+    }
+    for encoding, text in samples.items():
+        assert read_parse_input_text(ParseInput(content=text.encode(encoding))) == text
 
 
 def test_coerce_shapes() -> None:

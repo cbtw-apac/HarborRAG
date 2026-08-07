@@ -90,9 +90,14 @@ class ConnectorDefinition:
         """Resolve settings, run provider validation, and build the connector.
 
         Raises:
-            ConnectorConfigurationError: If a secret is missing or provider
-                settings fail the provider config dataclass validation.
+            ConnectorConfigurationError: If the connector is disabled, a
+                secret is missing, or provider settings fail the provider
+                config dataclass validation.
         """
+        if not self.enabled:
+            raise ConnectorConfigurationError(
+                f"Connector {self.name!r} is disabled (enabled: false) and cannot be built"
+            )
         factory = config_factory(self.provider)
         if factory is None:  # Defensive for manually-created definitions.
             raise ConnectorConfigurationError(

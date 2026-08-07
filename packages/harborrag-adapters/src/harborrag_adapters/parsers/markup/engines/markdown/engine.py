@@ -13,7 +13,6 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.markup.base import HarborMarkupEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -43,10 +42,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
             ),
         )
         guard_input_size(read_parse_input_bytes(parse_input))
-        try:
-            markdown = read_parse_input_text(parse_input)
-        except UnicodeDecodeError as exc:
-            raise ParseError(f"Could not decode Markdown input: {exc}") from exc
+        markdown = read_parse_input_text(parse_input)
         elements = self._elements(markdown, parse_input.filename or "markdown")
         content = self._to_text(markdown)
         parser_logger.info(

@@ -6,10 +6,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.policies.validation import (
-    enforce_collection_limit,
-    extend_with_limit,
-)
+from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 
 from .client import JiraClient
 from .config import JiraDeploymentType, JiraProjectConfig
@@ -125,7 +122,7 @@ class JiraIssueAPI:
         )
 
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
-        """Fetch all comments for one issue while enforcing configured caps."""
+        """Fetch comments for one issue, truncated to the configured cap."""
         issue_key = validate_issue_key(issue_key)
         comments: list[dict[str, Any]] = []
         start_at = 0
@@ -143,20 +140,9 @@ class JiraIssueAPI:
                 len(values),
                 total,
             )
-            if total is not None:
-                enforce_collection_limit(
-                    count=int(total),
-                    limit=self.config.max_comments,
-                    label=f"JIRA comments for {issue_key}",
-                    setting_name="max_comments",
-                )
-            extend_with_limit(
-                comments,
-                values,
-                limit=self.config.max_comments,
-                label=f"JIRA comments for {issue_key}",
-                setting_name="max_comments",
-            )
+            truncated = truncate_with_limit(comments, values, limit=self.config.max_comments)
+            if truncated:
+                return comments
             start_at += len(values)
             if total is not None and start_at >= int(total):
                 return comments
@@ -164,7 +150,7 @@ class JiraIssueAPI:
                 return comments
 
     def fetch_changelog(self, issue_key: str) -> list[dict[str, Any]]:
-        """Fetch issue changelog pages and normalize histories for metadata."""
+        """Fetch issue changelog pages, truncated to the configured cap."""
         issue_key = validate_issue_key(issue_key)
         histories: list[dict[str, Any]] = []
         start_at = 0
@@ -181,13 +167,13 @@ class JiraIssueAPI:
                 len(values),
                 response.get("total"),
             )
-            extend_with_limit(
+            truncated = truncate_with_limit(
                 histories,
                 changelog_histories(response),
                 limit=self.config.max_changelog_items,
-                label=f"JIRA changelog for {issue_key}",
-                setting_name="max_changelog_items",
             )
+            if truncated:
+                return histories
             start_at += len(values)
             total = response.get("total")
             if total is not None and start_at >= int(total):

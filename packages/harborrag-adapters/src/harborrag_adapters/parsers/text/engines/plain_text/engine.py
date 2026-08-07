@@ -5,6 +5,7 @@ from typing import ClassVar
 from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
+    read_parse_input_text,
 )
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
@@ -12,7 +13,6 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.text.base import HarborTextEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -96,19 +96,8 @@ class PlainTextEngine(HarborTextEngine):
                 parser_engine=self.parser_engine,
             ),
         )
-        data = guard_input_size(read_parse_input_bytes(parse_input))
-        try:
-            if isinstance(parse_input.content, str):
-                text = parse_input.content
-            elif data.startswith((b"\xff\xfe", b"\xfe\xff")):
-                text = data.decode("utf-16")
-            else:
-                # Plain text is a deterministic UTF input boundary. Falling
-                # back to statistical single-byte encodings can turn corrupt
-                # UTF-8 into valid-looking but incorrect Cyrillic text.
-                text = data.decode("utf-8-sig")
-        except UnicodeDecodeError as exc:
-            raise ParseError(f"Could not decode text input: {exc}") from exc
+        guard_input_size(read_parse_input_bytes(parse_input))
+        text = read_parse_input_text(parse_input)
         content = compact_text(text)
         elements = (
             [

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_runtime.config import load_connector_catalog
+from harborrag_runtime.config import ConnectorConfigurationError, load_connector_catalog
 
 from .conftest import REPO_ROOT, write_config
 
@@ -73,6 +73,31 @@ def test_loads_named_connectors_and_builds_file_relative_local_source(
     local = connectors["local-docs"].provider
     assert local.config.source_path == source.resolve()
     assert local.config.allowed_extensions == {".md"}
+
+
+def test_build_refuses_disabled_connector_by_name(tmp_path: Path) -> None:
+    config_path = write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          later-github:
+            provider: github
+            enabled: false
+            settings:
+              owner: example
+              repo: docs
+            secrets:
+              token_env: GITHUB_TOKEN
+        """,
+    )
+
+    catalog = load_connector_catalog(config_path)
+
+    with pytest.raises(ConnectorConfigurationError, match="disabled"):
+        catalog.build("later-github", environment={"GITHUB_TOKEN": "unused"})
+    with pytest.raises(ConnectorConfigurationError, match="disabled"):
+        catalog.get("later-github").build(environment={"GITHUB_TOKEN": "unused"})
 
 
 def test_environment_local_source_resolves_from_process_directory(
