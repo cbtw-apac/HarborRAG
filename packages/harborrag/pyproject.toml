@@ -15,6 +15,7 @@ local = [
 ]
 chat = ["harborrag-adapters[llm]==0.1.0"]
 cli = ["harborrag-app==0.1.0"]
+memory = ["harborrag-memory==0.1.0"]
 server = [
     "harborrag-app[api]==0.1.0",
     "harborrag-runtime[production,temporal]==0.1.0",
@@ -30,6 +31,7 @@ all = [
     "harborrag-adapters[parsers-all]==0.1.0",
     "harborrag-app[api]==0.1.0",
     "harborrag-mcp-server[mcp]==0.1.0",
+    "harborrag-memory==0.1.0",
     "harborrag-runtime[production,temporal]==0.1.0",
 ]
 

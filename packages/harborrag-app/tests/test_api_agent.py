@@ -75,3 +75,45 @@ def test_agent_completion_requires_session_and_prompt(client: TestClient) -> Non
         ).status_code
         == 422
     )
+
+
+def test_agent_run_resume_forwards_bounded_controls(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client, "ACME")
+
+    response = client.post(
+        "/v1/agent/runs/run-1/resume",
+        json={
+            "tenant": "ACME",
+            "session_id": session_id,
+            "graph_search": True,
+            "max_steps": 6,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == "run-1"
+    assert payload["message"]["content"] == "Agent response"
+    assert service.agent_resume_calls[0]["principal_id"] == "dev"
+    assert service.agent_resume_calls[0]["graph_search"] is True
+    assert service.agent_resume_calls[0]["max_steps"] == 6
+
+
+def test_agent_run_resume_rejects_unknown_run(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/v1/agent/runs/run-missing/resume",
+        json={"tenant": "ACME", "session_id": "session-1"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_agent_run_resume_requires_session(client: TestClient) -> None:
+    response = client.post("/v1/agent/runs/run-1/resume", json={"tenant": "ACME"})
+
+    assert response.status_code == 422

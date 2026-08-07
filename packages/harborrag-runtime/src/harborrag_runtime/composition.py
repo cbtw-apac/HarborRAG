@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
@@ -41,6 +42,7 @@ class ControlPlaneRepositories:
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
     conversation_memory: ConversationRepository
+    agent_runs: AgentRunRepository
 
 
 @dataclass(slots=True)
@@ -69,6 +71,9 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
+        from harborrag_adapters.repositories.database.control_plane.agent_runs import (
+            SqlAgentRunRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.conversation import (
             SqlConversationMemoryRepository,
         )
@@ -153,6 +158,7 @@ class CompositionRoot:
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
+            agent_runs=SqlAgentRunRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,

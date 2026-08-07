@@ -1,10 +1,11 @@
-"""Resolve the configured conversation-memory plugin for the application."""
+"""Resolve the configured conversation-memory and agent-run-checkpoint plugins."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from harborrag_runtime.agent import AgentRunRepository, InMemoryAgentRunRepository
 from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
 
 logger = logging.getLogger("harborrag.app.workflow_control.memory")
@@ -27,4 +28,12 @@ def conversation_memory(composition: Any) -> ConversationRepository:
     return InMemoryConversationMemory()
 
 
-__all__ = ["conversation_memory"]
+def agent_run_checkpoints(composition: Any) -> AgentRunRepository:
+    """Use persistent composition agent-run checkpoints, with a test-double fallback."""
+
+    control_plane = getattr(composition, "control_plane", None)
+    persistent = getattr(control_plane, "agent_runs", None)
+    return persistent if persistent is not None else InMemoryAgentRunRepository()
+
+
+__all__ = ["agent_run_checkpoints", "conversation_memory"]

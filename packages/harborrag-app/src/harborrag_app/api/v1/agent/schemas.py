@@ -33,6 +33,17 @@ class AgentCompletionRequest(AgentSessionCreateRequest):
     prompt: str = Field(min_length=1, max_length=65_536)
     graph_search: bool = False
     max_steps: int = Field(default=4, ge=1, le=8)
+    stream: bool = False
+
+
+class AgentResumeRequest(AgentSessionCreateRequest):
+    session_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    graph_search: bool = False
+    max_steps: int = Field(default=4, ge=1, le=8)
 
 
 class AgentMessageResponse(ApiModel):
@@ -48,11 +59,13 @@ class AgentToolCallResponse(ApiModel):
 
 class AgentCompletionResponse(ApiModel):
     id: str
+    run_id: str
     model: str
     provider: str
     provider_model: str
     message: AgentMessageResponse
     finish_reason: str
+    stop_reason: str
     usage: ChatUsageResponse
     turns: int = Field(ge=1)
     tool_call_count: int = Field(ge=0)

@@ -1,6 +1,6 @@
-"""Compatibility exports for the core-owned conversation-memory port."""
+"""Compatibility exports for the memory package's conversation-memory facade."""
 
-from harborrag_core.ports.conversation import (
+from harborrag_memory import (
     ConversationIdentity,
     ConversationMemory,
     ConversationTurn,

@@ -20,6 +20,7 @@ members = [
     "harborrag-core",
     "harborrag-engine",
     "harborrag-mcp-server",
+    "harborrag-memory",
     "harborrag-runtime",
     "harborrag-workspace",
 ]
@@ -1856,6 +1857,7 @@ all = [
     { name = "harborrag-adapters", extra = ["parsers-all"] },
     { name = "harborrag-app", extra = ["api"] },
     { name = "harborrag-mcp-server", extra = ["mcp"] },
+    { name = "harborrag-memory" },
     { name = "harborrag-runtime", extra = ["production", "temporal"] },
 ]
 chat = [
@@ -1872,6 +1874,9 @@ local = [
 ]
 mcp = [
     { name = "harborrag-mcp-server", extra = ["mcp"] },
+]
+memory = [
+    { name = "harborrag-memory" },
 ]
 postgres = [
     { name = "harborrag-adapters", extra = ["control-plane", "postgres"] },
@@ -1909,12 +1914,14 @@ requires-dist = [
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-mcp-server", extras = ["mcp"], marker = "extra == 'all'", editable = "packages/harborrag-mcp-server" },
     { name = "harborrag-mcp-server", extras = ["mcp"], marker = "extra == 'mcp'", editable = "packages/harborrag-mcp-server" },
+    { name = "harborrag-memory", marker = "extra == 'all'", editable = "packages/harborrag-memory" },
+    { name = "harborrag-memory", marker = "extra == 'memory'", editable = "packages/harborrag-memory" },
     { name = "harborrag-runtime", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["production", "temporal"], marker = "extra == 'all'", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["production", "temporal"], marker = "extra == 'server'", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["temporal"], marker = "extra == 'temporal'", editable = "packages/harborrag-runtime" },
 ]
-provides-extras = ["local", "chat", "cli", "server", "temporal", "mcp", "qdrant", "falkordb", "postgres", "s3", "redis", "all"]
+provides-extras = ["local", "chat", "cli", "memory", "server", "temporal", "mcp", "qdrant", "falkordb", "postgres", "s3", "redis", "all"]
 
 [[package]]
 name = "harborrag-adapters"
@@ -2247,10 +2254,14 @@ version = "0.1.0"
 source = { editable = "packages/harborrag-engine" }
 dependencies = [
     { name = "harborrag-core" },
+    { name = "harborrag-memory" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "harborrag-core", editable = "packages/harborrag-core" }]
+requires-dist = [
+    { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
+]
 
 [[package]]
 name = "harborrag-mcp-server"
@@ -2281,6 +2292,17 @@ requires-dist = [
 provides-extras = ["mcp"]
 
 [[package]]
+name = "harborrag-memory"
+version = "0.1.0"
+source = { editable = "packages/harborrag-memory" }
+dependencies = [
+    { name = "harborrag-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "harborrag-core", editable = "packages/harborrag-core" }]
+
+[[package]]
 name = "harborrag-runtime"
 version = "0.1.0"
 source = { editable = "packages/harborrag-runtime" }
@@ -2288,6 +2310,7 @@ dependencies = [
     { name = "harborrag-adapters" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
+    { name = "harborrag-memory" },
     { name = "opentelemetry-api" },
     { name = "prometheus-client" },
     { name = "pydantic" },
@@ -2314,6 +2337,7 @@ requires-dist = [
     { name = "harborrag-adapters", extras = ["chunking", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-docling", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
+    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
     { name = "opentelemetry-api", specifier = ">=1.43,<2" },
     { name = "prometheus-client", specifier = ">=0.19,<1" },
     { name = "pydantic", specifier = ">=2.13,<3" },

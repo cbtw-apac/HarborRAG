@@ -4,6 +4,7 @@ root_packages =
     harborrag_core
     harborrag_adapters
     harborrag_engine
+    harborrag_memory
     harborrag_runtime
     harborrag_app
     harborrag_mcp_server
@@ -29,6 +30,7 @@ source_modules =
 forbidden_modules =
     harborrag
     harborrag_engine
+    harborrag_memory
     harborrag_app
     harborrag_mcp_server
     harborrag_runtime
@@ -76,3 +78,16 @@ forbidden_modules =
     harborrag
     harborrag_adapters
     harborrag_app
+
+[importlinter:contract:7]
+name = Memory depends only on core
+type = forbidden
+source_modules =
+    harborrag_memory
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_engine
+    harborrag_app
+    harborrag_mcp_server
+    harborrag_runtime

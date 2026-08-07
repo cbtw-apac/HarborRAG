@@ -35,7 +35,7 @@ from .errors import failure_response
 from .graph_retrieval import GraphRetrievalService
 from .ingestion_models import IngestionCreateCommand
 from .ingestion_service import IngestionApplicationService, PublicTaskStore
-from .memory import ConversationSessionService, conversation_memory
+from .memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
 from .ports import BaseAppService
 from .retrieval_query import retrieve
 from .schemas import AppResponse
@@ -114,7 +114,11 @@ class AppService(AgentClientMixin, ChatClientMixin, BaseAppService):
             self._settings,
             memory=memory,
         )
-        self._agent = AgentApplicationService(self._resources.runtime_sdk, memory=memory)
+        self._agent = AgentApplicationService(
+            self._resources.runtime_sdk,
+            memory=memory,
+            runs=agent_run_checkpoints(self._composition),
+        )
         self._graph = GraphRetrievalService(self._resources.runtime_sdk)
         self._temporal = TemporalIngestionOperations(
             self._settings,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from ..memory import ConversationSessionService
 from ..schemas import AppResponse
 from .options import AgentExecutionOptions
@@ -23,6 +25,19 @@ class AgentClientMixin:
             principal_id=principal_id,
         )
 
+    async def agent_session_exists(
+        self,
+        session_id: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> bool:
+        return await self._sessions.exists(
+            session_id,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+        )
+
     async def agent_completion(
         self,
         query: str,
@@ -33,6 +48,36 @@ class AgentClientMixin:
     ) -> AppResponse:
         return await self._agent.complete(
             query,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            options=options,
+        )
+
+    def agent_stream(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: AgentExecutionOptions,
+    ) -> AsyncIterator[dict[str, object]]:
+        return self._agent.stream(
+            query,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            options=options,
+        )
+
+    async def agent_resume(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: AgentExecutionOptions,
+    ) -> AppResponse:
+        return await self._agent.resume(
+            run_id,
             tenant_id=tenant_id,
             principal_id=principal_id,
             options=options,

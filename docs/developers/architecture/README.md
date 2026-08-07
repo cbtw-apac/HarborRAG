@@ -25,8 +25,9 @@ Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary 
 ```text
 harborrag_core      -> no HarborRAG package
 harborrag_adapters  -> core
+`harborrag_memory    -> core
 harborrag_engine    -> core
-harborrag_runtime   -> core, adapters, engine
+`harborrag_runtime   -> core, adapters, engine, memory
 harborrag_app       -> core, runtime
 harborrag_mcp_server -> core, runtime
 harborrag           -> any active package

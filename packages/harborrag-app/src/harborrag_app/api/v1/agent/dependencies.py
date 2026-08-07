@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
@@ -18,9 +19,35 @@ class AgentCompletionService(Protocol):
         principal_id: str,
     ) -> AppResponse: ...
 
+    async def agent_session_exists(
+        self,
+        session_id: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> bool: ...
+
     async def agent_completion(
         self,
         query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: AgentExecutionOptions,
+    ) -> AppResponse: ...
+
+    def agent_stream(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: AgentExecutionOptions,
+    ) -> AsyncIterator[dict[str, object]]: ...
+
+    async def agent_resume(
+        self,
+        run_id: str,
         *,
         tenant_id: str,
         principal_id: str,

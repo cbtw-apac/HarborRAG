@@ -4,8 +4,9 @@ Allowed direction (lower layers never import higher ones):
 
     harborrag_core      -> (stdlib only)
     harborrag_adapters  -> core
-    harborrag_engine    -> core
-    harborrag_runtime   -> core, adapters, engine
+    harborrag_memory    -> core
+    harborrag_engine    -> core, memory
+    harborrag_runtime   -> core, adapters, engine, memory
     harborrag_app       -> core, runtime
     harborrag_mcp_server -> core, runtime
     harborrag           -> any harborrag package (public facade)
@@ -43,13 +44,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ALLOWED_IMPORTS: dict[str, set[str]] = {
     "harborrag_core": set(),
     "harborrag_adapters": {"harborrag_core"},
-    "harborrag_engine": {"harborrag_core"},
-    "harborrag_runtime": {"harborrag_core", "harborrag_adapters", "harborrag_engine"},
+    "harborrag_memory": {"harborrag_core"},
+    "harborrag_engine": {"harborrag_core", "harborrag_memory"},
+    "harborrag_runtime": {
+        "harborrag_core",
+        "harborrag_adapters",
+        "harborrag_engine",
+        "harborrag_memory",
+    },
     "harborrag_app": {"harborrag_core", "harborrag_runtime"},
     "harborrag_mcp_server": {"harborrag_core", "harborrag_runtime"},
     "harborrag": {
         "harborrag_core",
         "harborrag_adapters",
+        "harborrag_memory",
         "harborrag_engine",
         "harborrag_runtime",
         "harborrag_app",
@@ -60,6 +68,7 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
 MODULE_TO_PACKAGE_DIR = {
     "harborrag_core": "harborrag-core",
     "harborrag_adapters": "harborrag-adapters",
+    "harborrag_memory": "harborrag-memory",
     "harborrag_engine": "harborrag-engine",
     "harborrag_runtime": "harborrag-runtime",
     "harborrag_app": "harborrag-app",

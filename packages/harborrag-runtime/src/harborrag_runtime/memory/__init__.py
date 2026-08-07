@@ -7,12 +7,14 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from harborrag_core.ports.conversation import (
+from harborrag_memory import (
     ConversationIdentity,
     ConversationMemory,
     ConversationRepository,
     ConversationSessions,
     ConversationTurn,
+    MemoryManager,
+    MemoryManagerConfig,
     new_session_id,
 )
 
@@ -155,5 +157,7 @@ __all__ = [
     "ConversationTurn",
     "DatabaseConversationMemory",
     "InMemoryConversationMemory",
+    "MemoryManager",
+    "MemoryManagerConfig",
     "new_session_id",
 ]

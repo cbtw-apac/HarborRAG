@@ -27,7 +27,7 @@ def test_dev_without_control_db_selects_development_service(
     assert mode == "development"
     diagnostics = service.health().data["diagnostics"]
     assert diagnostics["mode"] == "development"
-    assert diagnostics["runtime"]["control_db"]["migrations"] == "0009"
+    assert diagnostics["runtime"]["control_db"]["migrations"] == "0011"
 
 
 @pytest.mark.blackbox

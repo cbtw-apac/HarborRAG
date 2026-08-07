@@ -30,6 +30,7 @@ class MockAppService(AgentServiceFixture, ChatServiceFixture, BaseAppService):
         self.graph_retrieval_calls: list[dict[str, object]] = []
         self.chat_calls: list[dict[str, object]] = []
         self.agent_calls: list[dict[str, object]] = []
+        self.agent_resume_calls: list[dict[str, object]] = []
         self.conversation_sessions: set[tuple[str, str, str]] = set()
 
     async def create_chat_session(
@@ -49,6 +50,15 @@ class MockAppService(AgentServiceFixture, ChatServiceFixture, BaseAppService):
         return self._create_session(tenant_id, principal_id)
 
     async def chat_session_exists(
+        self,
+        session_id: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> bool:
+        return (tenant_id, principal_id, session_id) in self.conversation_sessions
+
+    async def agent_session_exists(
         self,
         session_id: str,
         *,
