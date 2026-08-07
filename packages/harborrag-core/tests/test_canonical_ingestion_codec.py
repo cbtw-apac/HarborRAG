@@ -94,3 +94,19 @@ def test_canonical_codec_rejects_runtime_metadata_recursively() -> None:
 
     with pytest.raises(ValueError, match="runtime field"):
         canonical_document_bytes(document)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not json at all",
+        b"[]",
+        b'{"schema_version": 1, "document": "not-a-dict"}',
+        b'{"schema_version": 1, "document": {"id": "d1"}}',
+        b'{"schema_version": 1, "document": {"id": "d1", "title": "t", '
+        b'"content_type": "text", "provenance": "not-a-dict"}}',
+    ],
+)
+def test_load_canonical_document_rejects_malformed_envelopes(payload: bytes) -> None:
+    with pytest.raises(ValueError):
+        load_canonical_document(payload)

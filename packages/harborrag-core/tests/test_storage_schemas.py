@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.schemas.cache import CacheEntry
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import VectorIndexRecord, VectorSearchQuery
+from harborrag_core.schemas.vector import VectorIndexRecord, VectorIndexSpec, VectorSearchQuery
 from harborrag_core.security import AccessContext
 
 
@@ -28,6 +28,26 @@ def test_chunk_record_rejects_the_removed_storage_id_alias() -> None:
     values["artifact_revision_id"] = "artifact-revision-1"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ChunkRecord.model_validate(values)
+
+
+def test_vector_index_spec_allows_distinct_or_absent_dense_and_sparse_names() -> None:
+    VectorIndexSpec(index_name="idx", dimension=8)
+    VectorIndexSpec(index_name="idx", dimension=8, dense_vector_name="dense")
+    VectorIndexSpec(
+        index_name="idx", dimension=8, dense_vector_name="dense", sparse_vector_name="sparse"
+    )
+
+
+def test_vector_index_spec_rejects_identical_dense_and_sparse_names() -> None:
+    with pytest.raises(ValidationError, match="must differ"):
+        VectorIndexSpec(
+            index_name="idx", dimension=8, dense_vector_name="shared", sparse_vector_name="shared"
+        )
+
+
+def test_vector_index_spec_requires_a_dense_name_when_sparse_is_set() -> None:
+    with pytest.raises(ValidationError, match="named dense vector"):
+        VectorIndexSpec(index_name="idx", dimension=8, sparse_vector_name="sparse")
 
 
 def test_storage_schemas_are_strict_frozen_and_use_utc_timestamps() -> None:

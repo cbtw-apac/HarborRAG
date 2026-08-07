@@ -122,6 +122,23 @@ def test_request_contracts_validate_and_protect_credentials() -> None:
             encoding_format=EmbeddingEncodingFormat.BASE64,
         )
 
+
+def test_image_url_and_input_audio_reject_oversized_encoded_media() -> None:
+    import base64
+
+    from harborrag_core.models.chat.content import _MAX_ENCODED_MEDIA_LENGTH, InputAudio
+
+    small_payload = base64.b64encode(b"not actually an image").decode()
+    ImageURL(url=f"data:image/png;base64,{small_payload}")
+
+    oversized_data_url = "data:image/png;base64," + "a" * _MAX_ENCODED_MEDIA_LENGTH
+    with pytest.raises(ValidationError):
+        ImageURL(url=oversized_data_url)
+
+    InputAudio(data=small_payload, format="wav")
+    with pytest.raises(ValidationError):
+        InputAudio(data="a" * (_MAX_ENCODED_MEDIA_LENGTH + 1), format="wav")
+
     document = HarborRerankDocument.text("candidate", document_id="doc-1")
     rerank = HarborRerankRequest(query="question", documents=(document,), top_n=1)
     assert rerank.documents[0].document_id == "doc-1"

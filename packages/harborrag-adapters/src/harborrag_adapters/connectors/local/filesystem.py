@@ -22,7 +22,6 @@ from .filesystem_paths import (
     path_in_scope,
     relative_path,
     resolve_path,
-    sha256_file,
     stat_datetime,
     stat_signature,
 )
@@ -295,11 +294,19 @@ class LocalFileSystem:
         return self.source_record(resolved, is_symlink=is_symlink)
 
     def checksum(self, path: Path) -> str | None:
-        """Return the configured change-detection signature for a file."""
+        """Return the configured change-detection signature for a file.
+
+        The sha256 mode routes through ``read_snapshot`` rather than hashing
+        the path directly, so it gets the same O_NOFOLLOW/dir_fd-bound
+        descriptor and size cap as every other read -- hashing a plain
+        ``path.open()`` would reopen the file outside that protection and
+        reintroduce the stat-then-read TOCTOU window the rest of this module
+        closes.
+        """
         if self.config.checksum_mode == "none":
             return None
         if self.config.checksum_mode == "sha256":
-            return sha256_file(path)
+            return self.read_snapshot(path).checksum
         return stat_signature(path)
 
     def start_path(self, query: ConnectorQuery) -> Path:

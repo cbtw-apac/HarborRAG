@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
+    validate_https_url,
     validate_non_negative_limit,
 )
 
@@ -60,6 +61,8 @@ class GitHubRepositoryConfig:
         self.token = self.token or os.getenv("GITHUB_TOKEN")
         self.api_url = self.api_url.rstrip("/")
         self.web_url = self.web_url.rstrip("/")
+        validate_https_url("api_url", self.api_url)
+        validate_https_url("web_url", self.web_url)
 
         if self.repository_url and (not self.owner or not self.repo):
             owner, repo = parse_github_repository_url(self.repository_url)

@@ -133,6 +133,41 @@ def test_security_helpers():
     assert "AIza" + "a" * 25 not in redacted
     assert "xoxb-1234567890" not in redacted
 
+
+def test_redact_secrets_masks_multi_word_unquoted_values():
+    redacted = redact_secrets("password: My Secret Passphrase 123")
+    assert "My" not in redacted
+    assert "Secret" not in redacted
+    assert "Passphrase" not in redacted
+    assert "123" not in redacted
+
+
+def test_redact_secrets_does_not_swallow_the_next_field():
+    redacted = redact_secrets("api_key=abc123&user=alice")
+    assert "abc123" not in redacted
+    assert "user=alice" in redacted
+
+
+def test_redact_secrets_masks_suffixed_label_names():
+    redacted = redact_secrets("db_password_confirm: hunter2")
+    assert "hunter2" not in redacted
+
+    redacted = redact_secrets("stripe_secret_key: sk_live_abcdefghij")
+    assert "sk_live_abcdefghij" not in redacted
+
+
+def test_redact_secrets_masks_quoted_multi_word_values():
+    redacted = redact_secrets('password="quoted secret value" next_field=ok')
+    assert "quoted secret value" not in redacted
+    assert "next_field=ok" in redacted
+
+
+def test_redact_secrets_masks_newer_token_formats():
+    redacted = redact_secrets("token=" + "github_pat_" + "a" * 40)
+    assert "github_pat_" not in redacted
+    redacted = redact_secrets("key=" + "sk_live_" + "a" * 20)
+    assert "sk_live_" not in redacted
+
     URLPolicy().validate("https://example.com")
     with pytest.raises(URLPolicyError):
         URLPolicy().validate("ftp://example.com")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
 
@@ -141,7 +141,10 @@ class IngestionDocumentQuery(ApiModel):
 
 
 class RetryFailuresRequest(ApiModel):
-    document_ids: list[str] = Field(default_factory=list)
+    document_ids: list[Annotated[str, Field(max_length=255)]] = Field(
+        default_factory=list,
+        max_length=1000,
+    )
 
     @field_validator("document_ids")
     @classmethod

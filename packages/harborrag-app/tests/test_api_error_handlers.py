@@ -4,7 +4,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# TODO: implement register_error_handler
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_core.contracts.errors import (
     HarborAuthError,

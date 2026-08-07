@@ -115,6 +115,26 @@ def test_vector_schemas_split_basic_and_advanced_controls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_backend_failure_returns_generic_error_but_logs_the_cause(caplog) -> None:
+    class RaisingRetrievalFacade:
+        async def search(self, request):
+            raise RuntimeError("provider config invalid: openai\r")
+
+    harbor = SimpleNamespace(retrieval=RaisingRetrievalFacade())
+
+    with caplog.at_level("ERROR", logger="harborrag.mcp.tools.vector_search"):
+        result = await VectorSearchTool(runtime=harbor).call(
+            {"query": "HarborRAG vector", "tenant_id": "demo"},
+            principal_id="subject-1",
+        )
+
+    assert result == {"ok": False, "error": "vector retrieval backend failed"}
+    logged = [record for record in caplog.records if record.exc_info is not None]
+    assert logged, "the real exception must be logged even though the caller sees a generic error"
+    assert "provider config invalid" in str(logged[0].exc_info[1])
+
+
+@pytest.mark.asyncio
 async def test_server_enforces_vector_result_budget() -> None:
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.policy import McpToolPolicy

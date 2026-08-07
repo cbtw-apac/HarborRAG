@@ -35,14 +35,28 @@ def canonical_document_bytes(document: Document) -> bytes:
 def load_canonical_document(payload: bytes) -> Document:
     """Validate and reconstruct every canonical structural field."""
 
-    envelope = json.loads(payload)
+    try:
+        envelope = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError("canonical document payload is not valid JSON") from exc
+    if not isinstance(envelope, dict):
+        raise ValueError("canonical document envelope is invalid")
     if envelope.get("schema_version") != CANONICAL_DOCUMENT_SCHEMA_VERSION:
         raise ValueError("unsupported canonical document schema version")
     value = envelope.get("document")
     if not isinstance(value, dict):
         raise ValueError("canonical document payload is invalid")
     reject_runtime_fields(value)
+    try:
+        return _build_document(value)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("canonical document payload is missing or misshapen fields") from exc
+
+
+def _build_document(value: dict[str, Any]) -> Document:
     provenance = value["provenance"]
+    if not isinstance(provenance, dict):
+        raise ValueError("canonical document provenance is invalid")
     return Document(
         id=value["id"],
         title=value["title"],

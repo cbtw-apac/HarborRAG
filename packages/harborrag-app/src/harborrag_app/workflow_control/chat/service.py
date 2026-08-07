@@ -253,7 +253,7 @@ class ChatApplicationService:
 
 
 def _turn_messages(turns: Sequence[ConversationTurn]) -> tuple[HarborChatMessage, ...]:
-    messages = []
+    messages: list[HarborChatMessage] = []
     for turn in turns:
         messages.extend(
             (

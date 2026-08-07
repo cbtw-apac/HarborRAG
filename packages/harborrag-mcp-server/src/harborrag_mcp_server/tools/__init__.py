@@ -5,7 +5,6 @@ from harborrag_mcp_server.tools.graph_search import (
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
 )
-from harborrag_mcp_server.tools.health import HealthTool
 from harborrag_mcp_server.tools.vector_search import (
     AdvancedVectorSearchTool,
     VectorSearchTool,
@@ -18,7 +17,6 @@ __all__ = [
     "GraphPathSearchTool",
     "GraphSubgraphSearchTool",
     "GraphTripletSearchTool",
-    "HealthTool",
     "McpToolSpec",
     "VectorSearchTool",
 ]

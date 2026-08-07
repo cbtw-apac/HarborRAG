@@ -218,3 +218,53 @@ async def test_vector_projection_read_skips_retired_route_records() -> None:
 
     assert [record.payload.chunk_id for record in records] == ["chunk-evidence"]
     assert all(record.payload.record_kind is RecordKind.EVIDENCE for record in records)
+
+
+@pytest.mark.asyncio
+async def test_graph_projection_read_rejects_a_non_mapping_record_value() -> None:
+    # A hand-edited or corrupted JSONL artifact whose "value" is not an
+    # object (e.g. a bare string) must raise the same ValueError the rest of
+    # this module uses for malformed records, not a raw TypeError from
+    # dict(...) on a non-mapping.
+    store = MemoryObjectStore()
+    writer = ImmutableArtifactWriter(store)
+    reader = ImmutableArtifactReader(store)
+    repository = ProjectionArtifactRepository(writer, reader)
+
+    malformed_artifact = json.dumps({"record_type": "node", "value": "not-a-mapping"})
+    reference = await writer.put(
+        ImmutableArtifact(
+            bucket=ARTIFACT_BUCKET,
+            key=IngestionArtifactLayout.graph_projection("document-1", "version-1"),
+            payload=malformed_artifact.encode("utf-8"),
+            media_type="application/x-ndjson",
+            artifact_kind="graph-projection",
+        ),
+        context=context(),
+    )
+
+    with pytest.raises(ValueError, match="record value is invalid"):
+        await repository.get_graph_projection(reference, context=context())
+
+
+@pytest.mark.asyncio
+async def test_graph_projection_read_rejects_an_unknown_record_type() -> None:
+    store = MemoryObjectStore()
+    writer = ImmutableArtifactWriter(store)
+    reader = ImmutableArtifactReader(store)
+    repository = ProjectionArtifactRepository(writer, reader)
+
+    malformed_artifact = json.dumps({"record_type": "route", "value": {}})
+    reference = await writer.put(
+        ImmutableArtifact(
+            bucket=ARTIFACT_BUCKET,
+            key=IngestionArtifactLayout.graph_projection("document-1", "version-1"),
+            payload=malformed_artifact.encode("utf-8"),
+            media_type="application/x-ndjson",
+            artifact_kind="graph-projection",
+        ),
+        context=context(),
+    )
+
+    with pytest.raises(ValueError, match="record type is invalid"):
+        await repository.get_graph_projection(reference, context=context())

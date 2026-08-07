@@ -205,20 +205,34 @@ class GitHubRepositoryAPI:
         *,
         prefix: str = "",
     ) -> Iterator[dict[str, Any]]:
-        """Walk subtrees manually when GitHub's recursive tree API is truncated."""
+        """Walk subtrees manually when GitHub's recursive tree API is truncated.
+
+        Uses an explicit stack of per-level iterators instead of recursing, so
+        a repository tree truncated because it is extremely deep (the case
+        most likely to also be deep) cannot grow the Python call stack.
+        Subtrees are pushed on top of the stack so they drain before the
+        remaining siblings at the current level, preserving the same
+        depth-first order the recursive version yielded.
+        """
+        stack: list[Iterator[dict[str, Any]]] = [self._tree_items(tree_sha, prefix)]
+        while stack:
+            try:
+                item = next(stack[-1])
+            except StopIteration:
+                stack.pop()
+                continue
+            if is_tree(item):
+                stack.append(self._tree_items(str(item.get("sha") or ""), str(item["path"])))
+            else:
+                yield item
+
+    def _tree_items(self, tree_sha: str, prefix: str) -> Iterator[dict[str, Any]]:
+        """Fetch and normalize the direct entries of one tree (no recursion)."""
         response = self.client.get_json(tree_endpoint(self.owner, self.repo, tree_sha))
         if not isinstance(response, dict):
             raise FetchError("GitHub tree response was not an object")
-
         for item in response.get("tree", []):
             path = normalize_repo_path(
                 f"{prefix}/{item.get('path')}" if prefix else item.get("path")
             )
-            item = {**item, "path": path}
-            if is_tree(item):
-                yield from self._walk_tree_non_recursive(
-                    str(item.get("sha") or ""),
-                    prefix=path,
-                )
-            else:
-                yield item
+            yield {**item, "path": path}

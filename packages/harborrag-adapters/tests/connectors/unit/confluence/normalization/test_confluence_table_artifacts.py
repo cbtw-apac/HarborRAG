@@ -186,6 +186,42 @@ def test_table_without_explicit_headers_uses_stable_names_and_typed_empty_cells(
     ]
 
 
+def test_table_with_no_extractable_cell_text_still_yields_a_nonempty_element():
+    # A layout table whose cells hold only media (no text) renders to pure
+    # whitespace; the chunking segmenter drops whitespace-only elements,
+    # which would otherwise leave the canonical table artifact with no
+    # corresponding chunk and fail projection verification.
+    source = {
+        "type": "table",
+        "attrs": {"localId": "image-only"},
+        "content": [
+            {
+                "type": "tableRow",
+                "content": [
+                    {
+                        "type": "tableCell",
+                        "content": [
+                            {
+                                "type": "mediaSingle",
+                                "content": [{"type": "media", "attrs": {"id": "m1", "type": "file"}}],
+                            }
+                        ],
+                    }
+                    for _ in range(2)
+                ],
+            }
+        ],
+    }
+
+    document = ConfluencePageNormalizer().normalize(page_input([source]))
+    artifact = document.table_artifacts[0]
+    table_element = next(element for element in document.content if element.type == "table")
+
+    assert table_element.content.strip() != ""
+    assert str(artifact.row_count) in table_element.content
+    assert str(artifact.column_count) in table_element.content
+
+
 @pytest.mark.parametrize(
     "source",
     [

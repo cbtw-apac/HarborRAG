@@ -76,6 +76,28 @@ async def test_agent_tools_reject_invalid_or_unknown_calls() -> None:
     assert unknown == {"ok": False, "error": "agent tool is not available"}
 
 
+@pytest.mark.asyncio
+async def test_agent_tool_backend_failure_returns_generic_error_but_logs_the_cause(
+    caplog,
+) -> None:
+    class _RaisingRetrieval:
+        async def search(self, request):
+            raise RuntimeError("vector store unreachable")
+
+    provider = RuntimeAgentToolProvider(_Runtime(_RaisingRetrieval()))  # type: ignore[arg-type]
+
+    with caplog.at_level("ERROR", logger="harborrag.runtime.agent.tools"):
+        response = await provider.call_tool(
+            "vector_search",
+            {"tenant_id": "ACME", "query": "question"},
+        )
+
+    assert response == {"ok": False, "error": "agent retrieval tool failed"}
+    logged = [record for record in caplog.records if record.exc_info is not None]
+    assert logged, "the real exception must be logged even though the caller sees a generic error"
+    assert "vector store unreachable" in str(logged[0].exc_info[1])
+
+
 def test_agent_tool_catalog_exposes_only_bounded_read_tools() -> None:
     provider = RuntimeAgentToolProvider(_Runtime(_Retrieval()))  # type: ignore[arg-type]
 

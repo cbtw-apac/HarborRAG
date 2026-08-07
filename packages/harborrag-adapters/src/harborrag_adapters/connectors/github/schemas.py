@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
@@ -13,8 +13,8 @@ from harborrag_adapters.connectors.schemas import ConnectorMetadata
 class GitHubCommitIdentity:
     """Author or committer identity from a resolved GitHub commit."""
 
-    name: Any
-    email: Any
+    name: str | None
+    email: str | None
     date: datetime | None
 
 
@@ -26,16 +26,16 @@ class GitHubMetadata(ConnectorMetadata):
 
     owner: str
     repo: str
-    repository_id: Any
-    repository_private: Any
-    default_branch: Any
+    repository_id: int | None
+    repository_private: bool | None
+    default_branch: str | None
     ref: str
     commit_sha: str
-    commit_message: Any
+    commit_message: str | None
     commit_author: GitHubCommitIdentity | None
     commit_committer: GitHubCommitIdentity | None
     tree_sha: str
     path: str
-    sha: Any
-    mode: Any
+    sha: str | None
+    mode: str | None
     size: int

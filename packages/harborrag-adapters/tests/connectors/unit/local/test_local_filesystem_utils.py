@@ -47,6 +47,27 @@ def test_checksum_mode_none_returns_no_checksum(tmp_path: Path):
     assert files.checksum(path) is None
 
 
+def test_checksum_mode_sha256_matches_the_secure_descriptor_hash(tmp_path: Path):
+    import hashlib
+
+    path = write_file(tmp_path / "a.txt", b"hello world")
+    files = LocalFileSystem(config(tmp_path, checksum_mode="sha256"))
+
+    assert files.checksum(path) == hashlib.sha256(b"hello world").hexdigest()
+    assert files.checksum(path) == files.read_snapshot(path).checksum
+
+
+def test_checksum_mode_sha256_refuses_a_path_outside_source_scope(
+    tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+):
+    other_root = tmp_path_factory.mktemp("outside-scope")
+    outside = write_file(other_root / "probe.txt", b"nope")
+
+    files = LocalFileSystem(config(tmp_path, checksum_mode="sha256"))
+    with pytest.raises(DocumentProcessingError, match="outside configured source scope"):
+        files.checksum(outside)
+
+
 def test_within_source_scope_for_single_file_source(tmp_path: Path):
     path = write_file(tmp_path / "solo.md")
     files = LocalFileSystem(config(path))

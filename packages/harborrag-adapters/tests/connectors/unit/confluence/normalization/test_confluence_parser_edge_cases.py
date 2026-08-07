@@ -129,6 +129,22 @@ def test_adf_parser_covers_lists_breaks_cards_and_unsupported_nodes():
         AdfDocumentParser().parse({"type": "paragraph"})
 
 
+def test_adf_parser_handles_deeply_nested_documents_without_recursion_error():
+    depth = 5000
+    node: dict = {"type": "text", "text": "leaf"}
+    for _ in range(depth):
+        node = {"type": "panel", "content": [node]}
+    document = {"type": "doc", "content": [node]}
+
+    root = AdfDocumentParser().parse(document)
+
+    current = root.children[0]
+    for _ in range(depth - 1):
+        assert current.kind == "panel"
+        current = current.children[0]
+    assert current.children[0].text == "leaf"
+
+
 def test_storage_markup_preserves_structural_macros_references_and_default_titles():
     storage = """
     bare text

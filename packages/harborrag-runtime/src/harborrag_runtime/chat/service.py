@@ -57,10 +57,17 @@ class RuntimeChatService:
             yield chunk
 
     async def aclose(self) -> None:
-        if self._client is None:
-            return
-        client, self._client = self._client, None
-        await client.aclose()
+        """Swap and close the client under the same lock ``_configured_client`` uses.
+
+        Without the lock, a concurrent ``_configured_client()`` call can miss
+        the fast path, see the field already nulled out here, and build a
+        second client that this call never closes -- a leak under concurrent
+        shutdown.
+        """
+        async with self._client_lock:
+            client, self._client = self._client, None
+            if client is not None:
+                await client.aclose()
 
     def _apply_prompt(
         self,

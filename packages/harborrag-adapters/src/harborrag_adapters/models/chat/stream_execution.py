@@ -208,7 +208,14 @@ class ChatStreamExecution:
                 return
             except TelemetryDispatchError:
                 raise
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, GeneratorExit):
+                # GeneratorExit is a BaseException, not an Exception, so it
+                # would otherwise skip the `except Exception` branch below
+                # and reach `finally` without ever firing the error hooks --
+                # this is the async equivalent of a caller abandoning the
+                # generator (e.g. breaking out of an `async for` or letting
+                # it get garbage-collected), matching the sync stream()'s
+                # explicit `except GeneratorExit` handling above.
                 cancellation = RuntimeError("stream cancelled")
                 await self.middleware.aerror(cancellation, context)
                 await operation.aerror(cancellation, streaming=True)

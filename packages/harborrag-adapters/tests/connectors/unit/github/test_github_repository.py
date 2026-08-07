@@ -203,3 +203,21 @@ def test_walk_tree_non_recursive_raises_when_response_is_not_a_dict():
 
     with pytest.raises(FetchError, match="not an object"):
         list(api._walk_tree_non_recursive("tree-root"))
+
+
+def test_walk_tree_non_recursive_handles_deeply_nested_trees_without_recursion_error():
+    client = FakeGitHubClient()
+    depth = 3000
+    for level in range(depth):
+        endpoint = f"repos/acme/harbor-rag/git/trees/tree-{level}"
+        if level == depth - 1:
+            entry = {"path": "leaf.txt", "mode": "100644", "type": "blob", "sha": "blob-sha"}
+        else:
+            entry = {"path": "dir", "mode": "040000", "type": "tree", "sha": f"tree-{level + 1}"}
+        client.add(endpoint, {"tree": [entry]})
+    api = GitHubRepositoryAPI(config(), client)
+
+    items = list(api._walk_tree_non_recursive("tree-0"))
+
+    assert len(items) == 1
+    assert items[0]["path"] == "/".join(["dir"] * (depth - 1) + ["leaf.txt"])

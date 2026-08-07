@@ -184,6 +184,35 @@ async def test_sdk_chat_facade_uses_and_closes_the_configured_client() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sdk_aclose_still_closes_other_resources_when_one_raises() -> None:
+    # A single failing resource must not prevent aclose() from attempting to
+    # close the others, and the failure must still surface to the caller
+    # rather than being silently swallowed.
+    class _RaisingChatClient:
+        async def achat(self, **kwargs):
+            raise AssertionError("not used in this test")
+
+        async def aclose(self) -> None:
+            raise RuntimeError("chat client close failed")
+
+    harbor = HarborRAG(HarborRAGConfig())
+    harbor._chat_runtime = RuntimeChatService(
+        harbor.config.runtime,
+        client_builder=lambda _settings: _RaisingChatClient(),
+    )
+    # Force the chat runtime to actually build its client so aclose() has
+    # something to fail on.
+    await harbor._chat_runtime._configured_client()
+    retrieval_service = _RetrievalService()
+    harbor._retrieval = retrieval_service
+
+    with pytest.raises(ExceptionGroup, match="HarborRAG resource close failed"):
+        await harbor.aclose()
+
+    assert retrieval_service.closed is True
+
+
+@pytest.mark.asyncio
 async def test_sdk_retrieval_preserves_access_and_builds_filters() -> None:
     harbor = HarborRAG(HarborRAGConfig())
     service = _RetrievalService()

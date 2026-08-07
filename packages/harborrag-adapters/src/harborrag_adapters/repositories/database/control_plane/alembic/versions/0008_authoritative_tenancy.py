@@ -156,7 +156,20 @@ def _drop_index_if_present(table_name: str, name: str) -> None:
 
 
 def downgrade() -> None:
-    """Restore the pre-tenancy uniqueness rules and remove tenant columns."""
+    """Restore the pre-tenancy uniqueness rules.
+
+    Intentionally does *not* drop the ``tenant_id`` columns/indexes. Whether
+    this revision's ``upgrade()`` added them or they already existed from the
+    consolidated 0001 baseline is indistinguishable from schema state alone
+    (see the module docstring), so unconditionally dropping them would strip
+    tenant scoping from a freshly bootstrapped database that never lacked it
+    -- breaking every tenant-filtered query and losing the tenant assignment
+    data with no way to recover it short of a restore. Leaving the columns in
+    place is always safe: application code built against revision 0007 never
+    references ``tenant_id``, so an extra column/index is inert, whereas a
+    legacy database that this revision's ``upgrade()`` actually populated
+    keeps its tenant data intact across a rollback.
+    """
 
     idempotency_name = "uq_ingestion_task_idempotency_key"
     _drop_index_if_present("ingestion_tasks", idempotency_name)
@@ -178,9 +191,3 @@ def downgrade() -> None:
             document_name,
             ["connector_type", "connection_id", "source_item_id"],
         )
-
-    for table_name in reversed(_TENANT_TABLES):
-        _drop_index_if_present(table_name, f"ix_{table_name}_tenant_id")
-        if "tenant_id" in _columns(table_name):
-            with op.batch_alter_table(table_name) as batch_op:
-                batch_op.drop_column("tenant_id")

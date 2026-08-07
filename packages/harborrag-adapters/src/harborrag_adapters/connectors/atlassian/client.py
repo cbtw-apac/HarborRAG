@@ -214,7 +214,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             last_error = FetchError(
                 f"{self._provider_label} request returned HTTP {response.status_code}"
             )
-            self._sleep(attempt, last_error, response.headers)
+            headers = response.headers
+            response.close()
+            self._sleep(attempt, last_error, headers)
 
         raise FetchError(f"{self._provider_label} request failed") from last_error
 

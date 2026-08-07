@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import mimetypes
 from datetime import UTC, datetime
 from fnmatch import fnmatch
@@ -65,15 +64,6 @@ def stat_signature(path: Path) -> str:
     stat = path.stat()
     mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
     return f"stat:{stat.st_size}:{mtime_ns}"
-
-
-def sha256_file(path: Path) -> str:
-    """Hash a file in chunks so checksum mode does not read it all at once."""
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def matches_pattern(path: Path, root_path: Path, pattern: str | None) -> bool:

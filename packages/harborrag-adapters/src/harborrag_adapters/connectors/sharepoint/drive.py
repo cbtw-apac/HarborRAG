@@ -76,31 +76,36 @@ class SharePointDriveAPI:
         item_id: str | None = None,
         path: str | None = None,
     ) -> Iterator[SourceRecord]:
-        """Walk child items breadth-first enough to yield files before recursion."""
+        """Walk child items depth-first with an explicit stack.
+
+        A folder tree with no depth cap and no cycle protection previously
+        recursed once per subfolder, so an extremely deep tree could grow the
+        Python call stack past its limit before ``query.limit`` ever has a
+        chance to stop discovery. An explicit stack removes that ceiling
+        while preserving the same depth-first yield order.
+        """
         drive_id = str(drive["id"])
-        folder_ids: list[str] = []
-        for item in self.iter_children(drive_id, item_id=item_id, path=path):
-            if is_drive_file(item):
-                if self.should_process_file(item, query):
-                    yield build_source_record(
-                        item,
-                        site_id=str(site["id"]),
-                        drive_id=drive_id,
-                    )
-                continue
+        pending: list[tuple[str | None, str | None]] = [(item_id, path)]
+        while pending:
+            current_item_id, current_path = pending.pop()
+            folder_ids: list[str] = []
+            for item in self.iter_children(drive_id, item_id=current_item_id, path=current_path):
+                if is_drive_file(item):
+                    if self.should_process_file(item, query):
+                        yield build_source_record(
+                            item,
+                            site_id=str(site["id"]),
+                            drive_id=drive_id,
+                        )
+                    continue
 
-            if query.recursive and is_drive_folder(item):
-                child_id = str(item.get("id") or "")
-                if child_id:
-                    folder_ids.append(child_id)
+                if query.recursive and is_drive_folder(item):
+                    child_id = str(item.get("id") or "")
+                    if child_id:
+                        folder_ids.append(child_id)
 
-        for child_id in folder_ids:
-            yield from self.walk_children(
-                site=site,
-                drive=drive,
-                query=query,
-                item_id=child_id,
-            )
+            for child_id in reversed(folder_ids):
+                pending.append((child_id, None))
 
     def iter_children(
         self,

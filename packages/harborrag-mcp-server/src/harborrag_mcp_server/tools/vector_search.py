@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,8 @@ from .retrieval_inputs import (
 if TYPE_CHECKING:
     from harborrag_runtime.contracts import RetrievalResponse
     from harborrag_runtime.sdk import HarborRAG
+
+logger = logging.getLogger("harborrag.mcp.tools.vector_search")
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = McpToolPolicy().max_results
@@ -173,6 +176,10 @@ async def _search(
     try:
         response = await runtime.retrieval.search(request)
     except Exception:
+        # The caller only ever sees the generic message below; the real cause
+        # (e.g. a misconfigured provider or an unreachable store) is only
+        # visible in the server logs, never in the tool response.
+        logger.exception("vector retrieval backend raised during search")
         return {"ok": False, "error": "vector retrieval backend failed"}
     return {
         "ok": True,

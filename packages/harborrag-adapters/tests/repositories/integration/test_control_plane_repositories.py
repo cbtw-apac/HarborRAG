@@ -152,7 +152,16 @@ def test_migration_baseline_matches_current_metadata(tmp_path: Path) -> None:
 def test_legacy_0007_database_upgrades_to_authoritative_tenancy(
     tmp_path: Path,
 ) -> None:
-    """The squashed baseline must retain a working upgrade path from 0007."""
+    """The squashed baseline must retain a working upgrade path from 0007.
+
+    A database created from the consolidated baseline (0001) already has
+    ``tenant_id`` before 0008 ever runs, so downgrading to 0007 must not drop
+    it -- there is no schema-only signal to tell "the baseline always had
+    this column" apart from "0008's upgrade() just added it", and dropping
+    unconditionally would strip tenant scoping from a freshly bootstrapped
+    database (see 0008's downgrade() docstring). The column must survive a
+    downgrade-then-upgrade round trip intact.
+    """
 
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
@@ -163,7 +172,7 @@ def test_legacy_0007_database_upgrades_to_authoritative_tenancy(
     try:
         inspector = sa.inspect(sync_engine)
         for table_name in ("source_scopes", "documents", "ingestion_tasks"):
-            assert "tenant_id" not in {
+            assert "tenant_id" in {
                 column["name"] for column in inspector.get_columns(table_name)
             }
     finally:

@@ -127,7 +127,9 @@ class _RequestsGraphClient:
                 return response
 
             last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
-            self._sleep(attempt, last_error, response.headers)
+            retry_headers = response.headers
+            response.close()
+            self._sleep(attempt, last_error, retry_headers)
 
         raise FetchError("Microsoft Graph request failed") from last_error
 
@@ -186,7 +188,9 @@ class _RequestsGraphClient:
             last_error = AuthenticationError(
                 f"Microsoft identity token request returned HTTP {response.status_code}"
             )
-            self._sleep(attempt, last_error, response.headers)
+            headers = response.headers
+            response.close()
+            self._sleep(attempt, last_error, headers)
 
         raise AuthenticationError("Microsoft identity request failed") from last_error
 

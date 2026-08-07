@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -32,6 +33,8 @@ from harborrag_runtime.contracts import (
 
 if TYPE_CHECKING:
     from harborrag_runtime.sdk import HarborRAG
+
+logger = logging.getLogger("harborrag.runtime.agent.tools")
 
 
 @dataclass(slots=True)
@@ -68,6 +71,7 @@ class RuntimeAgentToolProvider:
         except (TypeError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         except Exception:
+            logger.exception("agent retrieval tool %r raised during call_tool", name)
             return {"ok": False, "error": "agent retrieval tool failed"}
 
     async def _vector(

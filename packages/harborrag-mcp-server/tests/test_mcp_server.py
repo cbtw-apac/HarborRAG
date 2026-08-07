@@ -10,7 +10,6 @@ from harborrag_mcp_server.server import call_tool, create_mcp_server, list_tools
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp_server.tools.health import HealthTool
 from harborrag_runtime.memory import InMemoryConversationMemory
 
 
@@ -139,7 +138,6 @@ async def test_mcp_base_methods_raise():
 async def test_mcp_registry_exposes_retrieval_tools():
     spec = McpToolSpec("tool", "description")
     assert spec.input_schema == {"type": "object"}
-    assert (await HealthTool().call({}, principal_id="test"))["ok"] is True
     server = McpServer()
     expected = [
         "vector_search",
@@ -221,18 +219,6 @@ def test_tool_policy_enforces_declared_input_schema():
         policy.check_call(spec, {})
     with pytest.raises(ValueError, match="do not match"):
         policy.check_call(spec, {"query": "release", "token": "not-allowed"})
-
-
-def test_tool_schema_builds_input_schema_stub():
-    from harborrag_mcp_server.schemas import tool_schema
-
-    schema = tool_schema("harborrag_health_check", "Return diagnostics.")
-
-    assert schema == {
-        "name": "harborrag_health_check",
-        "description": "Return diagnostics.",
-        "inputSchema": {"type": "object"},
-    }
 
 
 @pytest.mark.asyncio

@@ -53,12 +53,31 @@ def _nested_table_element(table: TableArtifact) -> DocumentElement:
 
 def render_table(table: TableArtifact) -> str:
     cells = {cell.cell_id: cell for cell in table.cells}
-    return "\n".join(
+    rendered = "\n".join(
         "\t".join(
             _flat_cell_text(cells[slot.cell_id].text) if slot is not None else "" for slot in row
         )
         for row in table.logical_grid
     )
+    # Tables with no extractable cell text (e.g. image-only layout tables)
+    # would otherwise render to pure whitespace, which the chunking
+    # segmenter treats as empty content and silently drops — leaving the
+    # canonical table artifact with no corresponding chunk and failing
+    # projection verification. A non-empty placeholder keeps the table
+    # represented by exactly one chunk, matching the canonical artifact.
+    if rendered.strip():
+        return rendered
+    return _empty_table_placeholder(table)
+
+
+def _empty_table_placeholder(table: TableArtifact) -> str:
+    dimensions = (
+        f"{table.row_count} row{'s' if table.row_count != 1 else ''} x "
+        f"{table.column_count} column{'s' if table.column_count != 1 else ''}"
+    )
+    if table.caption:
+        return f"Table: {table.caption} ({dimensions}, no extractable cell text)"
+    return f"Table ({dimensions}, no extractable cell text)"
 
 
 def _flat_cell_text(value: str) -> str:

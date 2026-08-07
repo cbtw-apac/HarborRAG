@@ -237,16 +237,19 @@ class ProjectionArtifactRepository:
         nodes: list[GraphNodeRecord] = []
         relations: list[GraphEdgeRecord] = []
         for record in self._load_jsonl(await self._reader.get(reference, context=context)):
-            if record.get("record_type") == "node":
-                value = dict(record["value"])
+            record_type = record.get("record_type")
+            if record_type not in {"node", "edge"}:
+                raise ValueError("graph projection artifact record type is invalid")
+            value = record.get("value")
+            if not isinstance(value, Mapping):
+                raise ValueError("graph projection artifact record value is invalid")
+            value = dict(value)
+            if record_type == "node":
                 value.pop("content_preview", None)
                 nodes.append(GraphNodeRecord.model_validate(value))
-            elif record.get("record_type") == "edge":
-                value = dict(record["value"])
+            else:
                 value.pop("evidence_chunk_ids", None)
                 relations.append(GraphEdgeRecord.model_validate(value))
-            else:
-                raise ValueError("graph projection artifact record type is invalid")
         return tuple(nodes), tuple(relations)
 
     async def _put(

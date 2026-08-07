@@ -104,6 +104,61 @@ def runtime():
     return SimpleNamespace(graph=graph), graph
 
 
+class _RaisingGraphFacade:
+    async def search_triplets(self, request):
+        raise RuntimeError("graph store unreachable")
+
+    async def find_paths(self, request):
+        raise RuntimeError("graph store unreachable")
+
+    async def neighborhood(self, request):
+        raise RuntimeError("graph store unreachable")
+
+    async def expand_subgraph(self, request):
+        raise RuntimeError("graph store unreachable")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool_cls,arguments,log_message",
+    [
+        (
+            GraphNeighborhoodTool,
+            {"tenant_id": "demo", "query": "release owner"},
+            "graph_neighborhood backend raised during call",
+        ),
+        (
+            GraphTripletSearchTool,
+            {"tenant_id": "demo", "subject": "document-a"},
+            "graph_triplet_search backend raised during call",
+        ),
+        (
+            GraphPathSearchTool,
+            {"tenant_id": "demo", "start_node": "a", "end_node": "b"},
+            "graph_path_search backend raised during call",
+        ),
+        (
+            GraphSubgraphSearchTool,
+            {"tenant_id": "demo", "start_node": "a"},
+            "graph_subgraph_search backend raised during call",
+        ),
+    ],
+)
+async def test_graph_tool_backend_failure_returns_generic_error_but_logs_the_cause(
+    tool_cls, arguments, log_message, caplog
+) -> None:
+    harbor = SimpleNamespace(graph=_RaisingGraphFacade())
+
+    with caplog.at_level("ERROR", logger="harborrag.mcp.tools.graph_search"):
+        result = await tool_cls(runtime=harbor).call(arguments, principal_id="reader-1")
+
+    assert result == {"ok": False, "error": "graph retrieval backend failed"}
+    logged = [record for record in caplog.records if record.exc_info is not None]
+    assert logged, "the real exception must be logged even though the caller sees a generic error"
+    assert logged[0].message == log_message
+    assert "graph store unreachable" in str(logged[0].exc_info[1])
+
+
 @pytest.mark.asyncio
 async def test_triplet_tool_forwards_access_and_predicate() -> None:
     harbor, graph = runtime()

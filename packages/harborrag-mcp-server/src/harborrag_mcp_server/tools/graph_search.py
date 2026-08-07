@@ -7,6 +7,7 @@ description are applied here.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -54,6 +55,7 @@ from .retrieval_inputs import (
 if TYPE_CHECKING:
     from harborrag_runtime.sdk import HarborRAG
 
+logger = logging.getLogger("harborrag.mcp.tools.graph_search")
 _MAX_RESULTS = McpToolPolicy().max_results
 
 
@@ -97,6 +99,7 @@ class GraphNeighborhoodTool(BaseMcpTool):
         try:
             response = await self.runtime.graph.neighborhood(request)
         except Exception:
+            logger.exception("graph_neighborhood backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
         return {
             "ok": True,
@@ -148,6 +151,7 @@ class GraphTripletSearchTool(BaseMcpTool):
         try:
             response = await self.runtime.graph.search_triplets(request)
         except Exception:
+            logger.exception("graph_triplet_search backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
         return {
             "ok": True,
@@ -200,6 +204,7 @@ class GraphPathSearchTool(BaseMcpTool):
         try:
             response = await self.runtime.graph.find_paths(request)
         except Exception:
+            logger.exception("graph_path_search backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
         return {
             "ok": True,
@@ -254,6 +259,7 @@ class GraphSubgraphSearchTool(BaseMcpTool):
         try:
             response = await self.runtime.graph.expand_subgraph(request)
         except Exception:
+            logger.exception("graph_subgraph_search backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
         return {
             "ok": True,

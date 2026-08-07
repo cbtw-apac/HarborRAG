@@ -85,10 +85,17 @@ def build_cql(
     string) and is always escaped via ``quote_cql`` into a ``text ~ "..."``
     clause combined with the other allowlisted filters. It is never treated
     as raw CQL -- only the explicit ``raw_cql`` escape hatch bypasses
-    escaping and the space/label allowlists entirely, for callers who
-    intentionally need full CQL control.
+    escaping and the type/label allowlists, for callers who intentionally
+    need full CQL control. Even then, the configured space is always ANDed
+    back in: ``_cql_from_query`` already proves the caller's requested space
+    matches this connection's configured space before calling here, and
+    ``raw_cql`` must never be able to undo that -- the connector's space
+    scope is a tenant-isolation boundary, not a convenience default.
     """
     if raw_cql:
+        if space_key:
+            safe_space = validate_token(space_key, field_name="space key")
+            return f"({raw_cql}) and space = {quote_cql(safe_space)}"
         return raw_cql
 
     clauses: list[str] = []

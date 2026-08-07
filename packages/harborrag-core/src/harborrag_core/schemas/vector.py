@@ -95,7 +95,11 @@ class VectorIndexSpec(StrictModel):
     def validate_vector_names(self) -> VectorIndexSpec:
         if self.sparse_vector_name is not None and self.dense_vector_name is None:
             raise ValueError("a sparse vector collection requires a named dense vector")
-        if self.sparse_vector_name == self.dense_vector_name is not None:
+        if (
+            self.dense_vector_name is not None
+            and self.sparse_vector_name is not None
+            and self.dense_vector_name == self.sparse_vector_name
+        ):
             raise ValueError("dense and sparse vector names must differ")
         return self
 

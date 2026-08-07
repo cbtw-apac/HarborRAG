@@ -178,6 +178,24 @@ def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) ->
     assert UUID(selected.json()["retry_task_id"])
 
 
+def test_retry_failures_rejects_an_oversized_document_id_list(client: TestClient) -> None:
+    response = client.post(
+        "/v1/ingestions/ing_1/retry-failures",
+        json={"document_ids": [f"document:{i}" for i in range(1001)]},
+    )
+
+    assert response.status_code == 422
+
+
+def test_retry_failures_rejects_an_oversized_document_id(client: TestClient) -> None:
+    response = client.post(
+        "/v1/ingestions/ing_1/retry-failures",
+        json={"document_ids": ["x" * 256]},
+    )
+
+    assert response.status_code == 422
+
+
 def test_legacy_temporal_route_shape_is_not_public(client: TestClient) -> None:
     assert client.post("/api/v1/ingestions", json={}).status_code == 404
     assert client.get("/v1/ingestions/ing_1/result").status_code == 404
