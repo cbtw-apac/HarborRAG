@@ -293,6 +293,62 @@ async def test_source_workflow_gracefully_cancels_before_dispatch(
     assert status.cancel_requested is True
 
 
+@pytest.mark.asyncio
+async def test_source_workflow_records_failure_and_reraises_when_batch_child_fails(
+    monkeypatch,
+) -> None:
+    """A hard child-batch failure used to propagate straight out of `run()`
+    with no `record_source_failure` call, leaving the control-plane task row
+    stuck non-terminal even though Temporal itself considered the run
+    failed. It must now be recorded before the failure is re-raised."""
+    from temporalio.exceptions import ChildWorkflowError
+
+    plan = _plan_reference()
+    recorded = []
+
+    async def execute_activity(name, request, **options):
+        del options
+        if name == "harborrag.discover_source_items":
+            return SourceDiscoveryResult(
+                scan_id="scan-1",
+                plan_reference=plan,
+                document_count=3,
+            )
+        assert name == "harborrag.record_source_failure"
+        recorded.append(request)
+        return None
+
+    async def child(name, request, **options):
+        del request, options
+        assert name == "harborrag.source_batch"
+        raise ChildWorkflowError(
+            "child failed",
+            namespace="default",
+            workflow_id="wf-1",
+            run_id="run-1",
+            workflow_type="harborrag.source_batch",
+            initiated_event_id=1,
+            started_event_id=2,
+            retry_state=None,
+        )
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_child_workflow",
+        child,
+    )
+
+    with pytest.raises(ChildWorkflowError):
+        await SourceIngestionWorkflow().run(_source())
+
+    assert len(recorded) == 1
+    assert recorded[0].task_id == "task-1"
+    assert recorded[0].error_code == "ChildWorkflowError"
+
+
 def test_source_workflow_pause_and_resume_status_are_explicit() -> None:
     instance = SourceIngestionWorkflow()
 

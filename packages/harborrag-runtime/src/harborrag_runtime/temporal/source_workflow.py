@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import cast
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ChildWorkflowError
 from temporalio.workflow import ParentClosePolicy
 
 from harborrag_runtime.temporal.failure_handling import durable_failure
@@ -110,68 +110,87 @@ class SourceIngestionWorkflow:
         if await self._stop_requested():
             return await self._cancelled_result(request, discovery)
         completed_in_run = 0
-        for start in range(
-            start_index,
-            discovery.document_count,
-            request.batch_size,
-        ):
-            if await self._stop_requested():
-                return await self._cancelled_result(request, discovery)
-            end = min(discovery.document_count, start + request.batch_size)
-            result = await workflow.execute_child_workflow(
-                "harborrag.source_batch",
-                SourceBatchInput(
-                    task_id=request.task_id,
-                    tenant_id=request.tenant_id,
-                    connector_name=request.connector_name,
-                    plan_reference=discovery.plan_reference,
-                    start_index=start,
-                    end_index=end,
-                    batch_number=self._batch_number,
-                    document_concurrency=request.document_concurrency,
-                ),
-                id=(f"harborrag-source-batch:{request.task_id}:{self._batch_number}"),
-                task_queue=TRANSFORM_QUEUE,
-                result_type=DocumentDispatchSummary,
-                parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-            )
-            self._summary = self._summary.merge(result)
-            self._batch_number += 1
-            completed_in_run += 1
-            if await self._stop_requested():
-                return await self._cancelled_result(request, discovery)
-            if (
-                end < discovery.document_count
-                and completed_in_run >= request.continue_after_batches
+        try:
+            for start in range(
+                start_index,
+                discovery.document_count,
+                request.batch_size,
             ):
-                workflow.continue_as_new(
-                    replace(
-                        request,
-                        continuation=SourceContinuation(
-                            scan_id=discovery.scan_id,
-                            plan_reference=discovery.plan_reference,
-                            document_count=discovery.document_count,
-                            next_document_index=end,
-                            batch_number=self._batch_number,
-                            summary=self._summary,
-                        ),
-                    )
+                if await self._stop_requested():
+                    return await self._cancelled_result(request, discovery)
+                end = min(discovery.document_count, start + request.batch_size)
+                batch_result = await workflow.execute_child_workflow(
+                    "harborrag.source_batch",
+                    SourceBatchInput(
+                        task_id=request.task_id,
+                        tenant_id=request.tenant_id,
+                        connector_name=request.connector_name,
+                        plan_reference=discovery.plan_reference,
+                        start_index=start,
+                        end_index=end,
+                        batch_number=self._batch_number,
+                        document_concurrency=request.document_concurrency,
+                    ),
+                    id=(f"harborrag-source-batch:{request.task_id}:{self._batch_number}"),
+                    task_queue=TRANSFORM_QUEUE,
+                    result_type=DocumentDispatchSummary,
+                    parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                 )
-        if await self._stop_requested():
-            return await self._cancelled_result(request, discovery)
-        result = await workflow.execute_activity(
-            "harborrag.finalize_source_ingestion",
-            SourceFinalizationInput(
-                source=request,
-                scan_id=discovery.scan_id,
-                plan_reference=discovery.plan_reference,
-                summary=self._summary,
-            ),
-            task_queue=DISCOVERY_QUEUE,
-            start_to_close_timeout=timedelta(minutes=15),
-            retry_policy=DISCOVERY_RETRY,
-            result_type=SourceIngestionResult,
-        )
+                self._summary = self._summary.merge(batch_result)
+                self._batch_number += 1
+                completed_in_run += 1
+                if await self._stop_requested():
+                    return await self._cancelled_result(request, discovery)
+                if (
+                    end < discovery.document_count
+                    and completed_in_run >= request.continue_after_batches
+                ):
+                    workflow.continue_as_new(
+                        replace(
+                            request,
+                            continuation=SourceContinuation(
+                                scan_id=discovery.scan_id,
+                                plan_reference=discovery.plan_reference,
+                                document_count=discovery.document_count,
+                                next_document_index=end,
+                                batch_number=self._batch_number,
+                                summary=self._summary,
+                            ),
+                        )
+                    )
+            if await self._stop_requested():
+                return await self._cancelled_result(request, discovery)
+            result = await workflow.execute_activity(
+                "harborrag.finalize_source_ingestion",
+                SourceFinalizationInput(
+                    source=request,
+                    scan_id=discovery.scan_id,
+                    plan_reference=discovery.plan_reference,
+                    summary=self._summary,
+                ),
+                task_queue=DISCOVERY_QUEUE,
+                start_to_close_timeout=timedelta(minutes=15),
+                retry_policy=DISCOVERY_RETRY,
+                result_type=SourceIngestionResult,
+            )
+        except (ActivityError, ChildWorkflowError) as error:
+            # A child batch, or finalization itself, can exhaust its retries
+            # and fail hard. Without this, the failure propagated straight
+            # out of the workflow with no `record_source_failure` call, so
+            # the control-plane task row stayed RUNNING forever even though
+            # Temporal itself considered the run failed.
+            error_code, _ = durable_failure(error)
+            await workflow.execute_activity(
+                "harborrag.record_source_failure",
+                SourceFailureInput(
+                    task_id=request.task_id,
+                    error_code=error_code,
+                ),
+                task_queue=DISCOVERY_QUEUE,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=DISCOVERY_RETRY,
+            )
+            raise
         self._status = result.status
         await self._cleanup_source(request)
         return cast(SourceIngestionResult, result)

@@ -161,6 +161,19 @@ def test_prod_env_refuses_disabled_auth() -> None:
         create_fastapi_app(ApiSettings(env="prod", auth_mode="none"))
 
 
+@pytest.mark.blackbox
+def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """`env` and `auth_mode` both default to permissive values, so a real
+    deployment that forgets HARBORRAG_ENV=prod boots wide open with no
+    signal. The prod check can't catch that misconfiguration, so booting
+    with auth disabled must never be silent."""
+    with caplog.at_level("WARNING", logger="harborrag.app.api.auth"):
+        create_fastapi_app(ApiSettings())
+
+    assert any("auth" in record.message.lower() for record in caplog.records)
+    assert any("HARBORRAG_AUTH_MODE=none" in record.message for record in caplog.records)
+
+
 def test_tenant_authorization_is_independent_of_global_role() -> None:
     principal = Principal(
         subject="admin-1",

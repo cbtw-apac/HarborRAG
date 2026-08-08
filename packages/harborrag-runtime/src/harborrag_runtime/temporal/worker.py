@@ -70,6 +70,7 @@ async def run_workers(
                     activities.record_source_failure,
                     activities.finalize_source_ingestion,
                     activities.prepare_retry_failures,
+                    activities.record_retry_failures_task_failure,
                     activities.finalize_retry_failures,
                 ),
             ),

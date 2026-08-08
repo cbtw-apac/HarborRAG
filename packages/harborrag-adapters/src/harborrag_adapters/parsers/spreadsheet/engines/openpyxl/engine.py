@@ -15,6 +15,7 @@ from harborrag_adapters.parsers.common.utils import (
 from harborrag_adapters.parsers.common.validation import (
     guard_input_size,
     open_guarded_zip,
+    raise_if_password_protected_document,
     wrap_parse_errors,
 )
 from harborrag_adapters.parsers.errors import ParseError
@@ -136,65 +137,78 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                 input_bytes=len(source_bytes),
             ),
         )
+        # The whole workbook lifecycle -- not just `load_workbook()` -- must stay
+        # inside `wrap_parse_errors`: `read_only=True` makes openpyxl a lazy,
+        # streaming reader, so malformed sheet XML fails during
+        # `iter_rows()`, not during the initial open, and would otherwise leak
+        # as a raw library exception instead of a typed `ParseError`.
         with wrap_parse_errors("openpyxl"):
+            # Encrypted XLSX is an OLE compound file, not a zip -- check before
+            # attempting to open it as one, exactly like DOCX does.
+            raise_if_password_protected_document(source_bytes, format_name="xlsx")
             # XLSX is a zip container: reject decompression-bomb shapes before
             # handing bytes to openpyxl, exactly like DOCX/EPUB/PPTX do.
-            open_guarded_zip(source_bytes).close()
+            with open_guarded_zip(source_bytes) as archive:
+                raise_if_password_protected_document(
+                    source_bytes,
+                    format_name="xlsx",
+                    archive=archive,
+                )
             workbook = load_workbook(
                 BytesIO(source_bytes),
                 read_only=True,
                 data_only=True,
                 keep_links=False,
             )
-        sheet_names = workbook.sheetnames
-        try:
-            sections: list[str] = []
-            elements: list[DocumentElement] = []
-            for sheet in workbook.worksheets:
-                rows = [
-                    "\t".join(self._cell_to_text(value) for value in row).rstrip()
-                    for row in sheet.iter_rows(values_only=True)
-                ]
-                rows = [row for row in rows if row.strip()]
-                if not rows:
+            try:
+                sheet_names = workbook.sheetnames
+                sections: list[str] = []
+                elements: list[DocumentElement] = []
+                for sheet in workbook.worksheets:
+                    rows = [
+                        "\t".join(self._cell_to_text(value) for value in row).rstrip()
+                        for row in sheet.iter_rows(values_only=True)
+                    ]
+                    rows = [row for row in rows if row.strip()]
+                    if not rows:
+                        parser_logger.debug(
+                            "Skipping empty Excel sheet %s",
+                            sheet.title,
+                            extra=parser_log_extra(
+                                input=parse_input,
+                                parser_name=self.parser_name,
+                                parser_engine="openpyxl",
+                                sheet=sheet.title,
+                                rows=0,
+                            ),
+                        )
+                        continue
+                    sheet_text = "\n".join(rows)
+                    sections.append(f"Sheet: {sheet.title}\n{sheet_text}")
+                    elements.append(
+                        DocumentElement(
+                            id=f"excel:sheet:{sheet.title}",
+                            type="table",
+                            content=sheet_text,
+                            metadata={"sheet": sheet.title},
+                        )
+                    )
                     parser_logger.debug(
-                        "Skipping empty Excel sheet %s",
+                        "Extracted Excel sheet %s rows=%d content_chars=%d",
                         sheet.title,
+                        len(rows),
+                        len(sheet_text),
                         extra=parser_log_extra(
                             input=parse_input,
                             parser_name=self.parser_name,
                             parser_engine="openpyxl",
                             sheet=sheet.title,
-                            rows=0,
+                            rows=len(rows),
+                            content_chars=len(sheet_text),
                         ),
                     )
-                    continue
-                sheet_text = "\n".join(rows)
-                sections.append(f"Sheet: {sheet.title}\n{sheet_text}")
-                elements.append(
-                    DocumentElement(
-                        id=f"excel:sheet:{sheet.title}",
-                        type="table",
-                        content=sheet_text,
-                        metadata={"sheet": sheet.title},
-                    )
-                )
-                parser_logger.debug(
-                    "Extracted Excel sheet %s rows=%d content_chars=%d",
-                    sheet.title,
-                    len(rows),
-                    len(sheet_text),
-                    extra=parser_log_extra(
-                        input=parse_input,
-                        parser_name=self.parser_name,
-                        parser_engine="openpyxl",
-                        sheet=sheet.title,
-                        rows=len(rows),
-                        content_chars=len(sheet_text),
-                    ),
-                )
-        finally:
-            workbook.close()
+            finally:
+                workbook.close()
 
         return "\n\n".join(sections).strip(), elements, sheet_names
 
@@ -231,72 +245,76 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                 input_bytes=len(source_bytes),
             ),
         )
+        # As with openpyxl above, the whole workbook lifecycle stays inside
+        # `wrap_parse_errors`: `on_demand=True` defers per-sheet parsing to
+        # `sheet_by_index()`, so a corrupt sheet fails during iteration below,
+        # not during `open_workbook()`.
         with wrap_parse_errors("xlrd"):
             workbook = xlrd.open_workbook(
                 file_contents=source_bytes,
                 on_demand=True,
             )
-        sheet_names = workbook.sheet_names()
-        sections: list[str] = []
-        elements: list[DocumentElement] = []
-        try:
-            # Load sheets one at a time (Book.sheets() would defeat on_demand and
-            # load them all), unloading each after rendering to bound memory.
-            for sheet_index in range(workbook.nsheets):
-                sheet = workbook.sheet_by_index(sheet_index)
-                rows = []
-                for row_index in range(sheet.nrows):
-                    row = "\t".join(
-                        self._xls_cell_to_text(
-                            sheet.cell(row_index, column_index),
-                            workbook.datemode,
-                            xlrd,
+            sheet_names = workbook.sheet_names()
+            sections: list[str] = []
+            elements: list[DocumentElement] = []
+            try:
+                # Load sheets one at a time (Book.sheets() would defeat on_demand and
+                # load them all), unloading each after rendering to bound memory.
+                for sheet_index in range(workbook.nsheets):
+                    sheet = workbook.sheet_by_index(sheet_index)
+                    rows = []
+                    for row_index in range(sheet.nrows):
+                        row = "\t".join(
+                            self._xls_cell_to_text(
+                                sheet.cell(row_index, column_index),
+                                workbook.datemode,
+                                xlrd,
+                            )
+                            for column_index in range(sheet.ncols)
+                        ).rstrip()
+                        if row.strip():
+                            rows.append(row)
+                    if not rows:
+                        parser_logger.debug(
+                            "Skipping empty legacy Excel sheet %s",
+                            sheet.name,
+                            extra=parser_log_extra(
+                                input=parse_input,
+                                parser_name=self.parser_name,
+                                parser_engine="xlrd",
+                                sheet=sheet.name,
+                                rows=0,
+                            ),
                         )
-                        for column_index in range(sheet.ncols)
-                    ).rstrip()
-                    if row.strip():
-                        rows.append(row)
-                if not rows:
+                        workbook.unload_sheet(sheet_index)
+                        continue
+                    sheet_text = "\n".join(rows)
+                    sections.append(f"Sheet: {sheet.name}\n{sheet_text}")
+                    elements.append(
+                        DocumentElement(
+                            id=f"excel:sheet:{sheet.name}",
+                            type="table",
+                            content=sheet_text,
+                            metadata={"sheet": sheet.name},
+                        )
+                    )
                     parser_logger.debug(
-                        "Skipping empty legacy Excel sheet %s",
+                        "Extracted legacy Excel sheet %s rows=%d content_chars=%d",
                         sheet.name,
+                        len(rows),
+                        len(sheet_text),
                         extra=parser_log_extra(
                             input=parse_input,
                             parser_name=self.parser_name,
                             parser_engine="xlrd",
                             sheet=sheet.name,
-                            rows=0,
+                            rows=len(rows),
+                            content_chars=len(sheet_text),
                         ),
                     )
                     workbook.unload_sheet(sheet_index)
-                    continue
-                sheet_text = "\n".join(rows)
-                sections.append(f"Sheet: {sheet.name}\n{sheet_text}")
-                elements.append(
-                    DocumentElement(
-                        id=f"excel:sheet:{sheet.name}",
-                        type="table",
-                        content=sheet_text,
-                        metadata={"sheet": sheet.name},
-                    )
-                )
-                parser_logger.debug(
-                    "Extracted legacy Excel sheet %s rows=%d content_chars=%d",
-                    sheet.name,
-                    len(rows),
-                    len(sheet_text),
-                    extra=parser_log_extra(
-                        input=parse_input,
-                        parser_name=self.parser_name,
-                        parser_engine="xlrd",
-                        sheet=sheet.name,
-                        rows=len(rows),
-                        content_chars=len(sheet_text),
-                    ),
-                )
-                workbook.unload_sheet(sheet_index)
-        finally:
-            workbook.release_resources()
+            finally:
+                workbook.release_resources()
 
         return "\n\n".join(sections).strip(), elements, sheet_names
 

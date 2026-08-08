@@ -16,6 +16,7 @@ from .schemas import (
     RetryFailuresInput,
     RetryFinalizationInput,
     RetryPreparationResult,
+    RetryTaskFailureInput,
 )
 
 
@@ -86,6 +87,17 @@ class RetryActivitiesMixin:
                 original_task_id=request.document.original_task_id,
                 planned=planned,
                 error_type=request.error_type,
+            )
+
+    @activity.defn(name="harborrag.record_retry_failures_task_failure")
+    async def record_retry_failures_task_failure(
+        self,
+        request: RetryTaskFailureInput,
+    ) -> None:
+        with self._observability.boundary("RecordRetryFailuresTaskFailure"):
+            await self._runtime.sources.fail_retry(
+                request.retry_task_id,
+                error_code=request.error_code,
             )
 
     @activity.defn(name="harborrag.finalize_retry_failures")

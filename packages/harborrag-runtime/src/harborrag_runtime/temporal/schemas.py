@@ -329,6 +329,16 @@ class RetryDocumentFailureInput:
 
 
 @dataclass(frozen=True, slots=True)
+class RetryTaskFailureInput:
+    retry_task_id: str
+    error_code: str
+
+    def __post_init__(self) -> None:
+        if not self.retry_task_id.strip() or not self.error_code.strip():
+            raise ValueError("retry task failure ID and error code must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
 class RetryFinalizationInput:
     retry_task_id: str
     selected: int

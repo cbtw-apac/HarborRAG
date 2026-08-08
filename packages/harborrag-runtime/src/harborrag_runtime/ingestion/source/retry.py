@@ -60,6 +60,26 @@ class SourceRetryService:
             },
         )
 
+    async def fail_retry(self, task_id: str, *, error_code: str) -> None:
+        """Persist one terminal retry-workflow failure without runtime details."""
+
+        task = await self._control.tasks.get(task_id)
+        if task is None or task.status in {
+            IngestionTaskState.COMPLETED,
+            IngestionTaskState.PARTIAL,
+            IngestionTaskState.FAILED,
+            IngestionTaskState.CANCELLED,
+        }:
+            return
+        await self._control.tasks.transition(
+            task_id,
+            IngestionTaskState.FAILED,
+            summary={
+                "stage": "PROCESSING_DOCUMENTS",
+                "error_code": error_code,
+            },
+        )
+
     async def retry_one(
         self,
         *,

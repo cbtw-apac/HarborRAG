@@ -63,6 +63,9 @@ class SourceDocumentOperations:
     async def begin_retry(self, task_id: str, *, selected: int) -> None:
         await self._retries.begin_retry(task_id, selected=selected)
 
+    async def fail_retry(self, task_id: str, *, error_code: str) -> None:
+        await self._retries.fail_retry(task_id, error_code=error_code)
+
     async def retry_one(
         self,
         *,

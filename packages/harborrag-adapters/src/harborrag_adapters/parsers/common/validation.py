@@ -18,6 +18,12 @@ _OOXML_ENCRYPTION_STREAMS = (
     "EncryptedPackage".encode("utf-16-le"),
     "EncryptionInfo".encode("utf-16-le"),
 )
+# Word, Excel, and PowerPoint all wrap an encrypted package in the same OLE
+# compound-file container with the same EncryptionInfo/EncryptedPackage
+# streams -- the check below isn't docx-specific, so every OOXML format must
+# opt in here or its encrypted files fall through as an unidentified
+# container instead of the typed `PasswordProtectedError`.
+_OOXML_FORMATS = frozenset({"docx", "xlsx", "pptx"})
 
 
 @contextmanager
@@ -160,10 +166,10 @@ def raise_if_password_protected_document(
 
     normalized_format = format_name.lower().strip()
     if data.startswith(_OLE_COMPOUND_FILE_SIGNATURE):
-        if normalized_format == "docx" and all(
+        if normalized_format in _OOXML_FORMATS and all(
             stream_name in data for stream_name in _OOXML_ENCRYPTION_STREAMS
         ):
-            raise PasswordProtectedError("DOCX is password-protected")
+            raise PasswordProtectedError(f"{normalized_format.upper()} is password-protected")
         return
 
     if archive is None:

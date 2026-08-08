@@ -82,6 +82,28 @@ def test_password_protected_docx_raises_typed_error():
         DocxParser().parse(ParseInput(content=encrypted, filename="secret.docx"))
 
 
+@pytest.mark.parametrize(
+    ("parser", "format_name", "filename"),
+    [
+        (ExcelParser(), "XLSX", "secret.xlsx"),
+        (PptxParser(), "PPTX", "secret.pptx"),
+    ],
+)
+def test_password_protected_ooxml_raises_typed_error(parser, format_name, filename):
+    """Encrypted XLSX/PPTX are OLE compound files with the same
+    EncryptionInfo/EncryptedPackage streams as encrypted DOCX -- they must be
+    identified the same way, not left to surface as an unidentified-container
+    `ParseError` once the underlying library fails to open them as a zip."""
+    encrypted = (
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        + "EncryptionInfo".encode("utf-16-le")
+        + "EncryptedPackage".encode("utf-16-le")
+    )
+
+    with pytest.raises(PasswordProtectedError, match=format_name):
+        parser.parse(ParseInput(content=encrypted, filename=filename))
+
+
 def test_password_protected_odt_raises_typed_error(odt_bytes):
     import io
     import zipfile

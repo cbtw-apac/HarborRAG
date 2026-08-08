@@ -30,6 +30,29 @@ async def test_connect_initializes_schema_indexes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_connect_swallows_already_exists_index_error() -> None:
+    client = FakeFalkorDBClient()
+    client.write_errors["n.tenant_id"] = RuntimeError("Index already indexed")
+    repository = _make_repository(client)
+
+    await repository.connect()
+
+    assert client.connected is True
+
+
+@pytest.mark.asyncio
+async def test_connect_propagates_genuine_schema_provisioning_failure() -> None:
+    """A bare `"exist"` substring check would also match "index does not exist",
+    silently swallowing a real provisioning failure instead of propagating it."""
+    client = FakeFalkorDBClient()
+    client.write_errors["n.tenant_id"] = RuntimeError("index does not exist")
+    repository = _make_repository(client)
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        await repository.connect()
+
+
+@pytest.mark.asyncio
 async def test_close_delegates_to_database_client() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)

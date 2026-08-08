@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Annotated
 
@@ -19,6 +20,8 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.member import Role
 
+logger = logging.getLogger("harborrag.app.api.auth")
+
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -32,6 +35,20 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     if settings.auth_mode == "none":
         if settings.env == "prod":
             raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
+        # `env` and `auth_mode` both default to permissive values ("dev" and
+        # "none"), so a deployment that forgets to set HARBORRAG_ENV=prod
+        # falls through here silently -- the process boots and every request
+        # is treated as an implicit owner with unrestricted tenant access,
+        # with no signal that auth is off. Log loudly so that's never silent,
+        # even though the prod check above can't catch a misconfigured env.
+        logger.warning(
+            "Starting with HARBORRAG_AUTH_MODE=none: every request is treated "
+            "as an implicit owner principal with unrestricted tenant access. "
+            "This is a dev-only default -- set HARBORRAG_AUTH_MODE=hmac (or "
+            "oidc) before exposing this process beyond a trusted local "
+            "environment, and set HARBORRAG_ENV=prod so misconfiguration "
+            "fails to start instead of booting open."
+        )
         return None
     if settings.auth_mode == "hmac":
         if not settings.auth_secret:

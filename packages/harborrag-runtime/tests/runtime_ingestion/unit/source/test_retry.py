@@ -111,3 +111,30 @@ async def test_fetch_failure_retries_from_the_configured_connector(
 
         documents.release.assert_awaited_once_with(planned.request, connector)
         documents.replay.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fail_retry_marks_task_failed_and_stays_idempotent(tmp_path: Path) -> None:
+    control = build_control_plane(tmp_path)
+    documents = AsyncMock()
+    async with control:
+        await control.tasks.create(_task("retry"))
+        service = SourceIngestionService(control=control, documents=documents)
+
+        await service.fail_retry("retry", error_code="ChildWorkflowError")
+
+        task = await control.tasks.get("retry")
+        assert task.status == IngestionTaskState.FAILED
+
+        # A retried recording activity must not raise on a second delivery.
+        await service.fail_retry("retry", error_code="ChildWorkflowError")
+
+
+@pytest.mark.asyncio
+async def test_fail_retry_is_a_no_op_for_an_unknown_task(tmp_path: Path) -> None:
+    control = build_control_plane(tmp_path)
+    documents = AsyncMock()
+    async with control:
+        service = SourceIngestionService(control=control, documents=documents)
+
+        await service.fail_retry("does-not-exist", error_code="ChildWorkflowError")

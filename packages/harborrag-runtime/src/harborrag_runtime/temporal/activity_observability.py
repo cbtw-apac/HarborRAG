@@ -48,6 +48,7 @@ _ACTIVITY_STAGES = {
     "PrepareRetryFailures": IngestionStage.DISCOVERY,
     "RetryDocumentRelease": IngestionStage.FETCH,
     "RecordRetryDocumentFailure": IngestionStage.FAILURE_CAPTURE,
+    "RecordRetryFailuresTaskFailure": IngestionStage.FAILURE_CAPTURE,
     "FinalizeRetryFailures": IngestionStage.FINALIZATION,
 }
 

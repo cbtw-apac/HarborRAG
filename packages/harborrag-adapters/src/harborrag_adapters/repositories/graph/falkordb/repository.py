@@ -10,6 +10,9 @@ from harborrag_adapters.repositories.errors import (
 from harborrag_adapters.repositories.graph.base import HarborGraphRepository
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
+from harborrag_adapters.repositories.graph.falkordb.knowledge_provisioning import (
+    is_already_exists_error,
+)
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_adapters.repositories.graph.falkordb.reader import FalkorDBGraphReader
 from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
@@ -271,7 +274,7 @@ class FalkorDBGraphRepository(HarborGraphRepository):
             try:
                 await self._write(statement, {})
             except Exception as exc:  # pragma: no cover - provider version behavior
-                if "already" not in str(exc).lower() and "exist" not in str(exc).lower():
+                if not is_already_exists_error(exc):
                     raise
 
     async def _write(self, statement: str, parameters: Mapping[str, Any]) -> None:

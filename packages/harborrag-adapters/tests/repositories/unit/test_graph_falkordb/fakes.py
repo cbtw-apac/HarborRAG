@@ -166,6 +166,7 @@ class FakeFalkorDBClient:
         self.constraint_calls: list[tuple[str, tuple[str, ...]]] = []
         self.dropped_constraint_calls: list[tuple[str, tuple[str, ...]]] = []
         self.ping_error: Exception | None = None
+        self.write_errors: dict[str, Exception] = {}
 
     async def connect(self) -> None:
         self.connected = True
@@ -179,6 +180,9 @@ class FakeFalkorDBClient:
 
     async def write(self, statement: str, parameters: dict[str, Any]) -> None:
         self.write_calls.append((statement, dict(parameters)))
+        for needle, error in self.write_errors.items():
+            if needle in statement:
+                raise error
 
     async def read(self, statement: str, parameters: dict[str, Any]) -> FakeQueryResult:
         self.read_calls.append((statement, dict(parameters)))
