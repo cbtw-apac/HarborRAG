@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from confluence_test_helpers import (
     CLOUD_BASE,
     FakeConfluenceClient,
@@ -8,6 +9,7 @@ from confluence_test_helpers import (
 )
 
 from harborrag_adapters.connectors.confluence import ConfluenceConnector
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_core.chunking import RelationType
 from harborrag_core.domain.source import SourceRecord
 
@@ -86,6 +88,43 @@ def test_describe_reuses_descriptor_fields_returned_by_search() -> None:
     assert descriptor.admission.source_version == "3"
     assert [endpoint for endpoint, _ in client.calls] == ["content/search"]
     assert "_confluence_discovery_descriptor" not in descriptor.source.metadata
+
+
+def test_describe_rejects_content_outside_configured_space() -> None:
+    # describe() used to skip the _validate_content check that every other
+    # content-fetching path (discover/discover_page/load/_record_for_id)
+    # applies -- a content_id from outside the configured space (e.g. a
+    # replayed or forged record) was silently attributed to this
+    # connector's own space instead of being rejected.
+    client = FakeConfluenceClient()
+    content = full_content()
+    content["space"] = {"key": "OTHER"}
+    client.add("content/1", content)
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    with pytest.raises(DocumentProcessingError, match="outside configured space"):
+        connector.describe(
+            SourceRecord(id="confluence://ENG/1", source_type="text/html", locator="1")
+        )
+
+
+def test_describe_rejects_cached_descriptor_content_outside_configured_space() -> None:
+    # Same check, exercised via the cached-descriptor branch (a record
+    # already carrying a discovery descriptor, e.g. from search) rather
+    # than the fresh-fetch branch.
+    content = full_content()
+    content["space"] = {"key": "OTHER"}
+    connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())
+
+    with pytest.raises(DocumentProcessingError, match="outside configured space"):
+        connector.describe(
+            SourceRecord(
+                id="confluence://ENG/1",
+                source_type="text/html",
+                locator="1",
+                metadata={"_confluence_discovery_descriptor": content},
+            )
+        )
 
 
 def test_describe_respects_record_attachment_and_comment_flags() -> None:

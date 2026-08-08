@@ -37,6 +37,7 @@ from .mappers import (
     build_source_record,
     content_id_from_record,
     display_url,
+    validate_content,
 )
 from .policy import ConfluenceQueryPolicyMixin
 from .query import validate_content_id
@@ -346,22 +347,4 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
 
     def _validate_content(self, content: dict[str, Any], content_id: str) -> None:
         """Fail fast when content is malformed or outside the configured space."""
-        space_key = content.get("space", {}).get("key")
-        missing = [
-            name
-            for name, value in (
-                ("id", content.get("id")),
-                ("title", content.get("title")),
-                ("space.key", space_key),
-            )
-            if not value
-        ]
-        if missing:
-            raise DocumentProcessingError(
-                f"Confluence content {content_id} missing required fields: {', '.join(missing)}"
-            )
-        if str(space_key) != self.config.space_key:
-            raise DocumentProcessingError(
-                f"Confluence content {content_id} belongs to space {space_key!r}, "
-                f"outside configured space {self.config.space_key!r}"
-            )
+        validate_content(content, content_id, space_key=self.config.space_key)

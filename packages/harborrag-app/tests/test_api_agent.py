@@ -53,6 +53,10 @@ def test_agent_session_then_completion_forwards_bounded_controls(
     assert payload["session_id"] == session_id
     assert "user_id" not in payload
     assert payload["tool_calls"] == [{"step": 1, "tool": "vector_search", "ok": True}]
+    # The prompt travels in the query string (GET), so this response must
+    # never be cached by an intermediary -- caching it would persist
+    # sensitive prompt/answer content beyond this request's lifetime.
+    assert response.headers["cache-control"] == "no-store"
     assert service.agent_calls[0]["principal_id"] == "dev"
     assert service.agent_calls[0]["graph_search"] is True
 

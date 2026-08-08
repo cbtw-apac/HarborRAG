@@ -175,6 +175,45 @@ async def test_agent_run_save_step_rejects_stale_version(tmp_path: Path) -> None
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
+async def test_agent_run_save_step_rejects_mismatched_identity_even_with_correct_version(
+    tmp_path: Path,
+) -> None:
+    """save_step used to filter only by run_id + version, unlike get()'s full
+    identity scoping -- a caller that knew a run_id and the correct next
+    version, but got tenant/principal/session wrong, could still advance
+    (or be blocked from advancing) someone else's run. Every mismatched
+    field must behave exactly like a stale/unknown run: HarborConflictError,
+    with the original row left untouched."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        await SqlConversationMemoryRepository(sessions).create(
+            ConversationIdentity("ACME", "reader-1", "session-1")
+        )
+        repo = SqlAgentRunRepository(sessions)
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")
+        await repo.create(_checkpoint(identity, version=1, step=0))
+
+        for mismatched in (
+            AgentRunIdentity("OTHER", "reader-1", "session-1", "run-1"),
+            AgentRunIdentity("ACME", "reader-2", "session-1", "run-1"),
+            AgentRunIdentity("ACME", "reader-1", "session-2", "run-1"),
+        ):
+            with pytest.raises(HarborConflictError):
+                await repo.save_step(_checkpoint(mismatched, version=2, step=1))
+
+        loaded = await repo.get(identity)
+        assert loaded is not None
+        assert loaded.version == 1
+        assert loaded.step == 0
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
 async def test_agent_run_get_is_scoped_to_full_identity(tmp_path: Path) -> None:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)

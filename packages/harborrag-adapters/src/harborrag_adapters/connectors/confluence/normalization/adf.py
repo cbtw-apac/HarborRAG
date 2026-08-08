@@ -21,6 +21,8 @@ _KIND_MAP = {
     "panel": "panel",
     "expand": "expand",
     "nestedExpand": "expand",
+    "tabsContainer": "tab_set",
+    "tabsPage": "tab",
     "table": "table",
     "tableRow": "table_row",
     "tableHeader": "table_header",

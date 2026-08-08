@@ -54,6 +54,10 @@ def test_chat_session_then_completion_uses_only_session_identity(
     assert payload["message"]["content"] == "Harbor response"
     assert payload["session_id"] == session_id
     assert "user_id" not in payload
+    # The prompt travels in the query string (GET), so this response must
+    # never be cached by an intermediary -- caching it would persist
+    # sensitive prompt/answer content beyond this request's lifetime.
+    assert response.headers["cache-control"] == "no-store"
     call = service.chat_calls[0]
     assert call["principal_id"] == "dev"
     assert call["session_id"] == session_id

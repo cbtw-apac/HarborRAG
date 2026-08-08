@@ -4,8 +4,10 @@ import zipfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from io import BytesIO
+from pathlib import Path
 
 from harborrag_adapters.parsers.errors import ParseError, PasswordProtectedError
+from harborrag_core.domain.parser import ParseInput
 
 DEFAULT_MAX_INPUT_BYTES = 512 * 1024 * 1024  # 512 MiB raw input
 MAX_ARCHIVE_MEMBERS = 10_000
@@ -48,6 +50,39 @@ def guard_input_size(data: bytes, *, max_bytes: int = DEFAULT_MAX_INPUT_BYTES) -
     if len(data) > max_bytes:
         raise ParseError(f"Input size {len(data)} exceeds max_input_bytes {max_bytes}")
     return data
+
+
+def guard_parse_input_size(
+    value: ParseInput,
+    *,
+    max_bytes: int = DEFAULT_MAX_INPUT_BYTES,
+) -> None:
+    """Reject an oversized ``ParseInput`` without reading it into memory first.
+
+    Stats a path-backed input instead of reading it, so checking the size
+    doesn't itself become the unbounded read this guards against. In-memory
+    content is already resident, so its length is checked directly.
+    """
+    if value.path is not None:
+        size = Path(value.path).stat().st_size
+        if size > max_bytes:
+            raise ParseError(f"Input size {size} exceeds max_input_bytes {max_bytes}")
+        return
+    if isinstance(value.content, bytes):
+        guard_input_size(value.content, max_bytes=max_bytes)
+    elif isinstance(value.content, str):
+        guard_input_size(value.content.encode("utf-8"), max_bytes=max_bytes)
+
+
+def parse_input_is_empty(value: ParseInput) -> bool:
+    """Detect a 0-byte source without reading a path-backed input into memory."""
+    if value.path is not None:
+        return Path(value.path).stat().st_size == 0
+    if isinstance(value.content, bytes):
+        return not value.content
+    if isinstance(value.content, str):
+        return not value.content
+    return False
 
 
 def open_guarded_zip(data: bytes) -> zipfile.ZipFile:

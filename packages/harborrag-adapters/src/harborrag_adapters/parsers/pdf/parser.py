@@ -10,13 +10,16 @@ from typing import ClassVar
 from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.models import ParserAttempt, ParseRequest, ParseResult
 from harborrag_adapters.parsers.common.resources import (
-    read_parse_input_bytes,
     request_to_parse_input,
 )
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
     input_label,
     parser_log_extra,
+)
+from harborrag_adapters.parsers.common.validation import (
+    guard_parse_input_size,
+    parse_input_is_empty,
 )
 from harborrag_adapters.parsers.errors import (
     EncryptedPdfError,
@@ -111,6 +114,7 @@ class HarborPDFParser(HarborParser):
                 metadata=dict(metadata) if isinstance(metadata, dict) else {},
                 warnings=[],
             )
+        self._guard_request_size(request)
 
         for engine in self._router.resolve_candidates(request):
             started = perf_counter()
@@ -221,6 +225,7 @@ class HarborPDFParser(HarborParser):
                 attempts=[self._empty_attempt()],
                 warnings=[],
             )
+        self._guard_size(input)
 
         for engine in self._router.resolve_candidates(request):
             parser_logger.debug(
@@ -311,19 +316,51 @@ class HarborPDFParser(HarborParser):
         instead of surfacing that as a different exception up front.
         """
         try:
-            return not read_parse_input_bytes(request_to_parse_input(request))
+            parse_input = request_to_parse_input(request)
         except (TypeError, ValueError):
             return False
+        return parse_input_is_empty(parse_input)
 
     @staticmethod
     def _is_empty_source(input: ParseInput) -> bool:
         """Same emptiness check as `_is_empty_request`, for the `ParseInput`
         boundary -- falls through to the normal per-engine loop rather than
-        raising early (e.g. an unreadable path) on anything but "0 bytes"."""
+        raising early (e.g. an unreadable path) on anything but "0 bytes".
+
+        Stats a path-backed input instead of reading it, so this check
+        doesn't itself become an unbounded read of a file no engine may
+        ever need to open (e.g. one later rejected by `_guard_size`).
+        """
         try:
-            return not read_parse_input_bytes(input)
+            return parse_input_is_empty(input)
         except (OSError, ValueError):
             return False
+
+    @staticmethod
+    def _guard_size(input: ParseInput) -> None:
+        """Reject an oversized source before any engine is tried.
+
+        Only pymupdf applied `guard_input_size` itself; the other four PDF
+        engines had no size ceiling at all, and profile ordering (`ocr`,
+        `quality`, `scientific`) can put those unguarded engines first. This
+        makes the ceiling apply regardless of engine choice. An unstatable
+        path (bad permissions, broken symlink, ...) is left for the normal
+        per-engine loop to report -- this only rejects sources it can
+        positively confirm are oversized.
+        """
+        try:
+            guard_parse_input_size(input)
+        except OSError:
+            pass
+
+    @classmethod
+    def _guard_request_size(cls, request: ParseRequest) -> None:
+        """`_guard_size`, for the `ParseRequest` boundary used by `parse()`."""
+        try:
+            parse_input = request_to_parse_input(request)
+        except (TypeError, ValueError):
+            return
+        cls._guard_size(parse_input)
 
     @staticmethod
     def _empty_result() -> PDFParseResult:

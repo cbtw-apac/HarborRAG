@@ -25,6 +25,14 @@ _BLOCK_KIND_BY_NODE = {
     "quote": DocumentBlockKind.QUOTE,
     "panel": DocumentBlockKind.PANEL,
     "expand": DocumentBlockKind.EXPAND,
+    # ADF's native tabs feature (tabsContainer/tabsPage in adf.py's
+    # _KIND_MAP) reaches this generic dispatch directly, unlike the
+    # storage-format tabs macro (tabs/tab-set/tab, handled via _append_macro
+    # instead) -- both must resolve to the same DocumentBlockKind so
+    # _container_context extends tab_path identically for either
+    # representation.
+    "tab_set": DocumentBlockKind.TAB_SET,
+    "tab": DocumentBlockKind.TAB,
 }
 # Node kinds independently populated as their own block draft somewhere in
 # `_append_node`'s dispatch (generic block kinds, tables, macros, and preserved

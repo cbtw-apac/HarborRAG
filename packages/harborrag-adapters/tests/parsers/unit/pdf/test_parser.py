@@ -105,6 +105,27 @@ def test_pdf_parser_returns_empty_content_for_zero_byte_input_instead_of_failing
 
 
 @pytest.mark.graybox
+def test_pdf_parser_rejects_oversized_input_before_any_engine_runs(monkeypatch):
+    """The size ceiling used to be applied by pymupdf alone; the other four
+    real PDF engines had no size check at all, and profile ordering (`ocr`,
+    `quality`, `scientific`) can put an unguarded engine first. The guard
+    must now apply before engine selection, regardless of which engine
+    would have run -- proven here with a fake engine that fails the test if
+    invoked, matching the file's other "no engine runs" tests."""
+    from harborrag_adapters.parsers import pdf as pdf_module
+    from harborrag_adapters.parsers.errors import ParseError
+
+    def _always_too_big(*_args: object, **_kwargs: object) -> None:
+        raise ParseError("Input size 999999999 exceeds max_input_bytes 0")
+
+    monkeypatch.setattr(pdf_module.parser, "guard_parse_input_size", _always_too_big)
+    parser = PdfParser(backends=[ExplodingPdfBackend()], min_content_chars=10)
+
+    with pytest.raises(ParseError):
+        parser.parse_input(ParseInput(content=b"%PDF-1.4 not actually empty", filename="big.pdf"))
+
+
+@pytest.mark.graybox
 def test_pdf_parsing_failed_error_names_the_rejection_reason_per_engine():
     """When every engine in the chain rejects a document, the raised error
     must say *why* each one did -- not just list engine names. A page/size

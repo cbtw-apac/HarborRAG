@@ -11,6 +11,3 @@ class MemoryManagerConfig:
 
     recent_turn_limit: int = 2
     working_ttl_seconds: int = 3600
-
-
-__all__ = ["MemoryManagerConfig"]

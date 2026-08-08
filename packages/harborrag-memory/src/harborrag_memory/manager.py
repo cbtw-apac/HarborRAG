@@ -14,10 +14,7 @@ from harborrag_core.ports.conversation import ConversationTurn
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryQuery
 
 from .config import MemoryManagerConfig
-from .errors import MemoryConfigurationError
-from .long_term.memory import LongTermMemory
-from .short_term.memory import ShortTermMemory
-from .working.memory import WorkingMemory
+from .tiers import LongTermMemory, ShortTermMemory, WorkingMemory
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,30 +37,24 @@ class MemoryManager:
         *,
         config: MemoryManagerConfig | None = None,
     ) -> None:
-        self._short_term = short_term
-        self._working = working
-        self._long_term = long_term
-        self._config = config or MemoryManagerConfig()
+        # TODO: wire the tier facades and config dependency.
+        pass
 
     async def recent(self, owner: MemoryOwner, *, limit: int | None = None) -> tuple[ConversationTurn, ...]:
-        if self._short_term is None:
-            return ()
-        return await self._short_term.recent(owner, limit=limit or self._config.recent_turn_limit)
+        # TODO: delegate to the short-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.recent")
 
     async def append(self, owner: MemoryOwner, turn: ConversationTurn) -> None:
-        if self._short_term is None:
-            raise MemoryConfigurationError("short-term memory is not configured")
-        await self._short_term.record(owner, turn)
+        # TODO: delegate to the short-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.append")
 
     async def clear(self, owner: MemoryOwner) -> None:
-        if self._short_term is None:
-            raise MemoryConfigurationError("short-term memory is not configured")
-        await self._short_term.clear(owner)
+        # TODO: delegate to the short-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.clear")
 
     async def scratch(self, owner: MemoryOwner) -> dict[str, Any]:
-        if self._working is None:
-            return {}
-        return await self._working.scratch(owner)
+        # TODO: delegate to the working memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.scratch")
 
     async def update(
         self,
@@ -72,38 +63,28 @@ class MemoryManager:
         *,
         ttl_seconds: int | None = None,
     ) -> None:
-        if self._working is None:
-            raise MemoryConfigurationError("working memory is not configured")
-        await self._working.update(
-            owner,
-            state,
-            ttl_seconds=ttl_seconds or self._config.working_ttl_seconds,
-        )
+        # TODO: delegate to the working memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.update")
 
     async def clear_working(self, owner: MemoryOwner) -> None:
-        if self._working is None:
-            raise MemoryConfigurationError("working memory is not configured")
-        await self._working.clear(owner)
+        # TODO: delegate to the working memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.clear_working")
 
     async def save(self, memory: Memory) -> None:
-        if self._long_term is None:
-            raise MemoryConfigurationError("long-term memory is not configured")
-        await self._long_term.save(memory)
+        # TODO: delegate to the long-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.save")
 
     async def get(self, caller: MemoryOwner, memory_id: str) -> Memory | None:
-        if self._long_term is None:
-            return None
-        return await self._long_term.get(caller, memory_id)
+        # TODO: delegate to the long-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.get")
 
     async def search(self, query: MemoryQuery) -> tuple[Memory, ...]:
-        if self._long_term is None:
-            return ()
-        return await self._long_term.search(query)
+        # TODO: delegate to the long-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.search")
 
     async def delete(self, caller: MemoryOwner, memory_id: str) -> None:
-        if self._long_term is None:
-            raise MemoryConfigurationError("long-term memory is not configured")
-        await self._long_term.delete(caller, memory_id)
+        # TODO: delegate to the long-term memory tier.
+        raise NotImplementedError("TODO: implement MemoryManager.delete")
 
     async def snapshot(
         self,
@@ -112,12 +93,5 @@ class MemoryManager:
         query: MemoryQuery | None = None,
         recent_limit: int | None = None,
     ) -> MemorySnapshot:
-        memories = await self.search(query) if query is not None else ()
-        return MemorySnapshot(
-            recent_turns=await self.recent(owner, limit=recent_limit),
-            working_state=await self.scratch(owner),
-            memories=memories,
-        )
-
-
-__all__ = ["MemoryManager", "MemorySnapshot"]
+        # TODO: compose recent turns, working state, and searched memories into a snapshot.
+        raise NotImplementedError("TODO: implement MemoryManager.snapshot")

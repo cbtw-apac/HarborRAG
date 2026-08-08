@@ -25,6 +25,7 @@ from harborrag_engine.conversation import ConversationIdentity, ConversationMemo
 
 from .events import AgentEvent, emit
 from .execution import ChatAndToolExecutor
+from .guard import ExecutionGuard
 from .helpers import add_usage
 from .loop_state import LoopState, RunContext, StepOutcome
 from .protocols import AgentChatModel, AgentToolProvider
@@ -44,6 +45,11 @@ _SYNTHESIS_INSTRUCTIONS: dict[AgentStopReason, str] = {
         "The same tool call was repeated with identical arguments, so further tool use "
         "is blocked. Answer now using only the evidence already returned by tools. State "
         "clearly when the evidence is insufficient."
+    ),
+    AgentStopReason.TOKEN_BUDGET_EXCEEDED: (
+        "The total token budget for this run is exhausted. Answer now using only the "
+        "evidence already returned by tools. State clearly when the evidence is "
+        "insufficient."
     ),
 }
 
@@ -85,13 +91,13 @@ class AgentLoopRunner:
             stop_reason, final_response, calls_made = await self._run_until_stop(
                 context, state, tool_definitions, allowed_names
             )
+            final_response, calls_made = await self._ensure_final_response(
+                context, state, stop_reason, final_response, calls_made
+            )
         except Exception:
             await self._record_failure(context, state)
             raise
 
-        final_response, calls_made = await self._ensure_final_response(
-            context, state, stop_reason, final_response, calls_made
-        )
         return await self._complete_run(context, state, stop_reason, final_response, calls_made)
 
     async def _run_until_stop(
@@ -109,8 +115,24 @@ class AgentLoopRunner:
             calls_made += outcome.calls_made
             if outcome.stop_reason is not None:
                 return outcome.stop_reason, outcome.final_response, calls_made
+            if self._over_token_budget(context, state):
+                return AgentStopReason.TOKEN_BUDGET_EXCEEDED, None, calls_made
             state.step += 1
         return AgentStopReason.MAX_STEPS, None, calls_made
+
+    @staticmethod
+    def _over_token_budget(context: RunContext, state: LoopState) -> bool:
+        """Cap the run's own accumulated usage, independent of per-call limits.
+
+        Per-call caps (``MAX_TOOL_CALLS_PER_TURN`` x ``MAX_TOOL_RESULT_CHARS``,
+        ``max_steps``) are each individually bounded, but nothing previously
+        checked their sum -- a full-width run could still accumulate several
+        million characters of resent conversation and tool output. This is
+        the backstop on the aggregate, checked once per completed step.
+        """
+
+        budget = context.options.max_total_tokens
+        return budget is not None and (state.usage.total_tokens or 0) >= budget
 
     async def _record_failure(self, context: RunContext, state: LoopState) -> None:
         """Best-effort checkpoint + event on an unexpected loop exception.
@@ -142,7 +164,15 @@ class AgentLoopRunner:
             return require(final_response, "agent loop ended without a response"), calls_made
 
         state.conversation.append(HarborChatMessage.developer(_SYNTHESIS_INSTRUCTIONS[stop_reason]))
-        response = await self._executor.complete(state.conversation, context.options, tools=())
+        # This call must carry its own bound: it runs precisely when the run's
+        # own guard has already expired (timeout) or is otherwise stopping
+        # early, so reusing `context.guard` here would either hang forever
+        # (no timeout configured) or fail instantly (deadline already past).
+        synthesis_guard = ExecutionGuard(timeout_seconds=context.options.synthesis_timeout_seconds)
+        synthesis_guard.start()
+        response = await self._executor.complete(
+            state.conversation, context.options, tools=(), guard=synthesis_guard
+        )
         state.usage = add_usage(state.usage, response.usage)
         return response, calls_made + 1
 

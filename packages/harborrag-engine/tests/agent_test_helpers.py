@@ -97,6 +97,20 @@ class SlowThenFastChat:
         return self._response
 
 
+class AlwaysSlowChat:
+    """Every call sleeps past its deadline, including the post-timeout synthesis call."""
+
+    def __init__(self, *, delay: float, response: HarborChatResponse) -> None:
+        self._delay = delay
+        self._response = response
+        self.calls = 0
+
+    async def complete(self, request):
+        self.calls += 1
+        await asyncio.sleep(self._delay)
+        return self._response
+
+
 class Runs:
     """In-memory AgentRunRepository fake enforcing optimistic-concurrency versioning."""
 

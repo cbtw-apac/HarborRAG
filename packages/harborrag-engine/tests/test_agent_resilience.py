@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 
 import pytest
-from agent_test_helpers import Chat, Runs, SlowThenFastChat, Tools
+from agent_test_helpers import AlwaysSlowChat, Chat, Runs, SlowThenFastChat, Tools
 from agent_test_helpers import response as _response
 
 from harborrag_core.contracts.errors import HarborConfigurationError, HarborNotFoundError
@@ -75,6 +76,69 @@ async def test_agent_stops_on_timeout_and_still_synthesizes() -> None:
     assert result.turns == 1
     assert result.response.text == "rushed answer"
     assert chat.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_synthesis_call_is_bounded_by_its_own_timeout() -> None:
+    """The post-timeout synthesis call used to run with no guard at all, so a
+    model that was slow on *every* call (not just the first, as in
+    ``SlowThenFastChat``) would hang past the run's own deadline forever --
+    exactly the failure mode the outer timeout exists to prevent. It must
+    now fail fast via `synthesis_timeout_seconds`, not hang for the model's
+    full delay."""
+    tools = Tools()
+    chat = AlwaysSlowChat(delay=5.0, response=_response(text="never seen"))
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        await AgentService(chat, tools).run(
+            [HarborChatMessage.user("question")],
+            AgentRunOptions(
+                tenant_id="ACME",
+                principal_id="reader-1",
+                session_id="session-1",
+                max_steps=4,
+                timeout_seconds=0.01,
+                synthesis_timeout_seconds=0.05,
+            ),
+        )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert chat.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_stops_when_total_token_budget_is_exceeded() -> None:
+    """Per-call caps (tool-result size, tool calls per turn, max_steps) are
+    each individually bounded, but nothing previously capped their sum --
+    a full-width multi-step run could still accumulate an unbounded amount
+    of resent conversation and tool output. max_total_tokens is the
+    backstop on the aggregate."""
+    tools = Tools()
+    chat = Chat(
+        [
+            _response(call=("call-1", "vector_search_advanced", '{"query":"x"}')),
+            _response(call=("call-2", "vector_search_advanced", '{"query":"y"}')),
+            _response(text="synthesized under budget pressure"),
+        ]
+    )
+
+    result = await AgentService(chat, tools).run(
+        [HarborChatMessage.user("question")],
+        AgentRunOptions(
+            tenant_id="ACME",
+            principal_id="reader-1",
+            session_id="session-1",
+            max_steps=4,
+            max_total_tokens=3,
+        ),
+    )
+
+    assert result.stop_reason is AgentStopReason.TOKEN_BUDGET_EXCEEDED
+    assert result.response.text == "synthesized under budget pressure"
+    assert result.turns == 3
+    assert len(chat.requests) == 3
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,8 @@ class AgentRunOptions:
     max_steps: int = 4
     timeout_seconds: float | None = None
     max_repeated_tool_calls: int = 2
+    synthesis_timeout_seconds: float | None = 30.0
+    max_total_tokens: int | None = None
 
 
 __all__ = ["AgentRunOptions", "AgentRunResult"]

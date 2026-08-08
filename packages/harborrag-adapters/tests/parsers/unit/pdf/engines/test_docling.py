@@ -151,6 +151,47 @@ def test_docling_backend_does_not_build_converter_for_encrypted_pdf(monkeypatch)
 
 
 @pytest.mark.whitebox
+def test_docling_backend_rejects_oversized_pdf_with_a_clear_reason_without_invoking_converter():
+    """A max_file_size violation used to only surface via Docling's own
+    ConversionError, wrapped as "Docling could not parse PDF: ..." and then
+    wrapped again by the PDF router as "engine failed (...)" -- the real
+    reason (a configured size policy, not a parse failure) survived but was
+    buried three layers deep behind a generic "could not parse" framing.
+    The pre-check must reject it directly, with the size and limit in the
+    message, before Docling's converter ever runs."""
+    from harborrag_adapters.parsers.errors import ParseError
+
+    class _ExplodingConverter:
+        def convert(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError(
+                "Docling converter must not run on an oversized PDF; the "
+                "max_file_size pre-check should short-circuit first."
+            )
+
+    backend = DoclingBackend(
+        DoclingBackendOptions(max_file_size=1, converter=_ExplodingConverter())
+    )
+    pdf_bytes = b"%PDF-1.4\n" + b"padding" * 10
+
+    with pytest.raises(
+        ParseError,
+        match=rf"{len(pdf_bytes)} bytes exceeds the configured max_file_size limit of 1 bytes",
+    ):
+        backend.parse_input(ParseInput(content=pdf_bytes, filename="huge.pdf"))
+
+
+@pytest.mark.whitebox
+def test_docling_backend_max_file_size_none_does_not_reject_any_size():
+    class _StubConverter:
+        def convert(self, *args: Any, **kwargs: Any) -> Any:
+            return SimpleNamespace(document=SimpleNamespace(), errors=[])
+
+    backend = DoclingBackend(DoclingBackendOptions(max_file_size=None, converter=_StubConverter()))
+
+    backend.parse_input(ParseInput(content=b"%PDF-1.4\n" + b"padding" * 10, filename="ok.pdf"))
+
+
+@pytest.mark.whitebox
 def test_docling_backend_surfaces_partial_failures_as_warnings():
     class _PartialResultConverter:
         def convert(self, *args: Any, **kwargs: Any) -> Any:

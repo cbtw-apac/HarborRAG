@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote, urljoin
 
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_core.domain.source import SourceRecord
 
 from .config import ConfluenceDeploymentType
@@ -18,6 +19,34 @@ from .schemas import (
     ConfluenceMetadata,
     ConfluencePageReference,
 )
+
+
+def validate_content(content: dict[str, Any], content_id: str, *, space_key: str) -> None:
+    """Fail fast when content is malformed or outside the configured space.
+
+    Shared by every path that fetches a content item -- discovery, load, and
+    the descriptor builder used by `describe()` -- so none of them can drift
+    out of sync with the others on what counts as valid, in-scope content.
+    """
+    content_space_key = content.get("space", {}).get("key")
+    missing = [
+        name
+        for name, value in (
+            ("id", content.get("id")),
+            ("title", content.get("title")),
+            ("space.key", content_space_key),
+        )
+        if not value
+    ]
+    if missing:
+        raise DocumentProcessingError(
+            f"Confluence content {content_id} missing required fields: {', '.join(missing)}"
+        )
+    if str(content_space_key) != space_key:
+        raise DocumentProcessingError(
+            f"Confluence content {content_id} belongs to space {content_space_key!r}, "
+            f"outside configured space {space_key!r}"
+        )
 
 
 def parse_timestamp(value: str | None) -> datetime | None:

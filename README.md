@@ -296,6 +296,7 @@ tenant configuration, and audit path as MCP calls.
 packages/
   harborrag-core/      domain objects, model contracts, schemas, security
   harborrag-adapters/  connectors, parsers, model clients, repositories
+  harborrag-memory/    short-term, working, and long-term memory contracts (skeleton, not yet implemented)
   harborrag-engine/    ingestion, retrieval, indexing, graph boundaries
   harborrag-runtime/   production composition and Temporal orchestration
   harborrag-app/       application service, CLI, HTTP API boundary
@@ -307,7 +308,8 @@ Dependency direction is enforced by `scripts/check_dependency_direction.py`:
 
 ```text
 core
-  └─ adapters
+  ├─ adapters
+  └─ memory
        └─ engine
             └─ runtime
                  ├─ app

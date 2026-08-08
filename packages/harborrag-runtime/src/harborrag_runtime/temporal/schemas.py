@@ -8,6 +8,12 @@ _SOURCE_TASK_STATES = frozenset(
     "PENDING RUNNING PAUSED CANCELLING COMPLETED PARTIAL FAILED CANCELLED".split()
 )
 
+# RetryFailuresWorkflow has no continue_as_new checkpoint (unlike
+# SourceIngestionWorkflow's batch_size x continue_after_batches), so a
+# selection larger than this risks exceeding Temporal's default workflow
+# history size/count limits mid-run with no partial-progress recovery.
+_MAX_RETRY_DOCUMENT_IDS = 1000
+
 
 @dataclass(frozen=True, slots=True)
 class WorkflowArtifactReference:
@@ -290,6 +296,11 @@ class RetryFailuresInput:
             raise ValueError("retry task identities must be non-empty")
         if not self.document_ids or any(not value.strip() for value in self.document_ids):
             raise ValueError("retry task document IDs must be non-empty")
+        if len(self.document_ids) > _MAX_RETRY_DOCUMENT_IDS:
+            raise ValueError(
+                f"retry task document IDs must number at most {_MAX_RETRY_DOCUMENT_IDS} "
+                "per retry run (RetryFailuresWorkflow has no continue_as_new checkpoint)"
+            )
         if len(set(self.document_ids)) != len(self.document_ids):
             raise ValueError("retry task document IDs must be unique")
         if not 1 <= self.document_concurrency <= 100:

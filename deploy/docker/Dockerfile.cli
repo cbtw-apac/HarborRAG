@@ -14,6 +14,8 @@ COPY packages/harborrag-core/pyproject.toml packages/harborrag-core/README.md ./
 COPY packages/harborrag-core/src/harborrag_core/__init__.py ./packages/harborrag-core/src/harborrag_core/
 COPY packages/harborrag-adapters/pyproject.toml packages/harborrag-adapters/README.md ./packages/harborrag-adapters/
 COPY packages/harborrag-adapters/src/harborrag_adapters/__init__.py ./packages/harborrag-adapters/src/harborrag_adapters/
+COPY packages/harborrag-memory/pyproject.toml packages/harborrag-memory/README.md ./packages/harborrag-memory/
+COPY packages/harborrag-memory/src/harborrag_memory/__init__.py ./packages/harborrag-memory/src/harborrag_memory/
 COPY packages/harborrag-engine/pyproject.toml packages/harborrag-engine/README.md ./packages/harborrag-engine/
 COPY packages/harborrag-engine/src/harborrag_engine/__init__.py ./packages/harborrag-engine/src/harborrag_engine/
 COPY packages/harborrag-runtime/pyproject.toml packages/harborrag-runtime/README.md ./packages/harborrag-runtime/
@@ -34,6 +36,7 @@ RUN uv export --quiet --frozen --package harborrag-app --extra production \
         --constraint /tmp/harborrag-model-retrieval-lock.txt \
         -e packages/harborrag-core \
         -e 'packages/harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]' \
+        -e packages/harborrag-memory \
         -e packages/harborrag-engine \
         -e 'packages/harborrag-runtime[temporal]' \
         -e 'packages/harborrag-app[production]' \
@@ -45,6 +48,7 @@ RUN uv export --quiet --frozen --package harborrag-app --extra production \
 
 COPY packages/harborrag-core ./packages/harborrag-core
 COPY packages/harborrag-adapters ./packages/harborrag-adapters
+COPY packages/harborrag-memory ./packages/harborrag-memory
 COPY packages/harborrag-engine ./packages/harborrag-engine
 COPY packages/harborrag-runtime ./packages/harborrag-runtime
 COPY packages/harborrag-app ./packages/harborrag-app

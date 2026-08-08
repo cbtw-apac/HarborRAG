@@ -23,7 +23,7 @@ from harborrag_core.ingestion import (
 
 from .config import ConfluenceSpaceConfig
 from .content import ConfluenceContentAPI
-from .mappers import build_source_record, content_id_from_record
+from .mappers import build_source_record, content_id_from_record, validate_content
 
 DISCOVERY_DESCRIPTOR_KEY = "_confluence_discovery_descriptor"
 
@@ -55,6 +55,7 @@ class ConfluenceDescriptorBuilder:
             if isinstance(cached, dict)
             else self._content.get_content_descriptor(content_id)
         )
+        validate_content(content, content_id, space_key=self._config.space_key)
         discovered = build_source_record(
             content,
             base_url=self._base_url,

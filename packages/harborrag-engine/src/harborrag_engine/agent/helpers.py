@@ -17,6 +17,10 @@ def validate_options(options: AgentRunOptions) -> None:
         raise ValueError("agent timeout_seconds must be positive")
     if options.max_repeated_tool_calls < 1:
         raise ValueError("agent max_repeated_tool_calls must be at least 1")
+    if options.synthesis_timeout_seconds is not None and options.synthesis_timeout_seconds <= 0:
+        raise ValueError("agent synthesis_timeout_seconds must be positive")
+    if options.max_total_tokens is not None and options.max_total_tokens < 1:
+        raise ValueError("agent max_total_tokens must be at least 1")
 
 
 def add_usage(left: HarborChatUsage, right: HarborChatUsage) -> HarborChatUsage:

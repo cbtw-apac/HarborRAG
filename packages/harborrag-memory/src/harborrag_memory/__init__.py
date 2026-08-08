@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from harborrag_core.ports.conversation import ConversationRepository, ConversationSessions, new_session_id
+from harborrag_core.ports.conversation import (
+	ConversationIdentity,
+	ConversationMemory,
+	ConversationRepository,
+	ConversationSessions,
+	ConversationTurn,
+	new_session_id,
+)
 
 from .config import MemoryManagerConfig
-from .long_term.memory import LongTermMemory
 from .manager import MemoryManager, MemorySnapshot
 from .schemas import (
 	Memory,
@@ -18,13 +24,7 @@ from .schemas import (
 	scope_owner_fields,
 	visible_to,
 )
-from .short_term.memory import (
-	ConversationIdentity,
-	ConversationMemory,
-	ConversationTurn,
-	ShortTermMemory,
-)
-from .working.memory import InMemoryWorkingMemoryStore, WorkingMemory, WorkingMemoryStore
+from .tiers import InMemoryWorkingMemoryStore, LongTermMemory, ShortTermMemory, WorkingMemory, WorkingMemoryStore
 
 __all__ = [
 	"ConversationIdentity",

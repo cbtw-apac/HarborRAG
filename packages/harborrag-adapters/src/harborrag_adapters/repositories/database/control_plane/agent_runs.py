@@ -142,6 +142,9 @@ class SqlAgentRunRepository:
                     sa.update(AgentRunRow)
                     .where(
                         AgentRunRow.run_id == checkpoint.identity.run_id,
+                        AgentRunRow.tenant_id == checkpoint.identity.tenant_id,
+                        AgentRunRow.principal_id == checkpoint.identity.principal_id,
+                        AgentRunRow.session_id == checkpoint.identity.session_id,
                         AgentRunRow.version == checkpoint.version - 1,
                     )
                     .values(**_row_values(checkpoint))

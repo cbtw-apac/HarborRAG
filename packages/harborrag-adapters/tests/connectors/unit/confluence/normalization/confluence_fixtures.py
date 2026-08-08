@@ -51,6 +51,14 @@ def table(
     }
 
 
+def tabs_page(title: str, content: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"type": "tabsPage", "attrs": {"title": title}, "content": content}
+
+
+def tabs_container(*pages: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "tabsContainer", "attrs": {}, "content": list(pages)}
+
+
 def page_input(
     content: list[dict[str, Any]] | None = None,
     **changes: object,

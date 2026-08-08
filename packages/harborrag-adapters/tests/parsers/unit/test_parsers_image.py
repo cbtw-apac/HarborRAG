@@ -72,3 +72,23 @@ def test_image_parser_raises_typed_error_instead_of_crashing_on_decompression_bo
 
     with pytest.raises(ParseError, match="Image OCR failed"):
         ImageParser().parse(ParseInput(content=_png_bytes(), filename="huge.png"))
+
+
+def test_image_parser_rejects_image_over_configured_max_pixels_with_clear_error() -> None:
+    """A real, well-formed image whose pixel count exceeds the configured
+    `max_pixels` (but stays under Pillow's own default decompression-bomb
+    threshold, so `Image.open()` decodes the header fine) must be rejected
+    with a message naming the offending dimensions and the limit -- not
+    left to fail later as a bare `UnidentifiedImageError`."""
+    width, height = 1000, 1001
+    buffer = io.BytesIO()
+    Image.new("L", (width, height), color=128).save(buffer, format="PNG")
+    parser = ImageParser(max_pixels=1_000_000)
+
+    with pytest.raises(
+        ParseError,
+        match=r"Image 1000x1001 \(1001000 pixels\) exceeds max_pixels 1000000",
+    ):
+        parser.parse(
+            ParseInput(content=buffer.getvalue(), filename="dashboard_export_over_limit.png")
+        )

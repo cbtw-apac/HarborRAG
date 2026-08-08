@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from confluence_fixtures import heading, page_input, paragraph, walk
+from confluence_fixtures import heading, page_input, paragraph, tabs_container, tabs_page, walk
 
 from harborrag_adapters.connectors.confluence.normalization import (
     ConfluencePageNormalizer,
@@ -11,6 +11,36 @@ from harborrag_adapters.connectors.confluence.normalization import (
 from harborrag_core.domain import DocumentBlockKind
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
+
+
+def test_adf_native_tabs_keep_each_tabs_content_independently_grouped_and_titled():
+    """ADF's native tabsContainer/tabsPage (the modern Confluence Cloud
+    editor's Tabs feature) used to have no _KIND_MAP entry, so both tabs'
+    content fell through to generic "unsupported" handling: tab_path stayed
+    empty for every paragraph and the tab titles were dropped entirely,
+    leaving two tabs' content flattened together indistinguishably."""
+    page = page_input(
+        [
+            heading(1, "Overview"),
+            tabs_container(
+                tabs_page("Setup", [paragraph("Setup instructions here.")]),
+                tabs_page("Troubleshooting", [paragraph("Troubleshooting steps here.")]),
+            ),
+        ]
+    )
+
+    document = ConfluencePageNormalizer().normalize(page)
+    blocks = tuple(walk(document.blocks[0]))
+
+    tab_blocks = [block for block in blocks if block.kind == DocumentBlockKind.TAB]
+    assert [block.title for block in tab_blocks] == ["Setup", "Troubleshooting"]
+
+    paragraphs = [block for block in blocks if block.kind == DocumentBlockKind.PARAGRAPH]
+    assert [(block.text, block.tab_path) for block in paragraphs] == [
+        ("Setup instructions here.", ("Setup",)),
+        ("Troubleshooting steps here.", ("Troubleshooting",)),
+    ]
+    assert any(block.kind == DocumentBlockKind.TAB_SET for block in blocks)
 
 
 def test_heading_hierarchy_uses_nearest_shallower_heading_without_phantom_sections():

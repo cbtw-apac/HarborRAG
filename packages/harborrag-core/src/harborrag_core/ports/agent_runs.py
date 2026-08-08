@@ -32,6 +32,7 @@ class AgentStopReason(StrEnum):
     MAX_STEPS = "max_steps"
     TIMEOUT = "timeout"
     REPEATED_TOOL_CALL = "repeated_tool_call"
+    TOKEN_BUDGET_EXCEEDED = "token_budget_exceeded"
 
 
 @dataclass(frozen=True, slots=True)

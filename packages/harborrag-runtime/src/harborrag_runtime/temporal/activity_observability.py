@@ -45,6 +45,10 @@ _ACTIVITY_STAGES = {
     "PublishVersion": IngestionStage.PUBLICATION,
     "RecordDocumentFailure": IngestionStage.FAILURE_CAPTURE,
     "FinalizeSourceIngestion": IngestionStage.FINALIZATION,
+    "PrepareRetryFailures": IngestionStage.DISCOVERY,
+    "RetryDocumentRelease": IngestionStage.FETCH,
+    "RecordRetryDocumentFailure": IngestionStage.FAILURE_CAPTURE,
+    "FinalizeRetryFailures": IngestionStage.FINALIZATION,
 }
 
 
@@ -64,7 +68,13 @@ class ActivityObservability:
     def boundary(self, stage: str) -> Iterator[None]:
         """Emit telemetry and convert domain failures into Temporal retry intent."""
 
-        metric_stage = _ACTIVITY_STAGES[stage]
+        try:
+            metric_stage = _ACTIVITY_STAGES[stage]
+        except KeyError:
+            raise HarborInvariantError(
+                f"activity stage {stage!r} has no entry in _ACTIVITY_STAGES; "
+                "add it before wiring this boundary() call"
+            ) from None
         context = _activity_log_context()
         started_at = perf_counter()
         logger.debug(

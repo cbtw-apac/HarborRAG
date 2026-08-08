@@ -6,7 +6,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
@@ -68,6 +68,7 @@ async def create_chat_completion(
     request: Annotated[ChatCompletionRequest, Query()],
     service: ChatServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
+    response: Response,
 ) -> ChatCompletionResponse | StreamingResponse:
     authorize_tenant(principal, request.tenant)
     if request.stream:
@@ -78,15 +79,21 @@ async def create_chat_completion(
         ):
             raise HarborNotFoundError("Conversation session was not found")
         return _stream_response(request, service, principal)
-    response = await service.chat_completion(
+    # The prompt (up to 65KB) rides in the query string -- GET is the wrong
+    # transport for content this sensitive, but until that's migrated to a
+    # POST body, at minimum this response must never be cached: caching a
+    # non-idempotent GET whose body embeds the prompt/answer would persist
+    # sensitive content in an intermediary beyond this request's lifetime.
+    response.headers["Cache-Control"] = "no-store"
+    result = await service.chat_completion(
         request.prompt,
         tenant_id=request.tenant,
         principal_id=principal.subject,
         options=_options(request, principal),
     )
-    if not response.ok:
+    if not result.ok:
         raise HarborConnectionError(_UNAVAILABLE_MESSAGE)
-    return ChatCompletionResponse.model_validate(response.data)
+    return ChatCompletionResponse.model_validate(result.data)
 
 
 def _stream_response(
