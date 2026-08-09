@@ -13,7 +13,7 @@ from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.security.redaction import redact_secrets
+from harborrag_core.security.redaction import redact_mapping, redact_secrets
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
 
@@ -145,7 +145,6 @@ def test_security_helpers():
     assert "AIza" + "a" * 25 not in redacted
     assert "xoxb-1234567890" not in redacted
 
-
 def test_redact_secrets_masks_multi_word_unquoted_values():
     redacted = redact_secrets("password: My Secret Passphrase 123")
     assert "My" not in redacted
@@ -216,3 +215,27 @@ def test_redact_secrets_masks_newer_token_formats():
     # name and must not bypass the check on that technicality.
     with pytest.raises(URLPolicyError):
         URLPolicy().validate("https://localhost./admin")
+
+
+def test_redact_mapping_masks_nested_and_cloud_credentials() -> None:
+    redacted_config = redact_mapping(
+        {"headers": [{"Authorization": "Bearer bearer-secret-123", "Accept": "json"}]}
+    )
+    assert redacted_config["headers"][0]["Authorization"] == "<redacted>"
+    assert redacted_config["headers"][0]["Accept"] == "json"
+
+    redacted_config = redact_mapping(
+        {
+            "aws_access_key_id": "AKIAABCDEFGHIJKLMNOP",
+            "access_key": "abc123",
+            "private_key": "-----BEGIN PRIVATE KEY-----",
+        }
+    )
+    assert redacted_config["aws_access_key_id"] == "<redacted>"
+    assert redacted_config["access_key"] == "<redacted>"
+    assert redacted_config["private_key"] == "<redacted>"
+
+    redacted_config = redact_mapping({"notes": "Authorization: Bearer bearer-secret-123"})
+    assert "bearer-secret-123" not in redacted_config["notes"]
+    assert redact_mapping({"access_token": "x"})["access_token"] == "<redacted>"
+    assert redact_mapping({"max_tokens": 4096})["max_tokens"] == 4096

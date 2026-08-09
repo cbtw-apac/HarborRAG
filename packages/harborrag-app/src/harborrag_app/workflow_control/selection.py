@@ -16,16 +16,16 @@ def select_app_service() -> tuple[BaseAppService, str]:
 
 
 def development_app_service() -> BaseAppService:
-    """Build a real AppService against the migrated local control-plane database."""
+    """Build a real AppService without provisioning a control-plane database.
 
-    from harborrag_app.workflow_control.client import AppService
-    from harborrag_runtime.composition import CompositionRoot
-    from harborrag_runtime.config.settings import RuntimeSettings
+    Control-plane reads (projects/sources/activity/settings/metrics) are
+    backed by in-memory fakes rather than left unconfigured, so the read
+    routes return real (if empty) data in dev mode instead of a 503.
+    """
 
-    settings = RuntimeSettings()
-    composition = CompositionRoot.production(settings)
-    composition.mode = "development"
-    return AppService(composition, settings)
+    from harborrag_app.workflow_control.mock import mock_app_service
+
+    return mock_app_service()
 
 
 def runtime_app_service() -> BaseAppService:

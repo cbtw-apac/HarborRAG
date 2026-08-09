@@ -42,6 +42,10 @@ class HarborNotFoundError(HarborError):
     """Request resource does not exist."""
 
 
+class HarborUnavailableError(HarborError):
+    """A required backing service is not configured or reachable."""
+
+
 class HarborValidationError(HarborError):
     """Request payload failed domain validation."""
 

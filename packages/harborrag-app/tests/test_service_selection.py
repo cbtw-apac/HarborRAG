@@ -18,7 +18,7 @@ def test_dev_without_control_db_selects_development_service(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Bare development uses the real app service with a migrated local database."""
+    """Bare development uses the explicit in-memory control-plane composition."""
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
     monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
     monkeypatch.chdir(tmp_path)
@@ -27,7 +27,7 @@ def test_dev_without_control_db_selects_development_service(
     assert mode == "development"
     diagnostics = service.health().data["diagnostics"]
     assert diagnostics["mode"] == "development"
-    assert diagnostics["runtime"]["control_db"]["migrations"] == "0013"
+    assert diagnostics["runtime"]["control_db"]["scheme"] == "development"
 
 
 @pytest.mark.blackbox

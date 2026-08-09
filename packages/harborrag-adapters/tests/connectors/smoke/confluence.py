@@ -9,6 +9,7 @@ from bootstrap import (
     attachments_passed,
     build_connector,
     build_harbor_parser,
+    connector_catalog,
     load_env,
     output_path_for,
     print_document,
@@ -112,6 +113,60 @@ def _render_confluence_output(
     return "\n".join(lines)
 
 
+def _run_attachment_pass(records: list, *, output: str | None, output_dir: Path | None) -> int:
+    """Reload every record with attachment processing enabled and report status."""
+    harbor_parser = build_harbor_parser()
+    connector_with_attachments = build_connector(
+        "confluence", include_attachments=True, parser=harbor_parser
+    )
+
+    overall_ok = True
+    for record in records:
+        try:
+            document_with_attachments = connector_with_attachments.load(record)
+        except Exception as exc:  # noqa: BLE001
+            print_failure("confluence", exc)
+            overall_ok = False
+            continue
+        print_document("confluence", document_with_attachments)
+        if not attachments_passed("confluence", document_with_attachments):
+            overall_ok = False
+
+        if output:
+            _save_attachment_output(
+                connector_with_attachments,
+                record,
+                document_with_attachments,
+                output=output,
+                output_dir=output_dir,
+            )
+
+    return 0 if overall_ok else 1
+
+
+def _save_attachment_output(
+    connector_with_attachments,
+    record,
+    document_with_attachments,
+    *,
+    output: str,
+    output_dir: Path | None,
+) -> None:
+    """Save one loaded-with-attachments record to disk in the requested format."""
+    asset_paths = None
+    if output == "md":
+        attachments = (document_with_attachments.metadata or {}).get("attachments") or []
+        output_path = output_path_for("confluence", record.id, output, output_dir)
+        asset_paths = _save_image_attachments(connector_with_attachments, output_path, attachments)
+    text = _render_confluence_output(
+        record,
+        document_with_attachments,
+        markdown=(output == "md"),
+        asset_paths=asset_paths,
+    )
+    save_output("confluence", record.id, text, output=output, output_dir=output_dir)
+
+
 def run_confluence(
     *, limit: int = 3, output: str | None = None, output_dir: Path | None = None
 ) -> int:
@@ -138,41 +193,15 @@ def run_confluence(
         return 1
     print_document("confluence", document)
 
+    if not connector_catalog().get("confluence").settings.get("include_attachments", False):
+        print(
+            "\n[confluence] include_attachments is false in config/connectors.yaml; "
+            "skipping the attachment pass"
+        )
+        return 0
+
     print(f"\n[confluence] === load with attachments ({len(records)} record(s)) ===")
-    harbor_parser = build_harbor_parser()
-    connector_with_attachments = build_connector(
-        "confluence", include_attachments=True, parser=harbor_parser
-    )
-
-    overall_ok = True
-    for record in records:
-        try:
-            document_with_attachments = connector_with_attachments.load(record)
-        except Exception as exc:  # noqa: BLE001
-            print_failure("confluence", exc)
-            overall_ok = False
-            continue
-        print_document("confluence", document_with_attachments)
-        if not attachments_passed("confluence", document_with_attachments):
-            overall_ok = False
-
-        if output:
-            asset_paths = None
-            if output == "md":
-                attachments = (document_with_attachments.metadata or {}).get("attachments") or []
-                output_path = output_path_for("confluence", record.id, output, output_dir)
-                asset_paths = _save_image_attachments(
-                    connector_with_attachments, output_path, attachments
-                )
-            text = _render_confluence_output(
-                record,
-                document_with_attachments,
-                markdown=(output == "md"),
-                asset_paths=asset_paths,
-            )
-            save_output("confluence", record.id, text, output=output, output_dir=output_dir)
-
-    return 0 if overall_ok else 1
+    return _run_attachment_pass(records, output=output, output_dir=output_dir)
 
 
 def main() -> int:

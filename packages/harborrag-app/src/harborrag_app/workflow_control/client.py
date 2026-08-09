@@ -8,13 +8,14 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.retrieval import (
     GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
 )
-from harborrag_runtime.composition import CompositionRoot
+from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.projection_admin import ProjectionAdministrationService
@@ -37,6 +38,7 @@ from .ingestion_models import IngestionCreateCommand
 from .ingestion_service import IngestionApplicationService, PublicTaskStore
 from .memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
 from .ports import BaseAppService
+from .reads import ControlPlaneReadsMixin
 from .retrieval_query import retrieve
 from .schemas import AppResponse
 from .temporal_ingestion import TemporalIngestionOperations
@@ -81,7 +83,7 @@ class AppServiceFactories:
     projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
 
 
-class AppService(AgentClientMixin, ChatClientMixin, BaseAppService):
+class AppService(ControlPlaneReadsMixin, AgentClientMixin, ChatClientMixin, BaseAppService):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
 
     def __init__(
@@ -126,6 +128,12 @@ class AppService(AgentClientMixin, ChatClientMixin, BaseAppService):
             task_registry=self._resources.task_registry,
             source_input_builder=self._source_input_builder,
         )
+
+    def _control_plane(self) -> ControlPlaneRepositories:
+        control_plane = self._composition.control_plane
+        if control_plane is None:
+            raise HarborUnavailableError("control-plane database is not configured")
+        return control_plane
 
     def health(self) -> AppResponse:
         diagnostics = self._composition.diagnostics()

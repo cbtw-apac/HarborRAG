@@ -18,6 +18,7 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 )
 from harborrag_adapters.repositories.database.control_plane.jobs import (
     SqlActivityRepository,
+    SqlJobRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import (
     _build_config,
@@ -38,7 +39,9 @@ from harborrag_adapters.repositories.database.ingestion_control.schema import (
     METADATA as INGESTION_METADATA,
 )
 from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
@@ -267,6 +270,53 @@ async def test_source_repository_roundtrip_and_project_filter(
         await repo.update(source)
     await repo.delete("s2")
     assert await repo.get("s2") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_job_repository_roundtrip_and_event_log(
+    sessions: SessionFactory,
+) -> None:
+    """Job save/get/list filters + ordered per-job event sequence numbers."""
+    repo = SqlJobRepository(sessions)
+    job = Job(
+        id="j1",
+        tenant_id="tenant-a",
+        source_id="s1",
+        project_id="p1",
+        job_type="bulk_ingest",
+    )
+    await repo.save(job)
+    assert await repo.get("j1") == job
+    job.status = "running"
+    job.attempts = 1
+    await repo.save(job)
+    assert [j.id for j in await repo.list(status="running")] == ["j1"]
+    assert await repo.list(status="failed") == []
+    assert [j.id for j in await repo.list(source_id="s1")] == ["j1"]
+
+    await repo.save(
+        Job(
+            id="j2",
+            tenant_id="tenant-a",
+            source_id="s1",
+            project_id="p1",
+            job_type="bulk_ingest",
+        )
+    )
+    assert await repo.count_by_status() == {"running": 1, "queued": 1}
+
+    await repo.append_event(
+        "j1", HarborEvent(name="job_status", trace_id="t1", payload={"s": "running"})
+    )
+    await repo.append_event("j1", HarborEvent(name="job_status", trace_id="t2"))
+    async with sessions() as session:
+        seqs = list(
+            await session.scalars(
+                sa.text("SELECT seq FROM job_events WHERE job_id='j1' ORDER BY seq")
+            )
+        )
+    assert seqs == [1, 2]
 
 
 @pytest.mark.asyncio

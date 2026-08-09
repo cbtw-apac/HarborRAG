@@ -30,6 +30,7 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
     HarborRateLimitError,
     HarborSecurityError,
+    HarborUnavailableError,
     HarborValidationError,
 )
 
@@ -47,6 +48,7 @@ _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborConfigurationError: 500,
     HarborConnectionError: 503,
     HarborRateLimitError: 429,
+    HarborUnavailableError: 503,
 }
 
 

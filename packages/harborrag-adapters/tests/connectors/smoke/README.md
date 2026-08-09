@@ -135,12 +135,15 @@ discovered and processed — each gets its own output file (default: 3).
 | --- | ---: | --- |
 | Local | 5 (3 via `run.py` default) | At least one record and a successful real parse of the first file |
 | GitHub | 3 | At least one repository file and a successful blob load |
-| Confluence | 3 | First page loads both without and with attachment processing |
-| JIRA | 3 | First issue loads both without and with attachment processing |
+| Confluence | 3 | First page loads without attachments; also loads with attachments if `include_attachments: true` in config |
+| JIRA | 3 | First issue loads without attachments; also loads with attachments if `include_attachments: true` in config |
 | SharePoint | 3 | At least one drive item and a successful first-file download |
 
-Confluence and JIRA fail if an attempted attachment ends in `failed` or
-`unsupported`. A source with no attachments can still pass.
+The attachment pass only runs when the connector's `include_attachments`
+setting in `config/connectors.yaml` is `true`; when it's `false`, the check
+prints a skip message and passes without touching attachments. When the pass
+does run, Confluence and JIRA fail if an attempted attachment ends in
+`failed` or `unsupported`. A source with no attachments can still pass.
 
 Local fails only on a genuine parse error, or on a parser returning empty
 content for a file that itself has non-blank bytes. A source file that is

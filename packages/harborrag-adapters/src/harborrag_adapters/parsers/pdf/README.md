@@ -31,8 +31,7 @@ class ExamplePDFEngine(HarborPDFEngine):
     def name(self) -> str:
         return "example"
 
-    def parse_input(self, input: ParseInput) -> PDFParseResult:
-        ...
+    def parse_input(self, input: ParseInput) -> PDFParseResult: ...
 ```
 
 Capability properties such as `supports_ocr`, `supports_tables`, and

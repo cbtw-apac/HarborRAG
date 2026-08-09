@@ -15,6 +15,7 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
     HarborRateLimitError,
     HarborSecurityError,
+    HarborUnavailableError,
     HarborValidationError,
 )
 
@@ -29,6 +30,7 @@ CASES = [
     (HarborDeadlineExceeded("slow"), 504, "harbor_deadline_exceeded"),
     (HarborConfigurationError("broken"), 500, "harbor_configuration_error"),
     (HarborRateLimitError("slow down"), 429, "harbor_rate_limit_error"),
+    (HarborUnavailableError("down"), 503, "harbor_unavailable_error"),
 ]
 
 

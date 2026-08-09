@@ -17,6 +17,7 @@ from app_test_graph_records import (
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.errors import IngestionAlreadyCompletedError
 from harborrag_app.workflow_control.ingestion_models import IngestionCreateCommand
+from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import new_session_id
 from harborrag_runtime.sdk import RetrievalLane
@@ -347,3 +348,39 @@ class MockAppService(AgentServiceFixture, ChatServiceFixture, BaseAppService):
             "before": await self.projection_inventory(tenant),
             "reindex_required": True,
         }
+
+    async def list_projects(self) -> AppResponse:
+        return AppResponse(True, {"projects": []})
+
+    async def get_project(self, project_id: str) -> AppResponse:
+        return AppResponse(True, {"project": None})
+
+    async def list_sources(self, project_id: str | None = None) -> AppResponse:
+        return AppResponse(True, {"sources": []})
+
+    async def get_source(self, source_id: str) -> AppResponse:
+        return AppResponse(True, {"source": None})
+
+    async def list_activity(self, limit: int = 50) -> AppResponse:
+        return AppResponse(True, {"activity": []})
+
+    async def get_settings(self) -> AppResponse:
+        return AppResponse(True, {"settings": WorkspaceSettings(tenant_id="DEFAULT")})
+
+    async def get_metrics(self) -> AppResponse:
+        return AppResponse(
+            True,
+            {
+                "projects_total": 0,
+                "sources_total": 0,
+                "documents_total": 0,
+                "chunks_total": 0,
+                "jobs_by_status": {
+                    "queued": 0,
+                    "running": 0,
+                    "succeeded": 0,
+                    "failed": 0,
+                    "cancelled": 0,
+                },
+            },
+        )

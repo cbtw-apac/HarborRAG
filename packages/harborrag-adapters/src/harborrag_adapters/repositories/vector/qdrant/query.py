@@ -37,10 +37,13 @@ from harborrag_core.indexing import (
 )
 from harborrag_core.storage import StorageFamily, StorageOperationContext
 
+qm: Any
 try:
-    from qdrant_client import models as qm
+    from qdrant_client import models as _qm
 except ImportError:  # pragma: no cover - optional dependency
-    qm = None  # type: ignore[assignment]
+    qm = None
+else:
+    qm = _qm
 
 
 class QdrantQueryExecutor:
