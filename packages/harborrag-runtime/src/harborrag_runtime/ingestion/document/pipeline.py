@@ -8,6 +8,7 @@ from time import perf_counter
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
+from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
 
 from .dependencies import DocumentReleaseDependencies
 from .models import DocumentReleaseOutcome, DocumentReleaseRequest
@@ -112,26 +113,21 @@ class DocumentStagePipeline:
             outcome = await self.projections.publish_version(prepared)
             self._log_outcome(outcome)
             return outcome
-        stages: tuple[
-            tuple[
-                str,
-                Callable[
-                    [DocumentReleaseRequest, PreparedDocumentStage],
-                    Awaitable[object],
-                ],
-            ],
-            ...,
-        ] = (
-            ("SyncContentUnits", self.preparation.sync_content_units),
-            ("PersistCanonical", self.preparation.persist_canonical),
-            ("ChunkAndValidate", self.preparation.chunk_and_validate),
-            ("EncodeChunks", self.preparation.encode_chunks),
-            ("BuildRelations", self.projections.build_relations),
-            ("BuildProjections", self.projections.build_projections),
-            ("WriteVectorProjection", self.projections.write_vector_projection),
-            ("WriteGraphProjection", self.projections.write_graph_projection),
-            ("VerifyProjections", self.projections.verify_projections),
-        )
+        stage_functions: dict[
+            str,
+            Callable[[DocumentReleaseRequest, PreparedDocumentStage], Awaitable[object]],
+        ] = {
+            "SyncContentUnits": self.preparation.sync_content_units,
+            "PersistCanonical": self.preparation.persist_canonical,
+            "ChunkAndValidate": self.preparation.chunk_and_validate,
+            "EncodeChunks": self.preparation.encode_chunks,
+            "BuildRelations": self.projections.build_relations,
+            "BuildProjections": self.projections.build_projections,
+            "WriteVectorProjection": self.projections.write_vector_projection,
+            "WriteGraphProjection": self.projections.write_graph_projection,
+            "VerifyProjections": self.projections.verify_projections,
+        }
+        stages = tuple((spec.name, stage_functions[spec.name]) for spec in DOCUMENT_STAGE_CATALOG)
         for stage_name, stage in stages:
             started_at = perf_counter()
             logger.debug(

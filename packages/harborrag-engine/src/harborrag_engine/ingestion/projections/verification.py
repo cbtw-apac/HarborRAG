@@ -106,9 +106,7 @@ class ProjectionVerifier:
             for node in request.graph.nodes
             if node.node_kind == KnowledgeNodeKind.CHUNK
         }
-        vector_chunk_ids = {
-            record.payload.chunk_id for record in request.vectors.evidence_records
-        }
+        vector_chunk_ids = {record.payload.chunk_id for record in request.vectors.evidence_records}
         if graph_chunk_ids != vector_chunk_ids:
             errors.append("graph chunk nodes do not match vector evidence chunks")
         errors.extend(self._table_reference_errors(request.chunks, request.graph))
@@ -192,15 +190,12 @@ class ProjectionVerifier:
         ):
             errors.append("graph node document-version ID mismatch")
         for relation in graph.relations:
-            if (
-                relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
-                and str(relation.document_version_id) != str(manifest.document_version_id)
-            ):
+            if relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION and str(
+                relation.document_version_id
+            ) != str(manifest.document_version_id):
                 errors.append("graph relation document-version ID mismatch")
         graph_chunk_ids = {
-            node.logical_id
-            for node in graph.nodes
-            if node.node_kind == KnowledgeNodeKind.CHUNK
+            node.logical_id for node in graph.nodes if node.node_kind == KnowledgeNodeKind.CHUNK
         }
         if not graph_chunk_ids <= chunk_ids:
             errors.append("graph contains an unknown chunk node")

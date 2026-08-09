@@ -89,7 +89,9 @@ class McpConfigurationStore:
         with self._lock:
             if self._effective is None:
                 self._effective = _apply_environment(self._configuration, self._environment)
-            return self._effective
+            # Pydantic's frozen models prevent field assignment, but do not freeze nested
+            # dictionaries and lists. Never expose the cached authoritative object.
+            return self._effective.model_copy(deep=True)
 
     def describe(self) -> dict[str, object]:
         with self._lock:
@@ -133,8 +135,10 @@ class McpConfigurationStore:
             return self.describe()
 
     def reload(self, *, principal_id: str) -> dict[str, object]:
-        loaded = self._validate_and_copy(_read_configuration(self.path))
         with self._lock:
+            # Read under the same lock as replace(). Reading first lets a stale reload
+            # overwrite a concurrently persisted replacement in process memory.
+            loaded = self._validate_and_copy(_read_configuration(self.path))
             previous_revision = _revision(self._configuration)
             self._configuration = loaded
             self._effective = None

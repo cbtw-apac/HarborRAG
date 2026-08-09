@@ -31,6 +31,15 @@ _PROVIDER_CREDENTIAL_FIELDS = frozenset(
         "vertex_project",
     }
 )
+_AUTH_HEADER_NAMES = frozenset(
+    {
+        "api-key",
+        "authorization",
+        "proxy-authorization",
+        "x-api-key",
+        "x-litellm-api-key",
+    }
+)
 
 
 class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
@@ -75,6 +84,11 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
         params["api_base"] = self._proxy.api_base
         proxy_key = reveal_secret(self._proxy.api_key)
         configured_headers = reveal_headers(self._proxy.headers)
+        request_headers = params.pop("extra_headers", None)
+        if isinstance(request_headers, dict):
+            self._reject_request_auth_headers(request_headers)
+            configured_headers.update(request_headers)
+        self._propagate_metadata_headers(params, configured_headers)
         if self._proxy.auth_mode is ProxyAuthMode.BEARER:
             params["api_key"] = proxy_key
         else:
@@ -86,14 +100,28 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
             )
             if header is None:
                 raise ValueError("proxy custom authentication header is not configured")
+            self._remove_auth_headers(configured_headers, selected=header)
             configured_headers[header] = proxy_key or ""
-        self._propagate_metadata_headers(params, configured_headers)
-        request_headers = params.get("extra_headers")
-        if isinstance(request_headers, dict):
-            configured_headers.update(request_headers)
         if configured_headers:
             params["extra_headers"] = configured_headers
         return params
+
+    def _reject_request_auth_headers(self, headers: dict[str, Any]) -> None:
+        """Keep caller-controlled headers from replacing proxy authentication."""
+
+        configured_name = (self._proxy.auth_header_name or "").lower()
+        denied = _AUTH_HEADER_NAMES | ({configured_name} if configured_name else set())
+        if any(name.lower() in denied for name in headers):
+            raise ValueError("request headers cannot override LiteLLM Proxy authentication")
+
+    @staticmethod
+    def _remove_auth_headers(headers: dict[str, str], *, selected: str) -> None:
+        """Remove ambiguous configured credentials before installing the selected one."""
+
+        denied = _AUTH_HEADER_NAMES | {selected.lower()}
+        for name in tuple(headers):
+            if name.lower() in denied:
+                del headers[name]
 
     def _propagate_metadata_headers(self, params: dict[str, Any], headers: dict[str, str]) -> None:
         """Copy selected already-sanitized metadata into explicit Proxy headers."""

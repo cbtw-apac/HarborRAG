@@ -235,18 +235,22 @@ def test_epub_parser_excludes_nav_document_from_spine_content():
         for info in source.infolist():
             payload = source.read(info.filename)
             if info.filename == "OEBPS/content.opf":
-                payload = payload.replace(
-                    b"<metadata/>",
-                    b'<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
-                    b"Harbor Book</dc:title></metadata>",
-                ).replace(
-                    b'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>',
-                    b'<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" '
-                    b'properties="nav"/>'
-                    b'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>',
-                ).replace(
-                    b'<spine><itemref idref="c1"/></spine>',
-                    b'<spine><itemref idref="nav"/><itemref idref="c1"/></spine>',
+                payload = (
+                    payload.replace(
+                        b"<metadata/>",
+                        b'<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                        b"Harbor Book</dc:title></metadata>",
+                    )
+                    .replace(
+                        b'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>',
+                        b'<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" '
+                        b'properties="nav"/>'
+                        b'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>',
+                    )
+                    .replace(
+                        b'<spine><itemref idref="c1"/></spine>',
+                        b'<spine><itemref idref="nav"/><itemref idref="c1"/></spine>',
+                    )
                 )
             elif info.filename == "OEBPS/ch1.xhtml":
                 payload = (
@@ -256,8 +260,8 @@ def test_epub_parser_excludes_nav_document_from_spine_content():
             sink.writestr(info, payload)
         sink.writestr(
             "OEBPS/nav.xhtml",
-            '<html><head><title>Harbor Book</title></head>'
-            '<body><nav><h2>Harbor Book</h2>'
+            "<html><head><title>Harbor Book</title></head>"
+            "<body><nav><h2>Harbor Book</h2>"
             '<ol><li><a href="ch1.xhtml">Chapter One</a></li></ol></nav></body></html>',
         )
 

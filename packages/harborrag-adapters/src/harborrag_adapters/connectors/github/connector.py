@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from typing import Any
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
@@ -82,16 +83,9 @@ class GitHubConnector(BaseConnector):
             ref,
         )
 
-        yielded = 0
         paths = file_paths_from_query(query)
         if paths:
-            for path in paths:
-                item = self._github.content_file_item(path, ref=ref)
-                if self._github.should_process_file(item, query, commit=commit):
-                    yield self._github.source_record(item, ref=ref, commit=commit)
-                    yielded += 1
-                    if query.limit is not None and yielded >= query.limit:
-                        return
+            yield from self._discover_paths(paths, query, ref=ref, commit=commit)
             return
 
         commit_updated_at = commit_timestamp(commit)
@@ -99,10 +93,42 @@ class GitHubConnector(BaseConnector):
             if commit_updated_at <= query.updated_after:
                 return
 
+        yield from self._discover_tree(query, ref=ref, commit=commit)
+
+    def _discover_paths(
+        self,
+        paths: list[str],
+        query: ConnectorQuery,
+        *,
+        ref: str,
+        commit: dict[str, Any],
+    ) -> Iterator[SourceRecord]:
+        """Resolve an explicit path list without mixing it into tree traversal."""
+
+        yielded = 0
+        for path in paths:
+            item = self._github.content_file_item(path, ref=ref)
+            if not self._github.should_process_file(item, query, commit=commit):
+                continue
+            yield self._github.source_record(item, ref=ref, commit=commit)
+            yielded += 1
+            if query.limit is not None and yielded >= query.limit:
+                return
+
+    def _discover_tree(
+        self,
+        query: ConnectorQuery,
+        *,
+        ref: str,
+        commit: dict[str, Any],
+    ) -> Iterator[SourceRecord]:
+        """Walk one resolved Git tree and emit records that pass query policy."""
+
         root_path = normalize_repo_path(query.path or self.config.root_path)
         tree_sha = tree_sha_from_commit(commit)
-        tree_recursive = query.recursive or bool(root_path)
-        for item in self._github.iter_tree(tree_sha, recursive=tree_recursive):
+        recursive = query.recursive or bool(root_path)
+        yielded = 0
+        for item in self._github.iter_tree(tree_sha, recursive=recursive):
             if not is_blob(item):
                 continue
             if not path_in_scope(str(item.get("path") or ""), root_path, recursive=True):

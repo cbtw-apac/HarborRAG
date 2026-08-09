@@ -10,7 +10,7 @@ at 0007 still need the forward migration.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import sqlalchemy as sa
@@ -29,11 +29,11 @@ def _inspector() -> sa.Inspector:
     return sa.inspect(op.get_bind())
 
 
-def _columns(table_name: str) -> dict[str, dict[str, Any]]:
+def _columns(table_name: str) -> dict[str, Mapping[str, Any]]:
     return {column["name"]: column for column in _inspector().get_columns(table_name)}
 
 
-def _named_columns(items: Sequence[dict[str, Any]], name: str) -> tuple[str, ...] | None:
+def _named_columns(items: Sequence[Mapping[str, Any]], name: str) -> tuple[str, ...] | None:
     for item in items:
         if item.get("name") == name:
             return tuple(item.get("column_names") or ())

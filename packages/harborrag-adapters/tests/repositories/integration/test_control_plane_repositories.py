@@ -18,7 +18,6 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 )
 from harborrag_adapters.repositories.database.control_plane.jobs import (
     SqlActivityRepository,
-    SqlJobRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import (
     _build_config,
@@ -38,9 +37,8 @@ from harborrag_adapters.repositories.database.control_plane.workspace import (
 from harborrag_adapters.repositories.database.ingestion_control.schema import (
     METADATA as INGESTION_METADATA,
 )
-from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.activity import ActivityEntry
-from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
@@ -172,9 +170,7 @@ def test_legacy_0007_database_upgrades_to_authoritative_tenancy(
     try:
         inspector = sa.inspect(sync_engine)
         for table_name in ("source_scopes", "documents", "ingestion_tasks"):
-            assert "tenant_id" in {
-                column["name"] for column in inspector.get_columns(table_name)
-            }
+            assert "tenant_id" in {column["name"] for column in inspector.get_columns(table_name)}
     finally:
         sync_engine.dispose()
 
@@ -213,7 +209,7 @@ def test_consolidated_baseline_downgrades_cleanly(tmp_path: Path) -> None:
 async def test_project_repository_roundtrip(sessions: SessionFactory) -> None:
     """Project create/get/list/update/delete against real SQL."""
     repo = SqlProjectRepository(sessions)
-    project = Project(id="p1", name="Docs", collection="docs_main")
+    project = Project(id="p1", tenant_id="tenant-a", name="Docs", collection="docs_main")
     await repo.create(project)
     fetched = await repo.get("p1")
     assert fetched == project
@@ -223,6 +219,9 @@ async def test_project_repository_roundtrip(sessions: SessionFactory) -> None:
     assert updated is not None and updated.name == "Docs v2"
     assert updated.updated_at >= project.created_at
     assert [p.id for p in await repo.list()] == ["p1"]
+    project.tenant_id = "tenant-b"
+    with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
+        await repo.update(project)
     await repo.delete("p1")
     assert await repo.get("p1") is None
 
@@ -234,11 +233,12 @@ async def test_source_repository_roundtrip_and_project_filter(
 ) -> None:
     """Source CRUD + list(project_id=...) scoping; config keeps secret_refs only."""
     projects = SqlProjectRepository(sessions)
-    await projects.create(Project(id="p1", name="A", collection="a"))
-    await projects.create(Project(id="p2", name="B", collection="b"))
+    await projects.create(Project(id="p1", tenant_id="tenant-a", name="A", collection="a"))
+    await projects.create(Project(id="p2", tenant_id="tenant-b", name="B", collection="b"))
     repo = SqlSourceRepository(sessions)
     source = SourceConfig(
         id="s1",
+        tenant_id="tenant-a",
         project_id="p1",
         source_type="local_file",
         name="docs",
@@ -246,7 +246,15 @@ async def test_source_repository_roundtrip_and_project_filter(
         secret_refs=["secret://x"],
     )
     await repo.create(source)
-    await repo.create(SourceConfig(id="s2", project_id="p2", source_type="github", name="repo"))
+    await repo.create(
+        SourceConfig(
+            id="s2",
+            tenant_id="tenant-b",
+            project_id="p2",
+            source_type="github",
+            name="repo",
+        )
+    )
     assert await repo.get("s1") == source
     assert [s.id for s in await repo.list(project_id="p1")] == ["s1"]
     assert len(await repo.list()) == 2
@@ -254,38 +262,11 @@ async def test_source_repository_roundtrip_and_project_filter(
     await repo.update(source)
     paused = await repo.get("s1")
     assert paused is not None and paused.status == "paused"
+    source.tenant_id = "tenant-b"
+    with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
+        await repo.update(source)
     await repo.delete("s2")
     assert await repo.get("s2") is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.whitebox
-async def test_job_repository_roundtrip_and_event_log(
-    sessions: SessionFactory,
-) -> None:
-    """Job save/get/list filters + ordered per-job event sequence numbers."""
-    repo = SqlJobRepository(sessions)
-    job = Job(id="j1", source_id="s1", project_id="p1", job_type="bulk_ingest")
-    await repo.save(job)
-    assert await repo.get("j1") == job
-    job.status = "running"
-    job.attempts = 1
-    await repo.save(job)
-    assert [j.id for j in await repo.list(status="running")] == ["j1"]
-    assert await repo.list(status="failed") == []
-    assert [j.id for j in await repo.list(source_id="s1")] == ["j1"]
-
-    await repo.append_event(
-        "j1", HarborEvent(name="job_status", trace_id="t1", payload={"s": "running"})
-    )
-    await repo.append_event("j1", HarborEvent(name="job_status", trace_id="t2"))
-    async with sessions() as session:
-        seqs = list(
-            await session.scalars(
-                sa.text("SELECT seq FROM job_events WHERE job_id='j1' ORDER BY seq")
-            )
-        )
-    assert seqs == [1, 2]
 
 
 @pytest.mark.asyncio
@@ -299,6 +280,7 @@ async def test_activity_settings_provider_member_roundtrips(
     await activity.append(
         ActivityEntry(
             id="a1",
+            tenant_id="tenant-a",
             actor="nguyen.vu@cbtw.tech",
             verb="created",
             entity_type="project",
@@ -308,16 +290,25 @@ async def test_activity_settings_provider_member_roundtrips(
     )
     entries = await activity.list()
     assert [e.id for e in entries] == ["a1"]
+    assert entries[0].tenant_id == "tenant-a"
 
     settings = SqlSettingsRepository(sessions)
     assert (await settings.get()).data == {}
-    await settings.put(WorkspaceSettings(data={"theme": "dark"}))
-    assert (await settings.get()).data == {"theme": "dark"}
-    await settings.put(WorkspaceSettings(data={"theme": "light"}))
+    await settings.put(WorkspaceSettings(tenant_id="tenant-a", data={"theme": "dark"}))
+    stored_settings = await settings.get()
+    assert stored_settings.tenant_id == "tenant-a"
+    assert stored_settings.data == {"theme": "dark"}
+    await settings.put(WorkspaceSettings(tenant_id="tenant-a", data={"theme": "light"}))
     assert (await settings.get()).data == {"theme": "light"}
 
     providers = SqlProviderRepository(sessions)
-    provider = Provider(id="pr1", name="OpenAI", family="chat", secret_ref="secret://key")
+    provider = Provider(
+        id="pr1",
+        tenant_id="tenant-a",
+        name="OpenAI",
+        family="chat",
+        secret_ref="secret://key",
+    )
     await providers.save(provider)
     assert await providers.get("pr1") == provider
     provider.name = "OpenAI EU"
@@ -328,7 +319,7 @@ async def test_activity_settings_provider_member_roundtrips(
     assert await providers.get("pr1") is None
 
     members = SqlMemberRepository(sessions)
-    member = Member(id="m1", subject="user@cbtw.tech", role="editor")
+    member = Member(id="m1", tenant_id="tenant-a", subject="user@cbtw.tech", role="editor")
     await members.save(member)
     assert await members.get_by_subject("user@cbtw.tech") == member
     assert await members.get_by_subject("ghost@cbtw.tech") is None

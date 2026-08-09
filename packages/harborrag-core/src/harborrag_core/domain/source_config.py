@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .validation import require_id
+from .validation import require_id, require_tenant_id, validate_secret_free_config
 
 SourceStatus = Literal["active", "paused", "error"]
 
@@ -26,6 +26,7 @@ class SourceConfig:
     project_id: str
     source_type: str
     name: str
+    tenant_id: str
     config: dict[str, Any] = field(default_factory=dict)
     schedule: str | None = None
     status: SourceStatus = "active"
@@ -33,3 +34,5 @@ class SourceConfig:
 
     def __post_init__(self) -> None:
         require_id(self.id, label="SourceConfig")
+        require_tenant_id(self.tenant_id)
+        validate_secret_free_config(self.config)

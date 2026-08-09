@@ -14,6 +14,7 @@ from chat_backend_contract import (
 from harborrag_adapters.models.chat.backend_config import (
     ChatBackendType,
     LiteLLMProxyConfig,
+    ProxyAuthMode,
 )
 from harborrag_adapters.models.chat.backends.direct import LiteLLMDirectBackend
 from harborrag_adapters.models.chat.backends.proxy import LiteLLMProxyBackend
@@ -153,3 +154,46 @@ def test_proxy_backend_merges_request_headers_and_avoids_double_prefix() -> None
         "X-Request": "one",
     }
     assert "custom_llm_provider" not in result
+
+
+def test_proxy_backend_rejects_request_auth_header_overrides() -> None:
+    backend = LiteLLMProxyBackend(
+        LiteLLMProxyConfig(
+            api_base="https://proxy.example.test",
+            api_key="proxy-secret",
+            auth_mode=ProxyAuthMode.X_LITELLM_API_KEY,
+        ),
+        connections=disabled_connections(),
+        completion=lambda **kwargs: kwargs,
+        acompletion=lambda **kwargs: kwargs,
+    )
+
+    for header in ("Authorization", "X-LiteLLM-Api-Key", "x-api-key"):
+        with pytest.raises(ValueError, match="cannot override"):
+            backend.prepare_parameters(
+                {
+                    "model": "alias",
+                    "extra_headers": {header: "attacker-controlled"},
+                }
+            )
+
+
+def test_proxy_backend_installs_selected_auth_after_configured_headers() -> None:
+    backend = LiteLLMProxyBackend(
+        LiteLLMProxyConfig(
+            api_base="https://proxy.example.test",
+            api_key="proxy-secret",
+            auth_mode=ProxyAuthMode.X_LITELLM_API_KEY,
+            headers={
+                "Authorization": "stale-bearer",
+                "X-LiteLLM-Api-Key": "stale-proxy-key",
+            },
+        ),
+        connections=disabled_connections(),
+        completion=lambda **kwargs: kwargs,
+        acompletion=lambda **kwargs: kwargs,
+    )
+
+    result = backend.prepare_parameters({"model": "alias"})
+
+    assert result["extra_headers"] == {"x-litellm-api-key": "proxy-secret"}

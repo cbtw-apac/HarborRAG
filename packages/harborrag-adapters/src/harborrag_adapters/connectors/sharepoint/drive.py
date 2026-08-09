@@ -28,6 +28,7 @@ from .drive_paths import (
 from .mappers import build_source_record, parse_timestamp
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
+_MAX_PROVIDER_PAGES = 10_000
 
 
 class SharePointDriveAPI:
@@ -86,6 +87,7 @@ class SharePointDriveAPI:
         """
         drive_id = str(drive["id"])
         pending: list[tuple[str | None, str | None]] = [(item_id, path)]
+        seen_folder_ids = {item_id} if item_id else set()
         while pending:
             current_item_id, current_path = pending.pop()
             folder_ids: list[str] = []
@@ -101,8 +103,12 @@ class SharePointDriveAPI:
 
                 if query.recursive and is_drive_folder(item):
                     child_id = str(item.get("id") or "")
-                    if child_id:
-                        folder_ids.append(child_id)
+                    if not child_id:
+                        continue
+                    if child_id in seen_folder_ids:
+                        raise FetchError("SharePoint folder traversal contains a cycle")
+                    seen_folder_ids.add(child_id)
+                    folder_ids.append(child_id)
 
             for child_id in reversed(folder_ids):
                 pending.append((child_id, None))
@@ -120,10 +126,14 @@ class SharePointDriveAPI:
             "$top": self.config.page_size,
             "$select": DRIVE_ITEM_SELECT,
         }
+        seen_endpoints: set[str] = set()
 
         while endpoint:
+            if endpoint in seen_endpoints or len(seen_endpoints) >= _MAX_PROVIDER_PAGES:
+                raise FetchError("SharePoint children pagination did not advance")
+            seen_endpoints.add(endpoint)
             response = self.client.get_json(endpoint, params=params)
-            yield from response.get("value", [])
+            yield from _page_items(response, operation="children")
             next_link = response.get("@odata.nextLink")
             endpoint = str(next_link) if next_link else ""
             params = None
@@ -135,10 +145,14 @@ class SharePointDriveAPI:
             "$top": self.config.page_size,
             "$select": DRIVE_SELECT,
         }
+        seen_endpoints: set[str] = set()
 
         while endpoint:
+            if endpoint in seen_endpoints or len(seen_endpoints) >= _MAX_PROVIDER_PAGES:
+                raise FetchError("SharePoint drive pagination did not advance")
+            seen_endpoints.add(endpoint)
             response = self.client.get_json(endpoint, params=params)
-            yield from response.get("value", [])
+            yield from _page_items(response, operation="drives")
             next_link = response.get("@odata.nextLink")
             endpoint = str(next_link) if next_link else ""
             params = None
@@ -210,13 +224,26 @@ class SharePointDriveAPI:
         size = int(item.get("size") or 0)
         extension = item_extension(item)
 
+        if not self._matches_file_policy(item, query, name=name, size=size, extension=extension):
+            return False
+        return self._callback_allows_file(name, size, mime_type)
+
+    def _matches_file_policy(
+        self,
+        item: dict[str, Any],
+        query: ConnectorQuery,
+        *,
+        name: str,
+        size: int,
+        extension: str,
+    ) -> bool:
         if item_hidden(item) and not self.config.include_hidden:
             logger.debug("Skipping hidden SharePoint file %s", name)
             return False
-        if self.config.max_file_size_bytes is not None:
-            if size > self.config.max_file_size_bytes:
-                logger.debug("Skipping oversized SharePoint file %s", name)
-                return False
+        limit = self.config.max_file_size_bytes
+        if limit is not None and size > limit:
+            logger.debug("Skipping oversized SharePoint file %s", name)
+            return False
         if self.config.allowed_extensions and extension not in self.config.allowed_extensions:
             logger.debug("Skipping SharePoint file outside allowed extensions %s", name)
             return False
@@ -227,24 +254,22 @@ class SharePointDriveAPI:
             updated_at = parse_timestamp(item.get("lastModifiedDateTime"))
             if updated_at and updated_at <= query.updated_after:
                 return False
-        if not matches_pattern(item, query.pattern):
-            return False
+        return matches_pattern(item, query.pattern)
 
-        if self.config.process_file_callback:
-            try:
-                should_process, reason = self.config.process_file_callback(
-                    name,
-                    size,
-                    mime_type,
-                )
-            except Exception:
-                if self.config.fail_on_error:
-                    raise
-                logger.exception("SharePoint file callback failed for %s", name)
-                return False
-            if not should_process:
-                logger.debug("Skipping SharePoint file %s: %s", name, reason)
-                return False
+    def _callback_allows_file(self, name: str, size: int, mime_type: str) -> bool:
+        callback = self.config.process_file_callback
+        if callback is None:
+            return True
+        try:
+            should_process, reason = callback(name, size, mime_type)
+        except Exception:
+            if self.config.fail_on_error:
+                raise
+            logger.exception("SharePoint file callback failed for %s", name)
+            return False
+        if not should_process:
+            logger.debug("Skipping SharePoint file %s: %s", name, reason)
+            return False
         return True
 
     def enforce_size_limit(self, item: dict[str, Any]) -> None:
@@ -268,3 +293,11 @@ class SharePointDriveAPI:
             site_id=str(site["id"]),
             drive_id=str(drive["id"]),
         )
+
+
+def _page_items(response: dict[str, Any], *, operation: str) -> list[dict[str, Any]]:
+    """Validate Graph collection pages before exposing provider-controlled data."""
+    raw_items = response.get("value", [])
+    if not isinstance(raw_items, list) or any(not isinstance(item, dict) for item in raw_items):
+        raise FetchError(f"SharePoint {operation} response contained an invalid value list")
+    return raw_items

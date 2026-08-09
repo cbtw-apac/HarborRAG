@@ -59,7 +59,7 @@ def _block_direct_stat_call(blocked: Path, monkeypatch) -> None:
 
     def maybe_raise(self, *args, **kwargs):
         caller = sys._getframe(1).f_code.co_name
-        if caller == "should_process_file" and os.path.realpath(str(self)) == (resolved_blocked):
+        if caller == "_candidate_stat" and os.path.realpath(str(self)) == resolved_blocked:
             raise OSError("permission denied")
         return original_stat(self, *args, **kwargs)
 

@@ -244,7 +244,8 @@ async def test_call_tool_facade_records_an_audit_entry(
         "tool_invocation_attempted",
         "tool_invocation_completed",
     ]
-    assert fresh_audit.entries[-1]["outcome"] == "success"
+    assert fresh_audit.entries[-1]["outcome"] == "error"
+    assert fresh_audit.entries[-1]["error_type"] == "ToolReportedError"
 
 
 @pytest.mark.asyncio
@@ -294,13 +295,41 @@ async def test_call_tool_facade_rejects_policy_violation_end_to_end(
     assert fresh_audit.entries[-1]["error_type"] == "ValueError"
 
 
-def test_audit_memory_is_bounded_and_never_stores_arguments() -> None:
-    from harborrag_mcp_server.audit import McpAuditLog
+def test_request_principal_requires_owner_role(monkeypatch) -> None:
+    from types import SimpleNamespace
 
-    log = McpAuditLog(max_entries=2)
-    for index in range(3):
-        log.start("tool", {"secret": f"value-{index}"}, principal_id="subject")
+    import fastmcp.server.dependencies as dependencies
 
-    assert len(log.entries) == 2
-    assert all("arguments_sha256" in entry for entry in log.entries)
-    assert "value-" not in repr(log.entries)
+    from harborrag_mcp_server.server import _request_principal_id
+
+    reader = SimpleNamespace(claims={"sub": "reader-1", "role": "reader"}, client_id="client")
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: reader)
+    with pytest.raises(PermissionError, match="owner"):
+        _request_principal_id()
+
+    owner = SimpleNamespace(
+        claims={"sub": "owner-1", "role": "owner", "tenants": ["demo"]},
+        client_id="client",
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: owner)
+    assert _request_principal_id("demo") == "owner-1"
+    with pytest.raises(PermissionError, match="requested tenant"):
+        _request_principal_id("other")
+
+    global_owner = SimpleNamespace(
+        claims={"sub": "global-owner", "role": "owner", "tenants": ["*"]},
+        client_id="client",
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: global_owner)
+    assert _request_principal_id("other") == "global-owner"
+
+
+def test_tenant_scoped_owner_cannot_access_global_configuration() -> None:
+    from types import SimpleNamespace
+
+    from harborrag_mcp_server.server.http_auth import Unauthorized, authorize_request_tenant
+
+    request = SimpleNamespace(state=SimpleNamespace(allowed_tenants=frozenset({"demo"})))
+    authorize_request_tenant(request, "demo")
+    with pytest.raises(Unauthorized, match="requested tenant"):
+        authorize_request_tenant(request, "*")

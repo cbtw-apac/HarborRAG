@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     TaskDocumentResult,
     TaskRegistration,
 )
+from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.source.tasks import pending_source_task
 from harborrag_runtime.ingestion_control_factory import build_ingestion_control
@@ -67,9 +68,12 @@ class IngestionTaskRegistry:
         document_ids: Sequence[str],
     ) -> TaskRegistration:
         request = original.request
+        tenant_id = request.get("tenant_id")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise HarborInvariantError("stored ingestion task is missing tenant identity")
         retry_request = {
             "retry_of": original.task_id,
-            "tenant_id": request.get("tenant_id", "DEFAULT"),
+            "tenant_id": tenant_id,
             "document_ids": list(document_ids),
             "connector_name": request["connector_name"],
             "connector_type": request["connector_type"],

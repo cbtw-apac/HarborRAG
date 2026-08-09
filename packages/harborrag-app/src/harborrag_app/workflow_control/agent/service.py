@@ -28,6 +28,9 @@ from harborrag_runtime.sdk import HarborRAG
 
 from .options import AgentExecutionOptions
 
+_DEFAULT_AGENT_TIMEOUT_SECONDS = 120.0
+_DEFAULT_AGENT_TOKEN_BUDGET = 32_768
+
 type RuntimeProvider = Callable[[], HarborRAG]
 
 logger = logging.getLogger("harborrag.app.workflow_control.agent")
@@ -52,6 +55,8 @@ def _run_options(
         session_id=options.session_id,
         graph_search=options.graph_search,
         max_steps=options.max_steps,
+        timeout_seconds=_DEFAULT_AGENT_TIMEOUT_SECONDS,
+        max_total_tokens=_DEFAULT_AGENT_TOKEN_BUDGET,
     )
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import stat
 from pathlib import Path
 from typing import BinaryIO
 
@@ -46,10 +47,35 @@ class FilesystemAccessMixin:
 
         descriptor = os.open(
             path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
             0o600,
         )
         return os.fdopen(descriptor, "wb")
+
+    @staticmethod
+    def _open_regular_file(path: Path) -> BinaryIO:
+        """Open one existing regular file without following its final path component."""
+
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError("filesystem object path is not a regular file")
+            return os.fdopen(descriptor, "rb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    @classmethod
+    def _read_regular_file(cls, path: Path) -> bytes:
+        with cls._open_regular_file(path) as file:
+            return file.read()
 
     async def _authorized_path(
         self,
@@ -59,12 +85,12 @@ class FilesystemAccessMixin:
     ) -> Path:
         target = self._safe_path(bucket, key, context)
         meta_path = self._meta_path(target)
-        if not target.is_file() or not meta_path.is_file():
-            raise self._not_found(bucket, key, context)
         try:
             metadata = ObjectMetadata.model_validate_json(
-                await asyncio.to_thread(meta_path.read_text, "utf-8")
+                await asyncio.to_thread(self._read_regular_file, meta_path)
             )
+            file = await asyncio.to_thread(self._open_regular_file, target)
+            await asyncio.to_thread(file.close)
         except (OSError, ValueError) as exc:
             raise self._not_found(bucket, key, context) from exc
         if metadata.metadata.get("tenant_id") != str(context.tenant_id):
@@ -84,8 +110,11 @@ class FilesystemAccessMixin:
         if any(part in {"", ".", ".."} for part in parts):
             raise ValueError("invalid object key")
         tenant_root = self._tenant_root(bucket, context)
-        target = (tenant_root / Path(*parts)).resolve()
-        if not target.is_relative_to(tenant_root):
+        target = tenant_root / Path(*parts)
+        resolved_root = tenant_root.resolve()
+        self._reject_symlinks(target, tenant_root)
+        resolved_target = target.resolve()
+        if not resolved_target.is_relative_to(resolved_root):
             raise ValueError("object key escapes configured filesystem root")
         return target
 
@@ -93,7 +122,23 @@ class FilesystemAccessMixin:
         if not _BUCKET.fullmatch(bucket):
             raise ValueError("invalid filesystem bucket name")
         namespace = Path(*tenant_object_prefix(context.tenant_id).split("/"))
-        return (self._root / bucket / namespace).resolve()
+        tenant_root = self._root / bucket / namespace
+        if not tenant_root.resolve().is_relative_to(self._root):
+            raise ValueError("filesystem bucket escapes configured root")
+        self._reject_symlinks(tenant_root, self._root)
+        return tenant_root
+
+    @staticmethod
+    def _reject_symlinks(path: Path, trusted_root: Path) -> None:
+        """Reject existing link components; descriptor opens cover the final race window."""
+
+        current = trusted_root
+        if current.is_symlink():
+            raise ValueError("filesystem object-store paths cannot contain symbolic links")
+        for part in path.relative_to(trusted_root).parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("filesystem object-store paths cannot contain symbolic links")
 
     @staticmethod
     def _meta_path(target: Path) -> Path:

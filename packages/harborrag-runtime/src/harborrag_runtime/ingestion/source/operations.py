@@ -9,7 +9,7 @@ from itertools import islice
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
-from harborrag_core.ingestion import BindingKind
+from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome
 
 from ..document.models import DocumentReleaseOutcome
 from .documents import SourceDocumentService
@@ -30,7 +30,7 @@ class SourceDocumentOperations:
         task_id: str,
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         return await self._document_results.release_one(task_id, planned, connector)
 
     async def record_published_document(
@@ -38,7 +38,7 @@ class SourceDocumentOperations:
         task_id: str,
         planned: PlannedDocumentRelease,
         outcome: DocumentReleaseOutcome,
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         return await self._document_results.record_published_document(
             task_id,
             planned,
@@ -73,7 +73,7 @@ class SourceDocumentOperations:
         original_task_id: str,
         planned: PlannedDocumentRelease,
         connector_factory: Callable[[], BaseConnector | HarborConnector],
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         return await self._retries.retry_one(
             retry_task_id=retry_task_id,
             original_task_id=original_task_id,
@@ -114,14 +114,14 @@ class SourceDocumentOperations:
         request: SourceIngestionRequest,
         connector: BaseConnector | HarborConnector,
         planned: tuple[PlannedDocumentRelease, ...],
-    ) -> tuple[str, ...]:
-        async def release(item: PlannedDocumentRelease) -> str:
+    ) -> tuple[DocumentIngestionOutcome, ...]:
+        async def release(item: PlannedDocumentRelease) -> DocumentIngestionOutcome:
             return await self.release_one(request.task_id, item, connector)
 
         async def release_bounded(
             items: Iterable[PlannedDocumentRelease],
-        ) -> tuple[str, ...]:
-            results: list[str] = []
+        ) -> tuple[DocumentIngestionOutcome, ...]:
+            results: list[DocumentIngestionOutcome] = []
             iterator = iter(items)
             while batch := tuple(islice(iterator, request.document_concurrency)):
                 results.extend(await asyncio.gather(*(release(item) for item in batch)))

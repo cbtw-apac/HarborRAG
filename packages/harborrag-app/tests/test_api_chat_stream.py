@@ -47,13 +47,13 @@ def test_chat_stream_emits_citations_then_deltas_then_completion(
     service: MockAppService,
 ) -> None:
     session_id = _session(client, "ACME")
-    response = client.get(
+    response = client.post(
         "/v1/chat/completions",
-        params={
+        json={
             "tenant": "ACME",
             "prompt": "What is HarborRAG?",
-            "graph_search": "true",
-            "stream": "true",
+            "graph_search": True,
+            "stream": True,
             "session_id": session_id,
         },
     )
@@ -88,9 +88,9 @@ def test_chat_stream_ends_with_error_event_on_failure(
 
     monkeypatch.setattr(service, "chat_stream", lambda query, **_: fail(query))
     session_id = _session(client)
-    response = client.get(
+    response = client.post(
         "/v1/chat/completions",
-        params={"prompt": "Hello", "session_id": session_id, "stream": "true"},
+        json={"prompt": "Hello", "session_id": session_id, "stream": True},
     )
 
     assert response.status_code == 200
@@ -103,9 +103,9 @@ def test_chat_stream_ends_with_error_event_on_failure(
 
 def test_chat_stream_rejects_empty_prompt(client: TestClient) -> None:
     session_id = _session(client)
-    response = client.get(
+    response = client.post(
         "/v1/chat/completions",
-        params={"prompt": "", "session_id": session_id, "stream": "true"},
+        json={"prompt": "", "session_id": session_id, "stream": True},
     )
 
     assert response.status_code == 422

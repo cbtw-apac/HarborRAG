@@ -179,7 +179,7 @@ def test_load_raises_when_no_sha_can_be_resolved():
         )
 
 
-def test_load_fills_missing_metadata_size_from_content_length():
+def test_load_rejects_blob_whose_declared_size_does_not_match_content():
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
@@ -193,16 +193,15 @@ def test_load_fills_missing_metadata_size_from_content_length():
     )
     connector = GitHubConnector(config(), client=client)
 
-    document = connector.load(
-        SourceRecord(
-            "github://acme/harbor-rag/README.md",
-            "text/markdown",
-            "README.md",
-            metadata={"path": "README.md", "sha": "sha-readme", "size": 0},
+    with pytest.raises(DocumentProcessingError, match="does not match declared size"):
+        connector.load(
+            SourceRecord(
+                "github://acme/harbor-rag/README.md",
+                "text/markdown",
+                "README.md",
+                metadata={"path": "README.md", "sha": "sha-readme", "size": 0},
+            )
         )
-    )
-
-    assert document.metadata["size"] == len(b"# Hello")
 
 
 def test_load_by_paths_loads_each_file():

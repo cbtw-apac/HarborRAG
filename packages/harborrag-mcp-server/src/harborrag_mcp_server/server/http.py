@@ -17,7 +17,7 @@ from harborrag_mcp_server.configuration import (
     McpConfiguration,
     McpConfigurationStore,
 )
-from harborrag_mcp_server.server.http_auth import owner_only
+from harborrag_mcp_server.server.http_auth import authorize_request_tenant, owner_only
 from harborrag_mcp_server.server.http_responses import (
     browser_security_headers,
     configuration_response,
@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _REQUIRED_SCOPE = "mcp:read"
+_MAX_CONFIGURATION_REQUEST_BYTES = 1024 * 1024
+_MAX_TOOL_REQUEST_BYTES = 128 * 1024
 # Kept as a real .html file so the markup, CSS, and browser JS stay lintable and
 # formattable instead of living in a Python f-string with every brace doubled.
 _STATUS_TEMPLATE = (Path(__file__).parent / "static" / "status.html").read_text(encoding="utf-8")
@@ -77,6 +79,7 @@ def create_local_token_verifier(token: str) -> TokenVerifier:
                     "client_id": "harborrag-local",
                     "sub": "harborrag-local",
                     "role": "owner",
+                    "tenants": ["*"],
                     "scopes": [_REQUIRED_SCOPE],
                 }
             },
@@ -164,6 +167,7 @@ def _get_configuration_handler(
 ) -> Callable[[Request], Awaitable[Response]]:
     @owner_only(token_verifier)
     async def get_configuration(request: Request, principal_id: str) -> JSONResponse:
+        authorize_request_tenant(request, "*")
         return configuration_response(configuration.describe())
 
     return get_configuration
@@ -176,7 +180,8 @@ def _replace_configuration_handler(
     @owner_only(token_verifier)
     async def replace_configuration(request: Request, principal_id: str) -> JSONResponse:
         try:
-            payload = await request.json()
+            authorize_request_tenant(request, "*")
+            payload = await _bounded_json(request, maximum=_MAX_CONFIGURATION_REQUEST_BYTES)
             if not isinstance(payload, dict) or not isinstance(payload.get("configuration"), dict):
                 raise ValueError("request must contain a configuration object")
             expected_revision = payload.get("expected_revision")
@@ -190,7 +195,7 @@ def _replace_configuration_handler(
             )
         except ConfigurationRevisionError as exc:
             return error_response(str(exc), status_code=409)
-        except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+        except (ValidationError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             return error_response(str(exc), status_code=422)
         return configuration_response(description)
 
@@ -204,6 +209,7 @@ def _reload_configuration_handler(
     @owner_only(token_verifier)
     async def reload_configuration(request: Request, principal_id: str) -> JSONResponse:
         try:
+            authorize_request_tenant(request, "*")
             description = configuration.reload(principal_id=principal_id)
         except (ValidationError, ValueError) as exc:
             return error_response(str(exc), status_code=422)
@@ -222,6 +228,7 @@ def _list_tools_handler(
         tenant_id = tenant_value.strip() if tenant_value is not None else None
         if tenant_value is not None and not tenant_id:
             return error_response("tenant_id must not be empty", status_code=422)
+        authorize_request_tenant(request, tenant_id or "*")
         tools = [
             {
                 "name": spec.name,
@@ -243,7 +250,7 @@ def _call_tool_handler(
     @owner_only(token_verifier)
     async def call_tool(request: Request, principal_id: str) -> JSONResponse:
         try:
-            payload = await request.json()
+            payload = await _bounded_json(request, maximum=_MAX_TOOL_REQUEST_BYTES)
             if not isinstance(payload, dict):
                 raise ValueError("request body must be an object")
             name = payload.get("name")
@@ -252,6 +259,9 @@ def _call_tool_handler(
                 raise ValueError("name must be a non-empty string")
             if not isinstance(arguments, dict):
                 raise ValueError("arguments must be an object")
+            tenant_id = arguments.get("tenant_id")
+            if isinstance(tenant_id, str):
+                authorize_request_tenant(request, tenant_id)
             result = await registry.call_tool(
                 name.strip(),
                 arguments,
@@ -259,7 +269,7 @@ def _call_tool_handler(
             )
         except PermissionError as exc:
             return error_response(str(exc), status_code=403)
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             return error_response(str(exc), status_code=422)
         except Exception as exc:
             return error_response(
@@ -269,6 +279,25 @@ def _call_tool_handler(
         return configuration_response({"name": name.strip(), "result": result})
 
     return call_tool
+
+
+async def _bounded_json(request: Request, *, maximum: int) -> object:
+    """Read a JSON body without allocating beyond the HTTP boundary budget."""
+
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except ValueError as exc:
+            raise ValueError("Content-Length must be an integer") from exc
+        if declared < 0 or declared > maximum:
+            raise ValueError("request body budget exceeded")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > maximum:
+            raise ValueError("request body budget exceeded")
+        body.extend(chunk)
+    return json.loads(body)
 
 
 def _status_page(*, mcp_path: str, tool_names: list[str], nonce: str) -> str:

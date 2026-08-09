@@ -10,6 +10,8 @@ from harbor_test_builders import FakeResponse
 from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
+    read_capped_json,
+    safe_response_error_detail,
 )
 
 pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]
@@ -72,3 +74,26 @@ def test_read_capped_content_returns_body_within_cap() -> None:
     response = _CountingResponse(_chunks=[b"abc", b"def", b"ghi"])
     body = read_capped_content(response, 1_000)
     assert body == b"abcdefghi"
+    assert response.closed is True
+
+
+def test_read_capped_json_rejects_an_oversized_document_before_decoding() -> None:
+    response = _CountingResponse(_chunks=[b'{"value":"', b"x" * 1_024, b'"}'])
+
+    with pytest.raises(ResponseTooLargeError):
+        read_capped_json(response, max_bytes=100)
+
+    assert response.consumed <= 1_034
+    assert response.closed is True
+
+
+def test_safe_response_error_detail_bounds_and_redacts_untrusted_bodies() -> None:
+    response = _CountingResponse(
+        _chunks=[b'{"authorization":"Bearer very-secret-token"}', b"x" * 9_000]
+    )
+
+    detail = safe_response_error_detail(response)
+
+    assert detail == "response body exceeded safe diagnostic limit"
+    assert "very-secret-token" not in detail
+    assert response.closed is True

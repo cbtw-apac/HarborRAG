@@ -85,6 +85,12 @@ class GraphPath(StrictModel):
     def validate_shape(self) -> Self:
         if len(self.relations) != len(self.nodes) - 1:
             raise ValueError("graph path relations must connect each adjacent node")
+        for left, relation, right in zip(
+            self.nodes[:-1], self.relations, self.nodes[1:], strict=True
+        ):
+            endpoints = {relation.source_node_key, relation.target_node_key}
+            if endpoints != {left.node_key, right.node_key}:
+                raise ValueError("graph path relation does not connect its adjacent nodes")
         return self
 
 

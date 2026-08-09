@@ -12,12 +12,15 @@ from harborrag_adapters.repositories.database.control_plane.schemas import (
     ProviderRow,
     WorkspaceSettingsRow,
 )
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.member import Member, Role
 from harborrag_core.domain.provider import Provider, ProviderFamily
 from harborrag_core.domain.settings import WorkspaceSettings
 
 from .mapping import utc_now
 from .session import SessionFactory
+
+_LEGACY_WORKSPACE_TENANT_ID = "DEFAULT"
 
 
 @dataclass(slots=True)
@@ -30,15 +33,25 @@ class SqlSettingsRepository:
         """The settings document; empty document when never written."""
         async with self.sessions() as session:
             row = await session.get(WorkspaceSettingsRow, 1)
-            return WorkspaceSettings(data=dict(row.data)) if row else WorkspaceSettings()
+            return (
+                WorkspaceSettings(tenant_id=row.tenant_id, data=dict(row.data))
+                if row
+                else WorkspaceSettings(tenant_id=_LEGACY_WORKSPACE_TENANT_ID)
+            )
 
     async def put(self, settings: WorkspaceSettings) -> WorkspaceSettings:
         """Upsert the settings document."""
         async with self.sessions.begin() as session:
             row = await session.get(WorkspaceSettingsRow, 1)
             if row is None:
-                row = WorkspaceSettingsRow(id=1, updated_at=utc_now())
+                row = WorkspaceSettingsRow(
+                    id=1,
+                    tenant_id=settings.tenant_id,
+                    updated_at=utc_now(),
+                )
                 session.add(row)
+            elif row.tenant_id != settings.tenant_id:
+                raise HarborConflictError("workspace settings tenant identity is immutable")
             row.data = dict(settings.data)
             row.updated_at = utc_now()
         return settings
@@ -67,8 +80,10 @@ class SqlProviderRepository:
         async with self.sessions.begin() as session:
             row = await session.get(ProviderRow, provider.id)
             if row is None:
-                row = ProviderRow(id=provider.id)
+                row = ProviderRow(id=provider.id, tenant_id=provider.tenant_id)
                 session.add(row)
+            elif row.tenant_id != provider.tenant_id:
+                raise HarborConflictError("provider tenant identity is immutable")
             row.name = provider.name
             row.family = provider.family
             row.config_json = dict(provider.config)
@@ -85,6 +100,7 @@ class SqlProviderRepository:
         """Map a providers row to the Provider aggregate."""
         return Provider(
             id=row.id,
+            tenant_id=row.tenant_id,
             name=row.name,
             family=cast(ProviderFamily, row.family),
             config=dict(row.config_json),
@@ -115,8 +131,14 @@ class SqlMemberRepository:
         async with self.sessions.begin() as session:
             row = await session.get(MemberRow, member.id)
             if row is None:
-                row = MemberRow(id=member.id, created_at=utc_now())
+                row = MemberRow(
+                    id=member.id,
+                    tenant_id=member.tenant_id,
+                    created_at=utc_now(),
+                )
                 session.add(row)
+            elif row.tenant_id != member.tenant_id:
+                raise HarborConflictError("member tenant identity is immutable")
             row.subject = member.subject
             row.role = member.role
         return member
@@ -129,4 +151,9 @@ class SqlMemberRepository:
     @staticmethod
     def _to_domain(row: MemberRow) -> Member:
         """Map a members row to the Member aggregate."""
-        return Member(id=row.id, subject=row.subject, role=cast(Role, row.role))
+        return Member(
+            id=row.id,
+            tenant_id=row.tenant_id,
+            subject=row.subject,
+            role=cast(Role, row.role),
+        )

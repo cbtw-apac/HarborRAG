@@ -9,7 +9,7 @@ The scope-isolation cases here are the security-relevant contract: a
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,6 +20,7 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 )
 from harborrag_adapters.repositories.database.control_plane.memory import SqlMemoryRepository
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -43,6 +44,7 @@ def _memory(owner: MemoryOwner, scope: MemoryScope, content: str, **kwargs: obje
         importance=kwargs.get("importance", 0.5),  # type: ignore[arg-type]
         created_at=now,
         updated_at=now,
+        expires_at=kwargs.get("expires_at"),  # type: ignore[arg-type]
     )
 
 
@@ -87,6 +89,57 @@ async def test_memory_save_upserts_by_memory_id(tmp_path: Path) -> None:
         loaded = await repo.get(owner, memory.memory_id)
         assert loaded is not None
         assert loaded.content == "v2"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_memory_save_rejects_cross_owner_id_collision(tmp_path: Path) -> None:
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        repo = SqlMemoryRepository(sessions)
+        owner = MemoryOwner(tenant_id="ACME", principal_id="user-1")
+        victim = _memory(owner, MemoryScope.USER, "victim")
+        await repo.save(victim)
+        attacker = replace(
+            victim,
+            owner=MemoryOwner(tenant_id="OTHER", principal_id="user-2"),
+            content="replaced",
+        )
+
+        with pytest.raises(HarborConflictError, match="different owner or scope"):
+            await repo.save(attacker)
+
+        assert (await repo.get(owner, victim.memory_id)).content == "victim"  # type: ignore[union-attr]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_expired_memories_are_not_readable_or_searchable(tmp_path: Path) -> None:
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        repo = SqlMemoryRepository(sessions)
+        owner = MemoryOwner(tenant_id="ACME", principal_id="user-1")
+        now = datetime.now(UTC)
+        memory = replace(
+            _memory(owner, MemoryScope.USER, "expired", expires_at=now + timedelta(seconds=1)),
+            created_at=now - timedelta(seconds=2),
+            updated_at=now - timedelta(seconds=2),
+            expires_at=now - timedelta(seconds=1),
+        )
+        await repo.save(memory)
+
+        assert await repo.get(owner, memory.memory_id) is None
+        assert await repo.search(MemoryQuery(owner=owner)) == ()
     finally:
         await engine.dispose()
 

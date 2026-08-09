@@ -8,26 +8,16 @@ from collections.abc import Sequence
 from time import perf_counter
 from uuid import uuid4
 
-from harborrag_core.contracts.errors import HarborCapabilityError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.models.embed import EmbeddingPurpose, HarborEmbedRequest
-from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
-    GraphPathQuery,
-    GraphSubgraphQuery,
-    GraphTripletQuery,
-)
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import (
     ActiveVersionCandidateValidator,
     AuthoritativeGraphSearch,
-    AuthoritativePathResult,
     AuthoritativeProjectionSearch,
     AuthoritativeSearchRequest,
-    AuthoritativeSubgraphResult,
-    AuthoritativeTripletResult,
     RetrievalLane,
 )
 
@@ -42,6 +32,7 @@ from .contracts import (
     RuntimeRetrievalReport,
 )
 from .graph_observation import GraphObservation, GraphObserver
+from .graph_service import RuntimeGraphRetrievalMixin
 from .validation import required_text, validate_retrieval_request
 
 _CHUNK_LOAD_CONCURRENCY = 8
@@ -49,7 +40,7 @@ _CHUNK_LOAD_CONCURRENCY = 8
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
 
-class RuntimeRetrievalService:
+class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
     """Resolve projection visibility through Postgres before loading evidence."""
 
     def __init__(
@@ -211,72 +202,6 @@ class RuntimeRetrievalService:
             results.append(result)
         return results, failures
 
-    async def search_graph_triplets(
-        self,
-        query: GraphTripletQuery,
-        *,
-        access: AccessContext,
-    ) -> AuthoritativeTripletResult:
-        return await self._require_graph_search().triplets(
-            query,
-            context=self._graph_context(access, "graph-triplet-search"),
-        )
-
-    async def search_graph_paths(
-        self,
-        query: GraphPathQuery,
-        *,
-        access: AccessContext,
-    ) -> AuthoritativePathResult:
-        return await self._require_graph_search().paths(
-            query,
-            context=self._graph_context(access, "graph-path-search"),
-        )
-
-    async def search_graph_subgraph(
-        self,
-        query: GraphSubgraphQuery,
-        *,
-        access: AccessContext,
-    ) -> AuthoritativeSubgraphResult:
-        return await self._require_graph_search().subgraph(
-            query,
-            context=self._graph_context(access, "graph-subgraph-search"),
-        )
-
-    async def search_graph_neighborhood(
-        self,
-        query: GraphNeighborhoodQuery,
-        *,
-        access: AccessContext,
-    ) -> tuple[tuple[str, ...], AuthoritativeSubgraphResult]:
-        """Resolve seeds from free text, then expand and merge around them.
-
-        This is the only graph entry point that does not require the caller to already
-        hold a node identifier. Seeds are ``chunk_id`` values from the vector index,
-        which are the same strings as ``Chunk`` node keys.
-        """
-
-        graph_search = self._require_graph_search()
-        report = await self.retrieve(
-            query.query,
-            tenant_id=str(access.tenant_id),
-            top_k=query.seed_limit,
-            access=access,
-            options=RetrievalOptions(lane=RetrievalLane.HYBRID, observe_graph=False),
-        )
-        seeds = tuple(dict.fromkeys(result.id for result in report.results))
-        return seeds, await graph_search.neighborhood(
-            seeds,
-            query,
-            context=self._graph_context(access, "graph-neighborhood-search"),
-        )
-
-    def _require_graph_search(self) -> AuthoritativeGraphSearch:
-        if self._graph_search is None:
-            raise HarborCapabilityError("graph retrieval is not configured")
-        return self._graph_search
-
     @staticmethod
     def _retrieval_context(
         *,
@@ -294,17 +219,6 @@ class RuntimeRetrievalService:
             tenant_id,
             operation_kind="retrieval",
             idempotency_key=request_id,
-        )
-
-    @staticmethod
-    def _graph_context(
-        access: AccessContext,
-        operation_kind: str,
-    ) -> StorageOperationContext:
-        return StorageOperationContext.for_access(
-            access,
-            operation_kind=operation_kind,
-            idempotency_key=f"graph-{uuid4().hex}",
         )
 
     async def _dense_vector(self, query: str) -> tuple[float, ...]:

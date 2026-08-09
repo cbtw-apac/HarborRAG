@@ -25,6 +25,7 @@ from .chunking_helpers import (
 
 def test_chunk_records_use_canonical_source_identity_for_attachments() -> None:
     source = SourceIdentity(
+        tenant_id="DEFAULT",
         connector_type=ConnectorType.JIRA,
         connection_id="jira-prod",
         source_item_id="attachment-100",

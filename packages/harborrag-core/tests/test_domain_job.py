@@ -32,7 +32,13 @@ def test_job_type_literals() -> None:
 def test_job_defaults() -> None:
     """A fresh Job is queued with zeroed counters, no attempts, and a
     timezone-aware UTC enqueue timestamp."""
-    job = Job(id="j1", source_id="s1", project_id="p1", job_type="bulk_ingest")
+    job = Job(
+        id="j1",
+        tenant_id="DEFAULT",
+        source_id="s1",
+        project_id="p1",
+        job_type="bulk_ingest",
+    )
     assert job.status == "queued"
     assert job.attempts == 0
     assert job.dry_run is False
@@ -58,7 +64,13 @@ def test_job_counters_default_to_zero() -> None:
 def test_source_config_defaults() -> None:
     """A fresh SourceConfig is active, unscheduled, and carries only
     secret_ref placeholders (never secret values)."""
-    source = SourceConfig(id="s1", project_id="p1", source_type="local_file", name="docs")
+    source = SourceConfig(
+        id="s1",
+        tenant_id="DEFAULT",
+        project_id="p1",
+        source_type="local_file",
+        name="docs",
+    )
     assert source.status == "active"
     assert source.schedule is None
     assert source.config == {}
@@ -71,6 +83,18 @@ def test_job_and_source_config_reject_blank_or_whitespace_ids(bad_id: str) -> No
     """A blank/whitespace id must never construct a Job or SourceConfig --
     it would otherwise flow uncaught into the queue/repository layers."""
     with pytest.raises(ValueError, match="id must be non-empty"):
-        Job(id=bad_id, source_id="s1", project_id="p1", job_type="bulk_ingest")
+        Job(
+            id=bad_id,
+            tenant_id="DEFAULT",
+            source_id="s1",
+            project_id="p1",
+            job_type="bulk_ingest",
+        )
     with pytest.raises(ValueError, match="id must be non-empty"):
-        SourceConfig(id=bad_id, project_id="p1", source_type="local_file", name="docs")
+        SourceConfig(
+            id=bad_id,
+            tenant_id="DEFAULT",
+            project_id="p1",
+            source_type="local_file",
+            name="docs",
+        )

@@ -11,6 +11,13 @@ from .schemas import AgentRunOptions
 
 
 def validate_options(options: AgentRunOptions) -> None:
+    for field_name, value in (
+        ("tenant_id", options.tenant_id),
+        ("principal_id", options.principal_id),
+        ("session_id", options.session_id),
+    ):
+        if not value.strip() or len(value) > 128:
+            raise ValueError(f"agent {field_name} must contain 1 to 128 non-whitespace characters")
     if not 1 <= options.max_steps <= 8:
         raise ValueError("agent max_steps must be between 1 and 8")
     if options.timeout_seconds is not None and options.timeout_seconds <= 0:

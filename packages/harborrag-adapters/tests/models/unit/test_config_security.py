@@ -152,8 +152,9 @@ def test_secret_reference_and_resolution() -> None:
     )
     assert resolved["a"].get_secret_value() == "resolved:key"
     assert resolved["b"][0].get_secret_value() == "resolved:other"
-    with pytest.raises(ValueError, match="unresolved"):
+    with pytest.raises(ValueError, match="unresolved") as exc_info:
         reveal_secret(reference)
+    assert reference.uri not in str(exc_info.value)
     assert reveal_secret(SecretStr("plain")) == "plain"
     assert reveal_secret("header") == "header"
     assert reveal_secret(None) is None

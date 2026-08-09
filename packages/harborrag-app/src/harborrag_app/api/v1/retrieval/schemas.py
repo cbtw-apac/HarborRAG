@@ -12,6 +12,38 @@ from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord
 from harborrag_core.retrieval import GraphDirection, GraphPath, GraphTriplet
 from harborrag_runtime.sdk import RetrievalLane
 
+_MAX_QUERY_LENGTH = 16_384
+_MAX_GRAPH_NODE_LENGTH = 1_024
+_MAX_FILTER_CONTAINER_ITEMS = 32
+_MAX_FILTER_DEPTH = 4
+_MAX_FILTER_KEY_LENGTH = 256
+_MAX_FILTER_STRING_LENGTH = 4_096
+
+
+def _validate_filter_value(value: JsonValue, *, depth: int = 0) -> None:
+    if isinstance(value, str):
+        if len(value) > _MAX_FILTER_STRING_LENGTH:
+            raise ValueError("retrieval filter strings are too long")
+        return
+    if isinstance(value, list):
+        _validate_filter_container(depth=depth, size=len(value), noun="lists")
+        for item in value:
+            _validate_filter_value(item, depth=depth + 1)
+        return
+    if isinstance(value, dict):
+        _validate_filter_container(depth=depth, size=len(value), noun="objects")
+        for key, item in value.items():
+            if len(key) > _MAX_FILTER_KEY_LENGTH:
+                raise ValueError("retrieval filter field names are too long")
+            _validate_filter_value(item, depth=depth + 1)
+
+
+def _validate_filter_container(*, depth: int, size: int, noun: str) -> None:
+    if depth >= _MAX_FILTER_DEPTH:
+        raise ValueError("retrieval filters are nested too deeply")
+    if size > _MAX_FILTER_CONTAINER_ITEMS:
+        raise ValueError(f"retrieval filter {noun} contain too many items")
+
 
 class TenantScopedRetrievalRequest(ApiModel):
     tenant: str = Field(
@@ -38,7 +70,7 @@ class VectorSearchRequest(TenantScopedRetrievalRequest):
         }
     )
 
-    query: str = Field(min_length=1, max_length=16_384)
+    query: str = Field(min_length=1, max_length=_MAX_QUERY_LENGTH)
     top_k: int = Field(default=10, ge=1, le=100)
     lane: RetrievalLane = RetrievalLane.HYBRID
     filters: dict[str, JsonValue] | None = Field(
@@ -58,6 +90,8 @@ class VectorSearchRequest(TenantScopedRetrievalRequest):
     ) -> dict[str, JsonValue] | None:
         if filters is not None and "tenant_id" in filters:
             raise ValueError("tenant must be provided as the top-level request field")
+        if filters is not None:
+            _validate_filter_value(filters)
         return filters
 
 
@@ -78,9 +112,9 @@ class VectorSearchResponse(ApiModel):
 
 
 class GraphTripletSearchRequest(TenantScopedRetrievalRequest):
-    subject: str | None = Field(default=None, min_length=1)
+    subject: str | None = Field(default=None, min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
     predicate: RelationType | None = None
-    object: str | None = Field(default=None, min_length=1)
+    object: str | None = Field(default=None, min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
     limit: int = Field(default=10, ge=1, le=100)
 
     @model_validator(mode="after")
@@ -91,8 +125,8 @@ class GraphTripletSearchRequest(TenantScopedRetrievalRequest):
 
 
 class GraphPathSearchRequest(TenantScopedRetrievalRequest):
-    start_node: str = Field(min_length=1)
-    end_node: str = Field(min_length=1)
+    start_node: str = Field(min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
+    end_node: str = Field(min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
     relationship_types: list[RelationType] = Field(default_factory=list)
     max_depth: int = Field(default=4, ge=1, le=8)
     max_paths: int = Field(default=10, ge=1, le=100)
@@ -110,7 +144,7 @@ class GraphPathSearchRequest(TenantScopedRetrievalRequest):
 
 
 class GraphSubgraphSearchRequest(TenantScopedRetrievalRequest):
-    start_node: str = Field(min_length=1)
+    start_node: str = Field(min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
     relationship_types: list[RelationType] = Field(default_factory=list)
     max_depth: int = Field(default=2, ge=1, le=8)
     max_nodes: int = Field(default=20, ge=1, le=100)
@@ -126,7 +160,7 @@ class GraphSubgraphSearchRequest(TenantScopedRetrievalRequest):
 class GraphNeighborhoodSearchRequest(TenantScopedRetrievalRequest):
     """Expand the graph around a natural-language question, with no node selector."""
 
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=_MAX_QUERY_LENGTH)
     seed_limit: int = Field(default=3, ge=1, le=10)
     relationship_types: list[RelationType] = Field(default_factory=list)
     max_depth: int = Field(default=2, ge=1, le=8)

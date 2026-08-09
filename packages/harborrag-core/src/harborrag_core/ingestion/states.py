@@ -44,6 +44,14 @@ class IngestionTaskState(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class DocumentIngestionOutcome(StrEnum):
+    """Bounded result returned by one document ingestion execution."""
+
+    PUBLISHED = "published"
+    UNCHANGED = "unchanged"
+    FAILED = "failed"
+
+
 class DocumentVersionState(StrEnum):
     PENDING = "PENDING"
     RAW_CAPTURED = "RAW_CAPTURED"

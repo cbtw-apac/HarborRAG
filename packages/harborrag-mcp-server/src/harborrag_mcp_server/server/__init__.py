@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server.base import BaseMcpServer
+from harborrag_mcp_server.server.http_auth import authorize_claimed_tenant
 from harborrag_mcp_server.server.server import McpServer
 
 if TYPE_CHECKING:
@@ -109,20 +110,25 @@ def _tool_handler(
         return await server.call_tool(
             tool_name,
             arguments,
-            principal_id=_request_principal_id(),
+            principal_id=_request_principal_id(arguments.get("tenant_id")),
         )
 
     invoke.__name__ = tool_name
     return invoke
 
 
-def _request_principal_id() -> str:
+def _request_principal_id(tenant_id: object | None = None) -> str:
     from fastmcp.server.dependencies import get_access_token
 
     token = get_access_token()
     if token is None:
         return "local-unauthenticated"
-    subject = (token.claims or {}).get("sub")
+    claims = token.claims or {}
+    if claims.get("role") != "owner":
+        raise PermissionError("MCP tools require an owner token")
+    if isinstance(tenant_id, str):
+        authorize_claimed_tenant(claims, tenant_id)
+    subject = claims.get("sub")
     if isinstance(subject, str) and subject.strip():
         return subject
     if token.client_id:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.project import Project
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
@@ -32,10 +33,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0011"
+    assert control_db["migrations"] == "0013"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0011" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0013" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -48,7 +49,9 @@ async def test_production_repositories_hit_the_real_database(
     try:
         assert composition.control_plane is not None
         projects = composition.control_plane.projects
-        await projects.create(Project(id="p1", name="Docs", collection="docs_main"))
+        await projects.create(
+            Project(id="p1", tenant_id="DEFAULT", name="Docs", collection="docs_main")
+        )
         fetched = await projects.get("p1")
         assert fetched is not None and fetched.name == "Docs"
     finally:
@@ -56,14 +59,26 @@ async def test_production_repositories_hit_the_real_database(
 
 
 @pytest.mark.whitebox
-def test_production_probe_reports_failure_without_raising(tmp_path: Path) -> None:
-    """An unreachable control DB degrades diagnostics instead of crashing."""
-    bad = CompositionRoot.production(
-        RuntimeSettings(control_db_url=f"sqlite+aiosqlite:///{tmp_path}/nodir/x.db")
+def test_production_migration_failure_aborts_startup(tmp_path: Path) -> None:
+    """An unreachable control DB must not leave a degraded process serving traffic."""
+
+    settings = RuntimeSettings(control_db_url=f"sqlite+aiosqlite:///{tmp_path}/nodir/x.db")
+    with pytest.raises(HarborConfigurationError, match="migrations failed"):
+        CompositionRoot.production(settings)
+
+
+@pytest.mark.whitebox
+def test_production_probe_failure_aborts_startup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "harborrag_runtime.composition._probe_control_db",
+        lambda _dsn: {"ping": "failed", "error": "probe failed", "scheme": "sqlite"},
     )
-    runtime = bad.diagnostics()["runtime"]
-    assert isinstance(runtime, dict)
-    assert runtime["ready"] is False
+
+    with pytest.raises(HarborConfigurationError, match="database probe failed"):
+        _production(tmp_path)
 
 
 @pytest.mark.whitebox
@@ -72,25 +87,17 @@ def test_prod_env_refuses_default_control_db_url() -> None:
     boot, mirroring the auth_mode=none-in-prod guard. control_db_url is
     passed explicitly so the test exercises the intended default regardless
     of an ambient HARBORRAG_CONTROL_DB_URL in the environment."""
-    from harborrag_core.contracts.errors import HarborConfigurationError
-
-    with pytest.raises(HarborConfigurationError):
-        CompositionRoot.production(
-            RuntimeSettings(env="prod", control_db_url=DEFAULT_CONTROL_DB_URL)
-        )
+    with pytest.raises(ValueError, match="SQLite is development-only"):
+        RuntimeSettings(env="prod", control_db_url=DEFAULT_CONTROL_DB_URL)
 
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_prod_env_boots_with_explicit_control_db_url(tmp_path: Path) -> None:
-    """env=prod with a non-default control_db_url composes normally."""
+async def test_prod_env_rejects_every_explicit_sqlite_url(tmp_path: Path) -> None:
+    """An alternate filename must not bypass the production database policy."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
-    composition = CompositionRoot.production(RuntimeSettings(env="prod", control_db_url=dsn))
-    try:
-        assert composition.mode == "production"
-        assert composition.control_plane is not None
-    finally:
-        await composition.aclose()
+    with pytest.raises(ValueError, match="SQLite is development-only"):
+        RuntimeSettings(env="prod", control_db_url=dsn)
 
 
 @pytest.mark.asyncio
@@ -113,11 +120,11 @@ async def test_dev_env_allows_default_control_db_url(
 
 
 @pytest.mark.whitebox
-def test_migration_failure_logs_the_cause_not_just_the_exception_type(
+def test_migration_failure_logs_safe_actionable_diagnostics(
     tmp_path: Path,
     caplog,
 ) -> None:
-    """Boot degrades silently, so this log is the only statement of the cause.
+    """Failed startup logs a safe cause and an actionable migration hint.
 
     A schema built without Alembic recording it makes the runner replay from base and
     collide with existing tables. Logging only ``error_type=OperationalError`` leaves no
@@ -135,12 +142,11 @@ def test_migration_failure_logs_the_cause_not_just_the_exception_type(
     connection.close()
 
     with caplog.at_level(logging.ERROR, logger="harborrag.runtime.composition"):
-        composition = CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
+        with pytest.raises(HarborConfigurationError, match="migrations failed"):
+            CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
 
     message = caplog.text
     assert "Control-plane migrations failed" in message
-    assert "already exists" in message, "the cause must reach the log, not just its type"
+    assert "error_type=OperationalError" in message
+    assert "already exists" not in message
     assert "hint=" in message, "the recoverable case must name its remedy"
-    runtime = composition.diagnostics()["runtime"]
-    assert isinstance(runtime, dict)
-    assert runtime["control_db"]["ping"] == "failed"

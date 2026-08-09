@@ -182,8 +182,7 @@ class GraphProjectionState:
                     "document_kind": self.context.document_kind.value,
                     **(
                         {"source_uri": _safe_source_uri(self.context.source_uri)}
-                        if self.context.source_uri
-                        and self.context.connector_type.value != "local"
+                        if self.context.source_uri and self.context.connector_type.value != "local"
                         else {}
                     ),
                 },

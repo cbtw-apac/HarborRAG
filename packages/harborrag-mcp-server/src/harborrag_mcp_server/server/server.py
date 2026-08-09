@@ -90,6 +90,12 @@ class McpServer(BaseMcpServer):
         principal_id: str = "in-process",
     ) -> dict[str, object]:
         payload = dict(arguments or {})
+        tenant_value = payload.get("tenant_id")
+        if isinstance(tenant_value, str):
+            # One canonical tenant value must drive configuration, audit, schema
+            # validation, and the eventual AccessContext. Otherwise whitespace can
+            # select global policy here and a tenant override in the tool layer.
+            payload["tenant_id"] = tenant_value.strip()
         invocation_id = self.audit.start(name, payload, principal_id=principal_id)
         try:
             if self.tools is None:
@@ -112,11 +118,13 @@ class McpServer(BaseMcpServer):
                 result = await tool.call(payload, principal_id=principal_id)
                 policy.check_results(_result_count(result))
                 policy.check_output(result)
+                reported_error = result.get("ok") is False
                 self.audit.finish(
                     invocation_id,
                     name,
                     principal_id=principal_id,
-                    outcome="success",
+                    outcome="error" if reported_error else "success",
+                    error_type="ToolReportedError" if reported_error else None,
                 )
                 return result
             raise ValueError(f"Unknown MCP tool: {name}")

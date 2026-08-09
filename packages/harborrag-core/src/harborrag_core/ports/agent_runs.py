@@ -22,6 +22,7 @@ class AgentRunStatus(StrEnum):
 
     RUNNING = "running"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
     FAILED = "failed"
 
 

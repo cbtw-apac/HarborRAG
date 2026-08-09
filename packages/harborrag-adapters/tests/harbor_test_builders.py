@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import struct
 import zipfile
 from collections.abc import Iterator
@@ -197,14 +198,23 @@ class FakeResponse:
 
     def iter_content(self, chunk_size: int = 65536) -> Iterator[bytes]:
         _ = chunk_size
-        yield from self._chunks
+        if self._chunks:
+            yield from self._chunks
+        elif self._json is not None:
+            yield json.dumps(self._json).encode("utf-8")
+        elif self.text:
+            yield self.text.encode("utf-8")
 
     def close(self) -> None:
         self.closed = True
 
     @property
     def content(self) -> bytes:
-        return b"".join(self._chunks)
+        if self._chunks:
+            return b"".join(self._chunks)
+        if self._json is not None:
+            return json.dumps(self._json).encode("utf-8")
+        return self.text.encode("utf-8")
 
 
 @dataclass

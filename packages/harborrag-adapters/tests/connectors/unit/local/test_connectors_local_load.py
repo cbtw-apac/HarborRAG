@@ -163,10 +163,12 @@ def test_moving_source_root_preserves_public_and_document_identity(tmp_path: Pat
     assert first.locator == second.locator == "docs/guide.md"
     assert first.metadata["relative_path"] == second.metadata["relative_path"]
     assert identities.document_id(
+        tenant_id="DEFAULT",
         connector_type=ConnectorType.LOCAL,
         connection_id="local-docs",
         source_item_id=first.id,
     ) == identities.document_id(
+        tenant_id="DEFAULT",
         connector_type=ConnectorType.LOCAL,
         connection_id="local-docs",
         source_item_id=second.id,

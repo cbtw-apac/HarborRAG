@@ -7,6 +7,7 @@ from uuid import UUID, uuid5
 from harborrag_core.chunking import ConnectorType, RelationType
 from harborrag_core.chunking.identity import canonical_identity_payload, encoded_identifier
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
+from harborrag_core.security.field_names import canonical_field_name
 
 from .source_contracts import (
     AdmissionSnapshot,
@@ -53,7 +54,7 @@ def reject_runtime_fields(value: object) -> None:
 
     if isinstance(value, Mapping):
         for raw_key, item in value.items():
-            key = str(raw_key).strip().lower()
+            key = canonical_field_name(raw_key)
             if key in _RUNTIME_FIELDS:
                 raise ValueError(f"runtime field is not allowed in knowledge records: {key}")
             reject_runtime_fields(item)
@@ -69,7 +70,7 @@ class DocumentIdentityBuilder:
     def document_id(
         self,
         *,
-        tenant_id: str = "DEFAULT",
+        tenant_id: str,
         connector_type: ConnectorType,
         connection_id: str,
         source_item_id: str,

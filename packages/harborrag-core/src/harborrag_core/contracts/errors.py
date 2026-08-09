@@ -30,6 +30,14 @@ class HarborDeadlineExceeded(HarborError):
     """Operation exceeded its deadline."""
 
 
+class HarborRateLimitError(HarborError):
+    """Caller exceeded an API or provider-owned capacity limit."""
+
+    def __init__(self, message: str, *, retry_after_seconds: int = 60) -> None:
+        super().__init__(message)
+        self.details: dict[str, object] = {"retry_after_seconds": retry_after_seconds}
+
+
 class HarborNotFoundError(HarborError):
     """Request resource does not exist."""
 

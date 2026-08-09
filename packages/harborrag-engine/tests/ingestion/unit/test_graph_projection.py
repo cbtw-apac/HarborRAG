@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import (
@@ -14,6 +16,21 @@ from harborrag_engine.ingestion import (
 )
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
+
+
+def test_graph_projection_rejects_document_chunk_identity_mismatch() -> None:
+    document = make_document([DocumentElement("p1", "paragraph", "First")])
+    other = make_document([DocumentElement("p2", "paragraph", "Second")])
+    other.id = "other-document"
+    chunks = make_service(make_profile()).chunk(make_request(document)).chunks
+
+    with pytest.raises(ValueError, match="document must match"):
+        GraphProjectionInput(
+            document=other,
+            chunks=chunks,
+            resolved_targets={},
+            graph_projection_version="graph-v1",
+        )
 
 
 def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
@@ -73,9 +90,7 @@ def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     assert KnowledgeNodeKind.CHUNK in kinds
     assert KnowledgeNodeKind.STRUCTURE in kinds
     document_node = next(
-        node
-        for node in projection.nodes
-        if node.node_kind == KnowledgeNodeKind.DOCUMENT_VERSION
+        node for node in projection.nodes if node.node_kind == KnowledgeNodeKind.DOCUMENT_VERSION
     )
     section_node = next(
         node for node in projection.nodes if node.entity_type == GraphEntityType.SECTION
@@ -92,9 +107,7 @@ def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     assert chunk_nodes
     assert all(node.node_key == node.logical_id for node in chunk_nodes)
     assert all("content_preview" not in node.model_dump() for node in projection.nodes)
-    target_node = next(
-        node for node in projection.nodes if node.logical_id == "target-page"
-    )
+    target_node = next(node for node in projection.nodes if node.logical_id == "target-page")
     assert target_node.title == "target-page"
     assert target_node.ownership_scope == GraphOwnershipScope.SOURCE_SCOPE
     assert "has_data_source" in relation_types
@@ -192,9 +205,7 @@ def test_graph_projection_models_comments_replies_and_section_targets() -> None:
         )
     )
 
-    comments = [
-        node for node in projection.nodes if node.entity_type == GraphEntityType.COMMENT
-    ]
+    comments = [node for node in projection.nodes if node.entity_type == GraphEntityType.COMMENT]
     relation_types = {relation.relation_type.value for relation in projection.relations}
     assert {node.logical_id for node in comments} == {"comment-1", "comment-2"}
     assert {node.title for node in comments} == {

@@ -31,7 +31,7 @@ class SourceIdentity(StrictModel):
     connection_id: str = Field(min_length=1)
     source_item_id: str = Field(min_length=1)
     source_scope_id: str = Field(min_length=1)
-    tenant_id: str = Field(default="DEFAULT", min_length=1)
+    tenant_id: str = Field(min_length=1)
     binding: SourceBinding = Field(default_factory=lambda: SourceBinding(kind=BindingKind.ROOT))
 
 

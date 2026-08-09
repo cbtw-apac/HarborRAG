@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import replace
 from datetime import timedelta
 from typing import cast
@@ -21,7 +22,6 @@ from .policies import (
 )
 from .schemas import (
     DocumentDispatchSummary,
-    DocumentIngestionInput,
     SourceBatchInput,
     SourceCancellationInput,
     SourceContinuation,
@@ -32,47 +32,9 @@ from .schemas import (
     SourceIngestionResult,
     SourceIngestionStatus,
 )
+from .source_batch_workflow import SourceBatchWorkflow
 
-
-@workflow.defn(name="harborrag.source_batch")
-class SourceBatchWorkflow:
-    @workflow.run
-    async def run(
-        self,
-        request: SourceBatchInput,
-    ) -> DocumentDispatchSummary:
-        summary = DocumentDispatchSummary()
-        for start in range(
-            request.start_index,
-            request.end_index,
-            request.document_concurrency,
-        ):
-            end = min(
-                request.end_index,
-                start + request.document_concurrency,
-            )
-            statuses = await asyncio.gather(
-                *(
-                    workflow.execute_child_workflow(
-                        "harborrag.document_ingestion",
-                        DocumentIngestionInput(
-                            task_id=request.task_id,
-                            tenant_id=request.tenant_id,
-                            connector_name=request.connector_name,
-                            plan_reference=request.plan_reference,
-                            document_index=index,
-                        ),
-                        id=(f"harborrag-document:{request.task_id}:{request.batch_number}:{index}"),
-                        task_queue=TRANSFORM_QUEUE,
-                        result_type=str,
-                        parent_close_policy=(ParentClosePolicy.REQUEST_CANCEL),
-                    )
-                    for index in range(start, end)
-                )
-            )
-            for status in statuses:
-                summary = summary.add(status)
-        return summary
+__all__ = ["SourceBatchWorkflow", "SourceIngestionWorkflow"]
 
 
 @workflow.defn(name="harborrag.source_ingestion")
@@ -93,19 +55,7 @@ class SourceIngestionWorkflow:
     ) -> SourceIngestionResult:
         self._task_id = request.task_id
         self._status = "RUNNING"
-        continuation = request.continuation
-        if continuation is None:
-            discovery = await self._discover(request)
-            start_index = 0
-        else:
-            discovery = SourceDiscoveryResult(
-                scan_id=continuation.scan_id,
-                plan_reference=continuation.plan_reference,
-                document_count=continuation.document_count,
-            )
-            start_index = continuation.next_document_index
-            self._summary = continuation.summary
-            self._batch_number = continuation.batch_number
+        discovery, start_index = await self._initial_state(request)
         self._discovered = discovery.document_count
         if await self._stop_requested():
             return await self._cancelled_result(request, discovery)
@@ -119,24 +69,15 @@ class SourceIngestionWorkflow:
                 if await self._stop_requested():
                     return await self._cancelled_result(request, discovery)
                 end = min(discovery.document_count, start + request.batch_size)
-                batch_result = await workflow.execute_child_workflow(
-                    "harborrag.source_batch",
-                    SourceBatchInput(
-                        task_id=request.task_id,
-                        tenant_id=request.tenant_id,
-                        connector_name=request.connector_name,
-                        plan_reference=discovery.plan_reference,
-                        start_index=start,
-                        end_index=end,
-                        batch_number=self._batch_number,
-                        document_concurrency=request.document_concurrency,
-                    ),
-                    id=(f"harborrag-source-batch:{request.task_id}:{self._batch_number}"),
-                    task_queue=TRANSFORM_QUEUE,
-                    result_type=DocumentDispatchSummary,
-                    parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+                batch_result, cancelled_during_batch = await self._run_batch(
+                    request,
+                    discovery,
+                    start,
+                    end,
                 )
                 self._summary = self._summary.merge(batch_result)
+                if cancelled_during_batch:
+                    return await self._cancelled_result(request, discovery)
                 self._batch_number += 1
                 completed_in_run += 1
                 if await self._stop_requested():
@@ -173,6 +114,9 @@ class SourceIngestionWorkflow:
                 retry_policy=DISCOVERY_RETRY,
                 result_type=SourceIngestionResult,
             )
+        except asyncio.CancelledError:
+            await self._record_hard_cancellation(request.task_id)
+            raise
         except (ActivityError, ChildWorkflowError) as error:
             # A child batch, or finalization itself, can exhaust its retries
             # and fail hard. Without this, the failure propagated straight
@@ -194,6 +138,75 @@ class SourceIngestionWorkflow:
         self._status = result.status
         await self._cleanup_source(request)
         return cast(SourceIngestionResult, result)
+
+    async def _initial_state(
+        self, request: SourceIngestionInput
+    ) -> tuple[SourceDiscoveryResult, int]:
+        continuation = request.continuation
+        if continuation is not None:
+            self._summary = continuation.summary
+            self._batch_number = continuation.batch_number
+            return (
+                SourceDiscoveryResult(
+                    scan_id=continuation.scan_id,
+                    plan_reference=continuation.plan_reference,
+                    document_count=continuation.document_count,
+                ),
+                continuation.next_document_index,
+            )
+        try:
+            return await self._discover(request), 0
+        except asyncio.CancelledError:
+            await self._record_hard_cancellation(request.task_id)
+            raise
+
+    async def _run_batch(
+        self,
+        request: SourceIngestionInput,
+        discovery: SourceDiscoveryResult,
+        start: int,
+        end: int,
+    ) -> tuple[DocumentDispatchSummary, bool]:
+        handle = await workflow.start_child_workflow(
+            "harborrag.source_batch",
+            SourceBatchInput(
+                task_id=request.task_id,
+                tenant_id=request.tenant_id,
+                connector_name=request.connector_name,
+                plan_reference=discovery.plan_reference,
+                start_index=start,
+                end_index=end,
+                batch_number=self._batch_number,
+                document_concurrency=request.document_concurrency,
+            ),
+            id=(f"harborrag-source-batch:{request.task_id}:{self._batch_number}"),
+            task_queue=TRANSFORM_QUEUE,
+            result_type=DocumentDispatchSummary,
+            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+        )
+        batch_future = asyncio.ensure_future(handle)
+        cancel_future = asyncio.create_task(workflow.wait_condition(lambda: self._cancel_requested))
+        done, _ = await workflow.wait(
+            {batch_future, cancel_future}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if batch_future in done:
+            cancel_future.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cancel_future
+            return cast(DocumentDispatchSummary, await batch_future), False
+        await handle.signal("request_graceful_cancel")
+        return cast(DocumentDispatchSummary, await batch_future), True
+
+    @staticmethod
+    async def _record_hard_cancellation(task_id: str) -> None:
+        cleanup = workflow.execute_activity(
+            "harborrag.cancel_source_ingestion",
+            SourceCancellationInput(task_id=task_id),
+            task_queue=DISCOVERY_QUEUE,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=DISCOVERY_RETRY,
+        )
+        await asyncio.shield(cleanup)
 
     @staticmethod
     async def _discover(

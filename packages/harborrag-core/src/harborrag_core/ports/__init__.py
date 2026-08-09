@@ -1,11 +1,19 @@
 from .control_plane import (
     ActivityRepositoryPort,
+    ActivityRepositoryProvider,
     JobRepositoryPort,
+    JobRepositoryProvider,
     MemberRepositoryPort,
+    MemberRepositoryProvider,
     ProjectRepositoryPort,
+    ProjectRepositoryProvider,
     ProviderRepositoryPort,
+    ProviderRepositoryProvider,
     SettingsRepositoryPort,
+    SettingsRepositoryProvider,
     SourceRepositoryPort,
+    SourceRepositoryProvider,
+    TenantScopedRepositoryProvider,
 )
 from .conversation import (
     ConversationIdentity,
@@ -28,6 +36,7 @@ from .retrieval import GraphRetrievalRepositoryPort
 
 __all__ = [
     "ActivityRepositoryPort",
+    "ActivityRepositoryProvider",
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
@@ -41,12 +50,19 @@ __all__ = [
     "HarborEmbedClientProtocol",
     "HarborRerankClientProtocol",
     "JobRepositoryPort",
+    "JobRepositoryProvider",
     "KnowledgeGraphRepositoryPort",
     "MemberRepositoryPort",
+    "MemberRepositoryProvider",
+    "ProjectRepositoryProvider",
     "ProjectRepositoryPort",
+    "ProviderRepositoryProvider",
     "ProviderRepositoryPort",
+    "SettingsRepositoryProvider",
     "SettingsRepositoryPort",
+    "SourceRepositoryProvider",
     "SourceRepositoryPort",
+    "TenantScopedRepositoryProvider",
     "VectorIndexRepositoryPort",
     "new_session_id",
 ]

@@ -39,6 +39,7 @@ class SourceFinalizationService:
         planned: tuple[PlannedDocumentRelease, ...],
         summary: SourceDispatchSummary,
     ) -> SourceIngestionOutcome:
+        summary.require_total(len(planned))
         logger.info(
             "Source finalization started task_id=%s scan_id=%s documents=%d",
             request.task_id,

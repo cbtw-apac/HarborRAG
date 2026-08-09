@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from jira_test_helpers import CLOUD_BASE, FakeJiraClient, cloud_config, dc_config, issue
 
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.issues import DISCOVERY_FIELDS
 from harborrag_adapters.connectors.schemas import ConnectorQuery
@@ -63,6 +63,32 @@ def test_discover_cloud_uses_search_jql_token_pagination():
     assert "expand" not in client.post_calls[0][1]
     assert client.post_calls[0][1]["fields"] == list(DISCOVERY_FIELDS)
     assert records[0].id == "jira://ENG/ENG-1"
+
+
+def test_discover_cloud_rejects_repeated_pagination_token():
+    client = FakeJiraClient()
+    client.add_post(
+        "search/jql",
+        {"issues": [], "nextPageToken": "same", "isLast": False},
+        {"issues": [], "nextPageToken": "same", "isLast": False},
+    )
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(FetchError, match="did not advance"):
+        list(connector.discover())
+
+
+@pytest.mark.parametrize("token", ["x" * 4097, "unsafe\nvalue"])
+def test_discover_cloud_rejects_unsafe_pagination_token(token):
+    client = FakeJiraClient()
+    client.add_post(
+        "search/jql",
+        {"issues": [], "nextPageToken": token, "isLast": False},
+    )
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(FetchError, match="did not advance"):
+        list(connector.discover())
 
 
 def test_discover_supports_direct_issue_keys_without_search():

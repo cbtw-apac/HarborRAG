@@ -67,9 +67,7 @@ def test_cross_projection_verification_rejects_payload_version_drift() -> None:
     evidence = vectors.evidence_records[0]
     invalid_evidence = evidence.model_copy(
         update={
-            "payload": evidence.payload.model_copy(
-                update={"document_version_id": "stale-version"}
-            )
+            "payload": evidence.payload.model_copy(update={"document_version_id": "stale-version"})
         }
     )
 
@@ -80,10 +78,12 @@ def test_cross_projection_verification_rejects_payload_version_drift() -> None:
             vectors=VectorProjectionBatch(
                 evidence_records=(invalid_evidence, *vectors.evidence_records[1:]),
                 manifest=vectors.manifest.model_copy(
-                    update={"evidence_point_ids": tuple(
-                        record.point_id
-                        for record in (invalid_evidence, *vectors.evidence_records[1:])
-                    )}
+                    update={
+                        "evidence_point_ids": tuple(
+                            record.point_id
+                            for record in (invalid_evidence, *vectors.evidence_records[1:])
+                        )
+                    }
                 ),
             ),
             graph=values.graph,

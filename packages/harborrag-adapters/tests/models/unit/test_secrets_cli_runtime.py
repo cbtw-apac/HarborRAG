@@ -96,8 +96,9 @@ def test_secret_reference_parsing_and_environment_resolver() -> None:
     assert resolver.resolve(reference("secret://env/TOKEN")) == "secret-value"
     with pytest.raises(ValueError, match="environment secret URI"):
         resolver.resolve(reference("secret://aws/TOKEN"))
-    with pytest.raises(KeyError, match="not configured"):
+    with pytest.raises(KeyError, match="not configured") as exc_info:
         resolver.resolve(reference("secret://env/MISSING"))
+    assert "MISSING" not in str(exc_info.value)
 
 
 def test_aws_secret_resolver_text_binary_and_fields() -> None:

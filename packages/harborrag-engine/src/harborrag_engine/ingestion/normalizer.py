@@ -30,7 +30,10 @@ class DocumentNormalizer(BaseDocumentNormalizer):
     def normalize(self, raw: RawDocument, parsed: ParsedDocument) -> Document:
         source_metadata = dict(raw.metadata)
         parser_metadata = dict(parsed.metadata or {})
-        metadata = {**source_metadata, **parser_metadata}
+        # Parser metadata is derived from untrusted document bytes. Connector
+        # metadata is the authoritative source for ACL, identity, and provenance
+        # fields, so it must win every conflict.
+        metadata = {**parser_metadata, **source_metadata}
 
         elements = list(parsed.elements or ())
         if not elements and parsed.content.strip():

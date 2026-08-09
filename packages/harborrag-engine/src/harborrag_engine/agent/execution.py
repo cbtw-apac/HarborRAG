@@ -65,11 +65,13 @@ class ChatAndToolExecutor:
         *,
         tools: tuple[HarborChatTool, ...],
         guard: ExecutionGuard | None = None,
+        completion_token_limit: int | None = None,
     ) -> HarborChatResponse:
         request = HarborChatRequest(
             messages=tuple(messages),
             tools=tools,
             parallel_tool_calls=True if tools else None,
+            max_completion_tokens=completion_token_limit,
             metadata=HarborChatMetadata(
                 tenant_id=options.tenant_id,
                 conversation_id=options.session_id,

@@ -45,6 +45,7 @@ def registration_from_existing(
 def stored_source_item_from_row(row: DatabaseRow) -> StoredSourceItem:
     return StoredSourceItem(
         source_identity=SourceIdentity(
+            tenant_id=required_text(row, "tenant_id"),
             connector_type=ConnectorType(required_text(row, "connector_type")),
             connection_id=required_text(row, "connection_id"),
             source_item_id=required_text(row, "source_item_id"),

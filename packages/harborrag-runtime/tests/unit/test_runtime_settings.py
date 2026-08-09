@@ -82,6 +82,64 @@ def test_redis_url_rejects_non_redis_scheme() -> None:
         RuntimeSettings(redis_url=SecretStr("https://redis.example.com"))
 
 
+def test_remote_plaintext_redis_requires_development_acknowledgement() -> None:
+    remote_url = SecretStr("redis://user:private@redis.internal:6379/0")
+
+    with pytest.raises(ValidationError, match="remote Redis requires an encrypted transport"):
+        RuntimeSettings(redis_url=remote_url)
+
+    acknowledged = RuntimeSettings(
+        redis_url=remote_url,
+        redis_allow_insecure_remote=True,
+    )
+    assert acknowledged.redis_url == remote_url
+
+    with pytest.raises(ValidationError, match="remote Redis requires an encrypted transport"):
+        RuntimeSettings(
+            env="prod",
+            control_db_url="postgresql+asyncpg://database/control",
+            redis_url=remote_url,
+            redis_allow_insecure_remote=True,
+        )
+
+
+def test_remote_plaintext_object_store_requires_development_acknowledgement() -> None:
+    endpoint = "http://minio.internal:9000"
+
+    with pytest.raises(ValidationError, match="remote object store requires"):
+        RuntimeSettings(
+            object_store_endpoint_url=endpoint,
+            object_store_access_key_id="local-access-key",
+            object_store_secret_access_key="local-secret-key",
+        )
+
+    acknowledged = RuntimeSettings(
+        object_store_endpoint_url=endpoint,
+        object_store_access_key_id="local-access-key",
+        object_store_secret_access_key="local-secret-key",
+        object_store_allow_insecure_remote=True,
+    )
+    assert acknowledged.object_store_endpoint_url == endpoint
+
+    with pytest.raises(ValidationError, match="remote object store requires"):
+        RuntimeSettings(
+            env="prod",
+            control_db_url="postgresql+asyncpg://database/control",
+            object_store_endpoint_url=endpoint,
+            object_store_allow_insecure_remote=True,
+        )
+
+
+def test_remote_secure_object_store_is_accepted_in_production() -> None:
+    settings = RuntimeSettings(
+        env="prod",
+        control_db_url="postgresql+asyncpg://database/control",
+        object_store_endpoint_url="https://objects.example.com",
+    )
+
+    assert settings.object_store_endpoint_url == "https://objects.example.com"
+
+
 def test_ingestion_metrics_settings_validate_the_listener_port() -> None:
     settings = RuntimeSettings(
         metrics_port=9464,

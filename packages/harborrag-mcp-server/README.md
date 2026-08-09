@@ -97,7 +97,8 @@ file. The configuration controls:
 
 Required fields and `tenant_id` can never receive defaults, unknown tools and
 fields are rejected, and configured limits cannot exceed each tool's compiled
-safety ceiling. These environment variables override the file without being
+safety ceiling. Tenant IDs are canonicalized before policy lookup and execution,
+and configuration tenant keys may not contain surrounding whitespace. These environment variables override the file without being
 persisted back into it:
 
 - `HARBORRAG_MCP_MAX_RESULTS`
@@ -116,6 +117,9 @@ Changes to global advertised tool schemas or enabled tools set
 the new advertised catalog.
 
 Network transports must be constructed with a FastMCP authentication provider.
+MCP tool calls require an authenticated token carrying `role=owner` and an
+explicit `tenants` claim containing the requested tenant. Global owners must
+carry the deliberate wildcard claim `tenants=["*"]`.
 The explicit local override is for stdio only and opens no listener.
 
 

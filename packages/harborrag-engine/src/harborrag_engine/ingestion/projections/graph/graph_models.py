@@ -61,13 +61,10 @@ class GraphProjectionInput:
         version_ids = {str(chunk.document_version_id) for chunk in self.chunks}
         scopes = {chunk.source_scope_id for chunk in self.chunks}
         tenants = {str(chunk.tenant_id) for chunk in self.chunks}
-        if (
-            len(document_ids) != 1
-            or len(version_ids) != 1
-            or len(scopes) != 1
-            or len(tenants) != 1
-        ):
+        if len(document_ids) != 1 or len(version_ids) != 1 or len(scopes) != 1 or len(tenants) != 1:
             raise ValueError("graph projection chunks must belong to one document version")
+        if document_ids != {self.document.id}:
+            raise ValueError("graph projection document must match its canonical chunks")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,8 +117,7 @@ class GraphProjectionBatch:
                 ):
                     raise ValueError("version-owned relation must match its version endpoint")
             elif any(
-                node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
-                for node in endpoints
+                node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION for node in endpoints
             ):
                 raise ValueError("stable relationship may not own a version endpoint")
         object.__setattr__(self, "manifest", self._build_manifest())
@@ -144,9 +140,7 @@ class GraphProjectionBatch:
             if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
             and node.document_version_id == document_version_id
         )
-        document_ids = {
-            node.document_id for node in current_nodes if node.document_id is not None
-        }
+        document_ids = {node.document_id for node in current_nodes if node.document_id is not None}
         if len(document_ids) != 1:
             raise ValueError("graph projection cannot identify its owning document")
         records = [

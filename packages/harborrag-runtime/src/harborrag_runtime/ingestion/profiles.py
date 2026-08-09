@@ -21,7 +21,7 @@ def build_processing_profile(settings: RuntimeSettings) -> ProcessingProfile:
             settings.parser_config_path,
         ),
         normalizer_version=CANONICAL_NORMALIZER_VERSION,
-        chunk_strategy="canonical-source-policies-route-evidence",
+        chunk_strategy="canonical-source-policies-route-evidence-v2",
         dense_encoder_profile=settings.dense_encoder_profile,
         sparse_encoder_profile=settings.sparse_encoder_profile,
         graph_projection_version=GRAPH_PROJECTION_VERSION,

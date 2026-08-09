@@ -65,6 +65,27 @@ def test_retrieval_transport_cannot_override_tenant(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "harbor_validation_error"
 
 
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {f"field-{index}": index for index in range(33)},
+        {"a": {"b": {"c": {"d": []}}}},
+        {"field": "x" * 4_097},
+    ],
+)
+def test_retrieval_filters_have_bounded_shape(
+    client: TestClient,
+    filters: dict[str, object],
+) -> None:
+    response = client.post(
+        "/v1/retrieval/vector",
+        json={"query": "publication", "filters": filters},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "harbor_validation_error"
+
+
 def test_retrieval_accepts_an_explicit_tenant(client: TestClient, service: MockAppService) -> None:
     response = client.post(
         "/v1/retrieval/vector",
@@ -175,6 +196,29 @@ def test_graph_triplet_search_uses_tenant_and_principal(
 
 def test_graph_triplet_search_requires_a_selector(client: TestClient) -> None:
     response = client.post("/v1/retrieval/graph/triplets", json={})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "harbor_validation_error"
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/v1/retrieval/graph/triplets", {"subject": "x" * 1_025}),
+        (
+            "/v1/retrieval/graph/paths",
+            {"start_node": "x" * 1_025, "end_node": "document:2"},
+        ),
+        ("/v1/retrieval/graph/subgraphs", {"start_node": "x" * 1_025}),
+        ("/v1/retrieval/graph/neighborhoods", {"query": "x" * 16_385}),
+    ],
+)
+def test_graph_selectors_and_queries_have_length_limits(
+    client: TestClient,
+    path: str,
+    payload: dict[str, str],
+) -> None:
+    response = client.post(path, json=payload)
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "harbor_validation_error"

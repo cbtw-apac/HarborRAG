@@ -14,20 +14,14 @@ from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
 from .filesystem_paths import (
-    file_extension,
-    guess_mime_type,
     is_hidden_path,
-    matches_globs,
-    matches_pattern,
-    path_in_scope,
-    relative_path,
     resolve_path,
-    stat_datetime,
     stat_signature,
 )
-from .filters import extension_filter, file_paths_from_query, path_filter
+from .filters import file_paths_from_query
 from .mappers import build_source_record
 from .secure_read import LocalFileSnapshot, SecureReadScope, read_snapshot_beneath
+from .selection import LocalFileSelector
 from .skips import LocalSkipReport
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
@@ -50,6 +44,13 @@ class LocalFileSystem:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         self._root_fd = os.open(self.root_path, flags)
+        self._selector = LocalFileSelector(
+            config,
+            self.root_path,
+            self.skips,
+            within_source_scope=self.within_source_scope,
+            has_symlink_component=self.has_symlink_component,
+        )
 
     def close(self) -> None:
         """Release the trusted root descriptor used for race-free reads."""
@@ -84,16 +85,11 @@ class LocalFileSystem:
         seen_dirs: set[Path] | None = None,
     ) -> Iterator[tuple[Path, bool]]:
         """Yield files with symlink provenance under the configured traversal policy."""
-        if start_path.is_symlink() and not self.config.follow_symlinks:
-            return
-        if not self.within_source_scope(start_path):
-            self.skips.out_of_scope(start_path)
+        if not self._traversable(start_path):
             return
         if start_path.is_file():
             yield start_path, start_path.is_symlink()
             return
-        if not start_path.is_dir():
-            raise DocumentProcessingError(f"Local path is not a file or directory: {start_path}")
 
         seen_dirs = seen_dirs or set()
         directory_key = resolve_path(start_path)
@@ -102,113 +98,70 @@ class LocalFileSystem:
             return
         seen_dirs.add(directory_key)
 
-        try:
-            entries = sorted(start_path.iterdir(), key=lambda item: item.name.lower())
-        except OSError as exc:
-            if self.config.fail_on_error:
-                raise FetchError(f"Could not list local directory {start_path}: {exc}") from exc
-            self.skips.unreadable(start_path, error=exc)
+        entries = self._directory_entries(start_path)
+        if entries is None:
             return
 
         for entry in entries:
-            is_symlink_entry = entry.is_symlink()
-            if is_symlink_entry and not self.config.follow_symlinks:
-                continue
-            if not self.config.include_hidden and is_hidden_path(entry, self.root_path):
-                continue
+            yield from self._walk_entry(entry, query, depth=depth, seen_dirs=seen_dirs)
 
-            if entry.is_dir():
-                if entry.name in self.config.excluded_dir_names:
-                    continue
-                if not query.recursive:
-                    continue
-                if self.config.max_depth is not None and depth >= self.config.max_depth:
-                    continue
+    def _traversable(self, path: Path) -> bool:
+        if path.is_symlink() and not self.config.follow_symlinks:
+            return False
+        if not self.within_source_scope(path):
+            self.skips.out_of_scope(path)
+            return False
+        if not path.is_file() and not path.is_dir():
+            raise DocumentProcessingError(f"Local path is not a file or directory: {path}")
+        return True
+
+    def _directory_entries(self, path: Path) -> list[Path] | None:
+        try:
+            return sorted(path.iterdir(), key=lambda item: item.name.lower())
+        except OSError as exc:
+            if self.config.fail_on_error:
+                raise FetchError(f"Could not list local directory {path}: {exc}") from exc
+            self.skips.unreadable(path, error=exc)
+            return None
+
+    def _walk_entry(
+        self,
+        entry: Path,
+        query: ConnectorQuery,
+        *,
+        depth: int,
+        seen_dirs: set[Path],
+    ) -> Iterator[tuple[Path, bool]]:
+        is_symlink = entry.is_symlink()
+        if is_symlink and not self.config.follow_symlinks:
+            return
+        if not self.config.include_hidden and is_hidden_path(entry, self.root_path):
+            return
+        if entry.is_dir():
+            depth_allowed = self.config.max_depth is None or depth < self.config.max_depth
+            if (
+                entry.name not in self.config.excluded_dir_names
+                and query.recursive
+                and depth_allowed
+            ):
                 yield from self.iter_files(
                     entry,
                     query=query,
                     depth=depth + 1,
                     seen_dirs=seen_dirs,
                 )
-                continue
-
-            if entry.is_file():
-                resolved = resolve_path(entry)
-                if not self.within_source_scope(resolved):
-                    self.skips.out_of_scope(entry)
-                    continue
-                yield resolved, is_symlink_entry
+            return
+        if not entry.is_file():
+            return
+        resolved = resolve_path(entry)
+        if not self.within_source_scope(resolved):
+            self.skips.out_of_scope(entry)
+            return
+        yield resolved, is_symlink
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
         """Apply local connector filters to one candidate path."""
-        if not path.is_file():
-            return False
-        if not self.config.follow_symlinks and self.has_symlink_component(path):
-            return False
-        if not self.within_source_scope(path):
-            raise DocumentProcessingError(f"Local path is outside configured source scope: {path}")
-        if not self.config.include_hidden and is_hidden_path(path, self.root_path):
-            return False
-
-        try:
-            stat = path.stat()
-        except OSError as exc:
-            if self.config.fail_on_error:
-                raise FetchError(f"Could not stat local file {path}: {exc}") from exc
-            self.skips.unreadable(path, error=exc)
-            return False
-
-        updated_at = stat_datetime(stat.st_mtime)
-        if query.updated_after and updated_at <= query.updated_after:
-            return False
-        if not matches_pattern(path, self.root_path, query.pattern):
-            return False
-
-        extension = file_extension(path)
-        allowed_extensions = extension_filter(self.config, query, "allowed_extensions")
-        if allowed_extensions and extension not in allowed_extensions:
-            return False
-        excluded_extensions = extension_filter(self.config, query, "excluded_extensions")
-        if extension in excluded_extensions:
-            return False
-
-        include_paths = path_filter(self.config, query, "include_paths")
-        if include_paths:
-            if not any(path_in_scope(path, self.root_path, value) for value in include_paths):
-                return False
-        exclude_paths = path_filter(self.config, query, "exclude_paths")
-        if any(path_in_scope(path, self.root_path, value) for value in exclude_paths):
-            return False
-
-        include_globs = path_filter(self.config, query, "include_globs")
-        if include_globs and not matches_globs(path, self.root_path, include_globs):
-            return False
-        exclude_globs = path_filter(self.config, query, "exclude_globs")
-        if matches_globs(path, self.root_path, exclude_globs):
-            return False
-
-        size_limit = self.config.max_file_size_bytes
-        if size_limit is not None and stat.st_size > size_limit:
-            self.skips.oversized(path, size=stat.st_size, limit=size_limit)
-            return False
-
-        if self.config.process_file_callback:
-            try:
-                should_process, reason = self.config.process_file_callback(
-                    relative_path(path, self.root_path),
-                    stat.st_size,
-                    guess_mime_type(path),
-                )
-            except Exception as exc:
-                if self.config.fail_on_error:
-                    raise
-                logger.exception("Local file callback failed for %s", path)
-                self.skips.callback_rejected(path, reason=f"raised {type(exc).__name__}: {exc}")
-                return False
-            if not should_process:
-                self.skips.callback_rejected(path, reason=reason)
-                return False
-        return True
+        return self._selector.should_process_file(path, query)
 
     def enforce_size_limit(self, path: Path, size: int) -> None:
         """Prevent direct loads from materializing oversized files."""

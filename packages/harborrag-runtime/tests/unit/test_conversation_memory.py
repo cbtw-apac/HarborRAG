@@ -34,8 +34,7 @@ async def test_memory_isolates_identity_and_bounds_history() -> None:
 async def test_memory_evicts_least_recently_used_session_and_clears() -> None:
     memory = InMemoryConversationMemory(max_sessions=2)
     identities = [
-        ConversationIdentity("tenant", "principal", f"session-{index}")
-        for index in range(3)
+        ConversationIdentity("tenant", "principal", f"session-{index}") for index in range(3)
     ]
     for identity in identities:
         await memory.create(identity)

@@ -13,8 +13,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from math import isfinite
 from typing import Any, Protocol
 from uuid import uuid4
+
+from harborrag_core.base import utc_now
+from harborrag_core.chunking.metadata import FrozenMetadata
 
 
 def new_memory_id() -> str:
@@ -72,6 +76,12 @@ class MemoryOwner:
     session_id: str | None = None
     run_id: str | None = None
 
+    def __post_init__(self) -> None:
+        for name in ("tenant_id", "project_id", "principal_id", "session_id", "run_id"):
+            value = getattr(self, name)
+            if value is not None and not value.strip():
+                raise ValueError(f"memory owner {name} must be non-empty")
+
 
 def scope_owner_fields(scope: MemoryScope) -> tuple[str, ...]:
     """Owner fields that must match for a memory at ``scope`` to be visible."""
@@ -107,9 +117,24 @@ class Memory:
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
     importance: float = 0.5
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
     expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not self.memory_id.strip() or not self.content.strip():
+            raise ValueError("memory id and content must be non-empty")
+        if not isfinite(self.importance) or not 0.0 <= self.importance <= 1.0:
+            raise ValueError("memory importance must be finite and between zero and one")
+        for name in ("created_at", "updated_at", "expires_at"):
+            value = getattr(self, name)
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"memory {name} must be timezone-aware")
+        if self.updated_at < self.created_at:
+            raise ValueError("memory updated_at must not precede created_at")
+        if self.expires_at is not None and self.expires_at <= self.created_at:
+            raise ValueError("memory expires_at must follow created_at")
+        object.__setattr__(self, "metadata", FrozenMetadata(self.metadata))
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +146,16 @@ class MemoryQuery:
     memory_types: tuple[MemoryType, ...] = ()
     text: str | None = None
     limit: int = 20
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.limit <= 1000:
+            raise ValueError("memory query limit must be between 1 and 1000")
+        if self.text is not None and not self.text.strip():
+            raise ValueError("memory query text must be non-empty when supplied")
+        if len(set(self.scopes)) != len(self.scopes):
+            raise ValueError("memory query scopes must be unique")
+        if len(set(self.memory_types)) != len(self.memory_types):
+            raise ValueError("memory query types must be unique")
 
 
 class MemoryRepository(Protocol):

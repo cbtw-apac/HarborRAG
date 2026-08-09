@@ -10,6 +10,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError, ChildWorkflowError
 from temporalio.workflow import ParentClosePolicy
 
+from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .policies import DISCOVERY_QUEUE, DISCOVERY_RETRY, DOCUMENT_RETRY, IO_QUEUE, TRANSFORM_QUEUE
@@ -28,18 +29,17 @@ from .schemas import (
 @workflow.defn(name="harborrag.document_retry")
 class DocumentRetryWorkflow:
     @workflow.run
-    async def run(self, request: RetryDocumentInput) -> str:
+    async def run(self, request: RetryDocumentInput) -> DocumentIngestionOutcome:
         try:
-            return cast(
-                str,
+            return DocumentIngestionOutcome(
                 await workflow.execute_activity(
                     "harborrag.retry_document_release",
                     request,
                     task_queue=IO_QUEUE,
                     start_to_close_timeout=timedelta(minutes=60),
                     retry_policy=DOCUMENT_RETRY,
-                    result_type=str,
-                ),
+                    result_type=DocumentIngestionOutcome,
+                )
             )
         except ActivityError as error:
             error_type, _ = durable_failure(error)
@@ -53,7 +53,7 @@ class DocumentRetryWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=DISCOVERY_RETRY,
             )
-            return "failed"
+            return DocumentIngestionOutcome.FAILED
 
 
 @workflow.defn(name="harborrag.retry_failures")
@@ -88,7 +88,7 @@ class RetryFailuresWorkflow:
                             ),
                             id=f"harborrag-document-retry:{request.retry_task_id}:{index}",
                             task_queue=TRANSFORM_QUEUE,
-                            result_type=str,
+                            result_type=DocumentIngestionOutcome,
                             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                         )
                         for index in range(start, end)

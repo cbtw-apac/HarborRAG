@@ -11,6 +11,7 @@ class FakeGitHubClient:
     def __init__(self) -> None:
         self.responses: dict[str, list[Any]] = {}
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.response_limits: list[int | None] = []
 
     def add(self, endpoint: str, *responses: Any) -> None:
         self.responses.setdefault(endpoint, []).extend(responses)
@@ -20,8 +21,10 @@ class FakeGitHubClient:
         endpoint: str,
         *,
         params: dict[str, Any] | None = None,
+        max_bytes: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         self.calls.append((endpoint, params))
+        self.response_limits.append(max_bytes)
         values = self.responses.get(endpoint)
         if not values:
             raise AssertionError(f"Unexpected GitHub endpoint: {endpoint}")

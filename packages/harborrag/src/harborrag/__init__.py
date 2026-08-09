@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     )
     from harborrag_core.retrieval import (
         GraphDirection,
+        GraphNeighborhoodQuery,
         GraphPathQuery,
         GraphSubgraphQuery,
         GraphTripletQuery,
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
     from harborrag_runtime.chat import ChatPrompt
     from harborrag_runtime.sdk import (
         ExecutionMode,
+        GraphNeighborhoodRequest,
+        GraphNeighborhoodResponse,
         GraphPathRequest,
         GraphPathResponse,
         GraphSubgraphRequest,
@@ -46,6 +49,9 @@ __all__ = [
     "Document",
     "ExecutionMode",
     "GraphDirection",
+    "GraphNeighborhoodQuery",
+    "GraphNeighborhoodRequest",
+    "GraphNeighborhoodResponse",
     "GraphPathQuery",
     "GraphPathRequest",
     "GraphPathResponse",
@@ -75,6 +81,7 @@ _EXPORT_MODULES = {
     "ChatPrompt": "harborrag_runtime.chat",
     "Document": "harborrag_core",
     "GraphDirection": "harborrag_core.retrieval",
+    "GraphNeighborhoodQuery": "harborrag_core.retrieval",
     "GraphPathQuery": "harborrag_core.retrieval",
     "GraphSubgraphQuery": "harborrag_core.retrieval",
     "GraphTripletQuery": "harborrag_core.retrieval",
@@ -85,6 +92,8 @@ _EXPORT_MODULES = {
     **dict.fromkeys(
         (
             "ExecutionMode",
+            "GraphNeighborhoodRequest",
+            "GraphNeighborhoodResponse",
             "GraphPathRequest",
             "GraphPathResponse",
             "GraphSubgraphRequest",

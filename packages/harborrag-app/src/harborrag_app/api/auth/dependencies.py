@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from ipaddress import ip_address
 from typing import Annotated
 
 from fastapi import Depends, Request, Security
@@ -35,6 +36,12 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     if settings.auth_mode == "none":
         if settings.env == "prod":
             raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
+        if not _is_loopback_host(settings.host) and not settings.allow_insecure_dev:
+            raise HarborConfigurationError(
+                "auth_mode=none may bind only to a loopback host; set "
+                "HARBORRAG_ALLOW_INSECURE_DEV=true to acknowledge an unauthenticated "
+                "non-loopback development listener"
+            )
         # `env` and `auth_mode` both default to permissive values ("dev" and
         # "none"), so a deployment that forgets to set HARBORRAG_ENV=prod
         # falls through here silently -- the process boots and every request
@@ -66,6 +73,18 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
             clock_skew_seconds=settings.auth_clock_skew_seconds,
         )
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Accept explicit loopback names and addresses, never unresolved hostnames."""
+
+    normalized = host.strip().lower().removeprefix("[").removesuffix("]")
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 def get_principal(

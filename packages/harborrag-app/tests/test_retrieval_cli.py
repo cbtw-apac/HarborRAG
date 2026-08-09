@@ -16,6 +16,8 @@ from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse
 
 
 class FakeComposition:
+    mode = "test"
+
     def diagnostics(self):
         return {"runtime": {"ready": True}}
 

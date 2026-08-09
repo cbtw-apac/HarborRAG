@@ -7,7 +7,7 @@ never on the adapter classes.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
@@ -17,6 +17,7 @@ from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
+from harborrag_core.security.context import AccessContext
 
 
 class ProjectRepositoryPort(Protocol):
@@ -127,3 +128,26 @@ class MemberRepositoryPort(Protocol):
 
     async def delete(self, member_id: str) -> None:
         """Remove a member."""
+
+
+TRepository_co = TypeVar("TRepository_co", covariant=True)
+
+
+class TenantScopedRepositoryProvider(Protocol[TRepository_co]):
+    """Bind a repository surface to one authenticated tenant context.
+
+    Existing repositories remain source-compatible. Multi-tenant composition
+    should obtain them through this capability; the returned view must expose
+    only records matching ``access.tenant_id`` and stamp that tenant on writes.
+    """
+
+    def for_access(self, access: AccessContext) -> TRepository_co: ...
+
+
+ProjectRepositoryProvider = TenantScopedRepositoryProvider[ProjectRepositoryPort]
+SourceRepositoryProvider = TenantScopedRepositoryProvider[SourceRepositoryPort]
+JobRepositoryProvider = TenantScopedRepositoryProvider[JobRepositoryPort]
+ActivityRepositoryProvider = TenantScopedRepositoryProvider[ActivityRepositoryPort]
+SettingsRepositoryProvider = TenantScopedRepositoryProvider[SettingsRepositoryPort]
+ProviderRepositoryProvider = TenantScopedRepositoryProvider[ProviderRepositoryPort]
+MemberRepositoryProvider = TenantScopedRepositoryProvider[MemberRepositoryPort]

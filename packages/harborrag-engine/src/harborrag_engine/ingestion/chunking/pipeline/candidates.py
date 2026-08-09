@@ -14,6 +14,8 @@ from ..transforms import (
     TokenBudgetPacker,
 )
 
+_SOURCE_NEUTRAL_BINDING_KINDS = frozenset({"ATTACHMENT"})
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkTransforms:
@@ -64,7 +66,7 @@ class ChunkCandidatePipeline:
 
         configured_profile = self._config.profile_for(
             request.connector_type,
-            request.profile_name,
+            self._profile_override(request),
         )
         strategy = self._strategies.get(configured_profile.strategy)
         profile = self._profile_for_plan(configured_profile, plan)
@@ -102,6 +104,16 @@ class ChunkCandidatePipeline:
             refined_unit_count=len(refined_units),
             forced_split_count=sum(unit.forced_split for unit in refined_units),
         )
+
+    def _profile_override(self, request: ChunkingRequest) -> str | None:
+        """Use the source-neutral default for independently parsed attachments."""
+
+        if request.profile_name is not None:
+            return request.profile_name
+        binding_kind = str(request.document.provenance.extra.get("binding_kind") or "")
+        if binding_kind.strip().upper() in _SOURCE_NEUTRAL_BINDING_KINDS:
+            return self._config.default_profile
+        return None
 
     @staticmethod
     def _profile_for_plan(

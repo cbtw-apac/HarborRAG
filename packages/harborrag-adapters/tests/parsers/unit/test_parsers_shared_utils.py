@@ -22,7 +22,7 @@ def test_guard_input_size_allows_under_cap_and_rejects_over_cap():
     with pytest.raises(ParseError, match="exceeds max_input_bytes"):
         guard_input_size(b"x" * 11, max_bytes=10)
     # The default cap constant is exposed for callers to reason about.
-    assert DEFAULT_MAX_INPUT_BYTES == 512 * 1024 * 1024
+    assert DEFAULT_MAX_INPUT_BYTES == 128 * 1024 * 1024
 
 
 def test_compact_text_preserves_paragraph_breaks():

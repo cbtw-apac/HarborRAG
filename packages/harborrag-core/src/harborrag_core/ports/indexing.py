@@ -13,7 +13,12 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import VectorIndexRecord, VectorIndexSpec
+from harborrag_core.schemas.vector import (
+    VectorFilter,
+    VectorIndexRecord,
+    VectorIndexScanPage,
+    VectorIndexSpec,
+)
 
 
 class VectorIndexRepositoryPort(Protocol):
@@ -49,6 +54,16 @@ class VectorIndexRepositoryPort(Protocol):
         *,
         context: StorageOperationContext,
     ) -> None: ...
+
+    async def scan_records(
+        self,
+        index_name: str,
+        *,
+        limit: int,
+        cursor: str | None,
+        filters: VectorFilter | None = None,
+        context: StorageOperationContext,
+    ) -> VectorIndexScanPage: ...
 
 
 class KnowledgeGraphRepositoryPort(Protocol):

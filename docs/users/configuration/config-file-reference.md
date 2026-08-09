@@ -44,6 +44,7 @@ settings through `HARBORRAG_*` variables:
 | `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` |
 | `HARBORRAG_CONTROL_DB_URL` | Local SQLite development database |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` |
+| `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback object storage; ignored in production |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` |
 | `HARBORRAG_FALKORDB_PORT` | `6379` |
@@ -51,6 +52,11 @@ settings through `HARBORRAG_*` variables:
 | `HARBORRAG_FALKORDB_MAX_CONNECTIONS` | `32` |
 | `HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY` | `8` |
 | `HARBORRAG_REDIS_URL` | Optional disposable cache/rate limiter |
+| `HARBORRAG_REDIS_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback Redis; ignored in production |
+| `HARBORRAG_API_CAPACITY_REDIS_URL` | Required in production for cross-replica API rate and concurrency limits |
+| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` per authenticated principal |
+| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` |
+| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` |
 
 Database URLs, API keys, object-store credentials, and FalkorDB passwords are
 secret settings. They are masked by `RuntimeSettings` and must be supplied

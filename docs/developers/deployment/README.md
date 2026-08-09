@@ -85,7 +85,10 @@ scripts/deployment/dev.sh api
 
 The API binds to `127.0.0.1:8000` by default. Override
 `HARBORRAG_API_BIND_ADDRESS` or `HARBORRAG_API_PORT` when another local binding
-is required. Authentication and CORS values belong in the ignored
+is required. The local container's internal wildcard listener is explicitly
+acknowledged by `HARBORRAG_ALLOW_INSECURE_DEV=true`; this is safe only while the
+published address remains loopback. Configure HMAC authentication before using
+a non-loopback published address. Authentication and CORS values belong in the ignored
 `env/.env.api`. The API receives chat and embedding credentials from
 `env/.env.models` for chat completions and synchronous vector retrieval, while
 connector credentials remain isolated in ingestion workers. Use

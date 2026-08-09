@@ -75,6 +75,9 @@ class McpConfiguration(BaseModel):
             raise ValueError("MCP tool names must be non-empty")
         if empty_tenants:
             raise ValueError("MCP tenant names must be non-empty")
+        noncanonical_tenants = [name for name in self.tenants if name != name.strip()]
+        if noncanonical_tenants:
+            raise ValueError("MCP tenant names must not contain surrounding whitespace")
         return self
 
 

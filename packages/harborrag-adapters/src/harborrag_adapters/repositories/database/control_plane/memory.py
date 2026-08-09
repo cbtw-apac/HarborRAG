@@ -14,6 +14,8 @@ import sqlalchemy as sa
 
 from harborrag_adapters.repositories.database.control_plane.schemas import MemoryRow
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
+from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -100,7 +102,12 @@ class SqlMemoryRepository:
             if existing is None:
                 session.add(MemoryRow(memory_id=memory.memory_id, **_row_values(memory)))
                 return
-            for key, value in _row_values(memory).items():
+            stored = _row_to_memory(existing)
+            if stored.scope is not memory.scope or stored.owner != memory.owner:
+                raise HarborConflictError("memory identity belongs to a different owner or scope")
+            values = _row_values(memory)
+            values.pop("created_at")
+            for key, value in values.items():
                 setattr(existing, key, value)
 
     async def get(self, caller: MemoryOwner, memory_id: str) -> Memory | None:
@@ -109,12 +116,18 @@ class SqlMemoryRepository:
         if row is None:
             return None
         memory = _row_to_memory(row)
+        if memory.expires_at is not None and memory.expires_at <= utc_now():
+            return None
         if not visible_to(memory.scope, memory.owner, caller):
             return None
         return memory
 
     async def search(self, query: MemoryQuery) -> tuple[Memory, ...]:
-        statement = sa.select(MemoryRow).where(_visibility_filter(query))
+        now = utc_now()
+        statement = sa.select(MemoryRow).where(
+            _visibility_filter(query),
+            sa.or_(MemoryRow.expires_at.is_(None), MemoryRow.expires_at > now),
+        )
         if query.memory_types:
             statement = statement.where(
                 MemoryRow.memory_type.in_(mtype.value for mtype in query.memory_types)

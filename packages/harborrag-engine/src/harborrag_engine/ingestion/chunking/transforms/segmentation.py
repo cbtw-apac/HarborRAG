@@ -187,15 +187,15 @@ class DocumentStructureSegmenter:
         element: DocumentElement,
         boundary_kind: SplitBoundaryKind,
     ) -> str:
-        explicit = element.metadata.get("role")
-        if isinstance(explicit, str) and explicit.strip():
-            return explicit.strip()
         if boundary_kind in {SplitBoundaryKind.TABLE, SplitBoundaryKind.TABLE_ROW}:
             return "table"
         if boundary_kind in {SplitBoundaryKind.CODE_BLOCK, SplitBoundaryKind.CODE_SYMBOL}:
             return "code"
         if boundary_kind == SplitBoundaryKind.JSON_PATH:
             return "json"
+        explicit = element.metadata.get("role")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
         if element.type in {"image", "figure"}:
             return "figure"
         if element.type == "caption":

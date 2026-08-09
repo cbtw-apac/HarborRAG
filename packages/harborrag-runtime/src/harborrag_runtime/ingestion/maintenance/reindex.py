@@ -229,6 +229,7 @@ def source_identity_from_canonical(document: Document) -> SourceIdentity:
     required = {
         name: str(metadata.get(name, "")).strip()
         for name in (
+            "tenant_id",
             "connector_type",
             "connection_id",
             "source_item_id",
@@ -244,7 +245,7 @@ def source_identity_from_canonical(document: Document) -> SourceIdentity:
         str(parent).strip() if parent is not None and str(parent).strip() else None
     )
     return SourceIdentity(
-        tenant_id=str(metadata.get("tenant_id") or "DEFAULT"),
+        tenant_id=required["tenant_id"],
         connector_type=ConnectorType(required["connector_type"]),
         connection_id=required["connection_id"],
         source_item_id=required["source_item_id"],

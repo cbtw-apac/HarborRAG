@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from temporalio import activity
 
+from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_core.storage import StorageOperationContext
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.source.models import SourceDispatchSummary
@@ -62,7 +63,10 @@ class RetryActivitiesMixin:
             )
 
     @activity.defn(name="harborrag.retry_document_release")
-    async def retry_document_release(self, request: RetryDocumentInput) -> str:
+    async def retry_document_release(
+        self,
+        request: RetryDocumentInput,
+    ) -> DocumentIngestionOutcome:
         with self._observability.boundary("RetryDocumentRelease"):
             planned = await self._documents.get(request)
             return await self._runtime.sources.retry_one(

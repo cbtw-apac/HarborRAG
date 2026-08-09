@@ -4,6 +4,8 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
+from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
+
 DISCOVERY_QUEUE = "harborrag-discovery"
 IO_QUEUE = "harborrag-io"
 PARSER_QUEUE = "harborrag-parser"
@@ -23,14 +25,6 @@ DOCUMENT_RETRY = RetryPolicy(
     maximum_interval=timedelta(minutes=2),
     maximum_attempts=5,
 )
-DOCUMENT_STAGES = (
-    ("SyncContentUnits", "harborrag.sync_content_units", TRANSFORM_QUEUE),
-    ("PersistCanonical", "harborrag.persist_canonical", IO_QUEUE),
-    ("ChunkAndValidate", "harborrag.chunk_and_validate", TRANSFORM_QUEUE),
-    ("EncodeChunks", "harborrag.encode_chunks", MODEL_QUEUE),
-    ("BuildRelations", "harborrag.build_relations", TRANSFORM_QUEUE),
-    ("BuildProjections", "harborrag.build_projections", TRANSFORM_QUEUE),
-    ("WriteVectorProjection", "harborrag.write_vector_projection", INDEX_QUEUE),
-    ("WriteGraphProjection", "harborrag.write_graph_projection", INDEX_QUEUE),
-    ("VerifyProjections", "harborrag.verify_projections", INDEX_QUEUE),
+DOCUMENT_STAGES = tuple(
+    (stage.name, stage.activity, stage.task_queue) for stage in DOCUMENT_STAGE_CATALOG
 )

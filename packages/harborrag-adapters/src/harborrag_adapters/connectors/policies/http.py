@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import time
 from collections.abc import Iterator, Mapping
@@ -15,6 +16,8 @@ DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 DEFAULT_ERROR_BODY_LIMIT = 500
+DEFAULT_ERROR_BODY_READ_LIMIT = 8 * 1024
+DEFAULT_JSON_BODY_LIMIT = 8 * 1024 * 1024
 
 
 class StreamingResponse(Protocol):
@@ -58,9 +61,9 @@ def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
     if not parsed.scheme:
         return url
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
-        raise ValueError(f"Unsafe {label} URL scheme: {url}")
+        raise ValueError(f"Unsafe {label} URL scheme")
     if not same_origin(url, base_url):
-        raise ValueError(f"Unsafe {label} URL outside trusted origin: {url}")
+        raise ValueError(f"Unsafe {label} URL outside trusted origin")
     return url
 
 
@@ -93,14 +96,41 @@ def read_capped_content(
                 raise ResponseTooLargeError(f"Content-Length {declared} exceeds cap {max_bytes}")
 
     buffer = bytearray()
-    for chunk in response.iter_content(chunk_size=chunk_size):
-        if not chunk:
-            continue
-        if max_bytes is not None and len(buffer) + len(chunk) > max_bytes:
-            response.close()
-            raise ResponseTooLargeError(f"Downloaded body exceeds cap {max_bytes} bytes")
-        buffer.extend(chunk)
-    return bytes(buffer)
+    try:
+        for chunk in response.iter_content(chunk_size=chunk_size):
+            if not chunk:
+                continue
+            if max_bytes is not None and len(buffer) + len(chunk) > max_bytes:
+                raise ResponseTooLargeError(f"Downloaded body exceeds cap {max_bytes} bytes")
+            buffer.extend(chunk)
+        return bytes(buffer)
+    finally:
+        response.close()
+
+
+def read_capped_json(
+    response: StreamingResponse,
+    *,
+    max_bytes: int = DEFAULT_JSON_BODY_LIMIT,
+) -> object:
+    """Decode JSON only after incrementally enforcing the connector body limit."""
+
+    body = read_capped_content(response, max_bytes)
+    return json.loads(body)
+
+
+def safe_response_error_detail(
+    response: StreamingResponse,
+    *,
+    limit: int = DEFAULT_ERROR_BODY_LIMIT,
+) -> str:
+    """Read only a small error-body prefix before redacting and rendering it."""
+
+    try:
+        body = read_capped_content(response, DEFAULT_ERROR_BODY_READ_LIMIT)
+    except ResponseTooLargeError:
+        return "response body exceeded safe diagnostic limit"
+    return safe_error_detail(body.decode("utf-8", errors="replace"), limit=limit)
 
 
 def same_origin(url: str, base_url: str) -> bool:

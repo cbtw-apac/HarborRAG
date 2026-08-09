@@ -112,6 +112,7 @@ async def _inspect_graph(
 ):
     identities = DocumentIdentityBuilder()
     root_document_id = identities.document_id(
+        tenant_id=request.tenant_id,
         connector_type=ConnectorType(request.connector_type),
         connection_id=request.connection_id,
         source_item_id=request.source_item_id,

@@ -170,14 +170,14 @@ def response(*, call: tuple[str, str, str] | None = None, text: str = "answer"):
     )
 
 
-def many_tool_calls_response(count: int) -> HarborChatResponse:
+def many_tool_calls_response(count: int, *, identical: bool = False) -> HarborChatResponse:
     tool_calls = tuple(
         HarborToolCall(
             id=f"call-{index}",
             function=HarborToolCallFunction(
                 name="vector_search_advanced",
-                arguments="{}",
-                parsed_arguments={},
+                arguments="{}" if identical else json.dumps({"index": index}),
+                parsed_arguments={} if identical else {"index": index},
             ),
         )
         for index in range(count)

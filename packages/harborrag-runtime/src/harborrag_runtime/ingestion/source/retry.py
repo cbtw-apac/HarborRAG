@@ -7,7 +7,7 @@ from collections.abc import Callable
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion import DocumentIngestionOutcome, IngestionTaskState
 
 from ..document.service import DocumentReleaseService
 from .documents import SourceDocumentService
@@ -87,7 +87,7 @@ class SourceRetryService:
         original_task_id: str,
         planned: PlannedDocumentRelease,
         connector_factory: Callable[[], BaseConnector | HarborConnector],
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         previous = await self._control.tasks.document_result(
             original_task_id,
             planned.document_id,

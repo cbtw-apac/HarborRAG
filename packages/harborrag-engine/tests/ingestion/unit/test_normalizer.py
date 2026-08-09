@@ -25,12 +25,38 @@ def test_normalizer_preserves_parser_elements_and_merges_metadata() -> None:
 
     document = DocumentNormalizer().normalize(raw, parsed)
 
-    assert document.title == "Parsed title"
+    assert document.title == "Source title"
     assert document.content == [element]
     assert document.provenance.permissions == {"groups": ["readers"]}
     assert document.provenance.tags == ["guide"]
     assert document.provenance.extra["parser_name"] == "markdown"
     assert document.provenance.extra["parser_warnings"] == ["minor warning"]
+
+
+def test_normalizer_preserves_authoritative_source_metadata_on_conflict() -> None:
+    raw = RawDocument(
+        id="document-1",
+        source="jira",
+        content="trusted",
+        content_type="text/plain",
+        metadata={
+            "permissions": {"groups": ["restricted"]},
+            "relations": [
+                {"predicate": "links_to", "target_id": "trusted", "target_type": "document"}
+            ],
+            "source_version": "trusted-v1",
+        },
+    )
+    parsed = ParsedDocument(
+        content="trusted",
+        parser_name="text",
+        metadata={"permissions": {}, "relations": [], "source_version": "parser-v1"},
+    )
+
+    document = DocumentNormalizer().normalize(raw, parsed)
+
+    assert document.provenance.permissions == {"groups": ["restricted"]}
+    assert [relation.target_id for relation in document.relations] == ["trusted"]
 
 
 def test_normalizer_builds_one_fallback_element_for_unstructured_text() -> None:
@@ -69,7 +95,7 @@ def test_normalizer_builds_canonical_table_and_chunk_reuses_its_identity() -> No
                 id="table-1",
                 type="table",
                 content="Store\tCheck\nQdrant\tvectors",
-                metadata={"header_rows": 1},
+                metadata={"header_rows": 1, "role": "description"},
             ),
         ],
     )

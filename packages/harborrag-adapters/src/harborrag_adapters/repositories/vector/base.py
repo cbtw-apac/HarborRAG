@@ -7,6 +7,7 @@ from harborrag_adapters.repositories.lifecycle import RepositoryLifecycle
 from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
+    VectorFilter,
     VectorIndexRecord,
     VectorIndexScanPage,
     VectorIndexSpec,
@@ -89,6 +90,7 @@ class HarborVectorRepository(RepositoryLifecycle):
         *,
         limit: int,
         cursor: str | None,
+        filters: VectorFilter | None = None,
         context: StorageOperationContext,
     ) -> VectorIndexScanPage:
         """Scan vector points with a provider-independent cursor."""

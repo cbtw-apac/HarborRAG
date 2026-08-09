@@ -89,7 +89,9 @@ def test_transform_appends_no_comments_heading_when_there_are_no_comments():
 
     result = transform.transform(_raw_document(), _parsed_document(), _document())
 
-    assert not any(element.metadata.get("role") == "confluence.comment" for element in result.content)
+    assert not any(
+        element.metadata.get("role") == "confluence.comment" for element in result.content
+    )
     assert not any(element.content == "Comments" for element in result.content)
 
 
@@ -112,16 +114,16 @@ def test_transform_appends_comments_heading_and_strips_html_from_comment_bodies(
         },
     ]
 
-    result = transform.transform(
-        _raw_document(comments=comments), _parsed_document(), _document()
-    )
+    result = transform.transform(_raw_document(comments=comments), _parsed_document(), _document())
 
     heading = next(element for element in result.content if element.content == "Comments")
     assert heading.type == "heading"
     assert heading.metadata == {"level": 1}
 
     comment_elements = [
-        element for element in result.content if element.metadata.get("role") == "confluence.comment"
+        element
+        for element in result.content
+        if element.metadata.get("role") == "confluence.comment"
     ]
     assert [element.content for element in comment_elements] == [
         "Looks great, ship it.",
@@ -143,12 +145,12 @@ def test_transform_skips_comments_missing_an_id_or_body():
         {"id": "c2", "body": "<p>kept</p>"},
     ]
 
-    result = transform.transform(
-        _raw_document(comments=comments), _parsed_document(), _document()
-    )
+    result = transform.transform(_raw_document(comments=comments), _parsed_document(), _document())
 
     comment_elements = [
-        element for element in result.content if element.metadata.get("role") == "confluence.comment"
+        element
+        for element in result.content
+        if element.metadata.get("role") == "confluence.comment"
     ]
     assert [element.metadata["comment_id"] for element in comment_elements] == ["c2"]
 

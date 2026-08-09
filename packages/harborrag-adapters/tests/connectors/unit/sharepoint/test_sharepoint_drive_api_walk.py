@@ -13,6 +13,7 @@ from sharepoint_test_helpers import (
     site,
 )
 
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.drive import SharePointDriveAPI
 
@@ -81,6 +82,41 @@ def test_walk_children_skips_folder_without_id():
     assert records == []
     # No recursive call for the id-less folder means only the root page was fetched.
     assert len(client.calls) == 1
+
+
+def test_walk_children_rejects_folder_cycles():
+    client = FakeGraphClient()
+    client.add(
+        "drives/drive1/root/children",
+        {"value": [folder_item("folder1")]},
+    )
+    client.add(
+        "drives/drive1/items/folder1/children",
+        {"value": [folder_item("folder1")]},
+    )
+    api = SharePointDriveAPI(client, config())
+
+    with pytest.raises(FetchError, match="contains a cycle"):
+        list(api.walk_children(site=site(), drive=drive(), query=ConnectorQuery()))
+
+
+def test_iter_children_rejects_repeated_next_link():
+    endpoint = "drives/drive1/root/children"
+    client = FakeGraphClient()
+    client.add(endpoint, {"value": [], "@odata.nextLink": endpoint})
+    api = SharePointDriveAPI(client, config())
+
+    with pytest.raises(FetchError, match="did not advance"):
+        list(api.iter_children("drive1"))
+
+
+def test_iter_children_rejects_invalid_page_shape():
+    client = FakeGraphClient()
+    client.add("drives/drive1/root/children", {"value": "not-a-list"})
+    api = SharePointDriveAPI(client, config())
+
+    with pytest.raises(FetchError, match="invalid value list"):
+        list(api.iter_children("drive1"))
 
 
 def test_records_from_item_id_for_file_and_folder_and_neither():
@@ -165,3 +201,13 @@ def test_iter_site_drives_follows_pagination():
 
     drives = list(api.iter_site_drives("site1"))
     assert [d["id"] for d in drives] == ["drive0", "drive1"]
+
+
+def test_iter_site_drives_rejects_repeated_next_link():
+    endpoint = "sites/site1/drives"
+    client = FakeGraphClient()
+    client.add(endpoint, {"value": [], "@odata.nextLink": endpoint})
+    api = SharePointDriveAPI(client, config())
+
+    with pytest.raises(FetchError, match="did not advance"):
+        list(api.iter_site_drives("site1"))

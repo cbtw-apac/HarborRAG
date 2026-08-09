@@ -14,8 +14,6 @@ from harborrag_runtime.temporal.schemas import (
     SourceQuery,
 )
 
-DEFAULT_TENANT_ID = "DEFAULT"
-
 
 def source_from_task(task: IngestionTask) -> SourceIngestionInput:
     """Rebuild the safe workflow input for a retried durable submission."""
@@ -27,7 +25,7 @@ def source_from_task(task: IngestionTask) -> SourceIngestionInput:
     limit = query.get("limit")
     return SourceIngestionInput(
         task_id=task.task_id,
-        tenant_id=str(request.get("tenant_id") or DEFAULT_TENANT_ID),
+        tenant_id=_required_text(request, "tenant_id"),
         connector_name=str(request["connector_name"]),
         connector_type=str(request["connector_type"]),
         connection_id=str(request["connection_id"]),
@@ -66,7 +64,7 @@ def retry_from_task(task: IngestionTask) -> RetryFailuresInput:
     return RetryFailuresInput(
         retry_task_id=task.task_id,
         original_task_id=original_task_id,
-        tenant_id=str(request.get("tenant_id") or DEFAULT_TENANT_ID),
+        tenant_id=_required_text(request, "tenant_id"),
         document_ids=tuple(document_ids),
     )
 
@@ -75,6 +73,13 @@ def _mapping(value: object, label: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise HarborValidationError(f"stored ingestion {label} is invalid")
     return dict(value)
+
+
+def _required_text(values: Mapping[str, object], name: str) -> str:
+    value = values.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise HarborValidationError(f"stored ingestion {name!r} is invalid")
+    return value
 
 
 def _processing_profile(stored: Mapping[str, object]) -> ProcessingProfileInput:
@@ -106,4 +111,4 @@ def _optional_text(value: object) -> str | None:
     return str(value) if value is not None else None
 
 
-__all__ = ["DEFAULT_TENANT_ID", "retry_from_task", "source_from_task"]
+__all__ = ["retry_from_task", "source_from_task"]

@@ -81,6 +81,7 @@ from .source_contracts import (
 from .states import (
     BindingKind,
     CleanupJobState,
+    DocumentIngestionOutcome,
     DocumentVersionState,
     FailureCategory,
     GraphEntityType,
@@ -117,6 +118,7 @@ __all__ = [
     "DocumentFailure",
     "DocumentRetirementResult",
     "DocumentIdentityBuilder",
+    "DocumentIngestionOutcome",
     "DocumentVersionCandidate",
     "DocumentVersionSnapshot",
     "DocumentVersionState",

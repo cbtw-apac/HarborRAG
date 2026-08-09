@@ -127,7 +127,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
                 if request.if_none_match:
                     raise self._already_exists(request, context)
                 existing = ObjectMetadata.model_validate_json(
-                    await asyncio.to_thread(existing_meta_path.read_text, "utf-8")
+                    await asyncio.to_thread(self._read_regular_file, existing_meta_path)
                 )
                 if existing.metadata.get("tenant_id") != str(context.tenant_id):
                     raise self._already_exists(request, context)
@@ -180,7 +180,11 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
                 await asyncio.to_thread(os.fsync, meta_file.fileno())
             finally:
                 await asyncio.to_thread(meta_file.close)
+            # Revalidate before each replacement to close the practical parent-link swap
+            # gap left after exclusive temporary creation and no-follow opens.
+            self._safe_path(request.bucket, request.key, context)
             await asyncio.to_thread(os.replace, temporary, target)
+            self._safe_path(request.bucket, request.key, context)
             await asyncio.to_thread(os.replace, meta_temporary, existing_meta_path)
             return reference
         except HarborStorageError:
@@ -203,14 +207,14 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         target = await self._authorized_path(bucket, key, context)
         try:
             if byte_range is None:
-                return await asyncio.to_thread(target.read_bytes)
+                return await asyncio.to_thread(self._read_regular_file, target)
             start, end = byte_range
             if start < 0 or end < start:
                 raise HarborStorageValidationError(
                     "invalid byte range",
                     context=self._error_context("get", bucket, key, context),
                 )
-            file = await asyncio.to_thread(target.open, "rb")
+            file = await asyncio.to_thread(self._open_regular_file, target)
             try:
                 await asyncio.to_thread(file.seek, start)
                 return await asyncio.to_thread(file.read, end - start + 1)
@@ -234,7 +238,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         async with self._telemetry.operation("iter_bytes", context):
             target = await self._authorized_path(bucket, key, context)
             try:
-                file = await asyncio.to_thread(target.open, "rb")
+                file = await asyncio.to_thread(self._open_regular_file, target)
                 try:
                     while chunk := await asyncio.to_thread(file.read, chunk_size):
                         yield chunk
@@ -255,7 +259,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
     ) -> ObjectMetadata:
         target = await self._authorized_path(bucket, key, context)
         try:
-            raw = await asyncio.to_thread(self._meta_path(target).read_text, "utf-8")
+            raw = await asyncio.to_thread(self._read_regular_file, self._meta_path(target))
             return ObjectMetadata.model_validate_json(raw)
         except FileNotFoundError as exc:
             raise self._not_found(bucket, key, context) from exc
@@ -322,7 +326,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
                 if not key.startswith(prefix):
                     continue
                 metadata = ObjectMetadata.model_validate_json(
-                    await asyncio.to_thread(meta_path.read_text, "utf-8")
+                    await asyncio.to_thread(self._read_regular_file, meta_path)
                 )
                 if metadata.metadata.get("tenant_id") == str(context.tenant_id):
                     output.append(metadata)

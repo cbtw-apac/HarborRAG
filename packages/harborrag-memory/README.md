@@ -4,10 +4,14 @@ Scope-aware memory shared by chat and agent orchestration. The package owns the
 first-class memory facade, while storage stays in `harborrag-adapters` and core
 contracts stay in `harborrag-core`.
 
-## Folder ownership
+## Module ownership
 
-- `short_term/` — conversation history facade.
-- `working/` — per-run scratch state facade.
-- `long_term/` — canonical repository facade for durable memory.
+- `tiers/short_term.py` — conversation history facade.
+- `tiers/working.py` — per-run scratch state facade and local store.
+- `tiers/long_term.py` — canonical repository facade for durable memory.
 - `manager.py` — `MemoryManager`, the single facade chat/agent import.
-- `tiers/` — compatibility shims for the older layout.
+- `schemas.py` — stable re-exports of the core-owned memory contracts.
+
+All public operations require a caller-derived `MemoryOwner`. Applications must
+build that owner from authenticated request context; user-supplied owner fields
+must never be passed through directly.

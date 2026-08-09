@@ -11,7 +11,7 @@ from harborrag_core.domain.project import Project
 async def test_fake_project_repository_crud_roundtrip() -> None:
     """Create/get/list/update/delete round-trip on the dict-backed fake."""
     repo = FakeProjectRepository()
-    project = Project(id="p1", name="Docs", collection="docs_main")
+    project = Project(id="p1", tenant_id="DEFAULT", name="Docs", collection="docs_main")
     await repo.create(project)
     assert await repo.get("p1") == project
     assert await repo.list() == [project]

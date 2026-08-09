@@ -14,6 +14,18 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.security import RemoteTransportPolicy
+
+_REDIS_TRANSPORT = RemoteTransportPolicy(
+    service="Redis",
+    allowed_schemes=frozenset({"redis", "rediss"}),
+    secure_schemes=frozenset({"rediss"}),
+)
+_OBJECT_STORE_TRANSPORT = RemoteTransportPolicy(
+    service="object store",
+    allowed_schemes=frozenset({"http", "https"}),
+    secure_schemes=frozenset({"https"}),
+)
 
 
 class RuntimeSettings(BaseSettings):
@@ -47,6 +59,7 @@ class RuntimeSettings(BaseSettings):
     metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
     langfuse_enabled: bool = False
     redis_url: SecretStr | None = None
+    redis_allow_insecure_remote: bool = False
     redis_socket_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     connector_rate_limit_key_prefix: str = Field(
         default="harborrag-connector-rate",
@@ -56,6 +69,7 @@ class RuntimeSettings(BaseSettings):
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
     object_store_endpoint_url: str | None = "http://localhost:9000"
+    object_store_allow_insecure_remote: bool = False
     object_store_region: str = "us-east-1"
     object_store_access_key_id: SecretStr | None = None
     object_store_secret_access_key: SecretStr | None = None
@@ -87,10 +101,29 @@ class RuntimeSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
-        if self.redis_url is not None and not self.redis_url.get_secret_value().startswith(
-            ("redis://", "rediss://")
-        ):
-            raise ValueError("HARBORRAG_REDIS_URL must use redis:// or rediss://")
+        control_db_url = self.control_db_url.get_secret_value().lower()
+        if self.env == "prod" and control_db_url.startswith("sqlite"):
+            raise ValueError(
+                "HARBORRAG_CONTROL_DB_URL must use a production database when "
+                "HARBORRAG_ENV=prod; SQLite is development-only"
+            )
+        development = self.env == "dev"
+        if self.redis_url is not None:
+            try:
+                _REDIS_TRANSPORT.validate(
+                    self.redis_url.get_secret_value(),
+                    allow_insecure_remote=(development and self.redis_allow_insecure_remote),
+                )
+            except ValueError as exc:
+                raise ValueError(f"HARBORRAG_REDIS_URL: {exc}") from exc
+        if self.object_store_endpoint_url is not None:
+            try:
+                _OBJECT_STORE_TRANSPORT.validate(
+                    self.object_store_endpoint_url,
+                    allow_insecure_remote=(development and self.object_store_allow_insecure_remote),
+                )
+            except ValueError as exc:
+                raise ValueError(f"HARBORRAG_OBJECT_STORE_ENDPOINT_URL: {exc}") from exc
         worker_count = 6
         database_capacity = self.control_db_pool_size + self.control_db_max_overflow
         requested_activity_capacity = self.temporal_max_concurrent_activities * worker_count

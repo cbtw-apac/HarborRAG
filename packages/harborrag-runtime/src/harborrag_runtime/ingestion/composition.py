@@ -118,27 +118,32 @@ class IngestionRuntime:
             )
             logger.debug("Ingestion runtime closed from unstarted state")
             return
-        self._started = False
-        try:
-            await asyncio.gather(
-                *(
-                    asyncio.to_thread(connector.close)
-                    for connector in reversed(tuple(self.connectors.values()))
-                ),
-                self.graph_repository.close(),
-                self.vector_repository.close(),
-                self.object_store.close(),
-                self.control.close(),
-                asyncio.to_thread(self.connector_rate_limiter.close),
-                self.embed_client.aclose(),
-                self.telemetry.close(),
-            )
-        except BaseException as error:
+        outcomes = await asyncio.gather(
+            *(
+                asyncio.to_thread(connector.close)
+                for connector in reversed(tuple(self.connectors.values()))
+            ),
+            self.graph_repository.close(),
+            self.vector_repository.close(),
+            self.object_store.close(),
+            self.control.close(),
+            asyncio.to_thread(self.connector_rate_limiter.close),
+            self.embed_client.aclose(),
+            self.telemetry.close(),
+            return_exceptions=True,
+        )
+        failures = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
+        if failures:
             logger.error(
-                "Ingestion runtime shutdown failed error_type=%s",
-                type(error).__name__,
+                "Ingestion runtime shutdown failed failures=%d error_types=%s",
+                len(failures),
+                ",".join(sorted({type(error).__name__ for error in failures})),
             )
-            raise
+            # Keep the runtime retryable. Repository/connector close contracts
+            # are idempotent, so a later close attempt can converge resources
+            # whose first close failed.
+            raise BaseExceptionGroup("ingestion runtime shutdown failed", failures)
+        self._started = False
         logger.info("Ingestion runtime closed connectors=%d", len(self.connectors))
 
     def connector(

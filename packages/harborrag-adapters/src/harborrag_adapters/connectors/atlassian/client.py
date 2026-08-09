@@ -19,9 +19,10 @@ from harborrag_adapters.connectors.exceptions import (
 from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
+    read_capped_json,
     require_same_origin_url,
     retry_delay_seconds,
-    safe_error_detail,
+    safe_response_error_detail,
     same_origin,
 )
 from harborrag_adapters.connectors.rate_limiting import (
@@ -100,10 +101,11 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Send a request and require a JSON object response."""
+        kwargs.setdefault("stream", True)
         response = self._request(method, url, **kwargs)
         try:
-            payload: object = response.json()
-        except ValueError as exc:
+            payload = read_capped_json(response)
+        except (ValueError, ResponseTooLargeError) as exc:
             raise FetchError(
                 f"{self._provider_label} returned non-JSON response for {endpoint}"
             ) from exc
@@ -171,7 +173,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         except requests.RequestException as exc:
             raise FetchError(f"{label} redirect request failed") from exc
         if follow_up.status_code >= 400:
-            detail = safe_error_detail(follow_up.text)
+            detail = safe_response_error_detail(follow_up)
             raise FetchError(
                 f"{label} redirect target failed with HTTP {follow_up.status_code}: {detail}"
             )
@@ -199,12 +201,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                 continue
 
             if response.status_code == 401:
-                raise AuthenticationError(safe_error_detail(response.text))
+                raise AuthenticationError(safe_response_error_detail(response))
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_error_detail(response.text))
+                raise RateLimitError(safe_response_error_detail(response))
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
-                    detail = safe_error_detail(response.text)
+                    detail = safe_response_error_detail(response)
                     raise FetchError(
                         f"{self._provider_label} request failed with HTTP "
                         f"{response.status_code}: {detail}"

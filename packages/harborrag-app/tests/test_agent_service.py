@@ -12,6 +12,7 @@ from harborrag_app.workflow_control.agent import (
     AgentApplicationService,
     AgentExecutionOptions,
 )
+from harborrag_app.workflow_control.agent.service import _run_options
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.models.chat import (
     HarborChatMessage,
@@ -46,6 +47,17 @@ class _Chat:
             finish_reason="stop",
             usage=HarborChatUsage(prompt_tokens=2, completion_tokens=1, total_tokens=3),
         )
+
+
+def test_agent_service_applies_server_owned_time_and_token_budgets() -> None:
+    options = _run_options(
+        "ACME",
+        "reader-1",
+        AgentExecutionOptions(session_id="session-1"),
+    )
+
+    assert options.timeout_seconds == 120.0
+    assert options.max_total_tokens == 32_768
 
 
 @pytest.mark.asyncio

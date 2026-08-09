@@ -91,15 +91,17 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
         )
         assert f"{variable}: /app/config/" in temporal
         assert f"${{{variable}:-" not in temporal
-    assert "../../config:/app/config:ro" in temporal
+    assert "../../config:/app/config:ro" not in temporal
 
 
-def test_api_and_worker_mount_the_same_runtime_configuration() -> None:
+def test_api_mounts_config_while_worker_uses_its_baked_runtime_configuration() -> None:
     api = API_COMPOSE.read_text(encoding="utf-8")
     temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "deploy/docker/Dockerfile.temporal-worker").read_text(encoding="utf-8")
 
     assert "../../config:/app/config:ro" in api
-    assert "../../config:/app/config:ro" in temporal
+    assert "../../config:/app/config:ro" not in temporal
+    assert "COPY config ./config" in dockerfile
 
 
 def test_temporal_compose_mounts_its_required_dynamic_config() -> None:
@@ -223,6 +225,9 @@ def test_api_secret_configuration_stays_in_an_ignored_environment_file() -> None
     assert "path: ${HARBORRAG_API_ENV_FILE:-../../env/.env.api}" in compose
     assert "CONFLUENCE_TOKEN" not in compose
     assert "JIRA_TOKEN" not in compose
+    assert "HARBORRAG_AUTH_MODE=none" in example
+    assert "HARBORRAG_ALLOW_INSECURE_DEV=true" in example
+    assert "HARBORRAG_API_BIND_ADDRESS=127.0.0.1" in example
     assert "# HARBORRAG_AUTH_SECRET=" in example
     assert "HARBORRAG_AUTH_SECRET=REPLACE" not in example
 

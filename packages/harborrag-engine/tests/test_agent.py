@@ -22,7 +22,11 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.ports.agent_runs import AgentStopReason
 from harborrag_engine.agent import AgentRunOptions, AgentService
-from harborrag_engine.agent.tool_execution import MAX_TOOL_CALLS_PER_TURN, MAX_TOOL_RESULT_CHARS
+from harborrag_engine.agent.tool_execution import (
+    MAX_TOOL_CALLS_PER_TURN,
+    MAX_TOOL_RESULT_CHARS,
+    bounded_tool_result_content,
+)
 
 
 @pytest.mark.asyncio
@@ -257,3 +261,42 @@ async def test_agent_truncates_oversized_tool_results() -> None:
     tool_message = next(m for m in chat.requests[1].messages if m.role.value == "tool")
     assert len(tool_message.content) < MAX_TOOL_RESULT_CHARS * 2
     assert "truncated" in tool_message.content
+
+
+@pytest.mark.asyncio
+async def test_agent_bounds_circular_tool_results() -> None:
+    class _CircularResultTools(Tools):
+        async def call_tool(self, name, arguments=None, *, principal_id="in-process"):
+            del name, arguments, principal_id
+            result: dict[str, object] = {"ok": True}
+            result["self"] = result
+            return result
+
+    chat = Chat(
+        [
+            _response(call=("call-1", "vector_search_advanced", "{}")),
+            _response(text="answer"),
+        ]
+    )
+
+    await AgentService(chat, _CircularResultTools()).run(
+        [HarborChatMessage.user("question")],
+        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+    )
+
+    tool_message = next(message for message in chat.requests[1].messages if message.role == "tool")
+    assert "circular reference" in tool_message.content
+
+
+def test_agent_tool_results_emit_strict_json_for_pathological_numbers() -> None:
+    content = bounded_tool_result_content(
+        {
+            "nan": float("nan"),
+            "infinity": float("inf"),
+            "huge_integer": 1 << 100_000,
+        }
+    )
+
+    assert '"nan":"<non-finite number>"' in content
+    assert '"infinity":"<non-finite number>"' in content
+    assert '"huge_integer":"<integer exceeds limit>"' in content

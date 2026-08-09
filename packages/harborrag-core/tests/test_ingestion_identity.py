@@ -66,6 +66,7 @@ def admission_snapshot(*, reversed_order: bool = False) -> AdmissionSnapshot:
 
 def test_document_and_version_identities_are_deterministic() -> None:
     source = SourceIdentity(
+        tenant_id="DEFAULT",
         connector_type=ConnectorType.CONFLUENCE,
         connection_id="wiki.example",
         source_item_id="page-42",
@@ -81,6 +82,7 @@ def test_document_and_version_identities_are_deterministic() -> None:
 
     document_id = identity_for_source(source)
     repeated_document_id = identity.document_id(
+        tenant_id=source.tenant_id,
         connector_type=source.connector_type,
         connection_id=source.connection_id,
         source_item_id=source.source_item_id,
@@ -101,7 +103,7 @@ def test_document_and_version_identities_are_deterministic() -> None:
     )
 
 
-def test_document_identity_is_tenant_scoped_without_changing_legacy_default() -> None:
+def test_document_identity_is_explicitly_tenant_scoped() -> None:
     identity = DocumentIdentityBuilder()
     values = {
         "connector_type": ConnectorType.CONFLUENCE,
@@ -109,12 +111,10 @@ def test_document_identity_is_tenant_scoped_without_changing_legacy_default() ->
         "source_item_id": "page-42",
     }
 
-    legacy = identity.document_id(**values)
     default = identity.document_id(tenant_id="DEFAULT", **values)
     tenant_a = identity.document_id(tenant_id="tenant-a", **values)
     tenant_b = identity.document_id(tenant_id="tenant-b", **values)
 
-    assert legacy == default
     assert len({tenant_a, tenant_b, default}) == 3
 
 

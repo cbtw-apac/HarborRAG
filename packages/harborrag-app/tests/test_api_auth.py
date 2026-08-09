@@ -158,7 +158,23 @@ def test_prod_env_refuses_disabled_auth() -> None:
     from harborrag_core.contracts.errors import HarborConfigurationError
 
     with pytest.raises(HarborConfigurationError):
-        create_fastapi_app(ApiSettings(env="prod", auth_mode="none"))
+        create_fastapi_app(
+            ApiSettings(
+                env="prod",
+                auth_mode="none",
+                api_capacity_redis_url="rediss://localhost:6379/1",
+            )
+        )
+    with pytest.raises(HarborConfigurationError):
+        create_fastapi_app(
+            ApiSettings(
+                env="prod",
+                host="0.0.0.0",
+                auth_mode="none",
+                allow_insecure_dev=True,
+                api_capacity_redis_url="rediss://localhost:6379/1",
+            )
+        )
 
 
 @pytest.mark.blackbox
@@ -172,6 +188,17 @@ def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixt
 
     assert any("auth" in record.message.lower() for record in caplog.records)
     assert any("HARBORRAG_AUTH_MODE=none" in record.message for record in caplog.records)
+
+
+@pytest.mark.blackbox
+def test_disabled_auth_requires_explicit_opt_in_for_non_loopback_binding() -> None:
+    from harborrag_core.contracts.errors import HarborConfigurationError
+
+    with pytest.raises(HarborConfigurationError, match="loopback"):
+        create_fastapi_app(ApiSettings(host="0.0.0.0"))
+
+    app = create_fastapi_app(ApiSettings(host="0.0.0.0", allow_insecure_dev=True))
+    assert app.state.token_verifier is None
 
 
 def test_tenant_authorization_is_independent_of_global_role() -> None:

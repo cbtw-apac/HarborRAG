@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Event, Thread
 
 import pytest
 
@@ -30,6 +31,13 @@ class ConfigurableTool(BaseMcpTool):
                     "minimum": 1,
                     "maximum": 20,
                     "default": 5,
+                },
+                "filters": {
+                    "type": "object",
+                    "properties": {
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "additionalProperties": False,
                 },
             },
             "additionalProperties": False,
@@ -81,6 +89,8 @@ async def test_global_and_tenant_defaults_apply_at_call_time(tmp_path) -> None:
         )
     with pytest.raises(PermissionError, match="disabled"):
         await server.call_tool("search", {"query": "q", "tenant_id": "blocked"})
+    with pytest.raises(PermissionError, match="disabled"):
+        await server.call_tool("search", {"query": "q", "tenant_id": " blocked "})
 
 
 def test_configuration_rejects_unsafe_or_unknown_values(tmp_path) -> None:
@@ -92,6 +102,8 @@ def test_configuration_rejects_unsafe_or_unknown_values(tmp_path) -> None:
         _store(tmp_path, {"tools": {"search": {"limits": {"top_k": 21}}}})
     with pytest.raises(ValueError, match="Invalid default"):
         _store(tmp_path, {"tools": {"search": {"defaults": {"top_k": "many"}}}})
+    with pytest.raises(ValueError, match="surrounding whitespace"):
+        _store(tmp_path, {"tenants": {" demo ": {}}})
 
 
 def test_environment_overrides_are_effective_but_not_persisted(tmp_path) -> None:
@@ -114,6 +126,19 @@ def test_environment_overrides_are_effective_but_not_persisted(tmp_path) -> None
         "HARBORRAG_MCP_DISABLED_TOOLS",
         "HARBORRAG_MCP_MAX_RESULTS",
     ]
+
+
+def test_effective_configuration_does_not_expose_cached_nested_values(tmp_path) -> None:
+    store = _store(
+        tmp_path,
+        {"tools": {"search": {"defaults": {"filters": {"tags": ["original"]}}}}},
+    )
+
+    exposed = store.effective()
+    exposed.tools["search"].defaults["filters"]["tags"].append("mutated")
+
+    assert store.effective().tools["search"].defaults["filters"] == {"tags": ["original"]}
+    assert store.resolve("search", None).defaults["filters"] == {"tags": ["original"]}
 
 
 def test_atomic_replace_revision_reload_and_audit(tmp_path) -> None:
@@ -139,3 +164,43 @@ def test_atomic_replace_revision_reload_and_audit(tmp_path) -> None:
         )
     reloaded = store.reload(principal_id="owner-2")
     assert reloaded["configuration"]["tools"]["search"]["enabled"] is False
+
+
+def test_reload_holds_the_update_lock_while_reading(tmp_path, monkeypatch) -> None:
+    import harborrag_mcp_server.configuration.store as store_module
+
+    store = _store(tmp_path, {"tools": {"search": {"enabled": True}}})
+    store.replace(
+        McpConfiguration.model_validate({"tools": {"search": {"enabled": True}}}),
+        principal_id="setup",
+    )
+    original_read = store_module._read_configuration
+    read_started = Event()
+    release_read = Event()
+    replace_completed = Event()
+
+    def blocked_read(path):
+        read_started.set()
+        assert release_read.wait(timeout=2)
+        return original_read(path)
+
+    monkeypatch.setattr(store_module, "_read_configuration", blocked_read)
+    reload_thread = Thread(target=lambda: store.reload(principal_id="reloader"))
+    reload_thread.start()
+    assert read_started.wait(timeout=2)
+
+    replacement = McpConfiguration.model_validate({"tools": {"search": {"enabled": False}}})
+
+    def replace() -> None:
+        store.replace(replacement, principal_id="replacer")
+        replace_completed.set()
+
+    replace_thread = Thread(target=replace)
+    replace_thread.start()
+    assert not replace_completed.wait(timeout=0.1)
+    release_read.set()
+    reload_thread.join(timeout=2)
+    replace_thread.join(timeout=2)
+
+    assert replace_completed.is_set()
+    assert store.snapshot().tools["search"].enabled is False

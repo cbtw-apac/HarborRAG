@@ -22,11 +22,15 @@ def _project(
         extra=extra,
     )
     document.relations = relations or []
-    chunks = make_service(
-        make_profile(target=40, maximum=60),
-        configuration_version="3",
-        create_route_chunks=True,
-    ).chunk(make_request(make_document(document.content))).chunks
+    chunks = (
+        make_service(
+            make_profile(target=40, maximum=60),
+            configuration_version="3",
+            create_route_chunks=True,
+        )
+        .chunk(make_request(make_document(document.content)))
+        .chunks
+    )
     rebound = tuple(
         chunk.model_copy(
             update={
@@ -93,9 +97,7 @@ def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
     assert {GraphEntityType.JIRA_PROJECT, GraphEntityType.JIRA_ISSUE} <= {
         node.entity_type for node in graph.nodes
     }
-    assert {"parent_of", "blocks"} <= {
-        relation.relation_type.value for relation in graph.relations
-    }
+    assert {"parent_of", "blocks"} <= {relation.relation_type.value for relation in graph.relations}
     assert graph.unresolved_relations[0].target_source_item_id == "ENG-3"
 
 
@@ -165,8 +167,7 @@ def test_local_topology_uses_only_portable_relative_paths() -> None:
     ]
     assert local_nodes
     assert all(
-        not str(node.attributes.get("relative_path", "")).startswith("/")
-        for node in local_nodes
+        not str(node.attributes.get("relative_path", "")).startswith("/") for node in local_nodes
     )
     assert all("path" not in node.attributes for node in graph.nodes)
 
@@ -197,9 +198,7 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
     for connector, (extra, source_item_id) in cases.items():
         graph = _project(connector, extra, source_item_id=source_item_id)
         nodes = {node.node_key: node for node in graph.nodes}
-        tenants = [
-            node for node in graph.nodes if node.node_kind is KnowledgeNodeKind.TENANT
-        ]
+        tenants = [node for node in graph.nodes if node.node_kind is KnowledgeNodeKind.TENANT]
         assert len(tenants) == 1, connector
 
         # Undirected, matching how traversals actually run: Chunk points *into* the spine
@@ -209,9 +208,7 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
         adjacency = edges | {(target, source) for source, target in edges}
         reachable = {tenants[0].node_key}
         while True:
-            grown = reachable | {
-                target for source, target in adjacency if source in reachable
-            }
+            grown = reachable | {target for source, target in adjacency if source in reachable}
             if grown == reachable:
                 break
             reachable = grown

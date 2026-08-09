@@ -40,6 +40,9 @@ class ProjectRow(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, default="", nullable=False)
     collection: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -58,6 +61,9 @@ class SourceRow(Base):
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     project_id: Mapped[str] = mapped_column(
         sa.Text, sa.ForeignKey("projects.id"), nullable=False, index=True
     )
@@ -90,12 +96,21 @@ class JobRow(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     source_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     project_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     job_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     status: Mapped[str] = mapped_column(sa.Text, default="queued", nullable=False, index=True)
     dry_run: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False)
     attempts: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
+    event_sequence: Mapped[int] = mapped_column(
+        sa.Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     visibility_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     enqueued_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -147,6 +162,9 @@ class ActivityRow(Base):
     __tablename__ = "activity"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     actor: Mapped[str] = mapped_column(sa.Text, nullable=False)
     verb: Mapped[str] = mapped_column(sa.Text, nullable=False)
     entity_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -161,6 +179,9 @@ class ProviderRow(Base):
     __tablename__ = "providers"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
@@ -185,6 +206,9 @@ class WorkspaceSettingsRow(Base):
     __tablename__ = "workspace_settings"
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     data: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -195,6 +219,9 @@ class MemberRow(Base):
     __tablename__ = "members"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     subject: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(sa.Text, default="reader", nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

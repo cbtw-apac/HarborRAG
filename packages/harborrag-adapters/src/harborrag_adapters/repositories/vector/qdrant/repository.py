@@ -24,6 +24,7 @@ from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecu
 from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
+    VectorFilter,
     VectorIndexRecord,
     VectorIndexScanPage,
     VectorIndexSpec,
@@ -204,12 +205,14 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         *,
         limit: int,
         cursor: str | None,
+        filters: VectorFilter | None = None,
         context: StorageOperationContext,
     ) -> VectorIndexScanPage:
         return await self._queries.scan(
             index_name,
             limit=limit,
             cursor=cursor,
+            filters=filters,
             context=context,
         )
 

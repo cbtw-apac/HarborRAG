@@ -70,6 +70,9 @@ FAILURE_STAGES = {
 
 
 def task_response(task: IngestionTask, counts: dict[str, int]) -> dict[str, object]:
+    tenant_id = task.request.get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id.strip():
+        raise HarborInvariantError("stored ingestion task is missing tenant identity")
     summary = task.summary
     succeeded = counts.get("published", 0) + counts.get("success", 0)
     skipped = counts.get("unchanged", 0) + counts.get("skipped", 0)
@@ -79,7 +82,7 @@ def task_response(task: IngestionTask, counts: dict[str, int]) -> dict[str, obje
     stage = _task_stage(task)
     return {
         "task_id": task.task_id,
-        "tenant": str(task.request.get("tenant_id") or "DEFAULT"),
+        "tenant": tenant_id,
         "status": status,
         "stage": stage,
         "source": {

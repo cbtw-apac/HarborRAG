@@ -4,14 +4,14 @@ from dataclasses import dataclass
 
 from harborrag_runtime.temporal.source_query import ProcessingProfileInput, SourceQuery
 
+from .dispatch import DocumentDispatchSummary
+
 _SOURCE_TASK_STATES = frozenset(
     "PENDING RUNNING PAUSED CANCELLING COMPLETED PARTIAL FAILED CANCELLED".split()
 )
 
-# RetryFailuresWorkflow has no continue_as_new checkpoint (unlike
-# SourceIngestionWorkflow's batch_size x continue_after_batches), so a
-# selection larger than this risks exceeding Temporal's default workflow
-# history size/count limits mid-run with no partial-progress recovery.
+# Bound retries because this workflow has no continue-as-new checkpoint for
+# recovering from Temporal history limits.
 _MAX_RETRY_DOCUMENT_IDS = 1000
 
 
@@ -44,27 +44,6 @@ class WorkflowArtifactReference:
                 raise ValueError("artifact range values must not be negative")
             if self.byte_offset + self.byte_length > self.byte_size:
                 raise ValueError("artifact range exceeds the artifact size")
-
-
-@dataclass(frozen=True, slots=True)
-class DocumentDispatchSummary:
-    published: int = 0
-    unchanged: int = 0
-    failed: int = 0
-
-    def add(self, status: str) -> DocumentDispatchSummary:
-        return DocumentDispatchSummary(
-            published=self.published + (status == "published"),
-            unchanged=self.unchanged + (status == "unchanged"),
-            failed=self.failed + (status == "failed"),
-        )
-
-    def merge(self, other: DocumentDispatchSummary) -> DocumentDispatchSummary:
-        return DocumentDispatchSummary(
-            published=self.published + other.published,
-            unchanged=self.unchanged + other.unchanged,
-            failed=self.failed + other.failed,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,14 +178,8 @@ class PreparedDocument:
     canonical_reference: WorkflowArtifactReference | None = None
 
     def __post_init__(self) -> None:
-        if any(
-            not value.strip()
-            for value in (
-                self.document_id,
-                self.document_version_id,
-                self.decision,
-            )
-        ):
+        identities = (self.document_id, self.document_version_id, self.decision)
+        if any(not value.strip() for value in identities):
             raise ValueError("prepared document identity must be non-empty")
 
 

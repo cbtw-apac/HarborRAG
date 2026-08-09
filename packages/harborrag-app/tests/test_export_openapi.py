@@ -21,6 +21,7 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     assert {
         "/api/v1/metrics",
         "/api/v1/health",
+        "/api/v1/readyz",
         "/v1/ingestions",
         "/v1/ingestions/{task_id}",
         "/v1/ingestions/{task_id}/documents",
@@ -36,11 +37,11 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/retrieval/graph/subgraphs",
         "/v1/admin/projections/{tenant}",
     } <= set(paths)
-    assert set(paths["/v1/chat/completions"]) >= {"get"}
-    assert "post" not in paths["/v1/chat/completions"]
-    assert set(paths["/v1/agent/completions"]) >= {"get"}
+    assert set(paths["/v1/chat/completions"]) >= {"post"}
+    assert "get" not in paths["/v1/chat/completions"]
+    assert set(paths["/v1/agent/completions"]) >= {"post"}
+    assert "get" not in paths["/v1/agent/completions"]
     assert "/v1/retrieval/search" not in paths
-    assert "/api/v1/readyz" not in paths
     assert "/api/v1/diagnostics" not in paths
     assert "HTTPBearer" in schema["components"]["securitySchemes"]
     assert rendered == export_openapi()

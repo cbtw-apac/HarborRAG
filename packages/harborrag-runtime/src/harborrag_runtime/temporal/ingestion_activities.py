@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from temporalio import activity
 
+from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 
@@ -226,7 +227,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     async def publish_version(
         self,
         request: PreparedDocument,
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         with self._observability.boundary("PublishVersion"):
             planned = await self._documents.get(request.document)
             outcome = await self._runtime.stages.projections.publish_version(

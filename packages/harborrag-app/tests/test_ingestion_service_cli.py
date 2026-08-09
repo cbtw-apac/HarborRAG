@@ -113,7 +113,7 @@ async def test_app_service_submits_queries_and_controls_temporal() -> None:
         return FakeTaskRegistry()
 
     service = AppService(
-        CompositionRoot(control_db={"ping": "ok"}),
+        CompositionRoot(control_db={"ping": "ok"}, mode="test"),
         factories=AppServiceFactories(
             client=connect,  # type: ignore[arg-type]
             source_input_builder=_source_input,
@@ -256,10 +256,10 @@ def test_ingest_start_refuses_to_run_against_an_unmigrated_control_plane(
     assert exit_code == 1
     assert payload["ok"] is False
     assert payload["data"]["error_type"] == "ControlPlaneUnavailable"
-    # The rendered sentence stays readable; the failing statement stays in the envelope.
-    assert "table projects already exists" in payload["error"]
+    # Neither the rendered sentence nor machine-readable data disclose SQL diagnostics.
+    assert "table projects already exists" not in payload["error"]
     assert "CREATE TABLE" not in payload["error"]
-    assert "CREATE TABLE" in payload["data"]["detail"]
+    assert "detail" not in payload["data"]
 
 
 def test_doctor_still_runs_when_the_control_plane_is_degraded(monkeypatch, capsys) -> None:

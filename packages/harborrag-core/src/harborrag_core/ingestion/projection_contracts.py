@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -10,7 +9,7 @@ from harborrag_core.chunking import RelationType
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
 
 from .artifact_contracts import ArtifactReference
-from .identity import reject_runtime_fields
+from .graph_attribute_validation import validate_graph_attributes
 from .projection_vector import (
     VectorEvidenceRecord,
     VectorPayload,
@@ -20,60 +19,6 @@ from .projection_vector import (
 from .states import GraphEntityType, GraphOwnershipScope, KnowledgeNodeKind
 
 GRAPH_SCHEMA_VERSION: Literal["2.0"] = "2.0"
-_MAX_GRAPH_ATTRIBUTES = 32
-_MAX_ATTRIBUTE_KEY_LENGTH = 64
-_MAX_ATTRIBUTE_TEXT_LENGTH = 1_024
-_MAX_ATTRIBUTE_SEQUENCE = 32
-_FORBIDDEN_ATTRIBUTE_TOKENS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "body",
-        "content",
-        "credential",
-        "credentials",
-        "password",
-        "payload",
-        "preview",
-        "raw",
-        "secret",
-        "text",
-        "token",
-    }
-)
-_ALLOWED_ATTRIBUTE_FIELDS = frozenset(
-    {
-        "connector_type",
-        "connection_id",
-        "ctag",
-        "default_branch",
-        "display_name",
-        "document_kind",
-        "drive_type",
-        "etag",
-        "issue_type",
-        "issue_key",
-        "item_name",
-        "mode",
-        "name",
-        "ordinal",
-        "page_id",
-        "parent_relative_path",
-        "placeholder",
-        "project_key",
-        "provider_id",
-        "provider_key",
-        "relative_path",
-        "resolved_at",
-        "sha",
-        "source_item_id",
-        "source_uri",
-        "space_key",
-        "status",
-        "suffix",
-    }
-)
-
 __all__ = [
     "VectorEvidenceRecord",
     "VectorPayload",
@@ -120,7 +65,7 @@ class GraphEdgeRecord(StrictModel):
             raise ValueError(
                 f"{self.relation_type.value} relationships require {required_scope.value} ownership"
             )
-        _validate_attributes(self.attributes)
+        validate_graph_attributes(self.attributes)
         return self
 
 
@@ -200,7 +145,7 @@ class GraphNodeRecord(StrictModel):
             document_version_id=self.document_version_id,
             record="graph node",
         )
-        _validate_attributes(self.attributes)
+        validate_graph_attributes(self.attributes)
         if self.node_kind == KnowledgeNodeKind.CHUNK and self.node_key != self.logical_id:
             raise ValueError("chunk graph node_key must equal its exact chunk ID")
         if self.entity_type in {
@@ -234,47 +179,6 @@ def _validate_ownership(
         raise ValueError(f"tenant-owned {record} must not carry source_scope_id")
     if ownership_scope != GraphOwnershipScope.TENANT and source_scope_id is None:
         raise ValueError(f"non-tenant {record} requires source_scope_id")
-
-
-def _validate_attributes(attributes: Mapping[str, Any]) -> None:
-    _validate_attribute_mapping(attributes, depth=0)
-
-
-def _validate_attribute_mapping(attributes: Mapping[str, Any], *, depth: int) -> None:
-    if len(attributes) > _MAX_GRAPH_ATTRIBUTES:
-        raise ValueError(f"graph attributes may contain at most {_MAX_GRAPH_ATTRIBUTES} entries")
-    reject_runtime_fields(attributes)
-    for key, value in attributes.items():
-        normalized = str(key).strip().casefold().replace("-", "_")
-        if not normalized or len(normalized) > _MAX_ATTRIBUTE_KEY_LENGTH:
-            raise ValueError("graph attribute keys must be bounded non-empty text")
-        tokens = set(normalized.split("_"))
-        if normalized in _FORBIDDEN_ATTRIBUTE_TOKENS or tokens & _FORBIDDEN_ATTRIBUTE_TOKENS:
-            raise ValueError(f"graph attribute field is not allowed: {key}")
-        if normalized not in _ALLOWED_ATTRIBUTE_FIELDS:
-            raise ValueError(f"graph attribute field is not allowlisted: {key}")
-        _validate_attribute_value(value, depth=depth)
-
-
-def _validate_attribute_value(value: Any, *, depth: int) -> None:
-    if value is None or isinstance(value, (bool, int, float)):
-        return
-    if isinstance(value, str):
-        if len(value) > _MAX_ATTRIBUTE_TEXT_LENGTH:
-            raise ValueError("graph attribute text exceeds the bounded metadata limit")
-        return
-    if isinstance(value, Mapping):
-        if depth >= 1 or len(value) > _MAX_GRAPH_ATTRIBUTES:
-            raise ValueError("graph attribute mappings must be shallow and bounded")
-        _validate_attribute_mapping(value, depth=depth + 1)
-        return
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        if len(value) > _MAX_ATTRIBUTE_SEQUENCE:
-            raise ValueError("graph attribute sequences exceed the bounded metadata limit")
-        for item in value:
-            _validate_attribute_value(item, depth=depth + 1)
-        return
-    raise ValueError("graph attributes support JSON-compatible metadata values only")
 
 
 class ProjectionManifest(StrictModel):
@@ -371,9 +275,7 @@ class GraphSchemaMigrationVerification(StrictModel):
     @model_validator(mode="after")
     def validate_outcome(self) -> GraphSchemaMigrationVerification:
         expected = not (
-            self.missing_chunk_ids
-            or self.invalid_source_item_ids
-            or self.content_field_records
+            self.missing_chunk_ids or self.invalid_source_item_ids or self.content_field_records
         )
         if self.valid != expected:
             raise ValueError("graph migration verification validity does not match findings")

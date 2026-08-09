@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.chunking import ConnectorType
-from harborrag_core.ingestion import IngestionTaskState, ProcessingProfile
+from harborrag_core.ingestion import (
+    DocumentIngestionOutcome,
+    IngestionTaskState,
+    ProcessingProfile,
+)
+from harborrag_core.invariants import HarborInvariantError
 
 from ..document.models import DocumentReleaseRequest
 
@@ -68,16 +73,32 @@ class SourceDispatchSummary:
     unchanged: int = 0
     failed: int = 0
 
+    def __post_init__(self) -> None:
+        if min(self.published, self.unchanged, self.failed) < 0:
+            raise ValueError("source dispatch counts must not be negative")
+
     @classmethod
     def from_results(
         cls,
-        results: tuple[str, ...],
+        results: tuple[DocumentIngestionOutcome, ...],
     ) -> SourceDispatchSummary:
+        if any(not isinstance(result, DocumentIngestionOutcome) for result in results):
+            raise ValueError("unsupported document ingestion outcome")
         return cls(
-            published=sum(result == "published" for result in results),
-            unchanged=sum(result == "unchanged" for result in results),
-            failed=sum(result == "failed" for result in results),
+            published=sum(result is DocumentIngestionOutcome.PUBLISHED for result in results),
+            unchanged=sum(result is DocumentIngestionOutcome.UNCHANGED for result in results),
+            failed=sum(result is DocumentIngestionOutcome.FAILED for result in results),
         )
+
+    @property
+    def total(self) -> int:
+        return self.published + self.unchanged + self.failed
+
+    def require_total(self, expected: int) -> None:
+        if self.total != expected:
+            raise HarborInvariantError(
+                "document outcome count does not match the source ingestion plan"
+            )
 
     def merge(self, other: SourceDispatchSummary) -> SourceDispatchSummary:
         return SourceDispatchSummary(

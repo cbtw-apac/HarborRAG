@@ -4,10 +4,23 @@ version = "0.1.0"
 description = "Meta-package public facade for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "HarborRAG Contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
 dependencies = [
     "harborrag-core==0.1.0",
     "harborrag-runtime==0.1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/harborrag/harborrag"
+Repository = "https://github.com/harborrag/harborrag"
+Issues = "https://github.com/harborrag/harborrag/issues"
 
 [project.optional-dependencies]
 local = [

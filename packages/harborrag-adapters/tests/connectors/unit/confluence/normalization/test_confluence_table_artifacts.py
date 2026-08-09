@@ -203,7 +203,9 @@ def test_table_with_no_extractable_cell_text_still_yields_a_nonempty_element():
                         "content": [
                             {
                                 "type": "mediaSingle",
-                                "content": [{"type": "media", "attrs": {"id": "m1", "type": "file"}}],
+                                "content": [
+                                    {"type": "media", "attrs": {"id": "m1", "type": "file"}}
+                                ],
                             }
                         ],
                     }

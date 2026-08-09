@@ -12,7 +12,11 @@ from harborrag_adapters.parsers.common.utils import (
     input_label,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.common.validation import guard_input_size
+from harborrag_adapters.parsers.common.validation import (
+    MAX_TABLE_ROWS,
+    ParseResourceBudget,
+    guard_input_size,
+)
 from harborrag_adapters.parsers.errors import ParseError, TextDecodingError
 from harborrag_adapters.parsers.spreadsheet.base import HarborSpreadsheetEngine
 from harborrag_core.domain.element import DocumentElement
@@ -43,6 +47,14 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
             ),
         )
         data = guard_input_size(read_parse_input_bytes(parse_input))
+        physical_rows = (
+            data.count(b"\n")
+            + data.count(b"\r")
+            - data.count(b"\r\n")
+            + int(bool(data) and not data.endswith((b"\n", b"\r")))
+        )
+        if physical_rows > MAX_TABLE_ROWS:
+            raise ParseError(f"CSV physical row count exceeds parser limit {MAX_TABLE_ROWS}")
         lines, warnings = self._decode_lines(parse_input, data)
         sample = "".join(lines)[:4096]
         try:
@@ -53,6 +65,7 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
         reader = csv.reader(lines, dialect=dialect, strict=True)
         rendered_rows: list[str] = []
         expected_fields: int | None = None
+        budget = ParseResourceBudget()
         while True:
             try:
                 row = next(reader)
@@ -66,6 +79,7 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
                 warnings.append(warning)
                 continue
 
+            budget.consume_row(len(row))
             if not any(cell.strip() for cell in row):
                 continue
             if expected_fields is None:
@@ -78,7 +92,9 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
                 self._warn(parse_input, warning)
                 warnings.append(warning)
                 continue
-            rendered_rows.append("\t".join(cell.strip() for cell in row).rstrip())
+            rendered = "\t".join(cell.strip() for cell in row).rstrip()
+            budget.consume_output(len(rendered) + 1)
+            rendered_rows.append(rendered)
 
         content = "\n".join(rendered_rows)
         elements = (

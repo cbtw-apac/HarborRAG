@@ -7,9 +7,9 @@ from .short_term import ShortTermMemory
 from .working import InMemoryWorkingMemoryStore, WorkingMemory, WorkingMemoryStore
 
 __all__ = [
-	"InMemoryWorkingMemoryStore",
-	"LongTermMemory",
-	"ShortTermMemory",
-	"WorkingMemory",
-	"WorkingMemoryStore",
+    "InMemoryWorkingMemoryStore",
+    "LongTermMemory",
+    "ShortTermMemory",
+    "WorkingMemory",
+    "WorkingMemoryStore",
 ]

@@ -49,9 +49,8 @@ logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     """Connector for Confluence Cloud and Data Center REST APIs.
 
-    Discovery returns page/blogpost source records from CQL search. Loading a
-    record fetches the expanded content body and optional comments/attachments so
-    downstream parsing receives one complete page document.
+    Discovery returns page/blogpost records from CQL search. Loading fetches the expanded
+    body and optional comments/attachments so parsing receives one complete document.
     """
 
     provider_name = "confluence"

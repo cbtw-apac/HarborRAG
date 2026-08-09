@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
+from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.schemas import AppResponse
 
 
 @pytest.mark.blackbox
@@ -16,6 +19,9 @@ def test_health_and_openapi_served() -> None:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
         assert health.json()["status"] == "ok"
+        readiness = client.get("/api/v1/readyz")
+        assert readiness.status_code == 200
+        assert readiness.json()["status"] == "ready"
         schema = client.get("/api/v1/openapi.json")
         assert schema.status_code == 200
         assert schema.json()["info"]["title"] == "HarborRAG Control Plane API"
@@ -60,8 +66,46 @@ def test_metrics_exposes_api_and_process_observations() -> None:
 @pytest.mark.blackbox
 def test_removed_operational_routes_are_not_exposed() -> None:
     with TestClient(create_fastapi_app(ApiSettings())) as client:
-        assert client.get("/api/v1/readyz").status_code == 404
         assert client.get("/api/v1/diagnostics").status_code == 404
+
+
+@pytest.mark.blackbox
+def test_readiness_reports_an_unavailable_control_plane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = MockAppService()
+    monkeypatch.setattr(
+        service,
+        "health",
+        lambda: AppResponse(False, error="runtime not ready"),
+    )
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        response = client.get("/api/v1/readyz")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "version": "0.1.0"}
+
+
+@pytest.mark.blackbox
+def test_oversized_request_body_is_rejected_before_validation() -> None:
+    settings = ApiSettings(max_request_body_bytes=1_024)
+    with TestClient(create_fastapi_app(settings)) as client:
+        response = client.post(
+            "/v1/retrieval/vector",
+            json={"query": "x" * 2_000},
+            headers={"X-Request-Id": "oversized-request"},
+        )
+
+    assert response.status_code == 413
+    assert response.headers["x-request-id"] == "oversized-request"
+    assert response.json()["error"] == {
+        "code": "request_too_large",
+        "message": "Request body exceeds the configured limit",
+        "details": {},
+        "trace_id": "oversized-request",
+    }
 
 
 @pytest.mark.blackbox
@@ -117,6 +161,7 @@ def test_docs_default_to_disabled_in_prod() -> None:
         env="prod",
         auth_mode="hmac",
         auth_secret="production-test-secret-at-least-32-bytes",
+        api_capacity_redis_url="rediss://localhost:6379/1",
     )
     assert settings.docs_enabled is False
     with TestClient(
@@ -128,12 +173,47 @@ def test_docs_default_to_disabled_in_prod() -> None:
 
 
 @pytest.mark.blackbox
+def test_prod_requires_distributed_api_capacity_backend() -> None:
+    with pytest.raises(ValueError, match="API_CAPACITY_REDIS_URL is required"):
+        ApiSettings(
+            env="prod",
+            auth_mode="hmac",
+            auth_secret="production-test-secret-at-least-32-bytes",
+        )
+
+
+@pytest.mark.blackbox
+def test_remote_plaintext_capacity_redis_requires_development_acknowledgement() -> None:
+    with pytest.raises(ValueError, match="encrypted transport"):
+        ApiSettings(api_capacity_redis_url="redis://redis.internal:6379/1")
+
+    settings = ApiSettings(
+        api_capacity_redis_url="redis://redis.internal:6379/1",
+        api_capacity_allow_insecure_remote=True,
+    )
+    assert settings.api_capacity_redis_url is not None
+
+
+@pytest.mark.blackbox
+def test_prod_rejects_plaintext_capacity_redis_even_with_acknowledgement() -> None:
+    with pytest.raises(ValueError, match="encrypted transport"):
+        ApiSettings(
+            env="prod",
+            auth_mode="hmac",
+            auth_secret="production-test-secret-at-least-32-bytes",
+            api_capacity_redis_url="redis://redis.internal:6379/1",
+            api_capacity_allow_insecure_remote=True,
+        )
+
+
+@pytest.mark.blackbox
 def test_docs_explicit_true_is_respected_even_in_prod() -> None:
     """An operator who explicitly opts in to docs in prod must still get them."""
     settings = ApiSettings(
         env="prod",
         auth_mode="hmac",
         auth_secret="production-test-secret-at-least-32-bytes",
+        api_capacity_redis_url="rediss://localhost:6379/1",
         docs_enabled=True,
     )
     assert settings.docs_enabled is True

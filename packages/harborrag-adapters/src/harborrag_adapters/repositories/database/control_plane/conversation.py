@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import sqlalchemy as sa
+from sqlalchemy.sql.elements import ColumnElement
 
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
 from harborrag_adapters.repositories.database.control_plane.schemas import (
@@ -15,7 +16,7 @@ from harborrag_adapters.repositories.database.control_plane.session import Sessi
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationTurn
 
 
-def _identity_filter(identity: ConversationIdentity) -> tuple[object, ...]:
+def _identity_filter(identity: ConversationIdentity) -> tuple[ColumnElement[bool], ...]:
     return (
         ConversationMemoryRow.tenant_id == identity.tenant_id,
         ConversationMemoryRow.principal_id == identity.principal_id,

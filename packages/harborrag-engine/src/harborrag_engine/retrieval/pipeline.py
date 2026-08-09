@@ -4,13 +4,30 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import cast
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
 
 from .fusion import reciprocal_rank_fusion
 from .ports import QueryRewriter, ResultReranker, RetrievalContext, RetrievalSource
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalLimits:
+    """Hard provider fan-out and oversampling limits for one pipeline."""
+
+    oversample_factor: int = 3
+    max_rewrites: int = 4
+    max_concurrency: int = 16
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.oversample_factor <= 10:
+            raise ValueError("retrieval oversample_factor must be between 1 and 10")
+        if not 1 <= self.max_rewrites <= 16:
+            raise ValueError("retrieval max_rewrites must be between 1 and 16")
+        if not 1 <= self.max_concurrency <= 64:
+            raise ValueError("retrieval max_concurrency must be between 1 and 64")
 
 
 class RetrievalPipeline:
@@ -22,10 +39,9 @@ class RetrievalPipeline:
         *,
         rewriter: QueryRewriter | None = None,
         reranker: ResultReranker | None = None,
-        oversample_factor: int = 3,
+        limits: RetrievalLimits | None = None,
     ) -> None:
-        if oversample_factor < 1:
-            raise ValueError("retrieval oversample_factor must be positive")
+        selected_limits = limits or RetrievalLimits()
         # Compatibility for the original alpha constructor. Production code
         # should inject repository adapters through RetrievalSource.
         if sources and all(isinstance(item, RetrievalResult) for item in sources):
@@ -38,7 +54,7 @@ class RetrievalPipeline:
             raise ValueError("retrieval requires at least one source")
         self._rewriter = rewriter
         self._reranker = reranker
-        self._oversample_factor = oversample_factor
+        self._limits = selected_limits
 
     async def aretrieve(
         self,
@@ -61,17 +77,25 @@ class RetrievalPipeline:
         )
         if not normalized_rewrites:
             raise ValueError("query rewriter returned no usable query")
+        if len(normalized_rewrites) > self._limits.max_rewrites:
+            raise ValueError(
+                f"query rewriter returned more than {self._limits.max_rewrites} usable queries"
+            )
         provider_query = replace(
             query,
-            top_k=query.top_k * self._oversample_factor,
+            top_k=query.top_k * self._limits.oversample_factor,
         )
+        semaphore = asyncio.Semaphore(self._limits.max_concurrency)
+
+        async def search(source: RetrievalSource, text: str) -> Sequence[RetrievalResult]:
+            async with semaphore:
+                return await source.search(
+                    replace(provider_query, text=text),
+                    context=retrieval_context,
+                )
+
         operations = [
-            source.search(
-                replace(provider_query, text=text),
-                context=retrieval_context,
-            )
-            for text in normalized_rewrites
-            for source in self._sources
+            search(source, text) for text in normalized_rewrites for source in self._sources
         ]
         rankings = await asyncio.gather(*operations)
         fused = reciprocal_rank_fusion(rankings)

@@ -59,6 +59,7 @@ async def test_local_token_verifier_accepts_only_configured_token() -> None:
     assert access is not None
     assert access.client_id == "harborrag-local"
     assert access.claims["sub"] == "harborrag-local"
+    assert access.claims["tenants"] == ["*"]
     assert await verifier.verify_token("wrong-token") is None
 
 
@@ -117,6 +118,11 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
                     "arguments": {"query": "harbor", "tenant_id": "demo"},
                 },
             )
+            oversized_call = await client.post(
+                "/api/tools/call",
+                headers=_owner_headers(),
+                content=b" " * (128 * 1024 + 1),
+            )
 
     assert page.status_code == 200
     assert "HarborRAG MCP" in page.text
@@ -157,6 +163,8 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
         "result": {"ok": False, "error": "vector retrieval backend is not configured"},
     }
     assert audit.entries[-1]["principal_id"] == "harborrag-local"
+    assert oversized_call.status_code == 422
+    assert oversized_call.json()["error"] == "request body budget exceeded"
 
 
 @pytest.mark.asyncio

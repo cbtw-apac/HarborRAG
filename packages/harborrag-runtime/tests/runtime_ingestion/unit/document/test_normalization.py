@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_core.chunking import ChunkKind
+from harborrag_core.chunking import ChunkKind, ConnectorType, DocumentKind
 from harborrag_core.domain import (
     DocumentElement,
     ParsedDocument,
@@ -275,3 +275,60 @@ def test_jira_normalization_separates_prose_comments_and_typed_attributes() -> N
     assert len(comments) == 2
     assert comments[1].metadata["parent_comment_id"] == "c1"
     assert "not parent evidence" not in " ".join(chunk.content for chunk in evidence)
+
+
+def test_jira_spreadsheet_attachment_chunks_reference_every_canonical_table() -> None:
+    raw = RawDocument(
+        id="jira://HARBOR/HARBOR-142/attachments/10001",
+        source="https://jira.example.test/browse/HARBOR-142#attachment-10001",
+        content=b"spreadsheet bytes",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        metadata={
+            "binding_kind": "ATTACHMENT",
+            "connector_type": "jira",
+            "connection_id": "jira-main",
+            "source_scope_id": "HARBOR",
+            "source_item_id": "jira://HARBOR/HARBOR-142/attachments/10001",
+            "parent_source_item_id": "jira://HARBOR/HARBOR-142",
+            "filename": "evidence.xlsx",
+            "source_version": "attachment-v1",
+        },
+    )
+    parsed = ParsedDocument(
+        content="Status\tOwner\nPassed\tAda",
+        parser_name="excel",
+        parser_version="1",
+        elements=[
+            DocumentElement(
+                id="sheet:Evidence",
+                type="table",
+                content="Status\tOwner\nPassed\tAda",
+                metadata={"sheet": "Evidence", "tab_path": ("Evidence",)},
+            )
+        ],
+    )
+
+    document = build_source_document_normalizer().normalize(raw, parsed)
+    chunking = _chunker().chunk(
+        ChunkingRequest(
+            tenant_id="tenant-1",
+            document_version_id="document-version:jira-attachment-v1",
+            document=document,
+            connector_type="jira",
+            content_type=document.content_type,
+        )
+    )
+
+    canonical_table_ids = {table.table_id for table in document.table_artifacts}
+    table_chunks = tuple(
+        chunk
+        for chunk in chunking.chunks
+        if chunk.chunk_kind == ChunkKind.TABLE and chunk.table_locator is not None
+    )
+    chunk_table_ids = {chunk.table_locator.table_id for chunk in table_chunks}
+
+    assert chunking.strategy == "canonical"
+    assert canonical_table_ids
+    assert chunk_table_ids == canonical_table_ids
+    assert all(chunk.connector_type == ConnectorType.JIRA for chunk in table_chunks)
+    assert all(chunk.document_kind == DocumentKind.ATTACHMENT for chunk in table_chunks)

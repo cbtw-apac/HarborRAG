@@ -7,25 +7,15 @@ from dataclasses import replace
 
 import pytest
 
-from harborrag_runtime.temporal.document_workflow import (
-    DocumentIngestionWorkflow,
-)
 from harborrag_runtime.temporal.maintenance_schemas import (
     ProjectionCleanupResult,
 )
 from harborrag_runtime.temporal.schemas import (
     DocumentDispatchSummary,
-    DocumentIngestionInput,
-    PreparedDocument,
-    RawCaptureResult,
-    SourceBatchInput,
     SourceDiscoveryResult,
     SourceIngestionResult,
 )
-from harborrag_runtime.temporal.source_workflow import (
-    SourceBatchWorkflow,
-    SourceIngestionWorkflow,
-)
+from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
 
 from .fixtures import (
     plan_reference as _plan_reference,
@@ -35,107 +25,35 @@ from .fixtures import (
 )
 
 
-@pytest.mark.asyncio
-async def test_document_workflow_routes_twelve_stages_to_resource_queues(
-    monkeypatch,
-) -> None:
-    calls = []
+class _ChildHandle:
+    def __init__(self, awaitable) -> None:
+        self._task = asyncio.create_task(awaitable)
+        self.signals: list[str] = []
 
-    async def execute_activity(name, request, **options):
-        calls.append((name, request, options))
-        if name == "harborrag.fetch_and_capture_raw":
-            return RawCaptureResult(
-                document=request,
-                document_id="document-1",
-                document_version_id=None,
-                decision="NEW",
-                connector_type="local",
-                content_hash="b" * 64,
-                source_artifact=_plan_reference(),
-                metadata_artifact=_plan_reference(),
-            )
-        if name == "harborrag.parse_and_normalize":
-            return PreparedDocument(
-                document=request.document,
-                document_id="document-1",
-                document_version_id="version-1",
-                decision="NEW",
-                canonical_reference=_plan_reference(),
-            )
-        if name == "harborrag.publish_version":
-            return "published"
-        return request
+    def __await__(self):
+        return self._task.__await__()
+
+    async def signal(self, name: str) -> None:
+        self.signals.append(name)
+
+
+def _start_child(child):
+    async def start(name, request, **options):
+        return _ChildHandle(child(name, request, **options))
+
+    return start
+
+
+@pytest.fixture(autouse=True)
+def _workflow_wait_condition(monkeypatch):
+    async def wait_condition(predicate):
+        while not predicate():
+            await asyncio.sleep(3600)
 
     monkeypatch.setattr(
-        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
-        execute_activity,
+        "harborrag_runtime.temporal.source_workflow.workflow.wait_condition",
+        wait_condition,
     )
-    request = DocumentIngestionInput(
-        task_id="task-1",
-        tenant_id="tenant-1",
-        connector_name="local-docs",
-        plan_reference=_plan_reference(),
-        document_index=4,
-    )
-
-    result = await DocumentIngestionWorkflow().run(request)
-
-    assert result == "published"
-    assert tuple((call[0], call[2]["task_queue"]) for call in calls) == (
-        ("harborrag.fetch_and_capture_raw", "harborrag-io"),
-        ("harborrag.parse_and_normalize", "harborrag-parser"),
-        ("harborrag.sync_content_units", "harborrag-transform"),
-        ("harborrag.persist_canonical", "harborrag-io"),
-        ("harborrag.chunk_and_validate", "harborrag-transform"),
-        ("harborrag.encode_chunks", "harborrag-model"),
-        ("harborrag.build_relations", "harborrag-transform"),
-        ("harborrag.build_projections", "harborrag-transform"),
-        ("harborrag.write_vector_projection", "harborrag-index"),
-        ("harborrag.write_graph_projection", "harborrag-index"),
-        ("harborrag.verify_projections", "harborrag-index"),
-        ("harborrag.publish_version", "harborrag-index"),
-    )
-
-
-@pytest.mark.asyncio
-async def test_batch_workflow_uses_bounded_document_child_windows(
-    monkeypatch,
-) -> None:
-    active = 0
-    maximum = 0
-    indices = []
-
-    async def child(name, request, **options):
-        nonlocal active, maximum
-        assert name == "harborrag.document_ingestion"
-        active += 1
-        maximum = max(maximum, active)
-        indices.append(request.document_index)
-        await asyncio.sleep(0)
-        active -= 1
-        return "published" if request.document_index < 2 else "unchanged"
-
-    monkeypatch.setattr(
-        "harborrag_runtime.temporal.source_workflow.workflow.execute_child_workflow",
-        child,
-    )
-
-    result = await SourceBatchWorkflow().run(
-        SourceBatchInput(
-            task_id="task-1",
-            tenant_id="tenant-1",
-            connector_name="local-docs",
-            plan_reference=_plan_reference(),
-            start_index=0,
-            end_index=3,
-            batch_number=0,
-            document_concurrency=2,
-        )
-    )
-
-    assert result == DocumentDispatchSummary(published=2, unchanged=1)
-    assert indices == [0, 1, 2]
-    assert maximum == 2
 
 
 @pytest.mark.asyncio
@@ -182,8 +100,8 @@ async def test_source_workflow_passes_only_plan_reference_to_children(
         execute_activity,
     )
     monkeypatch.setattr(
-        "harborrag_runtime.temporal.source_workflow.workflow.execute_child_workflow",
-        child,
+        "harborrag_runtime.temporal.source_workflow.workflow.start_child_workflow",
+        _start_child(child),
     )
 
     result = await SourceIngestionWorkflow().run(source)
@@ -226,8 +144,8 @@ async def test_source_workflow_continues_only_after_completed_batch(
         execute_activity,
     )
     monkeypatch.setattr(
-        "harborrag_runtime.temporal.source_workflow.workflow.execute_child_workflow",
-        child,
+        "harborrag_runtime.temporal.source_workflow.workflow.start_child_workflow",
+        _start_child(child),
     )
     monkeypatch.setattr(
         "harborrag_runtime.temporal.source_workflow.workflow.continue_as_new",
@@ -337,8 +255,8 @@ async def test_source_workflow_records_failure_and_reraises_when_batch_child_fai
         execute_activity,
     )
     monkeypatch.setattr(
-        "harborrag_runtime.temporal.source_workflow.workflow.execute_child_workflow",
-        child,
+        "harborrag_runtime.temporal.source_workflow.workflow.start_child_workflow",
+        _start_child(child),
     )
 
     with pytest.raises(ChildWorkflowError):

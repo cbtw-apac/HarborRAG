@@ -261,11 +261,9 @@ class ConfluenceBlockHandlers(abc.ABC):
     ) -> None:
         """Create reference blocks for direct link/media children only.
 
-        Every other child kind is independently populated by `_populate`
-        (dispatched through `_append_node`), which recursively handles its own
-        descendants — including any nested link/media — through this same
-        method called on itself. Recursing here too would re-emit those
-        already-handled references a second time under the wrong parent.
+        Other children are populated recursively through `_append_node`, including their
+        nested references. Recursing here would emit those references twice under the
+        wrong parent.
         """
 
         for child in node.children:

@@ -47,13 +47,13 @@ def test_agent_stream_emits_progress_events_then_result(
     service: MockAppService,
 ) -> None:
     session_id = _session(client, "ACME")
-    response = client.get(
+    response = client.post(
         "/v1/agent/completions",
-        params={
+        json={
             "tenant": "ACME",
             "prompt": "Connect the release policy to its owner.",
-            "graph_search": "true",
-            "stream": "true",
+            "graph_search": True,
+            "stream": True,
             "session_id": session_id,
         },
     )
@@ -83,9 +83,9 @@ def test_agent_stream_ends_with_error_event_on_failure(
 
     monkeypatch.setattr(service, "agent_stream", lambda query, **_: fail(query))
     session_id = _session(client)
-    response = client.get(
+    response = client.post(
         "/v1/agent/completions",
-        params={"prompt": "Hello", "session_id": session_id, "stream": "true"},
+        json={"prompt": "Hello", "session_id": session_id, "stream": True},
     )
 
     assert response.status_code == 200
@@ -97,9 +97,9 @@ def test_agent_stream_ends_with_error_event_on_failure(
 
 
 def test_agent_stream_rejects_unknown_session(client: TestClient) -> None:
-    response = client.get(
+    response = client.post(
         "/v1/agent/completions",
-        params={"prompt": "Hello", "session_id": "session-missing", "stream": "true"},
+        json={"prompt": "Hello", "session_id": "session-missing", "stream": True},
     )
 
     assert response.status_code == 404
@@ -107,9 +107,9 @@ def test_agent_stream_rejects_unknown_session(client: TestClient) -> None:
 
 def test_agent_stream_rejects_empty_prompt(client: TestClient) -> None:
     session_id = _session(client)
-    response = client.get(
+    response = client.post(
         "/v1/agent/completions",
-        params={"prompt": "", "session_id": session_id, "stream": "true"},
+        json={"prompt": "", "session_id": session_id, "stream": True},
     )
 
     assert response.status_code == 422

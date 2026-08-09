@@ -58,6 +58,7 @@ def _plan(document: Document):
     return CanonicalVersionPlanner().plan(
         document=document,
         source_identity=SourceIdentity(
+            tenant_id="DEFAULT",
             connector_type=ConnectorType.CONFLUENCE,
             connection_id="wiki-prod",
             source_item_id="42",
@@ -137,6 +138,7 @@ def test_admission_policy_distinguishes_skip_metadata_and_content_changes() -> N
 def test_local_root_and_mtime_do_not_change_canonical_version_identity() -> None:
     planner = CanonicalVersionPlanner()
     source_identity = SourceIdentity(
+        tenant_id="DEFAULT",
         connector_type=ConnectorType.LOCAL,
         connection_id="mounted-docs",
         source_item_id="architecture/guide.md",

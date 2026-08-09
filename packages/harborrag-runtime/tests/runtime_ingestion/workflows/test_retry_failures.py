@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from temporalio.exceptions import ChildWorkflowError
 
+from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.retry_workflow import RetryFailuresWorkflow
 from harborrag_runtime.temporal.schemas import RetryFailuresInput, RetryPreparationResult
 
@@ -87,7 +88,11 @@ async def test_retry_failures_workflow_finalizes_normally_when_children_succeed(
     async def child(name, request, **options):
         del options
         assert name == "harborrag.document_retry"
-        return "published" if request.document_index == 0 else "unchanged"
+        return (
+            DocumentIngestionOutcome.PUBLISHED
+            if request.document_index == 0
+            else DocumentIngestionOutcome.UNCHANGED
+        )
 
     monkeypatch.setattr(
         "harborrag_runtime.temporal.retry_workflow.workflow.execute_activity",

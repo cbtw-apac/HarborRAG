@@ -4,7 +4,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from harborrag_core.indexing import (
+    FilterOperator,
     VectorDistance,
+    VectorFilter,
+    VectorFilterCondition,
     VectorIndexRecord,
     VectorIndexSpec,
 )
@@ -33,6 +36,7 @@ _PAYLOAD_INDEXES = [
     "issue_key",
     "language",
 ]
+_MAXIMUM_FILTERED_SCAN_PAGES = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +88,9 @@ class VectorProjectionStore:
         context: StorageOperationContext,
     ) -> None:
         evidence_points = self._points(batch.evidence_records)
+        stale_ids = await self._stale_version_point_ids(evidence_points, context=context)
+        if stale_ids:
+            await self._repository.delete_records(EVIDENCE_INDEX, stale_ids, context=context)
         if evidence_points:
             await self._repository.upsert_records(
                 EVIDENCE_INDEX,
@@ -98,11 +105,7 @@ class VectorProjectionStore:
         context: StorageOperationContext,
     ) -> VectorProjectionVerification:
         evidence_points = self._points(batch.evidence_records)
-        evidence = await self._get(
-            EVIDENCE_INDEX,
-            evidence_points,
-            context=context,
-        )
+        evidence = await self._get(EVIDENCE_INDEX, evidence_points, context=context)
         expected = {point.id: point for point in evidence_points}
         actual = {point.id: point for point in evidence}
         missing = tuple(sorted(expected.keys() - actual.keys()))
@@ -177,6 +180,62 @@ class VectorProjectionStore:
             tuple(point.id for point in expected),
             context=context,
         )
+
+    async def _version_records(
+        self,
+        expected: Sequence[VectorIndexRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> list[VectorIndexRecord]:
+        versions = {
+            str(point.payload["document_version_id"])
+            for point in expected
+            if point.payload.get("document_version_id") is not None
+        }
+        if not versions:
+            return await self._get(EVIDENCE_INDEX, expected, context=context)
+        records: list[VectorIndexRecord] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        pages = 0
+        filters = VectorFilter(
+            must=[
+                VectorFilterCondition(
+                    field="document_version_id",
+                    operator=FilterOperator.IN,
+                    value=sorted(versions),
+                )
+            ]
+        )
+        while True:
+            pages += 1
+            if pages > _MAXIMUM_FILTERED_SCAN_PAGES:
+                raise ValueError("vector repository exceeded the filtered scan page limit")
+            page = await self._repository.scan_records(
+                EVIDENCE_INDEX,
+                limit=256,
+                cursor=cursor,
+                filters=filters,
+                context=context,
+            )
+            records.extend(page.records)
+            next_cursor = page.next_cursor
+            if next_cursor is None:
+                return records
+            if next_cursor in seen_cursors:
+                raise ValueError("vector repository returned a non-advancing scan cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+
+    async def _stale_version_point_ids(
+        self,
+        expected: Sequence[VectorIndexRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        expected_ids = {point.id for point in expected}
+        existing = await self._version_records(expected, context=context)
+        return tuple(sorted(point.id for point in existing if point.id not in expected_ids))
 
     @staticmethod
     def _payload_matches(

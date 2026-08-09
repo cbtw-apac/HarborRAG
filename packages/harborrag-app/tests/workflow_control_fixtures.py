@@ -63,6 +63,8 @@ class FakeRuntimeClient:
 
 
 class FakeComposition:
+    mode = "test"
+
     def __init__(self, diagnostics: object) -> None:
         self._diagnostics = diagnostics
         self.closed = False

@@ -6,11 +6,12 @@ import json
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import ApiCapacityDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
@@ -58,19 +59,30 @@ async def create_chat_session(
     return ChatSessionResponse.model_validate(response.data)
 
 
-@router.get(
+@router.post(
     "/completions",
     response_model=ChatCompletionResponse,
     response_model_exclude_none=True,
     responses=ERROR_RESPONSES,
 )
 async def create_chat_completion(
-    request: Annotated[ChatCompletionRequest, Query()],
+    request: ChatCompletionRequest,
     service: ChatServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
     response: Response,
+    _capacity: ApiCapacityDependency,
+) -> ChatCompletionResponse | StreamingResponse:
+    return await _complete_chat(request, service, principal, response)
+
+
+async def _complete_chat(
+    request: ChatCompletionRequest,
+    service: ChatServiceDependency,
+    principal: Principal,
+    response: Response,
 ) -> ChatCompletionResponse | StreamingResponse:
     authorize_tenant(principal, request.tenant)
+    response.headers["Cache-Control"] = "no-store"
     if request.stream:
         if not await service.chat_session_exists(
             request.session_id,
@@ -79,12 +91,6 @@ async def create_chat_completion(
         ):
             raise HarborNotFoundError("Conversation session was not found")
         return _stream_response(request, service, principal)
-    # The prompt (up to 65KB) rides in the query string -- GET is the wrong
-    # transport for content this sensitive, but until that's migrated to a
-    # POST body, at minimum this response must never be cached: caching a
-    # non-idempotent GET whose body embeds the prompt/answer would persist
-    # sensitive content in an intermediary beyond this request's lifetime.
-    response.headers["Cache-Control"] = "no-store"
     result = await service.chat_completion(
         request.prompt,
         tenant_id=request.tenant,
@@ -128,7 +134,7 @@ def _stream_response(
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
 
 

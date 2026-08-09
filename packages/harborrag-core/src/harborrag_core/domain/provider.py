@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .validation import require_id
+from .validation import require_id, require_tenant_id, validate_secret_free_config
 
 ProviderFamily = Literal["chat", "embedding", "reranker"]
 
@@ -21,8 +21,11 @@ class Provider:
     id: str
     name: str
     family: ProviderFamily
+    tenant_id: str
     config: dict[str, Any] = field(default_factory=dict)
     secret_ref: str | None = None
 
     def __post_init__(self) -> None:
         require_id(self.id, label="Provider")
+        require_tenant_id(self.tenant_id)
+        validate_secret_free_config(self.config)

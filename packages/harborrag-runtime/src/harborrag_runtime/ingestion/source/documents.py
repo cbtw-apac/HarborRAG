@@ -8,7 +8,7 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_core.ingestion import BindingKind, TaskDocumentResult
+from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome, TaskDocumentResult
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from ..document.models import DocumentReleaseOutcome
@@ -35,7 +35,7 @@ class SourceDocumentService:
         task_id: str,
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         try:
             return await self.publish_one(task_id, planned, connector)
         except Exception as error:
@@ -44,14 +44,14 @@ class SourceDocumentService:
                 planned,
                 error_type=type(error).__name__,
             )
-            return "failed"
+            return DocumentIngestionOutcome.FAILED
 
     async def publish_one(
         self,
         task_id: str,
         planned: PlannedDocumentRelease,
         connector: BaseConnector | HarborConnector,
-    ) -> str:
+    ) -> DocumentIngestionOutcome:
         outcome = await self._documents.release(planned.request, connector)
         return await self.record_published_document(task_id, planned, outcome)
 
@@ -60,8 +60,12 @@ class SourceDocumentService:
         task_id: str,
         planned: PlannedDocumentRelease,
         outcome: DocumentReleaseOutcome,
-    ) -> str:
-        status = "published" if outcome.published else "unchanged"
+    ) -> DocumentIngestionOutcome:
+        status = (
+            DocumentIngestionOutcome.PUBLISHED
+            if outcome.published
+            else DocumentIngestionOutcome.UNCHANGED
+        )
         await self._control.tasks.record_document_result(
             TaskDocumentResult(
                 task_id=task_id,

@@ -44,6 +44,41 @@ async def test_object_key_cannot_escape_bucket_root(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_object_paths_refuse_symbolic_link_components(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "store"
+    store = FilesystemObjectStore(root=root)
+    async with store:
+        context = make_context()
+        tenant_root = store._tenant_root("bkt", context)
+        tenant_root.mkdir(parents=True)
+        (tenant_root / "linked").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ValueError, match="symbolic links"):
+            await store.put(
+                PutObjectRequest(bucket="bkt", key="linked/escape", body=b"x"),
+                context=context,
+            )
+
+
+@pytest.mark.asyncio
+async def test_get_refuses_object_replaced_by_symbolic_link(tmp_path: Path) -> None:
+    store = FilesystemObjectStore(root=tmp_path / "store")
+    async with store:
+        context = make_context()
+        await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"owned"), context=context)
+        target = store._safe_path("bkt", "k", context)
+        outside = tmp_path / "outside-secret"
+        outside.write_bytes(b"secret")
+        target.unlink()
+        target.symlink_to(outside)
+
+        with pytest.raises(ValueError, match="symbolic links"):
+            await store.get_bytes("bkt", "k", byte_range=None, context=context)
+
+
+@pytest.mark.asyncio
 async def test_checksum_mismatch_leaves_no_temp_file(tmp_path: Path) -> None:
     store = FilesystemObjectStore(root=tmp_path)
     async with store:
@@ -116,9 +151,15 @@ async def test_read_disappearance_is_mapped_to_not_found(
         context = make_context()
         await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"data"), context=context)
 
-        def disappear(_path: Path) -> bytes:
-            raise FileNotFoundError
+        original_read = store._read_regular_file
+        calls = {"count": 0}
 
-        monkeypatch.setattr(Path, "read_bytes", disappear)
+        def disappear(path: Path) -> bytes:
+            calls["count"] += 1
+            if calls["count"] > 1:
+                raise FileNotFoundError
+            return original_read(path)
+
+        monkeypatch.setattr(store, "_read_regular_file", disappear)
         with pytest.raises(HarborStorageNotFoundError):
             await store.get_bytes("bkt", "k", byte_range=None, context=context)

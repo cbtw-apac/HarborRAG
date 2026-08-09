@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from harborrag_core.ingestion import GraphProjectionVerification
+from harborrag_core.schemas.vector import VectorIndexScanPage
 
 
 class InMemoryVectorRepository:
@@ -26,6 +27,23 @@ class InMemoryVectorRepository:
         del context
         for point_id in ids:
             self.points.get(collection, {}).pop(point_id, None)
+
+    async def scan_records(self, collection, *, limit, cursor, filters=None, context):
+        del context
+        records = list(self.points.get(collection, {}).values())
+        if filters is not None:
+            versions = set(filters.must[0].value)
+            records = [
+                record
+                for record in records
+                if record.payload.get("document_version_id") in versions
+            ]
+        start = int(cursor or 0)
+        end = min(len(records), start + limit)
+        return VectorIndexScanPage(
+            records=records[start:end],
+            next_cursor=str(end) if end < len(records) else None,
+        )
 
 
 class InMemoryKnowledgeGraph:

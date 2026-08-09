@@ -78,8 +78,7 @@ def test_fallback_html_parser_excludes_head_title(monkeypatch) -> None:
     from harborrag_adapters.parsers.common.normalization import html_to_text_with_engine
 
     text, engine = html_to_text_with_engine(
-        "<html><head><title>Page Title</title></head>"
-        "<body><h1>Body Heading</h1></body></html>"
+        "<html><head><title>Page Title</title></head><body><h1>Body Heading</h1></body></html>"
     )
     assert engine == "python/html.parser"
     assert "Page Title" not in text

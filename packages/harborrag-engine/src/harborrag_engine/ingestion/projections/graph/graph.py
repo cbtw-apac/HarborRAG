@@ -119,9 +119,7 @@ class SourceRelationProjector:
                         target_source_item_id=relation.target_id,
                     )
                 )
-            raw_target_id = (
-                resolved.source_item_id if resolved is not None else relation.target_id
-            )
+            raw_target_id = resolved.source_item_id if resolved is not None else relation.target_id
             target_id = source_provider_id(
                 self._state.context.connector_type.value,
                 raw_target_id,

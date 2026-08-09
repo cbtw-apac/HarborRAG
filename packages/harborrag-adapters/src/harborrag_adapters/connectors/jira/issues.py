@@ -6,6 +6,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 
 from .client import JiraClient
@@ -30,6 +31,7 @@ DESCRIPTOR_FIELDS = (
 )
 DISCOVERY_FIELDS = DESCRIPTOR_FIELDS
 DISCOVERY_DESCRIPTOR_KEY = "_jira_discovery_descriptor"
+_MAX_PROVIDER_PAGES = 10_000
 
 
 class JiraIssueAPI:
@@ -188,7 +190,12 @@ class JiraIssueAPI:
     def _search_cloud(self, jql: str) -> Iterator[dict[str, Any]]:
         """Paginate Jira Cloud's token-based ``/search/jql`` endpoint."""
         next_page_token: str | None = None
+        seen_tokens: set[str] = set()
+        pages = 0
         while True:
+            pages += 1
+            if pages > _MAX_PROVIDER_PAGES:
+                raise FetchError("JIRA search exceeded the pagination limit")
             response = self.client.post_json(
                 "search/jql",
                 json=search_jql_body(
@@ -206,9 +213,17 @@ class JiraIssueAPI:
             )
             yield from issues
 
-            next_page_token = response.get("nextPageToken")
-            if response.get("isLast") or not next_page_token:
+            raw_token = response.get("nextPageToken")
+            if response.get("isLast") or not raw_token:
                 return
+            next_page_token = str(raw_token)
+            if (
+                next_page_token in seen_tokens
+                or len(next_page_token) > 4096
+                or any(ord(character) < 32 for character in next_page_token)
+            ):
+                raise FetchError("JIRA search pagination did not advance")
+            seen_tokens.add(next_page_token)
 
     def _search_datacenter(self, jql: str) -> Iterator[dict[str, Any]]:
         """Paginate Jira Data Center's offset-based ``/search`` endpoint."""

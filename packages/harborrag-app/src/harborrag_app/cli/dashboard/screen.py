@@ -13,6 +13,7 @@ from textual.widgets import DataTable, Footer, Header, Label, ProgressBar, Stati
 
 from harborrag_app.cli.stages import build_stage_table
 from harborrag_app.workflow_control import BaseAppService
+from harborrag_app.workflow_control.errors import public_error_message
 
 from .dialogs import CancelConfirmation
 from .rendering import (
@@ -105,7 +106,7 @@ class IngestionDashboard(App[None]):
                 self.run_id,
                 type(exc).__name__,
             )
-            self._render_error(str(exc) or type(exc).__name__)
+            self._render_error(public_error_message(exc))
             return
         if not response.ok:
             self._render_error(response.error or "Unable to load ingestion status.")
@@ -148,7 +149,7 @@ class IngestionDashboard(App[None]):
                 type(exc).__name__,
             )
             self.notify(
-                str(exc) or type(exc).__name__,
+                public_error_message(exc),
                 title="Control failed",
                 severity="error",
             )

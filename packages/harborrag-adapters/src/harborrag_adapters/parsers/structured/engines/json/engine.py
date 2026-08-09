@@ -13,7 +13,7 @@ from harborrag_adapters.parsers.common.utils import (
     input_label,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.common.validation import guard_input_size
+from harborrag_adapters.parsers.common.validation import ParseResourceBudget, guard_input_size
 from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.structured.base import HarborStructuredEngine
 from harborrag_core.domain.element import DocumentElement
@@ -73,7 +73,7 @@ class JsonStructuredEngine(HarborStructuredEngine):
             )
             raise ParseError(f"Invalid JSON: {exc}") from exc
 
-        flattened = list(self._flatten(data))
+        flattened = self._flatten(data, budget=ParseResourceBudget())
         content = "\n".join(flattened) if flattened else json.dumps(data, ensure_ascii=False)
         elements = [
             DocumentElement(
@@ -112,29 +112,56 @@ class JsonStructuredEngine(HarborStructuredEngine):
     MAX_FLATTEN_DEPTH: ClassVar[int] = 200
 
     @classmethod
-    def _flatten(cls, value: Any, path: str = "$", depth: int = 0) -> list[str]:
+    def _flatten(
+        cls,
+        value: Any,
+        path: str = "$",
+        depth: int = 0,
+        *,
+        budget: ParseResourceBudget | None = None,
+    ) -> list[str]:
         """Convert nested JSON into deterministic JSONPath-like text lines."""
 
         if depth >= cls.MAX_FLATTEN_DEPTH:
-            return [f"{path}: <max-depth {cls.MAX_FLATTEN_DEPTH} reached>"]
+            return cls._bounded_line(f"{path}: <max-depth {cls.MAX_FLATTEN_DEPTH} reached>", budget)
 
         if isinstance(value, dict):
             if not value:
-                return [f"{path}: {{}}"]
+                return cls._bounded_line(f"{path}: {{}}", budget)
             lines: list[str] = []
             for key, child in value.items():
-                lines.extend(cls._flatten(child, f"{path}.{key}", depth + 1))
+                lines.extend(
+                    cls._flatten(
+                        child,
+                        f"{path}.{key}",
+                        depth + 1,
+                        budget=budget,
+                    )
+                )
             return lines
 
         if isinstance(value, list):
             if not value:
-                return [f"{path}: []"]
+                return cls._bounded_line(f"{path}: []", budget)
             lines = []
             for index, child in enumerate(value):
-                lines.extend(cls._flatten(child, f"{path}[{index}]", depth + 1))
+                lines.extend(
+                    cls._flatten(
+                        child,
+                        f"{path}[{index}]",
+                        depth + 1,
+                        budget=budget,
+                    )
+                )
             return lines
 
-        return [f"{path}: {value}"]
+        return cls._bounded_line(f"{path}: {value}", budget)
+
+    @staticmethod
+    def _bounded_line(line: str, budget: ParseResourceBudget | None) -> list[str]:
+        if budget is not None:
+            budget.consume_output(len(line) + 1)
+        return [line]
 
 
 JsonParser = JsonStructuredEngine

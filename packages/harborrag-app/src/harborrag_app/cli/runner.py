@@ -200,14 +200,12 @@ def _control_plane_failure(service: BaseAppService) -> AppResponse | None:
     if health.ok:
         return None
     detail = _control_db_error(health)
+    logger.error("Control-plane readiness check failed: %s", detail)
     return AppResponse(
         False,
-        # The full detail stays in the envelope for --json and the logs; the rendered
-        # panel gets the summary line only, because a database error carries the whole
-        # failing statement and that buries the sentence an operator needs to read.
-        data={"error_type": "ControlPlaneUnavailable", "detail": detail},
+        data={"error_type": "ControlPlaneUnavailable"},
         error=(
-            f"Control plane is not ready: {_summary_line(detail)}. Refusing to run "
+            "Control plane is not ready. Refusing to run "
             "against a database whose schema may be stale; run 'harborrag doctor' for "
             "diagnostics."
         ),
@@ -227,12 +225,6 @@ def _control_db_error(health: AppResponse) -> str:
                 if isinstance(error, str) and error:
                     return error
     return health.error or "runtime not ready"
-
-
-def _summary_line(detail: str) -> str:
-    """First line of a multi-line error, which is where the cause is stated."""
-
-    return detail.splitlines()[0].strip() if detail.strip() else detail
 
 
 def _state(context: typer.Context) -> CliState:

@@ -167,10 +167,7 @@ class StructuralGraphProjector:
                     source_explicit=True,
                 )
             )
-        return {
-            chunk_id: nodes[comment_id]
-            for chunk_id, comment_id in comment_ids.items()
-        }
+        return {chunk_id: nodes[comment_id] for chunk_id, comment_id in comment_ids.items()}
 
     def _chunk_nodes(
         self,

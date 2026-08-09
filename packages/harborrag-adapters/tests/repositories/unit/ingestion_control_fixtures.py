@@ -28,6 +28,7 @@ def make_control_plane(tmp_path: Path) -> IngestionControlPlaneDatabase:
 
 def source_identity(source_item_id: str = "page-1") -> SourceIdentity:
     return SourceIdentity(
+        tenant_id="DEFAULT",
         connector_type=ConnectorType.CONFLUENCE,
         connection_id="wiki.example",
         source_item_id=source_item_id,
@@ -56,6 +57,7 @@ def candidate(
     )
     identity = DocumentIdentityBuilder()
     document_id = identity.document_id(
+        tenant_id=selected_source.tenant_id,
         connector_type=selected_source.connector_type,
         connection_id=selected_source.connection_id,
         source_item_id=selected_source.source_item_id,

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from temporalio import workflow
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
 
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
@@ -16,6 +18,16 @@ from harborrag_runtime.config.temporal import (
 )
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal import worker as worker_module
+from harborrag_runtime.temporal.document_workflow import DocumentIngestionWorkflow
+from harborrag_runtime.temporal.reindex_workflow import ReindexWorkflow
+from harborrag_runtime.temporal.retry_workflow import (
+    DocumentRetryWorkflow,
+    RetryFailuresWorkflow,
+)
+from harborrag_runtime.temporal.source_workflow import (
+    SourceBatchWorkflow,
+    SourceIngestionWorkflow,
+)
 
 
 class _Worker:
@@ -30,6 +42,24 @@ class _Worker:
     async def run(self) -> None:
         if self._finish is not None:
             await self._finish.wait()
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    (
+        SourceIngestionWorkflow,
+        SourceBatchWorkflow,
+        DocumentIngestionWorkflow,
+        DocumentRetryWorkflow,
+        RetryFailuresWorkflow,
+        ReindexWorkflow,
+    ),
+)
+@pytest.mark.asyncio
+async def test_registered_workflows_validate_in_default_temporal_sandbox(workflow_type) -> None:
+    definition = workflow._Definition.must_from_class(workflow_type)
+
+    SandboxedWorkflowRunner().prepare_workflow(definition)
 
 
 @pytest.mark.asyncio

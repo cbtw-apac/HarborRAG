@@ -98,10 +98,7 @@ class CompositionRoot:
             SqlSettingsRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_runtime.config.settings import (
-            DEFAULT_CONTROL_DB_URL,
-            RuntimeSettings,
-        )
+        from harborrag_runtime.config.settings import RuntimeSettings
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url.get_secret_value()
@@ -111,41 +108,33 @@ class CompositionRoot:
             settings.env,
             scheme,
         )
-        if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
+        if settings.env == "prod" and scheme.startswith("sqlite"):
             raise HarborConfigurationError(
-                "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
-                "boot against the default local SQLite database; set "
-                "HARBORRAG_CONTROL_DB_URL explicitly"
+                "SQLite control databases are not supported when HARBORRAG_ENV=prod; "
+                "set HARBORRAG_CONTROL_DB_URL to a production database"
             )
 
         try:
             run_migrations(dsn)
-        except Exception as exc:  # noqa: BLE001 - health reports boot degradation
-            # The message, not just the type. Boot continues in a degraded state and the
-            # stored status is not printed by any CLI command, so this log is the only
-            # place the cause is ever stated. Logging "error_type=OperationalError" alone
-            # turns a fixable stamp problem into an unexplained failure that surfaces much
-            # later as a missing column in an unrelated query. The DSN stays out; the
-            # scheme is logged separately.
+        except Exception as exc:  # noqa: BLE001 - wrap adapter failures at the boundary
             logger.error(
-                "Control-plane migrations failed database_scheme=%s error_type=%s error=%s%s",
+                "Control-plane migrations failed database_scheme=%s error_type=%s%s",
                 scheme,
                 type(exc).__name__,
-                exc,
                 _migration_failure_hint(exc),
             )
-            return cls(
-                control_db=_failed_database_status(
-                    dsn,
-                    f"migrations failed: {exc}",
-                )
-            )
+            raise HarborConfigurationError(
+                "control-plane migrations failed; inspect the startup logs"
+            ) from exc
 
         control_db = _probe_control_db(dsn)
         if control_db.get("ping") != "ok":
-            logger.warning(
+            logger.error(
                 "Control-plane probe failed database_scheme=%s",
                 scheme,
+            )
+            raise HarborConfigurationError(
+                "control-plane database probe failed; inspect the startup logs"
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
@@ -242,7 +231,7 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
                 dsn.split(":", 1)[0],
                 type(exc).__name__,
             )
-            return _failed_database_status(dsn, str(exc))
+            return _failed_database_status(dsn, f"probe failed ({type(exc).__name__})")
 
     try:
         asyncio.get_running_loop()

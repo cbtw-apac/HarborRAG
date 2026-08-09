@@ -49,6 +49,12 @@ Connector credentials remain isolated in the worker. See the repository
 [deployment guide](../../../../../docs/developers/deployment/README.md) for
 environment preparation and shutdown.
 
+The local API container listens on `0.0.0.0` inside Docker but Compose publishes
+port 8000 only on host loopback. Accordingly, the development environment file
+sets `HARBORRAG_ALLOW_INSECURE_DEV=true` alongside `HARBORRAG_AUTH_MODE=none`.
+Do not publish that configuration on a non-loopback host address; use HMAC auth
+before exposing the API outside the trusted local development network.
+
 ## Composition modes
 
 The application lifespan constructs one `AppService` and closes it on process
@@ -68,6 +74,7 @@ requests still go to the configured Temporal service.
 | Method | Path | Minimum role | Behavior |
 | --- | --- | --- | --- |
 | `GET` | `/api/v1/health` | Public | Process liveness; does not probe dependencies |
+| `GET` | `/api/v1/readyz` | Public | Dependency-aware readiness; returns 503 when runtime composition is unavailable |
 | `GET` | `/api/v1/metrics` | Admin | Prometheus API, Python runtime, and process metrics |
 | `POST` | `/v1/ingestions` | `editor` | Submit a durable ingestion task |
 | `GET` | `/v1/ingestions/{task_id}` | `reader` | Read Postgres-authoritative task progress |
@@ -75,9 +82,9 @@ requests still go to the configured Temporal service.
 | `POST` | `/v1/ingestions/{task_id}/cancel` | `editor` | Request graceful cancellation |
 | `POST` | `/v1/ingestions/{task_id}/retry-failures` | `editor` | Retry selected or all retryable failures |
 | `POST` | `/v1/chat/sessions` | `reader` | Create a persisted chat session and greeting |
-| `GET` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
+| `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
 | `POST` | `/v1/agent/sessions` | `reader` | Create a persisted agent session and greeting |
-| `GET` | `/v1/agent/completions` | `reader` | Bounded multi-turn model/tool completion |
+| `POST` | `/v1/agent/completions` | `reader` | Bounded multi-turn model/tool completion |
 | `POST` | `/v1/retrieval/vector` | `reader` | Dense, sparse, or hybrid vector search |
 | `POST` | `/v1/retrieval/graph/triplets` | `reader` | Match subject-predicate-object records |
 | `POST` | `/v1/retrieval/graph/paths` | `reader` | Find bounded paths between graph nodes |
@@ -102,17 +109,18 @@ curl --fail-with-body \
   --data '{"tenant":"DEFAULT"}' \
   http://127.0.0.1:8000/v1/chat/sessions
 
-curl --fail-with-body --get \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=What is HarborRAG?' \
+curl --fail-with-body --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"session_id":"session-...","prompt":"What is HarborRAG?"}' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
-The POST response contains a generated `session_id` and greeting. The GET
-requires that session ID and a prompt. `stream=true` changes the response to
+The session response contains a generated `session_id` and greeting. The completion POST
+requires that session ID and a prompt in its JSON body. `stream=true` changes the response to
 SSE. The two latest PostgreSQL-backed turns are recalled under the tenant,
 authenticated principal, and session identity. Requests are marked sensitive
-so model-response caching remains disabled.
+so model-response caching remains disabled. Completion endpoints accept POST
+only, keeping prompts and other sensitive content out of request URLs and access logs.
 
 ### Run a multi-turn agent
 
@@ -128,11 +136,9 @@ curl --fail-with-body \
   --data '{"tenant":"DEFAULT"}' \
   http://127.0.0.1:8000/v1/agent/sessions
 
-curl --fail-with-body --get \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=Connect this release policy to its owner.' \
-  --data-urlencode 'graph_search=true' \
-  --data-urlencode 'max_steps=4' \
+curl --fail-with-body --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"session_id":"session-...","prompt":"Connect this release policy to its owner.","graph_search":true,"max_steps":4}' \
   http://127.0.0.1:8000/v1/agent/completions
 ```
 
@@ -279,15 +285,22 @@ API process settings use the `HARBORRAG_` prefix.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_HOST` | `0.0.0.0` | Uvicorn bind host used by the container command |
+| `HARBORRAG_HOST` | `0.0.0.0` | Uvicorn bind host; disabled auth requires loopback or an explicit insecure-development opt-in |
 | `HARBORRAG_PORT` | `8000` | Uvicorn bind port used by the container command |
 | `HARBORRAG_ENV` | `dev` | `dev` or `prod` process policy |
 | `HARBORRAG_AUTH_MODE` | `none` | `none`, `hmac`, or `oidc` |
+| `HARBORRAG_ALLOW_INSECURE_DEV` | `false` | Explicitly acknowledge disabled auth on a non-loopback development listener |
 | `HARBORRAG_AUTH_SECRET` | unset | Shared HS256 secret |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required JWT issuer |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required JWT audience |
 | `HARBORRAG_CORS_ORIGINS` | `[]` | JSON list of allowed browser origins |
 | `HARBORRAG_DOCS_ENABLED` | `true` in dev | Enables Swagger and the live OpenAPI route |
+| `HARBORRAG_MAX_REQUEST_BODY_BYTES` | `1048576` | Maximum request body accepted before JSON parsing |
+| `HARBORRAG_API_CAPACITY_REDIS_URL` | unset in dev; required in prod | Redis backend for cross-replica principal limits |
+| `HARBORRAG_API_CAPACITY_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for remote plaintext Redis |
+| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Maximum expensive requests per principal per minute |
+| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent expensive request limit per principal |
+| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Server-owned wall-clock deadline for expensive requests |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
 | `HARBORRAG_INGESTION_TENANT_ID` | `DEFAULT` | Fallback tenant for non-HTTP runtime operations |
 | `HARBORRAG_TEMPORAL_TARGET` | `localhost:7233` | Temporal frontend address |

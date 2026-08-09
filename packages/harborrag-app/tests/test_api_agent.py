@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
@@ -36,9 +38,9 @@ def test_agent_session_then_completion_forwards_bounded_controls(
 ) -> None:
     session_id = _session(client, "ACME")
 
-    response = client.get(
+    response = client.post(
         "/v1/agent/completions",
-        params={
+        json={
             "tenant": "ACME",
             "session_id": session_id,
             "prompt": "Connect the release policy to its owner.",
@@ -53,29 +55,73 @@ def test_agent_session_then_completion_forwards_bounded_controls(
     assert payload["session_id"] == session_id
     assert "user_id" not in payload
     assert payload["tool_calls"] == [{"step": 1, "tool": "vector_search", "ok": True}]
-    # The prompt travels in the query string (GET), so this response must
-    # never be cached by an intermediary -- caching it would persist
-    # sensitive prompt/answer content beyond this request's lifetime.
     assert response.headers["cache-control"] == "no-store"
     assert service.agent_calls[0]["principal_id"] == "dev"
     assert service.agent_calls[0]["graph_search"] is True
 
 
-def test_agent_completion_rejects_unknown_session(client: TestClient) -> None:
+def test_agent_completion_enforces_per_principal_request_rate(
+    monkeypatch: pytest.MonkeyPatch,
+    service: MockAppService,
+) -> None:
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    settings = ApiSettings(api_requests_per_minute=1)
+    with TestClient(create_fastapi_app(settings)) as limited_client:
+        session_id = _session(limited_client)
+        request = {"session_id": session_id, "prompt": "Hello"}
+        first = limited_client.post("/v1/agent/completions", json=request)
+        second = limited_client.post("/v1/agent/completions", json=request)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.headers["retry-after"] == "60"
+
+
+def test_agent_completion_enforces_server_owned_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+    service: MockAppService,
+) -> None:
+    async def slow_completion(*_args, **_kwargs):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(service, "agent_completion", slow_completion)
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    settings = ApiSettings(api_request_timeout_seconds=1)
+    with TestClient(create_fastapi_app(settings), raise_server_exceptions=False) as limited_client:
+        session_id = _session(limited_client)
+        response = limited_client.post(
+            "/v1/agent/completions",
+            json={"session_id": session_id, "prompt": "Hello"},
+        )
+
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "harbor_deadline_exceeded"
+
+
+def test_agent_completion_rejects_get_to_keep_prompt_out_of_url(client: TestClient) -> None:
     response = client.get(
         "/v1/agent/completions",
-        params={"session_id": "session-missing", "prompt": "Hello"},
+        params={"session_id": "session-1", "prompt": "sensitive"},
+    )
+
+    assert response.status_code == 405
+
+
+def test_agent_completion_rejects_unknown_session(client: TestClient) -> None:
+    response = client.post(
+        "/v1/agent/completions",
+        json={"session_id": "session-missing", "prompt": "Hello"},
     )
 
     assert response.status_code == 404
 
 
 def test_agent_completion_requires_session_and_prompt(client: TestClient) -> None:
-    assert client.get("/v1/agent/completions", params={"prompt": "Hello"}).status_code == 422
+    assert client.post("/v1/agent/completions", json={"prompt": "Hello"}).status_code == 422
     assert (
-        client.get(
+        client.post(
             "/v1/agent/completions",
-            params={"session_id": "session-1"},
+            json={"session_id": "session-1"},
         ).status_code
         == 422
     )

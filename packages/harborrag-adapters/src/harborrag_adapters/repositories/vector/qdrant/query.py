@@ -28,6 +28,7 @@ from harborrag_adapters.repositories.vector.qdrant.schema_mapping import (
 from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
+    VectorFilter,
     VectorIndexRecord,
     VectorIndexScanPage,
     VectorIndexSpec,
@@ -94,12 +95,13 @@ class QdrantQueryExecutor:
         *,
         limit: int,
         cursor: str | None,
+        filters: VectorFilter | None = None,
         context: StorageOperationContext,
     ) -> VectorIndexScanPage:
         spec = await self.require_spec(collection, context)
         records, next_offset = await self._client.raw.scroll(
             collection_name=self.collection_name(collection, context),
-            scroll_filter=None,
+            scroll_filter=QdrantMapper.filter(filters, qm),
             limit=limit,
             offset=cursor,
             with_payload=True,

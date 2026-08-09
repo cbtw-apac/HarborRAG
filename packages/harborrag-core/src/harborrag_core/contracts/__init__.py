@@ -17,6 +17,7 @@ from .errors import (
     HarborImportError,
     HarborNotFoundError,
     HarborNotSupportedError,
+    HarborRateLimitError,
     HarborSecurityError,
     HarborValidationError,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "HarborEvent",
     "HarborImportError",
     "HarborNotFoundError",
+    "HarborRateLimitError",
     "HarborNotSupportedError",
     "HarborSecurityError",
     "HarborValidationError",

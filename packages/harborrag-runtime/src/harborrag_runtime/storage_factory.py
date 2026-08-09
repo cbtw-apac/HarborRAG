@@ -41,6 +41,7 @@ def build_object_store(settings: RuntimeSettings) -> S3ObjectStore:
             access_key_id=settings.object_store_access_key_id,
             secret_access_key=settings.object_store_secret_access_key,
             session_token=settings.object_store_session_token,
+            allow_insecure_remote=settings.object_store_allow_insecure_remote,
         )
     )
 

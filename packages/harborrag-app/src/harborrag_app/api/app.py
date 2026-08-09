@@ -20,9 +20,10 @@ from fastapi.responses import RedirectResponse
 from starlette.routing import compile_path
 
 from harborrag_app.api.auth.dependencies import build_token_verifier
+from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
-from harborrag_app.api.middleware import TraceIdMiddleware
+from harborrag_app.api.middleware import RequestBodyLimitMiddleware, TraceIdMiddleware
 from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.selection import select_app_service
@@ -78,11 +79,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         recovery_task.cancel()
         await asyncio.gather(recovery_task, return_exceptions=True)
         logger.info("Closing the application service")
-        close = getattr(service, "aclose", None)
-        if close is not None:
-            result = close()
-            if inspect.isawaitable(result):
-                await result
+        try:
+            close = getattr(service, "aclose", None)
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+        finally:
+            await app.state.api_capacity_limiter.aclose()
 
 
 def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
@@ -101,7 +105,22 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.token_verifier = build_token_verifier(settings)
+    redis_url = (
+        settings.api_capacity_redis_url.get_secret_value()
+        if settings.api_capacity_redis_url is not None
+        else None
+    )
+    app.state.api_capacity_limiter = build_api_capacity_limiter(
+        redis_url=redis_url,
+        requests_per_minute=settings.api_requests_per_minute,
+        max_inflight=settings.api_max_inflight_per_principal,
+        lease_seconds=settings.api_request_timeout_seconds + 5,
+    )
     app.state.api_metrics = ApiMetrics(version=app.version)
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=settings.max_request_body_bytes,
+    )
     app.add_middleware(ApiMetricsMiddleware, metrics=app.state.api_metrics)
     app.add_middleware(TraceIdMiddleware)
     if settings.cors_origins:

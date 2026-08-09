@@ -67,17 +67,23 @@ class ChatStreamNormalizer:
             self.usage = normalize_chat_usage(data["usage"])
             events.append(self._event(StreamEventType.USAGE, usage=self.usage))
 
+        events.extend(self._choice_events(data))
+        return tuple(events)
+
+    def _choice_events(self, data: Mapping[str, Any]) -> list[HarborChatStreamChunk]:
+        """Normalize the first provider choice and its terminal metadata."""
+
         choices = data.get("choices")
         if choices is None:
             if data.get("usage") is None:
                 raise self._malformed("missing choices")
-            return tuple(events)
+            return []
         if not isinstance(choices, Sequence) or isinstance(choices, (str, bytes)):
             raise self._malformed("invalid choices")
         if not choices:
             if data.get("usage") is None:
                 raise self._malformed("empty choices without usage")
-            return tuple(events)
+            return []
 
         choice = coerce_mapping(choices[0])
         if not choice:
@@ -90,7 +96,7 @@ class ChatStreamNormalizer:
         ]
         if output_events and self._first_output_latency_ms is None:
             self._first_output_latency_ms = self._elapsed_ms()
-        events.extend(output_events)
+        events = list(output_events)
         if choice.get("finish_reason") is not None:
             self.finish_reason = normalize_finish_reason(choice["finish_reason"])
             events.append(
@@ -100,7 +106,7 @@ class ChatStreamNormalizer:
                     metadata={"finish_reason": self.finish_reason.value},
                 )
             )
-        return tuple(events)
+        return events
 
     def complete(self) -> HarborChatStreamChunk:
         """Create the final event with assembled calls, usage, timing, and finish metadata."""

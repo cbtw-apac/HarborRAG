@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from harborrag_adapters.parsers.common.resources import (
     parse_input_suffix,
@@ -13,6 +13,7 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import (
+    ParseResourceBudget,
     guard_input_size,
     open_guarded_zip,
     raise_if_password_protected_document,
@@ -23,11 +24,17 @@ from harborrag_adapters.parsers.spreadsheet.base import HarborSpreadsheetEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
+from .rendering import guard_declared_table_size, legacy_cell_to_text, openxml_cell_to_text
+
 parser_logger = get_parser_logger("excel")
 
 
 class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
     """Extract workbook sheets as tab-separated table text."""
+
+    _guard_declared_table_size = staticmethod(guard_declared_table_size)
+    _cell_to_text = staticmethod(openxml_cell_to_text)
+    _xls_cell_to_text = staticmethod(legacy_cell_to_text)
 
     supports_formulas: ClassVar[bool] = True
     supports_merged_cells: ClassVar[bool] = True
@@ -137,14 +144,10 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                 input_bytes=len(source_bytes),
             ),
         )
-        # The whole workbook lifecycle -- not just `load_workbook()` -- must stay
-        # inside `wrap_parse_errors`: `read_only=True` makes openpyxl a lazy,
-        # streaming reader, so malformed sheet XML fails during
-        # `iter_rows()`, not during the initial open, and would otherwise leak
-        # as a raw library exception instead of a typed `ParseError`.
+        # Keep the lazy workbook lifecycle inside the error boundary: malformed sheet XML
+        # can fail during `iter_rows()` rather than the initial open.
         with wrap_parse_errors("openpyxl"):
-            # Encrypted XLSX is an OLE compound file, not a zip -- check before
-            # attempting to open it as one, exactly like DOCX does.
+            # Encrypted XLSX is an OLE compound file, so check before opening it as a zip.
             raise_if_password_protected_document(source_bytes, format_name="xlsx")
             # XLSX is a zip container: reject decompression-bomb shapes before
             # handing bytes to openpyxl, exactly like DOCX/EPUB/PPTX do.
@@ -164,12 +167,22 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                 sheet_names = workbook.sheetnames
                 sections: list[str] = []
                 elements: list[DocumentElement] = []
+                budget = ParseResourceBudget()
                 for sheet in workbook.worksheets:
-                    rows = [
-                        "\t".join(self._cell_to_text(value) for value in row).rstrip()
-                        for row in sheet.iter_rows(values_only=True)
-                    ]
-                    rows = [row for row in rows if row.strip()]
+                    self._guard_declared_table_size(
+                        rows=int(sheet.max_row or 0),
+                        columns=int(sheet.max_column or 0),
+                        budget=budget,
+                    )
+                    rows: list[str] = []
+                    for values in sheet.iter_rows(values_only=True):
+                        rendered = "\t".join(self._cell_to_text(value) for value in values).rstrip()
+                        budget.consume_row(
+                            len(values),
+                            output_characters=len(rendered) + 1 if rendered.strip() else 0,
+                        )
+                        if rendered.strip():
+                            rows.append(rendered)
                     if not rows:
                         parser_logger.debug(
                             "Skipping empty Excel sheet %s",
@@ -184,6 +197,7 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                         )
                         continue
                     sheet_text = "\n".join(rows)
+                    budget.consume_output(len(sheet.title) + len("Sheet: \n\n"))
                     sections.append(f"Sheet: {sheet.title}\n{sheet_text}")
                     elements.append(
                         DocumentElement(
@@ -257,12 +271,18 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
             sheet_names = workbook.sheet_names()
             sections: list[str] = []
             elements: list[DocumentElement] = []
+            budget = ParseResourceBudget()
             try:
                 # Load sheets one at a time (Book.sheets() would defeat on_demand and
                 # load them all), unloading each after rendering to bound memory.
                 for sheet_index in range(workbook.nsheets):
                     sheet = workbook.sheet_by_index(sheet_index)
-                    rows = []
+                    self._guard_declared_table_size(
+                        rows=sheet.nrows,
+                        columns=sheet.ncols,
+                        budget=budget,
+                    )
+                    rows: list[str] = []
                     for row_index in range(sheet.nrows):
                         row = "\t".join(
                             self._xls_cell_to_text(
@@ -272,6 +292,10 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                             )
                             for column_index in range(sheet.ncols)
                         ).rstrip()
+                        budget.consume_row(
+                            sheet.ncols,
+                            output_characters=len(row) + 1 if row.strip() else 0,
+                        )
                         if row.strip():
                             rows.append(row)
                     if not rows:
@@ -289,6 +313,7 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                         workbook.unload_sheet(sheet_index)
                         continue
                     sheet_text = "\n".join(rows)
+                    budget.consume_output(len(sheet.name) + len("Sheet: \n\n"))
                     sections.append(f"Sheet: {sheet.name}\n{sheet_text}")
                     elements.append(
                         DocumentElement(
@@ -317,37 +342,6 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                 workbook.release_resources()
 
         return "\n\n".join(sections).strip(), elements, sheet_names
-
-    @staticmethod
-    def _cell_to_text(value: Any) -> str:
-        """Convert openpyxl cell values into stable searchable text."""
-
-        if value is None:
-            return ""
-        isoformat = getattr(value, "isoformat", None)
-        if callable(isoformat):
-            return str(isoformat())
-        return str(value)
-
-    @staticmethod
-    def _xls_cell_to_text(cell: Any, datemode: int, xlrd: Any) -> str:
-        """Convert xlrd cell values while preserving dates, booleans, and errors."""
-
-        if cell.ctype in {xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK}:
-            return ""
-        if cell.ctype == xlrd.XL_CELL_DATE:
-            try:
-                return str(xlrd.xldate_as_datetime(cell.value, datemode).isoformat())
-            except (OverflowError, ValueError):
-                return str(cell.value)
-        if cell.ctype == xlrd.XL_CELL_NUMBER:
-            number = float(cell.value)
-            return str(int(number)) if number.is_integer() else str(number)
-        if cell.ctype == xlrd.XL_CELL_BOOLEAN:
-            return "TRUE" if cell.value else "FALSE"
-        if cell.ctype == xlrd.XL_CELL_ERROR:
-            return f"#ERROR:{cell.value}"
-        return str(cell.value)
 
 
 ExcelParser = ExcelSpreadsheetEngine

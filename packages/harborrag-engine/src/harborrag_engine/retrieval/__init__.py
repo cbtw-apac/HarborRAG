@@ -18,7 +18,7 @@ from harborrag_engine.retrieval.graph import (
     AuthoritativeTripletResult,
     GraphSearchDiagnostics,
 )
-from harborrag_engine.retrieval.pipeline import RetrievalPipeline
+from harborrag_engine.retrieval.pipeline import RetrievalLimits, RetrievalPipeline
 from harborrag_engine.retrieval.ports import RetrievalContext
 
 __all__ = [
@@ -37,5 +37,6 @@ __all__ = [
     "ProjectionSearchRepository",
     "RetrievalContext",
     "RetrievalLane",
+    "RetrievalLimits",
     "RetrievalPipeline",
 ]

@@ -217,6 +217,7 @@ async def test_disabled_attachment_binding_is_removed_after_one_completed_scan(
             configuration_fingerprint="config-v1",
         )
         attachment_source = SourceIdentity(
+            tenant_id="DEFAULT",
             connector_type=source_identity().connector_type,
             connection_id="wiki.example",
             source_item_id="attachment-1",
@@ -266,6 +267,7 @@ async def test_overlapping_scopes_share_document_without_early_retirement(
         base = source_identity()
         identities = (
             SourceIdentity(
+                tenant_id="DEFAULT",
                 connector_type=base.connector_type,
                 connection_id=base.connection_id,
                 source_item_id=base.source_item_id,

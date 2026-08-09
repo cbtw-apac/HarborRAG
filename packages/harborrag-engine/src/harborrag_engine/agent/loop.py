@@ -9,13 +9,12 @@ tool-provider calls themselves are delegated to ``ChatAndToolExecutor``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
-from datetime import UTC, datetime
 
 from harborrag_core.invariants import require
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatTool
 from harborrag_core.ports.agent_runs import (
-    AgentCheckpoint,
     AgentRunRepository,
     AgentRunStatus,
     AgentStopReason,
@@ -25,11 +24,13 @@ from harborrag_engine.conversation import ConversationIdentity, ConversationMemo
 
 from .events import AgentEvent, emit
 from .execution import ChatAndToolExecutor
-from .guard import ExecutionGuard
+from .guard import ExecutionGuard, digest_arguments
 from .helpers import add_usage
 from .loop_state import LoopState, RunContext, StepOutcome
 from .protocols import AgentChatModel, AgentToolProvider
+from .run_lifecycle import AgentRunLifecycle
 from .schemas import AgentRunOptions, AgentRunResult
+from .token_budget import TokenBudgetExhausted, completion_token_limit, exhausted_response
 from .tool_execution import MAX_TOOL_CALLS_PER_TURN, rejected_execution, tool_definition
 
 _SYNTHESIS_INSTRUCTIONS: dict[AgentStopReason, str] = {
@@ -67,7 +68,7 @@ class AgentLoopRunner:
     ) -> None:
         self._executor = ChatAndToolExecutor(chat, tools, memory=memory)
         self._memory = memory
-        self._runs = runs
+        self._lifecycle = AgentRunLifecycle(self._executor, runs)
 
     def memory_identity(self, options: AgentRunOptions) -> ConversationIdentity | None:
         if self._memory is None:
@@ -94,11 +95,19 @@ class AgentLoopRunner:
             final_response, calls_made = await self._ensure_final_response(
                 context, state, stop_reason, final_response, calls_made
             )
-        except Exception:
-            await self._record_failure(context, state)
+            return await self._lifecycle.complete(
+                context, state, stop_reason, final_response, calls_made
+            )
+        except asyncio.CancelledError:
+            # Cancellation is a normal terminal outcome, not an unexpected
+            # crash. Shield the best-effort checkpoint from the caller's
+            # cancellation so a later resume cannot replay stale RUNNING work.
+            with contextlib.suppress(BaseException):
+                await asyncio.shield(self._lifecycle.record_cancellation(context, state))
             raise
-
-        return await self._complete_run(context, state, stop_reason, final_response, calls_made)
+        except Exception:
+            await self._lifecycle.record_failure(context, state)
+            raise
 
     async def _run_until_stop(
         self,
@@ -134,22 +143,6 @@ class AgentLoopRunner:
         budget = context.options.max_total_tokens
         return budget is not None and (state.usage.total_tokens or 0) >= budget
 
-    async def _record_failure(self, context: RunContext, state: LoopState) -> None:
-        """Best-effort checkpoint + event on an unexpected loop exception.
-
-        Both are advisory, not authoritative: the caller's exception is what
-        actually reports the failure, so a secondary error here must never
-        replace it.
-        """
-
-        with contextlib.suppress(Exception):
-            await self._persist(context, state, AgentRunStatus.FAILED)
-        with contextlib.suppress(Exception):
-            await emit(
-                context.events,
-                AgentEvent("run.failed", context.identity.run_id, {"step": state.step}),
-            )
-
     async def _ensure_final_response(
         self,
         context: RunContext,
@@ -162,6 +155,15 @@ class AgentLoopRunner:
 
         if stop_reason is AgentStopReason.FINAL_ANSWER:
             return require(final_response, "agent loop ended without a response"), calls_made
+        if stop_reason is AgentStopReason.TOKEN_BUDGET_EXCEEDED:
+            return (
+                exhausted_response(
+                    context.identity.run_id,
+                    "The agent token budget was exhausted before another model call could be "
+                    "made safely.",
+                ),
+                calls_made,
+            )
 
         state.conversation.append(HarborChatMessage.developer(_SYNTHESIS_INSTRUCTIONS[stop_reason]))
         # This call must carry its own bound: it runs precisely when the run's
@@ -170,40 +172,26 @@ class AgentLoopRunner:
         # (no timeout configured) or fail instantly (deadline already past).
         synthesis_guard = ExecutionGuard(timeout_seconds=context.options.synthesis_timeout_seconds)
         synthesis_guard.start()
+        try:
+            completion_limit = completion_token_limit(context, state, ())
+        except TokenBudgetExhausted:
+            return (
+                exhausted_response(
+                    context.identity.run_id,
+                    "The agent stopped before final synthesis because the remaining token budget "
+                    "could not safely fit another model call.",
+                ),
+                calls_made,
+            )
         response = await self._executor.complete(
-            state.conversation, context.options, tools=(), guard=synthesis_guard
+            state.conversation,
+            context.options,
+            tools=(),
+            guard=synthesis_guard,
+            completion_token_limit=completion_limit,
         )
         state.usage = add_usage(state.usage, response.usage)
         return response, calls_made + 1
-
-    async def _complete_run(
-        self,
-        context: RunContext,
-        state: LoopState,
-        stop_reason: AgentStopReason,
-        final_response: HarborChatResponse,
-        calls_made: int,
-    ) -> AgentRunResult:
-        run_id = context.identity.run_id
-        await self._executor.remember(
-            context.conversation_identity, context.current_user_message, final_response.text
-        )
-        await self._persist(
-            context,
-            state,
-            AgentRunStatus.COMPLETED,
-            stop_reason=stop_reason,
-            response=final_response,
-        )
-        await emit(
-            context.events,
-            AgentEvent(
-                "run.completed", run_id, {"step": state.step, "stop_reason": stop_reason.value}
-            ),
-        )
-        return AgentRunResult(
-            run_id, final_response, tuple(state.executions), calls_made, state.usage, stop_reason
-        )
 
     async def _run_step(
         self,
@@ -220,7 +208,10 @@ class AgentLoopRunner:
         if context.guard.timed_out():
             return StepOutcome(calls_made=0, stop_reason=AgentStopReason.TIMEOUT)
 
-        response = await self._request_turn(context, state, tool_definitions)
+        try:
+            response = await self._request_turn(context, state, tool_definitions)
+        except TokenBudgetExhausted:
+            return StepOutcome(calls_made=0, stop_reason=AgentStopReason.TOKEN_BUDGET_EXCEEDED)
         if response is None:
             return StepOutcome(calls_made=0, stop_reason=AgentStopReason.TIMEOUT)
 
@@ -240,8 +231,13 @@ class AgentLoopRunner:
         """Ask the model for one turn; ``None`` means the guard's deadline hit mid-call."""
 
         try:
+            completion_limit = completion_token_limit(context, state, tool_definitions)
             response = await self._executor.complete(
-                state.conversation, context.options, tools=tool_definitions, guard=context.guard
+                state.conversation,
+                context.options,
+                tools=tool_definitions,
+                guard=context.guard,
+                completion_token_limit=completion_limit,
             )
         except TimeoutError:
             return None
@@ -262,7 +258,25 @@ class AgentLoopRunner:
         state.conversation.append(response.message)
         admitted = response.tool_calls[:MAX_TOOL_CALLS_PER_TURN]
         overflow = response.tool_calls[MAX_TOOL_CALLS_PER_TURN:]
+        accepted = []
+        rejected: dict[str, tuple[HarborChatMessage, AgentToolExecution]] = {}
+        repeated = False
         for call in admitted:
+            arguments = call.function.parsed_arguments
+            digest = digest_arguments(
+                arguments
+                if isinstance(arguments, dict)
+                else {"__unparsed__": call.function.arguments}
+            )
+            if guard.observe_tool_call(call.function.name, digest):
+                repeated = True
+                rejected[call.id] = rejected_execution(
+                    call,
+                    step=step,
+                    error="repeated tool call limit exceeded",
+                )
+                continue
+            accepted.append(call)
             await emit(
                 context.events,
                 AgentEvent("tool.started", run_id, {"step": step, "tool": call.function.name}),
@@ -270,7 +284,7 @@ class AgentLoopRunner:
 
         try:
             results = await self._executor.execute_tool_calls(
-                admitted,
+                accepted,
                 step=step,
                 options=context.options,
                 allowed_names=allowed_names,
@@ -279,11 +293,13 @@ class AgentLoopRunner:
         except TimeoutError:
             return StepOutcome(calls_made=1, stop_reason=AgentStopReason.TIMEOUT)
 
-        repeated = False
-        for message, execution in results:
+        result_iterator = iter(results)
+        for call in admitted:
+            if call.id in rejected:
+                message, execution = rejected[call.id]
+            else:
+                message, execution = next(result_iterator)
             await self._record_tool_result(context, state, message, execution)
-            if guard.observe_tool_call(execution.tool, execution.arguments_digest):
-                repeated = True
 
         for call in overflow:
             message, execution = rejected_execution(
@@ -299,7 +315,7 @@ class AgentLoopRunner:
                 {"step": step, "tool_calls": len(results) + len(overflow)},
             ),
         )
-        await self._persist(context, state, AgentRunStatus.RUNNING)
+        await self._lifecycle.persist(context, state, AgentRunStatus.RUNNING)
 
         if repeated:
             return StepOutcome(calls_made=1, stop_reason=AgentStopReason.REPEATED_TOOL_CALL)
@@ -322,34 +338,6 @@ class AgentLoopRunner:
                 {"step": state.step, "tool": execution.tool, "ok": execution.ok},
             ),
         )
-
-    async def _persist(
-        self,
-        context: RunContext,
-        state: LoopState,
-        status: AgentRunStatus,
-        *,
-        stop_reason: AgentStopReason | None = None,
-        response: HarborChatResponse | None = None,
-    ) -> None:
-        if self._runs is None:
-            return
-        await self._runs.save_step(
-            AgentCheckpoint(
-                identity=context.identity,
-                status=status,
-                step=state.step,
-                version=state.version,
-                messages=tuple(state.conversation),
-                executions=tuple(state.executions),
-                usage=state.usage,
-                stop_reason=stop_reason,
-                response=response,
-                created_at=context.created_at,
-                updated_at=datetime.now(UTC),
-            )
-        )
-        state.version += 1
 
 
 __all__ = ["AgentLoopRunner"]

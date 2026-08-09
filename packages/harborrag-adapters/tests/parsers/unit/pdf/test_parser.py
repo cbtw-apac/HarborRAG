@@ -112,13 +112,13 @@ def test_pdf_parser_rejects_oversized_input_before_any_engine_runs(monkeypatch):
     must now apply before engine selection, regardless of which engine
     would have run -- proven here with a fake engine that fails the test if
     invoked, matching the file's other "no engine runs" tests."""
-    from harborrag_adapters.parsers import pdf as pdf_module
     from harborrag_adapters.parsers.errors import ParseError
+    from harborrag_adapters.parsers.pdf import parser_support
 
     def _always_too_big(*_args: object, **_kwargs: object) -> None:
         raise ParseError("Input size 999999999 exceeds max_input_bytes 0")
 
-    monkeypatch.setattr(pdf_module.parser, "guard_parse_input_size", _always_too_big)
+    monkeypatch.setattr(parser_support, "guard_parse_input_size", _always_too_big)
     parser = PdfParser(backends=[ExplodingPdfBackend()], min_content_chars=10)
 
     with pytest.raises(ParseError):
