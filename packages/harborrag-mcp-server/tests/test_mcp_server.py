@@ -17,9 +17,10 @@ def test_package_exposes_the_mcp_server_namespace() -> None:
     assert importlib.util.find_spec("harborrag_mcp_server") is not None
 
 
-def test_module_check_lists_all_tools(capsys) -> None:
+def test_module_check_lists_all_tools(tmp_path, monkeypatch, capsys) -> None:
     from harborrag_mcp_server.__main__ import main
 
+    monkeypatch.chdir(tmp_path)
     assert main(["--check"]) == 0
     assert json.loads(capsys.readouterr().out) == [
         "vector_search",

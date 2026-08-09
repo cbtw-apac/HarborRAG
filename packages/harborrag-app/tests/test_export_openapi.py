@@ -22,6 +22,11 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/api/v1/metrics",
         "/api/v1/health",
         "/api/v1/readyz",
+        "/api/v1/diagnostics",
+        "/api/v1/ingestions",
+        "/api/v1/ingestions/{run_id}",
+        "/api/v1/ingestions/{run_id}/actions",
+        "/api/v1/ingestions/{run_id}/result",
         "/v1/ingestions",
         "/v1/ingestions/{task_id}",
         "/v1/ingestions/{task_id}/documents",
@@ -42,6 +47,13 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     assert set(paths["/v1/agent/completions"]) >= {"post"}
     assert "get" not in paths["/v1/agent/completions"]
     assert "/v1/retrieval/search" not in paths
-    assert "/api/v1/diagnostics" not in paths
+    for path in (
+        "/api/v1/diagnostics",
+        "/api/v1/ingestions",
+        "/api/v1/ingestions/{run_id}",
+        "/api/v1/ingestions/{run_id}/actions",
+        "/api/v1/ingestions/{run_id}/result",
+    ):
+        assert all(operation["deprecated"] is True for operation in paths[path].values())
     assert "HTTPBearer" in schema["components"]["securitySchemes"]
     assert rendered == export_openapi()

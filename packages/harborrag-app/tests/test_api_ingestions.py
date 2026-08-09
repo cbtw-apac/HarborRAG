@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.schemas import AppResponse
 
 _AUTH_SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 
@@ -243,7 +244,83 @@ def test_retry_failures_rejects_an_oversized_document_id(client: TestClient) -> 
     assert response.status_code == 422
 
 
-def test_legacy_temporal_route_shape_is_not_public(client: TestClient) -> None:
-    assert client.post("/api/v1/ingestions", json={}).status_code == 404
+def test_legacy_temporal_routes_are_deprecated_compatibility_adapters(
+    client: TestClient,
+) -> None:
+    started = client.post(
+        "/api/v1/ingestions",
+        json={"tenant_id": "DEFAULT", "connector_name": "harborrag-workspace"},
+    )
+    status = client.get("/api/v1/ingestions/ing_1")
+    result = client.get("/api/v1/ingestions/ing_1/result")
+    controlled = client.post(
+        "/api/v1/ingestions/ing_1/actions",
+        json={"action": "pause"},
+    )
+
+    assert {started.status_code, status.status_code, result.status_code} <= {200, 202}
+    assert controlled.json()["action"] == "pause"
+    for response in (started, status, result, controlled):
+        assert response.headers["deprecation"] == "true"
+
     assert client.get("/v1/ingestions/ing_1/result").status_code == 404
     assert client.post("/v1/ingestions/ing_1/actions", json={}).status_code == 404
+
+
+def test_legacy_retry_action_delegates_to_current_retry_service(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/ingestions/ing_1/actions",
+        json={"action": "retry", "artifact_ids": ["document:1"]},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["deprecation"] == "true"
+    assert response.json()["accepted_document_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"action": "retry"},
+        {"action": "pause", "artifact_ids": ["document:1"]},
+        {"action": "retry", "artifact_ids": [" "]},
+        {"action": "retry", "artifact_ids": ["document:1", "document:1"]},
+    ],
+)
+def test_legacy_actions_retain_request_validation(
+    client: TestClient,
+    payload: dict[str, object],
+) -> None:
+    response = client.post("/api/v1/ingestions/ing_1/actions", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "harbor_validation_error"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (
+            AppResponse(False, {"error_type": "WorkflowNotFoundError"}, "missing"),
+            (404, "ingestion_run_not_found"),
+        ),
+        (AppResponse(False), (502, "ingestion_operation_failed")),
+    ],
+)
+def test_legacy_status_maps_runtime_failures(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: AppResponse,
+    expected: tuple[int, str],
+) -> None:
+    async def fail(_run_id: str) -> AppResponse:
+        return failure
+
+    monkeypatch.setattr(service, "ingestion_status", fail)
+    response = client.get("/api/v1/ingestions/ing_1")
+
+    expected_status, expected_code = expected
+    assert response.status_code == expected_status
+    assert response.headers["deprecation"] == "true"
+    assert response.json()["error"]["code"] == expected_code

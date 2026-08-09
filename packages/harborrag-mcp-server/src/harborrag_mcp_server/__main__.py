@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from harborrag_core.invariants import HarborInvariantError
@@ -28,6 +29,21 @@ if TYPE_CHECKING:
 
 class _TerminalStream(Protocol):
     def isatty(self) -> bool: ...
+
+
+_PACKAGED_CONFIG_PATH = Path(__file__).parent / "defaults" / "mcp.yaml"
+
+
+def _default_config_path() -> str:
+    """Prefer an operator file, then the configuration shipped in the wheel."""
+
+    configured = os.environ.get("HARBORRAG_MCP_CONFIG_PATH")
+    if configured:
+        return configured
+    workspace_path = Path("config/mcp.yaml")
+    if workspace_path.is_file():
+        return str(workspace_path)
+    return str(_PACKAGED_CONFIG_PATH)
 
 
 def _tool_names(registry: McpServer) -> list[str]:
@@ -98,8 +114,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--config",
-        default=os.environ.get("HARBORRAG_MCP_CONFIG_PATH", "config/mcp.yaml"),
-        help="MCP tool configuration path (default: config/mcp.yaml).",
+        default=_default_config_path(),
+        help="MCP tool configuration path (default: workspace or packaged configuration).",
     )
     arguments = parser.parse_args(argv)
     if not arguments.check and arguments.transport == "stdio":

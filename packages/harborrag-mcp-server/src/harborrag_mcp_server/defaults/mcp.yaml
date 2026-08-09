@@ -1,0 +1,66 @@
+version: 1
+
+policy:
+  max_results: 20
+  max_argument_bytes: 65536
+  max_output_bytes: 1048576
+  allow_ingestion: false
+
+tools:
+  vector_search:
+    enabled: true
+    defaults:
+      top_k: 5
+    limits:
+      top_k: 20
+  vector_search_advanced:
+    enabled: true
+    defaults:
+      top_k: 5
+      lane: hybrid
+      filters: {}
+      observe_graph: true
+      score_threshold: 0.0
+    limits:
+      top_k: 20
+      score_threshold: 1.0
+  graph_triplet_search:
+    enabled: true
+    defaults:
+      limit: 10
+    limits:
+      limit: 20
+  graph_neighborhood:
+    enabled: true
+    defaults:
+      seed_limit: 3
+      relationship_types: []
+      max_depth: 2
+      max_nodes: 20
+      direction: both
+    limits:
+      seed_limit: 10
+      max_depth: 8
+      max_nodes: 20
+  graph_path_search:
+    enabled: true
+    defaults:
+      relationship_types: []
+      max_depth: 4
+      max_paths: 10
+      direction: both
+    limits:
+      max_depth: 8
+      max_paths: 20
+  graph_subgraph_search:
+    enabled: true
+    defaults:
+      relationship_types: []
+      max_depth: 2
+      max_nodes: 20
+      direction: both
+    limits:
+      max_depth: 8
+      max_nodes: 20
+
+tenants: {}

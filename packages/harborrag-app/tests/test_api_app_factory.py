@@ -64,9 +64,15 @@ def test_metrics_exposes_api_and_process_observations() -> None:
 
 
 @pytest.mark.blackbox
-def test_removed_operational_routes_are_not_exposed() -> None:
-    with TestClient(create_fastapi_app(ApiSettings())) as client:
-        assert client.get("/api/v1/diagnostics").status_code == 404
+def test_legacy_diagnostics_is_deprecated_and_redacted() -> None:
+    settings = ApiSettings(auth_secret="diagnostics-must-not-expose-this-secret")
+    with TestClient(create_fastapi_app(settings)) as client:
+        response = client.get("/api/v1/diagnostics")
+
+    assert response.status_code == 200
+    assert response.headers["deprecation"] == "true"
+    assert response.json()["settings"]["auth_secret"] == "<redacted>"
+    assert "diagnostics-must-not-expose-this-secret" not in response.text
 
 
 @pytest.mark.blackbox
