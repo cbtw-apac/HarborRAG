@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 from hashlib import sha256
 
+from harborrag_adapters.connectors import connector_registry
 from harborrag_runtime.config.connectors.schemas import ConnectorDefinition
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.serialization import to_json_value
@@ -17,7 +18,10 @@ def connector_fingerprint(
 ) -> str:
     """Fingerprint the non-secret inputs that select connector behavior."""
 
-    setting_environment: dict[str, str] = {}
+    path_fields = frozenset(
+        connector_registry.get_definition(definition.provider).config_path_fields
+    )
+    setting_environment: dict[str, object] = {}
     for field_name, variable_name in definition.setting_environment.items():
         value = environment.get(variable_name, "")
         if not value:
@@ -25,7 +29,14 @@ def connector_fingerprint(
                 f"Connector {definition.name!r} requires environment variable "
                 f"{variable_name!r} for {field_name!r}"
             )
-        setting_environment[field_name] = value
+        # A host CLI and its container worker see the same mounted directory at
+        # different physical paths (for example ``docs`` and ``/data/sources``).
+        # The environment reference identifies that deployment input; hashing the
+        # machine-local path makes otherwise identical submitter/worker configs
+        # disagree. Literal YAML paths remain fingerprinted in ``settings``.
+        setting_environment[field_name] = (
+            {"environment": variable_name} if field_name in path_fields else value
+        )
     payload = {
         "catalog_version": catalog_version,
         "name": definition.name,

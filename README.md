@@ -166,7 +166,7 @@ export HARBORRAG_TEMPORAL_TARGET=localhost:7233
 
 uv run --package harborrag-app harborrag ingest start \
   --tenant tenant-1 \
-  --connector jira \
+  --connector jira-main \
   --wait
 ```
 

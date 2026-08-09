@@ -163,7 +163,10 @@ class ConnectorCatalog:
         try:
             return self.connectors[name]
         except KeyError as exc:
-            raise ConnectorConfigurationError(f"Unknown configured connector: {name!r}") from exc
+            available = ", ".join(self.names()) or "none"
+            raise ConnectorConfigurationError(
+                f"Unknown configured connector: {name!r}. Available connector IDs: {available}"
+            ) from exc
 
     def names(self, *, enabled_only: bool = False) -> list[str]:
         """Return configured names alphabetically, optionally filtering disabled."""

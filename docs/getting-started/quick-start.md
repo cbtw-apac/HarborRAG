@@ -41,7 +41,7 @@ namespace, UI, and the configured HarborRAG worker. Then submit a run:
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
   uv run --package harborrag-app harborrag doctor --json
 
-HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
+LOCAL_SOURCE_PATH=docs HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
   uv run --package harborrag-app harborrag ingest start \
   --tenant tenant-1 --connector harborrag-workspace --wait
 ```
