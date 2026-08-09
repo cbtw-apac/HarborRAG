@@ -8,6 +8,9 @@ services:
     volumes:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    networks:
+      - default
+      - harborrag-data-network
 
   grafana:
     image: grafana/grafana:latest
@@ -34,3 +37,8 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+
+networks:
+  harborrag-data-network:
+    name: harborrag-data-network
+    external: true

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from confluence_test_helpers import (
     CLOUD_BASE,
@@ -19,7 +21,7 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
-def test_load_builds_raw_document_metadata_comments_and_attachments():
+def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
     client = FakeConfluenceClient()
     client.add("content/1", full_content())
     client.add(
@@ -55,7 +57,8 @@ def test_load_builds_raw_document_metadata_comments_and_attachments():
         parser=FakeAttachmentParser(),
     )
 
-    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.connectors.confluence"):
+        document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
     assert document.id == "confluence://ENG/1"
     assert document.content_type == "text/html"
@@ -80,6 +83,7 @@ def test_load_builds_raw_document_metadata_comments_and_attachments():
     assert "breadcrumb_text" not in document.metadata
     assert "canonical_url" not in document.metadata
     assert "display_url" not in document.metadata
+    assert "Confluence content loaded content_id=1 comments=1 attachments=1" in caplog.text
 
 
 def test_load_skips_cross_origin_attachment_download_urls():
@@ -176,6 +180,44 @@ def test_load_truncates_children_metadata_over_configured_limit():
     document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
     assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
+
+
+def test_load_respects_record_comment_and_attachment_flags():
+    client = FakeConfluenceClient()
+    client.add("content/1", full_content())
+    connector = ConfluenceConnector(
+        cloud_config(include_comments=True, include_attachments=True),
+        client=client,
+        parser=FakeAttachmentParser(),
+    )
+    record = SourceRecord(
+        "confluence://ENG/1",
+        "text/html",
+        "1",
+        metadata={"include_comments": False, "include_attachments": False},
+    )
+
+    document = connector.load(record)
+
+    assert document.metadata["comments"] == []
+    assert document.metadata["attachments"] == []
+    assert [endpoint for endpoint, _ in client.calls] == ["content/1"]
+
+
+def test_load_rejects_stale_attachment_record_when_attachments_disabled():
+    connector = ConfluenceConnector(
+        cloud_config(include_attachments=False),
+        client=FakeConfluenceClient(),
+    )
+    record = SourceRecord(
+        "confluence://ENG/1/attachments/a1",
+        "text/markdown",
+        "a1",
+        metadata={"binding_kind": "ATTACHMENT"},
+    )
+
+    with pytest.raises(DocumentProcessingError, match="attachment loading is disabled"):
+        connector.load(record)
 
 
 def test_load_raises_on_missing_required_fields():

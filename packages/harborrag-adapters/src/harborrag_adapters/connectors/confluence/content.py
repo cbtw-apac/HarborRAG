@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 from collections.abc import Iterator
 from typing import Any
 
@@ -16,11 +17,13 @@ from .query import (
     CLOUD_CONTENT_EXPAND,
     COMMENT_EXPAND,
     CONTENT_EXPAND,
-    LIGHT_EXPAND,
+    DESCRIPTOR_EXPAND,
     build_search_params,
     extract_cursor,
     validate_content_id,
 )
+
+logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
 class ConfluenceContentAPI:
@@ -80,10 +83,19 @@ class ConfluenceContentAPI:
             limit=provider_limit,
             start=start,
             cursor=cursor_token,
-            expand=LIGHT_EXPAND,
+            # Discovery needs the version and hierarchy fields later used by
+            # ConfluenceDescriptorBuilder. Returning them with the search page
+            # avoids one additional content/{id} request for every result.
+            expand=DESCRIPTOR_EXPAND,
         )
         response = self.client.get_json("content/search", params=params)
         results = list(response.get("results", []))
+        logger.debug(
+            "Confluence search page fetched cursor_kind=%s start=%d records=%d",
+            "cursor" if cursor_token is not None else "offset",
+            start,
+            len(results),
+        )
         next_url = response.get("_links", {}).get("next")
         next_token = extract_cursor(next_url)
         if next_token:
@@ -99,7 +111,7 @@ class ConfluenceContentAPI:
         content_id = validate_content_id(content_id)
         return self.client.get_json(
             f"content/{content_id}",
-            params={"expand": LIGHT_EXPAND},
+            params={"expand": DESCRIPTOR_EXPAND},
         )
 
     def get_content(self, content_id: str) -> dict[str, Any]:
@@ -116,8 +128,34 @@ class ConfluenceContentAPI:
             },
         )
 
+    def get_content_descriptor(self, content_id: str) -> dict[str, Any]:
+        """Fetch source-version, hierarchy, and retrieval metadata without body."""
+
+        content_id = validate_content_id(content_id)
+        return self.client.get_json(
+            f"content/{content_id}",
+            params={"expand": DESCRIPTOR_EXPAND},
+        )
+
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch comments for one content item, truncated to the configured cap."""
+        """Fetch all comments for one content item, truncated to the configured cap."""
+
+        return self._fetch_comments(content_id, expand=COMMENT_EXPAND)
+
+    def list_comment_descriptors(
+        self,
+        content_id: str,
+    ) -> list[dict[str, Any]]:
+        """Fetch comment identities and versions without requesting comment bodies."""
+
+        return self._fetch_comments(content_id, expand="history,version")
+
+    def _fetch_comments(
+        self,
+        content_id: str,
+        *,
+        expand: str,
+    ) -> list[dict[str, Any]]:
         content_id = validate_content_id(content_id)
         comments: list[dict[str, Any]] = []
         start = 0
@@ -126,12 +164,19 @@ class ConfluenceContentAPI:
                 f"content/{content_id}/child/comment",
                 params={
                     "depth": "all",
-                    "expand": COMMENT_EXPAND,
+                    "expand": expand,
                     "limit": self.config.page_size,
                     "start": start,
                 },
             )
             results = response.get("results", [])
+            logger.debug(
+                "Confluence comments page fetched content_id=%s start=%d records=%d total=%s",
+                content_id,
+                start,
+                len(results),
+                response.get("total"),
+            )
             truncated = truncate_with_limit(comments, results, limit=self.config.max_comments)
             if truncated or not _has_next_page(response, results, self.config.page_size):
                 return comments
@@ -148,6 +193,12 @@ class ConfluenceContentAPI:
                 params={"limit": self.config.page_size, "start": start},
             )
             results = response.get("results", [])
+            logger.debug(
+                "Confluence attachments page fetched content_id=%s start=%d records=%d",
+                content_id,
+                start,
+                len(results),
+            )
             truncated = truncate_with_limit(attachments, results, limit=self.config.max_attachments)
             if truncated or not _has_next_page(response, results, self.config.page_size):
                 return attachments
@@ -218,6 +269,12 @@ class ConfluenceContentAPI:
                     params={"limit": self.config.page_size, "start": start},
                 )
                 results = response.get("results", [])
+                logger.debug(
+                    "Confluence child page fetched parent_id=%s start=%d records=%d",
+                    current_id,
+                    start,
+                    len(results),
+                )
                 for child in results:
                     child_id = str(child.get("id") or "")
                     if not child_id:

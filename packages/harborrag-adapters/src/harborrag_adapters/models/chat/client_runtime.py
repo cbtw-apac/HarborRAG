@@ -57,7 +57,6 @@ class ChatClientRuntime(
         )
         self._services = selected.runtime_services or build_runtime_services(
             config,
-            family="chat",
             cache=selected.cache,
             routing_state=selected.routing_state,
             singleflight=selected.singleflight,

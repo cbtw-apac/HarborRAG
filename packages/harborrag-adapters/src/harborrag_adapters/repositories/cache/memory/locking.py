@@ -12,7 +12,7 @@ from harborrag_adapters.repositories.errors import (
 )
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 from harborrag_core.schemas.cache import LockHandle
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 
 class MemoryLockManager(HarborLockManager):
@@ -63,6 +63,7 @@ class MemoryLockManager(HarborLockManager):
         lease_duration: timedelta,
         context: StorageOperationContext,
     ) -> LockHandle:
+        del context
         self._validate_duration(lease_duration, "lease_duration")
         now = datetime.now(UTC)
         async with self._state.mutex:
@@ -87,6 +88,7 @@ class MemoryLockManager(HarborLockManager):
         *,
         context: StorageOperationContext,
     ) -> bool:
+        del context
         async with self._state.mutex:
             current = self._state.locks.get(handle.key)
             if current is None or current.owner_token != handle.owner_token:

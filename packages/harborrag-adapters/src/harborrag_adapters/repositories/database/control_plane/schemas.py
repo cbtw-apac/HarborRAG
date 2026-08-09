@@ -8,14 +8,14 @@ stays deterministic.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.types import TypeDecorator
+
+from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -26,31 +26,6 @@ NAMING_CONVENTION = {
 }
 
 JSONVariant = sa.JSON().with_variant(JSONB(), "postgresql")
-
-
-class UTCDateTime(TypeDecorator[datetime]):
-    """DateTime that always round-trips timezone-aware UTC values.
-
-    SQLite drops tzinfo; this restores UTC on load so domain dataclasses
-    (which require aware datetimes) compare equal after a round-trip.
-    """
-
-    impl = sa.DateTime(timezone=True)
-    cache_ok = True
-
-    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        """Normalize incoming values to UTC (naive input is rejected)."""
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            raise ValueError("control-plane datetimes must be timezone-aware")
-        return value.astimezone(UTC)
-
-    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
-        """Re-attach UTC on drivers (SQLite) that return naive datetimes."""
-        if value is not None and value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value
 
 
 class Base(DeclarativeBase):
@@ -65,6 +40,9 @@ class ProjectRow(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, default="", nullable=False)
     collection: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -83,6 +61,9 @@ class SourceRow(Base):
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     project_id: Mapped[str] = mapped_column(
         sa.Text, sa.ForeignKey("projects.id"), nullable=False, index=True
     )
@@ -115,12 +96,21 @@ class JobRow(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     source_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     project_id: Mapped[str] = mapped_column(sa.Text, nullable=False, index=True)
     job_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     status: Mapped[str] = mapped_column(sa.Text, default="queued", nullable=False, index=True)
     dry_run: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False)
     attempts: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
+    event_sequence: Mapped[int] = mapped_column(
+        sa.Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     visibility_deadline: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     enqueued_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -172,6 +162,9 @@ class ActivityRow(Base):
     __tablename__ = "activity"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     actor: Mapped[str] = mapped_column(sa.Text, nullable=False)
     verb: Mapped[str] = mapped_column(sa.Text, nullable=False)
     entity_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -186,6 +179,9 @@ class ProviderRow(Base):
     __tablename__ = "providers"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
@@ -210,6 +206,9 @@ class WorkspaceSettingsRow(Base):
     __tablename__ = "workspace_settings"
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     data: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -220,6 +219,9 @@ class MemberRow(Base):
     __tablename__ = "members"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     subject: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True, index=True)
     role: Mapped[str] = mapped_column(sa.Text, default="reader", nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -235,3 +237,107 @@ class McpQueryLogRow(Base):
     client: Mapped[str] = mapped_column(sa.Text, nullable=False)
     latency_ms: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+
+
+class ConversationSessionRow(Base):
+    """Persisted authenticated chat/agent session resource."""
+
+    __tablename__ = "conversation_sessions"
+
+    session_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class ConversationMemoryRow(Base):
+    """Completed chat/agent turns isolated by authenticated session identity."""
+
+    __tablename__ = "conversation_memory"
+    __table_args__ = (
+        sa.Index(
+            "ix_conversation_memory_identity_created",
+            "tenant_id",
+            "principal_id",
+            "session_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        sa.ForeignKey("conversation_sessions.session_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_content: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    assistant_content: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class AgentRunRow(Base):
+    """Checkpointed agent-run state: resumable, optimistic-concurrency versioned.
+
+    ``state_json`` holds the parts of the run that only ever get replaced as a
+    whole (messages, executions, usage, response) -- splitting those into
+    columns would not make any query cheaper, since a checkpoint write always
+    replaces the entire run state at once.
+    """
+
+    __tablename__ = "agent_runs"
+
+    run_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
+    principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        sa.ForeignKey("conversation_sessions.session_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(sa.String(32), nullable=False, index=True)
+    step: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    stop_reason: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    state_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
+class MemoryRow(Base):
+    """Canonical long-term memory record, scoped by owner and ``scope``.
+
+    ``tenant_id``/``project_id``/``principal_id``/``session_id``/``run_id``
+    mirror ``MemoryOwner`` field-for-field so a query's scope filter can
+    reference these columns by the same names ``visible_to`` checks in
+    ``harborrag_core.ports.memory`` -- the two are kept in agreement by
+    construction, not by convention.
+    """
+
+    __tablename__ = "memories"
+    __table_args__ = (
+        sa.Index(
+            "ix_memories_owner",
+            "tenant_id",
+            "project_id",
+            "principal_id",
+            "session_id",
+            "run_id",
+        ),
+    )
+
+    memory_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    scope: Mapped[str] = mapped_column(sa.String(32), nullable=False, index=True)
+    memory_type: Mapped[str] = mapped_column(sa.String(32), nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False, index=True)
+    project_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
+    principal_id: Mapped[str | None] = mapped_column(sa.String(512), nullable=True)
+    session_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
+    content: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    importance: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

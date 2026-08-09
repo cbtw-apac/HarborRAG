@@ -17,6 +17,8 @@ from harborrag_core.models.rerank import (
     RerankDocumentContent,
 )
 
+from ..normalization import nonnegative_int as _nonnegative_int
+from ..normalization import safe_provider_metadata as _safe_provider_metadata
 from .configs import HarborRerankProviderConfig
 
 
@@ -141,17 +143,3 @@ def _normalize_document(value: Any) -> RerankDocumentContent | None:
     if set(data) == {"text"} and isinstance(data.get("text"), str):
         return str(data["text"])
     return data
-
-
-def _nonnegative_int(value: Any) -> int:
-    return int(value) if isinstance(value, int | float) and value >= 0 else 0
-
-
-def _safe_provider_metadata(hidden: Mapping[str, Any]) -> dict[str, Any]:
-    allowed = {"region_name", "cache_hit", "model_id", "response_ms"}
-    return {
-        key: hidden[key]
-        for key in allowed
-        if key in hidden
-        and (isinstance(hidden.get(key), str | int | float | bool) or hidden.get(key) is None)
-    }

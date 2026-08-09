@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from harborrag_core.ingestion import ParserRejectedDocumentError, UnsupportedDocumentError
 
-class ParseError(RuntimeError):
+
+class ParseError(ParserRejectedDocumentError, RuntimeError):
     """Raised when a parser cannot extract text from an input it owns."""
 
 
-class UnsupportedFormatError(ParseError):
+class PasswordProtectedError(ParseError):
+    """Raised when an encrypted document requires a password to be parsed."""
+
+
+class UnsupportedFormatError(UnsupportedDocumentError, ParseError):
     """Raised when no registered parser supports an input."""
 
 
@@ -61,8 +67,18 @@ class PDFParsingFailedError(ParseError):
     """Raised after every configured PDF engine attempt is rejected."""
 
     def __init__(self, *, attempts: Sequence[object]) -> None:
-        names = ", ".join(str(getattr(attempt, "engine", "<unknown>")) for attempt in attempts)
-        super().__init__(f"No PDF engine produced acceptable content. Tried: {names}.")
+        # Engine names alone ("Tried: pymupdf, liteparse.") hide *why* each
+        # one failed. A rejection like a configured max_file_size (docling) or
+        # max_pages (pymupdf) limit being exceeded produces a clear per-engine
+        # `message` (e.g. "exceeding the pymupdf backend's max_pages=1 cap"),
+        # but that detail lived only on `self.attempts` -- invisible in a log
+        # line or an API error string. Fold it into the message itself.
+        details = "; ".join(
+            f"{getattr(attempt, 'engine', '<unknown>')} "
+            f"({getattr(attempt, 'message', None) or 'no reason recorded'})"
+            for attempt in attempts
+        )
+        super().__init__(f"No PDF engine produced acceptable content. Tried: {details}.")
         self.attempts = list(attempts)
 
 

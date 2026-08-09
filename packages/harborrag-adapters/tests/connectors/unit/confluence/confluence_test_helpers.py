@@ -32,7 +32,8 @@ class FakeConfluenceClient:
             raise AssertionError(f"Unexpected Confluence endpoint: {endpoint}")
         return values.pop(0)
 
-    def download_bytes(self, url: str) -> bytes | None:
+    def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
+        del max_bytes
         return self.downloads.get(url)
 
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field
 
 from harborrag_adapters.repositories.telemetry import StorageTelemetryHook
-from harborrag_core.schemas.storage import StorageFamily
+from harborrag_core.storage import StorageFamily
 
 
 class RepositoryConfig(BaseModel):

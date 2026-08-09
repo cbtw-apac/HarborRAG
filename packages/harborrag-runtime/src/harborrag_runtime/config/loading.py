@@ -29,7 +29,22 @@ def read_yaml_file(
     """
     source_path = Path(path).expanduser().resolve()
     if not source_path.is_file():
-        raise error_type(f"{label} file does not exist: {source_path}")
+        # An absolute container path (e.g. `/app/config/parsers.yaml`) that is
+        # "missing" almost always means the file never made it into the
+        # running filesystem view rather than a typo in the path itself --
+        # name the likely causes so an operator doesn't have to rediscover
+        # them from a bare traceback.
+        hint = (
+            "; check that the image build actually copied this file in (a "
+            "stale image predating the file, or a build context/.dockerignore "
+            "excluding it), that no volume/bind mount is shadowing the "
+            "directory with an empty one (Docker silently creates a missing "
+            "bind-mount source as empty), and that the configured path "
+            "env var points at the intended file"
+            if source_path.is_absolute()
+            else ""
+        )
+        raise error_type(f"{label} file does not exist: {source_path}{hint}")
 
     try:
         value = yaml.safe_load(source_path.read_text(encoding="utf-8"))

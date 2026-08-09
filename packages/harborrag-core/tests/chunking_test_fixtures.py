@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from harborrag_core.chunking import (
     ChunkHierarchy,
     ChunkKind,
     ChunkQuality,
     ChunkRecord,
     ChunkSecurity,
+    CitationLocator,
     ConnectorType,
     DocumentKind,
-    SourceLocator,
+    RecordKind,
 )
 
 
@@ -30,22 +29,22 @@ def chunk_values(**changes: object) -> dict[str, object]:
         "content_hash": "sha256:content",
         "connector_type": ConnectorType.CONFLUENCE,
         "document_kind": DocumentKind.CONFLUENCE_PAGE,
-        "chunk_kind": ChunkKind.EVIDENCE,
+        "record_kind": RecordKind.EVIDENCE,
+        "chunk_kind": ChunkKind.TEXT,
         "tenant_id": "tenant-1",
         "connection_id": "connection-1",
-        "source_scope": "SPACE",
+        "source_scope_id": "SPACE",
         "source_item_id": "page-123",
         "source_version": "7",
         "document_id": "document-1",
         "document_version_id": "document-version-7",
         "ordinal": 2,
         "content": content,
-        "contextual_prefix": prefix,
         "embedding_text": f"{prefix}\n\n{content}" if prefix else content,
         "search_text": "page-123 HARBOR-7 Canonical evidence",
         "token_count": 2,
         "language": "en",
-        "source_locator": SourceLocator(
+        "citation_locator": CitationLocator(
             uri="https://example.test/pages/123",
             start_offset=10,
             end_offset=28,
@@ -62,7 +61,6 @@ def chunk_values(**changes: object) -> dict[str, object]:
         "relations": (),
         "quality": ChunkQuality(score=0.95),
         "source_attributes": (),
-        "created_at": datetime(2026, 7, 29, tzinfo=UTC),
     }
     values.update(changes)
     return values

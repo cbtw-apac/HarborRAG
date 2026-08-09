@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import mimetypes
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
+
+from harborrag_adapters.connectors.file_filters import normalize_extension as normalize_extension
 
 DEFAULT_EXCLUDED_DIR_NAMES = {
     ".git",
@@ -26,12 +27,6 @@ DEFAULT_EXCLUDED_DIR_NAMES = {
 def resolve_path(value: str | Path) -> Path:
     """Expand and resolve a local path without requiring it to exist."""
     return Path(value).expanduser().resolve(strict=False)
-
-
-def normalize_extension(value: str) -> str:
-    """Normalize extension filters to lowercased dot-prefixed values."""
-    value = value.lower().strip()
-    return value if value.startswith(".") else f".{value}"
 
 
 def file_extension(path: Path) -> str:
@@ -69,15 +64,6 @@ def stat_signature(path: Path) -> str:
     stat = path.stat()
     mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
     return f"stat:{stat.st_size}:{mtime_ns}"
-
-
-def sha256_file(path: Path) -> str:
-    """Hash a file in chunks so checksum mode does not read it all at once."""
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def matches_pattern(path: Path, root_path: Path, pattern: str | None) -> bool:

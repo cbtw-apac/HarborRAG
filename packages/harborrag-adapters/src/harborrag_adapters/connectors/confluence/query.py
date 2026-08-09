@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from harborrag_adapters.connectors.atlassian.query import is_cloud_hostname as is_cloud_hostname
+
 
 def format_query_timestamp(value: datetime) -> str:
     """Render a datetime for CQL/JQL as UTC ``yyyy/MM/dd HH:mm``.
@@ -28,20 +30,12 @@ CONTENT_EXPAND = (
 )
 CLOUD_CONTENT_EXPAND = f"body.atlas_doc_format,{CONTENT_EXPAND}"
 LIGHT_EXPAND = "version,metadata.labels,space"
+DESCRIPTOR_EXPAND = "version,metadata.labels,history,space,ancestors,children.page"
 COMMENT_EXPAND = "body.storage,history"
 DEFAULT_PAGE_SIZE = 25
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _CONTENT_ID_RE = re.compile(r"^[0-9]+$")
-
-
-def is_cloud_hostname(base_url: str) -> bool:
-    """Return whether a base URL looks like Atlassian Cloud."""
-    try:
-        hostname = urlparse(str(base_url)).hostname
-    except ValueError:
-        return False
-    return bool(hostname and hostname.endswith(".atlassian.net"))
 
 
 def extract_cursor(next_url: str | None) -> str | None:
@@ -91,10 +85,17 @@ def build_cql(
     string) and is always escaped via ``quote_cql`` into a ``text ~ "..."``
     clause combined with the other allowlisted filters. It is never treated
     as raw CQL -- only the explicit ``raw_cql`` escape hatch bypasses
-    escaping and the space/label allowlists entirely, for callers who
-    intentionally need full CQL control.
+    escaping and the type/label allowlists, for callers who intentionally
+    need full CQL control. Even then, the configured space is always ANDed
+    back in: ``_cql_from_query`` already proves the caller's requested space
+    matches this connection's configured space before calling here, and
+    ``raw_cql`` must never be able to undo that -- the connector's space
+    scope is a tenant-isolation boundary, not a convenience default.
     """
     if raw_cql:
+        if space_key:
+            safe_space = validate_token(space_key, field_name="space key")
+            return f"({raw_cql}) and space = {quote_cql(safe_space)}"
         return raw_cql
 
     clauses: list[str] = []

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 from jira_test_helpers import (
@@ -20,7 +21,7 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
-def test_load_builds_raw_document_comments_attachments_and_changelog():
+def test_load_builds_raw_document_comments_attachments_and_changelog(caplog):
     client = FakeJiraClient()
     client.add_get("issue/ENG-1", issue())
     client.add_get(
@@ -66,7 +67,8 @@ def test_load_builds_raw_document_comments_attachments_and_changelog():
         parser=FakeAttachmentParser(),
     )
 
-    document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.connectors.jira"):
+        document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
 
     assert document.id == "jira://ENG/ENG-1"
     assert document.content_type == "text/markdown"
@@ -104,6 +106,10 @@ def test_load_builds_raw_document_comments_attachments_and_changelog():
     assert isinstance(document.metadata["comments"][0]["created_at"], str)
     assert isinstance(document.metadata["changelog"][0]["created_at"], str)
     json.dumps(document.metadata)  # datetimes must be JSON-serializable
+    assert (
+        "JIRA issue loaded issue_key=ENG-1 comments=1 attachments=1 changelog_items=1"
+        in caplog.text
+    )
 
 
 def test_load_skips_cross_origin_attachment_download_urls():
@@ -179,6 +185,41 @@ def test_load_truncates_attachments_over_configured_limit():
     document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
 
     assert len(document.metadata["attachments"]) == 1
+
+
+def test_load_does_not_fetch_comments_or_parse_attachments_when_disabled():
+    client = FakeJiraClient()
+    client.add_get("issue/ENG-1", issue())
+    connector = JiraConnector(
+        cloud_config(include_comments=True, include_attachments=True),
+        client=client,
+        parser=FakeAttachmentParser(),
+    )
+    record = SourceRecord(
+        "jira://ENG/ENG-1",
+        "jira",
+        "ENG-1",
+        metadata={"include_comments": False, "include_attachments": False},
+    )
+
+    document = connector.load(record)
+
+    assert document.metadata["comments"] == []
+    assert document.metadata["attachments"] == []
+    assert [endpoint for endpoint, _ in client.get_calls] == ["issue/ENG-1"]
+
+
+def test_load_rejects_stale_attachment_record_when_attachments_disabled():
+    connector = JiraConnector(cloud_config(include_attachments=False), client=FakeJiraClient())
+    record = SourceRecord(
+        "jira://ENG/ENG-1/attachments/a1",
+        "text/markdown",
+        "a1",
+        metadata={"binding_kind": "ATTACHMENT"},
+    )
+
+    with pytest.raises(DocumentProcessingError, match="attachment loading is disabled"):
+        connector.load(record)
 
 
 def test_load_raises_on_missing_required_fields():

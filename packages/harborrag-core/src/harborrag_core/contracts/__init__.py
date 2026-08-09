@@ -1,10 +1,6 @@
 from .chunking import (
-    JsonStructureSplitRequest,
-    JsonStructureSplitter,
     SourceSpan,
     SplitBoundaryKind,
-    StructureSplitRequest,
-    StructureSplitter,
     TextRefinementRequest,
     TextRefiner,
     TextSplit,
@@ -21,11 +17,11 @@ from .errors import (
     HarborImportError,
     HarborNotFoundError,
     HarborNotSupportedError,
+    HarborRateLimitError,
     HarborSecurityError,
     HarborValidationError,
 )
 from .events import HarborEvent
-from .table import TableArtifactRepository
 
 __all__ = [
     "HarborAuthError",
@@ -38,16 +34,12 @@ __all__ = [
     "HarborEvent",
     "HarborImportError",
     "HarborNotFoundError",
+    "HarborRateLimitError",
     "HarborNotSupportedError",
     "HarborSecurityError",
     "HarborValidationError",
-    "JsonStructureSplitter",
-    "JsonStructureSplitRequest",
     "SourceSpan",
     "SplitBoundaryKind",
-    "StructureSplitter",
-    "StructureSplitRequest",
-    "TableArtifactRepository",
     "TextRefinementRequest",
     "TextRefiner",
     "TextSplit",

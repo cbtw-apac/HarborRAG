@@ -81,6 +81,16 @@ def validate_embed_request(
 ) -> HarborEmbedRequest:
     """Validate request security and adapt only semantics-preserving capabilities."""
 
+    _validate_request_limits(request, config)
+    _validate_request_extensions(request, config)
+    updates = _capability_updates(request, deployment)
+    return request.model_copy(update=updates) if updates else request
+
+
+def _validate_request_limits(
+    request: HarborEmbedRequest,
+    config: HarborEmbedClientConfig,
+) -> None:
     if len(request.inputs) > config.max_inputs_per_request:
         raise _invalid(
             request,
@@ -91,6 +101,12 @@ def validate_embed_request(
             raise _invalid(request, "embedding input exceeds max_characters_per_input")
     if len(request.extra_params) > config.security.max_extra_params:
         raise _invalid(request, "too many request extra_params")
+
+
+def _validate_request_extensions(
+    request: HarborEmbedRequest,
+    config: HarborEmbedClientConfig,
+) -> None:
     try:
         validate_extension_parameters(
             request.extra_params,
@@ -104,6 +120,11 @@ def validate_embed_request(
     except ValueError as exc:
         raise _invalid(request, str(exc), exc) from exc
 
+
+def _capability_updates(
+    request: HarborEmbedRequest,
+    deployment: HarborEmbedProviderConfig,
+) -> dict[str, object]:
     capabilities = deployment.capabilities
     if any(isinstance(item, tuple) for item in request.inputs) and not capabilities.token_inputs:
         raise _capability(request, deployment, "token-array embedding inputs")
@@ -126,7 +147,7 @@ def validate_embed_request(
         and (not capabilities.purpose or purpose not in capabilities.supported_purposes)
     ):
         raise _capability(request, deployment, f"embedding purpose {purpose.value}")
-    return request.model_copy(update=updates) if updates else request
+    return updates
 
 
 def _invalid(

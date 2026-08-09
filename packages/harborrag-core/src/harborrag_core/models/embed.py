@@ -9,7 +9,7 @@ from pydantic import Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
 
-from .headers import ModelHeaderValue, protect_model_headers
+from .headers import ProtectedModelHeaders
 from .metadata import ModelRequestMetadata
 from .usage import ModelTokenUsage
 
@@ -56,16 +56,10 @@ class HarborEmbedRequest(StrictModel):
     user: str | None = None
     batch_size: int | None = Field(default=None, gt=0)
     metadata: HarborEmbedMetadata = Field(default_factory=HarborEmbedMetadata)
-    custom_headers: dict[str, ModelHeaderValue] = Field(default_factory=dict)
+    custom_headers: ProtectedModelHeaders = Field(default_factory=dict)
     extra_params: dict[str, Any] = Field(default_factory=dict)
     cacheable: bool = True
     sensitive: bool = False
-
-    @field_validator("custom_headers", mode="before")
-    @classmethod
-    def protect_headers(cls, value: Any) -> Any:
-        """Wrap credential-bearing header values before validation."""
-        return protect_model_headers(value)
 
     @field_validator("inputs")
     @classmethod

@@ -7,24 +7,6 @@ from typing import Any
 from pydantic import Field
 
 from harborrag_core.base import StrictModel, utc_now
-from harborrag_core.chunking import (
-    ChunkContext as ChunkContext,
-)
-from harborrag_core.chunking import (
-    ChunkMetadata as ChunkMetadata,
-)
-from harborrag_core.chunking import (
-    ChunkRecord as ChunkRecord,
-)
-from harborrag_core.chunking import (
-    ChunkSourceSpan as ChunkSourceSpan,
-)
-from harborrag_core.chunking import (
-    FrozenMetadata as FrozenMetadata,
-)
-from harborrag_core.chunking import (
-    thaw_metadata as thaw_metadata,
-)
 from harborrag_core.schemas.ids import DataSourceId, DocumentId, DocumentVersionId, TenantId
 
 

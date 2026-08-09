@@ -9,7 +9,8 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import doctor, ingest, retrieve
+from harborrag_app.cli.commands import chat, doctor, ingest, retrieve
+from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.runner import CliState
 from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
 
@@ -59,6 +60,11 @@ app.add_typer(
     rich_help_panel="Ingestion",
 )
 app.command(
+    "chat",
+    help="Generate a response with the configured chat model.",
+    rich_help_panel="Chat",
+)(chat.command)
+app.command(
     "retrieve",
     help="Search active Qdrant vectors with FalkorDB context expansion.",
     rich_help_panel="Retrieval",
@@ -68,6 +74,10 @@ app.command(
 def main(argv: list[str] | None = None) -> int:
     """Run the Typer application and expose a test-friendly integer exit code."""
 
+    # Before logging is configured and before any command builds a service: connector
+    # and model credentials live in the project's env files, and every command that
+    # resolves a connector needs them present in os.environ.
+    load_project_environment()
     configure_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
     args = list(argv) if argv is not None else sys.argv[1:]
     if not args or args[0] in _HELP_FLAGS:

@@ -36,7 +36,7 @@ class HmacTokenVerifier(BaseTokenVerifier):
                 audience=self.audience,
                 issuer=self.issuer,
                 leeway=self.clock_skew_seconds,
-                options={"require": ["sub", "role", "iat", "exp", "iss", "aud"]},
+                options={"require": ["sub", "role", "tenants", "iat", "exp", "iss", "aud"]},
             )
         except jwt.ExpiredSignatureError as exc:
             raise HarborAuthError("token expired") from exc
@@ -59,4 +59,16 @@ class HmacTokenVerifier(BaseTokenVerifier):
         role = claims.get("role")
         if not isinstance(role, str) or role not in ROLE_ORDER:
             raise HarborAuthError(f"unknown role {role!r}")
-        return Principal(subject=subject, role=role, token_kind="jwt")
+        raw_tenants = claims.get("tenants")
+        if (
+            not isinstance(raw_tenants, list)
+            or not raw_tenants
+            or any(not isinstance(item, str) or not item for item in raw_tenants)
+        ):
+            raise HarborAuthError("token has invalid tenants claim")
+        return Principal(
+            subject=subject,
+            role=role,
+            tenant_ids=frozenset(raw_tenants),
+            token_kind="jwt",
+        )

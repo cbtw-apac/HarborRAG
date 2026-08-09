@@ -16,7 +16,17 @@ from harborrag_app.api.settings import ApiSettings
 
 def export_openapi() -> str:
     """Render the factory app's OpenAPI schema as stable, diff-friendly JSON."""
-    app = create_fastapi_app(ApiSettings(auth_mode="none", docs_enabled=False))
+    # Schema generation never opens a listener. Keep its synthetic application
+    # configuration deterministic and compatible with the same fail-closed auth
+    # policy enforced by a real development server.
+    app = create_fastapi_app(
+        ApiSettings(
+            env="dev",
+            host="127.0.0.1",
+            auth_mode="none",
+            docs_enabled=False,
+        )
+    )
     return json.dumps(app.openapi(), indent=2, sort_keys=True)
 
 

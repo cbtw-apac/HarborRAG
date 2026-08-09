@@ -18,9 +18,9 @@ from harborrag_adapters.repositories.telemetry import (
     RepositoryTelemetry,
     traced_repository_operation,
 )
-from harborrag_core.schemas.documents import ChunkRecord
+from harborrag_core.chunking import ChunkRecord
 from harborrag_core.schemas.ids import DocumentId
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 from .schemas import CHUNKS, OUTBOX, chunk_from_row, chunk_metadata
 
@@ -59,10 +59,10 @@ class SQLChunkRepository(ChunkRepository):
                     instance_name=self._instance_name,
                     operation="chunk_bulk_upsert",
                     tenant_id=str(context.tenant_id),
-                    resource_name=str(record.chunk_revision_id),
+                    resource_name=str(record.chunk_id),
                 ),
             )
-        ids = [str(record.chunk_revision_id) for record in records]
+        ids = [str(record.chunk_id) for record in records]
         await self._session.execute(
             sa_delete(CHUNKS).where(
                 CHUNKS.c.tenant_id == str(context.tenant_id),
@@ -74,7 +74,7 @@ class SQLChunkRepository(ChunkRepository):
             [
                 {
                     "tenant_id": str(context.tenant_id),
-                    "id": str(record.chunk_revision_id),
+                    "id": str(record.chunk_id),
                     "document_id": str(record.document_id),
                     "document_version_id": str(record.document_version_id),
                     "chunk_index": record.ordinal,
@@ -82,7 +82,7 @@ class SQLChunkRepository(ChunkRepository):
                     "content_hash": record.content_hash,
                     "token_count": record.token_count,
                     "metadata": chunk_metadata(record),
-                    "created_at": record.created_at or datetime.now(UTC),
+                    "created_at": datetime.now(UTC),
                 }
                 for record in records
             ],

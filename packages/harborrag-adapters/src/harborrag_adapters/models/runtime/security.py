@@ -193,7 +193,7 @@ def reveal_secret(value: SecretValue | HeaderValue | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, SecretReference):
-        raise ValueError(f"unresolved secret reference: {value.uri}")
+        raise ValueError("unresolved secret reference")
     if isinstance(value, SecretStr):
         return value.get_secret_value()
     return value

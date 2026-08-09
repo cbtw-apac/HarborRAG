@@ -157,6 +157,18 @@ def test_missing_referenced_setting_fails_before_provider_construction(
             """,
             "Python-only",
         ),
+        (
+            """
+            version: 1
+            connectors:
+              broken:
+                provider: local
+                settings:
+                  source_path: docs
+                  allowed_extensions: md
+            """,
+            "allowed_extensions must be a list",
+        ),
     ],
 )
 def test_rejects_invalid_file_shapes(

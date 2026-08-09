@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from textwrap import dedent
 
@@ -32,8 +33,9 @@ def _write_config(tmp_path: Path, content: str) -> Path:
     return config_path
 
 
-def test_repository_config_builds_enabled_parser_overrides() -> None:
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+def test_repository_config_builds_enabled_parser_overrides(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="harborrag.runtime.config.parsers"):
+        catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
 
     assert catalog.names(enabled_only=True) == ["image-rapidocr", "pdf-docling"]
 
@@ -53,6 +55,8 @@ def test_repository_config_builds_enabled_parser_overrides() -> None:
     assert attachment_parser is not harbor_parser
     assert isinstance(harbor_parser.create("image"), HarborImageParser)
     assert harbor_parser.resolve("README.md", "text/markdown") is not None
+    assert "Parser catalog loaded" in caplog.text
+    assert "definitions=2 enabled=2" in caplog.text
 
 
 def test_repository_config_keeps_inactive_alternatives_commented() -> None:

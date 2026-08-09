@@ -6,7 +6,6 @@ from harborrag_core.chunking import TableProjectionType
 from harborrag_core.contracts import TokenCounter
 from harborrag_core.domain import TableArtifact, TableCellType
 
-from ..table_policy import MatrixProjectionMode, TableChunkingPolicy
 from .grouping import (
     RowProjectionPlan,
     TableColumnGroupPlanner,
@@ -19,6 +18,7 @@ from .models import (
     TablePlan,
     TableShape,
 )
+from .policy import MatrixProjectionMode, TableChunkingPolicy
 from .rendering import TableRenderer
 
 type EvidenceStrategy = Callable[

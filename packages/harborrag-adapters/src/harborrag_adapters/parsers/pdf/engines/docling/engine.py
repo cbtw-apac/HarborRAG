@@ -63,9 +63,10 @@ class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
 
         with materialized_pdf_path(input) as path:
             raise_if_encrypted_pdf(path)
+            self._raise_if_exceeds_max_file_size(path)
             # Building a DocumentConverter loads hundreds of MB of layout/OCR
             # models, so it must not run until *after* the cheap encryption
-            # check above has had a chance to reject the file.
+            # and size checks above have had a chance to reject the file.
             converter = self._converter()
             try:
                 result = converter.convert(path, **self._convert_kwargs())
@@ -86,6 +87,29 @@ class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
             warnings=warnings,
             raw=self._raw(document),
         )
+
+    def _raise_if_exceeds_max_file_size(self, path: Path) -> None:
+        """Reject an oversized file with a clear reason before Docling ever runs.
+
+        Docling itself enforces ``max_file_size``, but only after
+        ``convert()`` raises a ``ConversionError`` -- which the outer
+        ``except Exception`` above wraps as "Docling could not parse PDF:
+        ...", and the PDF router then wraps *that* again as "engine failed
+        (...)". The real reason (a configured size policy, not a genuine
+        parse failure) survives in the message but is buried three layers
+        deep behind a headline ("No PDF engine produced acceptable content")
+        that reads as a content/quality problem. Checking here raises the
+        same fact as the router's top-level per-engine reason instead.
+        """
+        max_file_size = self.options.max_file_size
+        if max_file_size is None:
+            return
+        size = path.stat().st_size
+        if size > max_file_size:
+            raise ParseError(
+                f"PDF size {size} bytes exceeds the configured max_file_size "
+                f"limit of {max_file_size} bytes"
+            )
 
     def _export_document(self, document: Any) -> str:
         """Export a Docling document using the configured output format."""

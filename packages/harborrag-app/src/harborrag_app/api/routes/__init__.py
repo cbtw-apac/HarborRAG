@@ -10,9 +10,9 @@ from fastapi import APIRouter
 
 from harborrag_app.api.routes import (
     activity,
-    diagnostics,
     health,
-    ingestions,
+    legacy_diagnostics,
+    legacy_ingestions,
     metrics,
     projects,
     settings,
@@ -24,11 +24,11 @@ def all_routers() -> list[APIRouter]:
     """Every router the factory mounts, in registration order."""
     return [
         health.router,
-        diagnostics.router,
+        legacy_diagnostics.router,
+        legacy_ingestions.router,
         projects.router,
         sources.router,
         activity.router,
         settings.router,
         metrics.router,
-        ingestions.router,
     ]

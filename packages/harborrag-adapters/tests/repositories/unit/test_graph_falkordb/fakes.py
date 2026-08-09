@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 
@@ -34,14 +35,30 @@ class FakeGraph:
     def __init__(self) -> None:
         self.query_calls: list[tuple[str, dict[str, Any]]] = []
         self.ro_query_calls: list[tuple[str, dict[str, Any]]] = []
+        self.active_calls = 0
+        self.maximum_active_calls = 0
 
     async def query(self, statement: str, params: dict[str, Any]) -> str:
-        self.query_calls.append((statement, params))
-        return "write-result"
+        return await self._record("write", statement, params)
 
     async def ro_query(self, statement: str, params: dict[str, Any]) -> str:
-        self.ro_query_calls.append((statement, params))
-        return "read-result"
+        return await self._record("read", statement, params)
+
+    async def _record(
+        self,
+        operation: str,
+        statement: str,
+        params: dict[str, Any],
+    ) -> str:
+        calls = self.query_calls if operation == "write" else self.ro_query_calls
+        calls.append((statement, params))
+        self.active_calls += 1
+        self.maximum_active_calls = max(self.maximum_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(0)
+            return f"{operation}-result"
+        finally:
+            self.active_calls -= 1
 
 
 class FalkorDBWithGraph:
@@ -146,7 +163,10 @@ class FakeFalkorDBClient:
         self.write_calls: list[tuple[str, dict[str, Any]]] = []
         self.read_calls: list[tuple[str, dict[str, Any]]] = []
         self.read_results: list[FakeQueryResult] = []
+        self.constraint_calls: list[tuple[str, tuple[str, ...]]] = []
+        self.dropped_constraint_calls: list[tuple[str, tuple[str, ...]]] = []
         self.ping_error: Exception | None = None
+        self.write_errors: dict[str, Exception] = {}
 
     async def connect(self) -> None:
         self.connected = True
@@ -160,10 +180,29 @@ class FakeFalkorDBClient:
 
     async def write(self, statement: str, parameters: dict[str, Any]) -> None:
         self.write_calls.append((statement, dict(parameters)))
+        for needle, error in self.write_errors.items():
+            if needle in statement:
+                raise error
 
     async def read(self, statement: str, parameters: dict[str, Any]) -> FakeQueryResult:
         self.read_calls.append((statement, dict(parameters)))
         return self.read_results.pop(0)
+
+    async def create_unique_node_constraint(
+        self,
+        *,
+        label: str,
+        properties: tuple[str, ...],
+    ) -> None:
+        self.constraint_calls.append((label, properties))
+
+    async def drop_unique_node_constraint(
+        self,
+        *,
+        label: str,
+        properties: tuple[str, ...],
+    ) -> None:
+        self.dropped_constraint_calls.append((label, properties))
 
 
 def raw_node(entity_id: str, tenant_id: str, labels: list[str], **extra: Any) -> dict[str, Any]:

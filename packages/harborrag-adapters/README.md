@@ -25,6 +25,10 @@ one provider must not require editing unrelated adapter families.
 
 - `connectors/base.py` and `parsers/base.py` define contracts. Production
   implementations belong in provider or format modules under those packages.
+- Connector-specific canonical transformation lives in the provider's
+  `document_transform.py`; supporting representation logic may be split into a
+  provider-local package such as `connectors/confluence/normalization/`. It
+  does not belong in runtime or the chunk-refinement provider package.
 - Implemented connectors and parsers do not keep production `mock.py` modules;
   their fakes and test doubles belong under `tests/`.
 - Repository families expose provider-neutral `Harbor*` contracts plus real
@@ -56,22 +60,18 @@ PDFs through the default parser stack:
 pip install -e "packages/harborrag-adapters[parsers]"
 ```
 
-Install the optional third-party chunking providers used for oversized text
-refinement and Markdown, HTML, or JSON structure recovery:
+Install the optional third-party chunking provider used for oversized text
+refinement:
 
 ```bash
 pip install -e "packages/harborrag-adapters[chunking]"
 ```
 
-The provider implementations live directly under `chunking/` in capability-
-named modules: `recursive.py`, `markdownsplitter.py`, `htmlsplitter.py`, and
-`jsonsplitter.py`.
-Use `HarborChunk` to construct one by its registered name (`recursive`,
-`markdown`, `html`, or `json`). Every implementation derives from
-`HarborBaseChunk` and returns HarborRAG-owned `TextSplit` values; engine policy
-never depends on framework-owned types. `HarborChunk.available(name)` checks an
-optional provider without importing it, allowing ingestion composition to use
-normalized parser elements when a structural splitter is not installed.
+The implementation is `chunking/recursive.py`. Inject `RecursiveTextRefiner`
+into the engine chunking service. It returns HarborRAG-owned `TextSplit`
+values, so engine policy never depends on framework-owned types. Raw Markdown,
+HTML, JSON, PDF, and Office structure is owned by parsers and canonical
+normalizers, not by the chunk refinement adapter.
 
 Install advanced PDF backends separately when needed. This extra also includes
 RapidOCR with its default ONNX Runtime CPU engine:
@@ -97,7 +97,7 @@ pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 
 | Module | Purpose |
 | --- | --- |
-| `harborrag_adapters.connectors` | Source connectors that discover `SourceRecord`s and load `RawDocument`s. |
+| `harborrag_adapters.connectors` | Source connectors that discover/load source records and own provider-specific canonical normalization. |
 | `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
 | `harborrag_adapters.repositories` | Tenant-isolated vector, graph, cache, object, database, and workflow-state repositories. |
 

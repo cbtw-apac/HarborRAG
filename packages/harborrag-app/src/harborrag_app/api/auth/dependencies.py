@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
+from ipaddress import ip_address
 from typing import Annotated
 
 from fastapi import Depends, Request, Security
@@ -19,6 +21,8 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.member import Role
 
+logger = logging.getLogger("harborrag.app.api.auth")
+
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -32,6 +36,26 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     if settings.auth_mode == "none":
         if settings.env == "prod":
             raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
+        if not _is_loopback_host(settings.host) and not settings.allow_insecure_dev:
+            raise HarborConfigurationError(
+                "auth_mode=none may bind only to a loopback host; set "
+                "HARBORRAG_ALLOW_INSECURE_DEV=true to acknowledge an unauthenticated "
+                "non-loopback development listener"
+            )
+        # `env` and `auth_mode` both default to permissive values ("dev" and
+        # "none"), so a deployment that forgets to set HARBORRAG_ENV=prod
+        # falls through here silently -- the process boots and every request
+        # is treated as an implicit owner with unrestricted tenant access,
+        # with no signal that auth is off. Log loudly so that's never silent,
+        # even though the prod check above can't catch a misconfigured env.
+        logger.warning(
+            "Starting with HARBORRAG_AUTH_MODE=none: every request is treated "
+            "as an implicit owner principal with unrestricted tenant access. "
+            "This is a dev-only default -- set HARBORRAG_AUTH_MODE=hmac (or "
+            "oidc) before exposing this process beyond a trusted local "
+            "environment, and set HARBORRAG_ENV=prod so misconfiguration "
+            "fails to start instead of booting open."
+        )
         return None
     if settings.auth_mode == "hmac":
         if not settings.auth_secret:
@@ -51,6 +75,18 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
 
 
+def _is_loopback_host(host: str) -> bool:
+    """Accept explicit loopback names and addresses, never unresolved hostnames."""
+
+    normalized = host.strip().lower().removeprefix("[").removesuffix("]")
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
 def get_principal(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
@@ -62,7 +98,12 @@ def get_principal(
     """
     settings: ApiSettings = request.app.state.settings
     if settings.auth_mode == "none":
-        return Principal(subject="dev", role="owner", token_kind="none")
+        return Principal(
+            subject="dev",
+            role="owner",
+            tenant_ids=frozenset({"*"}),
+            token_kind="none",
+        )
     if credentials is None:
         raise HarborAuthError("missing bearer token")
     verifier: BaseTokenVerifier = request.app.state.token_verifier
@@ -81,3 +122,10 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
         return principal
 
     return dependency
+
+
+def authorize_tenant(principal: Principal, tenant_id: str) -> None:
+    """Reject cross-tenant access even when the caller has a high global role."""
+
+    if not principal.can_access_tenant(tenant_id):
+        raise HarborAuthError("tenant access is not permitted", forbidden=True)

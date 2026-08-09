@@ -5,6 +5,7 @@ from harborrag_adapters.connectors.jira.config import (
     JiraProjectConfig,
 )
 from harborrag_adapters.connectors.jira.connector import JiraConnector
+from harborrag_adapters.connectors.jira.document_transform import JiraDocumentTransform
 from harborrag_adapters.connectors.jira.schemas import (
     JiraChangelogItemMetadata,
     JiraChangelogMetadata,

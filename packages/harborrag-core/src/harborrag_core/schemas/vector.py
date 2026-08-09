@@ -70,21 +70,42 @@ class SparseVector(StrictModel):
             raise ValueError("sparse indices and values must have equal lengths")
         if any(index < 0 for index in self.indices):
             raise ValueError("sparse indices must be non-negative")
+        if self.indices != sorted(self.indices):
+            raise ValueError("sparse indices must be sorted")
+        if len(set(self.indices)) != len(self.indices):
+            raise ValueError("sparse indices must be unique")
+        if not all(isfinite(value) and value > 0 for value in self.values):
+            raise ValueError("sparse values must be finite and positive")
         return self
 
 
-class VectorCollectionSpec(StrictModel):
-    """Represents collection spec data shared across HarborRAG layers."""
+class VectorIndexSpec(StrictModel):
+    """Describes one logical vector index independently of its backend."""
 
-    name: str = Field(min_length=1)
+    index_name: str = Field(min_length=1)
     dimension: int = Field(ge=1)
     distance: VectorDistance = VectorDistance.COSINE
     tenant_scoped: bool = True
     metadata_indexes: list[str] = Field(default_factory=list)
+    dense_vector_name: str | None = None
+    sparse_vector_name: str | None = None
+    sparse_idf: bool = True
+
+    @model_validator(mode="after")
+    def validate_vector_names(self) -> VectorIndexSpec:
+        if self.sparse_vector_name is not None and self.dense_vector_name is None:
+            raise ValueError("a sparse vector collection requires a named dense vector")
+        if (
+            self.dense_vector_name is not None
+            and self.sparse_vector_name is not None
+            and self.dense_vector_name == self.sparse_vector_name
+        ):
+            raise ValueError("dense and sparse vector names must differ")
+        return self
 
 
-class VectorPoint(StrictModel):
-    """Represents vector point data shared across HarborRAG layers."""
+class VectorIndexRecord(StrictModel):
+    """One provider-independent dense/sparse index record."""
 
     id: str = Field(min_length=1)
     tenant_id: TenantId
@@ -102,7 +123,7 @@ class VectorPoint(StrictModel):
 class VectorSearchQuery(StrictModel):
     """Describes a validated vector search query."""
 
-    collection: str = Field(min_length=1)
+    index_name: str = Field(min_length=1)
     vector: list[float]
     top_k: int = Field(default=10, ge=1, le=1000)
     score_threshold: float | None = Field(default=None, ge=0, le=1)
@@ -115,6 +136,19 @@ class VectorSearchQuery(StrictModel):
     @classmethod
     def validate_vector(cls, value: list[float]) -> list[float]:
         return _validate_dense_vector(value, label="query")
+
+
+class SparseSearchQuery(StrictModel):
+    """Describes a validated sparse-vector search query."""
+
+    index_name: str = Field(min_length=1)
+    sparse_vector: SparseVector
+    top_k: int = Field(default=10, ge=1, le=1000)
+    score_threshold: float | None = Field(default=None, ge=0, le=1)
+    filters: VectorFilter | None = None
+    include_vectors: bool = False
+    include_payload: bool = True
+    offset: int = Field(default=0, ge=0)
 
 
 class HybridSearchQuery(VectorSearchQuery):
@@ -134,23 +168,24 @@ class VectorSearchResult(StrictModel):
     vector: list[float] | None = None
 
 
-class VectorScanPage(StrictModel):
+class VectorIndexScanPage(StrictModel):
     """Represents vector scan page data shared across HarborRAG layers."""
 
-    points: list[VectorPoint]
+    records: list[VectorIndexRecord]
     next_cursor: str | None = None
 
 
 class VectorStoreCapabilities(StrictModel):
     """Describes supported vector store features."""
 
-    dense_vectors: bool = True
-    sparse_vectors: bool = False
-    named_vectors: bool = False
-    hybrid_search: bool = False
-    metadata_filtering: bool = True
-    full_text_search: bool = False
-    quantization: bool = False
-    collection_aliases: bool = False
-    transactions: bool = False
-    pagination: bool = True
+    supports_dense_vectors: bool = True
+    supports_sparse_vectors: bool = False
+    supports_named_vectors: bool = False
+    supports_hybrid_search: bool = False
+    supports_metadata_filtering: bool = True
+    supports_delete_by_filter: bool = False
+    supports_full_text_search: bool = False
+    supports_quantization: bool = False
+    supports_index_aliases: bool = False
+    supports_transactions: bool = False
+    supports_pagination: bool = True

@@ -10,7 +10,7 @@ from harborrag_core.schemas.object_store import (
     ObjectStoreCapabilities,
     PutObjectRequest,
 )
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 
 class HarborObjectStore(RepositoryLifecycle):

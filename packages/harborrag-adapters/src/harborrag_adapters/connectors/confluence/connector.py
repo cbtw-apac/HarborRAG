@@ -7,9 +7,17 @@ from collections.abc import Iterator
 from itertools import islice
 from typing import Any
 
-from harborrag_adapters.connectors.attachments.processing import AttachmentProcessor
+from harborrag_adapters.connectors.attachments import (
+    AttachmentDocumentLoader,
+    AttachmentProcessor,
+    AttachmentSourceGateway,
+    AttachmentSourcePolicy,
+    is_attachment_record,
+)
 from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorPage,
@@ -22,24 +30,27 @@ from harborrag_core.domain.source import SourceRecord
 from .client import ConfluenceClient, _RequestsConfluenceClient
 from .config import ConfluenceSpaceConfig
 from .content import ConfluenceContentAPI
+from .discovery import DISCOVERY_DESCRIPTOR_KEY, ConfluenceDescriptorBuilder
 from .mappers import (
     body_html_from_content,
     build_document_metadata,
     build_source_record,
     content_id_from_record,
     display_url,
+    validate_content,
 )
-from .query import build_cql, validate_content_id
+from .policy import ConfluenceQueryPolicyMixin
+from .query import validate_content_id
+from .relations import ConfluenceSourceRelationResolver
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
-class ConfluenceConnector(BaseConnector):
+class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     """Connector for Confluence Cloud and Data Center REST APIs.
 
-    Discovery returns page/blogpost source records from CQL search. Loading a
-    record fetches the expanded content body and optional comments/attachments so
-    downstream parsing receives one complete page document.
+    Discovery returns page/blogpost records from CQL search. Loading fetches the expanded
+    body and optional comments/attachments so parsing receives one complete document.
     """
 
     provider_name = "confluence"
@@ -51,6 +62,7 @@ class ConfluenceConnector(BaseConnector):
         incremental_sync=True,
         full_sync=True,
         relationships=True,
+        concurrent_describe=True,
     )
 
     def __init__(
@@ -59,11 +71,15 @@ class ConfluenceConnector(BaseConnector):
         *,
         client: ConfluenceClient | None = None,
         parser: HarborParserRegistry | None = None,
+        rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
         """Initialize provider APIs and shared attachment processing."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
-        self.client = client or _RequestsConfluenceClient(config)
+        self.client = client or _RequestsConfluenceClient(
+            config,
+            rate_limiter=rate_limiter,
+        )
         self._content = ConfluenceContentAPI(self.client, config)
         self._attachments = AttachmentProcessor(
             download_fn=self.client.download_bytes,
@@ -75,6 +91,24 @@ class ConfluenceConnector(BaseConnector):
             fail_on_error=config.fail_on_error,
             logger_=logger,
         )
+        attachment_sources = AttachmentSourceGateway(
+            download_fn=self.client.download_bytes,
+            policy=AttachmentSourcePolicy(
+                base_url=self.base_url,
+                process_callback=config.process_attachment_callback,
+                max_size_bytes=config.max_attachment_size_bytes,
+                fail_on_error=config.fail_on_error,
+            ),
+            logger_=logger,
+        )
+        self._attachment_loader = AttachmentDocumentLoader(attachment_sources)
+        self._descriptors = ConfluenceDescriptorBuilder(
+            content=self._content,
+            attachments=attachment_sources,
+            config=config,
+            base_url=self.base_url,
+        )
+        self._relations = ConfluenceSourceRelationResolver()
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
@@ -87,32 +121,49 @@ class ConfluenceConnector(BaseConnector):
         """Search Confluence content or materialize explicitly requested IDs."""
         query = query or ConnectorQuery()
         content_ids = self._content_ids_from_query(query)
-        if content_ids:
-            ids: Iterator[str] = self._content.with_children(content_ids, query)
-            if query.limit is not None:
-                ids = islice(ids, query.limit)
-            for content_id in ids:
-                yield self._record_for_id(content_id, query)
-            return
-
-        cql = self._cql_from_query(query)
         yielded = 0
-        for content in self._content.search(cql):
-            content_id = str(content.get("id") or "<unknown>")
-            self._validate_content(content, content_id)
-            if not self._should_process_content(content):
-                continue
-            record = build_source_record(
-                content,
-                base_url=self.base_url,
-                deployment_type=self.config.deployment,
-                default_space_key=self.config.space_key,
-            )
-            record.metadata["include_attachments"] = query.include_attachments
-            yield record
-            yielded += 1
-            if query.limit is not None and yielded >= query.limit:
+        mode = "explicit" if content_ids else "search"
+        logger.info(
+            "Confluence discovery started mode=%s limit=%s recursive=%s",
+            mode,
+            query.limit,
+            query.recursive,
+        )
+        try:
+            if content_ids:
+                ids: Iterator[str] = self._content.with_children(content_ids, query)
+                if query.limit is not None:
+                    ids = islice(ids, query.limit)
+                for content_id in ids:
+                    record = self._record_for_id(content_id, query)
+                    yielded += 1
+                    yield record
                 return
+
+            cql = self._cql_from_query(query)
+            for content in self._content.search(cql):
+                content_id = str(content.get("id") or "<unknown>")
+                self._validate_content(content, content_id)
+                if not self._should_process_content(content):
+                    continue
+                record = build_source_record(
+                    content,
+                    base_url=self.base_url,
+                    deployment_type=self.config.deployment,
+                    default_space_key=self.config.space_key,
+                )
+                record.metadata[DISCOVERY_DESCRIPTOR_KEY] = content
+                record = self._apply_query_policy(record, query)
+                yielded += 1
+                yield record
+                if query.limit is not None and yielded >= query.limit:
+                    return
+        finally:
+            logger.info(
+                "Confluence discovery iterator closed mode=%s yielded=%d",
+                mode,
+                yielded,
+            )
 
     def discover_page(
         self,
@@ -125,7 +176,13 @@ class ConfluenceConnector(BaseConnector):
 
         query = query or ConnectorQuery()
         if self._content_ids_from_query(query):
-            return super().discover_page(query, cursor=cursor, page_size=page_size)
+            page = super().discover_page(query, cursor=cursor, page_size=page_size)
+            logger.debug(
+                "Confluence discovery page mode=explicit records=%d has_next=%s",
+                len(page.records),
+                page.next_cursor is not None,
+            )
+            return page
         cql = self._cql_from_query(query)
         output: list[SourceRecord] = []
         next_cursor = cursor
@@ -146,14 +203,30 @@ class ConfluenceConnector(BaseConnector):
                     deployment_type=self.config.deployment,
                     default_space_key=self.config.space_key,
                 )
-                record.metadata["include_attachments"] = query.include_attachments
-                output.append(record)
+                record.metadata[DISCOVERY_DESCRIPTOR_KEY] = content
+                output.append(self._apply_query_policy(record, query))
             if next_cursor is None:
                 break
-        return ConnectorPage(tuple(output), next_cursor)
+        page = ConnectorPage(tuple(output), next_cursor)
+        logger.debug(
+            "Confluence discovery page mode=search records=%d has_next=%s",
+            len(page.records),
+            page.next_cursor is not None,
+        )
+        return page
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""
+
+        if is_attachment_record(record):
+            if (
+                not self.config.include_attachments
+                or record.metadata.get("include_attachments") is False
+            ):
+                raise DocumentProcessingError("Confluence attachment loading is disabled")
+            document = self._attachment_loader.load(record)
+            logger.info("Confluence attachment loaded source_id=%s", record.id)
+            return document
         content_id = content_id_from_record(record)
         content = self._content.get_content(content_id)
         self._validate_content(content, content_id)
@@ -162,10 +235,15 @@ class ConfluenceConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"Confluence content {content_id} does not match content filters"
             )
-        comments = self._content.fetch_comments(content_id) if self.config.include_comments else []
+        include_comments = bool(
+            self.config.include_comments and record.metadata.get("include_comments", True)
+        )
+        comments = self._content.fetch_comments(content_id) if include_comments else []
         attachments = []
         include_attachments = bool(
-            self.config.include_attachments and record.metadata.get("include_attachments", True)
+            self.config.include_attachments
+            and record.metadata.get("include_attachments", True)
+            and not record.metadata.get("defer_attachments", False)
         )
         if include_attachments:
             attachments = self._attachments.process(self._content.list_attachments(content_id))
@@ -185,60 +263,53 @@ class ConfluenceConnector(BaseConnector):
             metadata.title,
         )
 
-        return RawDocument(
+        metadata_payload = metadata.to_dict()
+        metadata_payload["relations"] = self._relations.merge(
+            list(record.metadata.get("relations") or ()),
+            html=body_html,
+            current_space=metadata.space_key,
+            source_version=str(metadata.version),
+        )
+        metadata_payload["attachment_names"] = list(record.metadata.get("attachment_names") or ())
+        document = RawDocument(
             id=record.id,
             source=source_url,
             content=body_html,
             content_type="text/html",
-            metadata=metadata.to_dict(),
+            metadata=metadata_payload,
             raw=content,
         )
+        logger.info(
+            "Confluence content loaded content_id=%s comments=%d attachments=%d content_chars=%d",
+            content_id,
+            len(comments),
+            len(attachments),
+            len(body_html),
+        )
+        return document
+
+    def describe(
+        self,
+        record: SourceRecord,
+    ) -> ConnectorDocumentDescriptor:
+        """Discover comment/attachment versions and structural relations."""
+
+        descriptor = self._descriptors.describe(record)
+        logger.info(
+            "Confluence content described source_id=%s comments=%d attachments=%d "
+            "relations=%d bound_records=%d",
+            record.id,
+            len(descriptor.admission.comments),
+            len(descriptor.admission.attachments),
+            len(descriptor.admission.relations),
+            len(descriptor.bound_records),
+        )
+        return descriptor
 
     def load_by_ids(self, content_ids: list[str]) -> Iterator[RawDocument]:
         """Load content for callers that already have Confluence IDs."""
         for content_id in content_ids:
             yield self.load(self._record_for_id(content_id, ConnectorQuery()))
-
-    def _cql_from_query(self, query: ConnectorQuery) -> str:
-        """Translate shared connector filters into Confluence CQL."""
-        filters = query.filters
-        space_key = str(filters.get("space_key") or query.path or self.config.space_key)
-        if space_key != self.config.space_key:
-            raise ValueError(
-                f"Confluence query space {space_key!r} is outside configured "
-                f"space {self.config.space_key!r}"
-            )
-        return build_cql(
-            space_key=space_key,
-            content_types=self._list_filter(
-                filters.get("content_types"),
-                default=self.config.content_types,
-            ),
-            labels=self._list_filter(
-                filters.get("labels") or filters.get("label"),
-                default=self.config.include_labels,
-            ),
-            updated_after=query.updated_after,
-            text_search=query.pattern,
-            raw_cql=filters.get("cql"),
-        )
-
-    @staticmethod
-    def _content_ids_from_query(query: ConnectorQuery) -> list[str]:
-        values = query.filters.get("content_ids") or query.filters.get("page_ids")
-        if values is None:
-            return []
-        if isinstance(values, str):
-            return [validate_content_id(values)]
-        return [validate_content_id(str(value)) for value in values]
-
-    @staticmethod
-    def _list_filter(value: Any, *, default: list[str]) -> list[str]:
-        if value is None:
-            return list(default)
-        if isinstance(value, str):
-            return [value]
-        return [str(item) for item in value]
 
     def _record_for_id(self, content_id: str, query: ConnectorQuery) -> SourceRecord:
         """Build a direct-load record when discovery is driven by explicit IDs."""
@@ -250,8 +321,8 @@ class ConfluenceConnector(BaseConnector):
             deployment_type=self.config.deployment,
             default_space_key=self.config.space_key,
         )
-        record.metadata["include_attachments"] = query.include_attachments
-        return record
+        record.metadata[DISCOVERY_DESCRIPTOR_KEY] = content
+        return self._apply_query_policy(record, query)
 
     def _should_process_content(self, content: dict[str, Any]) -> bool:
         """Apply include/exclude label filters and reject Confluence live docs.
@@ -275,22 +346,4 @@ class ConfluenceConnector(BaseConnector):
 
     def _validate_content(self, content: dict[str, Any], content_id: str) -> None:
         """Fail fast when content is malformed or outside the configured space."""
-        space_key = content.get("space", {}).get("key")
-        missing = [
-            name
-            for name, value in (
-                ("id", content.get("id")),
-                ("title", content.get("title")),
-                ("space.key", space_key),
-            )
-            if not value
-        ]
-        if missing:
-            raise DocumentProcessingError(
-                f"Confluence content {content_id} missing required fields: {', '.join(missing)}"
-            )
-        if str(space_key) != self.config.space_key:
-            raise DocumentProcessingError(
-                f"Confluence content {content_id} belongs to space {space_key!r}, "
-                f"outside configured space {self.config.space_key!r}"
-            )
+        validate_content(content, content_id, space_key=self.config.space_key)

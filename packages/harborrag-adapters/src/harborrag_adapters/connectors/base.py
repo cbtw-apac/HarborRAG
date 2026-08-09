@@ -9,6 +9,10 @@ from itertools import islice
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
+from .descriptors import (
+    ConnectorDocumentDescriptor,
+    default_document_descriptor,
+)
 from .exceptions import AuthenticationError
 from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
@@ -72,6 +76,14 @@ class BaseConnector(ABC):
     def load(self, record: SourceRecord) -> RawDocument:
         """Fetch one raw document for a previously discovered source record."""
         raise NotImplementedError
+
+    def describe(
+        self,
+        record: SourceRecord,
+    ) -> ConnectorDocumentDescriptor:
+        """Resolve admission descriptors without fetching large source bytes."""
+
+        return default_document_descriptor(record)
 
     def discover_page(
         self,

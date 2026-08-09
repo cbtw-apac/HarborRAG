@@ -14,6 +14,7 @@ from harborrag_adapters.parsers.common.utils import (
 from harborrag_adapters.parsers.common.validation import (
     guard_input_size,
     open_guarded_zip,
+    raise_if_password_protected_document,
     wrap_parse_errors,
 )
 from harborrag_adapters.parsers.document.base import HarborDocumentEngine
@@ -57,6 +58,11 @@ class DocxDocumentEngine(HarborDocumentEngine):
         tmp_path: Path | None = None
         try:
             source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
+            if not source_bytes:
+                # 0 bytes is never a valid zip archive, so docx2txt/zipfile
+                # would otherwise reject it as corrupt. There is nothing to
+                # parse, so succeed with empty output like the other engines.
+                return self.empty_result(parse_input)
             parser_logger.debug(
                 "Extracting DOCX text from %s",
                 input_label(parse_input),
@@ -68,7 +74,13 @@ class DocxDocumentEngine(HarborDocumentEngine):
                 ),
             )
             with wrap_parse_errors(self.parser_engine):
-                open_guarded_zip(source_bytes).close()
+                raise_if_password_protected_document(source_bytes, format_name="docx")
+                with open_guarded_zip(source_bytes) as archive:
+                    raise_if_password_protected_document(
+                        source_bytes,
+                        format_name="docx",
+                        archive=archive,
+                    )
                 with NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
                     tmp.write(source_bytes)
                     tmp_path = Path(tmp.name)

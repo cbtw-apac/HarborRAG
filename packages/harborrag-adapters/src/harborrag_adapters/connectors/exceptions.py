@@ -1,5 +1,7 @@
 from urllib.parse import urlparse, urlunparse
 
+from harborrag_core.ingestion import SourceForbiddenError, SourceUnavailableError
+
 
 def _redact_url(url: str) -> str:
     """Strip userinfo, query, and fragment before a URL reaches an error message.
@@ -27,11 +29,11 @@ class ConnectorNotInitializedError(ConnectorError):
     """Raised when the connector is not properly initialized."""
 
 
-class AuthenticationError(ConnectorError):
+class AuthenticationError(SourceForbiddenError, ConnectorError):
     """Raised when source credentials are rejected for the whole connector."""
 
 
-class FetchError(ConnectorError):
+class FetchError(SourceUnavailableError, ConnectorError):
     """Raised when a connector cannot fetch source data."""
 
 

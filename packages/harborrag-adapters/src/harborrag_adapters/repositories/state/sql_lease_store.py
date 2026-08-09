@@ -18,7 +18,7 @@ from harborrag_adapters.repositories.telemetry import (
     traced_repository_operation,
 )
 from harborrag_core.schemas.state import LeaseRecord
-from harborrag_core.schemas.storage import (
+from harborrag_core.storage import (
     StorageOperationContext,
 )
 

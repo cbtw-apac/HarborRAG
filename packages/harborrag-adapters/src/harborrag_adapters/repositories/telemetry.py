@@ -7,12 +7,12 @@ from functools import wraps
 from time import perf_counter
 from typing import Any, TypeVar, cast
 
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
 from harborrag_core.schemas.telemetry import (
     StorageOperationCompleted,
     StorageOperationFailed,
     StorageOperationStarted,
 )
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 
 class StorageTelemetryHook(ABC):
@@ -58,8 +58,8 @@ class LoggingStorageTelemetryHook(StorageTelemetryHook):
                 "backend": event.backend,
                 "operation": event.operation,
                 "tenant_id": str(event.context.tenant_id),
-                "request_id": event.context.request_id,
-                "trace_id": event.context.trace_id,
+                "principal_id": event.context.access.principal_id,
+                "operation_kind": event.context.operation_kind,
             },
         )
 

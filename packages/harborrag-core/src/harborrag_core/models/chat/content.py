@@ -9,6 +9,13 @@ from pydantic import Field, field_validator
 
 from harborrag_core.base import StrictModel
 
+# Base64 media (image data URLs, input audio) is fully decoded into memory
+# during validation. Without a ceiling, an end-user-supplied chat message can
+# force an arbitrarily large allocation before any downstream size check
+# runs. 20,000,000 encoded characters is ~14MB of raw media -- generous for a
+# chat attachment, small enough to bound the decode cost.
+_MAX_ENCODED_MEDIA_LENGTH = 20_000_000
+
 
 class TextContentPart(StrictModel):
     """Carry one text segment in a multimodal chat message."""
@@ -29,7 +36,7 @@ class TextContentPart(StrictModel):
 class ImageURL(StrictModel):
     """Describe an image URL and its requested provider detail level."""
 
-    url: str = Field(min_length=1)
+    url: str = Field(min_length=1, max_length=_MAX_ENCODED_MEDIA_LENGTH)
     detail: Literal["auto", "low", "high"] | None = None
 
     @field_validator("url")
@@ -64,7 +71,7 @@ class ImageURLContentPart(StrictModel):
 class InputAudio(StrictModel):
     """Carry encoded input audio and its declared media format."""
 
-    data: str
+    data: str = Field(min_length=1, max_length=_MAX_ENCODED_MEDIA_LENGTH)
     format: Literal["wav", "mp3"]
 
 

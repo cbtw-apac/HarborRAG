@@ -7,8 +7,11 @@ so new HarborError subclasses only need a row in _STATUS_BY_TYPE.
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Mapping
 from http import HTTPStatus
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -21,13 +24,19 @@ from harborrag_core.contracts.errors import (
     HarborCapabilityError,
     HarborConfigurationError,
     HarborConflictError,
+    HarborConnectionError,
     HarborDeadlineExceeded,
     HarborError,
     HarborNotFoundError,
+    HarborRateLimitError,
     HarborSecurityError,
     HarborUnavailableError,
     HarborValidationError,
 )
+
+from .schemas import ErrorResponse
+
+logger = logging.getLogger("harborrag.app.api.errors")
 
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborValidationError: 422,
@@ -37,8 +46,21 @@ _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborSecurityError: 403,
     HarborDeadlineExceeded: 504,
     HarborConfigurationError: 500,
+    HarborConnectionError: 503,
+    HarborRateLimitError: 429,
     HarborUnavailableError: 503,
 }
+
+
+def documented_error_responses(
+    descriptions: Mapping[int, str],
+) -> dict[int | str, dict[str, Any]]:
+    """Build consistent OpenAPI entries for enveloped error responses."""
+
+    return {
+        status_code: {"model": ErrorResponse, "description": description}
+        for status_code, description in descriptions.items()
+    }
 
 
 def _code_for(exc: Exception) -> str:
@@ -46,6 +68,9 @@ def _code_for(exc: Exception) -> str:
 
     CamelCase -> snake_case, e.g., HarborNotFoundError -> harbor_not_found_error.
     """
+    explicit = getattr(exc, "error_code", None)
+    if isinstance(explicit, str) and explicit:
+        return explicit
     return re.sub(r"(?<!^)(?=[A-Z])", "_", type(exc).__name__).lower()
 
 
@@ -97,9 +122,13 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _harbor_error(request: Request, exc: HarborError) -> JSONResponse:
         """Envelope any HarborError with its mapped HTTP status."""
         details = getattr(exc, "details", {})
+        headers = None
+        if isinstance(exc, HarborRateLimitError):
+            headers = {"Retry-After": str(exc.details["retry_after_seconds"])}
         return JSONResponse(
             status_code=_status_for(exc),
             content=error_envelope(request, _code_for(exc), str(exc), details),
+            headers=headers,
         )
 
     @app.exception_handler(RequestValidationError)
@@ -107,7 +136,10 @@ def register_error_handlers(app: FastAPI) -> None:
         """Envelope FastAPI request-validation failures as 422."""
         details: dict[str, object] = {
             "errors": jsonable_encoder(
-                exc.errors(),
+                [
+                    {key: value for key, value in error.items() if key not in {"input", "ctx"}}
+                    for error in exc.errors()
+                ],
                 custom_encoder={ValueError: str},
             )
         }
@@ -132,6 +164,13 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         """Envelope unexpected exceptions as a generic 500."""
+        logger.exception(
+            "Unhandled API exception trace_id=%s method=%s path=%s",
+            getattr(request.state, "trace_id", None),
+            request.method,
+            request.url.path,
+            exc_info=exc,
+        )
         return JSONResponse(
             status_code=500,
             content=error_envelope(request, "internal_error", "Internal server error", {}),

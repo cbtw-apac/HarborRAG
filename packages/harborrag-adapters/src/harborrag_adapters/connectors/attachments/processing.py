@@ -221,43 +221,16 @@ class AttachmentProcessor:
                 )
                 return metadata
 
-            classified = classify_attachment(media_type, title)
+            classified = self._classify(metadata, media_type, title)
             if classified is None:
-                metadata.status = "unsupported"
-                metadata.reason = f"no handler for media_type {media_type!r}"
                 return metadata
             file_type, extension = classified
 
-            content = self._download(metadata.download_url)
-            if not content:
-                metadata.status = "failed"
-                metadata.reason = "download failed or returned no content"
-                return metadata
-            if (
-                self.max_attachment_size_bytes is not None
-                and len(content) > self.max_attachment_size_bytes
-            ):
-                metadata.reason = (
-                    f"downloaded size {len(content)} exceeds "
-                    f"max_attachment_size_bytes {self.max_attachment_size_bytes}"
-                )
+            content = self._download_within_limit(metadata)
+            if content is None:
                 return metadata
 
-            if file_type in self.custom_parsers:
-                text = self.custom_parsers[file_type](content, extension)
-            elif self.parser is not None:
-                text = self.parser.parse(
-                    ParseInput(
-                        content=content,
-                        filename=title or f"attachment.{extension}",
-                        content_type=media_type or None,
-                    )
-                ).content
-            else:
-                raise ValueError(
-                    f"No parser configured for attachment type {file_type!r}; "
-                    "pass an explicit `parser` or a matching custom_parsers entry"
-                )
+            text = self._parse_content(content, file_type, extension, title, media_type)
 
             metadata.status = "processed"
             metadata.text = text
@@ -275,6 +248,60 @@ class AttachmentProcessor:
             metadata.status = "failed"
             metadata.reason = safe_reason
             return metadata
+
+    def _download_within_limit(self, metadata: AttachmentMetadata) -> bytes | None:
+        """Download one attachment and apply the post-download size boundary."""
+
+        content = self._download(metadata.download_url)
+        if not content:
+            metadata.status = "failed"
+            metadata.reason = "download failed or returned no content"
+            return None
+        if (
+            self.max_attachment_size_bytes is not None
+            and len(content) > self.max_attachment_size_bytes
+        ):
+            metadata.reason = (
+                f"downloaded size {len(content)} exceeds "
+                f"max_attachment_size_bytes {self.max_attachment_size_bytes}"
+            )
+            return None
+        return content
+
+    def _parse_content(
+        self,
+        content: bytes,
+        file_type: FileType,
+        extension: str,
+        title: str,
+        media_type: str,
+    ) -> str:
+        if file_type in self.custom_parsers:
+            return self.custom_parsers[file_type](content, extension)
+        if self.parser is not None:
+            return self.parser.parse(
+                ParseInput(
+                    content=content,
+                    filename=title or f"attachment.{extension}",
+                    content_type=media_type or None,
+                )
+            ).content
+        raise ValueError(
+            f"No parser configured for attachment type {file_type!r}; "
+            "pass an explicit `parser` or a matching custom_parsers entry"
+        )
+
+    @staticmethod
+    def _classify(
+        metadata: AttachmentMetadata,
+        media_type: str,
+        title: str,
+    ) -> tuple[FileType, str] | None:
+        classified = classify_attachment(media_type, title)
+        if classified is None:
+            metadata.status = "unsupported"
+            metadata.reason = f"no handler for media_type {media_type!r}"
+        return classified
 
     @staticmethod
     def _title(attachment: dict) -> str:

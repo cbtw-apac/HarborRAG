@@ -25,7 +25,7 @@ class ExampleConnector(BaseConnector):
         ...
 ```
 
-A connector contribution should include typed config, client/session lifecycle, filtering, pagination, retry/rate-limit behavior, size/collection caps, permission/provenance mapping, public exports, registry aliases, and tests for failures and security boundaries.
+A connector contribution should include typed config, client/session lifecycle, filtering, pagination, retry/rate-limit behavior, size/collection caps, permission/provenance mapping, public exports, registry metadata, and tests for failures and security boundaries. Register one `ConnectorProviderDefinition` containing the connector class, typed config factory, aliases, constructor dependency names, config path fields, and default document kind. Runtime configuration and construction derive their behavior from this definition; do not add parallel provider-name switches.
 
 Use fakes in tests; do not ship a provider `mock.py` as a substitute for production behavior. Add an opt-in smoke script only when a real-system check adds value.
 
@@ -112,12 +112,30 @@ copies.
 
 The existing connector/parser catalogs demonstrate strict versioning and environment references. A unified composition must retain explicit construction and avoid importing optional providers until selected.
 
+For source-specific canonical behavior, implement
+`ConnectorDocumentTransform` inside the provider's connector package and set
+`document_transform_factory` on its `ConnectorProviderDefinition`. Runtime
+discovers registered transforms and stays provider-neutral. Use
+`SourceDocumentNormalizerBuilder` only for application-local overrides that do
+not belong to a connector package. For source-specific chunk behavior, provide
+a `ChunkingConfig` source profile and an additional `ChunkStrategy` when
+building `IngestionRuntimeBuilder`. Keep provider validation on the strategy's
+optional `record_validator` hook instead of branching in the shared chunk
+validator.
+
 Temporal SDK integration belongs in `harborrag-runtime.temporal`. It must not
 become a core, adapter, or engine dependency.
 
 ## Application and MCP surfaces
 
 CLI and HTTP code should call `BaseAppService`; MCP tools should call runtime/service interfaces. Neither surface should construct raw provider clients in handlers.
+
+Stored chat prompts belong under
+`harborrag_runtime/chat/prompts/templates/`. To add a public prompt, add its
+UTF-8 Markdown template, add a stable name and filename mapping to
+`ChatPrompt`/`PromptCatalog`, and test selection through every transport that
+exposes it. Keep model selection, credentials, endpoints, tenant data, and
+runtime interpolation out of templates.
 
 Production interfaces also need stable schemas, exit/error mapping, identity and tenant context, permission enforcement, capability budgets, safe observability, lifecycle handling, and audit recording. Update user documentation only after the command, route, transport, or tool is actually wired.
 

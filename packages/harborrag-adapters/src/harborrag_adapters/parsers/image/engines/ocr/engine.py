@@ -103,6 +103,16 @@ class OcrImageEngine(HarborImageEngine):
                 ),
             )
             data = guard_input_size(read_parse_input_bytes(parse_input))
+            if not data:
+                # 0 bytes has no image format for Pillow to identify, so
+                # `Image.open()` would otherwise reject it as unreadable.
+                # There is nothing to OCR, so succeed with empty output like
+                # the other engines.
+                return self.empty_result(
+                    parse_input,
+                    ocr_engine=self.ocr_engine,
+                    lang=self.lang,
+                )
             with Image.open(BytesIO(data)) as image:
                 # Pillow's `open()` only reads the header, so the encoded size
                 # guard above doesn't bound the decoded pixel buffer. Check the
@@ -117,10 +127,20 @@ class OcrImageEngine(HarborImageEngine):
                         f"max_pixels {self.max_pixels}"
                     )
                 image.load()
-                content = self._extract_text(data, image)
+                # OCR providers use several no-detection sentinels across
+                # versions (``None``, an empty result object, or whitespace).
+                # They all mean a successful parse with no extracted text.
+                content = (self._extract_text(data, image) or "").strip()
         except ParseError:
             raise
-        except (RuntimeError, OSError, ValueError) as exc:
+        except (RuntimeError, OSError, ValueError, Image.DecompressionBombError) as exc:
+            # `Image.open()` runs its own pixel-count guard against Pillow's
+            # global `MAX_IMAGE_PIXELS` *before* our `max_pixels` check gets a
+            # chance to run (headers alone can push a file more than 2x over
+            # Pillow's default threshold). `DecompressionBombError` subclasses
+            # `Exception` directly, not `OSError`, so it must be listed
+            # explicitly or it escapes as an uncaught crash instead of the
+            # typed `ParseError` below.
             parser_logger.warning(
                 "Image OCR failed for %s: %s",
                 input_label(parse_input),
@@ -145,6 +165,21 @@ class OcrImageEngine(HarborImageEngine):
             ]
             if content
             else []
+        )
+        parser_logger.info(
+            "Parsed image OCR %s engine=%s content_chars=%d elements=%d",
+            input_label(parse_input),
+            self.ocr_engine,
+            len(content),
+            len(elements),
+            extra=parser_log_extra(
+                input=parse_input,
+                parser_name=self.parser_name,
+                parser_engine=self.ocr_engine,
+                ocr_lang=self.lang,
+                content_chars=len(content),
+                elements=len(elements),
+            ),
         )
         return ParsedDocument(
             content=content,
@@ -182,7 +217,7 @@ class OcrImageEngine(HarborImageEngine):
             config=self.config,
             timeout=self.timeout,
         )
-        return str(content).strip()
+        return "" if content is None else str(content).strip()
 
     def _extract_with_rapidocr(self, data: bytes) -> str:
         """Extract ordered text lines with a memoized RapidOCR engine."""

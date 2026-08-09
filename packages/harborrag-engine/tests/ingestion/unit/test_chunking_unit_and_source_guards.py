@@ -2,7 +2,7 @@
 
 `ChunkUnit`/`ChunkCandidate` are the intermediate shapes a strategy builds
 before stable identity is assigned, and the connector-specific validators are
-what stop a Jira/Confluence/JSON chunk from losing the metadata retrieval later
+what stop Jira and Confluence chunks from losing the metadata retrieval later
 depends on. Both were unexercised.
 """
 
@@ -10,12 +10,23 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_core.chunking import ChunkKind
+from harborrag_core.chunking import (
+    ChunkHierarchy,
+    ChunkKind,
+    ChunkRecord,
+    ChunkSecurity,
+    CitationLocator,
+    ConnectorType,
+    DocumentKind,
+    RecordKind,
+)
 from harborrag_core.contracts.chunking import SourceSpan, SplitBoundaryKind
-from harborrag_core.schemas.documents import ChunkContext, ChunkRecord, ChunkSourceSpan
-from harborrag_engine.ingestion.chunking.record_factory import CanonicalChunkFactory
+from harborrag_engine.ingestion.chunking.records import (
+    CanonicalChunkFactory,
+    ChunkContextBuilder,
+    ChunkValidator,
+)
 from harborrag_engine.ingestion.chunking.schemas import ChunkCandidate, ChunkUnit
-from harborrag_engine.ingestion.chunking.validation import ChunkValidator
 
 SPAN = SourceSpan(start_offset=0, end_offset=10, element_ids=("element-1",))
 
@@ -50,21 +61,31 @@ def _candidate(**changes: object) -> ChunkCandidate:
 
 
 def _record(role: str = "body", **metadata: object) -> ChunkRecord:
-    return ChunkRecord.from_legacy(
+    chunk_kind = ChunkKind.COMMENT if role == "jira.comment" else ChunkKind.TEXT
+    return ChunkRecord(
+        strategy_version="strategy-v1",
+        chunk_id="chunk:1",
+        logical_chunk_id="logical-chunk:1",
+        content_hash="hash-1",
+        connector_type=ConnectorType.LOCAL,
+        document_kind=DocumentKind.LOCAL_FILE,
+        record_kind=RecordKind.EVIDENCE,
+        chunk_kind=chunk_kind,
         tenant_id="tenant-1",
+        connection_id="local-test",
+        source_scope_id="docs",
+        source_item_id="guide.md",
+        source_version="source-v1",
         document_id="document-1",
         document_version_id="version-1",
-        artifact_id="artifact-1",
-        artifact_revision_id="revision-1",
-        logical_chunk_id="logical-1",
-        chunk_revision_id="chunk-revision-1",
         ordinal=0,
-        role=role,
         content="body text",
-        content_hash="hash-1",
+        embedding_text="Document: Guide\n\nbody text",
+        search_text="Guide\nbody text",
         token_count=2,
-        context=ChunkContext(structural_path=("Guide",)),
-        source_span=ChunkSourceSpan(start_offset=0, end_offset=9),
+        hierarchy=ChunkHierarchy(section_path=("Guide",)),
+        citation_locator=CitationLocator(start_offset=0, end_offset=9),
+        security=ChunkSecurity(permission_set_id="permission-set:test"),
         metadata=metadata,
     )
 
@@ -73,12 +94,10 @@ def test_canonical_record_factory_maps_remaining_roles_and_parent_titles() -> No
     assert CanonicalChunkFactory.kind_for_role("event") == ChunkKind.EVENT
     assert CanonicalChunkFactory.kind_for_role("jira.field") == ChunkKind.JIRA_FIELD
     assert CanonicalChunkFactory.kind_for_role("confluence.table") == ChunkKind.TABLE
-    assert CanonicalChunkFactory.kind_for_role("prevent") == ChunkKind.EVIDENCE
-    assert CanonicalChunkFactory.kind_for_role("decode") == ChunkKind.EVIDENCE
-    assert CanonicalChunkFactory._parent_title({"ancestor_titles": "not-a-sequence"}) is None
-    assert CanonicalChunkFactory._parent_title({"ancestor_titles": [None, " Parent "]}) == (
-        "Parent"
-    )
+    assert CanonicalChunkFactory.kind_for_role("prevent") == ChunkKind.TEXT
+    assert CanonicalChunkFactory.kind_for_role("decode") == ChunkKind.TEXT
+    assert ChunkContextBuilder.parent_title({"ancestor_titles": "not-a-sequence"}) is None
+    assert ChunkContextBuilder.parent_title({"ancestor_titles": [None, " Parent "]}) == ("Parent")
 
 
 # --------------------------------------------------------------------------
@@ -158,7 +177,18 @@ def test_chunk_candidate_freezes_its_metadata() -> None:
 
 def _source_errors(record: ChunkRecord, strategy: str) -> list[str]:
     errors: list[str] = []
-    ChunkValidator._validate_source_specific(record, strategy, errors, "chunk[0]")
+    from harborrag_engine.ingestion.chunking.sources.validation import (
+        validate_confluence_chunk,
+        validate_jira_chunk,
+    )
+
+    validators = {
+        "confluence": validate_confluence_chunk,
+        "jira": validate_jira_chunk,
+    }
+    validator = validators.get(strategy)
+    if validator is not None:
+        validator(record, errors, "chunk[0]")
     return errors
 
 
@@ -183,11 +213,6 @@ def test_confluence_chunks_require_a_page_id() -> None:
     assert _source_errors(_record(page_id="1234"), "confluence") == []
 
 
-def test_json_chunks_require_a_json_path() -> None:
-    assert any("requires json_path" in e for e in _source_errors(_record(), "json"))
-    assert _source_errors(_record(json_path="$.items[0]"), "json") == []
-
-
 def test_an_unknown_strategy_adds_no_source_specific_requirements() -> None:
     assert _source_errors(_record(), "document") == []
 
@@ -197,19 +222,19 @@ def test_an_unknown_strategy_adds_no_source_specific_requirements() -> None:
 # --------------------------------------------------------------------------
 
 
-def _location_errors(spans: list[ChunkSourceSpan]) -> list[str]:
+def _location_errors(spans: list[CitationLocator]) -> list[str]:
     errors: list[str] = []
     previous: dict[str, tuple[int, int, int]] = {}
     for index, span in enumerate(spans):
-        record = _record().model_copy(update={"source_locator": span})
+        record = _record().model_copy(update={"citation_locator": span})
         ChunkValidator._validate_locations(record, previous, errors, f"chunk[{index}]")
     return errors
 
 
 def test_forward_only_source_locations_are_accepted() -> None:
     spans = [
-        ChunkSourceSpan(start_offset=0, end_offset=10, source_element_ids=("e1",)),
-        ChunkSourceSpan(start_offset=10, end_offset=20, source_element_ids=("e1",)),
+        CitationLocator(start_offset=0, end_offset=10, source_element_ids=("e1",)),
+        CitationLocator(start_offset=10, end_offset=20, source_element_ids=("e1",)),
     ]
 
     assert _location_errors(spans) == []
@@ -217,16 +242,16 @@ def test_forward_only_source_locations_are_accepted() -> None:
 
 def test_a_backward_source_location_is_reported() -> None:
     spans = [
-        ChunkSourceSpan(start_offset=10, end_offset=20, source_element_ids=("e1",)),
-        ChunkSourceSpan(start_offset=0, end_offset=5, source_element_ids=("e1",)),
+        CitationLocator(start_offset=10, end_offset=20, source_element_ids=("e1",)),
+        CitationLocator(start_offset=0, end_offset=5, source_element_ids=("e1",)),
     ]
 
     assert any("source location moved backward" in e for e in _location_errors(spans))
 
 
-def test_a_record_with_an_empty_source_locator_is_accepted() -> None:
+def test_a_record_with_an_empty_citation_locator_is_accepted() -> None:
     errors: list[str] = []
-    record = _record().model_copy(update={"source_locator": ChunkSourceSpan()})
+    record = _record().model_copy(update={"citation_locator": CitationLocator()})
 
     ChunkValidator._validate_locations(record, {}, errors, "chunk[0]")
 

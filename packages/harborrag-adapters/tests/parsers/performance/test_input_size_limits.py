@@ -48,7 +48,7 @@ def test_guard_input_size_mechanism_without_large_allocation() -> None:
     assert str(len(data)) in message
     assert str(len(data) - 1) in message
 
-    assert DEFAULT_MAX_INPUT_BYTES == 512 * 1024 * 1024
+    assert DEFAULT_MAX_INPUT_BYTES == 128 * 1024 * 1024
     assert DEFAULT_MAX_INPUT_BYTES >= 100 * 1024 * 1024
 
 

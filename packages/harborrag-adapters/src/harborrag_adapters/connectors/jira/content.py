@@ -7,7 +7,11 @@ from typing import Any
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.parsers.common.normalization import compact_text, html_to_text
 
-from .schemas import JiraCustomFieldMetadata
+from .schemas import (
+    JiraCustomFieldKind,
+    JiraCustomFieldMetadata,
+    JiraFieldContext,
+)
 
 CUSTOM_FIELD_PREFIX = "customfield_"
 
@@ -62,6 +66,14 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
     names = issue.get("names", {}) or {}
     schemas = issue.get("schema", {}) or {}
     rendered_fields = issue.get("renderedFields", {}) or {}
+    project = fields.get("project") if isinstance(fields.get("project"), dict) else {}
+    issue_type = fields.get("issuetype") if isinstance(fields.get("issuetype"), dict) else {}
+    context = JiraFieldContext(
+        project_id=_optional_text(project.get("id")),
+        project_key=_optional_text(project.get("key")),
+        issue_type_id=_optional_text(issue_type.get("id")),
+        issue_type_name=_optional_text(issue_type.get("name")),
+    )
 
     values: list[JiraCustomFieldMetadata] = []
     for field_id, value in fields.items():
@@ -70,6 +82,7 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
         schema = schemas.get(field_id) or {}
         rendered_value = rendered_fields.get(field_id)
         text_source = rendered_value if rendered_value not in (None, "") else value
+        text = field_text(text_source)
         values.append(
             JiraCustomFieldMetadata(
                 field_id=str(field_id),
@@ -77,10 +90,68 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
                 schema_type=schema.get("type") if isinstance(schema, dict) else None,
                 custom_type=schema.get("custom") if isinstance(schema, dict) else None,
                 value=value,
-                text=field_text(text_source),
+                text=text,
+                value_kind=_custom_field_kind(
+                    name=str(names.get(field_id) or field_id),
+                    schema=schema if isinstance(schema, dict) else {},
+                    value=value,
+                    text=text,
+                ),
+                context=context,
             )
         )
     return values
+
+
+def _custom_field_kind(
+    *,
+    name: str,
+    schema: dict[str, Any],
+    value: Any,
+    text: str,
+) -> JiraCustomFieldKind:
+    schema_type = str(schema.get("type") or "").casefold()
+    custom_type = str(schema.get("custom") or "").casefold()
+    normalized_name = " ".join(name.casefold().replace("_", " ").split())
+    if schema_type == "number" or (isinstance(value, (int, float)) and not isinstance(value, bool)):
+        return JiraCustomFieldKind.NUMBER
+    if schema_type == "boolean" or isinstance(value, bool):
+        return JiraCustomFieldKind.BOOLEAN
+    if schema_type in {"date", "datetime"} or "datepicker" in custom_type:
+        return JiraCustomFieldKind.DATE
+    if "user" in custom_type:
+        return JiraCustomFieldKind.USER
+    if _is_option_value(value, schema_type=schema_type, custom_type=custom_type):
+        return JiraCustomFieldKind.OPTION
+    prose_name = any(
+        marker in normalized_name
+        for marker in ("acceptance criteria", "description", "environment", "reproduction")
+    )
+    if text and (
+        prose_name
+        or "textarea" in custom_type
+        or "text field (multi-line)" in custom_type
+        or "\n" in text
+        or len(text) >= 80
+    ):
+        return JiraCustomFieldKind.PROSE
+    return JiraCustomFieldKind.ATTRIBUTE
+
+
+def _is_option_value(value: Any, *, schema_type: str, custom_type: str) -> bool:
+    if "option" in custom_type or schema_type in {"option", "array"}:
+        return True
+    if isinstance(value, dict):
+        return "value" in value and not {"type", "content"} <= set(value)
+    if isinstance(value, list) and value:
+        return all(isinstance(item, dict) and "value" in item for item in value)
+    return False
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return str(value).strip()
 
 
 def field_text(value: Any) -> str:

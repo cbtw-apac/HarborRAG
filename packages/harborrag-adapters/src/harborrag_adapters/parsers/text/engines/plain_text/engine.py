@@ -111,6 +111,19 @@ class PlainTextEngine(HarborTextEngine):
             if content
             else []
         )
+        parser_logger.info(
+            "Parsed text %s content_chars=%d elements=%d",
+            input_label(parse_input),
+            len(content),
+            len(elements),
+            extra=parser_log_extra(
+                input=parse_input,
+                parser_name=self.parser_name,
+                parser_engine=self.parser_engine,
+                content_chars=len(content),
+                elements=len(elements),
+            ),
+        )
         return ParsedDocument(
             content=content,
             elements=elements,

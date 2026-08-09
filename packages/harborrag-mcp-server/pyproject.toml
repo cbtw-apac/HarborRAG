@@ -4,7 +4,16 @@ version = "0.1.0"
 description = "MCP facade and audited tools for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
-dependencies = ["jsonschema>=4.26,<5"]
+dependencies = [
+    "harborrag-core==0.1.0",
+    "harborrag-runtime==0.1.0",
+    "jsonschema>=4.26,<5",
+    "pydantic>=2.12,<3",
+    "pyyaml>=6.0.2,<7",
+]
+
+[project.scripts]
+harborrag-mcp = "harborrag_mcp_server.__main__:main"
 
 [project.optional-dependencies]
 mcp = ["fastmcp>=3.4,<4"]

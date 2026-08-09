@@ -30,6 +30,7 @@ def _token(role: str) -> str:
     claims = {
         "sub": "u1",
         "role": role,
+        "tenants": ["DEFAULT"],
         "iat": now,
         "exp": now + timedelta(minutes=5),
         "iss": "harborrag",

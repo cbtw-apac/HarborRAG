@@ -2,6 +2,7 @@
 
 import builtins
 import importlib
+import subprocess
 import sys
 
 import pytest
@@ -32,3 +33,26 @@ def test_cli_imports_without_fastapi(monkeypatch: pytest.MonkeyPatch) -> None:
 
     module = importlib.import_module("harborrag_app.cli.main")
     assert module is not None
+
+
+@pytest.mark.smoke
+def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
+    """Temporal submission must not initialize LiteLLM or perform model-network I/O."""
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "import harborrag_app.workflow_control.composition.service; "
+                "assert 'litellm' not in sys.modules"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr

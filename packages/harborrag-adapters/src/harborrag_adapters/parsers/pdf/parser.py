@@ -21,10 +21,10 @@ from harborrag_adapters.parsers.errors import (
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.config import (
     PDFParserProfile,
-    PDFProfileConfig,
     PDFRouterConfig,
 )
 from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
+from harborrag_adapters.parsers.pdf.parser_support import PDFParserSupportMixin
 from harborrag_adapters.parsers.pdf.quality import PDFQualityEvaluator
 from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry, PDFEngineRouter
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -32,7 +32,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 parser_logger = get_parser_logger("pdf")
 
 
-class HarborPDFParser(HarborParser):
+class HarborPDFParser(PDFParserSupportMixin, HarborParser):
     """Run the complete PDF workflow across independent provider engines."""
 
     parser_name: ClassVar[str] = "pdf"
@@ -91,6 +91,20 @@ class HarborPDFParser(HarborParser):
         attempts: list[ParserAttempt] = []
         warnings: list[str] = []
         minimum_score = self._router.minimum_quality_score(request)
+
+        if self._is_empty_request(request):
+            parser_logger.info(
+                "PDF input %s is empty (0 bytes); returning empty content",
+                request.filename or request.source_uri,
+            )
+            metadata = request.options.get("metadata", {})
+            return self._normalizer.normalize(
+                result=self._empty_result(),
+                attempts=[self._empty_attempt()],
+                metadata=dict(metadata) if isinstance(metadata, dict) else {},
+                warnings=[],
+            )
+        self._guard_request_size(request)
 
         for engine in self._router.resolve_candidates(request):
             started = perf_counter()
@@ -178,6 +192,31 @@ class HarborPDFParser(HarborParser):
         warnings: list[str] = []
         minimum_score = self._router.minimum_quality_score(request)
 
+        if self._is_empty_source(input):
+            # An empty source has no content for any engine to reject or
+            # accept -- routing it through the fallback chain just collects
+            # N confusing per-engine failures ("could not open PDF", "invalid
+            # PDF format", ...) before raising `PDFParsingFailedError`. There
+            # is nothing to parse, so succeed with empty output instead of
+            # treating a 0-byte file as a hard failure.
+            parser_logger.info(
+                "PDF input %s is empty (0 bytes); returning empty content",
+                input_label(input),
+                extra=parser_log_extra(
+                    input=input,
+                    parser_name=self.parser_name,
+                    profile=self._profile_name,
+                ),
+            )
+            return self._normalizer.normalize_document(
+                parse_input=input,
+                result=self._empty_result(),
+                profile=self._profile_name,
+                attempts=[self._empty_attempt()],
+                warnings=[],
+            )
+        self._guard_size(input)
+
         for engine in self._router.resolve_candidates(request):
             parser_logger.debug(
                 "Trying PDF engine %s for %s",
@@ -254,46 +293,6 @@ class HarborPDFParser(HarborParser):
             warnings.append(f"{engine.name}: {quality.message}")
 
         raise PDFParsingFailedError(attempts=attempts)
-
-    @staticmethod
-    def _router_config(
-        profile: str,
-        *,
-        explicit_order: tuple[str, ...] | None,
-    ) -> PDFRouterConfig:
-        profile_name = profile
-        if explicit_order is None:
-            return PDFRouterConfig(default_profile=profile_name)
-        return PDFRouterConfig(
-            default_profile=profile_name,
-            profiles={
-                profile_name: PDFProfileConfig(
-                    explicit_order,
-                    minimum_quality_score=PDFRouterConfig()
-                    .profiles[profile_name]
-                    .minimum_quality_score,
-                )
-            },
-        )
-
-    @property
-    def _profile_name(self) -> str:
-        if isinstance(self.profile, PDFParserProfile):
-            return self.profile.value
-        return self.profile
-
-    @staticmethod
-    def _normalize_profile(
-        profile: PDFParserProfile | str,
-        router_config: PDFRouterConfig | None,
-    ) -> PDFParserProfile | str:
-        try:
-            return PDFParserProfile.normalize(profile)
-        except ValueError:
-            profile_name = str(profile).lower().strip()
-            if router_config is not None and profile_name in router_config.profiles:
-                return profile_name
-            raise
 
 
 PdfParser = HarborPDFParser

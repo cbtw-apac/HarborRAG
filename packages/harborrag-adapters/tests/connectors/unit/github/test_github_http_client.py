@@ -92,6 +92,18 @@ def test_github_get_json_rejects_non_json_body():
         client.get_json("repos/o/r")
 
 
+def test_github_get_json_reports_blob_specific_response_cap() -> None:
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = _github_client()
+    response = FakeResponse(status_code=200, _json={"content": "too large"})
+    client.session = FakeSession(responses=[response])
+
+    with pytest.raises(FetchError, match="exceeded byte limit"):
+        client.get_json("repos/o/r/git/blobs/sha", max_bytes=4)
+    assert response.closed is True
+
+
 def test_github_get_json_rejects_list_with_non_dict_item():
     from harborrag_adapters.connectors.exceptions import FetchError
 
@@ -154,24 +166,28 @@ def test_github_request_raises_rate_limit_error_after_exhausting_retries():
 
 def test_github_request_retries_429_then_succeeds():
     client = _github_client(max_retries=1)
+    retry_response = FakeResponse(status_code=429, headers={"Retry-After": "1"}, text="")
     client.session = FakeSession(
         responses=[
-            FakeResponse(status_code=429, headers={"Retry-After": "1"}, text=""),
+            retry_response,
             FakeResponse(status_code=200, _json={"ok": True}),
         ]
     )
     assert client.get_json("repos/o/r") == {"ok": True}
+    assert retry_response.closed is True
 
 
 def test_github_request_retries_5xx_then_succeeds():
     client = _github_client(max_retries=2, backoff_factor=0)
+    retry_response = FakeResponse(status_code=500, text="boom", headers={})
     client.session = FakeSession(
         responses=[
-            FakeResponse(status_code=500, text="boom", headers={}),
+            retry_response,
             FakeResponse(status_code=200, _json={"ok": True}),
         ]
     )
     assert client.get_json("repos/o/r") == {"ok": True}
+    assert retry_response.closed is True
 
 
 def test_github_request_raises_fetch_error_on_non_retryable_4xx():
@@ -205,8 +221,9 @@ def test_github_request_raises_fetch_error_after_exhausting_connection_errors():
 
     client = _github_client(max_retries=0)
     client.session = FakeSession(responses=[requests.ConnectionError("boom")])
-    with pytest.raises(FetchError, match="boom"):
+    with pytest.raises(FetchError, match="GitHub request failed") as captured:
         client.get_json("repos/o/r")
+    assert "boom" not in str(captured.value)
 
 
 def test_github_client_omits_authorization_header_without_token(monkeypatch):

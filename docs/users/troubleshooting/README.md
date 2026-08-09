@@ -28,12 +28,87 @@ Example files are not loaded automatically. HarborRAG reads the process environm
 - The Temporal worker exits at startup: verify the connector, parser, and model
   config paths, model credentials, and Qdrant/FalkorDB endpoints. A custom
   dependency provider is optional.
-- Temporal starts but no HarborRAG worker appears: set `TEMPORAL_START_WORKER=1`
-  in `env/.env.temporal` after configuring the worker files and credentials.
+- Temporal starts but no HarborRAG worker appears: run
+  `scripts/deployment/dev.sh worker`.
 - `harborrag` is not found: use `uv run --package harborrag-app harborrag` from the
   workspace or reinstall `harborrag-app` so its console script is registered.
 - An ingestion command cannot connect: set `HARBORRAG_TEMPORAL_TARGET` to a
   reachable Temporal frontend (normally `localhost:7233` from the host).
+
+### An accepted ingestion appears to do nothing
+
+Read the task resource first. A `202 Accepted` response means the workflow was
+submitted; processing continues asynchronously:
+
+```bash
+curl --fail-with-body \
+  http://127.0.0.1:8000/v1/ingestions/INGESTION_TASK_ID
+```
+
+`discovered > 0` with `processed = 0` can mean the first bounded document
+window is still running. It is not evidence that the worker is idle. Follow the
+worker logs and look for the same `task_id`, `workflow_id`, stage, and safe
+error code:
+
+```bash
+docker logs --follow harborrag-temporal-temporal-worker-1
+```
+
+At `HARBORRAG_LOG_LEVEL=INFO`, HarborRAG logs API submissions, source discovery,
+document outcomes, safe activity failures, and finalization. `DEBUG` also logs
+each activity start/completion and its duration. Every record includes the
+logger namespace, Python module, function, and source line. Logs intentionally
+exclude connector credentials, raw document content, prompts, and model output.
+
+If the worker reports that previous chunk or representation artifacts are
+missing during a metadata-only update, current releases fall back to fresh
+encoding. This reuse path is an optimization and must not fail the ingestion.
+For a task created by an older worker, allow it to finish, deploy the corrected
+worker, and use `POST /v1/ingestions/{task_id}/retry-failures` for its retryable
+document failures.
+
+## Chat, Agent, and MCP
+
+Chat and agent are HTTP/CLI-only; MCP exposes only retrieval tools.
+
+| Symptom | Likely cause | Resolution |
+| --- | --- | --- |
+| Chat validation reports a missing `HARBOR_CHAT_*` value | `config/models.yaml` expands provider settings before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
+| HTTP chat or agent returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
+| MCP appears to do nothing when started in a terminal | Stdio MCP waits for a client protocol over pipes and has no port or interactive prompt | Run `scripts/deployment/mcp.sh --check`, or use `--http` and open `http://127.0.0.1:8010/` |
+| The browser cannot load or run tools | Missing/wrong owner token or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the ignored `env/.env.mcp`; never paste model API keys into the UI |
+| A tool change is saved but clients still list the old schema | FastMCP snapshots globally advertised schemas at startup | Restart when the UI reports `restart_required=true` |
+
+The MCP configuration UI controls enablement, defaults, numeric limits, and
+tenant overrides in `config/mcp.yaml`. It intentionally cannot change provider
+credentials, provider endpoints, or stored prompt files. See
+[MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
+
+## Unexpected logs or oversized embedding input
+
+An error such as `Too many input tokens. Max input tokens: 8192` means the
+text sent to the embedding provider exceeded that model's context window. A
+large character limit or file-size limit does not guarantee a safe token count,
+especially for timestamps, stack traces, escaped JSON, ANSI sequences, and
+other dense log syntax.
+
+HarborRAG stores source content because the selected connector admitted it;
+the ingestion pipeline does not classify timestamped or error-like text as
+disposable system output. If logs are not knowledge sources, exclude them in
+the connector before reingestion:
+
+```yaml
+settings:
+  excluded_extensions: [log]
+  exclude_paths: [logs]
+  exclude_globs: ["*.log", "**/*.log", "**/logs/**", "**/*.jsonl"]
+```
+
+If logs are intentional knowledge sources, use a tokenizer-aware chunking
+policy whose input allowance is below the embedding model's maximum, leaving
+room for provider-added formatting. Reingest after changing source filters or
+chunking; failed oversized chunks are not repaired by increasing
+`max_tokens`, which controls chat output rather than embedding input.
 
 ## Connectors and real services
 

@@ -17,9 +17,10 @@ from harborrag_adapters.connectors.exceptions import (
 from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
+    read_capped_json,
     require_same_origin_url,
     retry_delay_seconds,
-    safe_error_detail,
+    safe_response_error_detail,
 )
 
 from .config import SharePointSiteConfig
@@ -69,10 +70,10 @@ class _RequestsGraphClient:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """GET a Graph endpoint and decode its JSON body."""
-        response = self._request("GET", self._api_url(endpoint), params=params)
+        response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
         try:
-            payload: object = response.json()
-        except ValueError as exc:
+            payload = read_capped_json(response)
+        except (ValueError, ResponseTooLargeError) as exc:
             raise FetchError(f"Microsoft Graph returned non-JSON for {endpoint}") from exc
         if not isinstance(payload, dict):
             raise FetchError(f"Microsoft Graph returned invalid JSON for {endpoint}")
@@ -115,19 +116,21 @@ class _RequestsGraphClient:
                 continue
 
             if response.status_code in (401, 403):
-                raise AuthenticationError(safe_error_detail(response.text))
+                raise AuthenticationError(safe_response_error_detail(response))
             if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_error_detail(response.text))
+                raise RateLimitError(safe_response_error_detail(response))
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"Microsoft Graph request failed with HTTP "
-                        f"{response.status_code}: {safe_error_detail(response.text)}"
+                        f"{response.status_code}: {safe_response_error_detail(response)}"
                     )
                 return response
 
             last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
-            self._sleep(attempt, last_error, response.headers)
+            retry_headers = response.headers
+            response.close()
+            self._sleep(attempt, last_error, retry_headers)
 
         raise FetchError("Microsoft Graph request failed") from last_error
 
@@ -140,8 +143,8 @@ class _RequestsGraphClient:
 
         response = self._request_token()
         try:
-            payload: object = response.json()
-        except ValueError as exc:
+            payload = read_capped_json(response)
+        except (ValueError, ResponseTooLargeError) as exc:
             raise AuthenticationError("Microsoft identity returned non-JSON token") from exc
 
         if not isinstance(payload, dict):
@@ -168,6 +171,7 @@ class _RequestsGraphClient:
                         "scope": "https://graph.microsoft.com/.default",
                     },
                     timeout=self.config.request_timeout_seconds,
+                    stream=True,
                 )
             except requests.RequestException as exc:
                 last_error = exc
@@ -178,15 +182,17 @@ class _RequestsGraphClient:
 
             if response.status_code not in _RETRYABLE_STATUS:
                 if response.status_code >= 400:
-                    raise AuthenticationError(safe_error_detail(response.text))
+                    raise AuthenticationError(safe_response_error_detail(response))
                 return response
             if attempt == self.config.max_retries:
-                raise AuthenticationError(safe_error_detail(response.text))
+                raise AuthenticationError(safe_response_error_detail(response))
 
             last_error = AuthenticationError(
                 f"Microsoft identity token request returned HTTP {response.status_code}"
             )
-            self._sleep(attempt, last_error, response.headers)
+            headers = response.headers
+            response.close()
+            self._sleep(attempt, last_error, headers)
 
         raise AuthenticationError("Microsoft identity request failed") from last_error
 

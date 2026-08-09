@@ -87,6 +87,32 @@ class HarborParserEngine[ParserInput, ParserOutput](ABC):
     def metadata_for(self, input: ParseInput, **extra: Any) -> dict[str, Any]:
         return parse_metadata(input, **extra)
 
+    def empty_result(
+        self,
+        input: ParseInput,
+        *,
+        raw: dict[str, Any] | None = None,
+        **extra: Any,
+    ) -> ParsedDocument:
+        """Canonical empty output for a 0-byte source, shared across engines.
+
+        Text-oriented engines (CSV, Markdown, HTML, plain text, Excel) already
+        produce this naturally by running zero bytes through their normal
+        decode path. Format-sniffing engines (docx, odt, pptx, epub, image,
+        JSON) instead raise trying to open/parse an empty stream as their
+        format ("File is not a zip file", "cannot identify image file", ...).
+        Call this instead of attempting the format parse when input is empty,
+        so a 0-byte source behaves the same regardless of engine.
+        """
+        return ParsedDocument(
+            content="",
+            elements=[],
+            parser_name=self.parser_name,
+            parser_version=self.parser_version,
+            metadata=self.metadata_for(input, **extra),
+            raw=raw,
+        )
+
     def can_parse(self, input: ParserInput) -> bool:
         suffix = self.suffix_of(input)
         content_type = self.content_type_of(input)

@@ -10,6 +10,7 @@ from confluence_test_helpers import (
 )
 
 from harborrag_adapters.connectors.confluence.content import ConfluenceContentAPI
+from harborrag_adapters.connectors.confluence.query import DESCRIPTOR_EXPAND
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -37,6 +38,7 @@ def test_search_falls_back_to_offset_when_first_full_page_has_no_next_link():
     ids = [item["id"] for item in api.search("type=page")]
 
     assert ids == ["1", "2", "3"]
+    assert client.calls[0][1]["expand"] == DESCRIPTOR_EXPAND
     assert client.calls[1][1]["start"] == 2
 
 

@@ -18,25 +18,6 @@ def _make_repository(client: FakeFalkorDBClient) -> FalkorDBGraphRepository:
 
 
 @pytest.mark.asyncio
-async def test_activate_generation_retires_previous_and_exposes_current() -> None:
-    client = FakeFalkorDBClient()
-    repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
-
-    await repository.activate_generation(
-        artifact_id="artifact-1",
-        generation_id="generation-2",
-        previous_generation_id="generation-1",
-        context=context,
-    )
-
-    assert len(client.write_calls) == 4
-    states = [parameters["index_state"] for _, parameters in client.write_calls]
-    assert states == ["retired", "retired", "active", "active"]
-    assert all(parameters["tenant_id"] == "tenant-a" for _, parameters in client.write_calls)
-
-
-@pytest.mark.asyncio
 async def test_connect_initializes_schema_indexes() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
@@ -44,8 +25,31 @@ async def test_connect_initializes_schema_indexes() -> None:
     await repository.connect()
 
     assert client.connected is True
-    assert len(client.write_calls) == 5
+    assert len(client.write_calls) == 4
     assert all("CREATE INDEX" in statement for statement, _ in client.write_calls)
+
+
+@pytest.mark.asyncio
+async def test_connect_swallows_already_exists_index_error() -> None:
+    client = FakeFalkorDBClient()
+    client.write_errors["n.tenant_id"] = RuntimeError("Index already indexed")
+    repository = _make_repository(client)
+
+    await repository.connect()
+
+    assert client.connected is True
+
+
+@pytest.mark.asyncio
+async def test_connect_propagates_genuine_schema_provisioning_failure() -> None:
+    """A bare `"exist"` substring check would also match "index does not exist",
+    silently swallowing a real provisioning failure instead of propagating it."""
+    client = FakeFalkorDBClient()
+    client.write_errors["n.tenant_id"] = RuntimeError("index does not exist")
+    repository = _make_repository(client)
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        await repository.connect()
 
 
 @pytest.mark.asyncio
@@ -86,7 +90,7 @@ async def test_health_reports_unhealthy_when_ping_raises() -> None:
 async def test_upsert_nodes_writes_encoded_rows_for_matching_tenant() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     node = GraphNode(id="n1", tenant_id="tenant-a", labels={"Person"}, properties={"name": "Ada"})
 
     await repository.upsert_nodes([node], context=context)
@@ -105,7 +109,7 @@ async def test_upsert_nodes_writes_encoded_rows_for_matching_tenant() -> None:
 async def test_upsert_nodes_rejects_cross_tenant_node() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     node = GraphNode(id="n1", tenant_id="tenant-b")
 
     with pytest.raises(HarborStorageAuthorizationError):
@@ -118,7 +122,7 @@ async def test_upsert_nodes_rejects_cross_tenant_node() -> None:
 async def test_upsert_edges_groups_by_relationship_type_and_writes_each_group() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     edges = [
         GraphEdge(
             id="e1",
@@ -150,7 +154,7 @@ async def test_upsert_edges_groups_by_relationship_type_and_writes_each_group() 
 async def test_upsert_edges_rejects_cross_tenant_edge() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     edge = GraphEdge(
         id="e1",
         tenant_id="tenant-b",
@@ -175,7 +179,7 @@ async def test_get_nodes_maps_provider_rows_into_graph_nodes() -> None:
         )
     ]
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     nodes = await repository.get_nodes(["n1"], context=context)
 
@@ -187,7 +191,7 @@ async def test_get_nodes_maps_provider_rows_into_graph_nodes() -> None:
 async def test_delete_nodes_sends_tenant_scoped_delete_statement() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     await repository.delete_nodes(["n1", "n2"], context=context)
 
@@ -201,7 +205,7 @@ async def test_delete_nodes_sends_tenant_scoped_delete_statement() -> None:
 async def test_delete_edges_sends_tenant_scoped_delete_statement() -> None:
     client = FakeFalkorDBClient()
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
 
     await repository.delete_edges(["e1"], context=context)
 
@@ -229,7 +233,7 @@ async def test_expand_returns_untruncated_subgraph_with_filtered_edges() -> None
         )
     ]
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     query = GraphExpansionQuery(
         start_nodes=["n1"],
         max_depth=2,
@@ -258,7 +262,7 @@ async def test_expand_truncates_when_max_nodes_reached_mid_row() -> None:
         )
     ]
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     query = GraphExpansionQuery(start_nodes=["n1"], max_depth=1, max_nodes=1, direction="outgoing")
 
     subgraph = await repository.expand(query, context=context)
@@ -286,7 +290,7 @@ async def test_expand_truncates_when_more_rows_than_the_path_limit_are_returned(
         )
     ]
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     query = GraphExpansionQuery(start_nodes=["n1"], max_depth=1, max_nodes=5, direction="both")
 
     subgraph = await repository.expand(query, context=context)
@@ -305,7 +309,7 @@ async def test_expand_with_no_relationship_types_omits_the_selector() -> None:
         )
     ]
     repository = _make_repository(client)
-    context = StorageOperationContext(tenant_id="tenant-a")
+    context = StorageOperationContext.system(tenant_id="tenant-a")
     query = GraphExpansionQuery(start_nodes=["n1"], direction="incoming")
 
     subgraph = await repository.expand(query, context=context)

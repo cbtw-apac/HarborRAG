@@ -9,8 +9,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from harborrag_adapters.connectors import HarborConnector
-from harborrag_runtime.config.connectors.providers import config_factory
+from harborrag_adapters.connectors import HarborConnector, connector_registry
+from harborrag_runtime.config.connectors.providers import (
+    coerce_config_values,
+    config_factory,
+)
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 
 
@@ -74,13 +77,7 @@ class ConnectorDefinition:
         if overrides:
             values.update(overrides)
 
-        source_path_overridden = overrides is not None and "source_path" in overrides
-        self._resolve_local_source_path(
-            values,
-            from_environment=(
-                "source_path" in self.setting_environment and not source_path_overridden
-            ),
-        )
+        self._resolve_config_paths(values, overrides=overrides)
         return values
 
     def build(
@@ -107,8 +104,11 @@ class ConnectorDefinition:
                 f"Connector {self.name!r} uses unsupported provider {self.provider!r}"
             )
 
-        values = self.resolve_settings(environment=environment, overrides=overrides)
         try:
+            values = coerce_config_values(
+                factory,
+                self.resolve_settings(environment=environment, overrides=overrides),
+            )
             provider_config = factory(**values)
             return HarborConnector(
                 self.provider,
@@ -120,22 +120,26 @@ class ConnectorDefinition:
                 f"Connector {self.name!r} ({self.provider}) is invalid: {exc}"
             ) from exc
 
-    def _resolve_local_source_path(
+    def _resolve_config_paths(
         self,
         values: dict[str, Any],
         *,
-        from_environment: bool,
+        overrides: Mapping[str, Any] | None,
     ) -> None:
-        """Resolve YAML paths from the file and environment paths from the CWD."""
-        if self.provider != "local" or "source_path" not in values:
-            return
-        source_path = values["source_path"]
-        if not isinstance(source_path, (str, Path)):
-            return
-        candidate = Path(source_path).expanduser()
-        if not candidate.is_absolute():
+        """Resolve plugin-declared path settings relative to their origin."""
+
+        definition = connector_registry.get_definition(self.provider)
+        for field_name in definition.config_path_fields:
+            value = values.get(field_name)
+            if not isinstance(value, (str, Path)):
+                continue
+            candidate = Path(value).expanduser()
+            if candidate.is_absolute():
+                continue
+            overridden = overrides is not None and field_name in overrides
+            from_environment = field_name in self.setting_environment and not overridden
             base_directory = Path.cwd() if from_environment else self.base_directory
-            values["source_path"] = base_directory / candidate
+            values[field_name] = base_directory / candidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +163,10 @@ class ConnectorCatalog:
         try:
             return self.connectors[name]
         except KeyError as exc:
-            raise ConnectorConfigurationError(f"Unknown configured connector: {name!r}") from exc
+            available = ", ".join(self.names()) or "none"
+            raise ConnectorConfigurationError(
+                f"Unknown configured connector: {name!r}. Available connector IDs: {available}"
+            ) from exc
 
     def names(self, *, enabled_only: bool = False) -> list[str]:
         """Return configured names alphabetically, optionally filtering disabled."""

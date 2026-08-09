@@ -19,5 +19,10 @@ class BaseMcpTool(ABC):
     spec: McpToolSpec
 
     @abstractmethod
-    def call(self, arguments: dict[str, object]) -> dict[str, object]:
+    async def call(
+        self,
+        arguments: dict[str, object],
+        *,
+        principal_id: str,
+    ) -> dict[str, object]:
         raise NotImplementedError

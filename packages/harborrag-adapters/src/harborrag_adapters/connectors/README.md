@@ -61,6 +61,14 @@ and are not constructor arguments.
 All providers are registered in `connector_registry` and can also be created
 through `HarborConnector`.
 
+Provider-specific canonical document behavior belongs in that provider's
+`document_transform.py`. A transform accepts the raw source payload, parser
+result, and provider-neutral document produced by the engine, then returns the
+enriched canonical document. Register its factory on
+`ConnectorProviderDefinition`; runtime discovers the capability without a
+provider-name branch. Providers that need no enrichment leave the factory
+unset and use generic normalization.
+
 ```python
 from harborrag_adapters.connectors import HarborConnector, LocalFileConfig
 

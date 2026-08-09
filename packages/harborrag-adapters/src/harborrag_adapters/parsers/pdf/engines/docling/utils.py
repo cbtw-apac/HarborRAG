@@ -210,9 +210,7 @@ class DoclingConfigurationMixin:
 
     def _convert_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"raises_on_error": self.options.raises_on_error}
-        for name in ("max_num_pages", "max_file_size", "page_range"):
-            value = getattr(self.options, name)
-            if value is not None:
-                kwargs[name] = value
+        if self.options.max_file_size is not None:
+            kwargs["max_file_size"] = self.options.max_file_size
         kwargs.update(self.options.extra_convert_options)
         return kwargs

@@ -18,6 +18,8 @@ COPY packages/harborrag-core/pyproject.toml packages/harborrag-core/README.md ./
 COPY packages/harborrag-core/src/harborrag_core/__init__.py ./packages/harborrag-core/src/harborrag_core/
 COPY packages/harborrag-adapters/pyproject.toml packages/harborrag-adapters/README.md ./packages/harborrag-adapters/
 COPY packages/harborrag-adapters/src/harborrag_adapters/__init__.py ./packages/harborrag-adapters/src/harborrag_adapters/
+COPY packages/harborrag-memory/pyproject.toml packages/harborrag-memory/README.md ./packages/harborrag-memory/
+COPY packages/harborrag-memory/src/harborrag_memory/__init__.py ./packages/harborrag-memory/src/harborrag_memory/
 COPY packages/harborrag-engine/pyproject.toml packages/harborrag-engine/README.md ./packages/harborrag-engine/
 COPY packages/harborrag-engine/src/harborrag_engine/__init__.py ./packages/harborrag-engine/src/harborrag_engine/
 COPY packages/harborrag-runtime/pyproject.toml packages/harborrag-runtime/README.md ./packages/harborrag-runtime/
@@ -29,7 +31,8 @@ COPY packages/harborrag-mcp-server/src/harborrag_mcp_server/__init__.py ./packag
 COPY packages/harborrag/pyproject.toml packages/harborrag/README.md ./packages/harborrag/
 COPY packages/harborrag/src/harborrag/__init__.py ./packages/harborrag/src/harborrag/
 
-RUN uv export --quiet --frozen --package harborrag-runtime --extra production \
+RUN uv export --quiet --frozen --package harborrag-runtime \
+        --extra production --extra temporal \
         --no-dev --no-hashes --no-emit-workspace \
         --output-file /tmp/harborrag-lock.txt \
     && uv pip install --system \
@@ -39,9 +42,10 @@ RUN uv export --quiet --frozen --package harborrag-runtime --extra production \
         'torch==2.13.0' 'torchvision==0.28.0' \
     && uv pip install --system --constraint /tmp/harborrag-lock.txt \
         -e packages/harborrag-core \
-        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,postgres,qdrant]' \
+        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]' \
+        -e packages/harborrag-memory \
         -e packages/harborrag-engine \
-        -e packages/harborrag-runtime \
+        -e 'packages/harborrag-runtime[temporal]' \
     && rm -f /tmp/harborrag-lock.txt \
     && groupadd --gid 10001 harborrag \
     && useradd --uid 10001 --gid harborrag --no-log-init \
@@ -54,6 +58,7 @@ RUN uv export --quiet --frozen --package harborrag-runtime --extra production \
 
 COPY packages/harborrag-core ./packages/harborrag-core
 COPY packages/harborrag-adapters ./packages/harborrag-adapters
+COPY packages/harborrag-memory ./packages/harborrag-memory
 COPY packages/harborrag-engine ./packages/harborrag-engine
 COPY packages/harborrag-runtime ./packages/harborrag-runtime
 COPY config ./config

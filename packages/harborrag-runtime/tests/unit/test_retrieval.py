@@ -1,120 +1,124 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
+from retrieval_test_support import (
+    FailingGraphRepository,
+    FakeChunkReader,
+    FakeEmbedClient,
+    FakeGraphRepository,
+    FakeVectorRepository,
+    MixedVectorRepository,
+)
+from retrieval_test_support import (
+    policy as _policy,
+)
+from retrieval_test_support import (
+    resources as _resources,
+)
 
-from harborrag_core.schemas.graph import GraphEdge, GraphNode, GraphSubgraph
-from harborrag_core.schemas.ids import EntityId, RelationshipId, TenantId
-from harborrag_core.schemas.vector import VectorSearchResult
-from harborrag_engine.ingestion.indexing.config import IndexingConfig
-from harborrag_runtime.retrieval import RetrievalResources, RuntimeRetrievalService
-
-
-class FakeEmbedClient:
-    def __init__(self) -> None:
-        self.requests = []
-
-    async def aembed(self, *, request):
-        self.requests.append(request)
-        return SimpleNamespace(
-            embeddings=(SimpleNamespace(value=(1.0, 0.0, 0.0)),),
-        )
-
-    async def aclose(self) -> None:
-        return None
-
-
-class FakeVectorRepository:
-    def __init__(self) -> None:
-        self.queries = []
-
-    async def search(self, query, *, context):
-        self.queries.append((query, context))
-        return [
-            VectorSearchResult(
-                id="point-1",
-                score=0.9,
-                raw_score=0.9,
-                payload={
-                    "artifact_id": "artifact-1",
-                    "generation_id": "generation-1",
-                    "chunk_revision_id": "revision-1",
-                    "source_kind": "jira",
-                    "chunk_role": "body",
-                },
-            )
-        ]
-
-
-class FakeGraphRepository:
-    def __init__(self) -> None:
-        self.queries = []
-
-    async def expand(self, query, *, context):
-        self.queries.append((query, context))
-        return GraphSubgraph(
-            nodes=[
-                GraphNode(
-                    id=EntityId("node-neighbour"),
-                    tenant_id=context.tenant_id,
-                    labels={"HarborEntity", "Chunk"},
-                    properties={
-                        "chunk_revision_id": "revision-2",
-                        "is_active": True,
-                    },
-                )
-            ],
-            edges=[],
-        )
-
-
-class FakeChunkRepository:
-    async def get_many(self, tenant_id, chunk_revision_ids):
-        return tuple(
-            SimpleNamespace(
-                chunk_revision_id=revision,
-                content=f"content for {revision}",
-            )
-            for revision in chunk_revision_ids
-        )
-
-
-def _resources(
-    *,
-    embed=None,
-    vectors=None,
-    graph=None,
-) -> RetrievalResources:
-    return RetrievalResources(
-        embed_client=embed or FakeEmbedClient(),  # type: ignore[arg-type]
-        vector_repository=vectors or FakeVectorRepository(),  # type: ignore[arg-type]
-        graph_repository=graph or FakeGraphRepository(),  # type: ignore[arg-type]
-        chunk_repository=FakeChunkRepository(),  # type: ignore[arg-type]
-    )
+from harborrag_core.ingestion import KnowledgeGraphTraversal
+from harborrag_core.retrieval import GraphNeighborhoodQuery
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.security import AccessContext
+from harborrag_engine.retrieval import RetrievalLane
+from harborrag_runtime.retrieval import (
+    RetrievalOptions,
+    RuntimeRetrievalService,
+)
 
 
 @pytest.mark.asyncio
-async def test_retrieval_uses_sensitive_query_embeddings_and_graph_expansion() -> None:
+async def test_hybrid_retrieval_returns_vector_payload_content() -> None:
     embed = FakeEmbedClient()
     vectors = FakeVectorRepository()
+    chunks = FakeChunkReader()
     graph = FakeGraphRepository()
     service = RuntimeRetrievalService(
-        resources=_resources(embed=embed, vectors=vectors, graph=graph),
-        indexing_config=IndexingConfig("embed", 3, "chunks", "graph"),
+        resources=_resources(
+            embed=embed,
+            vectors=vectors,
+            chunks=chunks,
+            graph=graph,
+        ),
+        policy=_policy(),
     )
 
-    report = await service.retrieve("release acceptance", tenant_id="tenant-1", top_k=2)
+    report = await service.retrieve(
+        "release acceptance",
+        tenant_id="tenant-1",
+        top_k=2,
+        options=RetrievalOptions(observe_graph=True),
+    )
 
-    assert {result.id for result in report.results} == {"revision-1", "revision-2"}
-    assert report.diagnostics.vector_hits == 1
-    assert report.diagnostics.graph_hits == 1
-    assert report.diagnostics.graph_nodes == 1
+    assert [result.id for result in report.results] == ["chunk-1"]
+    assert report.results[0].text == "The activity timeout is 30 seconds."
+    assert report.lane == RetrievalLane.HYBRID
+    assert report.diagnostics.candidate_hits == 1
+    assert report.diagnostics.stale_candidates == 0
     assert embed.requests[0].sensitive is True
     assert embed.requests[0].cacheable is False
-    assert vectors.queries[0][0].top_k == 6
-    assert vectors.queries[0][1].tenant_id == TenantId("tenant-1")
-    assert graph.queries[0][0].max_depth == 2
+    assert len(vectors.hybrid_queries) == 1
+    assert chunks.references == []
+    assert len(graph.queries) == 1
+    assert graph.queries[0][0] == "chunk-1"
+
+
+@pytest.mark.asyncio
+async def test_sparse_retrieval_does_not_call_dense_encoder() -> None:
+    embed = FakeEmbedClient()
+    vectors = FakeVectorRepository()
+    service = RuntimeRetrievalService(
+        resources=_resources(embed=embed, vectors=vectors),
+        policy=_policy(),
+    )
+
+    report = await service.retrieve(
+        "HARBOR-42",
+        tenant_id="tenant-1",
+        top_k=1,
+        options=RetrievalOptions(
+            lane=RetrievalLane.SPARSE,
+            observe_graph=False,
+        ),
+    )
+
+    assert [result.id for result in report.results] == ["chunk-1"]
+    assert not embed.requests
+    assert not vectors.dense_queries
+    assert not vectors.hybrid_queries
+    assert len(vectors.sparse_queries) == 1
+    assert all(query.filters is None for query, _ in vectors.sparse_queries)
+
+
+@pytest.mark.asyncio
+async def test_malformed_candidate_is_skipped_without_losing_valid_results() -> None:
+    service = RuntimeRetrievalService(
+        resources=_resources(vectors=MixedVectorRepository()),
+        policy=_policy(),
+    )
+
+    report = await service.retrieve("release", tenant_id="tenant-1")
+
+    assert [result.id for result in report.results] == ["chunk-1"]
+    assert report.diagnostics.malformed_candidates == 1
+
+
+@pytest.mark.asyncio
+async def test_optional_graph_observation_failure_does_not_fail_retrieval() -> None:
+    service = RuntimeRetrievalService(
+        resources=_resources(graph=FailingGraphRepository()),
+        policy=_policy(),
+    )
+
+    report = await service.retrieve(
+        "release",
+        tenant_id="tenant-1",
+        options=RetrievalOptions(observe_graph=True),
+    )
+
+    assert [result.id for result in report.results] == ["chunk-1"]
+    assert report.diagnostics.graph_nodes == 0
+    assert report.diagnostics.graph_relations == 0
 
 
 @pytest.mark.asyncio
@@ -126,7 +130,7 @@ async def test_retrieval_closes_owned_resources_once() -> None:
 
     service = RuntimeRetrievalService(
         resources=_resources(),
-        indexing_config=IndexingConfig("embed", 3, "chunks", "graph"),
+        policy=_policy(),
         close_resources=(close,),
     )
 
@@ -134,6 +138,35 @@ async def test_retrieval_closes_owned_resources_once() -> None:
     await service.aclose()
 
     assert closed == ["closed"]
+
+
+@pytest.mark.asyncio
+async def test_retrieval_attempts_every_close_and_allows_retry_after_failure() -> None:
+    closed: list[str] = []
+    attempts = 0
+
+    async def flaky() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary close failure")
+        closed.append("flaky")
+
+    async def healthy() -> None:
+        closed.append("healthy")
+
+    service = RuntimeRetrievalService(
+        resources=_resources(),
+        policy=_policy(),
+        close_resources=(healthy, flaky),
+    )
+
+    with pytest.raises(ExceptionGroup):
+        await service.aclose()
+    assert closed == ["healthy"]
+
+    await service.aclose()
+    assert closed == ["healthy", "flaky", "healthy"]
 
 
 @pytest.mark.parametrize(
@@ -149,58 +182,64 @@ async def test_retrieval_closes_owned_resources_once() -> None:
 async def test_retrieval_rejects_invalid_public_inputs(query, tenant_id, top_k) -> None:
     service = RuntimeRetrievalService(
         resources=_resources(),
-        indexing_config=IndexingConfig("embed", 3, "chunks", "graph"),
+        policy=_policy(),
     )
 
     with pytest.raises(ValueError):
         await service.retrieve(query, tenant_id=tenant_id, top_k=top_k)
 
 
-def test_graph_nodes_are_ranked_by_seed_priority_and_distance() -> None:
-    tenant_id = TenantId("tenant-1")
-    seed_one = EntityId("seed-1")
-    seed_two = EntityId("seed-2")
-    neighbor = EntityId("neighbor")
-    subgraph = GraphSubgraph(
-        nodes=[
-            _active_chunk(seed_two, tenant_id, "revision-2"),
-            _active_chunk(neighbor, tenant_id, "revision-neighbor"),
-            _active_chunk(seed_one, tenant_id, "revision-1"),
-        ],
-        edges=[
-            GraphEdge(
-                id=RelationshipId("edge-1"),
-                tenant_id=tenant_id,
-                source_id=seed_one,
-                target_id=neighbor,
-                relationship_type="NEXT_CHUNK",
-            )
-        ],
+class SeedRecordingGraphRepository(FakeGraphRepository):
+    """Records the seeds a neighborhood expansion was asked to grow from."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.expanded: list[str] = []
+
+    async def expand_subgraph(self, query, *, context):
+        del context
+        self.expanded.append(query.start_node)
+        return KnowledgeGraphTraversal(nodes=(), relations=())
+
+
+@pytest.mark.asyncio
+async def test_neighborhood_seeds_the_graph_with_vector_chunk_ids() -> None:
+    """The chunk_id a vector hit carries is the Chunk node key the graph expands from.
+
+    This is the only bridge into the graph -- every other selector is an opaque hash, an
+    internal id, or a title that is null on chunk nodes -- so the identity of these two
+    strings is the assumption the whole graph entry path rests on.
+    """
+
+    graph = SeedRecordingGraphRepository()
+    service = RuntimeRetrievalService(
+        resources=_resources(graph=graph),
+        policy=_policy(),
     )
 
-    ranked = RuntimeRetrievalService._rank_graph_nodes(
-        subgraph,
-        [seed_one, seed_two],
+    seeds, result = await service.search_graph_neighborhood(
+        GraphNeighborhoodQuery(query="how long is the activity timeout?"),
+        access=AccessContext(principal_id="reader-1", tenant_id=TenantId("tenant-1")),
     )
 
-    assert [str(node.id) for node in ranked] == [
-        "seed-1",
-        "seed-2",
-        "neighbor",
-    ]
+    assert seeds == ("chunk-1",)
+    assert graph.expanded == ["chunk-1"]
+    assert result.graph.nodes == ()
 
 
-def _active_chunk(
-    node_id: EntityId,
-    tenant_id: TenantId,
-    revision_id: str,
-) -> GraphNode:
-    return GraphNode(
-        id=node_id,
-        tenant_id=tenant_id,
-        labels={"HarborEntity", "Chunk"},
-        properties={
-            "chunk_revision_id": revision_id,
-            "is_active": True,
-        },
+@pytest.mark.asyncio
+async def test_neighborhood_does_not_pay_for_graph_observation_while_seeding() -> None:
+    """The seeding search must not also trigger the observer -- that would double the work."""
+
+    graph = SeedRecordingGraphRepository()
+    service = RuntimeRetrievalService(
+        resources=_resources(graph=graph),
+        policy=_policy(),
     )
+
+    await service.search_graph_neighborhood(
+        GraphNeighborhoodQuery(query="anything"),
+        access=AccessContext(principal_id="reader-1", tenant_id=TenantId("tenant-1")),
+    )
+
+    assert graph.queries == []

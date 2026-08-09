@@ -29,7 +29,7 @@ embed:
     request_seconds: 60
   default_batch_size: 64
   security:
-    allowed_providers: [openai]
+    allowed_providers: [openai, ollama, huggingface]
   models:
     primary:
       embedding_space: harbor-production-v1

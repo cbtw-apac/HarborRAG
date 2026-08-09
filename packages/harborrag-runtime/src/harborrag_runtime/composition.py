@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
@@ -16,6 +18,7 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
+from harborrag_core.ports.conversation import ConversationRepository
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -23,6 +26,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from harborrag_runtime.config.settings import RuntimeSettings
+
+logger = logging.getLogger("harborrag.runtime.composition")
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +41,8 @@ class ControlPlaneRepositories:
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
+    conversation_memory: ConversationRepository
+    agent_runs: AgentRunRepository
 
 
 @dataclass(slots=True)
@@ -55,6 +62,7 @@ class CompositionRoot:
         if self._control_db_engine is not None:
             await self._control_db_engine.dispose()
             self._control_db_engine = None
+            logger.info("Control-plane composition resources closed")
 
     @classmethod
     def production(
@@ -63,6 +71,12 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
+        from harborrag_adapters.repositories.database.control_plane.agent_runs import (
+            SqlAgentRunRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.conversation import (
+            SqlConversationMemoryRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.engine import (
             create_control_plane_engine,
             create_session_factory,
@@ -84,31 +98,44 @@ class CompositionRoot:
             SqlSettingsRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_runtime.config.settings import (
-            DEFAULT_CONTROL_DB_URL,
-            RuntimeSettings,
-        )
+        from harborrag_runtime.config.settings import RuntimeSettings
 
         settings = settings or RuntimeSettings()
-        dsn = settings.control_db_url
-        if settings.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
+        dsn = settings.control_db_url.get_secret_value()
+        scheme = dsn.split(":", 1)[0]
+        logger.info(
+            "Control-plane composition started environment=%s database_scheme=%s",
+            settings.env,
+            scheme,
+        )
+        if settings.env == "prod" and scheme.startswith("sqlite"):
             raise HarborConfigurationError(
-                "control_db_url is not set when HARBORRAG_ENV=prod: refusing to "
-                "boot against the default local SQLite database; set "
-                "HARBORRAG_CONTROL_DB_URL explicitly"
+                "SQLite control databases are not supported when HARBORRAG_ENV=prod; "
+                "set HARBORRAG_CONTROL_DB_URL to a production database"
             )
 
         try:
             run_migrations(dsn)
-        except Exception as exc:  # noqa: BLE001 - health reports boot degradation
-            return cls(
-                control_db=_failed_database_status(
-                    dsn,
-                    f"migrations failed: {exc}",
-                )
+        except Exception as exc:  # noqa: BLE001 - wrap adapter failures at the boundary
+            logger.error(
+                "Control-plane migrations failed database_scheme=%s error_type=%s%s",
+                scheme,
+                type(exc).__name__,
+                _migration_failure_hint(exc),
             )
+            raise HarborConfigurationError(
+                "control-plane migrations failed; inspect the startup logs"
+            ) from exc
 
         control_db = _probe_control_db(dsn)
+        if control_db.get("ping") != "ok":
+            logger.error(
+                "Control-plane probe failed database_scheme=%s",
+                scheme,
+            )
+            raise HarborConfigurationError(
+                "control-plane database probe failed; inspect the startup logs"
+            )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
         repositories = ControlPlaneRepositories(
@@ -119,12 +146,21 @@ class CompositionRoot:
             settings=SqlSettingsRepository(sessions),
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
+            conversation_memory=SqlConversationMemoryRepository(sessions),
+            agent_runs=SqlAgentRunRepository(sessions),
         )
-        return cls(
+        composition = cls(
             control_plane=repositories,
             control_db=control_db,
             _control_db_engine=engine,
         )
+        logger.info(
+            "Control-plane composition completed database_scheme=%s ready=%s migration=%s",
+            scheme,
+            control_db.get("ping") == "ok",
+            control_db.get("migrations"),
+        )
+        return composition
 
     def diagnostics(self) -> dict[str, object]:
         """Return process-safe component health without exposing adapter objects."""
@@ -146,6 +182,23 @@ class CompositionRoot:
 
 def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:
     return {"ping": "failed", "error": error, "scheme": dsn.split(":", 1)[0]}
+
+
+def _migration_failure_hint(exc: Exception) -> str:
+    """Name the one migration failure that looks like a bug but is a bookkeeping gap.
+
+    "table X already exists" on the first migration means the schema was built without
+    Alembic recording it, so the runner replays from base and collides with the tables
+    that are already there. Nothing is corrupt and no data is lost -- the version table
+    just needs stamping at the revision the schema already matches.
+    """
+
+    if "already exists" not in str(exc):
+        return ""
+    return (
+        " hint=the schema exists but is not stamped; "
+        "stamp alembic_version at the revision the schema already matches, then upgrade"
+    )
 
 
 def _probe_control_db(dsn: str) -> dict[str, Any]:
@@ -173,7 +226,12 @@ def _probe_control_db(dsn: str) -> dict[str, Any]:
         try:
             return asyncio.run(_probe())
         except Exception as exc:  # noqa: BLE001 - diagnostics must remain available
-            return _failed_database_status(dsn, str(exc))
+            logger.warning(
+                "Control-plane database probe raised database_scheme=%s error_type=%s",
+                dsn.split(":", 1)[0],
+                type(exc).__name__,
+            )
+            return _failed_database_status(dsn, f"probe failed ({type(exc).__name__})")
 
     try:
         asyncio.get_running_loop()

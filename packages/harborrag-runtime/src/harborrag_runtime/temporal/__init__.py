@@ -1,20 +1,19 @@
-"""Temporal-specific ingestion contracts, workflows, activities, and workers."""
+"""Temporal contracts for the canonical ingestion pipeline."""
 
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
-from harborrag_runtime.temporal.schemas import (
-    IngestionRunInput,
-    IngestionSummary,
-    ResolutionDecision,
-    WorkflowStatusView,
+from harborrag_runtime.temporal.maintenance_schemas import (
+    ReindexInput,
+    ReindexResult,
 )
-from harborrag_runtime.temporal.task_queues import ActivityClass, TaskQueueConfig
+from harborrag_runtime.temporal.schemas import (
+    SourceIngestionInput,
+    SourceIngestionResult,
+)
 
 __all__ = [
-    "ActivityClass",
-    "IngestionRunInput",
-    "IngestionSummary",
-    "ResolutionDecision",
+    "ReindexInput",
+    "ReindexResult",
     "RuntimeWorkflowRef",
-    "TaskQueueConfig",
-    "WorkflowStatusView",
+    "SourceIngestionInput",
+    "SourceIngestionResult",
 ]

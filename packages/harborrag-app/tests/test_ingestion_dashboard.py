@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 from app_test_fixtures import MockAppService
 from textual.widgets import DataTable, ProgressBar
@@ -46,11 +48,7 @@ class DashboardService(MockAppService):
         self,
         run_id: str,
         action: str,
-        *,
-        artifact_ids: tuple[str, ...] = (),
-        graceful: bool = True,
     ) -> AppResponse:
-        del artifact_ids, graceful
         self.controls.append(action)
         return AppResponse(True, {"run_id": run_id, "action": action})
 
@@ -96,3 +94,20 @@ async def test_dashboard_renders_live_status_and_controls_workflow() -> None:
         await pilot.click("#confirm")
         await pilot.pause(0.1)
         assert "cancel" in service.controls
+
+
+@pytest.mark.asyncio
+async def test_dashboard_logs_status_refresh_failures(caplog) -> None:
+    class FailingDashboardService(DashboardService):
+        async def ingestion_status(self, run_id: str) -> AppResponse:
+            del run_id
+            raise ConnectionError("private upstream detail")
+
+    dashboard = IngestionDashboard("run-logging", FailingDashboardService(), refresh_seconds=60)
+    with caplog.at_level(logging.ERROR, logger="harborrag.app.cli.dashboard"):
+        async with dashboard.run_test(size=(120, 42)) as pilot:
+            await pilot.pause(0.1)
+
+    assert "Dashboard status refresh failed run_id=run-logging" in caplog.text
+    assert "error_type=ConnectionError" in caplog.text
+    assert "private upstream detail" not in caplog.text

@@ -14,7 +14,7 @@ from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
 
 
 def make_context(tenant: str = "tenant-a") -> StorageOperationContext:
-    return StorageOperationContext(tenant_id=tenant)
+    return StorageOperationContext.system(tenant_id=tenant)
 
 
 @pytest.mark.asyncio

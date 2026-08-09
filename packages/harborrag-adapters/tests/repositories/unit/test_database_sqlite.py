@@ -12,23 +12,69 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageCheckpointConflictError,
 )
-from harborrag_core.schemas.documents import (
-    ChunkContext,
+from harborrag_core.chunking import (
+    ChunkHierarchy,
+    ChunkKind,
     ChunkRecord,
-    ChunkSourceSpan,
-    DocumentRecord,
-    DocumentStatus,
+    ChunkSecurity,
+    CitationLocator,
+    ConnectorType,
+    DocumentKind,
+    RecordKind,
 )
+from harborrag_core.schemas.documents import DocumentRecord, DocumentStatus
 from harborrag_core.schemas.storage import HealthStatus, StorageOperationContext
 
 
 def make_context(tenant: str = "tenant-a") -> StorageOperationContext:
-    return StorageOperationContext(tenant_id=tenant)
+    return StorageOperationContext.system(tenant_id=tenant)
 
 
 def make_backend(tmp_path: Path) -> SQLiteDatabaseBackend:
     return SQLiteDatabaseBackend(
         SQLiteDatabaseConfig(database=str(tmp_path / "harbor.db"), create_schema=True)
+    )
+
+
+def make_chunk(tenant_id: str, index: int) -> ChunkRecord:
+    content = f"chunk {index}"
+    return ChunkRecord(
+        strategy_version="strategy-1",
+        chunk_id=f"chunk:{index}",
+        logical_chunk_id=f"logical-chunk:{index}",
+        content_hash=f"hash-{index}",
+        connector_type=ConnectorType.LOCAL,
+        document_kind=DocumentKind.LOCAL_FILE,
+        record_kind=RecordKind.EVIDENCE,
+        chunk_kind=ChunkKind.TABLE if index == 1 else ChunkKind.TEXT,
+        tenant_id=tenant_id,
+        connection_id="connection-1",
+        source_scope_id="scope-1",
+        source_item_id="guide.md",
+        source_version="source-version-1",
+        document_id="doc-1",
+        document_version_id="v1",
+        ordinal=index,
+        content=content,
+        embedding_text=f"Section {index}\n\n{content}",
+        search_text=f"Section {index} {content}",
+        token_count=2,
+        citation_locator=CitationLocator(source_element_ids=(f"element-{index}",)),
+        hierarchy=ChunkHierarchy(section_path=("Section", str(index))),
+        security=ChunkSecurity(permission_set_id="permission-set:public"),
+        table_locator=(
+            {
+                "table_id": "table:1",
+                "table_version_id": "table-version:1",
+                "row_start": 1,
+                "row_end": 1,
+                "column_count": 1,
+                "selected_column_indices": (0,),
+                "selected_columns": ("Value",),
+            }
+            if index == 1
+            else None
+        ),
     )
 
 
@@ -127,26 +173,7 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
     backend = make_backend(tmp_path)
     async with backend:
         context = make_context()
-        chunks = [
-            ChunkRecord.from_legacy(
-                logical_chunk_id=f"logical-{i}",
-                chunk_revision_id=f"c{i}",
-                tenant_id=context.tenant_id,
-                document_id="doc-1",
-                document_version_id="v1",
-                artifact_id="artifact-1",
-                artifact_revision_id="artifact-revision-1",
-                ordinal=i,
-                role="table" if i == 1 else "content",
-                content=f"chunk {i}",
-                content_hash=f"hash{i}",
-                source_span=ChunkSourceSpan(
-                    source_element_ids=(f"element-{i}",),
-                ),
-                context=ChunkContext(structural_path=("Section", str(i))),
-            )
-            for i in range(3)
-        ]
+        chunks = [make_chunk(str(context.tenant_id), index) for index in range(3)]
         async with backend.unit_of_work_factory() as uow:
             await uow.chunks.bulk_upsert(chunks, context=context)
             await uow.outbox.add("chunk.upserted", {"count": 3}, context=context)
@@ -154,24 +181,24 @@ async def test_chunks_bulk_upsert_and_list_by_document(tmp_path: Path) -> None:
 
         async with backend.unit_of_work_factory() as uow:
             loaded = await uow.chunks.list_by_document("doc-1", context=context)
-            assert [chunk.chunk_revision_id for chunk in loaded] == [
-                "c0",
-                "c1",
-                "c2",
+            assert [chunk.chunk_id for chunk in loaded] == [
+                "chunk:0",
+                "chunk:1",
+                "chunk:2",
             ]
             assert [chunk.logical_chunk_id for chunk in loaded] == [
-                "logical-0",
-                "logical-1",
-                "logical-2",
+                "logical-chunk:0",
+                "logical-chunk:1",
+                "logical-chunk:2",
             ]
-            assert loaded[1].role == "table"
-            assert loaded[2].context.structural_path == ("Section", "2")
+            assert loaded[1].chunk_kind == ChunkKind.TABLE
+            assert loaded[2].hierarchy.section_path == ("Section", "2")
 
         async with backend.unit_of_work_factory() as uow:
-            fetched = await uow.chunks.get_many(["c0", "c2", "missing"], context=context)
-            assert sorted(chunk.chunk_revision_id for chunk in fetched) == [
-                "c0",
-                "c2",
+            fetched = await uow.chunks.get_many(["chunk:0", "chunk:2", "missing"], context=context)
+            assert sorted(chunk.chunk_id for chunk in fetched) == [
+                "chunk:0",
+                "chunk:2",
             ]
 
 

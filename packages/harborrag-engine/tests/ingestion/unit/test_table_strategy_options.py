@@ -133,5 +133,5 @@ def test_table_context_can_use_tab_provenance_without_a_section():
         make_plan(),
     )
 
-    assert all("Tab: Production" in chunk.contextual_prefix for chunk in result.chunks)
-    assert all("Section:" not in chunk.contextual_prefix for chunk in result.chunks)
+    assert all("Tab: Production" in chunk.embedding_text for chunk in result.chunks)
+    assert all("Section:" not in chunk.embedding_text for chunk in result.chunks)

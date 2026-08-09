@@ -4,7 +4,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# TODO: implement register_error_handler
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_core.contracts.errors import (
     HarborAuthError,
@@ -14,6 +13,7 @@ from harborrag_core.contracts.errors import (
     HarborDeadlineExceeded,
     HarborError,
     HarborNotFoundError,
+    HarborRateLimitError,
     HarborSecurityError,
     HarborUnavailableError,
     HarborValidationError,
@@ -29,6 +29,7 @@ CASES = [
     (HarborSecurityError("denied"), 403, "harbor_security_error"),
     (HarborDeadlineExceeded("slow"), 504, "harbor_deadline_exceeded"),
     (HarborConfigurationError("broken"), 500, "harbor_configuration_error"),
+    (HarborRateLimitError("slow down"), 429, "harbor_rate_limit_error"),
     (HarborUnavailableError("down"), 503, "harbor_unavailable_error"),
 ]
 
@@ -62,11 +63,23 @@ def test_harbor_errors_are_enveloped(exc: HarborError, status: int, code: str) -
 
 
 @pytest.mark.blackbox
-def test_unhandled_exception_is_enveloped_and_generic() -> None:
+def test_unhandled_exception_is_enveloped_generic_and_logged(caplog) -> None:
     """Non-Harbor Exceptions return an enveloped 500 whose message
     leaks no internal detail."""
-    response = _app_raising(RuntimeError("secret internals")).get("/boom")
+    with caplog.at_level("ERROR", logger="harborrag.app.api.errors"):
+        response = _app_raising(RuntimeError("secret internals")).get("/boom")
     assert response.status_code == 500
     body = response.json()
     assert body["error"]["code"] == "internal_error"
     assert "secret internals" not in body["error"]["message"]
+    assert "Unhandled API exception" in caplog.text
+    assert "path=/boom" in caplog.text
+
+
+@pytest.mark.blackbox
+def test_rate_limit_error_includes_retry_after_header() -> None:
+    response = _app_raising(HarborRateLimitError("slow down", retry_after_seconds=7)).get("/boom")
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "7"
+    assert response.json()["error"]["details"] == {"retry_after_seconds": 7}

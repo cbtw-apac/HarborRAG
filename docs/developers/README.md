@@ -3,7 +3,7 @@
 - [Architecture](architecture/README.md) — package ownership, dependency direction, and implemented boundaries.
 - [Extending HarborRAG](extending/README.md) — connectors, parsers, models, repositories, engine stages, and public surfaces.
 - [Testing](testing/README.md) — test layout, markers, quality gates, and real-system smoke checks.
-- [Deployment](deployment/README.md) — usable local service stacks and scaffolded application images.
+- [Deployment](deployment/README.md) — local service stacks plus API, CLI, worker, and MCP images.
 - [Contributing](../../CONTRIBUTING.md) — setup, review expectations, commits, and pull requests.
 
 ## Development principles

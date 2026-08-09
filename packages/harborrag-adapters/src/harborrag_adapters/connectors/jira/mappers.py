@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin
@@ -54,21 +55,28 @@ def build_source_record(issue: dict[str, Any], *, base_url: str) -> SourceRecord
     project = fields.get("project") or {}
     project_key = str(project.get("key") or issue_key.split("-")[0])
 
+    metadata: dict[str, Any] = {
+        "issue_id": str(issue.get("id") or ""),
+        "issue_key": issue_key,
+        "project_key": project_key,
+        "title": fields.get("summary"),
+        "issue_type": _name(fields.get("issuetype")),
+        "status": _name(fields.get("status")),
+        "labels": list(fields.get("labels") or []),
+        "url": issue_url(base_url, issue_key),
+    }
+    subtasks = [_issue_ref(item) for item in fields.get("subtasks") or []]
+    if subtasks:
+        metadata["subtasks"] = [
+            {key: value for key, value in asdict(subtask).items() if value is not None}
+            for subtask in subtasks
+        ]
     return SourceRecord(
         id=f"jira://{project_key}/{issue_key}",
         source_type="application/vnd.atlassian.jira.issue+json",
         locator=issue_key,
         updated_at=parse_timestamp(fields.get("updated")),
-        metadata={
-            "issue_id": str(issue.get("id") or ""),
-            "issue_key": issue_key,
-            "project_key": project_key,
-            "title": fields.get("summary"),
-            "issue_type": _name(fields.get("issuetype")),
-            "status": _name(fields.get("status")),
-            "labels": list(fields.get("labels") or []),
-            "url": issue_url(base_url, issue_key),
-        },
+        metadata=metadata,
     )
 
 
@@ -192,6 +200,11 @@ def _comment_metadata(comment: dict[str, Any]) -> JiraCommentMetadata:
         created_at=comment.get("created"),
         updated_at=comment.get("updated"),
         body=field_text(comment.get("body") or comment.get("renderedBody")),
+        parent_comment_id=(
+            str(comment.get("parentId") or comment.get("parent_comment_id"))
+            if comment.get("parentId") or comment.get("parent_comment_id")
+            else None
+        ),
     )
 
 

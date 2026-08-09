@@ -1,4 +1,4 @@
-name: harborrag
+name: harborrag-api
 
 services:
   api:
@@ -6,32 +6,48 @@ services:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.api
     env_file:
-      - ../../.env
+      - path: ${HARBORRAG_API_ENV_FILE:-../../env/.env.api}
+        required: false
+      - path: ${HARBORRAG_MODEL_ENV_FILE:-../../env/.env.models}
+        required: false
     environment:
       HARBORRAG_ENV: ${HARBORRAG_ENV:-dev}
-      HARBORRAG_QDRANT_URL: http://qdrant:6333
-      HARBORRAG_REDIS_URL: redis://redis:6379/0
+      HARBORRAG_HOST: 0.0.0.0
+      HARBORRAG_PORT: "8000"
+      HARBORRAG_TEMPORAL_TARGET: temporal:7233
+      HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
+      HARBORRAG_TEMPORAL_IDENTITY: ${HARBORRAG_API_TEMPORAL_IDENTITY:-harborrag-api}
+      HARBORRAG_API_CAPACITY_REDIS_URL: ${HARBORRAG_API_CAPACITY_REDIS_URL:-redis://redis:6379/1}
+      HARBORRAG_API_CAPACITY_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
+      HARBORRAG_OBJECT_STORE_ENDPOINT_URL: ${HARBORRAG_OBJECT_STORE_ENDPOINT_URL:-http://minio:9000}
+      HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the database environment file}
+      HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the database environment file}
+      HARBORRAG_QDRANT_URL: ${HARBORRAG_QDRANT_URL:-http://qdrant:6333}
+      HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_FALKORDB_HOST: ${HARBORRAG_FALKORDB_HOST:-falkordb}
+      HARBORRAG_FALKORDB_PORT: ${HARBORRAG_FALKORDB_PORT:-6379}
+      HARBORRAG_FALKORDB_MAX_CONNECTIONS: ${HARBORRAG_FALKORDB_MAX_CONNECTIONS:-32}
+      HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
+      # Connector execution and source credentials remain isolated in workers.
+      # The API receives embedding credentials only for synchronous vector search.
+      LOCAL_SOURCE_PATH: /data/sources
+      CONFLUENCE_BASE_URL: ${CONFLUENCE_BASE_URL:-}
+      CONFLUENCE_SPACE_KEY: ${CONFLUENCE_SPACE_KEY:-}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-}
     ports:
-      - "8000:8000"
-    depends_on:
-      qdrant:
-        condition: service_started
-      redis:
-        condition: service_started
+      - "${HARBORRAG_API_BIND_ADDRESS:-127.0.0.1}:${HARBORRAG_API_PORT:-8000}:8000"
     volumes:
-      - ../../examples:/app/examples:ro
-      - harbor_state:/app/.harbor
+      - ../../config:/app/config:ro
+    init: true
+    stop_grace_period: 30s
+    networks:
+      - harborrag-data-network
 
-  cli:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile.cli
-    env_file:
-      - ../../.env
-    profiles: ["cli"]
-    volumes:
-      - ../../examples:/app/examples:ro
-      - harbor_state:/app/.harbor
-
-volumes:
-  harbor_state:
+networks:
+  harborrag-data-network:
+    name: harborrag-data-network
+    external: true

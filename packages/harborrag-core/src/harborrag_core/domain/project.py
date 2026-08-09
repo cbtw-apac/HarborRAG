@@ -8,7 +8,7 @@ from typing import Literal
 
 from harborrag_core.base import utc_now
 
-from .validation import require_id
+from .validation import require_id, require_tenant_id
 
 ProjectStatus = Literal["active", "archived"]
 
@@ -30,6 +30,7 @@ class Project:
     id: str
     name: str
     collection: str
+    tenant_id: str
     description: str = ""
     status: ProjectStatus = "active"
     created_at: datetime = field(default_factory=utc_now)
@@ -38,3 +39,4 @@ class Project:
 
     def __post_init__(self) -> None:
         require_id(self.id, label="Project")
+        require_tenant_id(self.tenant_id)

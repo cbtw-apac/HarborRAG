@@ -9,8 +9,11 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from harborrag_adapters.repositories.database.control_plane.schemas import Base
+from harborrag_adapters.repositories.database.ingestion_control.schema import (
+    METADATA as INGESTION_METADATA,
+)
 
-target_metadata = Base.metadata
+target_metadata = (Base.metadata, INGESTION_METADATA)
 
 
 def _database_url() -> str:

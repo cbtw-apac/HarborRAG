@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import ClassVar
 
 from rich.text import Text
@@ -12,6 +13,7 @@ from textual.widgets import DataTable, Footer, Header, Label, ProgressBar, Stati
 
 from harborrag_app.cli.stages import build_stage_table
 from harborrag_app.workflow_control import BaseAppService
+from harborrag_app.workflow_control.errors import public_error_message
 
 from .dialogs import CancelConfirmation
 from .rendering import (
@@ -23,6 +25,8 @@ from .rendering import (
 )
 from .schemas import DashboardSnapshot, as_integer
 from .styles import DASHBOARD_CSS
+
+logger = logging.getLogger("harborrag.app.cli.dashboard")
 
 type BindingSpec = Binding | tuple[str, str] | tuple[str, str, str]
 
@@ -97,7 +101,12 @@ class IngestionDashboard(App[None]):
         try:
             response = await self.service.ingestion_status(self.run_id)
         except Exception as exc:  # noqa: BLE001 - dashboard must remain interactive
-            self._render_error(str(exc) or type(exc).__name__)
+            logger.error(
+                "Dashboard status refresh failed run_id=%s error_type=%s",
+                self.run_id,
+                type(exc).__name__,
+            )
+            self._render_error(public_error_message(exc))
             return
         if not response.ok:
             self._render_error(response.error or "Unable to load ingestion status.")
@@ -133,8 +142,14 @@ class IngestionDashboard(App[None]):
         try:
             response = await self.service.control_ingestion(self.run_id, action)
         except Exception as exc:  # noqa: BLE001 - dashboard must remain interactive
+            logger.error(
+                "Dashboard workflow control failed run_id=%s action=%s error_type=%s",
+                self.run_id,
+                action,
+                type(exc).__name__,
+            )
             self.notify(
-                str(exc) or type(exc).__name__,
+                public_error_message(exc),
                 title="Control failed",
                 severity="error",
             )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from jira_test_helpers import CLOUD_BASE, FakeJiraClient, cloud_config, dc_config, issue
 
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.issues import DISCOVERY_FIELDS
 from harborrag_adapters.connectors.schemas import ConnectorQuery
@@ -65,6 +65,32 @@ def test_discover_cloud_uses_search_jql_token_pagination():
     assert records[0].id == "jira://ENG/ENG-1"
 
 
+def test_discover_cloud_rejects_repeated_pagination_token():
+    client = FakeJiraClient()
+    client.add_post(
+        "search/jql",
+        {"issues": [], "nextPageToken": "same", "isLast": False},
+        {"issues": [], "nextPageToken": "same", "isLast": False},
+    )
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(FetchError, match="did not advance"):
+        list(connector.discover())
+
+
+@pytest.mark.parametrize("token", ["x" * 4097, "unsafe\nvalue"])
+def test_discover_cloud_rejects_unsafe_pagination_token(token):
+    client = FakeJiraClient()
+    client.add_post(
+        "search/jql",
+        {"issues": [], "nextPageToken": token, "isLast": False},
+    )
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(FetchError, match="did not advance"):
+        list(connector.discover())
+
+
 def test_discover_supports_direct_issue_keys_without_search():
     connector = JiraConnector(cloud_config(), client=FakeJiraClient())
 
@@ -72,6 +98,26 @@ def test_discover_supports_direct_issue_keys_without_search():
 
     assert records[0].locator == "ENG-1"
     assert records[0].metadata["url"] == f"{CLOUD_BASE}/browse/ENG-1"
+
+
+def test_discover_carries_exact_attachment_selection_to_admission():
+    connector = JiraConnector(cloud_config(), client=FakeJiraClient())
+
+    record = next(
+        connector.discover(
+            ConnectorQuery(
+                filters={
+                    "issue_keys": ["ENG-1"],
+                    "attachment_ids": ["a2", "a1"],
+                }
+            )
+        )
+    )
+
+    assert record.metadata["_selected_attachment_ids"] == (
+        "a2",
+        "a1",
+    )
 
 
 def test_discover_stops_once_query_limit_reached_during_search():

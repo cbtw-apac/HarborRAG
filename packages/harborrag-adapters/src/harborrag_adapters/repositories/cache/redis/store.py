@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from harborrag_adapters.repositories.cache.base import HarborCacheStore
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 ResponseError: Any
 WatchError: Any

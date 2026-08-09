@@ -21,9 +21,14 @@ from harborrag_adapters.parsers.compat import (
     ExcelParser,
     ImageParser,
     JsonParser,
+    OdtParser,
     PptxParser,
 )
-from harborrag_adapters.parsers.errors import ParseError, UnsupportedFormatError
+from harborrag_adapters.parsers.errors import (
+    ParseError,
+    PasswordProtectedError,
+    UnsupportedFormatError,
+)
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
@@ -64,6 +69,62 @@ def test_corrupt_docx_does_not_leak_raw_badzipfile():
     with pytest.raises(ParseError) as excinfo:
         DocxParser().parse(ParseInput(content=b"not a zip", filename="x.docx"))
     assert not isinstance(excinfo.value, zipfile.BadZipFile)
+
+
+def test_password_protected_docx_raises_typed_error():
+    encrypted = (
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        + "EncryptionInfo".encode("utf-16-le")
+        + "EncryptedPackage".encode("utf-16-le")
+    )
+
+    with pytest.raises(PasswordProtectedError):
+        DocxParser().parse(ParseInput(content=encrypted, filename="secret.docx"))
+
+
+@pytest.mark.parametrize(
+    ("parser", "format_name", "filename"),
+    [
+        (ExcelParser(), "XLSX", "secret.xlsx"),
+        (PptxParser(), "PPTX", "secret.pptx"),
+    ],
+)
+def test_password_protected_ooxml_raises_typed_error(parser, format_name, filename):
+    """Encrypted XLSX/PPTX are OLE compound files with the same
+    EncryptionInfo/EncryptedPackage streams as encrypted DOCX -- they must be
+    identified the same way, not left to surface as an unidentified-container
+    `ParseError` once the underlying library fails to open them as a zip."""
+    encrypted = (
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        + "EncryptionInfo".encode("utf-16-le")
+        + "EncryptedPackage".encode("utf-16-le")
+    )
+
+    with pytest.raises(PasswordProtectedError, match=format_name):
+        parser.parse(ParseInput(content=encrypted, filename=filename))
+
+
+def test_password_protected_odt_raises_typed_error(odt_bytes):
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(odt_bytes)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename == "META-INF/manifest.xml":
+                payload = payload.replace(
+                    b"</manifest:manifest>",
+                    b"<manifest:encryption-data/></manifest:manifest>",
+                    1,
+                )
+            sink.writestr(info, payload)
+
+    with pytest.raises(PasswordProtectedError):
+        OdtParser().parse(ParseInput(content=buffer.getvalue(), filename="secret.odt"))
 
 
 def test_invalid_json_raises_parse_error():

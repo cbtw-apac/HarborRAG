@@ -13,10 +13,10 @@ HarborRAG is under active alpha development. The distinction between implemented
 | Document parsers | Implemented for common text, structured, Office, image, ebook, and PDF formats |
 | Model adapters | Implemented chat, embedding, and reranking clients with validation, routing, retries, caching, budgets, and telemetry boundaries |
 | Repository adapters | Implemented backends for Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and memory |
-| Engine and runtime | Engine stages plus durable Temporal workflows, activities, clients, and worker lifecycle are implemented; application dependency assembly remains external |
-| CLI | `doctor` plus Temporal-backed ingestion start, status, wait, pause, resume, retry, and cancel commands |
-| HTTP API | FastAPI factory with authenticated health, readiness, and diagnostics routes; document, ingestion, and retrieval routes are not implemented |
-| MCP | Audited and policy-bounded in-process health tool; there is no stdio or HTTP transport yet |
+| Engine and runtime | Postgres-authoritative ingestion, durable Temporal workflows, immutable artifacts, hybrid vector projection, graph projection, retrieval, chat orchestration, stored prompts, and production dependency composition are implemented |
+| CLI | `doctor`, one-shot chat, Temporal-backed ingestion control, and authoritative retrieval commands |
+| HTTP API | FastAPI factory with liveness, Prometheus metrics, authenticated ingestion control, authoritative retrieval, and chat completions |
+| MCP | Audited, policy-bounded FastMCP transport exposing six tenant-scoped retrieval tools over stdio or bearer-authenticated loopback HTTP with a local status/configuration UI |
 | Temporal deployment | PostgreSQL-backed local development stack; production deployment remains application/operator work |
 
 ## Why the package boundaries exist
@@ -31,11 +31,11 @@ The package dependency direction is checked in CI. See [Architecture](../develop
 
 ## Intended use today
 
-Use the repository to develop and test adapters, schemas, and orchestration
-boundaries; run the PostgreSQL-backed Temporal stack locally; and execute
-opt-in real-system smoke checks in a controlled environment. A production
-application still needs a concrete runtime dependency provider, service
-endpoints, authentication/authorization, and operational hardening.
+Use the repository to develop and test adapters, run the PostgreSQL-backed
+Temporal ingestion stack, and execute opt-in real-system acceptance checks in a
+controlled environment. Internet-facing production deployments still require
+operator-owned identity policy, TLS/network controls, secret delivery,
+backup/restore, resource limits, and alerting.
 
 ## Next steps
 

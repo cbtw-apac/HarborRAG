@@ -6,7 +6,14 @@ import logging
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from harborrag_adapters.connectors.atlassian.client import AtlassianRestClient
+from harborrag_adapters.connectors.atlassian.client import (
+    AtlassianClientContext,
+    AtlassianRestClient,
+)
+from harborrag_adapters.connectors.rate_limiting import (
+    ConnectorRateLimiter,
+    RateLimitIdentity,
+)
 
 from .config import JiraDeploymentType, JiraProjectConfig
 
@@ -34,7 +41,7 @@ class JiraClient(Protocol):
         """Return a decoded JIRA POST response."""
         pass
 
-    def download_bytes(self, url: str) -> bytes | None:
+    def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
         """Download bytes from a trusted JIRA URL."""
         pass
 
@@ -46,12 +53,26 @@ class JiraClient(Protocol):
 class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
     """Authenticated, rate-limited JIRA REST client."""
 
-    def __init__(self, config: JiraProjectConfig) -> None:
+    def __init__(
+        self,
+        config: JiraProjectConfig,
+        *,
+        rate_limiter: ConnectorRateLimiter | None = None,
+    ) -> None:
         super().__init__(
             config,
-            base_url=config.base_url,
-            provider_label="JIRA",
-            logger=logger,
+            context=AtlassianClientContext(
+                base_url=config.base_url,
+                provider_label="JIRA",
+                logger=logger,
+                rate_limit_identity=RateLimitIdentity.from_http_source(
+                    connector_type="jira",
+                    deployment_type=str(config.deployment_type),
+                    base_url=config.base_url,
+                    credential_parts=(config.email or "", config.token or ""),
+                ),
+            ),
+            rate_limiter=rate_limiter,
         )
         self.api_version = "3" if config.deployment_type == JiraDeploymentType.CLOUD else "2"
         if config.deployment_type == JiraDeploymentType.CLOUD:
@@ -89,11 +110,15 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
             json=json,
         )
 
-    def download_bytes(self, url: str) -> bytes | None:
+    def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
         """Download attachment bytes only from the configured JIRA origin."""
         if self.config.deployment_type == JiraDeploymentType.CLOUD:
             url = _with_query_parameter(url, "redirect", "false")
-        return self._download_bytes(url, label="JIRA download")
+        return self._download_bytes(
+            url,
+            label="JIRA download",
+            max_bytes=max_bytes,
+        )
 
     def _api_url(self, endpoint: str) -> str:
         """Build a JIRA REST API URL from a relative endpoint."""

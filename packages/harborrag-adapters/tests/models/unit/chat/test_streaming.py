@@ -196,6 +196,32 @@ async def test_async_stream_cancellation_closes_provider_resource(base_config) -
 
 
 @pytest.mark.asyncio
+async def test_async_stream_aclose_fires_the_error_hook_like_the_sync_path(base_config) -> None:
+    # GeneratorExit is a BaseException, not an Exception, so it would
+    # otherwise skip `except Exception` and reach `finally` without ever
+    # notifying middleware -- verifying the sync stream's parity fix here.
+    class SpyMiddleware:
+        def __init__(self) -> None:
+            self.errors: list[Exception] = []
+
+        def on_error(self, error: Exception, context: Any) -> None:
+            self.errors.append(error)
+
+    spy = SpyMiddleware()
+    async_raw = FakeAsyncStream([stream_chunk("first"), stream_chunk("second")])
+    async_iterator = async_client(
+        base_config, backend=FakeInvocation(async_streams=[async_raw]), middleware=[spy]
+    ).astream([HarborChatMessage.user("hello")])
+
+    assert (await anext(async_iterator)).event is StreamEventType.METADATA
+    await async_iterator.aclose()
+
+    assert async_raw.closed
+    assert len(spy.errors) == 1
+    assert str(spy.errors[0]) == "stream cancelled"
+
+
+@pytest.mark.asyncio
 async def test_consumers_can_close_streams_early(base_config) -> None:
     sync_raw = FakeSyncStream([stream_chunk("first"), stream_chunk("second")])
     sync_iterator = sync_client(base_config, backend=FakeInvocation(streams=[sync_raw])).stream(

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from harborrag_adapters.chunking.confluence import (
+from harborrag_adapters.connectors.confluence.normalization import (
     ConfluencePageInput,
     ConfluencePageNormalizer,
 )
+from harborrag_core.chunking import ConnectorType, DocumentKind
 from harborrag_core.domain import TableArtifact
 from harborrag_engine.ingestion.chunking import (
     ChunkingPlan,
@@ -133,8 +134,10 @@ def make_request(artifact: TableArtifact) -> TableChunkingRequest:
         artifact=artifact,
         tenant_id="tenant-1",
         connection_id="confluence-main",
-        source_scope="ENG",
-        page_title="Deployment Guide",
-        space="Platform Engineering",
+        source_scope_id="ENG",
+        document_title="Deployment Guide",
+        connector_type=ConnectorType.CONFLUENCE,
+        document_kind=DocumentKind.CONFLUENCE_PAGE,
+        source_context={"space": "Platform Engineering"},
         permissions={"groups": ("engineering",)},
     )

@@ -14,7 +14,7 @@ from harborrag_adapters.repositories.cache.redis.scripts import (
 from harborrag_adapters.repositories.errors import HarborStorageLeaseError
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 from harborrag_core.schemas.cache import LockHandle
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 if TYPE_CHECKING:
     from harborrag_adapters.repositories.cache.redis.repository import (
@@ -77,6 +77,7 @@ class RedisLockManager(HarborLockManager):
         lease_duration: timedelta,
         context: StorageOperationContext,
     ) -> LockHandle:
+        del context
         self._validate_duration(lease_duration, "lease_duration")
         duration_ms = int(lease_duration.total_seconds() * 1000)
         renewed = await self._repositories.client.eval(
@@ -100,6 +101,7 @@ class RedisLockManager(HarborLockManager):
         *,
         context: StorageOperationContext,
     ) -> bool:
+        del context
         released = await self._repositories.client.eval(
             RELEASE_LOCK,
             1,

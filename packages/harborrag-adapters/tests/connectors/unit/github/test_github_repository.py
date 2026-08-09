@@ -65,6 +65,68 @@ def test_load_blob_rejects_invalid_base64_content():
         api.load_blob("sha-bad")
 
 
+def test_load_blob_does_not_discard_non_ascii_whitespace_from_base64():
+    client = FakeGitHubClient()
+    client.add(
+        "repos/acme/harbor-rag/git/blobs/sha-unicode-space",
+        {
+            "sha": "sha-unicode-space",
+            "size": 3,
+            "encoding": "base64",
+            "content": "Y\u2003WJj",
+        },
+    )
+    api = GitHubRepositoryAPI(config(), client)
+
+    with pytest.raises(DocumentProcessingError, match="not valid base64"):
+        api.load_blob("sha-unicode-space")
+
+
+def test_load_blob_accepts_github_line_wrapping_but_rejects_size_mismatch():
+    client = FakeGitHubClient()
+    client.add(
+        "repos/acme/harbor-rag/git/blobs/sha-wrapped",
+        {
+            "sha": "sha-wrapped",
+            "size": 3,
+            "encoding": "base64",
+            "content": "Y\nWJj\n",
+        },
+    )
+    client.add(
+        "repos/acme/harbor-rag/git/blobs/sha-mismatch",
+        {
+            "sha": "sha-mismatch",
+            "size": 99,
+            "encoding": "base64",
+            "content": base64.b64encode(b"abc").decode("ascii"),
+        },
+    )
+    api = GitHubRepositoryAPI(config(max_file_size_bytes=100), client)
+
+    assert api.load_blob("sha-wrapped") == b"abc"
+    with pytest.raises(DocumentProcessingError, match="does not match declared size"):
+        api.load_blob("sha-mismatch")
+
+
+@pytest.mark.parametrize("size", [None, -1, "3", True])
+def test_load_blob_rejects_invalid_declared_size(size: object):
+    client = FakeGitHubClient()
+    client.add(
+        "repos/acme/harbor-rag/git/blobs/sha-size",
+        {
+            "sha": "sha-size",
+            "size": size,
+            "encoding": "base64",
+            "content": "",
+        },
+    )
+    api = GitHubRepositoryAPI(config(), client)
+
+    with pytest.raises(DocumentProcessingError, match="invalid size"):
+        api.load_blob("sha-size")
+
+
 def test_load_blob_rejects_known_oversized_size_without_fetching():
     client = FakeGitHubClient()
     api = GitHubRepositoryAPI(config(max_file_size_bytes=10), client)
@@ -93,6 +155,8 @@ def test_load_blob_still_fetches_and_decodes_when_known_size_is_within_limit():
     content = api.load_blob("sha-readme", known_size=7)
 
     assert content == b"# Hello"
+    assert client.response_limits[-1] is not None
+    assert client.response_limits[-1] > 100
 
 
 def test_content_file_item_raises_when_response_is_not_a_dict():
@@ -203,3 +267,21 @@ def test_walk_tree_non_recursive_raises_when_response_is_not_a_dict():
 
     with pytest.raises(FetchError, match="not an object"):
         list(api._walk_tree_non_recursive("tree-root"))
+
+
+def test_walk_tree_non_recursive_handles_deeply_nested_trees_without_recursion_error():
+    client = FakeGitHubClient()
+    depth = 3000
+    for level in range(depth):
+        endpoint = f"repos/acme/harbor-rag/git/trees/tree-{level}"
+        if level == depth - 1:
+            entry = {"path": "leaf.txt", "mode": "100644", "type": "blob", "sha": "blob-sha"}
+        else:
+            entry = {"path": "dir", "mode": "040000", "type": "tree", "sha": f"tree-{level + 1}"}
+        client.add(endpoint, {"tree": [entry]})
+    api = GitHubRepositoryAPI(config(), client)
+
+    items = list(api._walk_tree_non_recursive("tree-0"))
+
+    assert len(items) == 1
+    assert items[0]["path"] == "/".join(["dir"] * (depth - 1) + ["leaf.txt"])

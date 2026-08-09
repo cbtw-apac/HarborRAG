@@ -12,10 +12,7 @@ from harborrag_core.domain.parser import ParseInput
 
 @contextmanager
 def materialized_pdf_path(value: ParseInput) -> Generator[Path, None, None]:
-    """Yield a safe filesystem path for PDF engines that require one."""
-    if value.path is not None:
-        yield Path(value.path)
-        return
+    """Yield a private snapshot for PDF engines that require a filesystem path."""
     with TemporaryDirectory(prefix="harborrag-pdf-") as directory:
         path = Path(directory) / "document.pdf"
         path.write_bytes(read_parse_input_bytes(value))

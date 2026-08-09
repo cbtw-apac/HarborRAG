@@ -13,6 +13,20 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.security import RemoteTransportPolicy
+
+_REDIS_TRANSPORT = RemoteTransportPolicy(
+    service="Redis",
+    allowed_schemes=frozenset({"redis", "rediss"}),
+    secure_schemes=frozenset({"rediss"}),
+)
+_OBJECT_STORE_TRANSPORT = RemoteTransportPolicy(
+    service="object store",
+    allowed_schemes=frozenset({"http", "https"}),
+    secure_schemes=frozenset({"https"}),
+)
+
 
 class RuntimeSettings(BaseSettings):
     """Environment-driven settings for runtime composition."""
@@ -20,73 +34,109 @@ class RuntimeSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
 
     env: Literal["dev", "prod"] = "dev"
-    control_db_url: str = "sqlite+aiosqlite:///./harborrag_control.db"
+    ingestion_tenant_id: str = Field(
+        default="DEFAULT",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    )
+    control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
+    control_db_pool_size: int = Field(default=5, ge=1, le=100)
+    control_db_max_overflow: int = Field(default=10, ge=0, le=200)
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"
-    temporal_api_key: str | None = None
+    temporal_api_key: SecretStr | None = None
     temporal_tls: bool = False
     temporal_allow_insecure_remote: bool = False
     temporal_health_timeout_seconds: float = Field(default=5.0, gt=0)
-    ingestion_partition_size: int = 50
-    partition_concurrency: int = 4
-    artifact_concurrency: int = 16
-    isolated_process_concurrency: int = Field(default=2, ge=1, le=32)
-    isolated_process_wall_seconds: float = Field(default=900.0, gt=0)
-    isolated_process_cpu_seconds: int = Field(default=600, ge=1)
-    isolated_process_memory_bytes: int = Field(
-        default=8 * 1024 * 1024 * 1024,
-        ge=512 * 1024 * 1024,
+    temporal_max_concurrent_activities: int = Field(default=2, ge=1, le=1000)
+    temporal_max_concurrent_workflow_tasks: int = Field(default=4, ge=1, le=1000)
+    temporal_max_concurrent_activity_polls: int = Field(default=2, ge=1, le=100)
+    temporal_max_concurrent_workflow_polls: int = Field(default=2, ge=1, le=100)
+    temporal_graceful_shutdown_seconds: int = Field(default=30, ge=1, le=3600)
+    metrics_port: int | None = Field(default=None, ge=1, le=65_535)
+    metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
+    langfuse_enabled: bool = False
+    redis_url: SecretStr | None = None
+    redis_allow_insecure_remote: bool = False
+    redis_socket_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    connector_rate_limit_key_prefix: str = Field(
+        default="harborrag-connector-rate",
+        pattern=r"^[A-Za-z0-9._-]+$",
     )
-    isolated_process_file_bytes: int = Field(
-        default=512 * 1024 * 1024,
-        ge=1024 * 1024,
-    )
-    temporal_dependency_provider: str | None = None
-    temporal_worker_groups: str = "discovery,processing,indexing,maintenance"
     connector_config_path: Path = Path("config/connectors.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
-    ingestion_state_backend: Literal["postgresql"] = "postgresql"
-    ingestion_state_url: SecretStr | None = None
-    ingestion_state_pool_size: int = Field(default=5, ge=1, le=100)
-    ingestion_state_max_overflow: int = Field(default=10, ge=0, le=200)
-    ingestion_state_allow_insecure_remote: bool = False
-    ingestion_object_root: Path = Path(".harborrag/objects")
+    object_store_endpoint_url: str | None = "http://localhost:9000"
+    object_store_allow_insecure_remote: bool = False
+    object_store_region: str = "us-east-1"
+    object_store_access_key_id: SecretStr | None = None
+    object_store_secret_access_key: SecretStr | None = None
+    object_store_session_token: SecretStr | None = None
     qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: str | None = None
+    qdrant_api_key: SecretStr | None = None
     qdrant_prefer_grpc: bool = True
     qdrant_collection_prefix: str = ""
     qdrant_allow_insecure_remote: bool = False
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
     falkordb_username: str | None = None
-    falkordb_password: str | None = None
+    falkordb_password: SecretStr | None = None
     falkordb_graph: str = "harborrag"
     falkordb_ssl: bool = False
+    falkordb_max_connections: int = Field(default=32, ge=1, le=1000)
+    graph_relation_repair_concurrency: int = Field(default=8, ge=1, le=1000)
     falkordb_allow_insecure_remote: bool = False
     embedding_model: str | None = None
     embedding_dimensions: int | None = None
-    vector_collection: str = "harborrag_chunks"
-    graph_namespace: str = "harborrag"
+    dense_encoder_profile: str = "dense-default-v1"
+    sparse_encoder_profile: str = "bm25-hashed-v1"
+    sparse_k: float = Field(default=1.2, gt=0)
+    sparse_b: float = Field(default=0.75, ge=0, le=1)
+    sparse_fixed_avg_len: float = Field(default=256.0, gt=0)
+    retrieval_dense_weight: float = Field(default=0.7, ge=0, le=1)
+    chat_retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    chat_retrieval_graph_search: bool = False
 
     @model_validator(mode="after")
-    def validate_ingestion_state(self) -> RuntimeSettings:
-        if (
-            self.ingestion_state_url is not None
-            and not self.ingestion_state_url.get_secret_value().startswith("postgresql+asyncpg://")
-        ):
-            raise ValueError("HARBORRAG_INGESTION_STATE_URL must use postgresql+asyncpg")
+    def validate_secret_urls(self) -> RuntimeSettings:
+        control_db_url = self.control_db_url.get_secret_value().lower()
+        if self.env == "prod" and control_db_url.startswith("sqlite"):
+            raise ValueError(
+                "HARBORRAG_CONTROL_DB_URL must use a production database when "
+                "HARBORRAG_ENV=prod; SQLite is development-only"
+            )
+        development = self.env == "dev"
+        if self.redis_url is not None:
+            try:
+                _REDIS_TRANSPORT.validate(
+                    self.redis_url.get_secret_value(),
+                    allow_insecure_remote=(development and self.redis_allow_insecure_remote),
+                )
+            except ValueError as exc:
+                raise ValueError(f"HARBORRAG_REDIS_URL: {exc}") from exc
+        if self.object_store_endpoint_url is not None:
+            try:
+                _OBJECT_STORE_TRANSPORT.validate(
+                    self.object_store_endpoint_url,
+                    allow_insecure_remote=(development and self.object_store_allow_insecure_remote),
+                )
+            except ValueError as exc:
+                raise ValueError(f"HARBORRAG_OBJECT_STORE_ENDPOINT_URL: {exc}") from exc
+        worker_count = 6
+        database_capacity = self.control_db_pool_size + self.control_db_max_overflow
+        requested_activity_capacity = self.temporal_max_concurrent_activities * worker_count
+        if requested_activity_capacity > database_capacity:
+            raise ValueError(
+                "Temporal activity capacity across six task-queue workers "
+                f"({requested_activity_capacity}) exceeds the control database pool "
+                f"capacity ({database_capacity})"
+            )
         return self
 
-    def require_postgresql_ingestion_state(self) -> SecretStr:
-        """Return the configured shared state URL for a built-in Temporal worker."""
-        if self.ingestion_state_url is None:
-            raise ValueError(
-                "built-in Temporal workers require PostgreSQL ingestion state; set "
-                "HARBORRAG_INGESTION_STATE_URL"
-            )
-        return self.ingestion_state_url
 
-
-DEFAULT_CONTROL_DB_URL = RuntimeSettings.model_fields["control_db_url"].default
+_DEFAULT_CONTROL_DB_SECRET = RuntimeSettings.model_fields["control_db_url"].default
+if not isinstance(_DEFAULT_CONTROL_DB_SECRET, SecretStr):
+    raise HarborInvariantError("control_db_url default must be a SecretStr")
+DEFAULT_CONTROL_DB_URL = _DEFAULT_CONTROL_DB_SECRET.get_secret_value()

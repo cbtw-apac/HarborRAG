@@ -67,6 +67,7 @@ dev = [
     "openpyxl>=3.1.0",
     "python-docx>=1.1.0",
     "python-pptx>=1.0.0",
+    "pyarrow==25.0.0",
     "PyMuPDF>=1.24.0",
     "xlrd>=2.0.1",
     "xlwt>=1.3.0",
@@ -101,7 +102,7 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
-mypy_path = "packages/harborrag-core/src:packages/harborrag-adapters/src:packages/harborrag-engine/src:packages/harborrag-runtime/src:packages/harborrag-app/src:packages/harborrag-mcp-server/src:packages/harborrag/src"
+mypy_path = "packages/harborrag-core/src:packages/harborrag-adapters/src:packages/harborrag-engine/src:packages/harborrag-memory/src:packages/harborrag-runtime/src:packages/harborrag-app/src:packages/harborrag-mcp-server/src:packages/harborrag/src"
 
 # Package-local tests deliberately exercise abstract base classes (safe-super)
 # and index into loosely-typed diagnostics payloads; keep strictness for src only.
@@ -133,15 +134,20 @@ module = [
     "langfuse",
     "liteparse",
     "pptx",
+    "pyarrow",
+    "pyarrow.*",
 ]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
 testpaths = [
     "tests",
     "packages/harborrag-core/tests",
     "packages/harborrag-adapters/tests",
     "packages/harborrag-engine/tests",
+    "packages/harborrag-memory/tests",
     "packages/harborrag-runtime/tests",
     "packages/harborrag-app/tests",
     "packages/harborrag-mcp-server/tests",
@@ -207,6 +213,7 @@ source = [
     "packages/harborrag-core/src",
     "packages/harborrag-adapters/src",
     "packages/harborrag-engine/src",
+    "packages/harborrag-memory/src",
     "packages/harborrag-runtime/src",
     "packages/harborrag-app/src",
     "packages/harborrag-mcp-server/src",
@@ -285,6 +292,7 @@ known-first-party = [
     "harborrag_core",
     "harborrag_adapters",
     "harborrag_engine",
+    "harborrag_memory",
     "harborrag_runtime",
     "harborrag_app",
     "harborrag_mcp_server",
@@ -308,6 +316,7 @@ members = [
     "packages/harborrag-core",
     "packages/harborrag-adapters",
     "packages/harborrag-engine",
+    "packages/harborrag-memory",
     "packages/harborrag-runtime",
     "packages/harborrag-app",
     "packages/harborrag-mcp-server",
@@ -321,6 +330,9 @@ workspace = true
 workspace = true
 
 [tool.uv.sources.harborrag-engine]
+workspace = true
+
+[tool.uv.sources.harborrag-memory]
 workspace = true
 
 [tool.uv.sources.harborrag-runtime]

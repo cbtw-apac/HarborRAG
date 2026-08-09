@@ -21,7 +21,7 @@ async def test_absent_key_always_uses_atomic_create_condition() -> None:
 
     await store.put(
         PutObjectRequest(bucket="bucket", key="key", body=b"value"),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert raw.put_calls[0]["IfNoneMatch"] == "*"
@@ -35,7 +35,7 @@ async def test_same_tenant_replacement_uses_observed_etag() -> None:
 
     await store.put(
         PutObjectRequest(bucket="bucket", key="key", body=b"replacement"),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert raw.put_calls[0]["IfMatch"] == '"old-etag"'
@@ -60,7 +60,7 @@ async def test_async_body_uses_single_conditional_put(
 
     await store.put(
         PutObjectRequest(bucket="bucket", key="key", body=body()),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert len(raw.put_calls) == 1
@@ -78,7 +78,7 @@ async def test_failed_write_condition_is_mapped_to_already_exists() -> None:
     with pytest.raises(HarborStorageAlreadyExistsError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=b"value"),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
 
 
@@ -90,6 +90,6 @@ async def test_cross_tenant_object_is_never_sent_to_put_object() -> None:
     with pytest.raises(HarborStorageAlreadyExistsError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=b"value"),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
     assert raw.put_calls == []

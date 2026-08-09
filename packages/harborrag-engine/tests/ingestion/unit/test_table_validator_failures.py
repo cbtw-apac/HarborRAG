@@ -151,7 +151,9 @@ def test_validator_reports_incomplete_headers_and_lower_self_containment():
     artifact, plan, result = _valid_table_result()
     record = result.chunks[1]
     content = "not-the-selected-headers\nworker\t2"
-    embedding = f"{record.contextual_prefix}\n\n{content}"
+    prefix, separator, _ = record.embedding_text.rpartition("\n\n")
+    assert separator
+    embedding = f"{prefix}\n\n{content}"
     changed = record.model_copy(
         update={
             "content": content,

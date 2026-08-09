@@ -10,6 +10,7 @@ from harborrag_adapters.repositories.database.control_plane.schemas import (
     ProjectRow,
     SourceRow,
 )
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.source_config import SourceConfig
 
@@ -41,6 +42,7 @@ class SqlProjectRepository:
             session.add(
                 ProjectRow(
                     id=project.id,
+                    tenant_id=project.tenant_id,
                     name=project.name,
                     description=project.description,
                     collection=project.collection,
@@ -61,6 +63,8 @@ class SqlProjectRepository:
             row = await session.get(ProjectRow, project.id)
             if row is None:
                 raise KeyError(project.id)
+            if row.tenant_id != project.tenant_id:
+                raise HarborConflictError("project tenant identity is immutable")
             row.name = project.name
             row.description = project.description
             row.collection = project.collection
@@ -105,6 +109,7 @@ class SqlSourceRepository:
             session.add(
                 SourceRow(
                     id=source.id,
+                    tenant_id=source.tenant_id,
                     project_id=source.project_id,
                     source_type=source.source_type,
                     name=source.name,
@@ -122,6 +127,8 @@ class SqlSourceRepository:
             row = await session.get(SourceRow, source.id)
             if row is None:
                 raise KeyError(source.id)
+            if row.tenant_id != source.tenant_id:
+                raise HarborConflictError("source tenant identity is immutable")
             row.name = source.name
             row.source_type = source.source_type
             row.config_json = dict(source.config)

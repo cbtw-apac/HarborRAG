@@ -22,7 +22,7 @@ async def test_put_without_bucket_and_no_default_raises_validation_error() -> No
     with pytest.raises(HarborStorageValidationError):
         await store.put(
             PutObjectRequest(bucket="", key="key", body=b"value"),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
 
 
@@ -33,7 +33,7 @@ async def test_put_sets_content_type_and_server_side_encryption() -> None:
 
     await store.put(
         PutObjectRequest(bucket="bucket", key="key", body=b"value", content_type="text/plain"),
-        context=StorageOperationContext(tenant_id="tenant-a"),
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
     assert raw.put_calls[0]["ContentType"] == "text/plain"
@@ -48,7 +48,7 @@ async def test_put_replace_with_missing_etag_raises_already_exists() -> None:
     with pytest.raises(HarborStorageAlreadyExistsError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=b"value"),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
     assert raw.put_calls == []
 
@@ -61,7 +61,7 @@ async def test_put_checksum_mismatch_raises_validation_error() -> None:
     with pytest.raises(HarborStorageValidationError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=b"value", checksum_sha256="0" * 64),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
     assert raw.put_calls == []
 
@@ -75,7 +75,7 @@ async def test_put_unmapped_client_error_is_reraised() -> None:
     with pytest.raises(FakeClientError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=b"value"),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
 
 
@@ -88,7 +88,7 @@ async def test_put_existing_head_check_reraises_unmapped_client_error() -> None:
     with pytest.raises(FakeClientError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=b"value"),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
 
 
@@ -103,6 +103,6 @@ async def test_put_rejects_object_larger_than_five_gigabytes() -> None:
     with pytest.raises(HarborObjectTooLargeError):
         await store.put(
             PutObjectRequest(bucket="bucket", key="key", body=huge_body()),
-            context=StorageOperationContext(tenant_id="tenant-a"),
+            context=StorageOperationContext.system(tenant_id="tenant-a"),
         )
     assert raw.put_calls == []

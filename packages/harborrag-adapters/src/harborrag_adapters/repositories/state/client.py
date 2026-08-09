@@ -14,7 +14,7 @@ from harborrag_adapters.repositories.registry import ProviderMap
 from harborrag_adapters.repositories.state.base import HarborStateBackend
 from harborrag_adapters.repositories.state.redis.plugin import RedisStatePlugin
 from harborrag_adapters.repositories.state.sqlite.plugin import SQLiteStatePlugin
-from harborrag_core.schemas.storage import StorageFamily
+from harborrag_core.storage import StorageFamily
 
 
 class HarborStateDBClient:

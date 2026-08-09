@@ -1,6 +1,6 @@
 """ML1 read routes over a real (temp SQLite) control-plane DB.
 
-test_api_projects/sources/activity/settings/metrics.py exercise mock_app_service
+test_api_projects/sources/activity/settings/metrics.py exercise the development composition
 only; this file drives the same endpoints through AppService (production)
 so the SQL-backed code paths in workflow_control/client.py are actually
 covered, not just verified by hand.
@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.client import AppService
+from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.project import Project, ProjectStats
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -39,6 +39,7 @@ async def _seed(dsn: str) -> None:
     await control_plane.projects.create(
         Project(
             id="proj-1",
+            tenant_id="DEFAULT",
             name="Demo",
             collection="demo_collection",
             stats=ProjectStats(documents=3, chunks=9),
@@ -47,6 +48,7 @@ async def _seed(dsn: str) -> None:
     await control_plane.sources.create(
         SourceConfig(
             id="src-1",
+            tenant_id="DEFAULT",
             project_id="proj-1",
             source_type="local_file",
             name="Docs",
@@ -57,6 +59,7 @@ async def _seed(dsn: str) -> None:
     await control_plane.activity.append(
         ActivityEntry(
             id="a1",
+            tenant_id="DEFAULT",
             actor="alice",
             verb="created",
             entity_type="source",
@@ -68,6 +71,7 @@ async def _seed(dsn: str) -> None:
     await control_plane.activity.append(
         ActivityEntry(
             id="a2",
+            tenant_id="DEFAULT",
             actor="bob",
             verb="updated",
             entity_type="source",
@@ -76,7 +80,7 @@ async def _seed(dsn: str) -> None:
             created_at=base_time + timedelta(minutes=1),
         )
     )
-    await control_plane.settings.put(WorkspaceSettings(data={"theme": "dark"}))
+    await control_plane.settings.put(WorkspaceSettings(tenant_id="DEFAULT", data={"theme": "dark"}))
 
 
 @pytest.fixture
@@ -132,7 +136,7 @@ def test_read_routes_return_enveloped_503_when_control_plane_unconfigured() -> N
     failed to wire up) must surface a 503, not a KeyError-turned-500 or a
     misleading 404 (the previous per-route behavior for get_project/get_source)."""
     app = create_fastapi_app(ApiSettings())
-    app.dependency_overrides[get_app_service] = lambda: AppService(CompositionRoot())
+    app.dependency_overrides[get_app_service] = lambda: AppService(CompositionRoot(mode="test"))
     with TestClient(app) as client:
         for path in (
             "/api/v1/projects",

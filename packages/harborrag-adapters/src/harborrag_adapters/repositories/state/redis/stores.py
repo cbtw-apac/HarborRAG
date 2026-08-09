@@ -22,7 +22,7 @@ from harborrag_adapters.repositories.state.redis.scripts import (
 from harborrag_adapters.repositories.telemetry import traced_repository_operation
 from harborrag_core.schemas.ids import WorkflowId
 from harborrag_core.schemas.state import CheckpointRecord, LeaseRecord, WorkflowState
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 WatchError: Any
 try:

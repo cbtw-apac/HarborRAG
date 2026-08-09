@@ -1,20 +1,29 @@
 from .control_plane import (
     ActivityRepositoryPort,
+    ActivityRepositoryProvider,
     JobRepositoryPort,
+    JobRepositoryProvider,
     MemberRepositoryPort,
+    MemberRepositoryProvider,
     ProjectRepositoryPort,
+    ProjectRepositoryProvider,
     ProviderRepositoryPort,
+    ProviderRepositoryProvider,
     SettingsRepositoryPort,
+    SettingsRepositoryProvider,
     SourceRepositoryPort,
+    SourceRepositoryProvider,
+    TenantScopedRepositoryProvider,
 )
-from .events import EventBusPort
-from .indexing import (
-    GraphGenerationRepositoryPort,
-    GraphIndexRepositoryPort,
-    VectorGenerationRepositoryPort,
-    VectorIndexRepositoryPort,
+from .conversation import (
+    ConversationIdentity,
+    ConversationMemory,
+    ConversationRepository,
+    ConversationSessions,
+    ConversationTurn,
+    new_session_id,
 )
-from .jobs import JobQueuePort
+from .indexing import KnowledgeGraphRepositoryPort, VectorIndexRepositoryPort
 from .model_clients import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
@@ -23,30 +32,37 @@ from .model_clients import (
     HarborEmbedClientProtocol,
     HarborRerankClientProtocol,
 )
-from .runtime import AsyncLifecyclePort, RuntimeObserverPort
-from .secrets import SecretsPort
+from .retrieval import GraphRetrievalRepositoryPort
 
 __all__ = [
     "ActivityRepositoryPort",
+    "ActivityRepositoryProvider",
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
-    "AsyncLifecyclePort",
-    "EventBusPort",
-    "GraphGenerationRepositoryPort",
-    "GraphIndexRepositoryPort",
+    "ConversationIdentity",
+    "ConversationMemory",
+    "ConversationRepository",
+    "ConversationSessions",
+    "ConversationTurn",
+    "GraphRetrievalRepositoryPort",
     "HarborChatClientProtocol",
     "HarborEmbedClientProtocol",
     "HarborRerankClientProtocol",
-    "JobQueuePort",
     "JobRepositoryPort",
+    "JobRepositoryProvider",
+    "KnowledgeGraphRepositoryPort",
     "MemberRepositoryPort",
+    "MemberRepositoryProvider",
+    "ProjectRepositoryProvider",
     "ProjectRepositoryPort",
+    "ProviderRepositoryProvider",
     "ProviderRepositoryPort",
-    "RuntimeObserverPort",
-    "SecretsPort",
+    "SettingsRepositoryProvider",
     "SettingsRepositoryPort",
+    "SourceRepositoryProvider",
     "SourceRepositoryPort",
-    "VectorGenerationRepositoryPort",
+    "TenantScopedRepositoryProvider",
     "VectorIndexRepositoryPort",
+    "new_session_id",
 ]

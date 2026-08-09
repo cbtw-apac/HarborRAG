@@ -13,7 +13,7 @@ from harborrag_core.schemas.graph import (
     GraphSubgraph,
 )
 from harborrag_core.schemas.ids import EntityId, RelationshipId
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 
 class HarborGraphRepository(RepositoryLifecycle):

@@ -136,13 +136,28 @@ def test_sharepoint_request_retries_429_then_succeeds():
 
 def test_sharepoint_request_retries_5xx_then_succeeds():
     client = sharepoint_client(max_retries=1, backoff_factor=0.0)
+    retried = FakeResponse(status_code=503, text="boom", headers={})
     client.session = FakeSession(
         responses=[
-            FakeResponse(status_code=503, text="boom", headers={}),
+            retried,
             FakeResponse(status_code=200, _json={"ok": True}),
         ]
     )
     assert client.get_json("sites/x") == {"ok": True}
+    assert retried.closed is True
+
+
+def test_sharepoint_get_bytes_closes_retried_response_before_retrying():
+    client = sharepoint_client(max_retries=1, backoff_factor=0.0)
+    retried = FakeResponse(status_code=503, text="boom", headers={})
+    client.session = FakeSession(
+        responses=[
+            retried,
+            FakeResponse(status_code=200, _chunks=[b"hello"]),
+        ]
+    )
+    assert client.get_bytes("drives/d/items/i/content") == b"hello"
+    assert retried.closed is True
 
 
 def test_sharepoint_request_raises_fetch_error_on_non_retryable_4xx():

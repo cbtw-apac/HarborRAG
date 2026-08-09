@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Mapping
 
+from harborrag_core.retrieval import (
+    GraphNeighborhoodQuery,
+    GraphPathQuery,
+    GraphSubgraphQuery,
+    GraphTripletQuery,
+)
+from harborrag_runtime.sdk import RetrievalLane
+
+from .agent import AgentExecutionOptions
+from .chat.options import ChatExecutionOptions
 from .schemas import AppResponse
 
 
@@ -21,15 +32,89 @@ class BaseAppService(ABC):
 
         return self.health()
 
-    async def start_ingestion(
+    async def recover_pending_submissions(self, *, limit: int = 100) -> int:
+        """Recover durable workflow starts where the concrete service supports it."""
+
+        del limit
+        return 0
+
+    async def create_chat_session(
+        self,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def chat_session_exists(
+        self,
+        session_id: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> bool:
+        raise NotImplementedError
+
+    async def create_agent_session(
+        self,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def chat_completion(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: ChatExecutionOptions,
+    ) -> AppResponse:
+        """Generate one retrieval-grounded chat completion."""
+
+        raise NotImplementedError
+
+    def chat_stream(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: ChatExecutionOptions,
+    ) -> AsyncIterator[dict[str, object]]:
+        """Stream one retrieval-grounded chat completion as ``{"kind": ...}`` events."""
+
+        raise NotImplementedError
+
+    async def agent_completion(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        options: AgentExecutionOptions,
+    ) -> AppResponse:
+        """Run one bounded multi-turn agent completion."""
+
+        raise NotImplementedError
+
+    async def start_ingestion(  # noqa: PLR0913 - legacy CLI port
         self,
         *,
         tenant_id: str,
         connector_name: str,
         run_id: str | None = None,
-        manifest_id: str | None = None,
-        generation_id: str | None = None,
+        connection_id: str | None = None,
+        source_scope_id: str | None = None,
+        path: str | None = None,
+        pattern: str | None = None,
+        recursive: bool = True,
+        updated_after: str | None = None,
         max_artifacts: int | None = None,
+        include_attachments: bool = True,
+        filters: Mapping[str, object] | None = None,
+        force_reprocess: bool = False,
         wait: bool = False,
     ) -> AppResponse:
         raise NotImplementedError
@@ -40,13 +125,55 @@ class BaseAppService(ABC):
     async def ingestion_result(self, run_id: str) -> AppResponse:
         raise NotImplementedError
 
-    async def retrieve(
+    async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-neutral
         self,
         query: str,
         *,
-        tenant_id: str,
+        tenant_id: str | None = None,
+        principal_id: str = "harborrag-cli",
         top_k: int = 10,
+        filters: Mapping[str, object] | None = None,
+        lane: RetrievalLane = RetrievalLane.HYBRID,
+        observe_graph: bool = False,
         include_content: bool = False,
+        include_metadata: bool = False,
+        score_threshold: float = 0.0,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def retrieve_graph_triplets(
+        self,
+        query: GraphTripletQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def retrieve_graph_paths(
+        self,
+        query: GraphPathQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def retrieve_graph_subgraph(
+        self,
+        query: GraphSubgraphQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def retrieve_graph_neighborhood(
+        self,
+        query: GraphNeighborhoodQuery,
+        *,
+        tenant_id: str,
+        principal_id: str,
     ) -> AppResponse:
         raise NotImplementedError
 
@@ -54,10 +181,19 @@ class BaseAppService(ABC):
         self,
         run_id: str,
         action: str,
-        *,
-        artifact_ids: tuple[str, ...] = (),
-        graceful: bool = True,
     ) -> AppResponse:
+        raise NotImplementedError
+
+    async def projection_inventory(self, tenant: str) -> dict[str, object]:
+        raise NotImplementedError
+
+    async def delete_projections(
+        self,
+        tenant: str,
+        *,
+        confirmation: str,
+        stores: frozenset[str],
+    ) -> dict[str, object]:
         raise NotImplementedError
 
     @abstractmethod
@@ -92,5 +228,5 @@ class BaseAppService(ABC):
 
     @abstractmethod
     async def get_metrics(self) -> AppResponse:
-        """Dashboard summary counters; see workflow_control.metrics.summarize_metrics."""
+        """Dashboard counters; see control_plane.metrics.summarize_metrics."""
         raise NotImplementedError

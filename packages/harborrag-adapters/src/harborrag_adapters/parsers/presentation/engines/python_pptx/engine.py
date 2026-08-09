@@ -14,6 +14,7 @@ from harborrag_adapters.parsers.common.utils import (
 from harborrag_adapters.parsers.common.validation import (
     guard_input_size,
     open_guarded_zip,
+    raise_if_password_protected_document,
     wrap_parse_errors,
 )
 from harborrag_adapters.parsers.errors import ParseError
@@ -60,6 +61,11 @@ class PythonPptxPresentationEngine(HarborPresentationEngine):
             ) from exc
 
         source_bytes = guard_input_size(read_parse_input_bytes(parse_input))
+        if not source_bytes:
+            # 0 bytes is never a valid zip archive, so python-pptx/zipfile
+            # would otherwise reject it as corrupt. There is nothing to
+            # parse, so succeed with empty output like the other engines.
+            return self.empty_result(parse_input, slide_count=0)
         parser_logger.debug(
             "Extracting PPTX text from %s",
             input_label(parse_input),
@@ -73,9 +79,17 @@ class PythonPptxPresentationEngine(HarborPresentationEngine):
         sections: list[str] = []
         elements: list[DocumentElement] = []
         with wrap_parse_errors(self.parser_engine):
+            # Encrypted PPTX is an OLE compound file, not a zip -- check before
+            # attempting to open it as one, exactly like DOCX does.
+            raise_if_password_protected_document(source_bytes, format_name="pptx")
             # PPTX is a zip container: reject decompression-bomb shapes before
             # handing bytes to python-pptx, exactly like DOCX/EPUB do.
-            open_guarded_zip(source_bytes).close()
+            with open_guarded_zip(source_bytes) as archive:
+                raise_if_password_protected_document(
+                    source_bytes,
+                    format_name="pptx",
+                    archive=archive,
+                )
             presentation = Presentation(BytesIO(source_bytes))
             for slide_index, slide in enumerate(presentation.slides, start=1):
                 slide_lines = list(self._shape_text(slide.shapes))

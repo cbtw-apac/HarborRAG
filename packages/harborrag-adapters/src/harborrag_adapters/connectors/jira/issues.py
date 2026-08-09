@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import Any
 
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 
 from .client import JiraClient
@@ -12,15 +14,24 @@ from .config import JiraDeploymentType, JiraProjectConfig
 from .mappers import changelog_histories
 from .query import search_body, search_jql_body, validate_issue_key
 
-DISCOVERY_FIELDS = (
+logger = logging.getLogger("harborrag.adapters.connectors.jira")
+
+ISSUE_EXPAND = ("renderedFields", "names", "schema")
+DESCRIPTOR_FIELDS = (
     "summary",
     "issuetype",
     "status",
     "labels",
     "updated",
     "project",
+    "parent",
+    "subtasks",
+    "issuelinks",
+    "attachment",
 )
-ISSUE_EXPAND = ("renderedFields", "names", "schema")
+DISCOVERY_FIELDS = DESCRIPTOR_FIELDS
+DISCOVERY_DESCRIPTOR_KEY = "_jira_discovery_descriptor"
+_MAX_PROVIDER_PAGES = 10_000
 
 
 class JiraIssueAPI:
@@ -103,6 +114,15 @@ class JiraIssueAPI:
         )
         return response
 
+    def get_issue_descriptor(self, issue_key: str) -> dict[str, Any]:
+        """Fetch admission and relation fields without requesting issue prose."""
+
+        issue_key = validate_issue_key(issue_key)
+        return self.client.get_json(
+            f"issue/{issue_key}",
+            params={"fields": ",".join(DESCRIPTOR_FIELDS)},
+        )
+
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
         """Fetch comments for one issue, truncated to the configured cap."""
         issue_key = validate_issue_key(issue_key)
@@ -114,11 +134,18 @@ class JiraIssueAPI:
                 params={"startAt": start_at, "maxResults": self.config.page_size},
             )
             values = response.get("comments", [])
+            total = response.get("total")
+            logger.debug(
+                "JIRA comments page fetched issue_key=%s start=%d records=%d total=%s",
+                issue_key,
+                start_at,
+                len(values),
+                total,
+            )
             truncated = truncate_with_limit(comments, values, limit=self.config.max_comments)
             if truncated:
                 return comments
             start_at += len(values)
-            total = response.get("total")
             if total is not None and start_at >= int(total):
                 return comments
             if len(values) < self.config.page_size:
@@ -135,6 +162,13 @@ class JiraIssueAPI:
                 params={"startAt": start_at, "maxResults": self.config.page_size},
             )
             values = response.get("values") or response.get("histories") or []
+            logger.debug(
+                "JIRA changelog page fetched issue_key=%s start=%d records=%d total=%s",
+                issue_key,
+                start_at,
+                len(values),
+                response.get("total"),
+            )
             truncated = truncate_with_limit(
                 histories,
                 changelog_histories(response),
@@ -156,7 +190,12 @@ class JiraIssueAPI:
     def _search_cloud(self, jql: str) -> Iterator[dict[str, Any]]:
         """Paginate Jira Cloud's token-based ``/search/jql`` endpoint."""
         next_page_token: str | None = None
+        seen_tokens: set[str] = set()
+        pages = 0
         while True:
+            pages += 1
+            if pages > _MAX_PROVIDER_PAGES:
+                raise FetchError("JIRA search exceeded the pagination limit")
             response = self.client.post_json(
                 "search/jql",
                 json=search_jql_body(
@@ -167,11 +206,24 @@ class JiraIssueAPI:
                 ),
             )
             issues = response.get("issues") or []
+            logger.debug(
+                "JIRA search page fetched deployment=cloud records=%d has_next=%s",
+                len(issues),
+                bool(response.get("nextPageToken")) and not bool(response.get("isLast")),
+            )
             yield from issues
 
-            next_page_token = response.get("nextPageToken")
-            if response.get("isLast") or not next_page_token:
+            raw_token = response.get("nextPageToken")
+            if response.get("isLast") or not raw_token:
                 return
+            next_page_token = str(raw_token)
+            if (
+                next_page_token in seen_tokens
+                or len(next_page_token) > 4096
+                or any(ord(character) < 32 for character in next_page_token)
+            ):
+                raise FetchError("JIRA search pagination did not advance")
+            seen_tokens.add(next_page_token)
 
     def _search_datacenter(self, jql: str) -> Iterator[dict[str, Any]]:
         """Paginate Jira Data Center's offset-based ``/search`` endpoint."""
@@ -187,6 +239,12 @@ class JiraIssueAPI:
                 ),
             )
             issues = response.get("issues") or []
+            logger.debug(
+                "JIRA search page fetched deployment=datacenter start=%d records=%d total=%s",
+                start_at,
+                len(issues),
+                response.get("total"),
+            )
             if not issues:
                 return
             yield from issues

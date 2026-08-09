@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 
 import litellm
@@ -237,15 +238,29 @@ async def test_async_stream_cleanup_accepts_async_and_sync_fallbacks() -> None:
     assert all(state.values())
 
 
-def test_async_loop_runner_reuses_thread_and_rejects_work_after_stop() -> None:
+def test_async_loop_runner_owns_loop_and_rejects_work_after_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    caller_thread_id = threading.get_ident()
+    loop_creation_thread_ids: list[int] = []
+    new_event_loop = asyncio.new_event_loop
+
+    def record_loop_creation() -> asyncio.AbstractEventLoop:
+        loop_creation_thread_ids.append(threading.get_ident())
+        return new_event_loop()
+
+    monkeypatch.setattr(asyncio, "new_event_loop", record_loop_creation)
     runner = AsyncLoopRunner(thread_name="harbor-test-loop")
 
-    async def loop_identity() -> int:
-        return id(asyncio.get_running_loop())
+    async def loop_identity() -> tuple[int, int]:
+        return id(asyncio.get_running_loop()), threading.get_ident()
 
     assert runner.run(asyncio.sleep(0, result=3)) == 3
     assert runner.submit(asyncio.sleep(0, result=4)).result() == 4
-    assert runner.run(loop_identity()) == runner.run(loop_identity())
+    first_identity = runner.run(loop_identity())
+    assert first_identity == runner.run(loop_identity())
+    assert loop_creation_thread_ids == [first_identity[1]]
+    assert loop_creation_thread_ids != [caller_thread_id]
     runner.stop()
     runner.stop()
     with pytest.raises(RuntimeError, match="closed"):

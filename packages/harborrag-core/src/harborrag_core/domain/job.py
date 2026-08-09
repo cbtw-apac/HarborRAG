@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from harborrag_core.base import utc_now
 
-from .validation import require_id
+from .validation import require_id, require_tenant_id
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 JobType = Literal["bulk_ingest", "incremental_pull", "dry_run"]
@@ -35,6 +35,7 @@ class Job:
     source_id: str
     project_id: str
     job_type: JobType
+    tenant_id: str
     status: JobStatus = "queued"
     dry_run: bool = False
     attempts: int = 0
@@ -47,3 +48,4 @@ class Job:
 
     def __post_init__(self) -> None:
         require_id(self.id, label="Job")
+        require_tenant_id(self.tenant_id)

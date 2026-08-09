@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import os
+import stat
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 from harborrag_adapters.parsers.common.models import ParseRequest
-from harborrag_adapters.parsers.errors import TextDecodingError
+from harborrag_adapters.parsers.common.validation import (
+    DEFAULT_MAX_INPUT_BYTES,
+    guard_input_size,
+)
+from harborrag_adapters.parsers.errors import ParseError, TextDecodingError
 from harborrag_core.domain import ParseInput, ParserFormat
 
 _MAX_PATH_STRING_LENGTH = 260
@@ -100,19 +106,54 @@ def request_to_parse_input(request: ParseRequest) -> ParseInput:
     )
 
 
-def read_parse_input_bytes(value: ParseInput) -> bytes:
-    """Load parser bytes at the adapter boundary."""
+def read_parse_input_bytes(
+    value: ParseInput,
+    *,
+    max_bytes: int = DEFAULT_MAX_INPUT_BYTES,
+) -> bytes:
+    """Load and cache parser bytes through one capped, descriptor-bound read."""
     if isinstance(value.content, bytes):
-        return value.content
+        return guard_input_size(value.content, max_bytes=max_bytes)
     if isinstance(value.content, str):
-        return value.content.encode("utf-8")
+        return guard_input_size(value.content.encode("utf-8"), max_bytes=max_bytes)
     if value.path is not None:
-        return Path(value.path).read_bytes()
+        data = _read_guarded_path(Path(value.path), max_bytes=max_bytes)
+        # ParseInput is deliberately mutable. Caching creates one immutable
+        # snapshot for fallback engines and prevents a path swap between tries.
+        value.content = data
+        return data
     raise ValueError("ParseInput has no readable bytes")
 
 
+def _read_guarded_path(path: Path, *, max_bytes: int) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ParseError("Parser path input could not be opened safely") from error
+    try:
+        details = os.fstat(descriptor)
+        if not stat.S_ISREG(details.st_mode):
+            raise ParseError("Parser path input must be a regular file")
+        if details.st_size > max_bytes:
+            raise ParseError(f"Input size {details.st_size} exceeds max_input_bytes {max_bytes}")
+        with os.fdopen(descriptor, "rb", closefd=False) as file:
+            data = file.read(max_bytes + 1)
+        return guard_input_size(data, max_bytes=max_bytes)
+    finally:
+        os.close(descriptor)
+
+
 def read_parse_input_text(value: ParseInput, encoding: str | None = None) -> str:
-    """Decode parser input with deterministic BOM and confidence handling."""
+    """Decode parser input with deterministic BOM handling.
+
+    Text-based formats (Markdown, HTML, JSON, ...) are a deterministic UTF
+    input boundary: falling back to a statistical single-byte detector (e.g.
+    `charset_normalizer`) when UTF-8 decoding fails can turn corrupt UTF-8
+    into valid-looking but incorrect text (commonly Cyrillic CP1251, since it
+    maps every byte value) instead of surfacing the corruption. Callers
+    should catch `UnicodeDecodeError` and raise a typed parse error.
+    """
     if isinstance(value.content, str):
         return value.content
     data = read_parse_input_bytes(value)

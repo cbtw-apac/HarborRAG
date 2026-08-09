@@ -47,3 +47,20 @@ def test_python_files_includes_tracked_and_untracked_results(
         tmp_path / "tracked.py",
         tmp_path / "new.py",
     )
+
+
+def test_generated_alembic_revisions_are_exempt_from_the_length_gate(tmp_path: Path) -> None:
+    revisions = tmp_path / "control_plane" / "alembic" / "versions"
+    revisions.mkdir(parents=True)
+    migration = revisions / "0001_initial.py"
+    migration.write_text("x\n" * 10, encoding="utf-8")
+    ordinary = tmp_path / "ordinary.py"
+    ordinary.write_text("x\n" * 10, encoding="utf-8")
+
+    assert file_length.is_exempt(migration, root=tmp_path) is True
+    assert file_length.is_exempt(ordinary, root=tmp_path) is False
+    assert file_length.oversized_files(
+        (migration, ordinary),
+        maximum=3,
+        root=tmp_path,
+    ) == ("ordinary.py: 10 lines (maximum 3)",)

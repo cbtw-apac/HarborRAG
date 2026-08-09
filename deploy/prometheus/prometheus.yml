@@ -2,7 +2,7 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: harborrag-api
+  - job_name: harborrag-ingestion-worker
     metrics_path: /metrics
     static_configs:
-      - targets: ["api:8000"]
+      - targets: ["temporal-worker:9464"]

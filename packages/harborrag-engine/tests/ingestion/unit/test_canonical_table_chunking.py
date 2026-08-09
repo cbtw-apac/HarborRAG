@@ -4,7 +4,12 @@ from dataclasses import replace
 
 import pytest
 
-from harborrag_core.chunking import ChunkKind, TableProjectionType
+from harborrag_core.chunking import (
+    ChunkKind,
+    ConnectorType,
+    DocumentKind,
+    TableProjectionType,
+)
 from harborrag_engine.ingestion.chunking import (
     CanonicalTableChunker,
     TableShape,
@@ -42,9 +47,9 @@ def test_small_table_produces_route_and_bounded_evidence_chunk_with_exact_contex
     assert evidence.chunk_kind == ChunkKind.TABLE
     assert evidence.content == "Service\tCPU (cores)\nworker\t2\napi\t4"
     assert evidence.embedding_text.startswith("Connector: Confluence")
-    assert "Page: Deployment Guide" in evidence.contextual_prefix
-    assert "Section: Resource Limits" in evidence.contextual_prefix
-    assert "Table: Worker Configuration" in evidence.contextual_prefix
+    assert "Document: Deployment Guide" in evidence.embedding_text
+    assert "Section: Resource Limits" in evidence.embedding_text
+    assert "Table: Worker Configuration" in evidence.embedding_text
     assert evidence.table_locator is not None
     assert (evidence.table_locator.row_start, evidence.table_locator.row_end) == (1, 2)
     assert evidence.table_locator.selected_columns == ("Service", "CPU (cores)")
@@ -266,3 +271,20 @@ def test_table_chunk_identity_is_deterministic_and_strategy_sensitive():
         chunk.chunk_id for chunk in changed.chunks
     ]
     assert all(report.provenance_score == 1 for report in first.quality.values())
+
+
+def test_table_factory_uses_request_source_context_for_jira() -> None:
+    artifact = make_artifact(["Environment", "Value"], [["production", "ready"]])
+    request = replace(
+        make_request(artifact),
+        connector_type=ConnectorType.JIRA,
+        document_kind=DocumentKind.JIRA_ISSUE,
+        document_title="HARBOR-42",
+        source_context={"project": "HARBOR"},
+    )
+
+    result = CanonicalTableChunker(CharacterTokenCounter()).chunk(request, make_plan())
+
+    assert all(chunk.connector_type == ConnectorType.JIRA for chunk in result.chunks)
+    assert all(chunk.document_kind == DocumentKind.JIRA_ISSUE for chunk in result.chunks)
+    assert all("Project: HARBOR" in chunk.embedding_text for chunk in result.chunks)

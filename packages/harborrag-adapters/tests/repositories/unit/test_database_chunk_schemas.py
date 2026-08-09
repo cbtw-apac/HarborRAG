@@ -1,34 +1,55 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from harborrag_adapters.repositories.database.sqlalchemy.schemas import (
     chunk_from_row,
     chunk_metadata,
 )
-from harborrag_core.schemas.documents import ChunkContext, ChunkRecord, ChunkSourceSpan
+from harborrag_core.chunking import (
+    ChunkHierarchy,
+    ChunkKind,
+    ChunkRecord,
+    ChunkSecurity,
+    CitationLocator,
+    ConnectorType,
+    DocumentKind,
+    RecordKind,
+)
 
 
-def _legacy_chunk(
+def _chunk(
     *,
-    source_span: ChunkSourceSpan | None = None,
-    context: ChunkContext | None = None,
+    citation_locator: CitationLocator | None = None,
+    hierarchy: ChunkHierarchy | None = None,
     metadata: dict[str, object] | None = None,
 ) -> ChunkRecord:
-    return ChunkRecord.from_legacy(
-        logical_chunk_id="logical-1",
-        chunk_revision_id="revision-1",
+    return ChunkRecord(
+        strategy_version="strategy-1",
+        logical_chunk_id="logical-chunk:1",
+        chunk_id="chunk:1",
+        connector_type=ConnectorType.LOCAL,
+        document_kind=DocumentKind.LOCAL_FILE,
+        record_kind=RecordKind.EVIDENCE,
+        chunk_kind=ChunkKind.TEXT,
         tenant_id="tenant-a",
+        connection_id="connection-1",
+        source_scope_id="scope-1",
+        source_item_id="guide.md",
+        source_version="source-version-1",
         document_id="doc-1",
         document_version_id="doc-version-1",
-        artifact_id="artifact-1",
-        artifact_revision_id="artifact-version-1",
         ordinal=0,
-        role="section",
         content="content",
+        embedding_text="Guide\n\ncontent",
+        search_text="Guide content",
         content_hash="hash",
         token_count=1,
-        source_span=source_span,
-        context=context,
-        metadata=metadata,
+        citation_locator=citation_locator or CitationLocator(),
+        hierarchy=hierarchy or ChunkHierarchy(),
+        security=ChunkSecurity(permission_set_id="permission-set:public"),
+        metadata=metadata or {},
     )
 
 
@@ -48,22 +69,22 @@ def _stored_chunk_row(
         "content_hash": record.content_hash,
         "token_count": token_count,
         "metadata": metadata,
-        "created_at": record.created_at,
+        "created_at": None,
     }
 
 
 def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
-    record = _legacy_chunk(
-        source_span=ChunkSourceSpan(
+    record = _chunk(
+        citation_locator=CitationLocator(
             start_offset=8,
             end_offset=15,
             start_line=4,
             end_line=5,
             source_element_ids=("element-1",),
         ),
-        context=ChunkContext(
-            title="HarborRAG",
-            structural_path=("Guide",),
+        hierarchy=ChunkHierarchy(
+            document_title="HarborRAG",
+            section_path=("Guide",),
         ),
         metadata={"source": "parser", "nested": {"values": [1, 2]}},
     )
@@ -81,15 +102,15 @@ def test_canonical_chunk_fields_round_trip_through_storage_metadata() -> None:
 
 
 def test_canonical_chunk_null_storage_token_count_normalizes_to_zero() -> None:
-    record = _legacy_chunk()
+    record = _chunk()
 
     loaded = chunk_from_row(_stored_chunk_row(record, chunk_metadata(record), token_count=None))
 
     assert loaded.token_count == 0
 
 
-def test_legacy_chunk_storage_metadata_uses_the_core_migration_boundary() -> None:
-    row_record = _legacy_chunk()
+def test_legacy_chunk_storage_metadata_is_rejected() -> None:
+    row_record = _chunk()
     old_metadata = {
         "source_kind": "jira",
         "_harborrag_chunk": {
@@ -102,12 +123,7 @@ def test_legacy_chunk_storage_metadata_uses_the_core_migration_boundary() -> Non
         },
     }
 
-    loaded = chunk_from_row(
-        _stored_chunk_row(row_record, old_metadata, token_count=row_record.token_count)
-    )
-
-    assert loaded.logical_chunk_id == "legacy-logical"
-    assert loaded.artifact_id == "legacy-artifact"
-    assert loaded.role == "jira.comment"
-    assert loaded.source_locator.start_offset == 0
-    assert loaded.hierarchy.document_title == "Legacy issue"
+    with pytest.raises(ValidationError):
+        chunk_from_row(
+            _stored_chunk_row(row_record, old_metadata, token_count=row_record.token_count)
+        )

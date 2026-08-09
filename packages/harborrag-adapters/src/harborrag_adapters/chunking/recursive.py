@@ -11,18 +11,12 @@ from harborrag_core.contracts.chunking import (
     TokenCounter,
 )
 
-from .base import HarborBaseChunk
-
 _PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "? ", "! ", " ", "")
 _STRUCTURED_SEPARATORS = ("\n", "")
 
 
-class RecursiveTextRefiner(HarborBaseChunk[TextRefinementRequest]):
+class RecursiveTextRefiner:
     """Use recursive character splitting only to refine oversized text units."""
-
-    chunk_name = "recursive"
-    required_dependency = "langchain_text_splitters"
-    request_type = TextRefinementRequest
 
     def __init__(
         self,
@@ -30,7 +24,7 @@ class RecursiveTextRefiner(HarborBaseChunk[TextRefinementRequest]):
         *,
         splitter_factory: Callable[..., Any] | None = None,
     ) -> None:
-        super().__init__(token_counter)
+        self._token_counter = token_counter
         self._splitter_factory = splitter_factory
 
     def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
@@ -179,7 +173,8 @@ class RecursiveTextRefiner(HarborBaseChunk[TextRefinementRequest]):
             coverage_end = max(coverage_end, end)
         if coverage_end != source_size:
             raise ValueError(
-                f"recursive split lost trailing source content: covered {coverage_end} of {source_size}"
+                "recursive split lost trailing source content: "
+                f"covered {coverage_end} of {source_size}"
             )
 
     @staticmethod

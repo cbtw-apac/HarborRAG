@@ -38,7 +38,7 @@ def test_build_jql_supports_incremental_sync_and_rejects_bad_project_key():
         build_jql(project_keys=['ENG" OR project = "OPS'])
 
 
-def test_jql_from_query_normalizes_string_and_list_filters_and_prefers_raw_jql():
+def test_jql_from_query_wraps_raw_jql_in_the_project_boundary():
     connector = JiraConnector(cloud_config(), client=FakeJiraClient())
 
     jql = connector._jql_from_query(
@@ -51,7 +51,7 @@ def test_jql_from_query_normalizes_string_and_list_filters_and_prefers_raw_jql()
         )
     )
 
-    assert jql == "key = ENG-5"
+    assert jql == ('project in ("ENG") and (key = ENG-5) order by updated ASC, key ASC')
 
 
 def test_format_query_timestamp_assumes_utc_for_naive_datetime():
@@ -65,6 +65,13 @@ def test_is_cloud_hostname_returns_false_for_unparseable_url():
 
 def test_build_jql_returns_raw_jql_verbatim():
     assert build_jql(raw_jql="key = ENG-9") == "key = ENG-9"
+
+
+def test_build_jql_preserves_raw_ordering_inside_project_boundary():
+    assert build_jql(
+        project_keys=["ENG"],
+        raw_jql="statusCategory != Done ORDER BY priority DESC",
+    ) == ('project in ("ENG") and (statusCategory != Done) ORDER BY priority DESC')
 
 
 def test_build_jql_supports_filters_without_project_keys():

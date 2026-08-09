@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageCapabilityError,
@@ -18,22 +18,24 @@ from harborrag_adapters.repositories.vector.qdrant.collections import (
     QdrantCollectionMixin,
 )
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
+from harborrag_adapters.repositories.vector.qdrant.health import qdrant_health
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
-from harborrag_core.schemas.storage import (
-    HealthStatus,
-    RepositoryHealth,
-    StorageFamily,
-    StorageOperationContext,
-)
-from harborrag_core.schemas.vector import (
+from harborrag_core.indexing import (
     HybridSearchQuery,
-    VectorCollectionSpec,
-    VectorPoint,
-    VectorScanPage,
+    SparseSearchQuery,
+    VectorFilter,
+    VectorIndexRecord,
+    VectorIndexScanPage,
+    VectorIndexSpec,
     VectorSearchQuery,
     VectorSearchResult,
     VectorStoreCapabilities,
+)
+from harborrag_core.storage import (
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
 )
 
 qm: Any
@@ -71,7 +73,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
             prefer_grpc=config.prefer_grpc,
             operation_timeout_seconds=config.operation_timeout_seconds,
         )
-        self._specs: dict[tuple[str, str], VectorCollectionSpec] = {}
+        self._specs: dict[tuple[str, str], VectorIndexSpec] = {}
         self._collection_locks = {}
         self._queries = QdrantQueryExecutor(
             client=self._database,
@@ -82,14 +84,15 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
     @property
     def capabilities(self) -> VectorStoreCapabilities:
         return VectorStoreCapabilities(
-            dense_vectors=True,
-            sparse_vectors=False,
-            named_vectors=False,
-            hybrid_search=False,
-            metadata_filtering=True,
-            collection_aliases=False,
-            quantization=False,
-            pagination=True,
+            supports_dense_vectors=True,
+            supports_sparse_vectors=True,
+            supports_named_vectors=True,
+            supports_hybrid_search=True,
+            supports_metadata_filtering=True,
+            supports_delete_by_filter=True,
+            supports_index_aliases=False,
+            supports_quantization=False,
+            supports_pagination=True,
         )
 
     async def connect(self) -> None:
@@ -99,172 +102,120 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         await self._database.close()
 
     async def health(self) -> RepositoryHealth:
-        if not self._database.is_connected:
-            return RepositoryHealth(
-                family=StorageFamily.VECTOR,
-                backend="qdrant",
-                instance_name=self._config.instance_name,
-                status=HealthStatus.UNKNOWN,
-                details={
-                    "deployment": self._database.deployment,
-                    "storage": self._database.storage,
-                },
-            )
-        try:
-            await self._database.ping()
-            status = HealthStatus.HEALTHY
-            details: dict[str, Any] = {}
-        except Exception as exc:  # pragma: no cover - integration behavior
-            status = HealthStatus.UNHEALTHY
-            details = {"error_type": type(exc).__name__}
-        return RepositoryHealth(
-            family=StorageFamily.VECTOR,
-            backend="qdrant",
-            instance_name=self._config.instance_name,
-            status=status,
-            details={
-                **details,
-                "deployment": self._database.deployment,
-                "storage": self._database.storage,
-            },
-        )
+        return await qdrant_health(self._database, self._config)
 
-    @traced_repository_operation("upsert")
-    async def upsert(
+    @traced_repository_operation("upsert_records")
+    async def upsert_records(
         self,
-        collection: str,
-        points: Sequence[VectorPoint],
+        index_name: str,
+        records: Sequence[VectorIndexRecord],
         *,
         context: StorageOperationContext,
     ) -> None:
-        spec = await self._queries.require_spec(collection, context)
+        spec = await self._queries.require_spec(index_name, context)
         qdrant_points = []
-        for point in points:
+        for point in records:
             ensure_tenant(
                 point.tenant_id,
                 context,
-                error_context=self._queries.error_context("upsert", collection, context=context),
+                error_context=self._queries.error_context(
+                    "upsert_records", index_name, context=context
+                ),
             )
             self._queries.assert_dimension(spec, point.vector)
+            vector: (
+                list[float]
+                | dict[
+                    str,
+                    list[float] | qm.SparseVector,
+                ]
+            ) = point.vector
+            if spec.dense_vector_name is not None:
+                reserved = {
+                    spec.dense_vector_name,
+                    spec.sparse_vector_name,
+                }
+                if any(name in reserved for name in point.named_vectors):
+                    raise HarborStorageCapabilityError(
+                        "point named vectors must not replace collection-owned lanes",
+                        context=self._queries.error_context(
+                            "upsert_records", index_name, context=context
+                        ),
+                    )
+                vector = {
+                    spec.dense_vector_name: point.vector,
+                    **point.named_vectors,
+                }
+                if spec.sparse_vector_name is not None:
+                    if point.sparse_vector is None:
+                        raise HarborStorageCapabilityError(
+                            "the collection requires a sparse vector for every point",
+                            context=self._queries.error_context(
+                                "upsert_records", index_name, context=context
+                            ),
+                        )
+                    vector[spec.sparse_vector_name] = qm.SparseVector(
+                        indices=point.sparse_vector.indices,
+                        values=point.sparse_vector.values,
+                    )
             qdrant_points.append(
-                qm.PointStruct(
-                    id=QdrantMapper.point_id(str(context.tenant_id), point.id),
-                    vector=point.vector,
-                    payload={
-                        **point.payload,
-                        "_harbor_tenant_id": str(context.tenant_id),
-                        "_harbor_point_id": point.id,
-                    },
+                QdrantMapper.point(
+                    point,
+                    cast("qm.VectorStruct", vector),
+                    qm,
                 )
             )
         await self._database.raw.upsert(
-            collection_name=self._queries.collection_name(collection, context),
+            collection_name=self._queries.collection_name(index_name, context),
             points=qdrant_points,
             wait=True,
         )
 
-    @traced_repository_operation("activate_generation")
-    async def activate_generation(
+    @traced_repository_operation("get_records")
+    async def get_records(
         self,
-        collection: str,
-        *,
-        artifact_id: str,
-        generation_id: str,
-        activate_ids: Sequence[str],
-        retire_ids: Sequence[str],
-        delete_ids: Sequence[str],
-        tombstone_ids: Sequence[str],
-        context: StorageOperationContext,
-    ) -> None:
-        """Apply a validated, idempotent vector visibility plan."""
-
-        physical_name = self._queries.collection_name(collection, context)
-        client = self._database.raw
-        await self._set_index_state(
-            client,
-            physical_name,
-            activate_ids,
-            artifact_id=artifact_id,
-            generation_id=generation_id,
-            index_state="active",
-            is_active=True,
-            context=context,
-        )
-        await self._set_index_state(
-            client,
-            physical_name,
-            retire_ids,
-            artifact_id=artifact_id,
-            generation_id=None,
-            index_state="retired",
-            is_active=False,
-            context=context,
-        )
-        await self._set_index_state(
-            client,
-            physical_name,
-            tombstone_ids,
-            artifact_id=artifact_id,
-            generation_id=None,
-            index_state="tombstoned",
-            is_active=False,
-            context=context,
-            extra_payload={"tombstone": True},
-        )
-        if delete_ids:
-            await self.delete(collection, delete_ids, context=context)
-
-    @traced_repository_operation("get")
-    async def get(
-        self,
-        collection: str,
+        index_name: str,
         ids: Sequence[str],
         *,
         context: StorageOperationContext,
-    ) -> list[VectorPoint]:
-        return await self._queries.get(collection, ids, context=context)
+    ) -> list[VectorIndexRecord]:
+        return await self._queries.get(index_name, ids, context=context)
 
-    @traced_repository_operation("delete")
-    async def delete(
+    @traced_repository_operation("delete_records")
+    async def delete_records(
         self,
-        collection: str,
+        index_name: str,
         ids: Sequence[str],
         *,
         context: StorageOperationContext,
     ) -> None:
         await self._database.raw.delete(
-            collection_name=self._queries.collection_name(collection, context),
+            collection_name=self._queries.collection_name(index_name, context),
             points_selector=qm.FilterSelector(
                 filter=qm.Filter(
                     must=[
-                        qm.HasIdCondition(
-                            has_id=[
-                                QdrantMapper.point_id(str(context.tenant_id), item) for item in ids
-                            ]
-                        ),
-                        qm.FieldCondition(
-                            key="_harbor_tenant_id",
-                            match=qm.MatchValue(value=str(context.tenant_id)),
-                        ),
+                        qm.HasIdCondition(has_id=[QdrantMapper.point_id(item) for item in ids]),
                     ]
                 )
             ),
             wait=True,
         )
 
-    @traced_repository_operation("scan")
-    async def scan(
+    @traced_repository_operation("scan_records")
+    async def scan_records(
         self,
-        collection: str,
+        index_name: str,
         *,
         limit: int,
         cursor: str | None,
+        filters: VectorFilter | None = None,
         context: StorageOperationContext,
-    ) -> VectorScanPage:
+    ) -> VectorIndexScanPage:
         return await self._queries.scan(
-            collection,
+            index_name,
             limit=limit,
             cursor=cursor,
+            filters=filters,
             context=context,
         )
 
@@ -277,6 +228,15 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
     ) -> list[VectorSearchResult]:
         return await self._queries.search(query, context=context)
 
+    @traced_repository_operation("sparse_search")
+    async def sparse_search(
+        self,
+        query: SparseSearchQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> list[VectorSearchResult]:
+        return await self._queries.sparse_search(query, context=context)
+
     @traced_repository_operation("hybrid_search")
     async def hybrid_search(
         self,
@@ -284,58 +244,4 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         *,
         context: StorageOperationContext,
     ) -> list[VectorSearchResult]:
-        del query, context
-        raise HarborStorageCapabilityError(
-            "this baseline Qdrant adapter exposes dense search only; add named sparse vectors "
-            "to the collection schema before enabling provider-native fusion",
-            context=self._queries.error_context("hybrid_search"),
-        )
-
-    async def _set_index_state(
-        self,
-        client: Any,
-        collection: str,
-        point_ids: Sequence[str],
-        *,
-        artifact_id: str,
-        generation_id: str | None,
-        index_state: str,
-        is_active: bool,
-        context: StorageOperationContext,
-        extra_payload: dict[str, Any] | None = None,
-    ) -> None:
-        if not point_ids:
-            return
-        must: list[Any] = [
-            qm.HasIdCondition(
-                has_id=[
-                    QdrantMapper.point_id(str(context.tenant_id), identity)
-                    for identity in point_ids
-                ]
-            ),
-            qm.FieldCondition(
-                key="_harbor_tenant_id",
-                match=qm.MatchValue(value=str(context.tenant_id)),
-            ),
-            qm.FieldCondition(
-                key="artifact_id",
-                match=qm.MatchValue(value=artifact_id),
-            ),
-        ]
-        if generation_id is not None:
-            must.append(
-                qm.FieldCondition(
-                    key="generation_id",
-                    match=qm.MatchValue(value=generation_id),
-                )
-            )
-        await client.set_payload(
-            collection_name=collection,
-            payload={
-                "index_state": index_state,
-                "is_active": is_active,
-                **(extra_payload or {}),
-            },
-            points=qm.Filter(must=must),
-            wait=True,
-        )
+        return await self._queries.hybrid_search(query, context=context)

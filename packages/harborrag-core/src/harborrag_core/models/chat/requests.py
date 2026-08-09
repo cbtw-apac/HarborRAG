@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
 
-from ..headers import ModelHeaderValue, protect_model_headers
+from ..headers import ProtectedModelHeaders
 from ..metadata import ModelRequestMetadata
 from .messages import HarborChatMessage
 from .tools import HarborChatTool
@@ -67,18 +67,12 @@ class HarborChatRequest(StrictModel):
     parallel_tool_calls: bool | None = None
     response_format: dict[str, Any] | type[BaseModel] | None = None
     reasoning_effort: str | None = None
-    custom_headers: dict[str, ModelHeaderValue] = Field(default_factory=dict)
+    custom_headers: ProtectedModelHeaders = Field(default_factory=dict)
     metadata: HarborChatMetadata = Field(default_factory=HarborChatMetadata)
     token_budget: HarborTokenBudget | None = None
     cacheable: bool = False
     sensitive: bool = False
     extra_params: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("custom_headers", mode="before")
-    @classmethod
-    def protect_headers(cls, value: Any) -> Any:
-        """Wrap credential-bearing header values before validation."""
-        return protect_model_headers(value)
 
     @field_validator("messages", mode="before")
     @classmethod

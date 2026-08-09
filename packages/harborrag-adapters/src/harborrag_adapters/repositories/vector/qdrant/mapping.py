@@ -4,12 +4,12 @@ import math
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import (
+from harborrag_core.indexing import (
     FilterOperator,
     VectorDistance,
     VectorFilter,
     VectorFilterCondition,
+    VectorIndexRecord,
 )
 
 
@@ -17,9 +17,24 @@ class QdrantMapper:
     """Translates HarborRAG vector schemas into Qdrant SDK objects."""
 
     @classmethod
-    def point_id(cls, tenant_id: str, logical_id: str) -> UUID:
-        """Map an arbitrary tenant-scoped HarborRAG ID to a stable Qdrant UUID."""
-        return uuid5(NAMESPACE_URL, f"harborrag:qdrant:{tenant_id}:{logical_id}")
+    def point_id(cls, logical_id: str) -> UUID:
+        """Map a canonical point identity to one stable Qdrant UUID."""
+
+        try:
+            return UUID(logical_id)
+        except ValueError:
+            pass
+        return uuid5(NAMESPACE_URL, f"harborrag:qdrant:{logical_id}")
+
+    @classmethod
+    def point(cls, point: VectorIndexRecord, vector: Any, models: Any) -> Any:
+        """Map one validated projection point without decorating its payload."""
+
+        return models.PointStruct(
+            id=cls.point_id(point.id),
+            vector=vector,
+            payload=dict(point.payload),
+        )
 
     @classmethod
     def distance(cls, distance: VectorDistance, models: Any) -> Any:
@@ -47,18 +62,13 @@ class QdrantMapper:
     def filter(
         cls,
         filter_value: VectorFilter | None,
-        context: StorageOperationContext,
         models: Any,
-    ) -> Any:
-        """Build a provider filter that always includes tenant isolation."""
-        tenant = models.FieldCondition(
-            key="_harbor_tenant_id",
-            match=models.MatchValue(value=str(context.tenant_id)),
-        )
+    ) -> Any | None:
+        """Build a provider filter inside an already tenant-scoped collection."""
         if filter_value is None:
-            return models.Filter(must=[tenant])
+            return None
         return models.Filter(
-            must=[tenant, *[cls.condition(item, models) for item in filter_value.must]],
+            must=[cls.condition(item, models) for item in filter_value.must] or None,
             should=[cls.condition(item, models) for item in filter_value.should] or None,
             must_not=[cls.condition(item, models) for item in filter_value.must_not] or None,
         )

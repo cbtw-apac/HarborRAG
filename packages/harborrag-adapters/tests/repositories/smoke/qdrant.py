@@ -20,8 +20,8 @@ from harborrag_adapters.repositories.vector.qdrant import (
 )
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import (
-    VectorCollectionSpec,
-    VectorPoint,
+    VectorIndexRecord,
+    VectorIndexSpec,
     VectorSearchQuery,
 )
 
@@ -37,7 +37,7 @@ async def _run() -> tuple[str, str]:
     suffix = probe_suffix()
     collection = env("HARBOR_SMOKE_QDRANT_COLLECTION", "repository_probe")
     point_id = f"point-{suffix}"
-    context = StorageOperationContext(tenant_id=f"smoke-{suffix}")
+    context = StorageOperationContext.system(tenant_id=f"smoke-{suffix}")
     backend = QdrantVectorRepository(
         QdrantVectorConfig(
             instance_name="smoke",
@@ -48,14 +48,14 @@ async def _run() -> tuple[str, str]:
     )
     async with backend:
         require_healthy(await backend.health())
-        await backend.ensure_collection(
-            VectorCollectionSpec(name=collection, dimension=3),
+        await backend.ensure_index(
+            VectorIndexSpec(index_name=collection, dimension=3),
             context=context,
         )
         await backend.upsert(
             collection,
             [
-                VectorPoint(
+                VectorIndexRecord(
                     id=point_id,
                     tenant_id=context.tenant_id,
                     vector=[1.0, 0.0, 0.0],
@@ -70,7 +70,7 @@ async def _run() -> tuple[str, str]:
                 raise AssertionError("Qdrant point did not round-trip")
             results = await backend.search(
                 VectorSearchQuery(
-                    collection=collection,
+                    index_name=collection,
                     vector=[1.0, 0.0, 0.0],
                     top_k=1,
                 ),
@@ -80,7 +80,7 @@ async def _run() -> tuple[str, str]:
                 raise AssertionError("Qdrant search did not return the smoke point")
         finally:
             await backend.delete(collection, [point_id], context=context)
-            await backend.delete_collection(collection, context=context)
+            await backend.delete_index(collection, context=context)
     return collection, point_id
 
 

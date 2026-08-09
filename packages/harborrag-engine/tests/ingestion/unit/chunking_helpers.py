@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from typing import Any
 
 from harborrag_core.contracts.chunking import (
-    JsonStructureSplitRequest,
-    JsonStructureSplitter,
     SourceSpan,
     SplitBoundaryKind,
-    StructureSplitRequest,
-    StructureSplitter,
     TextRefinementRequest,
     TextRefiner,
     TextSplit,
 )
+from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.normalized_document import Document
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_engine.ingestion.chunking import (
     ChunkingConfig,
@@ -23,7 +18,8 @@ from harborrag_engine.ingestion.chunking import (
     ChunkingProfile,
     ChunkingRequest,
     ChunkingService,
-    build_default_chunking_service,
+    ChunkStrategy,
+    build_chunking_service,
 )
 
 
@@ -60,61 +56,6 @@ class CharacterRefiner:
         return tuple(results)
 
 
-class RootJsonSplitter:
-    def split(self, request: JsonStructureSplitRequest) -> tuple[TextSplit, ...]:
-        value: Mapping[str, Any] | Sequence[Any] = request.value
-        return (
-            TextSplit(
-                content=str(value),
-                token_count=len(str(value)),
-                source_span=request.source_span,
-                boundary_kind=SplitBoundaryKind.JSON_PATH,
-                structural_path=("root",),
-            ),
-        )
-
-
-class StaticStructureSplitter:
-    def split(self, request: StructureSplitRequest) -> tuple[TextSplit, ...]:
-        return (
-            TextSplit(
-                content="Recovered section",
-                token_count=len("Recovered section"),
-                source_span=request.source_span,
-                boundary_kind=SplitBoundaryKind.SECTION,
-                structural_path=("Guide", "Setup"),
-            ),
-        )
-
-
-class EchoStructureSplitter:
-    def __init__(self) -> None:
-        self.contents: list[str] = []
-
-    def split(self, request: StructureSplitRequest) -> tuple[TextSplit, ...]:
-        self.contents.append(request.content)
-        return (
-            TextSplit(
-                content=request.content,
-                token_count=len(request.content),
-                source_span=request.source_span,
-                boundary_kind=SplitBoundaryKind.SECTION,
-            ),
-        )
-
-
-class EmptyStructureSplitter:
-    def split(self, request: StructureSplitRequest) -> tuple[TextSplit, ...]:
-        del request
-        return ()
-
-
-class EmptyJsonSplitter:
-    def split(self, request: JsonStructureSplitRequest) -> tuple[TextSplit, ...]:
-        del request
-        return ()
-
-
 def make_document(
     elements: list[DocumentElement],
     *,
@@ -142,12 +83,16 @@ def make_request(
     document: Document,
     *,
     profile_name: str | None = None,
-    artifact_revision_id: str = "revision-1",
+    document_version_id: str = "document-version:1",
 ) -> ChunkingRequest:
+    source = document.provenance.source.lower()
+    connector_type = (
+        "confluence" if "confluence" in source else "jira" if "jira" in source else "local"
+    )
     return ChunkingRequest(
         tenant_id="tenant-1",
-        artifact_id=document.id,
-        artifact_revision_id=artifact_revision_id,
+        document_version_id=document_version_id,
+        connector_type=connector_type,
         document=document,
         profile_name=profile_name,
     )
@@ -155,8 +100,8 @@ def make_request(
 
 def make_profile(
     *,
-    name: str = "document",
-    strategy: str = "document",
+    name: str = "canonical",
+    strategy: str = "canonical",
     minimum: int = 2,
     target: int = 20,
     maximum: int = 25,
@@ -173,12 +118,14 @@ def make_config(
     profile: ChunkingProfile,
     *,
     configuration_version: str = "1",
+    create_route_chunks: bool = False,
 ) -> ChunkingConfig:
     return ChunkingConfig(
         configuration_version=configuration_version,
         default_profile=profile.name,
+        create_route_chunks=create_route_chunks,
         profiles={profile.name: profile},
-        routes=(),
+        source_profiles={},
     )
 
 
@@ -186,17 +133,18 @@ def make_service(
     profile: ChunkingProfile,
     *,
     configuration_version: str = "1",
-    json_splitter: JsonStructureSplitter | None = None,
-    markdown_splitter: StructureSplitter | None = None,
-    html_splitter: StructureSplitter | None = None,
     refiner: TextRefiner | None = None,
+    create_route_chunks: bool = False,
+    additional_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> ChunkingService:
     selected_refiner = CharacterRefiner() if refiner is None else refiner
-    return build_default_chunking_service(
-        config=make_config(profile, configuration_version=configuration_version),
+    return build_chunking_service(
+        config=make_config(
+            profile,
+            configuration_version=configuration_version,
+            create_route_chunks=create_route_chunks,
+        ),
         token_counter=CharacterCounter(),
         refiner=selected_refiner,
-        json_splitter=json_splitter,
-        markdown_splitter=markdown_splitter,
-        html_splitter=html_splitter,
+        additional_strategies=additional_strategies,
     )

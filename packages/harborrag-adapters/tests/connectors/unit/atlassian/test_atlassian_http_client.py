@@ -71,3 +71,19 @@ def test_atlassian_downloads_refuse_redirects(factory, path):
         client.download_bytes(f"https://ex.atlassian.net{path}")
 
     assert client.session.calls[0]["allow_redirects"] is False
+
+
+@pytest.mark.parametrize(
+    "factory,path",
+    [(confluence_client, "/wiki/download/a"), (jira_client, "/secure/a")],
+)
+def test_retryable_response_is_closed_before_the_next_attempt(factory, path):
+    client = factory()
+    retried = FakeResponse(status_code=503, headers={})
+    succeeded = FakeResponse(status_code=200, _chunks=[b"payload"])
+    client.session = FakeSession(responses=[retried, succeeded])
+
+    body = client.download_bytes(f"https://ex.atlassian.net{path}")
+
+    assert body == b"payload"
+    assert retried.closed is True

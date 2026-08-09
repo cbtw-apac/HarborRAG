@@ -217,7 +217,6 @@ def test_confluence_acquire_sleeps_when_requests_arrive_faster_than_budget(monke
 
     client = _confluence_client()
     client.config.requests_per_minute = 1
-    client._min_interval = 60.0 / 1
     client.session = FakeSession(
         responses=[
             FakeResponse(status_code=200, _json={"a": 1}),

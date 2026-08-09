@@ -23,6 +23,7 @@ from .config import LocalFileConfig
 from .filesystem import LocalFileSystem
 from .filesystem_paths import guess_mime_type
 from .mappers import build_document_metadata, path_from_record
+from .relations import LocalDocumentRelationResolver
 
 logger = logging.getLogger("harborrag.adapters.connectors.local")
 
@@ -50,6 +51,7 @@ class LocalFileConnector(BaseConnector):
         self._files = LocalFileSystem(config)
         self.source_path = self._files.source_path
         self.root_path = self._files.root_path
+        self._relations = LocalDocumentRelationResolver(self.root_path)
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Discover files under the configured source path or explicit paths."""
@@ -88,13 +90,20 @@ class LocalFileConnector(BaseConnector):
             stat_result=snapshot.stat,
         )
 
+        media_type = guess_mime_type(path)
+        metadata_payload = metadata.to_dict()
+        metadata_payload["relations"] = self._relations.relations(
+            source_path=path,
+            content=snapshot.content,
+            media_type=media_type,
+        )
         return RawDocument(
             id=record.id,
-            source=path.as_uri(),
+            source=f"local:///{metadata.relative_path}",
             content=snapshot.content,
-            content_type=guess_mime_type(path),
-            metadata=metadata.to_dict(),
-            raw={"path": str(path)},
+            content_type=media_type,
+            metadata=metadata_payload,
+            raw={"relative_path": metadata.relative_path},
         )
 
     def close(self) -> None:

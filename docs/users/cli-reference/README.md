@@ -12,6 +12,47 @@ While artifacts are processed concurrently, their preflight-through-finalize
 stages are marked `in flight` instead of presenting one misleading global
 current stage. Disable one-shot output color with `harborrag --no-color ...`.
 
+## Chat
+
+```bash
+harborrag chat MESSAGE \
+  [--tenant TENANT_ID] \
+  [--session SESSION_ID] \
+  [--json]
+```
+
+`chat` makes one non-streaming, retrieval-grounded call using the server-owned
+default system prompt. It defaults to tenant `DEFAULT`. Omit `--session` on
+the first turn to generate one; pass the
+returned session ID on later calls to recall the two latest completed turns.
+
+```bash
+harborrag chat "Explain HarborRAG in one paragraph." --json
+```
+
+Provider settings and credentials come from `config/models.yaml` and the
+process environment; they cannot be supplied as command options. See the
+[Chat guide](../chat/README.md).
+
+## Retrieval
+
+```bash
+harborrag retrieve QUERY \
+  [--tenant TENANT_ID] \
+  [--top-k 1..100] \
+  [--lane dense|sparse|hybrid] \
+  [--filters-json JSON] \
+  [--graph | --no-graph] \
+  [--include-content] \
+  [--include-metadata] \
+  [--json]
+```
+
+Retrieval defaults to tenant `DEFAULT`, 10 hybrid results, and graph-context
+observation. Content and metadata are excluded unless explicitly requested.
+`--filters-json` must be a JSON object and cannot contain `tenant_id`; tenant
+scope is always supplied through `--tenant`.
+
 ## Diagnostics
 
 ```bash
@@ -27,8 +68,13 @@ harborrag ingest start \
   --tenant TENANT_ID \
   --connector CONNECTOR_NAME \
   [--run-id RUN_ID] \
-  [--manifest-id MANIFEST_ID] \
-  [--generation-id GENERATION_ID] \
+  [--connection-id CONNECTION_ID] \
+  [--source-scope-id SOURCE_SCOPE_ID] \
+  [--path PATH] [--pattern PATTERN] \
+  [--recursive | --no-recursive] \
+  [--attachments | --no-attachments] \
+  [--filters-json JSON] [--force-reprocess] \
+  [--limit COUNT] \
   [--wait] [--json]
 
 harborrag ingest status RUN_ID [--json]
@@ -36,13 +82,14 @@ harborrag ingest wait RUN_ID [--json]
 harborrag ingest watch RUN_ID [--refresh SECONDS]
 harborrag ingest pause RUN_ID [--json]
 harborrag ingest resume RUN_ID [--json]
-harborrag ingest cancel RUN_ID [--force] [--json]
-harborrag ingest retry RUN_ID --artifact ARTIFACT_ID [--artifact ARTIFACT_ID ...] [--json]
+harborrag ingest cancel RUN_ID [--json]
 ```
 
-`start` generates omitted run, manifest, and generation IDs. `--wait` submits
-the workflow and waits for its final result. `cancel` is graceful unless
-`--force` is supplied.
+`start` generates an omitted run ID and deterministically derives omitted
+connection/scope identity. `--wait` submits the ingestion workflow and waits
+for its final result. Pause, resume, and cancellation take effect at safe batch
+boundaries. A new run for the same source scope replays reusable durable
+artifacts after a terminal failure.
 
 ### Live dashboard
 

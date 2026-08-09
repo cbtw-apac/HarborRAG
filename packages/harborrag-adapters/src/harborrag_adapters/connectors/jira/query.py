@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
+
+from harborrag_adapters.connectors.atlassian.query import is_cloud_hostname as is_cloud_hostname
 
 
 def format_query_timestamp(value: datetime) -> str:
@@ -22,15 +23,7 @@ def format_query_timestamp(value: datetime) -> str:
 
 _PROJECT_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
 _ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+-[1-9][0-9]*$")
-
-
-def is_cloud_hostname(base_url: str) -> bool:
-    """Return whether a base URL looks like Atlassian Cloud."""
-    try:
-        hostname = urlparse(str(base_url)).hostname
-    except ValueError:
-        return False
-    return bool(hostname and hostname.endswith(".atlassian.net"))
+_ORDER_BY_RE = re.compile(r"\border\s+by\b", re.IGNORECASE)
 
 
 def quote_jql(value: str) -> str:
@@ -60,7 +53,7 @@ def validate_issue_key(value: str) -> str:
     return normalized
 
 
-def build_jql(
+def build_jql(  # noqa: PLR0913 - explicit allowlisted JQL clauses stay auditable
     *,
     project_keys: list[str] | None = None,
     issue_types: list[str] | None = None,
@@ -72,20 +65,25 @@ def build_jql(
 ) -> str:
     """Build a deterministic JQL query from shared connector filters.
 
-    ``text_search`` is a free-text term (e.g. a caller-supplied search
-    string) and is always escaped via ``quote_jql`` into a ``text ~ "..."``
-    clause combined with the other allowlisted filters. It is never treated
-    as raw JQL -- only the explicit ``raw_jql`` escape hatch bypasses
-    escaping and the project/label allowlists entirely, for callers who
-    intentionally need full JQL control.
+    ``text_search`` is a free-text term and is always escaped. Raw JQL remains
+    available, but configured/requested project keys are still applied as a
+    mandatory safety boundary around it.
     """
-    if raw_jql:
-        return raw_jql
-
     clauses: list[str] = []
     if project_keys:
         safe_projects = [quote_jql(validate_project_key(key)) for key in project_keys]
         clauses.append(f"project in ({','.join(safe_projects)})")
+    if raw_jql:
+        raw = raw_jql.strip()
+        if not clauses:
+            return raw
+        order_match = _ORDER_BY_RE.search(raw)
+        condition = raw[: order_match.start()].strip() if order_match else raw
+        if not condition:
+            raise ValueError("Raw JQL must contain a query before ORDER BY")
+        ordering = raw[order_match.start() :].strip() if order_match else ""
+        scoped = f"{' and '.join(clauses)} and ({condition})"
+        return f"{scoped} {ordering or 'order by updated ASC, key ASC'}"
     if issue_types:
         clauses.append(f"issuetype in ({_quoted_values(issue_types)})")
     if statuses:

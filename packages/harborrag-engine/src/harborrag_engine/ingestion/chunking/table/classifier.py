@@ -5,9 +5,9 @@ import re
 from harborrag_core.contracts import TokenCounter
 from harborrag_core.domain import TableArtifact, TableCellType
 
-from ..table_policy import TableChunkingPolicy
 from .errors import TableClassificationError
 from .models import TableClassification, TableShape
+from .policy import TableChunkingPolicy
 from .rendering import TableRenderer
 
 _TIME_HEADERS = re.compile(

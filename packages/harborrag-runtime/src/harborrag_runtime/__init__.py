@@ -4,10 +4,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from harborrag_runtime.composition import CompositionRoot
-    from harborrag_runtime.temporal.client import TemporalRuntimeClient
-    from harborrag_runtime.temporal.lifecycle import RuntimeLifecycle
+    from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
-__all__ = ["CompositionRoot", "RuntimeLifecycle", "TemporalRuntimeClient"]
+__all__ = ["CompositionRoot", "HarborRAG", "HarborRAGConfig"]
 
 
 def __getattr__(name: str) -> Any:
@@ -16,12 +15,8 @@ def __getattr__(name: str) -> Any:
         from harborrag_runtime.composition import CompositionRoot
 
         return CompositionRoot
-    if name == "RuntimeLifecycle":
-        from harborrag_runtime.temporal.lifecycle import RuntimeLifecycle
+    if name in {"HarborRAG", "HarborRAGConfig"}:
+        from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
-        return RuntimeLifecycle
-    if name == "TemporalRuntimeClient":
-        from harborrag_runtime.temporal.client import TemporalRuntimeClient
-
-        return TemporalRuntimeClient
+        return {"HarborRAG": HarborRAG, "HarborRAGConfig": HarborRAGConfig}[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

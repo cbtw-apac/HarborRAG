@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.chunking.confluence import (
+from harborrag_adapters.connectors.confluence.normalization import (
     ConfluencePageInput,
     ConfluencePageNormalizer,
 )
+from harborrag_core.chunking import ConnectorType, DocumentKind
 from harborrag_engine.ingestion.chunking import (
     CanonicalTableChunker,
     ChunkingPlan,
@@ -100,9 +101,11 @@ def test_adf_page_table_flows_to_canonical_chunk_records():
             artifact=artifact,
             tenant_id="tenant",
             connection_id="confluence",
-            source_scope="ENG",
-            page_title=document.title,
-            space="Engineering",
+            source_scope_id="ENG",
+            document_title=document.title,
+            connector_type=ConnectorType.CONFLUENCE,
+            document_kind=DocumentKind.CONFLUENCE_PAGE,
+            source_context={"space": "Engineering"},
         ),
         ChunkingPlan(
             minimum_tokens=1, target_tokens=50, soft_maximum_tokens=75, hard_maximum_tokens=100

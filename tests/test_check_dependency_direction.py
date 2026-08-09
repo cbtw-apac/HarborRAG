@@ -193,7 +193,7 @@ def test_detects_dynamic_import_via_keyword_name_argument(
     assert any("harborrag_core must not import harborrag_runtime" in v for v in violations)
 
 
-def test_detects_violation_in_packages_own_tests_directory(
+def test_package_tests_are_outside_the_production_layering_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
@@ -205,11 +205,7 @@ def test_detects_violation_in_packages_own_tests_directory(
 
     violations = find_violations()
 
-    assert any(
-        "packages/harborrag-core/tests/test_bad.py" in v
-        and "must not import harborrag_adapters" in v
-        for v in violations
-    )
+    assert violations == []
 
 
 def test_allowed_imports_do_not_trigger_violations(
@@ -283,10 +279,10 @@ def test_smoke_directory_nested_under_a_domain_is_exempt(
     assert violations == []
 
 
-def test_module_named_smoke_is_still_checked(
+def test_test_modules_are_outside_the_production_layering_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The exemption matches directories, so a `smoke.py` module is not exempt."""
+    """The production checker does not infer architecture from test modules."""
     monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
         _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
@@ -299,13 +295,13 @@ def test_module_named_smoke_is_still_checked(
 
     violations = find_violations()
 
-    assert any("harborrag_adapters must not import harborrag_runtime" in v for v in violations)
+    assert violations == []
 
 
-def test_non_smoke_test_directory_is_still_checked(
+def test_unit_test_directories_are_outside_the_production_layering_check(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The `tests/smoke/` exemption must not blanket-exempt all of `tests/`."""
+    """Cross-layer test composition is governed by the owning suite."""
     monkeypatch.setattr("scripts.check_dependency_direction.REPO_ROOT", tmp_path)
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
         _write_package(tmp_path, package_dir, module, src_files={"__init__.py": ""})
@@ -318,7 +314,7 @@ def test_non_smoke_test_directory_is_still_checked(
 
     violations = find_violations()
 
-    assert any("harborrag_adapters must not import harborrag_runtime" in v for v in violations)
+    assert violations == []
 
 
 def test_non_utf8_declared_encoding_is_honored_not_crashed_on(

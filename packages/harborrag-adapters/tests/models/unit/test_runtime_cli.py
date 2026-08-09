@@ -185,7 +185,7 @@ def test_runtime_service_builder_memory_and_redis() -> None:
         }
     )
     cache = InMemoryModelCache(max_entries=5)
-    services = build_runtime_services(memory_config, family="chat", cache=cache)
+    services = build_runtime_services(memory_config, cache=cache)
     assert services.cache is cache
     assert isinstance(services.routing_state, InMemoryRoutingStateStore)
     assert isinstance(services.singleflight, InMemorySingleFlight)
@@ -208,7 +208,7 @@ def test_runtime_service_builder_memory_and_redis() -> None:
         }
     )
     lifecycle = connections()
-    redis_services = build_runtime_services(redis_config, family="chat", redis=lifecycle)
+    redis_services = build_runtime_services(redis_config, redis=lifecycle)
     assert isinstance(redis_services.routing_state, RedisRoutingStateStore)
     assert isinstance(redis_services.singleflight, RedisSingleFlight)
     assert isinstance(redis_services.budget, NoopBudgetPolicy)

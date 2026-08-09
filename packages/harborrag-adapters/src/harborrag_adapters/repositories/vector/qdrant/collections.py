@@ -9,8 +9,8 @@ from harborrag_adapters.repositories.telemetry import traced_repository_operatio
 from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
-from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_core.schemas.vector import VectorCollectionSpec
+from harborrag_core.indexing import VectorIndexSpec
+from harborrag_core.storage import StorageOperationContext
 
 try:
     from qdrant_client import models as qm
@@ -23,13 +23,13 @@ class QdrantCollectionMixin:
 
     _database: QdrantDBClient
     _queries: QdrantQueryExecutor
-    _specs: dict[tuple[str, str], VectorCollectionSpec]
+    _specs: dict[tuple[str, str], VectorIndexSpec]
     _collection_locks: dict[tuple[str, str], asyncio.Lock]
 
-    @traced_repository_operation("ensure_collection")
-    async def ensure_collection(
+    @traced_repository_operation("ensure_index")
+    async def ensure_index(
         self,
-        spec: VectorCollectionSpec,
+        spec: VectorIndexSpec,
         *,
         context: StorageOperationContext,
     ) -> None:
@@ -37,31 +37,25 @@ class QdrantCollectionMixin:
             raise HarborStorageValidationError(
                 "the Qdrant adapter requires tenant_scoped=True",
                 context=self._queries.error_context(
-                    "ensure_collection", spec.name, context=context
+                    "ensure_index", spec.index_name, context=context
                 ),
             )
-        key = self._queries.spec_key(spec.name, context)
+        key = self._queries.spec_key(spec.index_name, context)
         lock = self._collection_locks.setdefault(key, asyncio.Lock())
         async with lock:
             await self._ensure_collection(spec, context=context)
 
     async def _ensure_collection(
         self,
-        spec: VectorCollectionSpec,
+        spec: VectorIndexSpec,
         *,
         context: StorageOperationContext,
     ) -> None:
-        name = self._queries.collection_name(spec.name, context)
+        name = self._queries.collection_name(spec.index_name, context)
         client = self._database.raw
         if not await client.collection_exists(name):
             try:
-                await client.create_collection(
-                    collection_name=name,
-                    vectors_config=qm.VectorParams(
-                        size=spec.dimension,
-                        distance=QdrantMapper.distance(spec.distance, qm),
-                    ),
-                )
+                await client.create_collection(**self._collection_options(name, spec))
             except Exception:
                 if not await client.collection_exists(name):
                     raise
@@ -73,22 +67,35 @@ class QdrantCollectionMixin:
                         field_schema=self._payload_schema(field),
                         wait=True,
                     )
-                self._specs[self._queries.spec_key(spec.name, context)] = spec
+                self._specs[self._queries.spec_key(spec.index_name, context)] = spec
                 return
         await self._validate_collection(name, spec, context)
 
     async def _validate_collection(
         self,
         name: str,
-        spec: VectorCollectionSpec,
+        spec: VectorIndexSpec,
         context: StorageOperationContext,
     ) -> None:
-        persisted = await self._queries.require_spec(spec.name, context)
-        if (persisted.dimension, persisted.distance) != (spec.dimension, spec.distance):
+        persisted = await self._queries.require_spec(spec.index_name, context)
+        persisted_shape = (
+            persisted.dimension,
+            persisted.distance,
+            persisted.dense_vector_name,
+            persisted.sparse_vector_name,
+            persisted.sparse_idf,
+        )
+        requested_shape = (
+            spec.dimension,
+            spec.distance,
+            spec.dense_vector_name,
+            spec.sparse_vector_name,
+            spec.sparse_idf,
+        )
+        if persisted_shape != requested_shape:
             raise HarborStorageValidationError(
-                f"collection {spec.name!r} already exists with dimension "
-                f"{persisted.dimension} and distance {persisted.distance}",
-                context=self._queries.error_context("ensure_collection", spec.name),
+                f"index {spec.index_name!r} already exists with another vector schema",
+                context=self._queries.error_context("ensure_index", spec.index_name),
             )
         info = await self._database.raw.get_collection(name)
         existing_indexes = getattr(info, "payload_schema", {}) or {}
@@ -106,12 +113,33 @@ class QdrantCollectionMixin:
                 field_schema=self._payload_schema(field),
                 wait=True,
             )
-        self._specs[self._queries.spec_key(spec.name, context)] = spec
+        self._specs[self._queries.spec_key(spec.index_name, context)] = spec
+
+    @staticmethod
+    def _collection_options(
+        physical_name: str,
+        spec: VectorIndexSpec,
+    ) -> dict[str, Any]:
+        dense = qm.VectorParams(
+            size=spec.dimension,
+            distance=QdrantMapper.distance(spec.distance, qm),
+        )
+        options: dict[str, Any] = {"collection_name": physical_name}
+        if spec.dense_vector_name is None:
+            options["vectors_config"] = dense
+            return options
+        options["vectors_config"] = {spec.dense_vector_name: dense}
+        if spec.sparse_vector_name is not None:
+            options["sparse_vectors_config"] = {
+                spec.sparse_vector_name: qm.SparseVectorParams(
+                    modifier=qm.Modifier.IDF if spec.sparse_idf else None
+                )
+            }
+        return options
 
     @staticmethod
     def _payload_schema(field: str) -> Any:
-        if field == "is_active":
-            return qm.PayloadSchemaType.BOOL
+        del field
         return qm.PayloadSchemaType.KEYWORD
 
     @classmethod
@@ -129,8 +157,8 @@ class QdrantCollectionMixin:
             == str(getattr(expected, "value", expected)).lower()
         )
 
-    @traced_repository_operation("collection_exists")
-    async def collection_exists(
+    @traced_repository_operation("index_exists")
+    async def index_exists(
         self,
         name: str,
         *,
@@ -139,8 +167,8 @@ class QdrantCollectionMixin:
         physical_name = self._queries.collection_name(name, context)
         return bool(await self._database.raw.collection_exists(physical_name))
 
-    @traced_repository_operation("delete_collection")
-    async def delete_collection(
+    @traced_repository_operation("delete_index")
+    async def delete_index(
         self,
         name: str,
         *,

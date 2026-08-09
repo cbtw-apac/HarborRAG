@@ -25,4 +25,4 @@ class EnvironmentSecretResolver:
         try:
             return self._environment[name]
         except KeyError as exc:
-            raise KeyError(f"environment secret is not configured: {name}") from exc
+            raise KeyError("environment secret is not configured") from exc

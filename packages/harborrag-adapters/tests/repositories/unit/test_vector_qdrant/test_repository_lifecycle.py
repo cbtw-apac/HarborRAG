@@ -27,15 +27,17 @@ def test_repository_requires_qm_installed(monkeypatch: pytest.MonkeyPatch) -> No
         QdrantVectorRepository(make_config())
 
 
-def test_capabilities_reports_dense_only_baseline() -> None:
+def test_capabilities_report_named_dense_sparse_and_hybrid_support() -> None:
     raw = FakeRawQdrant()
     repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
 
     capabilities = repository.capabilities
 
-    assert capabilities.dense_vectors is True
-    assert capabilities.hybrid_search is False
-    assert capabilities.sparse_vectors is False
+    assert capabilities.supports_dense_vectors is True
+    assert capabilities.supports_hybrid_search is True
+    assert capabilities.supports_sparse_vectors is True
+    assert capabilities.supports_named_vectors is True
+    assert capabilities.supports_delete_by_filter is True
 
 
 @pytest.mark.asyncio

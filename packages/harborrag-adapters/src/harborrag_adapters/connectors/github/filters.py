@@ -33,40 +33,64 @@ def should_process_file(
     size = int(item.get("size") or 0)
     extension = file_extension(path)
 
-    if query.updated_after:
-        updated_at = commit_timestamp(commit)
-        if updated_at and updated_at <= query.updated_after:
-            return False
+    if not _within_update_window(query, commit):
+        return False
     if not path_matches_query(path, query.pattern):
         return False
-
-    allowed_extensions = _extension_filter(config, query, "allowed_extensions")
-    if allowed_extensions and extension not in allowed_extensions:
+    if not _extension_allowed(config, query, extension):
         return False
-    excluded_extensions = _extension_filter(config, query, "excluded_extensions")
-    if extension in excluded_extensions:
+    if not _path_allowed(config, query, path):
         return False
-
-    include_paths = _path_filter(config, query, "include_paths")
-    if include_paths and not any(
-        path_in_scope(path, value, recursive=True) for value in include_paths
-    ):
-        return False
-    exclude_paths = _path_filter(config, query, "exclude_paths")
-    if any(path_in_scope(path, value, recursive=True) for value in exclude_paths):
-        return False
-
-    include_globs = _path_filter(config, query, "include_globs")
-    if include_globs and not path_matches_patterns(path, include_globs):
-        return False
-    exclude_globs = _path_filter(config, query, "exclude_globs")
-    if path_matches_patterns(path, exclude_globs):
+    if not _glob_allowed(config, query, path):
         return False
 
     if config.max_file_size_bytes is not None and size > config.max_file_size_bytes:
         logger.debug("Skipping oversized GitHub file %s", path)
         return False
     return _callback_allows_file(config, path, size)
+
+
+def _within_update_window(query: ConnectorQuery, commit: dict[str, Any]) -> bool:
+    if query.updated_after is None:
+        return True
+    updated_at = commit_timestamp(commit)
+    return updated_at is None or updated_at > query.updated_after
+
+
+def _extension_allowed(
+    config: GitHubRepositoryConfig,
+    query: ConnectorQuery,
+    extension: str,
+) -> bool:
+    allowed = _extension_filter(config, query, "allowed_extensions")
+    excluded = _extension_filter(config, query, "excluded_extensions")
+    return (not allowed or extension in allowed) and extension not in excluded
+
+
+def _path_allowed(
+    config: GitHubRepositoryConfig,
+    query: ConnectorQuery,
+    path: str,
+) -> bool:
+    included = _path_filter(config, query, "include_paths")
+    excluded = _path_filter(config, query, "exclude_paths")
+    is_included = not included or any(
+        path_in_scope(path, value, recursive=True) for value in included
+    )
+    is_excluded = any(path_in_scope(path, value, recursive=True) for value in excluded)
+    return is_included and not is_excluded
+
+
+def _glob_allowed(
+    config: GitHubRepositoryConfig,
+    query: ConnectorQuery,
+    path: str,
+) -> bool:
+    included = _path_filter(config, query, "include_globs")
+    excluded = _path_filter(config, query, "exclude_globs")
+    return (not included or path_matches_patterns(path, included)) and not path_matches_patterns(
+        path, excluded
+    )
 
 
 def file_paths_from_query(query: ConnectorQuery) -> list[str]:

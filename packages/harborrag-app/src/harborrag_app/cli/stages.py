@@ -68,6 +68,8 @@ def headline_status(workflow_status: str, execution_status: str) -> str:
     is the only one that distinguishes paused and cancelling from running.
     """
 
+    if workflow_status in {"cancelled", "completed", "failed"}:
+        return workflow_status
     terminal = _TERMINAL_EXECUTION_STATUSES.get(execution_status)
     if terminal is None or workflow_status == terminal:
         return workflow_status

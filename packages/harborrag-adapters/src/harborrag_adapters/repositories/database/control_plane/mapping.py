@@ -21,6 +21,7 @@ def utc_now() -> datetime:
 def project_to_domain(row: ProjectRow) -> Project:
     return Project(
         id=row.id,
+        tenant_id=row.tenant_id,
         name=row.name,
         collection=row.collection,
         description=row.description,
@@ -39,6 +40,7 @@ def project_to_domain(row: ProjectRow) -> Project:
 def source_to_domain(row: SourceRow) -> SourceConfig:
     return SourceConfig(
         id=row.id,
+        tenant_id=row.tenant_id,
         project_id=row.project_id,
         source_type=row.source_type,
         name=row.name,
@@ -52,6 +54,7 @@ def source_to_domain(row: SourceRow) -> SourceConfig:
 def job_to_domain(row: JobRow) -> Job:
     return Job(
         id=row.id,
+        tenant_id=row.tenant_id,
         source_id=row.source_id,
         project_id=row.project_id,
         job_type=cast(JobType, row.job_type),

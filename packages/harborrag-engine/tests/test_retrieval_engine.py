@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
@@ -7,7 +9,7 @@ from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 from harborrag_engine.retrieval.evidence import EvidenceBuilder
 from harborrag_engine.retrieval.fusion import reciprocal_rank_fusion
-from harborrag_engine.retrieval.pipeline import RetrievalPipeline
+from harborrag_engine.retrieval.pipeline import RetrievalLimits, RetrievalPipeline
 from harborrag_engine.retrieval.reranking import keep_top
 from harborrag_engine.retrieval.rewriting import identity_rewrite
 
@@ -27,6 +29,13 @@ def test_evidence_builder_numbers_results_in_order():
         '<document citation="2" id="b">\nsecond\n</document>\n'
         "</retrieved_evidence>"
     )
+
+
+def test_evidence_builder_bounds_serialized_markup_and_identifiers():
+    result = RetrievalResult("x" * 1_000, "&" * 1_000, 1.0)
+
+    assert len(EvidenceBuilder(maximum_characters=200).build([result])) <= 200
+    assert EvidenceBuilder(maximum_characters=10).build([result]) == ""
 
 
 def test_retrieval_pipeline_returns_the_requested_highest_scoring_results():
@@ -75,3 +84,51 @@ def test_weighted_fusion_rejects_invalid_weights():
         reciprocal_rank_fusion([[result]], weights=(1.0, 0.5))
     with pytest.raises(ValueError, match="negative"):
         reciprocal_rank_fusion([[result]], weights=(-1.0,))
+
+
+@pytest.mark.asyncio
+async def test_retrieval_rejects_rewriter_fanout_above_limit() -> None:
+    class Rewriter:
+        async def rewrite(self, query, *, context):
+            del query, context
+            return tuple(f"query-{index}" for index in range(5))
+
+    pipeline = RetrievalPipeline(
+        [RetrievalResult("a", "first", 0.9)],
+        rewriter=Rewriter(),
+        limits=RetrievalLimits(max_rewrites=4),
+    )
+
+    with pytest.raises(ValueError, match="more than 4"):
+        await pipeline.aretrieve(RetrievalQuery("q", top_k=1, filters={"tenant_id": "tenant-1"}))
+
+
+@pytest.mark.asyncio
+async def test_retrieval_bounds_concurrent_provider_calls() -> None:
+    active = 0
+    maximum = 0
+
+    class Source:
+        async def search(self, query, *, context):
+            nonlocal active, maximum
+            del context
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0)
+            active -= 1
+            return [RetrievalResult(query.text, query.text, 0.9)]
+
+    class Rewriter:
+        async def rewrite(self, query, *, context):
+            del query, context
+            return ("one", "two")
+
+    pipeline = RetrievalPipeline(
+        [Source(), Source(), Source()],
+        rewriter=Rewriter(),
+        limits=RetrievalLimits(max_concurrency=2),
+    )
+
+    await pipeline.aretrieve(RetrievalQuery("q", top_k=1, filters={"tenant_id": "tenant-1"}))
+
+    assert maximum == 2

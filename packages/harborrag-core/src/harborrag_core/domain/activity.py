@@ -7,6 +7,8 @@ from datetime import datetime
 
 from harborrag_core.base import utc_now
 
+from .validation import require_id, require_tenant_id
+
 
 @dataclass(slots=True)
 class ActivityEntry:
@@ -18,4 +20,9 @@ class ActivityEntry:
     entity_type: str
     entity_id: str
     summary: str
+    tenant_id: str
     created_at: datetime = field(default_factory=utc_now)
+
+    def __post_init__(self) -> None:
+        require_id(self.id, label="Activity")
+        require_tenant_id(self.tenant_id)

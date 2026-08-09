@@ -153,7 +153,9 @@ def test_redis_config_and_connection_lifecycle(monkeypatch: pytest.MonkeyPatch) 
     redis_async.Redis = AsyncRedisFactory  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "redis", redis_module)
     monkeypatch.setitem(sys.modules, "redis.asyncio", redis_async)
-    lazy = RedisConnectionLifecycle(RedisConnectionConfig(url="redis://lazy/0"))
+    lazy = RedisConnectionLifecycle(
+        RedisConnectionConfig(url="redis://lazy/0", allow_insecure_remote=True)
+    )
     assert lazy.sync() is built_sync
     assert lazy.async_client() is built_async
 

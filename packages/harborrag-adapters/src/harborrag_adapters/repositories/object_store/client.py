@@ -19,7 +19,7 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryPlugin,
 )
 from harborrag_adapters.repositories.registry import ProviderMap
-from harborrag_core.schemas.storage import StorageFamily
+from harborrag_core.storage import StorageFamily
 
 
 class HarborObjectStoreDBClient:

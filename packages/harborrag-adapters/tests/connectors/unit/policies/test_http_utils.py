@@ -19,7 +19,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 def test_read_capped_content_joins_chunks_under_cap():
     response = FakeResponse(_chunks=[b"ab", b"cd", b"ef"])
     assert read_capped_content(response, max_bytes=1000) == b"abcdef"
-    assert response.closed is False
+    assert response.closed
 
 
 def test_read_capped_content_no_cap_returns_all():

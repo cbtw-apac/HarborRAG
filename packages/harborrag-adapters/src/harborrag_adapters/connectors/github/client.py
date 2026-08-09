@@ -14,9 +14,12 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.policies.http import (
+    DEFAULT_JSON_BODY_LIMIT,
+    ResponseTooLargeError,
+    read_capped_json,
     require_same_origin_url,
     retry_delay_seconds,
-    safe_error_detail,
+    safe_response_error_detail,
 )
 
 from .config import GitHubRepositoryConfig
@@ -33,6 +36,7 @@ class GitHubClient(Protocol):
         endpoint: str,
         *,
         params: dict[str, Any] | None = None,
+        max_bytes: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         """Return a decoded GitHub response object or object list."""
         ...
@@ -74,11 +78,17 @@ class _RequestsGitHubClient:
         endpoint: str,
         *,
         params: dict[str, Any] | None = None,
+        max_bytes: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         """GET a GitHub API endpoint and decode its JSON body."""
-        response = self._request("GET", self._api_url(endpoint), params=params)
+        response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
         try:
-            payload: object = response.json()
+            payload = read_capped_json(
+                response,
+                max_bytes=DEFAULT_JSON_BODY_LIMIT if max_bytes is None else max_bytes,
+            )
+        except ResponseTooLargeError as exc:
+            raise FetchError(f"GitHub response exceeded byte limit for {endpoint}") from exc
         except ValueError as exc:
             raise FetchError(f"GitHub returned non-JSON response for {endpoint}") from exc
         if isinstance(payload, dict):
@@ -107,32 +117,36 @@ class _RequestsGitHubClient:
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
-                    raise FetchError(str(exc)) from exc
+                    raise FetchError("GitHub request failed") from exc
                 self._sleep(attempt, exc)
                 continue
 
             if response.status_code in (401,):
-                raise AuthenticationError(safe_error_detail(response.text))
+                raise AuthenticationError(safe_response_error_detail(response))
             if self._rate_limited(response):
                 if attempt == self.config.max_retries:
-                    raise RateLimitError(safe_error_detail(response.text))
-                last_error = RateLimitError(safe_error_detail(response.text))
-                self._sleep(attempt, last_error, response.headers)
+                    raise RateLimitError(safe_response_error_detail(response))
+                last_error = RateLimitError("GitHub rate limit exceeded")
+                retry_headers = response.headers
+                response.close()
+                self._sleep(attempt, last_error, retry_headers)
                 continue
             if response.status_code == 403:
-                raise AuthenticationError(safe_error_detail(response.text))
+                raise AuthenticationError(safe_response_error_detail(response))
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"GitHub request failed with HTTP "
-                        f"{response.status_code}: {safe_error_detail(response.text)}"
+                        f"{response.status_code}: {safe_response_error_detail(response)}"
                     )
                 return response
 
             last_error = FetchError(f"GitHub request returned HTTP {response.status_code}")
-            self._sleep(attempt, last_error, response.headers)
+            retry_headers = response.headers
+            response.close()
+            self._sleep(attempt, last_error, retry_headers)
 
-        raise FetchError(str(last_error))
+        raise FetchError("GitHub request failed") from last_error
 
     def _api_url(self, endpoint: str) -> str:
         """Build a GitHub API URL while rejecting cross-origin absolute URLs."""
@@ -157,7 +171,7 @@ class _RequestsGitHubClient:
             return True
         if response.headers.get("Retry-After"):
             return True
-        body = (response.text or "").lower()
+        body = safe_response_error_detail(response, limit=2_000).lower()
         return "secondary rate limit" in body or "abuse detection" in body
 
     def _acquire(self) -> None:
@@ -173,10 +187,10 @@ class _RequestsGitHubClient:
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay)
         logger.warning(
-            "Retrying GitHub request after error, attempt %d/%d: %s",
+            "Retrying GitHub request after %s, attempt %d/%d",
+            type(error).__name__,
             attempt + 1,
             self.config.max_retries,
-            error,
         )
         if delay > 0:
             time.sleep(delay)

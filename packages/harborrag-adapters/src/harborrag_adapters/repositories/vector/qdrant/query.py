@@ -1,26 +1,41 @@
 from __future__ import annotations
 
-import hashlib
+import re
 from collections.abc import MutableMapping, Sequence
 from typing import Any
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageCapabilityError,
     HarborStorageNotFoundError,
+    HarborStorageValidationError,
     HarborVectorDimensionError,
     StorageErrorContext,
 )
 from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
-from harborrag_core.schemas.storage import StorageFamily, StorageOperationContext
-from harborrag_core.schemas.vector import (
-    VectorCollectionSpec,
-    VectorPoint,
-    VectorScanPage,
+from harborrag_adapters.repositories.vector.qdrant.query_mapping import (
+    fused_result,
+    point_record,
+    search_result,
+    sparse_result,
+    vectors,
+    weighted_rrf,
+)
+from harborrag_adapters.repositories.vector.qdrant.schema_mapping import (
+    collection_spec_from_qdrant,
+)
+from harborrag_core.indexing import (
+    HybridSearchQuery,
+    SparseSearchQuery,
+    VectorFilter,
+    VectorIndexRecord,
+    VectorIndexScanPage,
+    VectorIndexSpec,
     VectorSearchQuery,
     VectorSearchResult,
 )
+from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 qm: Any
 try:
@@ -39,7 +54,7 @@ class QdrantQueryExecutor:
         *,
         client: QdrantDBClient,
         config: QdrantVectorConfig,
-        specs: MutableMapping[tuple[str, str], VectorCollectionSpec],
+        specs: MutableMapping[tuple[str, str], VectorIndexSpec],
     ) -> None:
         if qm is None:
             raise ImportError("qdrant-client is not installed")
@@ -53,25 +68,25 @@ class QdrantQueryExecutor:
         ids: Sequence[str],
         *,
         context: StorageOperationContext,
-    ) -> list[VectorPoint]:
+    ) -> list[VectorIndexRecord]:
+        spec = await self.require_spec(collection, context)
         records = await self._client.raw.retrieve(
             collection_name=self.collection_name(collection, context),
-            ids=[QdrantMapper.point_id(str(context.tenant_id), item) for item in ids],
+            ids=[QdrantMapper.point_id(item) for item in ids],
             with_payload=True,
             with_vectors=True,
         )
-        output: list[VectorPoint] = []
+        output: list[VectorIndexRecord] = []
         for record in records:
             payload = dict(record.payload or {})
-            if payload.pop("_harbor_tenant_id", None) != str(context.tenant_id):
-                continue
-            vector = record.vector if isinstance(record.vector, list) else []
-            logical_id = payload.pop("_harbor_point_id", str(record.id))
+            vector, sparse, named = vectors(record.vector, spec)
             output.append(
-                VectorPoint(
-                    id=logical_id,
+                VectorIndexRecord(
+                    id=str(record.id),
                     tenant_id=context.tenant_id,
                     vector=vector,
+                    sparse_vector=sparse,
+                    named_vectors=named,
                     payload=payload,
                 )
             )
@@ -83,19 +98,21 @@ class QdrantQueryExecutor:
         *,
         limit: int,
         cursor: str | None,
+        filters: VectorFilter | None = None,
         context: StorageOperationContext,
-    ) -> VectorScanPage:
+    ) -> VectorIndexScanPage:
+        spec = await self.require_spec(collection, context)
         records, next_offset = await self._client.raw.scroll(
             collection_name=self.collection_name(collection, context),
-            scroll_filter=QdrantMapper.filter(None, context, qm),
+            scroll_filter=QdrantMapper.filter(filters, qm),
             limit=limit,
             offset=cursor,
             with_payload=True,
             with_vectors=True,
         )
-        points = [self._point(record, context) for record in records]
-        return VectorScanPage(
-            points=points,
+        points = [point_record(record, context, spec) for record in records]
+        return VectorIndexScanPage(
+            records=points,
             next_cursor=str(next_offset) if next_offset is not None else None,
         )
 
@@ -105,11 +122,9 @@ class QdrantQueryExecutor:
         *,
         context: StorageOperationContext,
     ) -> list[VectorSearchResult]:
-        spec = await self.require_spec(query.collection, context)
+        spec = await self.require_spec(query.index_name, context)
         self.assert_dimension(spec, query.vector)
-        # Payload is always requested internally to recover the logical point id
-        # from _harbor_point_id; it is stripped from the result below when the
-        # caller did not ask for it via query.include_payload.
+        # Payload is requested internally for authoritative candidate filtering.
         if query.score_threshold is None:
             response = await self._query_points(
                 query,
@@ -117,7 +132,7 @@ class QdrantQueryExecutor:
                 limit=query.top_k,
                 offset=query.offset,
             )
-            return [self._search_result(point, query, spec) for point in response.points]
+            return [search_result(point, query, spec) for point in response.points]
 
         # Qdrant thresholds use metric-specific raw scores while HarborRAG exposes
         # normalized scores. Page through provider results until the requested
@@ -138,7 +153,7 @@ class QdrantQueryExecutor:
             if not points:
                 break
             for point in points:
-                result = self._search_result(point, query, spec)
+                result = search_result(point, query, spec)
                 if result.score < query.score_threshold:
                     continue
                 if matching_seen >= query.offset:
@@ -151,11 +166,99 @@ class QdrantQueryExecutor:
                 break
         return output
 
+    async def hybrid_search(
+        self,
+        query: HybridSearchQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> list[VectorSearchResult]:
+        spec = await self.require_spec(query.index_name, context)
+        self.assert_dimension(spec, query.vector)
+        if spec.dense_vector_name is None or spec.sparse_vector_name is None:
+            raise HarborStorageCapabilityError(
+                f"collection schema {query.index_name!r} has no sparse vector lane",
+                context=self.error_context("hybrid_search", query.index_name, context=context),
+            )
+        candidate_limit = min(
+            1000,
+            max(query.top_k + query.offset, query.top_k * 4),
+        )
+        common = {
+            "collection_name": self.collection_name(query.index_name, context),
+            "query_filter": QdrantMapper.filter(query.filters, qm),
+            "limit": candidate_limit,
+            "with_payload": True,
+            "with_vectors": query.include_vectors,
+        }
+        dense_response = await self._client.raw.query_points(
+            query=query.vector,
+            using=spec.dense_vector_name,
+            **common,
+        )
+        sparse_response = await self._client.raw.query_points(
+            query=qm.SparseVector(
+                indices=query.sparse_vector.indices,
+                values=query.sparse_vector.values,
+            ),
+            using=spec.sparse_vector_name,
+            **common,
+        )
+        fused = weighted_rrf(
+            dense_response.points,
+            sparse_response.points,
+            dense_weight=query.dense_weight,
+        )
+        output: list[VectorSearchResult] = []
+        for raw_score, point in fused:
+            score = min(1.0, raw_score * 61.0)
+            if query.score_threshold is not None and score < query.score_threshold:
+                continue
+            output.append(
+                fused_result(
+                    point,
+                    score=score,
+                    raw_score=raw_score,
+                    query=query,
+                    spec=spec,
+                )
+            )
+        return output[query.offset : query.offset + query.top_k]
+
+    async def sparse_search(
+        self,
+        query: SparseSearchQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> list[VectorSearchResult]:
+        spec = await self.require_spec(query.index_name, context)
+        if spec.sparse_vector_name is None:
+            raise HarborStorageCapabilityError(
+                f"collection schema {query.index_name!r} has no sparse vector lane",
+                context=self.error_context("sparse_search", query.index_name, context=context),
+            )
+        response = await self._client.raw.query_points(
+            collection_name=self.collection_name(query.index_name, context),
+            query=qm.SparseVector(
+                indices=query.sparse_vector.indices,
+                values=query.sparse_vector.values,
+            ),
+            using=spec.sparse_vector_name,
+            query_filter=QdrantMapper.filter(query.filters, qm),
+            limit=query.top_k,
+            offset=query.offset,
+            with_payload=True,
+            with_vectors=query.include_vectors,
+        )
+        output = [sparse_result(point, query=query, spec=spec) for point in response.points]
+        if query.score_threshold is None:
+            return output
+        return [result for result in output if result.score >= query.score_threshold]
+
     async def require_spec(
         self,
         collection: str,
         context: StorageOperationContext,
-    ) -> VectorCollectionSpec:
+    ) -> VectorIndexSpec:
         key = self.spec_key(collection, context)
         try:
             return self._specs[key]
@@ -167,16 +270,11 @@ class QdrantQueryExecutor:
                     context=self.error_context("schema_lookup", collection),
                 ) from None
             info = await self._client.raw.get_collection(physical_name)
-            vectors = info.config.params.vectors
-            if isinstance(vectors, dict):
-                raise HarborStorageCapabilityError(
-                    f"collection schema {collection!r} uses unsupported named vectors",
-                    context=self.error_context("schema_lookup", collection),
-                ) from None
-            spec = VectorCollectionSpec(
-                name=collection,
-                dimension=int(vectors.size),
-                distance=QdrantMapper.vector_distance(vectors.distance, qm),
+            spec = collection_spec_from_qdrant(
+                info,
+                collection=collection,
+                error_context=self.error_context("schema_lookup", collection),
+                models=qm,
             )
             self._specs[key] = spec
             return spec
@@ -189,40 +287,23 @@ class QdrantQueryExecutor:
         limit: int,
         offset: int,
     ) -> Any:
+        spec = await self.require_spec(query.index_name, context)
         return await self._client.raw.query_points(
-            collection_name=self.collection_name(query.collection, context),
+            collection_name=self.collection_name(query.index_name, context),
             query=query.vector,
-            query_filter=QdrantMapper.filter(query.filters, context, qm),
+            using=spec.dense_vector_name,
+            query_filter=QdrantMapper.filter(query.filters, qm),
             limit=limit,
             offset=offset,
             with_payload=True,
             with_vectors=query.include_vectors,
         )
 
-    @staticmethod
-    def _search_result(
-        point: Any,
-        query: VectorSearchQuery,
-        spec: VectorCollectionSpec,
-    ) -> VectorSearchResult:
-        normalized = QdrantMapper.normalize_score(float(point.score), spec.distance)
-        payload = dict(point.payload or {})
-        payload.pop("_harbor_tenant_id", None)
-        logical_id = payload.pop("_harbor_point_id", str(point.id))
-        vector = point.vector if query.include_vectors and isinstance(point.vector, list) else None
-        return VectorSearchResult(
-            id=logical_id,
-            score=normalized,
-            raw_score=float(point.score),
-            payload=payload if query.include_payload else {},
-            vector=vector,
-        )
-
-    def assert_dimension(self, spec: VectorCollectionSpec, vector: Sequence[float]) -> None:
+    def assert_dimension(self, spec: VectorIndexSpec, vector: Sequence[float]) -> None:
         if len(vector) != spec.dimension:
             raise HarborVectorDimensionError(
                 f"vector dimension {len(vector)} does not match {spec.dimension}",
-                context=self.error_context("validate_dimension", spec.name),
+                context=self.error_context("validate_dimension", spec.index_name),
             )
 
     def collection_name(
@@ -230,19 +311,25 @@ class QdrantQueryExecutor:
         collection: str,
         context: StorageOperationContext,
     ) -> str:
-        tenant = self._tenant_key(context)
-        return f"{self._config.collection_prefix}t_{tenant}_{collection}"
+        tenant = str(context.tenant_id)
+        for label, value in (("tenant", tenant), ("index", collection)):
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", value) is None:
+                raise HarborStorageValidationError(
+                    f"Qdrant {label} name must use 1-128 ASCII letters, digits, '.', '_' or '-'",
+                    context=self.error_context(
+                        "collection_name",
+                        collection,
+                        context=context,
+                    ),
+                )
+        return f"{self._config.collection_prefix}{tenant}_{collection}"
 
     def spec_key(
         self,
         collection: str,
         context: StorageOperationContext,
     ) -> tuple[str, str]:
-        return self._tenant_key(context), collection
-
-    @staticmethod
-    def _tenant_key(context: StorageOperationContext) -> str:
-        return hashlib.sha256(str(context.tenant_id).encode("utf-8")).hexdigest()[:24]
+        return str(context.tenant_id), collection
 
     def error_context(
         self,
@@ -258,17 +345,4 @@ class QdrantQueryExecutor:
             operation=operation,
             tenant_id=str(context.tenant_id) if context is not None else None,
             resource_name=resource_name,
-        )
-
-    @staticmethod
-    def _point(record: Any, context: StorageOperationContext) -> VectorPoint:
-        payload = dict(record.payload or {})
-        payload.pop("_harbor_tenant_id", None)
-        logical_id = payload.pop("_harbor_point_id", str(record.id))
-        vector = record.vector if isinstance(record.vector, list) else []
-        return VectorPoint(
-            id=logical_id,
-            tenant_id=context.tenant_id,
-            vector=vector,
-            payload=payload,
         )

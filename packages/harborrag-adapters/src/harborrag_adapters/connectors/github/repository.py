@@ -81,11 +81,17 @@ class GitHubRepositoryAPI:
         if known_size is not None:
             self.enforce_size_limit(sha, known_size)
 
-        blob = self.client.get_json(blob_endpoint(self.owner, self.repo, sha))
+        blob = self.client.get_json(
+            blob_endpoint(self.owner, self.repo, sha),
+            max_bytes=self._blob_response_limit(),
+        )
         if not isinstance(blob, dict):
             raise FetchError("GitHub blob response was not an object")
 
-        size = int(blob.get("size") or 0)
+        raw_size = blob.get("size")
+        if isinstance(raw_size, bool) or not isinstance(raw_size, int) or raw_size < 0:
+            raise DocumentProcessingError(f"GitHub blob {sha} returned an invalid size")
+        size = raw_size
         if size > GITHUB_BLOB_LIMIT_BYTES:
             raise DocumentProcessingError(f"GitHub blob {sha} exceeds the 100 MB REST API limit")
         self.enforce_size_limit(sha, size)
@@ -96,9 +102,30 @@ class GitHubRepositoryAPI:
                 f"GitHub blob {sha} returned unsupported encoding {encoding!r}"
             )
         try:
-            return base64.b64decode(content, validate=False)
-        except (binascii.Error, ValueError) as exc:
+            normalized_content = content.translate(str.maketrans("", "", " \t\r\n"))
+            decoded = base64.b64decode(normalized_content, validate=True)
+        except (binascii.Error, UnicodeEncodeError, ValueError) as exc:
             raise DocumentProcessingError(f"GitHub blob {sha} is not valid base64") from exc
+        if len(decoded) != size:
+            raise DocumentProcessingError(
+                f"GitHub blob {sha} decoded size {len(decoded)} does not match declared size {size}"
+            )
+        return decoded
+
+    def _blob_response_limit(self) -> int:
+        """Bound base64 JSON using the configured decoded-file ceiling."""
+
+        configured_limit = self.config.max_file_size_bytes
+        decoded_limit = (
+            GITHUB_BLOB_LIMIT_BYTES
+            if configured_limit is None
+            else min(configured_limit, GITHUB_BLOB_LIMIT_BYTES)
+        )
+        encoded_limit = 4 * ((decoded_limit + 2) // 3)
+        # GitHub wraps base64 content at 60 characters. JSON escaping turns each
+        # newline into two bytes, and a fixed allowance covers the response fields.
+        line_break_overhead = 2 * ((encoded_limit + 59) // 60)
+        return encoded_limit + line_break_overhead + 64 * 1024
 
     def content_file_item(self, path: str, *, ref: str) -> dict[str, Any]:
         """Resolve one path through the contents API and normalize it as a blob."""
@@ -205,20 +232,34 @@ class GitHubRepositoryAPI:
         *,
         prefix: str = "",
     ) -> Iterator[dict[str, Any]]:
-        """Walk subtrees manually when GitHub's recursive tree API is truncated."""
+        """Walk subtrees manually when GitHub's recursive tree API is truncated.
+
+        Uses an explicit stack of per-level iterators instead of recursing, so
+        a repository tree truncated because it is extremely deep (the case
+        most likely to also be deep) cannot grow the Python call stack.
+        Subtrees are pushed on top of the stack so they drain before the
+        remaining siblings at the current level, preserving the same
+        depth-first order the recursive version yielded.
+        """
+        stack: list[Iterator[dict[str, Any]]] = [self._tree_items(tree_sha, prefix)]
+        while stack:
+            try:
+                item = next(stack[-1])
+            except StopIteration:
+                stack.pop()
+                continue
+            if is_tree(item):
+                stack.append(self._tree_items(str(item.get("sha") or ""), str(item["path"])))
+            else:
+                yield item
+
+    def _tree_items(self, tree_sha: str, prefix: str) -> Iterator[dict[str, Any]]:
+        """Fetch and normalize the direct entries of one tree (no recursion)."""
         response = self.client.get_json(tree_endpoint(self.owner, self.repo, tree_sha))
         if not isinstance(response, dict):
             raise FetchError("GitHub tree response was not an object")
-
         for item in response.get("tree", []):
             path = normalize_repo_path(
                 f"{prefix}/{item.get('path')}" if prefix else item.get("path")
             )
-            item = {**item, "path": path}
-            if is_tree(item):
-                yield from self._walk_tree_non_recursive(
-                    str(item.get("sha") or ""),
-                    prefix=path,
-                )
-            else:
-                yield item
+            yield {**item, "path": path}

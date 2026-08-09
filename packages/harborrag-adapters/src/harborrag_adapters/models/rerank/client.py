@@ -88,7 +88,6 @@ class HarborRerankingClient(
         self._owns_telemetry = telemetry is None or telemetry_ownership is ResourceOwnership.OWNED
         self._services = runtime_services or build_runtime_services(
             config,
-            family="rerank",
             cache=cache,
             routing_state=routing_state,
             singleflight=singleflight,

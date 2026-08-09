@@ -13,7 +13,7 @@ from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
     read_parse_input_text,
 )
-from harborrag_adapters.parsers.errors import TextDecodingError
+from harborrag_adapters.parsers.errors import ParseError, TextDecodingError
 from harborrag_core.domain.parser import ParsedDocument, ParseInput, ParserFormat
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -155,6 +155,30 @@ def test_is_supported_matches_suffix_and_content_type() -> None:
 
 def test_read_bytes_from_str_and_missing() -> None:
     assert read_parse_input_bytes(ParseInput(content="abc")) == b"abc"
+
+
+def test_path_read_is_capped_and_cached_as_one_snapshot(tmp_path: Path) -> None:
+    target = tmp_path / "document.txt"
+    target.write_bytes(b"first")
+    parse_input = ParseInput(path=target)
+
+    assert read_parse_input_bytes(parse_input, max_bytes=5) == b"first"
+    target.write_bytes(b"second version")
+    assert read_parse_input_bytes(parse_input, max_bytes=5) == b"first"
+
+    oversized = ParseInput(path=target)
+    with pytest.raises(ParseError, match="max_input_bytes"):
+        read_parse_input_bytes(oversized, max_bytes=5)
+
+
+def test_path_read_refuses_symbolic_links(tmp_path: Path) -> None:
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"private")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+
+    with pytest.raises(ParseError, match="opened safely"):
+        read_parse_input_bytes(ParseInput(path=link))
 
 
 def test_parsed_document_defaults() -> None:

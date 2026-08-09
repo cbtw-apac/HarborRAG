@@ -1,29 +1,13 @@
 {
   "files": {
     "packages/harborrag-adapters/src/harborrag_adapters/connectors/attachments/processing.py": {
-      "C901": 1,
       "PLR0913": 1
     },
     "packages/harborrag-adapters/src/harborrag_adapters/connectors/confluence/query.py": {
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/connectors/github/connector.py": {
-      "C901": 1
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/connectors/github/filters.py": {
-      "C901": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/connectors/github/mappers.py": {
       "PLR0913": 2
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/connectors/jira/query.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/connectors/local/filesystem.py": {
-      "C901": 2
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/connectors/sharepoint/drive.py": {
-      "C901": 1
     },
     "packages/harborrag-adapters/src/harborrag_adapters/models/chat/async_client.py": {
       "PLR0913": 1
@@ -44,9 +28,6 @@
       "C901": 2,
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/chat/streaming.py": {
-      "C901": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/models/chat/structured.py": {
       "PLR0913": 3
     },
@@ -65,9 +46,6 @@
     "packages/harborrag-adapters/src/harborrag_adapters/models/embed/parameters.py": {
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/embed/validation.py": {
-      "C901": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/client.py": {
       "PLR0913": 2
     },
@@ -82,9 +60,6 @@
     },
     "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/parameters.py": {
       "PLR0913": 1
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/rerank/validation.py": {
-      "C901": 1
     },
     "packages/harborrag-adapters/src/harborrag_adapters/models/runtime/errors.py": {
       "PLR0913": 1
@@ -113,23 +88,11 @@
     "packages/harborrag-adapters/src/harborrag_adapters/models/runtime/singleflight.py": {
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/runtime/telemetry_metrics.py": {
-      "C901": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/repositories/backends/sqlalchemy.py": {
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/repositories/graph/falkordb/client.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/repositories/object_store/s3/operations.py": {
-      "C901": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/repositories/vector/qdrant/client.py": {
       "PLR0913": 1
-    },
-    "packages/harborrag-adapters/src/harborrag_adapters/repositories/vector/qdrant/repository.py": {
-      "PLR0913": 2
     },
     "packages/harborrag-adapters/tests/connectors/unit/sharepoint/sharepoint_test_helpers.py": {
       "PLR0913": 1
@@ -137,56 +100,8 @@
     "packages/harborrag-adapters/tests/models/unit/model_runtime_support.py": {
       "PLR0913": 1
     },
-    "packages/harborrag-app/src/harborrag_app/cli/commands/ingest.py": {
-      "PLR0913": 2
-    },
-    "packages/harborrag-app/src/harborrag_app/workflow_control/client.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-app/src/harborrag_app/workflow_control/ports.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-app/tests/app_test_fixtures.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-core/src/harborrag_core/models/errors.py": {
-      "PLR0913": 2
-    },
-    "packages/harborrag-core/src/harborrag_core/ports/indexing.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/identity/assignment.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/pipeline.py": {
-      "PLR0913": 2
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/strategies/jirastrategy.py": {
-      "PLR0913": 1
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/validation.py": {
-      "C901": 1
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/graph/projectionstate.py": {
-      "PLR0913": 2
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/graph/sources.py": {
-      "C901": 1
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/graph/validation.py": {
-      "C901": 1
-    },
-    "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/vector/validation.py": {
-      "C901": 1
-    },
-    "packages/harborrag-engine/tests/ingestion/smoke/indexing.py": {
-      "PLR0913": 1
-    },
     "packages/harborrag-engine/tests/ingestion/unit/chunking_helpers.py": {
-      "PLR0913": 3
-    },
-    "packages/harborrag-engine/tests/ingestion/unit/indexing_helpers.py": {
-      "PLR0913": 3
+      "PLR0913": 2
     },
     "scripts/check_dependency_direction.py": {
       "C901": 2

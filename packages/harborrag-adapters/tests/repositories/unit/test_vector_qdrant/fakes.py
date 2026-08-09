@@ -19,12 +19,18 @@ class Distance(StrEnum):
     MANHATTAN = "Manhattan"
 
 
+class Modifier(StrEnum):
+    IDF = "idf"
+
+
 class FakeModels:
     Distance = Distance
+    Modifier = Modifier
     Filter = ModelValue
     FilterSelector = ModelValue
     FieldCondition = ModelValue
     MatchValue = ModelValue
+    SparseVector = ModelValue
 
 
 class FakeRawQdrant:
@@ -33,6 +39,8 @@ class FakeRawQdrant:
         self.delete_collection_calls: list[str] = []
         self.query_calls: list[dict[str, Any]] = []
         self.points: list[Any] = []
+        self.dense_points: list[Any] | None = None
+        self.sparse_points: list[Any] | None = None
         self.exists = True
 
     async def collection_exists(self, name: str) -> bool:
@@ -52,9 +60,14 @@ class FakeRawQdrant:
 
     async def query_points(self, **kwargs: Any) -> Any:
         self.query_calls.append(kwargs)
-        offset = kwargs["offset"]
+        offset = kwargs.get("offset", 0)
         limit = kwargs["limit"]
-        return SimpleNamespace(points=self.points[offset : offset + limit])
+        selected = self.points
+        if kwargs.get("using") == "dense" and self.dense_points is not None:
+            selected = self.dense_points
+        if kwargs.get("using") == "sparse" and self.sparse_points is not None:
+            selected = self.sparse_points
+        return SimpleNamespace(points=selected[offset : offset + limit])
 
 
 class FakeQdrantClient:
@@ -72,6 +85,8 @@ class ExtendedModels(FakeModels):
     PayloadField = ModelValue
     Range = ModelValue
     VectorParams = ModelValue
+    SparseVectorParams = ModelValue
+    Modifier = Modifier
     PointStruct = ModelValue
     HasIdCondition = ModelValue
 
@@ -87,11 +102,11 @@ class ExtendedRawQdrant(FakeRawQdrant):
         self.existing_distance: Any = Distance.COSINE
         self.existing_payload_schema: dict[str, Any] = {}
         self.named_vectors = False
+        self.sparse_vectors = False
         self.create_collection_calls: list[dict[str, Any]] = []
         self.create_payload_index_calls: list[dict[str, Any]] = []
         self.delete_payload_index_calls: list[dict[str, Any]] = []
         self.upsert_calls: list[dict[str, Any]] = []
-        self.set_payload_calls: list[dict[str, Any]] = []
         self.retrieve_records: list[Any] = []
         self.scroll_records: list[Any] = []
         self.scroll_next_offset: Any = None
@@ -107,7 +122,16 @@ class ExtendedRawQdrant(FakeRawQdrant):
         else:
             vectors = SimpleNamespace(size=self.existing_dimension, distance=self.existing_distance)
         return SimpleNamespace(
-            config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)),
+            config=SimpleNamespace(
+                params=SimpleNamespace(
+                    vectors=vectors,
+                    sparse_vectors=(
+                        {"sparse": SimpleNamespace(modifier=Modifier.IDF)}
+                        if self.sparse_vectors
+                        else {}
+                    ),
+                )
+            ),
             payload_schema=self.existing_payload_schema,
         )
 
@@ -122,9 +146,6 @@ class ExtendedRawQdrant(FakeRawQdrant):
 
     async def upsert(self, **kwargs: Any) -> None:
         self.upsert_calls.append(kwargs)
-
-    async def set_payload(self, **kwargs: Any) -> None:
-        self.set_payload_calls.append(kwargs)
 
     async def retrieve(self, **kwargs: Any) -> list[Any]:
         del kwargs

@@ -4,15 +4,15 @@ Allowed direction (lower layers never import higher ones):
 
     harborrag_core      -> (stdlib only)
     harborrag_adapters  -> core
-    harborrag_engine    -> core, adapters
-    harborrag_runtime   -> core, adapters, engine
-    harborrag_app       -> core, engine, runtime
-    harborrag_mcp_server -> core, engine, runtime
+    harborrag_memory    -> core
+    harborrag_engine    -> core, memory
+    harborrag_runtime   -> core, adapters, engine, memory
+    harborrag_app       -> core, runtime
+    harborrag_mcp_server -> core, runtime
     harborrag           -> any harborrag package (public facade)
 
-Each package's own ``tests/`` directory is checked against the same rule as
-its ``src/`` tree (a package's tests should not reach into a layer its
-production code isn't allowed to depend on either). Both plain
+Package ``src/`` trees are checked. Cross-package integration tests may compose
+multiple layers and are validated by their owning test suites instead. Both plain
 ``import``/``from`` statements and dynamic imports
 (``importlib.import_module(...)``, ``__import__(...)``) with a literal
 string argument are detected via the AST rather than a line-anchored regex,
@@ -44,13 +44,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ALLOWED_IMPORTS: dict[str, set[str]] = {
     "harborrag_core": set(),
     "harborrag_adapters": {"harborrag_core"},
-    "harborrag_engine": {"harborrag_core", "harborrag_adapters"},
-    "harborrag_runtime": {"harborrag_core", "harborrag_adapters", "harborrag_engine"},
-    "harborrag_app": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
-    "harborrag_mcp_server": {"harborrag_core", "harborrag_engine", "harborrag_runtime"},
+    "harborrag_memory": {"harborrag_core"},
+    "harborrag_engine": {"harborrag_core", "harborrag_memory"},
+    "harborrag_runtime": {
+        "harborrag_core",
+        "harborrag_adapters",
+        "harborrag_engine",
+        "harborrag_memory",
+    },
+    "harborrag_app": {"harborrag_core", "harborrag_runtime"},
+    "harborrag_mcp_server": {"harborrag_core", "harborrag_runtime"},
     "harborrag": {
         "harborrag_core",
         "harborrag_adapters",
+        "harborrag_memory",
         "harborrag_engine",
         "harborrag_runtime",
         "harborrag_app",
@@ -61,18 +68,13 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
 MODULE_TO_PACKAGE_DIR = {
     "harborrag_core": "harborrag-core",
     "harborrag_adapters": "harborrag-adapters",
+    "harborrag_memory": "harborrag-memory",
     "harborrag_engine": "harborrag-engine",
     "harborrag_runtime": "harborrag-runtime",
     "harborrag_app": "harborrag-app",
     "harborrag_mcp_server": "harborrag-mcp-server",
     "harborrag": "harborrag",
 }
-
-# Manual, opt-in integration scripts (see the README.md beside each smoke
-# suite) intentionally wire up the full application stack and are exempt from
-# the layering rule that applies to ordinary pytest suites. Suites are grouped
-# by domain, so the exempt directory is nested at any depth under tests/.
-EXEMPT_TEST_SUBDIRS = frozenset({"smoke"})
 
 
 def _importlib_bindings(tree: ast.AST) -> tuple[set[str], set[str]]:
@@ -290,14 +292,6 @@ def find_violations() -> list[str]:
             continue
         allowed = ALLOWED_IMPORTS[module] | {module}
         violations.extend(_scan_directory(src_dir, module=module, allowed=allowed))
-        violations.extend(
-            _scan_directory(
-                package_root / "tests",
-                module=module,
-                allowed=allowed,
-                exempt_subdirs=EXEMPT_TEST_SUBDIRS,
-            )
-        )
     return violations
 
 

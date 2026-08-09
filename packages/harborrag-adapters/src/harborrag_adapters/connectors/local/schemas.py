@@ -15,10 +15,9 @@ class LocalFileMetadata(ConnectorMetadata):
 
     source_system: ClassVar[str] = "local"
 
-    path: str
     relative_path: str
     name: str
-    parent_path: str
+    parent_relative_path: str
     suffix: str
     size: int
     accessed_at: datetime

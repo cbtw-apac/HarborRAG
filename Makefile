@@ -54,7 +54,7 @@ test-package:
 	$(PYTEST) packages/$(PACKAGE)/tests
 
 coverage:
-	$(PYTEST) --cov --cov-report=term-missing
+	$(PYTEST) -n 4 --cov --cov-report=term-missing
 
 openapi:
 	$(PYTHON) -m harborrag_app.api.export_openapi > openapi.json

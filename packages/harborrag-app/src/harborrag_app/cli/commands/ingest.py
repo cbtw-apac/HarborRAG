@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 import typer
@@ -26,8 +27,23 @@ JsonOption = Annotated[
 
 
 @app.command(help="Start a new ingestion run.", rich_help_panel="Submit")
-def start(
+def start(  # noqa: PLR0913 - Typer requires one parameter per public option
     context: typer.Context,
+    connector_name: Annotated[
+        str,
+        typer.Option(
+            # --connector-id is the truer name: the value is a key under `connectors:`
+            # in config/connectors.yaml, which that file documents as the public
+            # connection_id. --connector stays as the original spelling.
+            "--connector-id",
+            "--connector",
+            metavar="NAME",
+            help=(
+                "Configured connector name from config/connectors.yaml "
+                "(for example jira-main), not a provider type."
+            ),
+        ),
+    ],
     tenant_id: Annotated[
         str,
         typer.Option(
@@ -35,26 +51,46 @@ def start(
             metavar="TENANT_ID",
             help="Tenant that owns the ingestion run.",
         ),
-    ],
-    connector_name: Annotated[
-        str,
-        typer.Option(
-            "--connector",
-            metavar="NAME",
-            help="Enabled connector name from the runtime configuration.",
-        ),
-    ],
+    ] = "DEFAULT",
     run_id: Annotated[
         str | None,
         typer.Option("--run-id", help="Stable run ID; generated when omitted."),
     ] = None,
-    manifest_id: Annotated[
+    connection_id: Annotated[
         str | None,
-        typer.Option("--manifest-id", help="Manifest ID; generated when omitted."),
+        typer.Option(
+            "--connection-id",
+            help="Stable logical connector connection ID; defaults to the connector name.",
+        ),
     ] = None,
-    generation_id: Annotated[
+    source_scope_id: Annotated[
         str | None,
-        typer.Option("--generation-id", help="Index generation ID; generated when omitted."),
+        typer.Option(
+            "--source-scope-id",
+            help="Stable source scope ID; derived from the query when omitted.",
+        ),
+    ] = None,
+    path: Annotated[
+        str | None,
+        typer.Option("--path", help="Connector-specific discovery path."),
+    ] = None,
+    pattern: Annotated[
+        str | None,
+        typer.Option("--pattern", help="Connector-specific discovery pattern."),
+    ] = None,
+    recursive: Annotated[
+        bool,
+        typer.Option(
+            "--recursive/--no-recursive",
+            help="Traverse the configured source recursively.",
+        ),
+    ] = True,
+    updated_after: Annotated[
+        str | None,
+        typer.Option(
+            "--updated-after",
+            help="Only discover content updated after this ISO-8601 timestamp.",
+        ),
     ] = None,
     max_artifacts: Annotated[
         int | None,
@@ -65,6 +101,28 @@ def start(
             help="Stop after ingesting at most this many discovered artifacts.",
         ),
     ] = None,
+    include_attachments: Annotated[
+        bool,
+        typer.Option(
+            "--attachments/--no-attachments",
+            help="Admit source attachments as independent documents.",
+        ),
+    ] = True,
+    filters_json: Annotated[
+        str,
+        typer.Option(
+            "--filters-json",
+            metavar="JSON",
+            help="Connector-specific discovery filters as a JSON object.",
+        ),
+    ] = "{}",
+    force_reprocess: Annotated[
+        bool,
+        typer.Option(
+            "--force-reprocess",
+            help="Reprocess admitted documents even when source descriptors are unchanged.",
+        ),
+    ] = False,
     wait: Annotated[
         bool,
         typer.Option("--wait", help="Wait for completion and display the final summary."),
@@ -78,9 +136,16 @@ def start(
             tenant_id=tenant_id,
             connector_name=connector_name,
             run_id=run_id,
-            manifest_id=manifest_id,
-            generation_id=generation_id,
+            connection_id=connection_id,
+            source_scope_id=source_scope_id,
+            path=path,
+            pattern=pattern,
+            recursive=recursive,
+            updated_after=updated_after,
             max_artifacts=max_artifacts,
+            include_attachments=include_attachments,
+            filters=_filters(filters_json),
+            force_reprocess=force_reprocess,
             wait=wait,
         ),
         context=context,
@@ -174,43 +239,11 @@ def resume(
 def cancel(
     context: typer.Context,
     run_id: Annotated[str, typer.Argument(metavar="RUN_ID", help="Ingestion run ID.")],
-    force: Annotated[
-        bool,
-        typer.Option(
-            "--force",
-            help="Cancel immediately instead of requesting graceful cancellation.",
-        ),
-    ] = False,
     as_json: JsonOption = False,
 ) -> None:
-    """Cancel gracefully by default, preserving reconciliation behavior."""
+    """Cancel at a safe workflow boundary, preserving durable task state."""
 
-    _control(context, run_id, "cancel", graceful=not force, as_json=as_json)
-
-
-@app.command(help="Retry selected failed artifacts.", rich_help_panel="Control")
-def retry(
-    context: typer.Context,
-    run_id: Annotated[str, typer.Argument(metavar="RUN_ID", help="Ingestion run ID.")],
-    artifact_ids: Annotated[
-        list[str],
-        typer.Option(
-            "--artifact",
-            metavar="ARTIFACT_ID",
-            help="Artifact to retry; repeat for multiple artifacts.",
-        ),
-    ],
-    as_json: JsonOption = False,
-) -> None:
-    """Resubmit one or more failed artifacts through their durable workflow."""
-
-    _control(
-        context,
-        run_id,
-        "retry",
-        artifact_ids=tuple(artifact_ids),
-        as_json=as_json,
-    )
+    _control(context, run_id, "cancel", as_json=as_json)
 
 
 def _control(
@@ -218,8 +251,6 @@ def _control(
     run_id: str,
     action: str,
     *,
-    artifact_ids: tuple[str, ...] = (),
-    graceful: bool = True,
     as_json: bool,
 ) -> None:
     invoke(
@@ -227,8 +258,6 @@ def _control(
             service,
             run_id,
             action,
-            artifact_ids=artifact_ids,
-            graceful=graceful,
         ),
         context=context,
         command="ingest",
@@ -241,13 +270,12 @@ async def _control_request(
     service: BaseAppService,
     run_id: str,
     action: str,
-    *,
-    artifact_ids: tuple[str, ...],
-    graceful: bool,
 ) -> AppResponse:
-    return await service.control_ingestion(
-        run_id,
-        action,
-        artifact_ids=artifact_ids,
-        graceful=graceful,
-    )
+    return await service.control_ingestion(run_id, action)
+
+
+def _filters(value: str) -> dict[str, object]:
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict):
+        raise ValueError("--filters-json must encode a JSON object")
+    return {str(key): item for key, item in parsed.items()}

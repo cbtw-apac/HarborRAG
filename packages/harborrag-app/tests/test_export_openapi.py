@@ -16,16 +16,44 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     rendered = export_openapi()
     schema = json.loads(rendered)
     assert schema["info"]["title"] == "HarborRAG Control Plane API"
-    assert schema["info"]["version"] == "1.0.0-draft"
+    assert schema["info"]["version"] == "0.1.0"
     paths = schema["paths"]
     assert {
+        "/api/v1/metrics",
         "/api/v1/health",
         "/api/v1/readyz",
         "/api/v1/diagnostics",
         "/api/v1/ingestions",
         "/api/v1/ingestions/{run_id}",
-        "/api/v1/ingestions/{run_id}/result",
         "/api/v1/ingestions/{run_id}/actions",
+        "/api/v1/ingestions/{run_id}/result",
+        "/v1/ingestions",
+        "/v1/ingestions/{task_id}",
+        "/v1/ingestions/{task_id}/documents",
+        "/v1/ingestions/{task_id}/cancel",
+        "/v1/ingestions/{task_id}/retry-failures",
+        "/v1/chat/completions",
+        "/v1/chat/sessions",
+        "/v1/agent/completions",
+        "/v1/agent/sessions",
+        "/v1/retrieval/vector",
+        "/v1/retrieval/graph/triplets",
+        "/v1/retrieval/graph/paths",
+        "/v1/retrieval/graph/subgraphs",
+        "/v1/admin/projections/{tenant}",
     } <= set(paths)
+    assert set(paths["/v1/chat/completions"]) >= {"post"}
+    assert "get" not in paths["/v1/chat/completions"]
+    assert set(paths["/v1/agent/completions"]) >= {"post"}
+    assert "get" not in paths["/v1/agent/completions"]
+    assert "/v1/retrieval/search" not in paths
+    for path in (
+        "/api/v1/diagnostics",
+        "/api/v1/ingestions",
+        "/api/v1/ingestions/{run_id}",
+        "/api/v1/ingestions/{run_id}/actions",
+        "/api/v1/ingestions/{run_id}/result",
+    ):
+        assert all(operation["deprecated"] is True for operation in paths[path].values())
     assert "HTTPBearer" in schema["components"]["securitySchemes"]
     assert rendered == export_openapi()

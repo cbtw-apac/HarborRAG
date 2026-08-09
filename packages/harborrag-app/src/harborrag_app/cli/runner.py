@@ -13,8 +13,8 @@ import typer
 
 from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.workflow_control.composition.selection import runtime_app_service
 from harborrag_app.workflow_control.errors import public_error_message
-from harborrag_app.workflow_control.selection import runtime_app_service
 
 type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
 
@@ -28,15 +28,23 @@ class CliState:
     no_color: bool = False
 
 
-def invoke(
+def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation option
     call: ResponseCall,
     *,
     context: typer.Context,
     command: str,
     action: str | None = None,
     as_json: bool = False,
+    requires_control_plane: bool = True,
 ) -> None:
-    """Execute one application-service call and render its stable response."""
+    """Execute one application-service call and render its stable response.
+
+    ``requires_control_plane`` gates the command on a usable control-plane database.
+    Composition deliberately boots degraded when migrations fail, so a service that
+    cannot reach its schema is still returned; a command that then does real work fails
+    much later with an opaque error such as a missing column. Diagnostic commands set
+    this to ``False`` -- a degraded control plane is exactly when they are run.
+    """
 
     exit_code = asyncio.run(
         _invoke(
@@ -45,6 +53,7 @@ def invoke(
             command=command,
             action=action,
             as_json=as_json,
+            requires_control_plane=requires_control_plane,
         )
     )
     if exit_code:
@@ -71,13 +80,14 @@ def invoke_dashboard(
         raise typer.Exit(1) from None
 
 
-async def _invoke(
+async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
     call: ResponseCall,
     *,
     state: CliState,
     command: str,
     action: str | None,
     as_json: bool,
+    requires_control_plane: bool = True,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     try:
@@ -94,6 +104,16 @@ async def _invoke(
         )
         return 1
     try:
+        unavailable = _control_plane_failure(service) if requires_control_plane else None
+        if unavailable is not None:
+            _emit(
+                unavailable,
+                renderer=renderer,
+                command=command,
+                action=action,
+                as_json=as_json,
+            )
+            return 1
         try:
             with renderer.operation(
                 _operation_message(command, action),
@@ -166,6 +186,47 @@ def _failure(exc: Exception) -> AppResponse:
     )
 
 
+def _control_plane_failure(service: BaseAppService) -> AppResponse | None:
+    """Return a failure response when the control plane is unusable, else ``None``."""
+
+    try:
+        health = service.health()
+    except Exception:
+        # A service that cannot report its own health is not evidence that the control
+        # plane is broken. Let the command run and fail on its own terms rather than
+        # blocking it on an inconclusive check.
+        logger.debug("Control-plane readiness check unavailable", exc_info=True)
+        return None
+    if health.ok:
+        return None
+    detail = _control_db_error(health)
+    logger.error("Control-plane readiness check failed: %s", detail)
+    return AppResponse(
+        False,
+        data={"error_type": "ControlPlaneUnavailable"},
+        error=(
+            "Control plane is not ready. Refusing to run "
+            "against a database whose schema may be stale; run 'harborrag doctor' for "
+            "diagnostics."
+        ),
+    )
+
+
+def _control_db_error(health: AppResponse) -> str:
+    """Dig the control-plane error out of the health envelope, if it carries one."""
+
+    diagnostics = health.data.get("diagnostics")
+    if isinstance(diagnostics, dict):
+        runtime = diagnostics.get("runtime")
+        if isinstance(runtime, dict):
+            control_db = runtime.get("control_db")
+            if isinstance(control_db, dict):
+                error = control_db.get("error")
+                if isinstance(error, str) and error:
+                    return error
+    return health.error or "runtime not ready"
+
+
 def _state(context: typer.Context) -> CliState:
     value = context.find_root().obj
     return value if isinstance(value, CliState) else CliState()
@@ -174,6 +235,8 @@ def _state(context: typer.Context) -> CliState:
 def _operation_message(command: str, action: str | None) -> str:
     if command == "doctor":
         return "Checking Temporal runtime…"
+    if command == "chat":
+        return "Generating chat response…"
     messages = {
         "start": "Starting ingestion workflow…",
         "status": "Loading ingestion status…",
@@ -181,7 +244,6 @@ def _operation_message(command: str, action: str | None) -> str:
         "pause": "Pausing ingestion…",
         "resume": "Resuming ingestion…",
         "cancel": "Cancelling ingestion…",
-        "retry": "Submitting artifact retries…",
     }
     return (
         messages.get(action, "Running HarborRAG command…")

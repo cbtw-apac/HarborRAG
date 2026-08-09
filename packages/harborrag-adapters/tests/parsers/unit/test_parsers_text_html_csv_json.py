@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from harborrag_adapters.parsers.compat import (
@@ -38,14 +40,16 @@ def test_parsers_raise_typed_error_on_undecodable_bytes(parser_cls):
     assert isinstance(excinfo.value, ParseError)
 
 
-def test_text_parser_compacts_and_emits_paragraph():
-    document = TextParser().parse(
-        ParseInput(content="  hello  \n\n\n  world  \n", filename="a.txt")
-    )
+def test_text_parser_compacts_and_emits_paragraph(caplog):
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.parsers.text"):
+        document = TextParser().parse(
+            ParseInput(content="  hello  \n\n\n  world  \n", filename="a.txt")
+        )
     assert document.parser_name == "text"
     assert document.content == "hello\n\nworld"
     assert [element.type for element in document.elements] == ["paragraph"]
     assert document.elements[0].content == "hello\n\nworld"
+    assert "Parsed text a.txt content_chars=12 elements=1" in caplog.text
 
 
 def test_text_parser_empty_input_has_no_elements():
@@ -84,6 +88,33 @@ def test_markdown_strips_links_and_emphasis_in_content():
     assert "*" not in document.content
 
 
+def test_markdown_parser_preserves_gfm_table_as_structured_element():
+    markdown = (
+        "# Matrix\n\n"
+        "| Store | Required observation |\n"
+        "| :--- | ---: |\n"
+        "| Qdrant | dense \\| sparse |\n"
+        "| FalkorDB | endpoints resolve |\n\n"
+        "After the table."
+    )
+
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="matrix.md"))
+
+    table = next(element for element in document.elements if element.type == "table")
+    assert table.content == (
+        "Store\tRequired observation\nQdrant\tdense | sparse\nFalkorDB\tendpoints resolve"
+    )
+    assert table.metadata == {
+        "rows": 3,
+        "columns": 2,
+        "header_rows": 1,
+        "table_format": "markdown",
+        "start_line": 3,
+        "end_line": 6,
+    }
+    assert document.elements[-1].content == "After the table."
+
+
 def test_html_parser_extracts_visible_text_and_strips_script_style():
     html = (
         "<html><head><style>.a{color:red}</style>"
@@ -120,6 +151,29 @@ def test_csv_parser_sniffs_semicolon_dialect():
 def test_csv_parser_handles_tsv_suffix():
     document = CsvParser().parse(ParseInput(content="a\tb\n1\t2", filename="t.tsv"))
     assert document.content == "a\tb\n1\t2"
+
+
+def test_csv_parser_skips_only_row_with_invalid_utf8(caplog):
+    document = CsvParser().parse(
+        ParseInput(
+            content=b"name,role\nAda,engineer\n\xffbad,row\nGrace,scientist\n", filename="t.csv"
+        )
+    )
+
+    assert document.content == "name\trole\nAda\tengineer\nGrace\tscientist"
+    assert document.metadata["rows"] == 3
+    assert document.warnings and "invalid UTF-8" in document.warnings[0]
+    assert "invalid UTF-8" in caplog.text
+
+
+def test_csv_parser_skips_and_warns_on_field_count_mismatch(caplog):
+    document = CsvParser().parse(
+        ParseInput(content="name,role\nAda,engineer\nmalformed\nGrace,scientist", filename="t.csv")
+    )
+
+    assert document.content == "name\trole\nAda\tengineer\nGrace\tscientist"
+    assert document.warnings and "expected 2 fields, found 1" in document.warnings[0]
+    assert "expected 2 fields, found 1" in caplog.text
 
 
 def test_json_parser_flattens_jsonpath_lines_and_keeps_raw_json_only():

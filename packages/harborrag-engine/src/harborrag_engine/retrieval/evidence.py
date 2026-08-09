@@ -18,16 +18,36 @@ class EvidenceBuilder:
             raise ValueError("evidence maximum_characters must be positive")
 
     def build(self, results: Sequence[RetrievalResult]) -> str:
-        remaining = self.maximum_characters
-        sections: list[str] = ['<retrieved_evidence trust="untrusted">']
+        opening = '<retrieved_evidence trust="untrusted">'
+        closing = "</retrieved_evidence>"
+        minimum = len(opening) + 1 + len(closing)
+        if minimum > self.maximum_characters:
+            return ""
+        sections: list[str] = [opening]
+        rendered_length = minimum
         for index, item in enumerate(results, start=1):
-            if remaining <= 0:
+            identifier = escape(item.id[:128], quote=True)
+            available = self.maximum_characters - rendered_length - 1
+            empty_section = f'<document citation="{index}" id="{identifier}">\n\n</document>'
+            if len(empty_section) > available:
                 break
-            text = item.text[:remaining]
-            remaining -= len(text)
-            identifier = escape(item.id, quote=True)
-            sections.append(
-                f'<document citation="{index}" id="{identifier}">\n{escape(text)}\n</document>'
+            low = 0
+            high = len(item.text)
+            while low < high:
+                midpoint = (low + high + 1) // 2
+                candidate = (
+                    f'<document citation="{index}" id="{identifier}">\n'
+                    f"{escape(item.text[:midpoint])}\n</document>"
+                )
+                if len(candidate) <= available:
+                    low = midpoint
+                else:
+                    high = midpoint - 1
+            section = (
+                f'<document citation="{index}" id="{identifier}">\n'
+                f"{escape(item.text[:low])}\n</document>"
             )
-        sections.append("</retrieved_evidence>")
+            sections.append(section)
+            rendered_length += len(section) + 1
+        sections.append(closing)
         return "\n".join(sections)

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote, urljoin
 
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_core.domain.source import SourceRecord
 
 from .config import ConfluenceDeploymentType
@@ -18,6 +19,34 @@ from .schemas import (
     ConfluenceMetadata,
     ConfluencePageReference,
 )
+
+
+def validate_content(content: dict[str, Any], content_id: str, *, space_key: str) -> None:
+    """Fail fast when content is malformed or outside the configured space.
+
+    Shared by every path that fetches a content item -- discovery, load, and
+    the descriptor builder used by `describe()` -- so none of them can drift
+    out of sync with the others on what counts as valid, in-scope content.
+    """
+    content_space_key = content.get("space", {}).get("key")
+    missing = [
+        name
+        for name, value in (
+            ("id", content.get("id")),
+            ("title", content.get("title")),
+            ("space.key", content_space_key),
+        )
+        if not value
+    ]
+    if missing:
+        raise DocumentProcessingError(
+            f"Confluence content {content_id} missing required fields: {', '.join(missing)}"
+        )
+    if str(content_space_key) != space_key:
+        raise DocumentProcessingError(
+            f"Confluence content {content_id} belongs to space {content_space_key!r}, "
+            f"outside configured space {space_key!r}"
+        )
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
@@ -161,12 +190,37 @@ def _author(content: dict[str, Any]) -> str | None:
 
 def _comment_metadata(comment: dict[str, Any]) -> ConfluenceCommentMetadata:
     history = comment.get("history", {})
+    version = comment.get("version") or {}
+    extensions = comment.get("extensions") or {}
+    location = str(extensions.get("location") or "").casefold()
     return ConfluenceCommentMetadata(
         id=comment.get("id"),
         body=comment.get("body", {}).get("storage", {}).get("value", ""),
         author=history.get("createdBy", {}).get("displayName"),
         created_at=history.get("createdDate") or history.get("createdAt"),
+        updated_at=(version.get("when") or (history.get("lastUpdated") or {}).get("when")),
+        comment_kind=("INLINE_COMMENT" if location == "inline" else "PAGE_COMMENT"),
+        parent_comment_id=_parent_comment_id(comment),
+        status=(str(comment["status"]) if comment.get("status") is not None else None),
     )
+
+
+def _parent_comment_id(comment: dict[str, Any]) -> str | None:
+    direct = comment.get("parentId") or comment.get("parent_id")
+    if direct is not None and str(direct).strip():
+        return str(direct)
+    ancestors = comment.get("ancestors")
+    if not isinstance(ancestors, list):
+        return None
+    for ancestor in reversed(ancestors):
+        if not isinstance(ancestor, dict):
+            continue
+        if str(ancestor.get("type") or "").casefold() != "comment":
+            continue
+        identifier = ancestor.get("id")
+        if identifier is not None and str(identifier).strip():
+            return str(identifier)
+    return None
 
 
 def _hierarchy_metadata(

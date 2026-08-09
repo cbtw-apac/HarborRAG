@@ -55,6 +55,16 @@ def test_build_cql_raw_cql_passthrough():
     assert build_cql(raw_cql="type = page") == "type = page"
 
 
+def test_build_cql_raw_cql_cannot_escape_the_configured_space():
+    # raw_cql is an intentional escape hatch from the type/label allowlists,
+    # but it must never be able to bypass the space scope that
+    # _cql_from_query already proved matches this connection's configured
+    # space -- that scope is a tenant-isolation boundary.
+    cql = build_cql(space_key="ENG", raw_cql='type = page or space = "OTHER"')
+
+    assert cql == '(type = page or space = "OTHER") and space = "ENG"'
+
+
 def test_build_cql_without_space_key_or_content_types():
     cql = build_cql(labels=["runbook"])
     assert cql == 'label in ("runbook")'

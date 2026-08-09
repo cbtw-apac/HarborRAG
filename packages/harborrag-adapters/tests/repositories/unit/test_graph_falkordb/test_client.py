@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from harborrag_adapters.repositories.graph.falkordb import (
@@ -33,6 +35,23 @@ async def test_write_and_read_delegate_to_the_selected_graph(
     assert read_result == "read-result"
     assert client.graph.query_calls == [("CREATE (n)", {"a": 1})]
     assert client.graph.ro_query_calls == [("MATCH (n) RETURN n", {"b": 2})]
+
+
+@pytest.mark.asyncio
+async def test_operations_wait_for_an_available_connection_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(falkordb_client_module, "FalkorDB", FalkorDBWithGraph)
+    client = FalkorDBClient(**client_kwargs(max_connections=1))
+    await client.connect()
+
+    await asyncio.gather(
+        client.write("CREATE (n)", {}),
+        client.read("MATCH (n) RETURN n", {}),
+        client.write("CREATE (m)", {}),
+    )
+
+    assert client.graph.maximum_active_calls == 1
 
 
 def test_backend_property_reports_falkordb(monkeypatch: pytest.MonkeyPatch) -> None:

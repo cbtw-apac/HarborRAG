@@ -80,6 +80,16 @@ def validate_rerank_request(
 ) -> None:
     """Validate request limits, provider capabilities, and extension security."""
 
+    _validate_request_limits(request, config, deployment)
+    _validate_request_extensions(request, config)
+    _validate_request_capabilities(request, deployment)
+
+
+def _validate_request_limits(
+    request: HarborRerankRequest,
+    config: HarborRerankClientConfig,
+    deployment: HarborRerankProviderConfig,
+) -> None:
     if len(request.query) > config.max_query_characters:
         raise _invalid(request, "rerank query exceeds max_query_characters")
     limits = [config.max_documents_per_request]
@@ -99,6 +109,12 @@ def validate_rerank_request(
             raise _invalid(request, "rerank document exceeds max_document_characters")
     if len(request.extra_params) > config.security.max_extra_params:
         raise _invalid(request, "too many request extra_params")
+
+
+def _validate_request_extensions(
+    request: HarborRerankRequest,
+    config: HarborRerankClientConfig,
+) -> None:
     try:
         validate_extension_parameters(
             request.extra_params,
@@ -112,6 +128,11 @@ def validate_rerank_request(
     except ValueError as exc:
         raise _invalid(request, str(exc), exc) from exc
 
+
+def _validate_request_capabilities(
+    request: HarborRerankRequest,
+    deployment: HarborRerankProviderConfig,
+) -> None:
     capabilities = deployment.capabilities
     checks = (
         (

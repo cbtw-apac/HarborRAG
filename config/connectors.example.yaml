@@ -1,8 +1,10 @@
 version: 1
 
+# Connector keys are the `connection_id` values accepted by
+# POST /v1/ingestions. Keep credentials in referenced environment variables.
 connectors:
   # The active local connector keeps its source location in the environment.
-  local-docs:
+  harborrag-workspace:
     provider: local
     enabled: true
     environment:
@@ -50,7 +52,7 @@ connectors:
   #     token_env: GITHUB_TOKEN
 
   # Confluence URL and space are deployment-specific and stay in the env file.
-  # engineering-confluence:
+  # confluence-main:
   #   provider: confluence
   #   enabled: true
   #   environment:
@@ -78,7 +80,7 @@ connectors:
   #     email_env: CONFLUENCE_EMAIL
 
   # JIRA URL stays in the environment. Project lists remain typed YAML values.
-  # engineering-jira:
+  # jira-main:
   #   provider: jira
   #   enabled: true
   #   environment:

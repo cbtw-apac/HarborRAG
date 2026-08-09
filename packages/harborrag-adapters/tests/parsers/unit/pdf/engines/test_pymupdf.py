@@ -104,7 +104,8 @@ def test_pdf_parser_end_to_end_and_materialized_path_from_disk(tmp_path: Path) -
     pdf = tmp_path / "real.pdf"
     pdf.write_bytes(_one_page_pdf())
     with materialized_pdf_path(ParseInput(path=pdf)) as path:
-        assert path == pdf
+        assert path != pdf
+        assert path.read_bytes() == pdf.read_bytes()
 
     document = HarborParserFactory().create_pdf_parser().parse_input(ParseInput(path=pdf))
     assert "Hello PDF" in document.content

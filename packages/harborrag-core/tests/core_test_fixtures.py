@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.project import Project
@@ -177,94 +175,3 @@ class FakeMemberRepository:
     async def delete(self, member_id: str) -> None:
         """Drop the member if present."""
         self.members.pop(member_id, None)
-
-
-@dataclass(slots=True)
-class FakeJobQueue:
-    """In-memory JobQueuePort: FIFO claim, retryable re-queue, cancel."""
-
-    jobs: dict[str, Job] = field(default_factory=dict)
-    pending: list[str] = field(default_factory=list)
-
-    async def enqueue(self, job: Job) -> Job:
-        """Add a job to the tail of the queue."""
-        self.jobs[job.id] = job
-        self.pending.append(job.id)
-        return job
-
-    async def claim_next(self, lease_seconds: int) -> Job | None:
-        """Claim the head of the queue; lease_seconds is unused by the fake."""
-        while self.pending:
-            job = self.jobs[self.pending.pop(0)]
-            if job.status != "queued":
-                continue
-            job.status = "running"
-            job.attempts += 1
-            return job
-        return None
-
-    async def mark_done(self, job_id: str) -> None:
-        """Running -> succeeded."""
-        self.jobs[job_id].status = "succeeded"
-
-    async def mark_failed(self, job_id: str, error: str, retryable: bool) -> None:
-        """Record error; re-queue when retryable, else mark failed."""
-        job = self.jobs[job_id]
-        job.last_error = error
-        if retryable:
-            job.status = "queued"
-            self.pending.append(job_id)
-        else:
-            job.status = "failed"
-
-    async def cancel(self, job_id: str) -> None:
-        """Any state -> cancelled; never claimable afterwards."""
-        self.jobs[job_id].status = "cancelled"
-
-
-@dataclass(slots=True)
-class FakeSecrets:
-    """In-memory SecretsPort; refs are sequential and reveal nothing."""
-
-    values: dict[str, str] = field(default_factory=dict)
-    counter: int = 0
-
-    async def put(self, value: str) -> str:
-        """Store the value under a fresh opaque ref."""
-        self.counter += 1
-        ref = f"secret://fake/{self.counter}"
-        self.values[ref] = value
-        return ref
-
-    async def resolve(self, ref: str) -> str:
-        """Return the stored value; KeyError for unknown/deleted refs."""
-        return self.values[ref]
-
-    async def delete(self, ref: str) -> None:
-        """Forget the value behind the ref."""
-        self.values.pop(ref, None)
-
-
-@dataclass(slots=True)
-class FakeEventBus:
-    """Recording EventBusPort: subscribe replays already-published events.
-
-    Deterministic by design — no live fan-out, so tests never hang waiting
-    on a stream. The real bus (M2) streams indefinitely.
-    """
-
-    events: list[HarborEvent] = field(default_factory=list)
-
-    async def publish(self, event: HarborEvent) -> None:
-        """Record the event."""
-        self.events.append(event)
-
-    def subscribe(self, name_prefix: str) -> AsyncIterator[HarborEvent]:
-        """Yield recorded events whose name starts with name_prefix."""
-
-        async def _replay() -> AsyncIterator[HarborEvent]:
-            for event in list(self.events):
-                if event.name.startswith(name_prefix):
-                    yield event
-
-        return _replay()

@@ -22,15 +22,16 @@ async def test_get_bytes_range_os_error_is_wrapped(
         context = make_context()
         await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"abcdef"), context=context)
 
-        original_open = Path.open
+        original_open = store._open_regular_file
+        calls = {"count": 0}
 
-        def boom_open(self: Path, *args: object, **kwargs: object) -> object:
-            mode = args[0] if args else kwargs.get("mode", "r")
-            if mode == "rb":
+        def boom_open(path: Path) -> object:
+            calls["count"] += 1
+            if calls["count"] > 1:
                 raise OSError("boom")
-            return original_open(self, *args, **kwargs)
+            return original_open(path)
 
-        monkeypatch.setattr(Path, "open", boom_open)
+        monkeypatch.setattr(store, "_open_regular_file", boom_open)
         with pytest.raises(HarborStorageError):
             await store.get_bytes("bkt", "k", byte_range=(0, 1), context=context)
 
@@ -44,15 +45,16 @@ async def test_iter_bytes_open_os_error_is_wrapped(
         context = make_context()
         await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"abcdef"), context=context)
 
-        original_open = Path.open
+        original_open = store._open_regular_file
+        calls = {"count": 0}
 
-        def boom_open(self: Path, *args: object, **kwargs: object) -> object:
-            mode = args[0] if args else kwargs.get("mode", "r")
-            if mode == "rb":
+        def boom_open(path: Path) -> object:
+            calls["count"] += 1
+            if calls["count"] > 1:
                 raise OSError("boom")
-            return original_open(self, *args, **kwargs)
+            return original_open(path)
 
-        monkeypatch.setattr(Path, "open", boom_open)
+        monkeypatch.setattr(store, "_open_regular_file", boom_open)
         with pytest.raises(HarborStorageError):
             async for _ in store.iter_bytes("bkt", "k", chunk_size=4, context=context):
                 pass
@@ -67,15 +69,16 @@ async def test_iter_bytes_disappearance_is_mapped_to_not_found(
         context = make_context()
         await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"abcdef"), context=context)
 
-        original_open = Path.open
+        original_open = store._open_regular_file
+        calls = {"count": 0}
 
-        def disappear(self: Path, *args: object, **kwargs: object) -> object:
-            mode = args[0] if args else kwargs.get("mode", "r")
-            if mode == "rb":
+        def disappear(path: Path) -> object:
+            calls["count"] += 1
+            if calls["count"] > 1:
                 raise FileNotFoundError
-            return original_open(self, *args, **kwargs)
+            return original_open(path)
 
-        monkeypatch.setattr(Path, "open", disappear)
+        monkeypatch.setattr(store, "_open_regular_file", disappear)
         with pytest.raises(HarborStorageNotFoundError):
             async for _ in store.iter_bytes("bkt", "k", chunk_size=4, context=context):
                 pass
@@ -90,16 +93,16 @@ async def test_head_read_text_os_error_is_wrapped(
         context = make_context()
         await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"abcdef"), context=context)
 
-        original_read_text = Path.read_text
+        original_read = store._read_regular_file
         calls = {"n": 0}
 
-        def flaky_read_text(self: Path, *args: object, **kwargs: object) -> str:
+        def flaky_read(path: Path) -> bytes:
             calls["n"] += 1
             if calls["n"] > 1:
                 raise OSError("boom")
-            return original_read_text(self, *args, **kwargs)
+            return original_read(path)
 
-        monkeypatch.setattr(Path, "read_text", flaky_read_text)
+        monkeypatch.setattr(store, "_read_regular_file", flaky_read)
         with pytest.raises(HarborStorageError):
             await store.head("bkt", "k", context=context)
 
@@ -113,16 +116,16 @@ async def test_head_disappearance_is_mapped_to_not_found(
         context = make_context()
         await store.put(PutObjectRequest(bucket="bkt", key="k", body=b"abcdef"), context=context)
 
-        original_read_text = Path.read_text
+        original_read = store._read_regular_file
         calls = {"n": 0}
 
-        def flaky_read_text(self: Path, *args: object, **kwargs: object) -> str:
+        def flaky_read(path: Path) -> bytes:
             calls["n"] += 1
             if calls["n"] > 1:
                 raise FileNotFoundError
-            return original_read_text(self, *args, **kwargs)
+            return original_read(path)
 
-        monkeypatch.setattr(Path, "read_text", flaky_read_text)
+        monkeypatch.setattr(store, "_read_regular_file", flaky_read)
         with pytest.raises(HarborStorageNotFoundError):
             await store.head("bkt", "k", context=context)
 

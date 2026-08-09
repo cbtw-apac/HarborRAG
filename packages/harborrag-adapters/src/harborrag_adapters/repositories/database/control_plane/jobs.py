@@ -11,6 +11,7 @@ from harborrag_adapters.repositories.database.control_plane.schemas import (
     JobEventRow,
     JobRow,
 )
+from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job, JobStatus
@@ -51,8 +52,10 @@ class SqlJobRepository:
         async with self.sessions.begin() as session:
             row = await session.get(JobRow, job.id)
             if row is None:
-                row = JobRow(id=job.id, enqueued_at=job.enqueued_at)
+                row = JobRow(id=job.id, tenant_id=job.tenant_id, enqueued_at=job.enqueued_at)
                 session.add(row)
+            elif row.tenant_id != job.tenant_id:
+                raise HarborConflictError("job tenant identity is immutable")
             row.source_id = job.source_id
             row.project_id = job.project_id
             row.job_type = job.job_type
@@ -72,15 +75,21 @@ class SqlJobRepository:
     async def append_event(self, job_id: str, event: HarborEvent) -> None:
         """Append the event with the next per-job sequence number."""
         async with self.sessions.begin() as session:
-            next_seq = await session.scalar(
-                sa.select(sa.func.coalesce(sa.func.max(JobEventRow.seq), 0) + 1).where(
-                    JobEventRow.job_id == job_id
-                )
+            # The counter update is one database statement, so concurrent
+            # appenders cannot observe and allocate the same sequence number.
+            result = await session.execute(
+                sa.update(JobRow)
+                .where(JobRow.id == job_id)
+                .values(event_sequence=JobRow.event_sequence + 1)
+                .returning(JobRow.event_sequence)
             )
+            next_seq = result.scalar_one_or_none()
+            if next_seq is None:
+                raise HarborNotFoundError(f"job does not exist: {job_id}")
             session.add(
                 JobEventRow(
                     job_id=job_id,
-                    seq=next_seq or 1,
+                    seq=next_seq,
                     name=event.name,
                     trace_id=event.trace_id,
                     payload_json=dict(event.payload),
@@ -111,6 +120,7 @@ class SqlActivityRepository:
             session.add(
                 ActivityRow(
                     id=entry.id,
+                    tenant_id=entry.tenant_id,
                     actor=entry.actor,
                     verb=entry.verb,
                     entity_type=entry.entity_type,
@@ -129,6 +139,7 @@ class SqlActivityRepository:
             return [
                 ActivityEntry(
                     id=row.id,
+                    tenant_id=row.tenant_id,
                     actor=row.actor,
                     verb=row.verb,
                     entity_type=row.entity_type,

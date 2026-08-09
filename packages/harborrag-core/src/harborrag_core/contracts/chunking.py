@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 class SplitBoundaryKind(StrEnum):
@@ -111,36 +110,6 @@ class TextRefinementRequest:
                 raise ValueError("separators must not contain duplicates")
 
 
-@dataclass(frozen=True, slots=True)
-class StructureSplitRequest:
-    """Ask a format adapter to recover hierarchy from raw markup fallback text."""
-
-    content: str
-    source_span: SourceSpan | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class JsonStructureSplitRequest:
-    """Ask a format adapter to split a JSON object without flattening it."""
-
-    value: Mapping[str, Any] | Sequence[Any]
-    maximum_characters: int = 2000
-    minimum_characters: int | None = None
-    convert_lists: bool = True
-    ensure_ascii: bool = False
-    source_span: SourceSpan | None = None
-
-    def __post_init__(self) -> None:
-        if isinstance(self.value, (str, bytes, bytearray)):
-            raise TypeError("JSON structure input must be an object or array")
-        if self.maximum_characters < 1:
-            raise ValueError("maximum_characters must be positive")
-        if self.minimum_characters is not None and not (
-            0 <= self.minimum_characters <= self.maximum_characters
-        ):
-            raise ValueError("minimum_characters must satisfy 0 <= minimum <= maximum")
-
-
 @runtime_checkable
 class TokenCounter(Protocol):
     """Count model-oriented tokens without exposing a provider tokenizer."""
@@ -155,19 +124,3 @@ class TextRefiner(Protocol):
 
     def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
         """Return ordered splits that do not exceed the requested hard limit."""
-
-
-@runtime_checkable
-class StructureSplitter(Protocol):
-    """Recover preferred structural units from raw format fallback text."""
-
-    def split(self, request: StructureSplitRequest) -> tuple[TextSplit, ...]:
-        """Return HarborRAG-owned structural splits."""
-
-
-@runtime_checkable
-class JsonStructureSplitter(Protocol):
-    """Split JSON while retaining object and path structure."""
-
-    def split(self, request: JsonStructureSplitRequest) -> tuple[TextSplit, ...]:
-        """Return HarborRAG-owned JSON splits."""

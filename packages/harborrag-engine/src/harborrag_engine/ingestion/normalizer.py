@@ -3,24 +3,37 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime
+from hashlib import sha256
 from typing import Any
 
+from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.normalized_document import Document, DocumentRelation
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_engine.ingestion.base import BaseDocumentNormalizer
 
+from .tables import FlatTableArtifactBuilder
+
 
 class DocumentNormalizer(BaseDocumentNormalizer):
     """Preserve parser structure while merging source-owned metadata."""
 
+    def __init__(
+        self,
+        table_builder: FlatTableArtifactBuilder | None = None,
+    ) -> None:
+        self._tables = table_builder or FlatTableArtifactBuilder()
+
     def normalize(self, raw: RawDocument, parsed: ParsedDocument) -> Document:
         source_metadata = dict(raw.metadata)
         parser_metadata = dict(parsed.metadata or {})
-        metadata = {**source_metadata, **parser_metadata}
+        # Parser metadata is derived from untrusted document bytes. Connector
+        # metadata is the authoritative source for ACL, identity, and provenance
+        # fields, so it must win every conflict.
+        metadata = {**parser_metadata, **source_metadata}
 
         elements = list(parsed.elements or ())
         if not elements and parsed.content.strip():
@@ -33,6 +46,33 @@ class DocumentNormalizer(BaseDocumentNormalizer):
                 )
             )
 
+        source_version = self._source_version(raw, metadata)
+        tables = self._tables.build(
+            elements,
+            document_id=raw.id,
+            document_version_id=encoded_source_version(
+                raw.id,
+                source_version,
+            ),
+            source_version=source_version,
+            source_url=raw.source,
+        )
+        table_by_element = {table.source_block_id: table for table in tables}
+        elements = [
+            (
+                replace(
+                    element,
+                    metadata={
+                        **element.metadata,
+                        "table_id": table_by_element[element.id].table_id,
+                        "table_version_id": (table_by_element[element.id].table_version_id),
+                    },
+                )
+                if element.id in table_by_element
+                else element
+            )
+            for element in elements
+        ]
         return Document(
             id=raw.id,
             title=self._title(raw.id, metadata),
@@ -41,6 +81,7 @@ class DocumentNormalizer(BaseDocumentNormalizer):
             provenance=self._provenance(raw, metadata, parsed),
             relations=self._relations(metadata.get("relations")),
             raw=self._raw_details(raw, parsed),
+            table_artifacts=tables,
         )
 
     @staticmethod
@@ -156,3 +197,21 @@ class DocumentNormalizer(BaseDocumentNormalizer):
         if not isinstance(value, (list, tuple, set, frozenset)):
             return []
         return [str(item).strip() for item in value if str(item).strip()]
+
+    @staticmethod
+    def _source_version(
+        raw: RawDocument,
+        metadata: Mapping[str, Any],
+    ) -> str:
+        for key in ("source_version", "version", "checksum", "updated_at"):
+            value = metadata.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        content = raw.content.encode("utf-8") if isinstance(raw.content, str) else raw.content
+        return sha256(content).hexdigest()
+
+
+def encoded_source_version(document_id: str, source_version: str) -> str:
+    """Build the pre-planning table version context deterministically."""
+
+    return sha256(f"{document_id}\0{source_version}".encode()).hexdigest()

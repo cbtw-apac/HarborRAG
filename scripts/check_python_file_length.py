@@ -14,6 +14,20 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAX_LINES = 349
+# Alembic revisions are generated, append-only, and identified by their revision graph.
+# Splitting one would break that graph without making anything easier to read, so the
+# gate skips them rather than inviting a per-file suppression comment.
+EXEMPT_PARTS = (("alembic", "versions"),)
+
+
+def is_exempt(path: Path, *, root: Path = REPO_ROOT) -> bool:
+    """Report whether a path is excluded from the physical line-length gate."""
+
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = path.parts
+    return any(all(part in parts for part in exempt_parts) for exempt_parts in EXEMPT_PARTS)
 
 
 def python_files(root: Path = REPO_ROOT) -> tuple[Path, ...]:
@@ -58,6 +72,8 @@ def oversized_files(
 
     failures: list[str] = []
     for path in sorted(paths):
+        if is_exempt(path, root=root):
+            continue
         count = physical_line_count(path)
         if count > maximum:
             try:

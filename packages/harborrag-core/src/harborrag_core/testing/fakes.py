@@ -169,7 +169,9 @@ class FakeActivityRepository:
 class FakeSettingsRepository:
     """Single-document SettingsRepositoryPort."""
 
-    settings: WorkspaceSettings = field(default_factory=WorkspaceSettings)
+    settings: WorkspaceSettings = field(
+        default_factory=lambda: WorkspaceSettings(tenant_id="DEFAULT")
+    )
 
     async def get(self) -> WorkspaceSettings:
         """The current settings document."""

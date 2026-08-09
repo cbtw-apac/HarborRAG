@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
-from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import (
     FilterOperator,
     VectorDistance,
@@ -20,33 +19,28 @@ def test_distance_and_vector_distance_round_trip_all_metrics() -> None:
         assert QdrantMapper.vector_distance(provider_value, FakeModels) == distance
 
 
-def test_point_id_is_stable_and_namespaced_per_tenant() -> None:
-    first = QdrantMapper.point_id("tenant-a", "doc-1")
-    second = QdrantMapper.point_id("tenant-a", "doc-1")
-    other_tenant = QdrantMapper.point_id("tenant-b", "doc-1")
+def test_point_id_is_stable_for_canonical_identity() -> None:
+    first = QdrantMapper.point_id("chunk:1")
+    second = QdrantMapper.point_id("chunk:1")
+    changed = QdrantMapper.point_id("chunk:2")
     assert first == second
-    assert first != other_tenant
+    assert first != changed
 
 
-def test_filter_without_value_only_scopes_tenant() -> None:
-    context = StorageOperationContext(tenant_id="tenant-a")
-    result = QdrantMapper.filter(None, context, ExtendedModels)
-    assert len(result.must) == 1
-    assert result.must[0].key == "_harbor_tenant_id"
-    assert result.must[0].match.value == "tenant-a"
+def test_filter_without_value_is_absent_inside_tenant_collection() -> None:
+    assert QdrantMapper.filter(None, ExtendedModels) is None
 
 
 def test_filter_combines_must_should_and_must_not() -> None:
-    context = StorageOperationContext(tenant_id="tenant-a")
     filter_value = VectorFilter(
         must=[VectorFilterCondition(field="a", operator=FilterOperator.EQUALS, value=1)],
         should=[VectorFilterCondition(field="b", operator=FilterOperator.EQUALS, value=2)],
         must_not=[VectorFilterCondition(field="c", operator=FilterOperator.EQUALS, value=3)],
     )
 
-    result = QdrantMapper.filter(filter_value, context, ExtendedModels)
+    result = QdrantMapper.filter(filter_value, ExtendedModels)
 
-    assert len(result.must) == 2  # tenant scope + explicit "must" condition
+    assert len(result.must) == 1
     assert len(result.should) == 1
     assert len(result.must_not) == 1
 

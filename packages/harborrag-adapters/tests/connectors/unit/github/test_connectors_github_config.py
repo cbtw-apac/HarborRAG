@@ -70,3 +70,15 @@ def test_config_rejects_commit_sha_with_ref_or_branch():
 def test_config_rejects_out_of_range_requests_per_minute():
     with pytest.raises(ValueError, match="requests_per_minute must be between"):
         GitHubRepositoryConfig(owner="acme", repo="harbor-rag", requests_per_minute=0)
+
+
+def test_config_rejects_non_https_api_url():
+    with pytest.raises(ValueError, match="api_url must be an HTTPS URL"):
+        GitHubRepositoryConfig(
+            owner="acme", repo="harbor-rag", api_url="http://ghe.internal/api/v3"
+        )
+
+
+def test_config_rejects_non_https_web_url():
+    with pytest.raises(ValueError, match="web_url must be an HTTPS URL"):
+        GitHubRepositoryConfig(owner="acme", repo="harbor-rag", web_url="http://ghe.internal")

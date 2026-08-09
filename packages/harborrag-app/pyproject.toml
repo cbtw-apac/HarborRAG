@@ -8,6 +8,7 @@ dependencies = [
     "harborrag-core==0.1.0",
     "harborrag-runtime==0.1.0",
     "pydantic>=2.13,<3",
+    "python-dotenv>=1,<2",
     "rich>=14,<16",
     "textual>=8.2,<9",
     "typer>=0.24,<0.27",
@@ -19,6 +20,8 @@ harborrag = "harborrag_app.cli.main:main"
 [project.optional-dependencies]
 api = [
     "fastapi>=0.115",
+    "harborrag-runtime[temporal]==0.1.0",
+    "prometheus-client>=0.19,<1",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
@@ -27,8 +30,8 @@ api = [
     "websockets>=12",
 ]
 production = [
-    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant]==0.1.0",
-    "harborrag-runtime==0.1.0",
+    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==0.1.0",
+    "harborrag-runtime[temporal]==0.1.0",
 ]
 
 [build-system]

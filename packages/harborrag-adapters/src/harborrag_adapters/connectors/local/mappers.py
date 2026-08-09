@@ -41,17 +41,16 @@ def build_source_record(
     mime_type = guess_mime_type(path)
 
     return SourceRecord(
-        id=path.as_uri(),
+        id=relative,
         source_type=mime_type,
-        locator=str(path),
+        locator=relative,
         updated_at=stat_datetime(stat.st_mtime),
         checksum=checksum,
         metadata={
             "source_system": "local",
-            "path": str(path),
             "relative_path": relative,
             "name": path.name,
-            "parent_path": str(path.parent),
+            "parent_relative_path": Path(relative).parent.as_posix(),
             "suffix": path.suffix.lower(),
             "size": stat.st_size,
             "created_at": stat_datetime(stat.st_ctime),
@@ -82,10 +81,9 @@ def build_document_metadata(
         checksum=checksum,
         created_at=stat_datetime(stat.st_ctime),
         updated_at=stat_datetime(stat.st_mtime),
-        path=str(path),
         relative_path=relative,
         name=path.name,
-        parent_path=str(path.parent),
+        parent_relative_path=Path(relative).parent.as_posix(),
         suffix=path.suffix.lower(),
         size=stat.st_size,
         accessed_at=stat_datetime(stat.st_atime),

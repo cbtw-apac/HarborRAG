@@ -1,22 +1,42 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from re import fullmatch
+from typing import Self
 
 from pydantic import Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
 from harborrag_core.schemas.ids import ChunkId
 
-from .source_schemas import SourceLocator
+
+class _ExtensibleIdentifier(StrEnum):
+    """String enum whose known values are documented but not a closed set."""
+
+    @classmethod
+    def _missing_(cls, value: object) -> Self | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().casefold()
+        if fullmatch(r"[a-z][a-z0-9_-]{0,63}", normalized) is None:
+            return None
+        member = str.__new__(cls, normalized)
+        member._name_ = f"CUSTOM_{normalized.upper().replace('-', '_')}"
+        member._value_ = normalized
+        return member
 
 
-class ConnectorType(StrEnum):
+class ConnectorType(_ExtensibleIdentifier):
+    """Connector identifier with constants for built-in providers."""
+
     CONFLUENCE = "confluence"
     JIRA = "jira"
     LOCAL = "local"
 
 
-class DocumentKind(StrEnum):
+class DocumentKind(_ExtensibleIdentifier):
+    """Document classification with constants for built-in source shapes."""
+
     CONFLUENCE_PAGE = "confluence_page"
     JIRA_ISSUE = "jira_issue"
     ATTACHMENT = "attachment"
@@ -24,13 +44,17 @@ class DocumentKind(StrEnum):
 
 
 class ChunkKind(StrEnum):
-    ROUTE = "route"
-    EVIDENCE = "evidence"
+    TEXT = "text"
     TABLE = "table"
     CODE = "code"
     COMMENT = "comment"
     EVENT = "event"
     JIRA_FIELD = "jira_field"
+
+
+class RecordKind(StrEnum):
+    ROUTE = "route"
+    EVIDENCE = "evidence"
 
 
 class ContainerKind(StrEnum):
@@ -43,14 +67,62 @@ class ContainerKind(StrEnum):
 
 
 class RelationType(StrEnum):
-    CHILD_OF = "child_of"
+    """Relation predicates, split by whether the graph projection emits them.
+
+    Members are never removed: a relation_type value already written into a graph must
+    stay decodable, and GraphEntityType is deliberately an open set, so closing this one
+    would be inconsistent.
+    """
+
+    # Projected. These are the only predicates the graph builder emits today, and the
+    # only edge types present in a graph written by the current schema version.
+    HAS_DATA_SOURCE = "has_data_source"
+    CONTAINS = "contains"
+    HAS_VERSION = "has_version"
+    SUPPORTS = "supports"
+    PARENT_OF = "parent_of"
     LINKS_TO = "links_to"
     HAS_ATTACHMENT = "has_attachment"
-    ATTACHED_TO = "attached_to"
+    REPLY_TO = "reply_to"
     BLOCKS = "blocks"
     DUPLICATES = "duplicates"
     RELATES_TO = "relates_to"
+    POINTS_TO = "points_to"
+    RESOLVED_AT = "resolved_at"
+
+    # Reserved: accepted on input but never projected. CHILD_OF and ATTACHED_TO are
+    # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
+    # their own direction; the rest describe structure that CONTAINS already carries.
+    HAS_SECTION = "has_section"
+    HAS_TABLE = "has_table"
+    HAS_COMMENT = "has_comment"
+    CHILD_OF = "child_of"
+    INCLUDES = "includes"
+    EMBEDS = "embeds"
+    ATTACHED_TO = "attached_to"
+    COMMENT_ON = "comment_on"
     MENTIONS = "mentions"
+
+
+# The predicates a caller can usefully filter on. Offering the full enum in a tool schema
+# advertises nine predicates the projection never emits, so a filter on one of them
+# returns an empty result that is indistinguishable from a genuine miss. Reserved members
+# stay decodable on read; they are simply not selectable.
+PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
+    RelationType.HAS_DATA_SOURCE,
+    RelationType.CONTAINS,
+    RelationType.HAS_VERSION,
+    RelationType.SUPPORTS,
+    RelationType.PARENT_OF,
+    RelationType.LINKS_TO,
+    RelationType.HAS_ATTACHMENT,
+    RelationType.REPLY_TO,
+    RelationType.BLOCKS,
+    RelationType.DUPLICATES,
+    RelationType.RELATES_TO,
+    RelationType.POINTS_TO,
+    RelationType.RESOLVED_AT,
+)
 
 
 class ChunkContainer(StrictModel):
@@ -160,27 +232,3 @@ class ChunkQuality(StrictModel):
         if len(set(values)) != len(values):
             raise ValueError("chunk quality issues must not contain duplicates")
         return values
-
-
-class ChunkSourceSpan(SourceLocator):
-    """Compatibility wrapper for the former source-span contract."""
-
-
-class ChunkContext(StrictModel):
-    """Compatibility view of the former retrieval context contract."""
-
-    title: str | None = None
-    structural_path: tuple[str, ...] = ()
-    parent_title: str | None = None
-    previous_chunk_id: ChunkId | None = None
-    next_chunk_id: ChunkId | None = None
-
-    @model_validator(mode="after")
-    def validate_values(self) -> ChunkContext:
-        if self.title is not None and not self.title.strip():
-            raise ValueError("context title must be non-empty when provided")
-        if self.parent_title is not None and not self.parent_title.strip():
-            raise ValueError("context parent_title must be non-empty when provided")
-        if any(not part.strip() for part in self.structural_path):
-            raise ValueError("context structural_path parts must be non-empty")
-        return self

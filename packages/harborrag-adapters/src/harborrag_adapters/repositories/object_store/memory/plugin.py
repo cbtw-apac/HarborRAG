@@ -10,7 +10,7 @@ from harborrag_adapters.repositories.plugin import (
     RepositoryDependencies,
     RepositoryPlugin,
 )
-from harborrag_core.schemas.storage import StorageFamily
+from harborrag_core.storage import StorageFamily
 
 
 class MemoryObjectStorePlugin(RepositoryPlugin[MemoryObjectStoreConfig, MemoryObjectStore]):

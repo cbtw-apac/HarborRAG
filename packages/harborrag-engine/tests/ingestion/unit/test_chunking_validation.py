@@ -5,13 +5,8 @@ from dataclasses import replace
 import pytest
 
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.schemas.documents import ChunkRecord
 from harborrag_engine.ingestion.chunking import (
     ChunkingConfig,
-    ChunkingRouter,
-    ChunkManifest,
-    ChunkPersistenceService,
-    ChunkRoute,
     ChunkValidationError,
     ChunkValidator,
 )
@@ -43,19 +38,16 @@ def test_validator_reports_blank_oversized_and_inexact_chunks() -> None:
         (record.model_copy(update={"content": " ", "token_count": 1}),),
         request,
         profile,
-        strategy_name="document",
     )
     oversized = validator.validate(
         (record.model_copy(update={"content": "x" * 13, "token_count": 13}),),
         request,
         profile,
-        strategy_name="document",
     )
     inexact = validator.validate(
         (record.model_copy(update={"token_count": 999}),),
         request,
         profile,
-        strategy_name="document",
     )
 
     assert any("content is blank" in error for error in blank.errors)
@@ -82,17 +74,15 @@ def test_validator_reports_duplicate_ids_and_reordered_sources() -> None:
         (records[0], records[0]),
         request,
         profile,
-        strategy_name="document",
     )
     reordered = validator.validate(
         tuple(reversed(records)),
         request,
         profile,
-        strategy_name="document",
     )
 
     assert any("logical_chunk_id values must be unique" in error for error in duplicate.errors)
-    assert any("chunk_revision_id values must be unique" in error for error in duplicate.errors)
+    assert any("chunk_id values must be unique" in error for error in duplicate.errors)
     assert any("source element order moved backward" in error for error in reordered.errors)
 
 
@@ -127,7 +117,7 @@ def test_manifest_contains_ordered_references_instead_of_chunk_bodies() -> None:
     reference = result.manifest.chunks[0]
     assert result.manifest.tenant_id == "tenant-1"
     assert reference.ordinal == 0
-    assert reference.chunk_revision_id == str(result.chunks[0].chunk_revision_id)
+    assert reference.chunk_id == str(result.chunks[0].chunk_id)
     assert not hasattr(reference, "content")
     assert result.manifest.total_token_count == result.chunks[0].token_count
 
@@ -138,16 +128,16 @@ def test_chunking_result_rejects_manifest_identity_mismatch() -> None:
     )
 
     with pytest.raises(ValueError, match="does not match its manifest"):
-        replace(result, artifact_revision_id="another-revision")
+        replace(result, document_version_id="another-revision")
 
 
-def test_router_selects_a_profile_without_executing_a_strategy() -> None:
-    generic = make_profile(name="generic", strategy="generic")
+def test_config_selects_a_source_profile_without_executing_a_strategy() -> None:
+    canonical = make_profile()
     jira = make_profile(name="jira", strategy="jira")
     config = ChunkingConfig(
-        default_profile="generic",
-        profiles={"generic": generic, "jira": jira},
-        routes=(ChunkRoute(source_kind="jira", profile="jira"),),
+        default_profile="canonical",
+        profiles={"canonical": canonical, "jira": jira},
+        source_profiles={"jira": "jira"},
     )
     request = make_request(
         make_document(
@@ -157,58 +147,6 @@ def test_router_selects_a_profile_without_executing_a_strategy() -> None:
         )
     )
 
-    selected = ChunkingRouter(config).select(request)
+    selected = config.profile_for(request.connector_type)
 
-    assert (selected.strategy, selected.profile) == ("jira", "jira")
-
-
-@pytest.mark.asyncio
-async def test_persistence_service_writes_bodies_before_manifest() -> None:
-    events: list[str] = []
-
-    class ChunkRepository:
-        records: tuple[ChunkRecord, ...] = ()
-
-        async def put(self, records: tuple[ChunkRecord, ...]) -> None:
-            events.append("chunks")
-            self.records = records
-
-        async def get_many(
-            self,
-            tenant_id: str,
-            chunk_revision_ids: tuple[str, ...],
-        ) -> tuple[ChunkRecord, ...]:
-            return tuple(
-                record
-                for record in self.records
-                if str(record.tenant_id) == tenant_id
-                and str(record.chunk_revision_id) in chunk_revision_ids
-            )
-
-    class ManifestRepository:
-        manifest: ChunkManifest | None = None
-
-        async def put(self, manifest: ChunkManifest) -> None:
-            events.append("manifest")
-            self.manifest = manifest
-
-        async def get(
-            self,
-            tenant_id: str,
-            artifact_id: str,
-            artifact_revision_id: str,
-            configuration_hash: str,
-        ) -> ChunkManifest | None:
-            return self.manifest
-
-    result = make_service(make_profile(target=10, maximum=12)).chunk(
-        make_request(make_document([DocumentElement("p1", "paragraph", "content")]))
-    )
-    chunks = ChunkRepository()
-    manifests = ManifestRepository()
-
-    await ChunkPersistenceService(chunks, manifests).persist(result)
-
-    assert events == ["chunks", "manifest"]
-    assert chunks.records == result.chunks
-    assert manifests.manifest == result.manifest
+    assert (selected.strategy, selected.name) == ("jira", "jira")

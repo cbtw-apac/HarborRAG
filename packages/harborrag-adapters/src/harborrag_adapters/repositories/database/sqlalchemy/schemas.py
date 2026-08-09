@@ -7,10 +7,8 @@ from typing import Any
 from sqlalchemy import JSON, Column, Integer, MetaData, String, Table, Text
 
 from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
-from harborrag_core.schemas.documents import (
-    ChunkRecord,
-    DocumentRecord,
-)
+from harborrag_core.chunking import ChunkRecord
+from harborrag_core.schemas.documents import DocumentRecord
 
 METADATA = MetaData()
 
@@ -72,16 +70,13 @@ COLUMN_OWNED_CHUNK_FIELDS = frozenset(
         "content_hash",
         "token_count",
         "metadata",
-        "created_at",
     }
 )
 
 
 def _stored_chunk_payload_fields(value: object) -> dict[str, Any]:
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or not value.get("schema_version"):
         return {}
-    if not value.get("schema_version"):
-        return value
     return {
         key: field_value
         for key, field_value in value.items()
@@ -125,9 +120,8 @@ def chunk_from_row(row: Any) -> ChunkRecord:
         "content_hash": row["content_hash"],
         "token_count": row["token_count"] or 0,
         "metadata": metadata,
-        "created_at": row["created_at"],
     }
-    return ChunkRecord.from_legacy_payload(payload)
+    return ChunkRecord.model_validate(payload)
 
 
 def chunk_metadata(record: ChunkRecord) -> dict[str, Any]:

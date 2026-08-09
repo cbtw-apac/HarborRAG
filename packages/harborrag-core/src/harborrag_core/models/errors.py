@@ -1,8 +1,68 @@
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any, Self, TypedDict, Unpack
 
 from harborrag_core.contracts.errors import HarborError
+from harborrag_core.security.field_names import canonical_field_name, canonical_field_tokens
+from harborrag_core.security.redaction import redact_secrets
+
+_SENSITIVE_KEYS = frozenset(
+    {
+        "access_key",
+        "access_token",
+        "api_key",
+        "authorization",
+        "credential",
+        "password",
+        "secret",
+        "token",
+    }
+)
+
+
+class ModelErrorDetails(TypedDict, total=False):
+    operation: str | None
+    provider: str | None
+    logical_model: str | None
+    provider_model: str | None
+    deployment: str | None
+    retryable: bool | None
+    status_code: int | None
+    request_id: str | None
+    provider_request_id: str | None
+    original_exception: BaseException | None
+    metadata: dict[str, Any] | None
+
+
+class ModelErrorEnrichment(TypedDict, total=False):
+    operation: str | None
+    provider: str | None
+    logical_model: str | None
+    provider_model: str | None
+    deployment: str | None
+    request_id: str | None
+
+
+def _sanitize_diagnostic(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            normalized = canonical_field_name(key)
+            tokens = canonical_field_tokens(key)
+            sanitized[key] = (
+                "<redacted>"
+                if normalized in _SENSITIVE_KEYS or tokens & _SENSITIVE_KEYS
+                else _sanitize_diagnostic(item)
+            )
+        return sanitized
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_diagnostic(item) for item in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return redact_secrets(str(value))
 
 
 class HarborModelError(HarborError):
@@ -13,53 +73,29 @@ class HarborModelError(HarborError):
     def __init__(
         self,
         message: str,
-        *,
-        operation: str | None = None,
-        provider: str | None = None,
-        logical_model: str | None = None,
-        provider_model: str | None = None,
-        deployment: str | None = None,
-        retryable: bool | None = None,
-        status_code: int | None = None,
-        request_id: str | None = None,
-        provider_request_id: str | None = None,
-        original_exception: BaseException | None = None,
-        metadata: dict[str, Any] | None = None,
+        **details: Unpack[ModelErrorDetails],
     ) -> None:
         """Store provider-neutral diagnostics without retaining request payloads."""
-        super().__init__(message)
-        self.operation = operation
-        self.provider = provider
-        self.logical_model = logical_model
-        self.provider_model = provider_model
-        self.deployment = deployment
+        super().__init__(redact_secrets(message))
+        self.operation = details.get("operation")
+        self.provider = details.get("provider")
+        self.logical_model = details.get("logical_model")
+        self.provider_model = details.get("provider_model")
+        self.deployment = details.get("deployment")
+        retryable = details.get("retryable")
         self.retryable = self.default_retryable if retryable is None else retryable
-        self.status_code = status_code
-        self.request_id = request_id
-        self.provider_request_id = provider_request_id
-        self.original_exception = original_exception
-        self.metadata = metadata or {}
+        self.status_code = details.get("status_code")
+        self.request_id = details.get("request_id")
+        self.provider_request_id = details.get("provider_request_id")
+        self.original_exception = details.get("original_exception")
+        self.metadata = _sanitize_diagnostic(details.get("metadata") or {})
 
     def enrich(
         self,
-        *,
-        operation: str | None = None,
-        provider: str | None = None,
-        logical_model: str | None = None,
-        provider_model: str | None = None,
-        deployment: str | None = None,
-        request_id: str | None = None,
+        **details: Unpack[ModelErrorEnrichment],
     ) -> Self:
         """Fill missing execution context while preserving supplied details."""
-        values = {
-            "operation": operation,
-            "provider": provider,
-            "logical_model": logical_model,
-            "provider_model": provider_model,
-            "deployment": deployment,
-            "request_id": request_id,
-        }
-        for name, value in values.items():
+        for name, value in details.items():
             if getattr(self, name) is None and value is not None:
                 setattr(self, name, value)
         return self

@@ -1,25 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import tempfile
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
 from harborrag_adapters.repositories.errors import (
-    HarborObjectTooLargeError,
     HarborStorageAlreadyExistsError,
     HarborStorageNotFoundError,
     HarborStorageValidationError,
     StorageErrorContext,
 )
-from harborrag_adapters.repositories.object_store.body import iter_body
 from harborrag_adapters.repositories.object_store.keys import (
     logical_object_key,
     physical_object_key,
     validate_object_key,
 )
+from harborrag_adapters.repositories.object_store.s3.body import S3BodySpoolMixin
 from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
 from harborrag_adapters.repositories.object_store.s3.object_metadata import (
     ClientError,
@@ -34,10 +31,10 @@ from harborrag_core.schemas.object_store import (
     ObjectReference,
     PutObjectRequest,
 )
-from harborrag_core.schemas.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext
 
 
-class S3ObjectOperationsMixin(S3ObjectMetadataMixin):
+class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
     """Implements tenant-authorized S3 object reads, writes, listing, and deletion.
 
     Composed onto ``S3ObjectStore``, which supplies the ``_config``, ``client``,
@@ -65,6 +62,9 @@ class S3ObjectOperationsMixin(S3ObjectMetadataMixin):
     ) -> StorageErrorContext:
         raise NotImplementedError
 
+    async def _run_sync(self, function: Any, *args: Any) -> Any:
+        return await asyncio.to_thread(function, *args)
+
     @traced_repository_operation("put")
     async def put(
         self,
@@ -81,6 +81,59 @@ class S3ObjectOperationsMixin(S3ObjectMetadataMixin):
         validate_object_key(bucket, request.key)
         physical_key = physical_object_key(context.tenant_id, request.key)
         existing = await self._existing_head(bucket, physical_key)
+        common = self._put_parameters(
+            bucket=bucket,
+            physical_key=physical_key,
+            request=request,
+            context=context,
+            existing=existing,
+        )
+
+        body_handle: Any | None = None
+        try:
+            body_handle, checksum, size = await self._spool_body(request, context)
+            if request.checksum_sha256 and checksum != request.checksum_sha256:
+                raise HarborStorageValidationError(
+                    "object checksum does not match request checksum",
+                    context=self._error_context("put", bucket, request.key, context),
+                )
+            try:
+                response = await self.client.put_object(Body=body_handle, **common)
+            except ClientError as exc:
+                if self._client_error_code(exc) in {
+                    "409",
+                    "412",
+                    "ConditionalRequestConflict",
+                    "PreconditionFailed",
+                }:
+                    raise HarborStorageAlreadyExistsError(
+                        f"object {bucket}/{request.key} changed during conditional write",
+                        context=self._error_context("put", bucket, request.key, context),
+                    ) from exc
+                raise
+        finally:
+            if body_handle is not None:
+                await asyncio.to_thread(body_handle.close)
+        return ObjectReference(
+            bucket=bucket,
+            key=request.key,
+            uri=f"s3://{bucket}/{request.key}",
+            version_id=response.get("VersionId"),
+            etag=str(response.get("ETag", "")).strip('"') or None,
+            checksum_sha256=checksum,
+            size_bytes=size,
+            content_type=request.content_type,
+        )
+
+    def _put_parameters(
+        self,
+        *,
+        bucket: str,
+        physical_key: str,
+        request: PutObjectRequest,
+        context: StorageOperationContext,
+        existing: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         existing_tenant = (
             existing.get("Metadata", {}).get("tenant_id") if existing is not None else None
         )
@@ -111,43 +164,7 @@ class S3ObjectOperationsMixin(S3ObjectMetadataMixin):
                     context=self._error_context("put", bucket, request.key, context),
                 )
             common["IfMatch"] = etag
-
-        body_handle: Any | None = None
-        try:
-            body_handle, checksum, size = await self._spool_body(request, context)
-            body: Any = body_handle
-            if request.checksum_sha256 and checksum != request.checksum_sha256:
-                raise HarborStorageValidationError(
-                    "object checksum does not match request checksum",
-                    context=self._error_context("put", bucket, request.key, context),
-                )
-            try:
-                response = await self.client.put_object(Body=body, **common)
-            except ClientError as exc:
-                if self._client_error_code(exc) in {
-                    "409",
-                    "412",
-                    "ConditionalRequestConflict",
-                    "PreconditionFailed",
-                }:
-                    raise HarborStorageAlreadyExistsError(
-                        f"object {bucket}/{request.key} changed during conditional write",
-                        context=self._error_context("put", bucket, request.key, context),
-                    ) from exc
-                raise
-        finally:
-            if body_handle is not None:
-                await asyncio.to_thread(body_handle.close)
-        return ObjectReference(
-            bucket=bucket,
-            key=request.key,
-            uri=f"s3://{bucket}/{request.key}",
-            version_id=response.get("VersionId"),
-            etag=str(response.get("ETag", "")).strip('"') or None,
-            checksum_sha256=checksum,
-            size_bytes=size,
-            content_type=request.content_type,
-        )
+        return common
 
     @traced_repository_operation("get_bytes")
     async def get_bytes(
@@ -306,33 +323,3 @@ class S3ObjectOperationsMixin(S3ObjectMetadataMixin):
             ExpiresIn=expires_seconds,
         )
         return url
-
-    async def _spool_body(
-        self,
-        request: PutObjectRequest,
-        context: StorageOperationContext,
-    ) -> tuple[Any, str, int]:
-        """Spool an async body and keep the final write as one conditional PUT."""
-        handle = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
-        digest = hashlib.sha256()
-        size = 0
-        try:
-            async for chunk in iter_body(request.body):
-                size += len(chunk)
-                if size > 5_000_000_000:
-                    raise HarborObjectTooLargeError(
-                        "conditional S3 uploads are limited to the 5 GB PutObject limit",
-                        context=self._error_context(
-                            "put",
-                            request.bucket or self._config.default_bucket or "",
-                            request.key,
-                            context,
-                        ),
-                    )
-                digest.update(chunk)
-                await asyncio.to_thread(handle.write, chunk)
-            await asyncio.to_thread(handle.seek, 0)
-            return handle, digest.hexdigest(), size
-        except BaseException:
-            await asyncio.to_thread(handle.close)
-            raise

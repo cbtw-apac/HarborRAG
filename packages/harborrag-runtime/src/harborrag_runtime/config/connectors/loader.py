@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from harborrag_runtime.config.connectors.parsing import parse_connector_definitions
@@ -13,6 +14,8 @@ from harborrag_runtime.config.loading import (
 )
 
 CONNECTOR_CONFIG_VERSION = 1
+
+logger = logging.getLogger("harborrag.runtime.config.connectors")
 
 _ROOT_KEYS = frozenset({"connectors", "version"})
 
@@ -64,4 +67,12 @@ def load_connector_catalog(path: str | Path) -> ConnectorCatalog:
         raw_connectors,
         base_directory=source_path.parent,
     )
-    return ConnectorCatalog(definitions, source_path=source_path, version=version)
+    catalog = ConnectorCatalog(definitions, source_path=source_path, version=version)
+    logger.info(
+        "Connector catalog loaded path=%s version=%d definitions=%d enabled=%d",
+        source_path,
+        version,
+        len(catalog.connectors),
+        len(catalog.names(enabled_only=True)),
+    )
+    return catalog
