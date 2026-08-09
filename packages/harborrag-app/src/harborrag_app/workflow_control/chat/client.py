@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from .chat import ChatApplicationService, ChatExecutionOptions
-from .memory import ConversationSessionService
-from .schemas import AppResponse
+from ..memory import ConversationSessionService
+from ..schemas import AppResponse
+from .options import ChatExecutionOptions
+from .service import ChatApplicationService
 
 
 class ChatClientMixin:

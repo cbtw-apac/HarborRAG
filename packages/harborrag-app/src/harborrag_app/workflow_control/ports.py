@@ -228,5 +228,5 @@ class BaseAppService(ABC):
 
     @abstractmethod
     async def get_metrics(self) -> AppResponse:
-        """Dashboard summary counters; see workflow_control.metrics.summarize_metrics."""
+        """Dashboard counters; see control_plane.metrics.summarize_metrics."""
         raise NotImplementedError

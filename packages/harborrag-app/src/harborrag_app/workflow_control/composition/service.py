@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
-from typing import Protocol
+from collections.abc import Mapping
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.retrieval import (
@@ -18,69 +16,24 @@ from harborrag_core.retrieval import (
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.projection_admin import ProjectionAdministrationService
-from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig, RetrievalLane
-from harborrag_runtime.temporal.client import IngestionTemporalClient
-from harborrag_runtime.temporal.schemas import SourceIngestionInput
-from harborrag_runtime.temporal.submission import (
-    SourceSubmission,
-    build_source_input,
-)
-from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
+from harborrag_runtime.sdk import RetrievalLane
 
-from .agent import AgentApplicationService, AgentClientMixin
-from .app_resources import AppResources
-from .chat import ChatApplicationService
-from .chat_client import ChatClientMixin
-from .errors import failure_response
-from .graph_retrieval import GraphRetrievalService
-from .ingestion_models import IngestionCreateCommand
-from .ingestion_service import IngestionApplicationService, PublicTaskStore
-from .memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
-from .ports import BaseAppService
-from .reads import ControlPlaneReadsMixin
-from .retrieval_query import retrieve
-from .schemas import AppResponse
-from .temporal_ingestion import TemporalIngestionOperations
+from ..agent import AgentApplicationService, AgentClientMixin
+from ..chat import ChatApplicationService, ChatClientMixin
+from ..control_plane.reads import ControlPlaneReadsMixin
+from ..errors import failure_response
+from ..ingestion.models import IngestionCreateCommand
+from ..ingestion.service import IngestionApplicationService
+from ..ingestion.temporal import TemporalIngestionOperations
+from ..memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
+from ..ports import BaseAppService
+from ..retrieval.graph import GraphRetrievalService
+from ..retrieval.query import retrieve
+from ..schemas import AppResponse
+from .factories import AppServiceFactories
+from .resources import AppResources
 
-type ClientFactory = Callable[
-    [TemporalRuntimeConfig],
-    Awaitable[IngestionTemporalClient],
-]
-type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
-type SourceInputBuilder = Callable[
-    [RuntimeSettings, SourceSubmission],
-    SourceIngestionInput,
-]
-type ProjectionAdminFactory = Callable[
-    [RuntimeSettings],
-    ProjectionAdministrationService,
-]
-type CloseOperation = Callable[[], Awaitable[None]]
-
-
-class TaskRegistry(PublicTaskStore, Protocol):
-    async def close(self) -> None: ...
-
-
-type TaskRegistryFactory = Callable[[RuntimeSettings], Awaitable[TaskRegistry]]
-
-logger = logging.getLogger("harborrag.app.workflow_control.client")
-
-
-def _retrieval_runtime(settings: RuntimeSettings) -> HarborRAG:
-    return HarborRAG(HarborRAGConfig(runtime=settings))
-
-
-@dataclass(frozen=True, slots=True)
-class AppServiceFactories:
-    """Collaborator factories, grouped so composition stays overridable in tests."""
-
-    client: ClientFactory = IngestionTemporalClient.connect
-    retrieval_runtime: RetrievalRuntimeFactory = _retrieval_runtime
-    source_input_builder: SourceInputBuilder = build_source_input
-    task_registry: TaskRegistryFactory = IngestionTaskRegistry.connect
-    projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
+logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
 
 class AppService(ControlPlaneReadsMixin, AgentClientMixin, ChatClientMixin, BaseAppService):

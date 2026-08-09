@@ -16,8 +16,8 @@ from harborrag_runtime.sdk import HarborRAG
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 
 if TYPE_CHECKING:
-    from .client import AppServiceFactories, TaskRegistry
-    from .ingestion_ports import PublicTaskStore
+    from ..ingestion.ports import PublicTaskStore
+    from .factories import AppServiceFactories, TaskRegistry
 
 
 class AppResources:

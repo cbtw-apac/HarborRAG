@@ -5,9 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.project import Project

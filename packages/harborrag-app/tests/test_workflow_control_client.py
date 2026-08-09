@@ -19,7 +19,8 @@ from workflow_control_fixtures import (
     source_input,
 )
 
-from harborrag_app.workflow_control.client import AppService, AppServiceFactories
+from harborrag_app.workflow_control.composition.factories import AppServiceFactories
+from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 

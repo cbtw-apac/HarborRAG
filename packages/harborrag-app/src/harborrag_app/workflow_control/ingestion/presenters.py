@@ -14,8 +14,8 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.invariants import HarborInvariantError
 
-from .errors import IngestionCursorError
-from .ingestion_models import DocumentPageCursor
+from ..errors import IngestionCursorError
+from .models import DocumentPageCursor
 
 TERMINAL_STATES = frozenset(
     {

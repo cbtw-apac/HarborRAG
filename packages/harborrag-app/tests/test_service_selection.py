@@ -1,4 +1,4 @@
-"""ST8 selection rule: lightweight development composition or production."""
+"""Application-service selection uses the configured durable composition."""
 
 from __future__ import annotations
 
@@ -9,25 +9,25 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.client import AppService
-from harborrag_app.workflow_control.selection import select_app_service
+from harborrag_app.workflow_control.composition.selection import select_app_service
+from harborrag_app.workflow_control.composition.service import AppService
 
 
 @pytest.mark.blackbox
-def test_dev_without_control_db_selects_development_service(
+def test_dev_without_explicit_control_db_uses_default_sqlite(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Bare development uses the explicit in-memory control-plane composition."""
+    """Bare development provisions the default durable SQLite control plane."""
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
     monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
     monkeypatch.chdir(tmp_path)
     service, mode = select_app_service()
     assert isinstance(service, AppService)
-    assert mode == "development"
+    assert mode == "production"
     diagnostics = service.health().data["diagnostics"]
-    assert diagnostics["mode"] == "development"
-    assert diagnostics["runtime"]["control_db"]["scheme"] == "development"
+    assert diagnostics["mode"] == "production"
+    assert diagnostics["runtime"]["control_db"]["scheme"] == "sqlite+aiosqlite"
 
 
 @pytest.mark.blackbox

@@ -16,7 +16,7 @@ from app_test_graph_records import (
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.errors import IngestionAlreadyCompletedError
-from harborrag_app.workflow_control.ingestion_models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import new_session_id

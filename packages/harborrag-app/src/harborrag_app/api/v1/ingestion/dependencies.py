@@ -6,7 +6,7 @@ from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
-from harborrag_app.workflow_control.ingestion_models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 
 
 class IngestionService(Protocol):

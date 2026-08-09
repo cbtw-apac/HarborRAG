@@ -145,6 +145,7 @@ def test_security_helpers():
     assert "AIza" + "a" * 25 not in redacted
     assert "xoxb-1234567890" not in redacted
 
+
 def test_redact_secrets_masks_multi_word_unquoted_values():
     redacted = redact_secrets("password: My Secret Passphrase 123")
     assert "My" not in redacted

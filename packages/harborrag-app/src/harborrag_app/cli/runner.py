@@ -13,8 +13,8 @@ import typer
 
 from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.workflow_control.composition.selection import runtime_app_service
 from harborrag_app.workflow_control.errors import public_error_message
-from harborrag_app.workflow_control.selection import runtime_app_service
 
 type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
 

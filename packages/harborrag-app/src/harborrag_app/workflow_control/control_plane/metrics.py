@@ -1,4 +1,4 @@
-"""Dashboard metrics summary (ML1/M1): derived from existing rows only.
+"""Dashboard metrics summary derived from existing control-plane rows.
 
 No dedicated metrics table exists yet — this aggregates the counters already
 stored on Project/Source and the per-status job counts already backed by

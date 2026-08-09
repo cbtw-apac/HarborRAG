@@ -24,10 +24,10 @@ from harborrag_runtime.sdk import (
     HarborRAG,
 )
 
-from .errors import failure_response
-from .schemas import AppResponse
+from ..errors import failure_response
+from ..schemas import AppResponse
 
-logger = logging.getLogger("harborrag.app.workflow_control.graph")
+logger = logging.getLogger("harborrag.app.workflow_control.retrieval.graph")
 
 
 class _GraphResponse(Protocol):

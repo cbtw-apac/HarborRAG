@@ -8,8 +8,9 @@ from app_test_fixtures import MockAppService
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
-from harborrag_app.workflow_control.client import AppService, AppServiceFactories
-from harborrag_app.workflow_control.retrieval_response import retrieval_response
+from harborrag_app.workflow_control.composition.factories import AppServiceFactories
+from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_app.workflow_control.retrieval.presentation import retrieval_response
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse

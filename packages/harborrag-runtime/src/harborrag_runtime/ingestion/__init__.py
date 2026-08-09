@@ -78,9 +78,7 @@ _EXPORT_MODULES = {
     "default_source_document_normalizer_builder": (
         "harborrag_runtime.ingestion.document.normalizers"
     ),
-    "processing_profile_from_canonical": (
-        "harborrag_runtime.ingestion.maintenance.reindex_plan"
-    ),
+    "processing_profile_from_canonical": ("harborrag_runtime.ingestion.maintenance.reindex_plan"),
     "source_identity_from_canonical": "harborrag_runtime.ingestion.maintenance.reindex",
 }
 

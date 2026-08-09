@@ -1,4 +1,4 @@
-"""Transport-neutral commands for the public ingestion control plane."""
+"""Transport-neutral ingestion commands and cursors."""
 
 from __future__ import annotations
 

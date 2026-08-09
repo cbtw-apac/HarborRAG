@@ -15,9 +15,9 @@ from harborrag_app.workflow_control.errors import (
     IngestionAlreadyCompletedError,
     IngestionIdempotencyConflictError,
 )
-from harborrag_app.workflow_control.ingestion_models import IngestionCreateCommand
-from harborrag_app.workflow_control.ingestion_presenters import task_id as generate_task_id
-from harborrag_app.workflow_control.ingestion_service import IngestionApplicationService
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
+from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_runtime.config.settings import RuntimeSettings

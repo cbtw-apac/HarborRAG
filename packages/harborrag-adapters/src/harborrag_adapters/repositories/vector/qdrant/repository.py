@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageCapabilityError,

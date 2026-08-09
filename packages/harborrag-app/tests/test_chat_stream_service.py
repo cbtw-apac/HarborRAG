@@ -6,7 +6,8 @@ import pytest
 from test_chat_service import _ChatFacade, _options, _RetrievalFacade, _Runtime
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.client import AppService, AppServiceFactories
+from harborrag_app.workflow_control.composition.factories import AppServiceFactories
+from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.contracts import RetrievalResponse
 

@@ -6,7 +6,7 @@ from pydantic_core import to_jsonable_python
 
 from harborrag_runtime.sdk import RetrievalResponse
 
-from .schemas import AppResponse
+from ..schemas import AppResponse
 
 
 def retrieval_response(

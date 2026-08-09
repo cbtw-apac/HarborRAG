@@ -14,11 +14,11 @@ from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.schemas import SourceIngestionInput, SourceQuery
 from harborrag_runtime.temporal.submission import SourceSubmission
 
-from .errors import failure_response
-from .schemas import AppResponse
+from ..errors import failure_response
+from ..schemas import AppResponse
 
 if TYPE_CHECKING:
-    from .client import TaskRegistry
+    from ..composition.factories import TaskRegistry
 
 type RuntimeClientProvider = Callable[[], Awaitable[IngestionTemporalClient]]
 type TaskRegistryProvider = Callable[[], Awaitable["TaskRegistry"]]
@@ -27,7 +27,7 @@ type SourceInputBuilder = Callable[
     SourceIngestionInput,
 ]
 
-logger = logging.getLogger("harborrag.app.workflow_control.temporal_ingestion")
+logger = logging.getLogger("harborrag.app.workflow_control.ingestion.temporal")
 
 
 class TemporalIngestionOperations:

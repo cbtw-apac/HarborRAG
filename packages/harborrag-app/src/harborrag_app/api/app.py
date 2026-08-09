@@ -26,7 +26,7 @@ from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import RequestBodyLimitMiddleware, TraceIdMiddleware
 from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.selection import select_app_service
+from harborrag_app.workflow_control.composition.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.observability.process_logging import configure_logging
 

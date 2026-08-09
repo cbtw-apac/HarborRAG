@@ -10,9 +10,9 @@ from harborrag_core.security import AccessContext
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.sdk import HarborRAG, RetrievalLane, RetrievalRequest
 
-from .errors import failure_response
-from .retrieval_response import retrieval_response
-from .schemas import AppResponse
+from ..errors import failure_response
+from ..schemas import AppResponse
+from .presentation import retrieval_response
 
 logger = logging.getLogger("harborrag.app.workflow_control.retrieval")
 

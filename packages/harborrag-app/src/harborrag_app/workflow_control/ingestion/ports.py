@@ -1,3 +1,5 @@
+"""Ports required by the ingestion application service."""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence

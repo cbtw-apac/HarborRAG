@@ -45,7 +45,7 @@ def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
             "-c",
             (
                 "import sys; "
-                "import harborrag_app.workflow_control.client; "
+                "import harborrag_app.workflow_control.composition.service; "
                 "assert 'litellm' not in sys.modules"
             ),
         ],

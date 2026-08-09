@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_app.workflow_control.ingestion_models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 
 from .schemas import IngestionCreateRequest
 
