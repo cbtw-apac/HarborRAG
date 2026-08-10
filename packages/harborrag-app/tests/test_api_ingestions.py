@@ -184,6 +184,35 @@ def test_cross_tenant_task_ids_are_hidden_as_not_found(
     assert response.json()["error"]["code"] == "harbor_not_found_error"
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/v1/ingestions/ing_1"),
+        ("GET", "/api/v1/ingestions/ing_1/result"),
+        ("POST", "/api/v1/ingestions/ing_1/actions"),
+    ],
+)
+def test_legacy_cross_tenant_task_ids_are_hidden_as_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+    service: MockAppService,
+    method: str,
+    path: str,
+) -> None:
+    """Regression: the deprecated Temporal-run adapters used to skip tenant
+    authorization entirely (``del principal``); a reader/editor token for one
+    tenant must not see or act on another tenant's run, exactly like the
+    successor /v1/ingestions routes already enforce."""
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_AUTH_SECRET))
+    headers = {"Authorization": f"Bearer {_tenant_token(tenants=['ACME'])}"}
+
+    with TestClient(app) as tenant_client:
+        response = tenant_client.request(method, path, json={"action": "pause"}, headers=headers)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "harbor_not_found_error"
+
+
 def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> None:
     client.get("/v1/ingestions/ing_1")
 

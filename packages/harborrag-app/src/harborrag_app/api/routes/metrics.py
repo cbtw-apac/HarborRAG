@@ -9,6 +9,7 @@ from prometheus_client import CONTENT_TYPE_LATEST
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.metrics import ApiMetrics
 from harborrag_app.workflow_control import BaseAppService
@@ -49,9 +50,11 @@ def metrics(request: Request) -> Response:
 @router.get(
     "/metrics/ingestion",
     response_model=MetricsOut,
-    dependencies=[Depends(require_role("reader"))],
 )
-async def get_metrics(service: Annotated[BaseAppService, Depends(get_app_service)]) -> MetricsOut:
-    """Dashboard summary counters; all zero on a fresh workspace."""
-    response = await service.get_metrics()
+async def get_metrics(
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+) -> MetricsOut:
+    """Dashboard summary counters within the caller's tenants; all zero on a fresh workspace."""
+    response = await service.get_metrics(tenant_ids=principal.tenant_scope)
     return MetricsOut(**response.data)

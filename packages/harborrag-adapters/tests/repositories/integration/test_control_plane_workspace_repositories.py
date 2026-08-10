@@ -58,7 +58,7 @@ async def test_activity_settings_provider_member_roundtrips(
             summary="Created project Docs",
         )
     )
-    entries = await activity.list()
+    entries = await activity.list(tenant_ids=None)
     assert [entry.id for entry in entries] == ["a1"]
     assert entries[0].tenant_id == "tenant-a"
 
@@ -80,19 +80,76 @@ async def test_activity_settings_provider_member_roundtrips(
         secret_ref="secret://key",
     )
     await providers.save(provider)
-    assert await providers.get("pr1") == provider
+    assert await providers.get("pr1", tenant_ids=None) == provider
     provider.name = "OpenAI EU"
     await providers.save(provider)
-    listed = await providers.list()
+    listed = await providers.list(tenant_ids=None)
     assert listed[0].name == "OpenAI EU"
-    await providers.delete("pr1")
-    assert await providers.get("pr1") is None
+    await providers.delete("pr1", tenant_ids=None)
+    assert await providers.get("pr1", tenant_ids=None) is None
 
     members = SqlMemberRepository(sessions)
     member = Member(id="m1", tenant_id="tenant-a", subject="user@cbtw.tech", role="editor")
     await members.save(member)
     assert await members.get_by_subject("user@cbtw.tech") == member
     assert await members.get_by_subject("ghost@cbtw.tech") is None
-    assert [stored.id for stored in await members.list()] == ["m1"]
-    await members.delete("m1")
-    assert await members.list() == []
+    assert [stored.id for stored in await members.list(tenant_ids=None)] == ["m1"]
+    await members.delete("m1", tenant_ids=None)
+    assert await members.list(tenant_ids=None) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_activity_provider_member_repositories_enforce_tenant_scope(
+    sessions: SessionFactory,
+) -> None:
+    """list/get/delete must not see or touch another tenant's rows."""
+    scope = frozenset({"tenant-a"})
+
+    activity = SqlActivityRepository(sessions)
+    await activity.append(
+        ActivityEntry(
+            id="mine",
+            tenant_id="tenant-a",
+            actor="me",
+            verb="created",
+            entity_type="project",
+            entity_id="p1",
+            summary="mine",
+        )
+    )
+    await activity.append(
+        ActivityEntry(
+            id="theirs",
+            tenant_id="tenant-b",
+            actor="them",
+            verb="created",
+            entity_type="project",
+            entity_id="p2",
+            summary="theirs",
+        )
+    )
+    assert [e.id for e in await activity.list(tenant_ids=scope)] == ["mine"]
+
+    providers = SqlProviderRepository(sessions)
+    await providers.save(
+        Provider(id="mine", tenant_id="tenant-a", name="Mine", family="chat", secret_ref="secret://x")
+    )
+    await providers.save(
+        Provider(
+            id="theirs", tenant_id="tenant-b", name="Theirs", family="chat", secret_ref="secret://y"
+        )
+    )
+    assert [p.id for p in await providers.list(tenant_ids=scope)] == ["mine"]
+    assert await providers.get("theirs", tenant_ids=scope) is None
+    await providers.delete("theirs", tenant_ids=scope)
+    assert (await providers.get("theirs", tenant_ids=None)) is not None  # untouched
+
+    members = SqlMemberRepository(sessions)
+    await members.save(Member(id="mine", tenant_id="tenant-a", subject="me@cbtw.tech", role="editor"))
+    await members.save(
+        Member(id="theirs", tenant_id="tenant-b", subject="them@cbtw.tech", role="editor")
+    )
+    assert [m.id for m in await members.list(tenant_ids=scope)] == ["mine"]
+    await members.delete("theirs", tenant_ids=scope)
+    assert [m.id for m in await members.list(tenant_ids=None)] == ["mine", "theirs"]  # untouched

@@ -21,13 +21,19 @@ from harborrag_core.security.context import AccessContext
 
 
 class ProjectRepositoryPort(Protocol):
-    """CRUD for projects (plan §5.1)."""
+    """CRUD for projects (plan §5.1).
 
-    async def list(self) -> list[Project]:
-        """All projects, unpaginated (pagination lands with the M1 routes)."""
+    ``tenant_ids`` on every read/delete is the caller's allowed tenant scope:
+    ``None`` means unrestricted and is reserved for trusted system/internal
+    callers, never a convenience default -- every application-facing caller
+    (e.g. an API route) must pass its principal's actual scope explicitly.
+    """
 
-    async def get(self, project_id: str) -> Project | None:
-        """One project by id, or None."""
+    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Project]:
+        """Projects visible to ``tenant_ids``, unpaginated."""
+
+    async def get(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> Project | None:
+        """One project by id within ``tenant_ids``, or None."""
 
     async def create(self, project: Project) -> Project:
         """Persist a new project and return it."""
@@ -35,18 +41,25 @@ class ProjectRepositoryPort(Protocol):
     async def update(self, project: Project) -> Project:
         """Persist changes to an existing project and return it."""
 
-    async def delete(self, project_id: str) -> None:
-        """Remove a project; cascading tombstones are the engine's job."""
+    async def delete(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Remove a project within ``tenant_ids``; cascading tombstones are the engine's job."""
 
 
 class SourceRepositoryPort(Protocol):
-    """CRUD for configured sources (plan §5.2)."""
+    """CRUD for configured sources (plan §5.2). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
 
-    async def list(self, project_id: str | None = None) -> list[SourceConfig]:
-        """Sources, optionally filtered to one project."""
+    async def list(
+        self,
+        project_id: str | None = None,
+        *,
+        tenant_ids: frozenset[str] | None,
+    ) -> list[SourceConfig]:
+        """Sources visible to ``tenant_ids``, optionally filtered to one project."""
 
-    async def get(self, source_id: str) -> SourceConfig | None:
-        """One source by id, or None."""
+    async def get(
+        self, source_id: str, *, tenant_ids: frozenset[str] | None
+    ) -> SourceConfig | None:
+        """One source by id within ``tenant_ids``, or None."""
 
     async def create(self, source: SourceConfig) -> SourceConfig:
         """Persist a new source and return it."""
@@ -54,22 +67,27 @@ class SourceRepositoryPort(Protocol):
     async def update(self, source: SourceConfig) -> SourceConfig:
         """Persist changes to an existing source and return it."""
 
-    async def delete(self, source_id: str) -> None:
-        """Remove a source configuration."""
+    async def delete(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Remove a source configuration within ``tenant_ids``."""
 
 
 class JobRepositoryPort(Protocol):
-    """Read/persist jobs and their event streams (plan §5.3, §6 job_events)."""
+    """Read/persist jobs and their event streams (plan §5.3, §6 job_events).
+
+    See ``ProjectRepositoryPort`` for ``tenant_ids``.
+    """
 
     async def list(
         self,
         status: JobStatus | None = None,
         source_id: str | None = None,
+        *,
+        tenant_ids: frozenset[str] | None,
     ) -> list[Job]:
-        """Jobs filtered by status and/or source."""
+        """Jobs visible to ``tenant_ids``, filtered by status and/or source."""
 
-    async def get(self, job_id: str) -> Job | None:
-        """One job by id, or None."""
+    async def get(self, job_id: str, *, tenant_ids: frozenset[str] | None) -> Job | None:
+        """One job by id within ``tenant_ids``, or None."""
 
     async def save(self, job: Job) -> Job:
         """Insert or update a job row."""
@@ -77,18 +95,20 @@ class JobRepositoryPort(Protocol):
     async def append_event(self, job_id: str, event: HarborEvent) -> None:
         """Append to the job's ordered event log (WS reconnect replay source)."""
 
-    async def count_by_status(self) -> dict[str, int]:
-        """Job counts grouped by status, without loading each row (dashboard metrics)."""
+    async def count_by_status(self, *, tenant_ids: frozenset[str] | None) -> dict[str, int]:
+        """Job counts within ``tenant_ids`` grouped by status (dashboard metrics)."""
 
 
 class ActivityRepositoryPort(Protocol):
-    """Append-only audit feed (plan §5.5)."""
+    """Append-only audit feed (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
 
     async def append(self, entry: ActivityEntry) -> None:
         """Write one audit row; entries are never mutated or deleted."""
 
-    async def list(self, limit: int = 50) -> list[ActivityEntry]:
-        """Most recent entries, newest first."""
+    async def list(
+        self, limit: int = 50, *, tenant_ids: frozenset[str] | None
+    ) -> list[ActivityEntry]:
+        """Most recent entries within ``tenant_ids``, newest first."""
 
 
 class SettingsRepositoryPort(Protocol):
@@ -102,26 +122,29 @@ class SettingsRepositoryPort(Protocol):
 
 
 class ProviderRepositoryPort(Protocol):
-    """Model provider registry (plan §5.5)."""
+    """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
 
-    async def list(self) -> list[Provider]:
-        """All registered providers."""
+    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
+        """Registered providers visible to ``tenant_ids``."""
 
-    async def get(self, provider_id: str) -> Provider | None:
-        """One provider by id, or None."""
+    async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
+        """One provider by id within ``tenant_ids``, or None."""
 
     async def save(self, provider: Provider) -> Provider:
         """Insert or update (upsert) a provider."""
 
-    async def delete(self, provider_id: str) -> None:
-        """Remove a provider registration."""
+    async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Remove a provider registration within ``tenant_ids``."""
 
 
 class MemberRepositoryPort(Protocol):
-    """Workspace members and their RBAC roles (plan §8.1)."""
+    """Workspace members and their RBAC roles (plan §8.1). See ``ProjectRepositoryPort`` for
+    ``tenant_ids`` (``list``/``delete`` only -- ``get_by_subject`` is the identity-bootstrap
+    lookup that establishes which tenants a subject belongs to in the first place, so it
+    cannot itself be scoped by tenant)."""
 
-    async def list(self) -> list[Member]:
-        """All members."""
+    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Member]:
+        """Members visible to ``tenant_ids``."""
 
     async def get_by_subject(self, subject: str) -> Member | None:
         """Look up a member by auth subject (JWT sub), or None."""
@@ -129,8 +152,8 @@ class MemberRepositoryPort(Protocol):
     async def save(self, member: Member) -> Member:
         """Insert or update a membership row."""
 
-    async def delete(self, member_id: str) -> None:
-        """Remove a member."""
+    async def delete(self, member_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Remove a member within ``tenant_ids``."""
 
 
 TRepository_co = TypeVar("TRepository_co", covariant=True)

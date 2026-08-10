@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.source_config import SourceConfig
@@ -47,10 +48,11 @@ class SourceOut(BaseModel):
 @router.get("/sources", response_model=list[SourceOut])
 async def list_sources(
     service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("reader"))],
     project_id: str | None = None,
 ) -> list[SourceOut]:
-    """Sources, optionally filtered to one project."""
-    response = await service.list_sources(project_id)
+    """Sources visible to the caller's tenants, optionally filtered to one project."""
+    response = await service.list_sources(project_id, tenant_ids=principal.tenant_scope)
     return [SourceOut.from_domain(source) for source in response.data["sources"]]
 
 
@@ -58,7 +60,8 @@ async def list_sources(
 async def get_source(
     source_id: str,
     service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("reader"))],
 ) -> SourceOut:
-    """One source by id; 404 (enveloped) when it does not exist."""
-    response = await service.get_source(source_id)
+    """One source by id; 404 (enveloped) when missing or outside the caller's tenants."""
+    response = await service.get_source(source_id, tenant_ids=principal.tenant_scope)
     return SourceOut.from_domain(response.data["source"])

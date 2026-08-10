@@ -30,22 +30,28 @@ class SqlJobRepository:
         self,
         status: JobStatus | None = None,
         source_id: str | None = None,
+        *,
+        tenant_ids: frozenset[str] | None,
     ) -> list[Job]:
-        """Jobs newest-first, filtered by status and/or source."""
+        """Jobs visible to ``tenant_ids`` (None: unrestricted), newest-first."""
         statement = sa.select(JobRow).order_by(JobRow.enqueued_at.desc())
         if status is not None:
             statement = statement.where(JobRow.status == status)
         if source_id is not None:
             statement = statement.where(JobRow.source_id == source_id)
+        if tenant_ids is not None:
+            statement = statement.where(JobRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
             rows = await session.scalars(statement)
             return [job_to_domain(row) for row in rows]
 
-    async def get(self, job_id: str) -> Job | None:
-        """One job by id, or None."""
+    async def get(self, job_id: str, *, tenant_ids: frozenset[str] | None) -> Job | None:
+        """One job by id within ``tenant_ids``, or None."""
         async with self.sessions() as session:
             row = await session.get(JobRow, job_id)
-            return job_to_domain(row) if row else None
+            if row is None or (tenant_ids is not None and row.tenant_id not in tenant_ids):
+                return None
+            return job_to_domain(row)
 
     async def save(self, job: Job) -> Job:
         """Upsert the jobs row from the aggregate."""
@@ -97,9 +103,11 @@ class SqlJobRepository:
                 )
             )
 
-    async def count_by_status(self) -> dict[str, int]:
-        """Job counts grouped by status via SQL GROUP BY, not a full-table load."""
+    async def count_by_status(self, *, tenant_ids: frozenset[str] | None) -> dict[str, int]:
+        """Job counts within ``tenant_ids`` grouped by status via SQL GROUP BY."""
         statement = sa.select(JobRow.status, sa.func.count()).group_by(JobRow.status)
+        if tenant_ids is not None:
+            statement = statement.where(JobRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
             rows = await session.execute(statement)
             counts: dict[str, int] = {}
@@ -130,12 +138,21 @@ class SqlActivityRepository:
                 )
             )
 
-    async def list(self, limit: int = 50) -> list[ActivityEntry]:
-        """Newest entries first, bounded by limit."""
+    async def list(
+        self, limit: int = 50, *, tenant_ids: frozenset[str] | None
+    ) -> list[ActivityEntry]:
+        """Newest entries within ``tenant_ids`` first, bounded by limit.
+
+        Tenant filtering happens before the limit is applied so a caller
+        never gets a truncated-to-empty page because unrelated tenants'
+        entries filled the window.
+        """
+        statement = sa.select(ActivityRow).order_by(ActivityRow.created_at.desc())
+        if tenant_ids is not None:
+            statement = statement.where(ActivityRow.tenant_id.in_(tenant_ids))
+        statement = statement.limit(limit)
         async with self.sessions() as session:
-            rows = await session.scalars(
-                sa.select(ActivityRow).order_by(ActivityRow.created_at.desc()).limit(limit)
-            )
+            rows = await session.scalars(statement)
             return [
                 ActivityEntry(
                     id=row.id,

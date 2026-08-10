@@ -191,25 +191,39 @@ class MockAppService(
             "reindex_required": True,
         }
 
-    async def list_projects(self) -> AppResponse:
+    async def list_projects(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
+        del tenant_ids
         return AppResponse(True, {"projects": []})
 
-    async def get_project(self, project_id: str) -> AppResponse:
+    async def get_project(
+        self, project_id: str, *, tenant_ids: frozenset[str] | None = None
+    ) -> AppResponse:
+        del project_id, tenant_ids
         return AppResponse(True, {"project": None})
 
-    async def list_sources(self, project_id: str | None = None) -> AppResponse:
+    async def list_sources(
+        self, project_id: str | None = None, *, tenant_ids: frozenset[str] | None = None
+    ) -> AppResponse:
+        del project_id, tenant_ids
         return AppResponse(True, {"sources": []})
 
-    async def get_source(self, source_id: str) -> AppResponse:
+    async def get_source(
+        self, source_id: str, *, tenant_ids: frozenset[str] | None = None
+    ) -> AppResponse:
+        del source_id, tenant_ids
         return AppResponse(True, {"source": None})
 
-    async def list_activity(self, limit: int = 50) -> AppResponse:
+    async def list_activity(
+        self, limit: int = 50, *, tenant_ids: frozenset[str] | None = None
+    ) -> AppResponse:
+        del limit, tenant_ids
         return AppResponse(True, {"activity": []})
 
     async def get_settings(self) -> AppResponse:
         return AppResponse(True, {"settings": WorkspaceSettings(tenant_id="DEFAULT")})
 
-    async def get_metrics(self) -> AppResponse:
+    async def get_metrics(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
+        del tenant_ids
         return AppResponse(
             True,
             {

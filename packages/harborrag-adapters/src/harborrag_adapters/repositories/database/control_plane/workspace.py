@@ -63,17 +63,22 @@ class SqlProviderRepository:
 
     sessions: SessionFactory
 
-    async def list(self) -> list[Provider]:
-        """All providers ordered by id."""
+    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
+        """Providers visible to ``tenant_ids`` (None: unrestricted), ordered by id."""
+        statement = sa.select(ProviderRow).order_by(ProviderRow.id)
+        if tenant_ids is not None:
+            statement = statement.where(ProviderRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
-            rows = await session.scalars(sa.select(ProviderRow).order_by(ProviderRow.id))
+            rows = await session.scalars(statement)
             return [self._to_domain(row) for row in rows]
 
-    async def get(self, provider_id: str) -> Provider | None:
-        """One provider by id, or None."""
+    async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
+        """One provider by id within ``tenant_ids``, or None."""
         async with self.sessions() as session:
             row = await session.get(ProviderRow, provider_id)
-            return self._to_domain(row) if row else None
+            if row is None or (tenant_ids is not None and row.tenant_id not in tenant_ids):
+                return None
+            return self._to_domain(row)
 
     async def save(self, provider: Provider) -> Provider:
         """Upsert the provider row."""
@@ -90,10 +95,13 @@ class SqlProviderRepository:
             row.secret_ref = provider.secret_ref
         return provider
 
-    async def delete(self, provider_id: str) -> None:
-        """Delete the provider row."""
+    async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Delete the provider row within ``tenant_ids``."""
+        statement = sa.delete(ProviderRow).where(ProviderRow.id == provider_id)
+        if tenant_ids is not None:
+            statement = statement.where(ProviderRow.tenant_id.in_(tenant_ids))
         async with self.sessions.begin() as session:
-            await session.execute(sa.delete(ProviderRow).where(ProviderRow.id == provider_id))
+            await session.execute(statement)
 
     @staticmethod
     def _to_domain(row: ProviderRow) -> Provider:
@@ -114,10 +122,13 @@ class SqlMemberRepository:
 
     sessions: SessionFactory
 
-    async def list(self) -> list[Member]:
-        """All members ordered by subject."""
+    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Member]:
+        """Members visible to ``tenant_ids`` (None: unrestricted), ordered by subject."""
+        statement = sa.select(MemberRow).order_by(MemberRow.subject)
+        if tenant_ids is not None:
+            statement = statement.where(MemberRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
-            rows = await session.scalars(sa.select(MemberRow).order_by(MemberRow.subject))
+            rows = await session.scalars(statement)
             return [self._to_domain(row) for row in rows]
 
     async def get_by_subject(self, subject: str) -> Member | None:
@@ -143,10 +154,13 @@ class SqlMemberRepository:
             row.role = member.role
         return member
 
-    async def delete(self, member_id: str) -> None:
-        """Delete the membership row."""
+    async def delete(self, member_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Delete the membership row within ``tenant_ids``."""
+        statement = sa.delete(MemberRow).where(MemberRow.id == member_id)
+        if tenant_ids is not None:
+            statement = statement.where(MemberRow.tenant_id.in_(tenant_ids))
         async with self.sessions.begin() as session:
-            await session.execute(sa.delete(MemberRow).where(MemberRow.id == member_id))
+            await session.execute(statement)
 
     @staticmethod
     def _to_domain(row: MemberRow) -> Member:
