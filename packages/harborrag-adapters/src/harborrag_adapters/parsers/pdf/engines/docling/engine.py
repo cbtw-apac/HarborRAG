@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar
 
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import MaxFileSizeExceededError, ParseError
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.engines.docling.config import (
     DoclingPDFConfig,
@@ -106,10 +106,7 @@ class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
             return
         size = path.stat().st_size
         if size > max_file_size:
-            raise ParseError(
-                f"PDF size {size} bytes exceeds the configured max_file_size "
-                f"limit of {max_file_size} bytes"
-            )
+            raise MaxFileSizeExceededError(size_bytes=size, max_bytes=max_file_size, engine=self.name)
 
     def _export_document(self, document: Any) -> str:
         """Export a Docling document using the configured output format."""

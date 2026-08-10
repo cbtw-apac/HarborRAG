@@ -12,6 +12,10 @@ class PyMuPDFConfig:
     """Configuration for the in-process PyMuPDF provider."""
 
     max_pages: int | None = DEFAULT_MAX_PAGES
+    # Unset by default: pymupdf has never enforced a size cap of its own
+    # (only the parser-family-wide byte guard applies), so this stays opt-in
+    # to avoid changing behavior for anyone not explicitly configuring it.
+    max_file_size: int | None = None
 
 
 PyMuPdfBackendOptions = PyMuPDFConfig

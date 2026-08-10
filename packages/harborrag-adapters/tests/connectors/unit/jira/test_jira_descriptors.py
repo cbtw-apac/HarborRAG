@@ -125,6 +125,9 @@ def test_search_result_is_reused_for_admission_description() -> None:
 
     descriptor = connector.describe(next(connector.discover()))
 
-    assert client.get_calls == []
+    # The only GET so far is discover()'s auth preflight ("myself") --
+    # describe() itself must not re-fetch the issue, reusing the search
+    # result already embedded in the discovered record.
+    assert client.get_calls == [("myself", None)]
     assert descriptor.admission.source_version.startswith("2024")
     assert "_jira_discovery_descriptor" not in descriptor.source.metadata

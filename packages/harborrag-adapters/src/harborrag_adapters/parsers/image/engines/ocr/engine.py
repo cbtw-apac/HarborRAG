@@ -211,12 +211,22 @@ class OcrImageEngine(HarborImageEngine):
                 "`harborrag-adapters[image-tesseract]` or `pip install pytesseract`."
             ) from exc
 
-        content = pytesseract.image_to_string(
-            image,
-            lang=self.lang,
-            config=self.config,
-            timeout=self.timeout,
-        )
+        try:
+            content = pytesseract.image_to_string(
+                image,
+                lang=self.lang,
+                config=self.config,
+                timeout=self.timeout,
+            )
+        except pytesseract.TesseractError as exc:
+            # Tesseract exits non-zero both for genuine failures (missing
+            # language data, corrupt image) and for the documented "no text
+            # detected" case, which it signals with this specific message.
+            # Only that signal means a successful parse with empty output;
+            # every other TesseractError still surfaces as a failure.
+            if "empty page" in str(exc).lower():
+                return ""
+            raise
         return "" if content is None else str(content).strip()
 
     def _extract_with_rapidocr(self, data: bytes) -> str:

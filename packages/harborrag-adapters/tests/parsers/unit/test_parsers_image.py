@@ -61,6 +61,57 @@ def test_image_parser_treats_no_ocr_text_as_empty_success(monkeypatch, caplog) -
     assert "content_chars=0 elements=0" in caplog.text
 
 
+class _TesseractError(RuntimeError):
+    """Stand-in for `pytesseract.TesseractError` (status + message)."""
+
+    def __init__(self, status: int, message: str) -> None:
+        self.status = status
+        self.message = message
+        super().__init__(message)
+
+
+def test_pytesseract_treats_empty_page_as_empty_success(monkeypatch) -> None:
+    """Tesseract exits non-zero with an "Empty page!!" message when a page has
+    no detectable text -- that used to be indistinguishable from a genuine
+    failure and rewrapped as a `ParseError` instead of the empty-success path
+    every other OCR engine (and this one, for a `None`/empty return) takes."""
+
+    def _raise_empty_page(*_args: object, **_kwargs: object) -> str:
+        raise _TesseractError(1, "Empty page!!\nWARNING: Invalid resolution 0 dpi.\n")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pytesseract",
+        SimpleNamespace(image_to_string=_raise_empty_page, TesseractError=_TesseractError),
+    )
+
+    document = ImageParser(ocr_engine="pytesseract").parse(
+        ParseInput(content=_png_bytes(), filename="blank_scan.png")
+    )
+
+    assert document.content == ""
+    assert document.elements == []
+
+
+def test_pytesseract_other_tesseract_errors_still_raise(monkeypatch) -> None:
+    """A genuine Tesseract failure (not the "no text found" signal) must keep
+    surfacing as a typed `ParseError`, not be swallowed as empty success."""
+
+    def _raise_real_failure(*_args: object, **_kwargs: object) -> str:
+        raise _TesseractError(1, "Error opening data file eng.traineddata")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pytesseract",
+        SimpleNamespace(image_to_string=_raise_real_failure, TesseractError=_TesseractError),
+    )
+
+    with pytest.raises(ParseError, match="Image OCR failed"):
+        ImageParser(ocr_engine="pytesseract").parse(
+            ParseInput(content=_png_bytes(), filename="scan.png")
+        )
+
+
 def test_image_parser_raises_typed_error_instead_of_crashing_on_decompression_bomb(
     monkeypatch,
 ) -> None:

@@ -158,8 +158,10 @@ def test_docling_backend_rejects_oversized_pdf_with_a_clear_reason_without_invok
     reason (a configured size policy, not a parse failure) survived but was
     buried three layers deep behind a generic "could not parse" framing.
     The pre-check must reject it directly, with the size and limit in the
-    message, before Docling's converter ever runs."""
-    from harborrag_adapters.parsers.errors import ParseError
+    message, before Docling's converter ever runs -- and it must be the
+    typed `MaxFileSizeExceededError`, not a generic `ParseError`, so a caller
+    can distinguish a configured-limit rejection from any other failure."""
+    from harborrag_adapters.parsers.errors import MaxFileSizeExceededError
 
     class _ExplodingConverter:
         def convert(self, *args: Any, **kwargs: Any) -> Any:
@@ -174,10 +176,13 @@ def test_docling_backend_rejects_oversized_pdf_with_a_clear_reason_without_invok
     pdf_bytes = b"%PDF-1.4\n" + b"padding" * 10
 
     with pytest.raises(
-        ParseError,
-        match=rf"{len(pdf_bytes)} bytes exceeds the configured max_file_size limit of 1 bytes",
-    ):
+        MaxFileSizeExceededError,
+        match=rf"File size {len(pdf_bytes)} bytes exceeds configured max_file_size 1 bytes",
+    ) as excinfo:
         backend.parse_input(ParseInput(content=pdf_bytes, filename="huge.pdf"))
+    assert excinfo.value.size_bytes == len(pdf_bytes)
+    assert excinfo.value.max_bytes == 1
+    assert excinfo.value.engine == "docling"
 
 
 @pytest.mark.whitebox

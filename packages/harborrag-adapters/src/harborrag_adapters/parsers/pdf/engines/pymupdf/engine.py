@@ -5,7 +5,13 @@ from typing import Any, ClassVar
 from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import EncryptedPdfError, ParseError
+from harborrag_adapters.parsers.errors import (
+    EncryptedPdfError,
+    MaxFileSizeExceededError,
+    MaxPagesExceededError,
+    NoExtractableTextError,
+    ParseError,
+)
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.engines.pymupdf.config import (
     PyMuPDFConfig,
@@ -42,6 +48,15 @@ class PyMuPDFEngine(HarborPDFEngine):
 
         pymupdf = self._import_pymupdf()
         source_bytes = guard_input_size(read_parse_input_bytes(input))
+        if self.options.max_file_size is not None and len(source_bytes) > self.options.max_file_size:
+            # Checked before `pymupdf.open()` runs: a size rejection is a
+            # configured policy, not a parse failure, and must not require
+            # opening the file to discover.
+            raise MaxFileSizeExceededError(
+                size_bytes=len(source_bytes),
+                max_bytes=self.options.max_file_size,
+                engine=self.name,
+            )
         try:
             document = pymupdf.open(stream=source_bytes, filetype="pdf")
         except Exception as exc:  # noqa: BLE001 - external parser boundary
@@ -58,9 +73,10 @@ class PyMuPDFEngine(HarborPDFEngine):
                 # Reject before the per-page extraction loop below: a
                 # degenerate PDF with an enormous page count would otherwise
                 # do unbounded work in-process with no timeout to interrupt it.
-                raise ParseError(
-                    f"PDF has {document.page_count} pages, exceeding the "
-                    f"pymupdf backend's max_pages={self.options.max_pages} cap"
+                raise MaxPagesExceededError(
+                    page_count=document.page_count,
+                    max_pages=self.options.max_pages,
+                    engine=self.name,
                 )
 
             sections: list[str] = []
@@ -76,6 +92,16 @@ class PyMuPDFEngine(HarborPDFEngine):
                     continue
                 sections.append(f"Page {page_index}\n{page_text}")
                 elements.append(page_element(self.name, page_index, page_text))
+
+            if document.page_count > 0 and not sections:
+                # A non-empty document with zero extracted text is a distinct
+                # condition from an empty/corrupt file (which never reaches
+                # here) -- most commonly a scanned/image-only PDF that this
+                # non-OCR engine cannot read. Surfacing it as a typed error
+                # instead of an empty success lets a fallback chain route to
+                # an OCR-capable engine, and lets a caller distinguish it from
+                # any other rejection.
+                raise NoExtractableTextError(page_count=document.page_count)
 
             warnings.extend(self._warnings(pymupdf))
             return PDFParseResult(

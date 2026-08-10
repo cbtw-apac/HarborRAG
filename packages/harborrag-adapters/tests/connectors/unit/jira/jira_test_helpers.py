@@ -18,6 +18,13 @@ class FakeJiraClient:
         self.downloads: dict[str, bytes] = {}
         self.get_calls: list[tuple[str, dict[str, Any] | None]] = []
         self.post_calls: list[tuple[str, dict[str, Any]]] = []
+        # `JiraConnector.discover()`/`discover_page()` verify credentials via
+        # `myself` before the first search call. Defaulted to a successful
+        # response so existing discovery tests don't each need to register
+        # it; tests exercising the auth-preflight itself override this (e.g.
+        # via `client.get_responses["myself"] = []` plus a raising client, or
+        # by asserting on `client.get_calls`).
+        self.get_responses["myself"] = [{"accountId": "fake-user"}]
 
     def add_get(self, endpoint: str, *responses: dict[str, Any]) -> None:
         self.get_responses.setdefault(endpoint, []).extend(responses)
