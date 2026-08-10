@@ -225,7 +225,9 @@ async def test_project_repository_enforces_tenant_scope(sessions: SessionFactory
     """list/get/delete must not see or touch another tenant's project rows."""
     repo = SqlProjectRepository(sessions)
     await repo.create(Project(id="mine", tenant_id="tenant-a", name="Mine", collection="mine"))
-    await repo.create(Project(id="theirs", tenant_id="tenant-b", name="Theirs", collection="theirs"))
+    await repo.create(
+        Project(id="theirs", tenant_id="tenant-b", name="Theirs", collection="theirs")
+    )
     scope = frozenset({"tenant-a"})
 
     assert [p.id for p in await repo.list(tenant_ids=scope)] == ["mine"]
@@ -361,7 +363,9 @@ async def test_job_repository_enforces_tenant_scope(sessions: SessionFactory) ->
     """list/get/count_by_status must not see another tenant's job rows."""
     repo = SqlJobRepository(sessions)
     await repo.save(
-        Job(id="mine", tenant_id="tenant-a", source_id="s1", project_id="p1", job_type="bulk_ingest")
+        Job(
+            id="mine", tenant_id="tenant-a", source_id="s1", project_id="p1", job_type="bulk_ingest"
+        )
     )
     await repo.save(
         Job(

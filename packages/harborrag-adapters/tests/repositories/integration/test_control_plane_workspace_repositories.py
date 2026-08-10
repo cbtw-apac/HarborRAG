@@ -133,7 +133,9 @@ async def test_activity_provider_member_repositories_enforce_tenant_scope(
 
     providers = SqlProviderRepository(sessions)
     await providers.save(
-        Provider(id="mine", tenant_id="tenant-a", name="Mine", family="chat", secret_ref="secret://x")
+        Provider(
+            id="mine", tenant_id="tenant-a", name="Mine", family="chat", secret_ref="secret://x"
+        )
     )
     await providers.save(
         Provider(
@@ -146,7 +148,9 @@ async def test_activity_provider_member_repositories_enforce_tenant_scope(
     assert (await providers.get("theirs", tenant_ids=None)) is not None  # untouched
 
     members = SqlMemberRepository(sessions)
-    await members.save(Member(id="mine", tenant_id="tenant-a", subject="me@cbtw.tech", role="editor"))
+    await members.save(
+        Member(id="mine", tenant_id="tenant-a", subject="me@cbtw.tech", role="editor")
+    )
     await members.save(
         Member(id="theirs", tenant_id="tenant-b", subject="them@cbtw.tech", role="editor")
     )
