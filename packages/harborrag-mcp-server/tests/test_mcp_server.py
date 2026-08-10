@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from io import StringIO
 
@@ -14,7 +13,9 @@ from harborrag_runtime.memory import InMemoryConversationMemory
 
 
 def test_package_exposes_the_mcp_server_namespace() -> None:
-    assert importlib.util.find_spec("harborrag_mcp_server") is not None
+    import harborrag_mcp_server
+
+    assert harborrag_mcp_server.create_mcp_server is create_mcp_server
 
 
 def test_module_check_lists_all_tools(tmp_path, monkeypatch, capsys) -> None:
@@ -299,7 +300,7 @@ async def test_call_tool_facade_rejects_policy_violation_end_to_end(
 def test_request_principal_requires_owner_role(monkeypatch) -> None:
     from types import SimpleNamespace
 
-    import fastmcp.server.dependencies as dependencies
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
 
     from harborrag_mcp_server.server import _request_principal_id
 
