@@ -20,16 +20,6 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
-class _FakeCatalog:
-    """Stand-in for `ConnectorCatalog` exposing only the settings the gate reads."""
-
-    def __init__(self, *, include_attachments: bool) -> None:
-        self._definition = SimpleNamespace(settings={"include_attachments": include_attachments})
-
-    def get(self, name: str) -> SimpleNamespace:
-        return self._definition
-
-
 class _FakeConnector:
     """Stand-in for `HarborConnector` returning one canned record and document."""
 
@@ -53,16 +43,31 @@ def _document(*, attachments: list[dict] | None = None) -> RawDocument:
     )
 
 
+def _definition(provider: str, *, include_attachments: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=f"{provider}-main",
+        provider=provider,
+        settings={"include_attachments": include_attachments},
+    )
+
+
 @pytest.mark.parametrize("module,provider", [(confluence, "confluence"), (jira, "jira")])
 def test_skips_attachment_pass_when_disabled_in_config(monkeypatch, module, provider) -> None:
     monkeypatch.setattr(module, "load_env", lambda: [])
     monkeypatch.setattr(
-        module, "connector_catalog", lambda: _FakeCatalog(include_attachments=False)
+        module,
+        "connector_definition",
+        lambda identifier, *, expected_provider: _definition(
+            expected_provider,
+            include_attachments=False,
+        ),
     )
 
     build_calls: list[bool] = []
 
-    def fake_build_connector(name, *, include_attachments, parser=None):  # noqa: ARG001
+    def fake_build_connector(  # noqa: ARG001
+        name, *, include_attachments, parser=None, expected_provider=None
+    ):
         build_calls.append(include_attachments)
         return _FakeConnector(_document())
 
@@ -83,7 +88,14 @@ def test_runs_attachment_pass_and_reports_success_when_enabled(
     monkeypatch, module, provider
 ) -> None:
     monkeypatch.setattr(module, "load_env", lambda: [])
-    monkeypatch.setattr(module, "connector_catalog", lambda: _FakeCatalog(include_attachments=True))
+    monkeypatch.setattr(
+        module,
+        "connector_definition",
+        lambda identifier, *, expected_provider: _definition(
+            expected_provider,
+            include_attachments=True,
+        ),
+    )
     monkeypatch.setattr(module, "build_harbor_parser", lambda: object())
 
     without_attachments = _FakeConnector(_document())
@@ -92,7 +104,9 @@ def test_runs_attachment_pass_and_reports_success_when_enabled(
     )
     build_calls: list[bool] = []
 
-    def fake_build_connector(name, *, include_attachments, parser=None):  # noqa: ARG001
+    def fake_build_connector(  # noqa: ARG001
+        name, *, include_attachments, parser=None, expected_provider=None
+    ):
         build_calls.append(include_attachments)
         return with_attachments if include_attachments else without_attachments
 
@@ -106,7 +120,14 @@ def test_runs_attachment_pass_and_reports_success_when_enabled(
 @pytest.mark.parametrize("module,provider", [(confluence, "confluence"), (jira, "jira")])
 def test_propagates_attachment_failure_when_enabled(monkeypatch, module, provider) -> None:
     monkeypatch.setattr(module, "load_env", lambda: [])
-    monkeypatch.setattr(module, "connector_catalog", lambda: _FakeCatalog(include_attachments=True))
+    monkeypatch.setattr(
+        module,
+        "connector_definition",
+        lambda identifier, *, expected_provider: _definition(
+            expected_provider,
+            include_attachments=True,
+        ),
+    )
     monkeypatch.setattr(module, "build_harbor_parser", lambda: object())
 
     without_attachments = _FakeConnector(_document())
@@ -114,7 +135,9 @@ def test_propagates_attachment_failure_when_enabled(monkeypatch, module, provide
         _document(attachments=[{"title": "a.pdf", "status": "failed", "reason": "boom"}])
     )
 
-    def fake_build_connector(name, *, include_attachments, parser=None):  # noqa: ARG001
+    def fake_build_connector(  # noqa: ARG001
+        name, *, include_attachments, parser=None, expected_provider=None
+    ):
         return with_attachments if include_attachments else without_attachments
 
     monkeypatch.setattr(module, "build_connector", fake_build_connector)

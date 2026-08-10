@@ -9,7 +9,7 @@ from bootstrap import (
     attachments_passed,
     build_connector,
     build_harbor_parser,
-    connector_catalog,
+    connector_definition,
     load_env,
     output_path_for,
     print_document,
@@ -107,11 +107,20 @@ def _render_jira_output(
     return "\n".join(lines)
 
 
-def _run_attachment_pass(records: list, *, output: str | None, output_dir: Path | None) -> int:
+def _run_attachment_pass(
+    connection_id: str,
+    records: list,
+    *,
+    output: str | None,
+    output_dir: Path | None,
+) -> int:
     """Reload every record with attachment processing enabled and report status."""
     harbor_parser = build_harbor_parser()
     connector_with_attachments = build_connector(
-        "jira", include_attachments=True, parser=harbor_parser
+        connection_id,
+        include_attachments=True,
+        parser=harbor_parser,
+        expected_provider="jira",
     )
 
     overall_ok = True
@@ -161,10 +170,22 @@ def _save_attachment_output(
     save_output("jira", record.id, text, output=output, output_dir=output_dir)
 
 
-def run_jira(*, limit: int = 3, output: str | None = None, output_dir: Path | None = None) -> int:
+def run_jira(
+    *,
+    connection_id: str | None = None,
+    limit: int = 3,
+    output: str | None = None,
+    output_dir: Path | None = None,
+) -> int:
     load_env()
+    identifier = connection_id or "jira"
     try:
-        connector = build_connector("jira", include_attachments=False)
+        definition = connector_definition(identifier, expected_provider="jira")
+        connector = build_connector(
+            definition.name,
+            include_attachments=False,
+            expected_provider="jira",
+        )
     except ConnectorConfigurationError as exc:
         print(f"[jira] not configured: {exc}")
         return 2
@@ -185,7 +206,7 @@ def run_jira(*, limit: int = 3, output: str | None = None, output_dir: Path | No
         return 1
     print_document("jira", document)
 
-    if not connector_catalog().get("jira").settings.get("include_attachments", False):
+    if not definition.settings.get("include_attachments", False):
         print(
             "\n[jira] include_attachments is false in config/connectors.yaml; "
             "skipping the attachment pass"
@@ -193,7 +214,12 @@ def run_jira(*, limit: int = 3, output: str | None = None, output_dir: Path | No
         return 0
 
     print(f"\n[jira] === load with attachments ({len(records)} record(s)) ===")
-    return _run_attachment_pass(records, output=output, output_dir=output_dir)
+    return _run_attachment_pass(
+        definition.name,
+        records,
+        output=output,
+        output_dir=output_dir,
+    )
 
 
 def main() -> int:

@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
     load_connector_catalog,
     load_parser_catalog,
 )
-from harborrag_runtime.config.connectors.providers import config_factory
 
 from .paths import CONFIG_DIR
 
 if TYPE_CHECKING:
     from harborrag_adapters.connectors import HarborConnector
     from harborrag_adapters.parsers import HarborParserRegistry
+    from harborrag_runtime.config import ConnectorDefinition
 
 _ATTACHMENT_PROVIDERS = frozenset({"confluence", "jira"})
 
@@ -47,44 +47,78 @@ def _connector_environment(provider: str) -> dict[str, str]:
     return values
 
 
+def connector_definition(
+    identifier: str,
+    *,
+    expected_provider: str | None = None,
+) -> ConnectorDefinition:
+    """Resolve a connection ID, with unique provider names as shorthand.
+
+    Connector catalog keys are application-level ``connection_id`` values
+    such as ``harborrag-workspace`` or ``jira-main``. Direct provider names
+    remain convenient for standalone entry points, but only when exactly one
+    enabled connection uses that provider.
+    """
+
+    catalog = connector_catalog()
+    definition = catalog.connectors.get(identifier)
+    if definition is None:
+        provider_matches = [
+            item for item in catalog.connectors.values() if item.provider == identifier
+        ]
+        enabled_matches = [item for item in provider_matches if item.enabled]
+        candidates = enabled_matches or provider_matches
+        if len(candidates) != 1:
+            available = ", ".join(catalog.names(enabled_only=True)) or "none"
+            if candidates:
+                matching = ", ".join(sorted(item.name for item in candidates))
+                raise ConnectorConfigurationError(
+                    f"Provider {identifier!r} has multiple configured connections: "
+                    f"{matching}. Pass a connection ID explicitly"
+                )
+            raise ConnectorConfigurationError(
+                f"Unknown connection ID or provider: {identifier!r}. "
+                f"Available enabled connection IDs: {available}"
+            )
+        definition = candidates[0]
+
+    if expected_provider is not None and definition.provider != expected_provider:
+        raise ConnectorConfigurationError(
+            f"Connection {definition.name!r} uses provider {definition.provider!r}; "
+            f"expected {expected_provider!r}"
+        )
+    return definition
+
+
 def build_connector(
-    name: str,
+    identifier: str,
     *,
     include_attachments: bool,
     parser: HarborParserRegistry | None = None,
+    expected_provider: str | None = None,
 ) -> HarborConnector:
-    """Build one configured connector from `config/connectors.yaml`.
+    """Build one configured connection from `config/connectors.yaml`.
 
     Raises:
-        ConnectorConfigurationError: If the connector is undefined or a
-            referenced environment variable is missing/empty.
+        ConnectorConfigurationError: If the connection is undefined,
+            ambiguous, disabled, for the wrong provider, or references a
+            missing/empty environment variable.
     """
-    from harborrag_adapters.connectors import HarborConnector
-
     from .ocr_parser import attachment_custom_parsers
 
-    definition = connector_catalog().get(name)
-    if not definition.enabled:
-        raise ConnectorConfigurationError(
-            f"Connector {name!r} is disabled (enabled: false) and cannot be built"
-        )
-    overrides: dict[str, Any] = {}
+    definition = connector_definition(
+        identifier,
+        expected_provider=expected_provider,
+    )
+    overrides: dict[str, object] = {}
     if definition.provider in _ATTACHMENT_PROVIDERS:
         overrides["include_attachments"] = include_attachments
         if include_attachments:
             overrides["custom_parsers"] = attachment_custom_parsers()
 
-    values = definition.resolve_settings(
+    connector_kwargs = {"parser": parser} if definition.provider in _ATTACHMENT_PROVIDERS else None
+    return definition.build(
         environment=_connector_environment(definition.provider),
         overrides=overrides,
+        connector_kwargs=connector_kwargs,
     )
-    factory = config_factory(definition.provider)
-    try:
-        provider_config = factory(**values)
-    except (TypeError, ValueError) as exc:
-        raise ConnectorConfigurationError(
-            f"Connector {name!r} ({definition.provider}) is invalid: {exc}"
-        ) from exc
-
-    extra = {"parser": parser} if definition.provider in _ATTACHMENT_PROVIDERS else {}
-    return HarborConnector(definition.provider, config=provider_config, **extra)

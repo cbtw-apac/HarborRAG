@@ -9,7 +9,7 @@ from bootstrap import (
     attachments_passed,
     build_connector,
     build_harbor_parser,
-    connector_catalog,
+    connector_definition,
     load_env,
     output_path_for,
     print_document,
@@ -113,11 +113,20 @@ def _render_confluence_output(
     return "\n".join(lines)
 
 
-def _run_attachment_pass(records: list, *, output: str | None, output_dir: Path | None) -> int:
+def _run_attachment_pass(
+    connection_id: str,
+    records: list,
+    *,
+    output: str | None,
+    output_dir: Path | None,
+) -> int:
     """Reload every record with attachment processing enabled and report status."""
     harbor_parser = build_harbor_parser()
     connector_with_attachments = build_connector(
-        "confluence", include_attachments=True, parser=harbor_parser
+        connection_id,
+        include_attachments=True,
+        parser=harbor_parser,
+        expected_provider="confluence",
     )
 
     overall_ok = True
@@ -168,11 +177,21 @@ def _save_attachment_output(
 
 
 def run_confluence(
-    *, limit: int = 3, output: str | None = None, output_dir: Path | None = None
+    *,
+    connection_id: str | None = None,
+    limit: int = 3,
+    output: str | None = None,
+    output_dir: Path | None = None,
 ) -> int:
     load_env()
+    identifier = connection_id or "confluence"
     try:
-        connector = build_connector("confluence", include_attachments=False)
+        definition = connector_definition(identifier, expected_provider="confluence")
+        connector = build_connector(
+            definition.name,
+            include_attachments=False,
+            expected_provider="confluence",
+        )
     except ConnectorConfigurationError as exc:
         print(f"[confluence] not configured: {exc}")
         return 2
@@ -193,7 +212,7 @@ def run_confluence(
         return 1
     print_document("confluence", document)
 
-    if not connector_catalog().get("confluence").settings.get("include_attachments", False):
+    if not definition.settings.get("include_attachments", False):
         print(
             "\n[confluence] include_attachments is false in config/connectors.yaml; "
             "skipping the attachment pass"
@@ -201,7 +220,12 @@ def run_confluence(
         return 0
 
     print(f"\n[confluence] === load with attachments ({len(records)} record(s)) ===")
-    return _run_attachment_pass(records, output=output, output_dir=output_dir)
+    return _run_attachment_pass(
+        definition.name,
+        records,
+        output=output,
+        output_dir=output_dir,
+    )
 
 
 def main() -> int:
