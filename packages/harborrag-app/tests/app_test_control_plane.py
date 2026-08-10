@@ -7,7 +7,7 @@ from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.testing.fakes import (
+from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeJobRepository,
     FakeMemberRepository,

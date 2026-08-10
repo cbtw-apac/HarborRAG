@@ -16,19 +16,21 @@ from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.testing.fakes import (
+from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
+    FakeJobRepository,
+    FakeMemberRepository,
+    FakeProjectRepository,
+    FakeProviderRepository,
+    FakeSettingsRepository,
+    FakeSourceRepository,
+)
+from harborrag_core.testing.fakes import (
     FakeConnector,
     FakeEventBus,
     FakeJobQueue,
-    FakeJobRepository,
-    FakeMemberRepository,
     FakeParser,
-    FakeProjectRepository,
-    FakeProviderRepository,
     FakeSecrets,
-    FakeSettingsRepository,
-    FakeSourceRepository,
 )
 
 pytestmark = pytest.mark.whitebox
