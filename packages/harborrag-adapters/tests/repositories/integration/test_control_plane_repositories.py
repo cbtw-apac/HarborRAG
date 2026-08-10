@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -118,6 +119,110 @@ def test_migrations_create_all_tables_and_are_idempotent(tmp_path: Path) -> None
     sync_engine.dispose()
     assert EXPECTED_TABLES <= tables
     assert "alembic_version" in tables
+
+
+@pytest.mark.whitebox
+def test_legacy_0009_conversation_schema_is_repaired_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    """Upgrade databases stamped by the superseded 0009 migration.
+
+    The legacy revision created ``conversation_memory`` with ``user_id`` but
+    no sessions table or foreign key. Revision 0010 must repair that shape
+    before creating its own session-backed agent table.
+    """
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    config = _build_config(dsn)
+    command.upgrade(config, "0008")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    created_at = datetime(2026, 8, 10, 5, 0, tzinfo=UTC)
+    try:
+        with sync_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "CREATE TABLE conversation_memory ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "tenant_id VARCHAR(128) NOT NULL, "
+                    "principal_id VARCHAR(512) NOT NULL, "
+                    "user_id VARCHAR(256) NOT NULL, "
+                    "session_id VARCHAR(128) NOT NULL, "
+                    "user_content TEXT NOT NULL, "
+                    "assistant_content TEXT NOT NULL, "
+                    "created_at TIMESTAMP NOT NULL)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "CREATE INDEX ix_conversation_memory_identity_created "
+                    "ON conversation_memory "
+                    "(tenant_id, principal_id, user_id, session_id, created_at, id)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO conversation_memory "
+                    "(tenant_id, principal_id, user_id, session_id, user_content, "
+                    "assistant_content, created_at) VALUES "
+                    "(:tenant_id, :principal_id, :user_id, :session_id, "
+                    ":user_content, :assistant_content, :created_at)"
+                ),
+                {
+                    "tenant_id": "tenant-a",
+                    "principal_id": "principal-a",
+                    "user_id": "legacy-user",
+                    "session_id": "session-a",
+                    "user_content": "hello",
+                    "assistant_content": "hi",
+                    "created_at": created_at,
+                },
+            )
+    finally:
+        sync_engine.dispose()
+
+    command.stamp(config, "0009")
+    command.upgrade(config, "head")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        inspector = sa.inspect(sync_engine)
+        columns = {column["name"] for column in inspector.get_columns("conversation_memory")}
+        assert "user_id" not in columns
+        assert any(
+            foreign_key["constrained_columns"] == ["session_id"]
+            and foreign_key["referred_table"] == "conversation_sessions"
+            for foreign_key in inspector.get_foreign_keys("conversation_memory")
+        )
+        index = next(
+            item
+            for item in inspector.get_indexes("conversation_memory")
+            if item["name"] == "ix_conversation_memory_identity_created"
+        )
+        assert index["column_names"] == [
+            "tenant_id",
+            "principal_id",
+            "session_id",
+            "created_at",
+            "id",
+        ]
+        with sync_engine.connect() as connection:
+            session = connection.execute(
+                sa.text(
+                    "SELECT tenant_id, principal_id FROM conversation_sessions "
+                    "WHERE session_id = 'session-a'"
+                )
+            ).one()
+            conversation = connection.execute(
+                sa.text(
+                    "SELECT user_content, assistant_content FROM conversation_memory "
+                    "WHERE session_id = 'session-a'"
+                )
+            ).one()
+        assert session == ("tenant-a", "principal-a")
+        assert conversation == ("hello", "hi")
+    finally:
+        sync_engine.dispose()
 
 
 @pytest.mark.whitebox

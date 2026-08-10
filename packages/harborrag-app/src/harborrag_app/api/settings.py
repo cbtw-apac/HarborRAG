@@ -26,7 +26,9 @@ class ApiSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
 
-    host: str = "0.0.0.0"
+    # Safe local default. Container deployments explicitly override this to
+    # 0.0.0.0 and must acknowledge disabled authentication in development.
+    host: str = "127.0.0.1"
     port: int = 8000
     env: Literal["dev", "prod"] = "dev"
     cors_origins: list[str] = []

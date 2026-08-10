@@ -285,7 +285,7 @@ API process settings use the `HARBORRAG_` prefix.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_HOST` | `0.0.0.0` | Uvicorn bind host; disabled auth requires loopback or an explicit insecure-development opt-in |
+| `HARBORRAG_HOST` | `127.0.0.1` | Uvicorn bind host; containers override this to `0.0.0.0`, where disabled auth requires an explicit insecure-development opt-in |
 | `HARBORRAG_PORT` | `8000` | Uvicorn bind port used by the container command |
 | `HARBORRAG_ENV` | `dev` | `dev` or `prod` process policy |
 | `HARBORRAG_AUTH_MODE` | `none` | `none`, `hmac`, or `oidc` |
