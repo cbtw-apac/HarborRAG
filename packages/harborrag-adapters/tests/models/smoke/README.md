@@ -29,6 +29,15 @@ uv sync --package harborrag-adapters --extra llm --extra test
 You can then use `uv run` in place of `python` in the examples below if the
 virtual environment is not activated.
 
+## Quick config (no dotenv file)
+
+Each script (`chat.py`, `embed.py`, `rerank.py`) has a "Quick config" block
+near the top with plain constants, e.g. `EMBED_MODEL`, `EMBED_API_KEY`,
+`BATCH`. Set the ones you need directly in the file and run the script — no
+`.env` file required. Leave a constant as `None` to fall back to the matching
+environment variable / dotenv value described below. Constants set in the
+file always take precedence over the environment.
+
 ## Configure a dotenv file
 
 Copy only the model families you intend to exercise from the repo-root

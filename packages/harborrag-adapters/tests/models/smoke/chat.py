@@ -2,19 +2,28 @@ from __future__ import annotations
 
 import asyncio
 
-from bootstrap import load_env, safe_error
+from bootstrap import load_env, safe_error, set_env_overrides
 from config import SmokeNotConfigured, chat_config
 
 from harborrag_adapters.models.chat import ChatClientFactory
 from harborrag_core.models.chat import HarborChatMessage
+
+CHAT_PROVIDER: str | None = None  # e.g. "openai"
+CHAT_MODEL: str | None = None  # e.g. "openai/gpt-4o-mini"
+CHAT_API_KEY: str | None = None
+CHAT_API_BASE: str | None = None
+CHAT_BACKEND: str | None = None  # "direct_sdk" | "litellm_router" | "litellm_proxy"
+
+SYSTEM_PROMPT = "Return a brief plain-text answer."
+USER_PROMPT = "Reply with: harbor-chat-smoke-ok"
 
 
 async def _run() -> None:
     async with ChatClientFactory.create_async(chat_config()) as client:
         response = await client.achat(
             [
-                HarborChatMessage.system("Return a brief plain-text answer."),
-                HarborChatMessage.user("Reply with: harbor-chat-smoke-ok"),
+                HarborChatMessage.system(SYSTEM_PROMPT),
+                HarborChatMessage.user(USER_PROMPT),
             ]
         )
     if not response.text or not response.text.strip():
@@ -30,6 +39,15 @@ async def _run() -> None:
 
 def main() -> int:
     load_env()
+    set_env_overrides(
+        {
+            "HARBOR_CHAT_PROVIDER": CHAT_PROVIDER,
+            "HARBOR_CHAT_MODEL": CHAT_MODEL,
+            "HARBOR_CHAT_API_KEY": CHAT_API_KEY,
+            "HARBOR_CHAT_API_BASE": CHAT_API_BASE,
+            "HARBOR_CHAT_BACKEND": CHAT_BACKEND,
+        }
+    )
     try:
         asyncio.run(_run())
     except SmokeNotConfigured as exc:

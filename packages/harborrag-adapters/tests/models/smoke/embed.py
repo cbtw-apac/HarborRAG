@@ -3,21 +3,28 @@ from __future__ import annotations
 import asyncio
 import math
 
-from bootstrap import load_env, safe_error
+from bootstrap import load_env, safe_error, set_env_overrides
 from config import SmokeNotConfigured, embed_config
 
 from harborrag_adapters.models.embed import HarborEmbedClient
 
+EMBED_PROVIDER: str | None = None  # e.g. "openai"
+EMBED_MODEL: str | None = None  # e.g. "openai/text-embedding-3-small"
+EMBED_API_KEY: str | None = None
+EMBED_API_BASE: str | None = None
+EMBED_SPACE: str | None = None
+EMBED_EXPECTED_DIMENSIONS: int | None = None
+
+BATCH: list[str] = [
+    "HarborRAG embedding smoke test.",
+    "Neural operators learn mappings between function spaces.",
+]
+
 
 async def _run() -> None:
     async with HarborEmbedClient.from_config(embed_config()) as client:
-        response = await client.aembed(
-            [
-                "HarborRAG embedding smoke test.",
-                "Neural operators learn mappings between function spaces.",
-            ]
-        )
-    if len(response.embeddings) != 2 or not response.dimensions:
+        response = await client.aembed(BATCH)
+    if len(response.embeddings) != len(BATCH) or not response.dimensions:
         raise AssertionError("provider returned an invalid embedding batch")
     for embedding in response.embeddings:
         if len(embedding.value) != response.dimensions:
@@ -33,6 +40,16 @@ async def _run() -> None:
 
 def main() -> int:
     load_env()
+    set_env_overrides(
+        {
+            "HARBOR_EMBED_PROVIDER": EMBED_PROVIDER,
+            "HARBOR_EMBED_MODEL": EMBED_MODEL,
+            "HARBOR_EMBED_API_KEY": EMBED_API_KEY,
+            "HARBOR_EMBED_API_BASE": EMBED_API_BASE,
+            "HARBOR_EMBED_SPACE": EMBED_SPACE,
+            "HARBOR_EMBED_EXPECTED_DIMENSIONS": EMBED_EXPECTED_DIMENSIONS,
+        }
+    )
     try:
         asyncio.run(_run())
     except SmokeNotConfigured as exc:
