@@ -51,7 +51,9 @@ class _LinkCapturingFallbackParser(_FallbackHTMLTextParser):
             stripped = data.strip()
             if stripped:
                 current = self._link_stack[-1]
-                current["text"] = f"{current['text']} {stripped}".strip() if current["text"] else stripped
+                current["text"] = (
+                    f"{current['text']} {stripped}".strip() if current["text"] else stripped
+                )
 
     def handle_endtag(self, tag: str) -> None:
         super().handle_endtag(tag)

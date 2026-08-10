@@ -106,7 +106,9 @@ class DoclingPDFEngine(DoclingConfigurationMixin, HarborPDFEngine):
             return
         size = path.stat().st_size
         if size > max_file_size:
-            raise MaxFileSizeExceededError(size_bytes=size, max_bytes=max_file_size, engine=self.name)
+            raise MaxFileSizeExceededError(
+                size_bytes=size, max_bytes=max_file_size, engine=self.name
+            )
 
     def _export_document(self, document: Any) -> str:
         """Export a Docling document using the configured output format."""

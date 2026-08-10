@@ -48,7 +48,10 @@ class PyMuPDFEngine(HarborPDFEngine):
 
         pymupdf = self._import_pymupdf()
         source_bytes = guard_input_size(read_parse_input_bytes(input))
-        if self.options.max_file_size is not None and len(source_bytes) > self.options.max_file_size:
+        if (
+            self.options.max_file_size is not None
+            and len(source_bytes) > self.options.max_file_size
+        ):
             # Checked before `pymupdf.open()` runs: a size rejection is a
             # configured policy, not a parse failure, and must not require
             # opening the file to discover.

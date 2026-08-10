@@ -251,12 +251,7 @@ def _ensure_grid(grid: list[list[str | None]], rows: int, columns: int) -> None:
 
 
 def _escape_table_cell(value: str) -> str:
-    return (
-        value.replace("|", "\\|")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\n", "<br>")
-    )
+    return value.replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
 
 def _normalize_inline(value: str) -> str:
