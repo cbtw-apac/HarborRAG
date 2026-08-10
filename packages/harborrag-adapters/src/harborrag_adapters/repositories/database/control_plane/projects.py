@@ -24,17 +24,22 @@ class SqlProjectRepository:
 
     sessions: SessionFactory
 
-    async def list(self) -> list[Project]:
-        """All projects ordered by creation time."""
+    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Project]:
+        """Projects visible to ``tenant_ids`` (None: unrestricted), by creation time."""
+        statement = sa.select(ProjectRow).order_by(ProjectRow.created_at)
+        if tenant_ids is not None:
+            statement = statement.where(ProjectRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
-            rows = await session.scalars(sa.select(ProjectRow).order_by(ProjectRow.created_at))
+            rows = await session.scalars(statement)
             return [project_to_domain(row) for row in rows]
 
-    async def get(self, project_id: str) -> Project | None:
-        """One project by id, or None."""
+    async def get(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> Project | None:
+        """One project by id within ``tenant_ids``, or None."""
         async with self.sessions() as session:
             row = await session.get(ProjectRow, project_id)
-            return project_to_domain(row) if row else None
+            if row is None or (tenant_ids is not None and row.tenant_id not in tenant_ids):
+                return None
+            return project_to_domain(row)
 
     async def create(self, project: Project) -> Project:
         """Insert a new projects row from the aggregate."""
@@ -76,10 +81,13 @@ class SqlProjectRepository:
             row.last_sync_at = project.stats.last_sync_at
         return project
 
-    async def delete(self, project_id: str) -> None:
-        """Delete the project row (index tombstones are the engine's job)."""
+    async def delete(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Delete the project row within ``tenant_ids`` (index tombstones are the engine's job)."""
+        statement = sa.delete(ProjectRow).where(ProjectRow.id == project_id)
+        if tenant_ids is not None:
+            statement = statement.where(ProjectRow.tenant_id.in_(tenant_ids))
         async with self.sessions.begin() as session:
-            await session.execute(sa.delete(ProjectRow).where(ProjectRow.id == project_id))
+            await session.execute(statement)
 
 
 @dataclass(slots=True)
@@ -88,20 +96,31 @@ class SqlSourceRepository:
 
     sessions: SessionFactory
 
-    async def list(self, project_id: str | None = None) -> list[SourceConfig]:
-        """Sources, optionally scoped to a project."""
+    async def list(
+        self,
+        project_id: str | None = None,
+        *,
+        tenant_ids: frozenset[str] | None,
+    ) -> list[SourceConfig]:
+        """Sources visible to ``tenant_ids`` (None: unrestricted), optionally scoped to a project."""
         statement = sa.select(SourceRow).order_by(SourceRow.id)
         if project_id is not None:
             statement = statement.where(SourceRow.project_id == project_id)
+        if tenant_ids is not None:
+            statement = statement.where(SourceRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
             rows = await session.scalars(statement)
             return [source_to_domain(row) for row in rows]
 
-    async def get(self, source_id: str) -> SourceConfig | None:
-        """One source by id, or None."""
+    async def get(
+        self, source_id: str, *, tenant_ids: frozenset[str] | None
+    ) -> SourceConfig | None:
+        """One source by id within ``tenant_ids``, or None."""
         async with self.sessions() as session:
             row = await session.get(SourceRow, source_id)
-            return source_to_domain(row) if row else None
+            if row is None or (tenant_ids is not None and row.tenant_id not in tenant_ids):
+                return None
+            return source_to_domain(row)
 
     async def create(self, source: SourceConfig) -> SourceConfig:
         """Insert a new sources row; config must already carry secret_refs."""
@@ -137,7 +156,10 @@ class SqlSourceRepository:
             row.status = source.status
         return source
 
-    async def delete(self, source_id: str) -> None:
-        """Delete the source row."""
+    async def delete(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> None:
+        """Delete the source row within ``tenant_ids``."""
+        statement = sa.delete(SourceRow).where(SourceRow.id == source_id)
+        if tenant_ids is not None:
+            statement = statement.where(SourceRow.tenant_id.in_(tenant_ids))
         async with self.sessions.begin() as session:
-            await session.execute(sa.delete(SourceRow).where(SourceRow.id == source_id))
+            await session.execute(statement)

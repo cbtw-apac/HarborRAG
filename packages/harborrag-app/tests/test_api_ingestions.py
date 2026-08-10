@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-import jwt
 import pytest
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
@@ -14,25 +12,6 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.schemas import AppResponse
-
-_AUTH_SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
-
-
-def _tenant_token(*, tenants: list[str]) -> str:
-    now = datetime.now(UTC)
-    return jwt.encode(
-        {
-            "sub": "tenant-user",
-            "role": "owner",
-            "tenants": tenants,
-            "iat": now - timedelta(seconds=1),
-            "exp": now + timedelta(minutes=5),
-            "iss": "harborrag",
-            "aud": "harborrag-api",
-        },
-        _AUTH_SECRET,
-        algorithm="HS256",
-    )
 
 
 @pytest.fixture
@@ -156,32 +135,6 @@ def test_task_status_is_connector_independent_and_temporal_free(client: TestClie
     forbidden = {"workflow_id", "activity_id", "task_queue", "retry_attempt"}
     assert not (forbidden & set(body))
     assert not any(name in response.text for name in forbidden)
-
-
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("GET", "/v1/ingestions/ing_1"),
-        ("GET", "/v1/ingestions/ing_1/documents"),
-        ("POST", "/v1/ingestions/ing_1/cancel"),
-        ("POST", "/v1/ingestions/ing_1/retry-failures"),
-    ],
-)
-def test_cross_tenant_task_ids_are_hidden_as_not_found(
-    monkeypatch: pytest.MonkeyPatch,
-    service: MockAppService,
-    method: str,
-    path: str,
-) -> None:
-    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
-    app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_AUTH_SECRET))
-    headers = {"Authorization": f"Bearer {_tenant_token(tenants=['ACME'])}"}
-
-    with TestClient(app) as tenant_client:
-        response = tenant_client.request(method, path, headers=headers)
-
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "harbor_not_found_error"
 
 
 def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> None:

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.project import Project
@@ -60,9 +61,10 @@ class ProjectOut(BaseModel):
 @router.get("/projects", response_model=list[ProjectOut])
 async def list_projects(
     service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("reader"))],
 ) -> list[ProjectOut]:
-    """All projects, unpaginated (pagination is an open ML1 decision)."""
-    response = await service.list_projects()
+    """Projects visible to the caller's tenants, unpaginated (pagination is an open ML1 decision)."""
+    response = await service.list_projects(tenant_ids=principal.tenant_scope)
     return [ProjectOut.from_domain(project) for project in response.data["projects"]]
 
 
@@ -70,7 +72,8 @@ async def list_projects(
 async def get_project(
     project_id: str,
     service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("reader"))],
 ) -> ProjectOut:
-    """One project by id; 404 (enveloped) when it does not exist."""
-    response = await service.get_project(project_id)
+    """One project by id; 404 (enveloped) when missing or outside the caller's tenants."""
+    response = await service.get_project(project_id, tenant_ids=principal.tenant_scope)
     return ProjectOut.from_domain(response.data["project"])

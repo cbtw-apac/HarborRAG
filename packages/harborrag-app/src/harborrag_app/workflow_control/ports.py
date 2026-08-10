@@ -197,28 +197,34 @@ class BaseAppService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_projects(self) -> AppResponse:
-        """All projects (ML1 read side); data={"projects": list[Project]}."""
+    async def list_projects(self, *, tenant_ids: frozenset[str] | None) -> AppResponse:
+        """Projects within ``tenant_ids`` (ML1 read side); data={"projects": list[Project]}."""
         raise NotImplementedError
 
     @abstractmethod
-    async def get_project(self, project_id: str) -> AppResponse:
-        """One project by id; raises HarborNotFoundError when missing."""
+    async def get_project(
+        self, project_id: str, *, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """One project by id within ``tenant_ids``; raises HarborNotFoundError when missing."""
         raise NotImplementedError
 
     @abstractmethod
-    async def list_sources(self, project_id: str | None = None) -> AppResponse:
-        """Sources, optionally scoped to a project; data={"sources": [...]}."""
+    async def list_sources(
+        self, project_id: str | None = None, *, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """Sources within ``tenant_ids``, optionally scoped to a project; data={"sources": [...]}."""
         raise NotImplementedError
 
     @abstractmethod
-    async def get_source(self, source_id: str) -> AppResponse:
-        """One source by id; raises HarborNotFoundError when missing."""
+    async def get_source(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> AppResponse:
+        """One source by id within ``tenant_ids``; raises HarborNotFoundError when missing."""
         raise NotImplementedError
 
     @abstractmethod
-    async def list_activity(self, limit: int = 50) -> AppResponse:
-        """Most recent audit entries; data={"activity": [...]}."""
+    async def list_activity(
+        self, limit: int = 50, *, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """Most recent audit entries within ``tenant_ids``; data={"activity": [...]}."""
         raise NotImplementedError
 
     @abstractmethod
@@ -227,6 +233,6 @@ class BaseAppService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_metrics(self) -> AppResponse:
-        """Dashboard counters; see control_plane.metrics.summarize_metrics."""
+    async def get_metrics(self, *, tenant_ids: frozenset[str] | None) -> AppResponse:
+        """Dashboard counters within ``tenant_ids``; see control_plane.metrics.summarize_metrics."""
         raise NotImplementedError

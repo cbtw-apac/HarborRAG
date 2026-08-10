@@ -204,19 +204,19 @@ async def test_project_repository_roundtrip(sessions: SessionFactory) -> None:
     repo = SqlProjectRepository(sessions)
     project = Project(id="p1", tenant_id="tenant-a", name="Docs", collection="docs_main")
     await repo.create(project)
-    fetched = await repo.get("p1")
+    fetched = await repo.get("p1", tenant_ids=None)
     assert fetched == project
     project.name = "Docs v2"
     await repo.update(project)
-    updated = await repo.get("p1")
+    updated = await repo.get("p1", tenant_ids=None)
     assert updated is not None and updated.name == "Docs v2"
     assert updated.updated_at >= project.created_at
-    assert [p.id for p in await repo.list()] == ["p1"]
+    assert [p.id for p in await repo.list(tenant_ids=None)] == ["p1"]
     project.tenant_id = "tenant-b"
     with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
         await repo.update(project)
-    await repo.delete("p1")
-    assert await repo.get("p1") is None
+    await repo.delete("p1", tenant_ids=None)
+    assert await repo.get("p1", tenant_ids=None) is None
 
 
 @pytest.mark.asyncio
@@ -248,18 +248,18 @@ async def test_source_repository_roundtrip_and_project_filter(
             name="repo",
         )
     )
-    assert await repo.get("s1") == source
-    assert [s.id for s in await repo.list(project_id="p1")] == ["s1"]
-    assert len(await repo.list()) == 2
+    assert await repo.get("s1", tenant_ids=None) == source
+    assert [s.id for s in await repo.list(project_id="p1", tenant_ids=None)] == ["s1"]
+    assert len(await repo.list(tenant_ids=None)) == 2
     source.status = "paused"
     await repo.update(source)
-    paused = await repo.get("s1")
+    paused = await repo.get("s1", tenant_ids=None)
     assert paused is not None and paused.status == "paused"
     source.tenant_id = "tenant-b"
     with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
         await repo.update(source)
-    await repo.delete("s2")
-    assert await repo.get("s2") is None
+    await repo.delete("s2", tenant_ids=None)
+    assert await repo.get("s2", tenant_ids=None) is None
 
 
 @pytest.mark.asyncio
@@ -277,13 +277,13 @@ async def test_job_repository_roundtrip_and_event_log(
         job_type="bulk_ingest",
     )
     await repo.save(job)
-    assert await repo.get("j1") == job
+    assert await repo.get("j1", tenant_ids=None) == job
     job.status = "running"
     job.attempts = 1
     await repo.save(job)
-    assert [j.id for j in await repo.list(status="running")] == ["j1"]
-    assert await repo.list(status="failed") == []
-    assert [j.id for j in await repo.list(source_id="s1")] == ["j1"]
+    assert [j.id for j in await repo.list(status="running", tenant_ids=None)] == ["j1"]
+    assert await repo.list(status="failed", tenant_ids=None) == []
+    assert [j.id for j in await repo.list(source_id="s1", tenant_ids=None)] == ["j1"]
 
     await repo.save(
         Job(
@@ -294,7 +294,7 @@ async def test_job_repository_roundtrip_and_event_log(
             job_type="bulk_ingest",
         )
     )
-    assert await repo.count_by_status() == {"running": 1, "queued": 1}
+    assert await repo.count_by_status(tenant_ids=None) == {"running": 1, "queued": 1}
 
     await repo.append_event(
         "j1", HarborEvent(name="job_status", trace_id="t1", payload={"s": "running"})

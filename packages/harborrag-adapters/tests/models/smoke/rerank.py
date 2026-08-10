@@ -21,6 +21,7 @@ DOCUMENTS = [
 ]
 TOP_N = 2
 
+
 async def _run() -> None:
     async with HarborRerankingClient.from_config(rerank_config()) as client:
         response = await client.arerank(

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.testing.fakes import (
+from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeJobRepository,
     FakeMemberRepository,
@@ -25,6 +26,7 @@ def control_plane_app_service(
     *,
     projects: list[Project] | None = None,
     sources: list[SourceConfig] | None = None,
+    jobs: list[Job] | None = None,
     activity: list[ActivityEntry] | None = None,
     settings: WorkspaceSettings | None = None,
 ) -> AppService:
@@ -33,7 +35,7 @@ def control_plane_app_service(
     control_plane = ControlPlaneRepositories(
         projects=FakeProjectRepository({project.id: project for project in projects or []}),
         sources=FakeSourceRepository({source.id: source for source in sources or []}),
-        jobs=FakeJobRepository(),
+        jobs=FakeJobRepository({job.id: job for job in jobs or []}),
         activity=FakeActivityRepository(list(activity or [])),
         settings=FakeSettingsRepository(settings or WorkspaceSettings(tenant_id="DEFAULT")),
         providers=FakeProviderRepository(),

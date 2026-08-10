@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from ipaddress import ip_address
 from typing import Annotated
 
@@ -18,6 +18,7 @@ from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
     HarborConfigurationError,
+    HarborNotFoundError,
 )
 from harborrag_core.domain.member import Role
 
@@ -129,3 +130,14 @@ def authorize_tenant(principal: Principal, tenant_id: str) -> None:
 
     if not principal.can_access_tenant(tenant_id):
         raise HarborAuthError("tenant access is not permitted", forbidden=True)
+
+
+def authorize_task_tenant(principal: Principal, task: Mapping[str, object]) -> None:
+    """Hide an ingestion task's existence when its tenant is outside the caller's scope.
+
+    Shared by the v1 and legacy ingestion routes so both authorize identically
+    against the same task-store record (``task["tenant"]``).
+    """
+
+    if not principal.can_access_tenant(str(task["tenant"])):
+        raise HarborNotFoundError("Ingestion task was not found")
