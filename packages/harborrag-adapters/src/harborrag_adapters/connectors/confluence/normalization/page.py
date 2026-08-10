@@ -45,6 +45,7 @@ class ConfluencePageNormalizer:
                 document_version_id=document_version_id,
                 source_version=page.page_version,
                 source_url=page.source_url,
+                space_key=page.space_key,
                 title=page.title,
             ),
             macro_registry=self._macros,

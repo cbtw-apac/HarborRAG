@@ -12,6 +12,7 @@ from harborrag_core.domain import (
 )
 
 from .block_models import BlockContext, BlockDraft, BlockPresentation
+from .include_handlers import ConfluenceIncludeTableHandlers
 from .macros import ConfluenceMacroHandlerRegistry
 from .nodes import ConfluenceNode
 from .tables import TableArtifactBuilder
@@ -42,10 +43,11 @@ _BLOCK_KIND_BY_NODE = {
 _NESTED_BLOCK_KINDS = frozenset({*_BLOCK_KIND_BY_NODE, "table", "macro", "unsupported"})
 
 
-class ConfluenceBlockHandlers(abc.ABC):
+class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
     """Append non-heading nodes while the hierarchy builder owns section policy."""
 
     _document_id: str
+    _space_key: str
     _macros: ConfluenceMacroHandlerRegistry
     _tables: TableArtifactBuilder
     _table_artifacts: list[TableArtifact]
@@ -131,14 +133,19 @@ class ConfluenceBlockHandlers(abc.ABC):
         )
         if handling.warning:
             self._warnings.append(handling.warning)
+        include_target = self._include_target_attributes(node, key)
+        include_title = include_target.get("target_title")
         draft = self._draft(
             node,
             handling.kind,
             parent,
             context,
             BlockPresentation(
-                text=node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS) or None,
-                title=handling.title,
+                text=(
+                    node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS)
+                    or (str(include_title) if include_title else None)
+                ),
+                title=(str(include_title) if include_title else handling.title),
                 attributes={
                     "macro_key": key,
                     "macro_id": str(node.attributes.get("macroId") or node.source_id),
@@ -147,10 +154,12 @@ class ConfluenceBlockHandlers(abc.ABC):
                     "emits_visible_content": handler.emits_visible_content,
                     "emits_table": handler.emits_table,
                     "needs_rendered_fallback": handler.needs_rendered_fallback,
+                    **include_target,
                 },
             ),
         )
         parent.children.append(draft)
+        self._append_include_relation(node, key, include_target)
         child_context = self._container_context(context, draft)
         child_nodes = tuple(
             child for child in node.children if child.kind not in {"text", "link", "media"}
@@ -158,39 +167,6 @@ class ConfluenceBlockHandlers(abc.ABC):
         if child_nodes:
             self._populate(draft, child_nodes, child_context)
         self._append_inline_references(draft, node, child_context)
-
-    def _append_table(
-        self,
-        parent: BlockDraft,
-        node: ConfluenceNode,
-        context: BlockContext,
-    ) -> None:
-        artifacts = self._tables.build(
-            node,
-            ordinal=self._table_ordinal,
-            section_path=context.section_path,
-            tab_path=context.tab_path,
-        )
-        self._table_ordinal += 1
-        self._table_artifacts.extend(artifacts)
-        artifact = artifacts[0]
-        parent.children.append(
-            self._draft(
-                node,
-                DocumentBlockKind.TABLE_REFERENCE,
-                parent,
-                context,
-                BlockPresentation(
-                    title=artifact.caption,
-                    attributes={
-                        "table_id": artifact.table_id,
-                        "table_version_id": artifact.table_version_id,
-                        "row_count": artifact.row_count,
-                        "column_count": artifact.column_count,
-                    },
-                ),
-            )
-        )
 
     def _append_reference(
         self,

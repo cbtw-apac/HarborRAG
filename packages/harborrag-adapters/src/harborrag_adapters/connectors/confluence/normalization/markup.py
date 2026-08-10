@@ -102,8 +102,11 @@ class ConfluenceMarkupParser:
         if tag in {"ul", "ol"}:
             attributes["ordered"] = tag == "ol"
         if tag == "ac:structured-macro":
-            attributes["macro_name"] = value.attributes.get("ac:name", "unknown")
+            macro_name = value.attributes.get("ac:name", "unknown")
+            attributes["macro_name"] = macro_name
             attributes["parameters"] = self._macro_parameters(value)
+            if self._is_include_macro(macro_name):
+                attributes.update(self._include_target(value))
             children = tuple(child for child in children if child.kind != "macro_parameter")
         if tag == "ri:attachment":
             attributes["filename"] = value.attributes.get("ri:filename", "")
@@ -144,3 +147,35 @@ class ConfluenceMarkupParser:
             if name and parameter_value:
                 parameters[name] = parameter_value
         return parameters
+
+    @staticmethod
+    def _is_include_macro(value: str) -> bool:
+        return value.strip().casefold().replace("_", "-") in {
+            "include",
+            "excerpt-include",
+        }
+
+    @classmethod
+    def _include_target(cls, value: _MutableNode) -> dict[str, str]:
+        page = cls._first_descendant(value, "ri:page")
+        if page is None:
+            return {}
+        return {
+            "include_target_page_id": page.attributes.get("ri:content-id", "").strip(),
+            "include_target_title": page.attributes.get("ri:content-title", "").strip(),
+            "include_target_space_key": page.attributes.get("ri:space-key", "").strip(),
+        }
+
+    @classmethod
+    def _first_descendant(
+        cls,
+        value: _MutableNode,
+        tag: str,
+    ) -> _MutableNode | None:
+        for child in value.children:
+            if child.tag == tag:
+                return child
+            descendant = cls._first_descendant(child, tag)
+            if descendant is not None:
+                return descendant
+        return None

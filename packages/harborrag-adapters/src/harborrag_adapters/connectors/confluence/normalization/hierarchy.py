@@ -33,6 +33,7 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
     ) -> None:
         self._document_id = build_context.document_id
         self._source_url = build_context.source_url
+        self._space_key = build_context.space_key
         self._title = build_context.title
         self._identity = CanonicalIdentityBuilder()
         self._tables = TableArtifactBuilder(
