@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
-from typing import ClassVar, NoReturn
+from typing import ClassVar
 
 from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.models import ParserAttempt, ParseRequest, ParseResult
@@ -14,44 +14,23 @@ from harborrag_adapters.parsers.common.utils import (
     input_label,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.errors import (
-    EncryptedPdfError,
-    MaxFileSizeExceededError,
-    MaxPagesExceededError,
-    NoExtractableTextError,
-    PDFParsingFailedError,
-)
+from harborrag_adapters.parsers.errors import EncryptedPdfError
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.config import (
     PDFParserProfile,
     PDFRouterConfig,
 )
 from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
+from harborrag_adapters.parsers.pdf.parser_failures import (
+    TYPED_ENGINE_FAILURES,
+    raise_pdf_failure,
+)
 from harborrag_adapters.parsers.pdf.parser_support import PDFParserSupportMixin
 from harborrag_adapters.parsers.pdf.quality import PDFQualityEvaluator
 from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry, PDFEngineRouter
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("pdf")
-
-_TYPED_ENGINE_FAILURES = (MaxPagesExceededError, MaxFileSizeExceededError, NoExtractableTextError)
-
-
-def _raise_pdf_failure(attempts: list[ParserAttempt]) -> NoReturn:
-    """Raise the shared typed cause when every attempt failed the same way.
-
-    A caller configured with one engine (or every configured engine hitting
-    the identical structural condition) gets the distinguishable typed error
-    directly instead of the generic aggregate -- `PDFParsingFailedError`
-    remains reserved for genuinely mixed or unclassified causes, where no
-    single typed error would honestly describe every attempt.
-    """
-    first_cause = attempts[0].error if attempts else None
-    if first_cause is not None and all(
-        type(attempt.error) is type(first_cause) for attempt in attempts
-    ):
-        raise first_cause
-    raise PDFParsingFailedError(attempts=attempts)
 
 
 class HarborPDFParser(PDFParserSupportMixin, HarborParser):
@@ -134,7 +113,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 result = await engine.parse(request)
             except EncryptedPdfError:
                 raise
-            except _TYPED_ENGINE_FAILURES as error:
+            except TYPED_ENGINE_FAILURES as error:
                 # A configured limit or no-extractable-text condition is
                 # specific to this engine's config, not necessarily fatal for
                 # a different engine in the chain (e.g. an OCR-capable engine
@@ -211,7 +190,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 )
             warnings.append(f"{engine.name}: {quality.message}")
 
-        _raise_pdf_failure(attempts)
+        raise_pdf_failure(attempts)
 
     def supports(self, source: Path, mime_type: str | None = None) -> bool:
         normalized_mime = (mime_type or "").partition(";")[0].strip().lower()
@@ -275,7 +254,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 result = engine.parse_input(input)
             except EncryptedPdfError:
                 raise
-            except _TYPED_ENGINE_FAILURES as error:
+            except TYPED_ENGINE_FAILURES as error:
                 # See the matching branch in `parse()` above: a configured
                 # limit or no-extractable-text condition isn't necessarily
                 # fatal for a different engine in the fallback chain.
@@ -350,7 +329,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 )
             warnings.append(f"{engine.name}: {quality.message}")
 
-        _raise_pdf_failure(attempts)
+        raise_pdf_failure(attempts)
 
 
 PdfParser = HarborPDFParser
