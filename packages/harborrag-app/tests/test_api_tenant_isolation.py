@@ -19,7 +19,8 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.activity import ActivityEntry
-from harborrag_core.domain.project import Project
+from harborrag_core.domain.job import Job
+from harborrag_core.domain.project import Project, ProjectStats
 from harborrag_core.domain.source_config import SourceConfig
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
@@ -48,8 +49,20 @@ def _seeded_app():  # noqa: ANN202 - returns a FastAPI app wired for this module
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=SECRET))
     app.dependency_overrides[get_app_service] = lambda: control_plane_app_service(
         projects=[
-            Project(id="proj-a", tenant_id="tenant-a", name="A", collection="a"),
-            Project(id="proj-b", tenant_id="tenant-b", name="B", collection="b"),
+            Project(
+                id="proj-a",
+                tenant_id="tenant-a",
+                name="A",
+                collection="a",
+                stats=ProjectStats(documents=3, chunks=9),
+            ),
+            Project(
+                id="proj-b",
+                tenant_id="tenant-b",
+                name="B",
+                collection="b",
+                stats=ProjectStats(documents=100, chunks=500),
+            ),
         ],
         sources=[
             SourceConfig(
@@ -65,6 +78,32 @@ def _seeded_app():  # noqa: ANN202 - returns a FastAPI app wired for this module
                 project_id="proj-b",
                 source_type="local_file",
                 name="Source B",
+            ),
+        ],
+        jobs=[
+            Job(
+                id="job-a1",
+                tenant_id="tenant-a",
+                source_id="src-a",
+                project_id="proj-a",
+                job_type="bulk_ingest",
+                status="queued",
+            ),
+            Job(
+                id="job-a2",
+                tenant_id="tenant-a",
+                source_id="src-a",
+                project_id="proj-a",
+                job_type="bulk_ingest",
+                status="running",
+            ),
+            Job(
+                id="job-b1",
+                tenant_id="tenant-b",
+                source_id="src-b",
+                project_id="proj-b",
+                job_type="bulk_ingest",
+                status="failed",
             ),
         ],
         activity=[
@@ -143,6 +182,27 @@ def test_list_activity_hides_other_tenants_rows() -> None:
         )
         assert response.status_code == 200
         assert [e["id"] for e in response.json()] == ["act-a"]
+
+
+@pytest.mark.blackbox
+def test_metrics_excludes_other_tenants_rows() -> None:
+    with _client(_seeded_app()) as client:
+        response = client.get(
+            "/api/v1/metrics/ingestion", headers={"Authorization": f"Bearer {_token(['tenant-a'])}"}
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["projects_total"] == 1
+        assert body["sources_total"] == 1
+        assert body["documents_total"] == 3  # proj-a only, not proj-b's 100
+        assert body["chunks_total"] == 9  # proj-a only, not proj-b's 500
+        assert body["jobs_by_status"] == {
+            "queued": 1,
+            "running": 1,
+            "succeeded": 0,
+            "failed": 0,  # job-b1 (tenant-b) must not be counted here
+            "cancelled": 0,
+        }
 
 
 @pytest.mark.blackbox
