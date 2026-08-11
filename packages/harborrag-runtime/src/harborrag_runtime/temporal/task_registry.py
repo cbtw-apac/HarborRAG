@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     IngestionTask,
@@ -94,6 +95,23 @@ class IngestionTaskRegistry:
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
         return await self._control.tasks.pending_submissions(limit=limit)
+
+    async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]:
+        return await self._control.tasks.list_active(limit=limit)
+
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> None:
+        await self._control.task_events.append_event(task_id, event)
+
+    async def list_task_events(
+        self,
+        task_id: str,
+        *,
+        after_seq: int | None = None,
+        limit: int = 500,
+    ) -> list[HarborEvent]:
+        return await self._control.task_events.list_events(
+            task_id, after_seq=after_seq, limit=limit
+        )
 
     async def update_summary(
         self,

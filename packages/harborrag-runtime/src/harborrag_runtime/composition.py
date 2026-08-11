@@ -19,6 +19,7 @@ from harborrag_core.ports.control_plane import (
     SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationRepository
+from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -28,6 +29,10 @@ if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.runtime.composition")
+
+# Only reachable when HARBORRAG_ENV=dev and HARBORRAG_SECRETS_ENCRYPTION_KEY is unset;
+# RuntimeSettings.validate_secret_urls() rejects a missing key outright in prod.
+_DEV_DEFAULT_SECRETS_KEY = "harborrag-dev-insecure-default-key"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +48,7 @@ class ControlPlaneRepositories:
     members: MemberRepositoryPort
     conversation_memory: ConversationRepository
     agent_runs: AgentRunRepository
+    secrets: SecretsPort
 
 
 @dataclass(slots=True)
@@ -92,6 +98,9 @@ class CompositionRoot:
             SqlProjectRepository,
             SqlSourceRepository,
         )
+        from harborrag_adapters.repositories.database.control_plane.secrets import (
+            SqlSecretsRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.workspace import (
             SqlMemberRepository,
             SqlProviderRepository,
@@ -138,6 +147,11 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
+        secrets_key = (
+            settings.secrets_encryption_key.get_secret_value()
+            if settings.secrets_encryption_key is not None
+            else _DEV_DEFAULT_SECRETS_KEY
+        )
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
             sources=SqlSourceRepository(sessions),
@@ -148,6 +162,7 @@ class CompositionRoot:
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
             agent_runs=SqlAgentRunRepository(sessions),
+            secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
         )
         composition = cls(
             control_plane=repositories,

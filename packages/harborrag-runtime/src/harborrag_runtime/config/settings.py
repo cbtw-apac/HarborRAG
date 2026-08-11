@@ -43,6 +43,7 @@ class RuntimeSettings(BaseSettings):
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
     control_db_pool_size: int = Field(default=5, ge=1, le=100)
     control_db_max_overflow: int = Field(default=10, ge=0, le=200)
+    secrets_encryption_key: SecretStr | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"
@@ -106,6 +107,11 @@ class RuntimeSettings(BaseSettings):
             raise ValueError(
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
                 "HARBORRAG_ENV=prod; SQLite is development-only"
+            )
+        if self.env == "prod" and self.secrets_encryption_key is None:
+            raise ValueError(
+                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_ENV=prod; "
+                "the dev-only default key is not safe for stored secrets"
             )
         development = self.env == "dev"
         if self.redis_url is not None:
