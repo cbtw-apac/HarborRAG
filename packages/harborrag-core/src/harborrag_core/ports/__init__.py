@@ -15,7 +15,6 @@ from .control_plane import (
     SourceRepositoryProvider,
     TenantScopedRepositoryProvider,
 )
-from .events import EventBusPort
 from .conversation import (
     ConversationIdentity,
     ConversationMemory,
@@ -24,6 +23,7 @@ from .conversation import (
     ConversationTurn,
     new_session_id,
 )
+from .events import EventBusPort
 from .indexing import KnowledgeGraphRepositoryPort, VectorIndexRepositoryPort
 from .model_clients import (
     AsyncHarborChatClientProtocol,

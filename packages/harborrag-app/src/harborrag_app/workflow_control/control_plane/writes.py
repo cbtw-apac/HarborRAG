@@ -51,7 +51,8 @@ class ControlPlaneWritesMixin:
     ) -> AppResponse:
         """Create a source; secret-shaped config fields are extracted up front."""
         control_plane = self._control_plane()
-        if await control_plane.projects.get(project_id) is None:
+        tenant_ids = frozenset({tenant_id})
+        if await control_plane.projects.get(project_id, tenant_ids=tenant_ids) is None:
             raise HarborNotFoundError(f"project {project_id!r} not found")
         factory = _require_connector_factory(source_type)
         resolved_config, secret_refs, newly_put_refs, _stale = await _extract_secrets(
@@ -98,7 +99,7 @@ class ControlPlaneWritesMixin:
         if unknown:
             raise HarborValidationError(f"unsupported source fields: {sorted(unknown)}")
         control_plane = self._control_plane()
-        source = await control_plane.sources.get(source_id)
+        source = await control_plane.sources.get(source_id, tenant_ids=None)
         if source is None:
             raise HarborNotFoundError(f"source {source_id!r} not found")
         if "name" in updates:
@@ -144,10 +145,10 @@ class ControlPlaneWritesMixin:
     async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
         """Delete a source and forget every secret it referenced."""
         control_plane = self._control_plane()
-        source = await control_plane.sources.get(source_id)
+        source = await control_plane.sources.get(source_id, tenant_ids=None)
         if source is None:
             raise HarborNotFoundError(f"source {source_id!r} not found")
-        await control_plane.sources.delete(source_id)
+        await control_plane.sources.delete(source_id, tenant_ids=None)
         await _retire_refs(control_plane, source.secret_refs)
         await _log_activity(
             control_plane,

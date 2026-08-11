@@ -14,10 +14,10 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeMemberRepository,
     FakeProjectRepository,
     FakeProviderRepository,
-    FakeSecrets,
     FakeSettingsRepository,
     FakeSourceRepository,
 )
+from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.memory import InMemoryConversationMemory
