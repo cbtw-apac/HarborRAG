@@ -329,6 +329,24 @@ class IngestionTaskRepository(TaskDocumentResultsMixin):
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
 
+    async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]:
+        """Non-terminal tasks (PENDING/RUNNING), for a progress-polling bridge."""
+
+        if not 1 <= limit <= 1_000:
+            raise ValueError("active task limit must be between 1 and 1000")
+        async with self._client.sessions() as session:
+            result = await session.execute(
+                select(INGESTION_TASKS)
+                .where(
+                    INGESTION_TASKS.c.status.in_(
+                        (IngestionTaskState.PENDING.value, IngestionTaskState.RUNNING.value)
+                    )
+                )
+                .order_by(INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id)
+                .limit(limit)
+            )
+            return tuple(_task_from_row(row) for row in result.mappings().all())
+
 
 def _task_from_row(row: DatabaseRow) -> IngestionTask:
     return IngestionTask(
