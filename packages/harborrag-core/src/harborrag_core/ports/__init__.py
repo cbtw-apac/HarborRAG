@@ -15,6 +15,7 @@ from .control_plane import (
     SourceRepositoryProvider,
     TenantScopedRepositoryProvider,
 )
+from .events import EventBusPort
 from .conversation import (
     ConversationIdentity,
     ConversationMemory,
@@ -33,6 +34,7 @@ from .model_clients import (
     HarborRerankClientProtocol,
 )
 from .retrieval import GraphRetrievalRepositoryPort
+from .secrets import SecretsPort
 
 __all__ = [
     "ActivityRepositoryPort",
@@ -45,6 +47,7 @@ __all__ = [
     "ConversationRepository",
     "ConversationSessions",
     "ConversationTurn",
+    "EventBusPort",
     "GraphRetrievalRepositoryPort",
     "HarborChatClientProtocol",
     "HarborEmbedClientProtocol",
@@ -58,6 +61,7 @@ __all__ = [
     "ProjectRepositoryPort",
     "ProviderRepositoryProvider",
     "ProviderRepositoryPort",
+    "SecretsPort",
     "SettingsRepositoryProvider",
     "SettingsRepositoryPort",
     "SourceRepositoryProvider",
