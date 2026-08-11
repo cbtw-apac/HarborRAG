@@ -8,7 +8,7 @@ through the route layer -- see _extract_secrets.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypeGuard
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import (
@@ -234,7 +234,7 @@ async def _extract_secrets(
     return merged, secret_refs, newly_put_refs, stale_refs
 
 
-def _is_secret_ref_shape(value: object) -> bool:
+def _is_secret_ref_shape(value: object) -> TypeGuard[Mapping[str, str]]:
     return isinstance(value, Mapping) and set(value) == {"secret_ref"}
 
 
