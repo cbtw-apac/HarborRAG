@@ -154,8 +154,7 @@ def test_domain_counters_use_bounded_labels_and_never_record_zeroes() -> None:
     assert 'harborrag_temporal_task_queue_depth{task_queue="harborrag-discovery"} 12.0' in output
     assert 'harborrag_temporal_worker_slots{task_queue="harborrag-discovery"} 6.0' in output
     assert (
-        'harborrag_temporal_worker_slot_saturation{task_queue="harborrag-discovery"} 1.0'
-        in output
+        'harborrag_temporal_worker_slot_saturation{task_queue="harborrag-discovery"} 1.0' in output
     )
     assert "harborrag_ingestion_cleanup_backlog 3.0" in output
     assert "harborrag_retrieval_stale_candidates_rejected_total 2.0" in output

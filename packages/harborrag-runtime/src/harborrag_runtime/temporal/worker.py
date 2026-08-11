@@ -81,6 +81,7 @@ EXPECTED_ACTIVITIES = {
     "repair_reindex_relations",
     "reindex",
 }
+TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
 
 
 async def run_workers(
@@ -235,19 +236,14 @@ def _validate_worker_registrations(
         missing = sorted(set(ALL_TASK_QUEUES) - set(queue_names))
         unexpected = sorted(set(queue_names) - set(ALL_TASK_QUEUES))
         raise RuntimeError(
-            "Temporal worker queue registration mismatch "
-            f"missing={missing} unexpected={unexpected}"
+            f"Temporal worker queue registration mismatch missing={missing} unexpected={unexpected}"
         )
 
     workflow_names = [
-        workflow_type.__name__
-        for _, workflows, _ in registrations
-        for workflow_type in workflows
+        workflow_type.__name__ for _, workflows, _ in registrations for workflow_type in workflows
     ]
     activity_names = [
-        activity_fn.__name__
-        for _, _, activities in registrations
-        for activity_fn in activities
+        activity_fn.__name__ for _, _, activities in registrations for activity_fn in activities
     ]
 
     duplicate_workflows = sorted(
@@ -323,11 +319,14 @@ async def _describe_task_queue_depths(
     depths: dict[str, int] = {}
     for queue_name in task_queues:
         try:
-            response = await workflow_service.describe_task_queue(
-                DescribeTaskQueueRequest(
-                    namespace=namespace,
-                    task_queue=TaskQueue(name=queue_name),
-                )
+            response = await asyncio.wait_for(
+                workflow_service.describe_task_queue(
+                    DescribeTaskQueueRequest(
+                        namespace=namespace,
+                        task_queue=TaskQueue(name=queue_name),
+                    )
+                ),
+                timeout=TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS,
             )
         except Exception:
             continue

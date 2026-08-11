@@ -159,11 +159,12 @@ async def test_resume_workflow_skips_completed_batches(monkeypatch) -> None:
         if name == "harborrag.cleanup_source_projections":
             return ProjectionCleanupResult(claimed=0, completed=0, cancelled=0, failed=0)
         if name == "harborrag.finalize_source_ingestion":
+            assert request.summary == DocumentDispatchSummary(published=4)
             return SourceIngestionResult(
                 task_id=request.source.task_id,
                 scan_id="scan-1",
                 discovered=5,
-                published=3,
+                published=4,
                 unchanged=0,
                 failed=0,
                 removal_candidates=(),
@@ -202,7 +203,7 @@ async def test_resume_workflow_skips_completed_batches(monkeypatch) -> None:
     )
 
     assert result.status == "COMPLETED"
-    assert result.published == 3  # 1 from prior + 3 from resumed batches
+    assert result.published == 4  # 1 from prior + 3 from resumed batches
     # Verify batches started from index 2, not 0
     assert 2 in batch_calls
     assert 3 in batch_calls

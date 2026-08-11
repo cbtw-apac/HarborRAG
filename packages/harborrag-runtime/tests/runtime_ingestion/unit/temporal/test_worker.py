@@ -169,6 +169,40 @@ async def test_emit_queue_metrics_records_depth_and_saturation(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
+async def test_emit_queue_metrics_continues_when_depth_lookup_times_out(monkeypatch) -> None:
+    telemetry = Mock()
+
+    class _WorkflowService:
+        async def describe_task_queue(self, request):
+            queue_name = request.task_queue.name
+            if queue_name == "queue-timeout":
+                await asyncio.Future()
+            return SimpleNamespace(task_queue_status=SimpleNamespace(approximate_backlog_count=5))
+
+    client = SimpleNamespace(service_client=SimpleNamespace(workflow_service=_WorkflowService()))
+    config = TemporalRuntimeConfig(worker=WorkerConfig(max_concurrent_activities=4))
+
+    monkeypatch.setattr(
+        worker_module,
+        "TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS",
+        0.01,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "ALL_TASK_QUEUES",
+        ("queue-timeout", "queue-ok"),
+    )
+
+    await worker_module._emit_queue_metrics(telemetry, client, config)
+
+    telemetry.record_temporal_queue_depth.assert_any_call("queue-timeout", None)
+    telemetry.record_temporal_queue_depth.assert_any_call("queue-ok", 5)
+    telemetry.record_temporal_worker_slot_saturation.assert_any_call(
+        "queue-timeout", slots=4, depth=None
+    )
+
+
+@pytest.mark.asyncio
 async def test_worker_connects_plaintext_and_tls(monkeypatch) -> None:
     connect = AsyncMock(return_value=object())
     monkeypatch.setattr(worker_module.Client, "connect", connect)
