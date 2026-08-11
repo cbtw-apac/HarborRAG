@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from enum import StrEnum
 from time import perf_counter
 from types import TracebackType
 from typing import Any, Literal, Self
@@ -20,51 +19,14 @@ from harborrag_adapters.models.runtime import (
 
 from .connector_metrics import connector_metric_label
 from .discovery_metrics import DiscoveryMetrics
+from .observability_types import (
+    ArtifactMetricKind,
+    ChunkMetricKind,
+    DocumentMetricOutcome,
+    IngestionStage,
+)
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
-
-
-class IngestionStage(StrEnum):
-    DISCOVERY = "discovery"
-    FETCH = "fetch"
-    PARSE_NORMALIZE = "parse_normalize"
-    CONTENT_SYNC = "content_sync"
-    CANONICAL_PERSIST = "canonical_persist"
-    CHUNK = "chunk"
-    ENCODE = "encode"
-    RELATION_BUILD = "relation_build"
-    PROJECTION_BUILD = "projection_build"
-    QDRANT_WRITE = "qdrant_write"
-    FALKORDB_WRITE = "falkordb_write"
-    VERIFICATION = "verification"
-    PUBLICATION = "publication"
-    FAILURE_CAPTURE = "failure_capture"
-    FINALIZATION = "finalization"
-    CANCELLATION = "cancellation"
-    CLEANUP = "cleanup"
-    RELATION_REPAIR = "relation_repair"
-    REINDEX = "reindex"
-
-
-class DocumentMetricOutcome(StrEnum):
-    DISCOVERED = "discovered"
-    ADMITTED = "admitted"
-    SKIPPED = "skipped"
-    ACTIVATED = "activated"
-    FAILED = "failed"
-    REPLAYED = "replayed"
-
-
-class ArtifactMetricKind(StrEnum):
-    RAW = "raw"
-    CANONICAL = "canonical"
-
-
-class ChunkMetricKind(StrEnum):
-    ROUTE = "route"
-    EVIDENCE = "evidence"
-    TABLE = "table"
-    REJECTED = "rejected"
 
 
 class IngestionTelemetry:

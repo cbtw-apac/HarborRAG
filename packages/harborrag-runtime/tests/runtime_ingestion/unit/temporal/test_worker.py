@@ -19,6 +19,7 @@ from harborrag_runtime.config.temporal import (
 )
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal import worker as worker_module
+from harborrag_runtime.temporal import worker_registry as worker_registry_module
 from harborrag_runtime.temporal.document_workflow import DocumentIngestionWorkflow
 from harborrag_runtime.temporal.reindex_workflow import ReindexWorkflow
 from harborrag_runtime.temporal.retry_workflow import (
@@ -146,7 +147,7 @@ def test_worker_registration_validation_fails_loudly_when_workflows_missing() ->
     )
 
     with pytest.raises(RuntimeError, match="missing_workflows"):
-        worker_module._validate_worker_registrations(registrations)
+        worker_registry_module.validate_worker_registrations(registrations)
 
 
 @pytest.mark.asyncio
