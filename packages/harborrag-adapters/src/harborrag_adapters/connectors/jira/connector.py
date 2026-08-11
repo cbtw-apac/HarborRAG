@@ -17,7 +17,11 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.descriptors import (
     ConnectorDocumentDescriptor,
 )
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import (
+    AuthenticationError,
+    DocumentProcessingError,
+    FetchError,
+)
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
@@ -128,8 +132,19 @@ class JiraConnector(BaseConnector):
         returns only account data, so it reliably raises
         `AuthenticationError` (via the shared Atlassian client's existing 401
         handling) without an issue-fetch call.
+
+        The 403 reclassification below is defensive symmetry with
+        `ConfluenceConnector.connect` rather than an observed JIRA behavior:
+        `myself` needs no resource permissions either, so if some JIRA
+        deployment's edge ever rejects a bad credential with 403 instead of
+        401, it should fail the same way here too.
         """
-        self.client.get_json("myself")
+        try:
+            self.client.get_json("myself")
+        except FetchError as exc:
+            if exc.status_code == 403:
+                raise AuthenticationError(exc.detail or str(exc)) from exc
+            raise
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search JIRA issues or materialize explicitly requested issue keys."""

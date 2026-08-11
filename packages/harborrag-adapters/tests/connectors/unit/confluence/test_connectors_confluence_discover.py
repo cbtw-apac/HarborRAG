@@ -6,7 +6,11 @@ import pytest
 from confluence_test_helpers import FakeConfluenceClient, cloud_config, light_content
 
 from harborrag_adapters.connectors.confluence import ConfluenceConnector
-from harborrag_adapters.connectors.exceptions import AuthenticationError, DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import (
+    AuthenticationError,
+    DocumentProcessingError,
+    FetchError,
+)
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -244,6 +248,29 @@ def test_discover_page_verifies_credentials_before_any_search_call(monkeypatch):
 
     with pytest.raises(AuthenticationError):
         connector.discover_page(None, cursor=None, page_size=10)
+
+
+def test_discover_reclassifies_403_from_credential_check_as_authentication_error(monkeypatch):
+    """Confluence Cloud's edge gateway has been observed rejecting an
+    invalid/revoked credential on `user/current` with HTTP 403 ("Request
+    rejected because caller cannot access Confluence") instead of 401. Since
+    that endpoint needs no resource permissions, a 403 there can only mean
+    the credential was rejected -- it must surface as `AuthenticationError`,
+    not the generic (retryable) `FetchError` a 403 gets everywhere else."""
+    client = FakeConfluenceClient()
+
+    def _raise_forbidden(endpoint, *, params=None):
+        raise FetchError(
+            "Confluence request failed with HTTP 403: rejected",
+            status_code=403,
+            detail="rejected",
+        )
+
+    monkeypatch.setattr(client, "get_json", _raise_forbidden)
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    with pytest.raises(AuthenticationError):
+        list(connector.discover())
 
 
 def test_discover_page_verifies_credentials_only_once_across_pages():

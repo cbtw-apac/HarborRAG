@@ -187,6 +187,48 @@ def test_discover_verifies_credentials_before_any_search_call(monkeypatch):
     assert client.post_calls == []
 
 
+def test_discover_reclassifies_403_from_credential_check_as_authentication_error(monkeypatch):
+    """Defensive symmetry with ConfluenceConnector: `myself` needs no resource
+    permissions, so if a JIRA deployment's edge ever rejects a bad credential
+    with 403 instead of 401, it must surface as `AuthenticationError` too,
+    not the generic (retryable) `FetchError` a 403 gets everywhere else."""
+    client = FakeJiraClient()
+
+    def _raise_forbidden(endpoint, *, params=None):
+        raise FetchError(
+            "JIRA request failed with HTTP 403: rejected",
+            status_code=403,
+            detail="rejected",
+        )
+
+    monkeypatch.setattr(client, "get_json", _raise_forbidden)
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(AuthenticationError):
+        list(connector.discover())
+
+
+def test_discover_does_not_reclassify_403_from_a_real_search_call():
+    """The 403->AuthenticationError reclassification is scoped to the
+    `myself` credential probe in `connect()`. A 403 from an actual search
+    call can legitimately mean "valid credential, no access to this
+    project/issue" and must stay a (retryable) `FetchError`."""
+    client = FakeJiraClient()
+
+    def _raise_forbidden(endpoint, *, json):
+        raise FetchError(
+            "JIRA request failed with HTTP 403: rejected",
+            status_code=403,
+            detail="rejected",
+        )
+
+    client.post_json = _raise_forbidden  # type: ignore[method-assign]
+    connector = JiraConnector(cloud_config(), client=client)
+
+    with pytest.raises(FetchError):
+        list(connector.discover())
+
+
 def test_discover_page_verifies_credentials_before_any_search_call(monkeypatch):
     client = FakeJiraClient()
 

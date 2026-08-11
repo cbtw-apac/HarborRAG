@@ -209,7 +209,9 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                     detail = safe_response_error_detail(response)
                     raise FetchError(
                         f"{self._provider_label} request failed with HTTP "
-                        f"{response.status_code}: {detail}"
+                        f"{response.status_code}: {detail}",
+                        status_code=response.status_code,
+                        detail=detail,
                     )
                 return response
 

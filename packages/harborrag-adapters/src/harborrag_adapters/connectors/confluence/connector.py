@@ -15,7 +15,11 @@ from harborrag_adapters.connectors.attachments import (
 )
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import (
+    AuthenticationError,
+    DocumentProcessingError,
+    FetchError,
+)
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
@@ -116,16 +120,13 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             close()
 
     def connect(self) -> None:
-        """Verify Confluence credentials once before the first discovery request.
-
-        Mirrors `JiraConnector.connect` so both connectors surface a bad
-        credential at the same point in a run, before any content-fetch
-        call. `user/current` requires a valid session on both Cloud and
-        Data Center and returns only account data, so it reliably raises
-        `AuthenticationError` (via the shared Atlassian client's existing
-        401 handling) without depending on space-level permissions.
-        """
-        self.client.get_json("user/current")
+        """Verify Confluence credentials once before the first discovery request."""
+        try:
+            self.client.get_json("user/current")
+        except FetchError as exc:
+            if exc.status_code == 403:
+                raise AuthenticationError(exc.detail or str(exc)) from exc
+            raise
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search Confluence content or materialize explicitly requested IDs."""
