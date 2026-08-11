@@ -60,8 +60,9 @@ def test_pymupdf_backend_bad_pdf_raises_parse_error() -> None:
 def test_pymupdf_backend_rejects_pdf_exceeding_max_pages() -> None:
     # A degenerate/malicious PDF with an enormous page count must be rejected
     # before per-page extraction runs, since this backend has no subprocess
-    # timeout to bound the work otherwise.
-    from harborrag_adapters.parsers.errors import ParseError
+    # timeout to bound the work otherwise. The typed error (not a generic
+    # ParseError) lets a caller distinguish this from any other rejection.
+    from harborrag_adapters.parsers.errors import MaxPagesExceededError
     from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import (
         PyMuPdfBackend,
         PyMuPdfBackendOptions,
@@ -76,8 +77,47 @@ def test_pymupdf_backend_rejects_pdf_exceeding_max_pages() -> None:
         doc.close()
 
     backend = PyMuPdfBackend(PyMuPdfBackendOptions(max_pages=2))
-    with pytest.raises(ParseError, match="max_pages"):
+    with pytest.raises(MaxPagesExceededError, match="max_num_pages") as excinfo:
         backend.parse_input(ParseInput(content=three_page_pdf, filename="many.pdf"))
+    assert excinfo.value.page_count == 3
+    assert excinfo.value.max_pages == 2
+    assert excinfo.value.engine == "pymupdf"
+
+
+def test_pymupdf_backend_rejects_pdf_exceeding_configured_max_file_size() -> None:
+    from harborrag_adapters.parsers.errors import MaxFileSizeExceededError
+    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import (
+        PyMuPdfBackend,
+        PyMuPdfBackendOptions,
+    )
+
+    pdf_bytes = _one_page_pdf()
+    backend = PyMuPdfBackend(PyMuPdfBackendOptions(max_file_size=len(pdf_bytes) - 1))
+
+    with pytest.raises(MaxFileSizeExceededError, match="max_file_size") as excinfo:
+        backend.parse_input(ParseInput(content=pdf_bytes, filename="big.pdf"))
+    assert excinfo.value.size_bytes == len(pdf_bytes)
+    assert excinfo.value.max_bytes == len(pdf_bytes) - 1
+    assert excinfo.value.engine == "pymupdf"
+
+
+def test_pymupdf_backend_raises_no_extractable_text_for_image_only_pdf() -> None:
+    """A PDF with pages but no text layer (e.g. scanned/image-only) must
+    surface distinctly from an empty file or a genuine parse failure, so a
+    caller can route it to OCR or quarantine it accordingly."""
+    from harborrag_adapters.parsers.errors import NoExtractableTextError
+    from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
+
+    doc = fitz.open()
+    try:
+        doc.new_page()  # a page with no text inserted at all
+        image_only_pdf = doc.tobytes()
+    finally:
+        doc.close()
+
+    with pytest.raises(NoExtractableTextError) as excinfo:
+        PyMuPdfBackend().parse_input(ParseInput(content=image_only_pdf, filename="scan.pdf"))
+    assert excinfo.value.page_count == 1
 
 
 def test_pymupdf_backend_allows_pdf_within_max_pages() -> None:

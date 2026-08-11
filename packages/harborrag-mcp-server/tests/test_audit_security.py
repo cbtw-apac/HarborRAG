@@ -14,9 +14,11 @@ def test_audit_memory_is_bounded_and_never_stores_arguments() -> None:
 
     assert len(log.entries) == 2
     assert all("arguments_sha256" in entry for entry in log.entries)
+    assert all("arguments" not in entry for entry in log.entries)
     assert "value-" not in repr(log.entries)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="owner-only POSIX mode and symlink contract")
 def test_durable_audit_rejects_symlinks_and_repairs_existing_mode(tmp_path) -> None:
     target = tmp_path / "target.log"
     target.write_text("untouched\n", encoding="utf-8")
@@ -33,6 +35,7 @@ def test_durable_audit_rejects_symlinks_and_repairs_existing_mode(tmp_path) -> N
     assert audit_path.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(os.name != "posix", reason="owner-only POSIX mode and symlink contract")
 def test_durable_audit_rejects_symlinked_or_shared_parent_directory(tmp_path) -> None:
     private_directory = tmp_path / "private"
     private_directory.mkdir(mode=0o700)

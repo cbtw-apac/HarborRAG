@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from harborrag_runtime.config import ConnectorConfigurationError
 
-from .catalogs import build_connector, connector_catalog, parser_catalog
+from .catalogs import build_connector, connector_catalog, connector_definition, parser_catalog
 from .environment import env, load_env
 from .metadata_rendering import format_metadata_value, render_metadata_section
 from .ocr_parser import RapidOcrImageParser, attachment_custom_parsers, build_harbor_parser
@@ -42,6 +42,7 @@ __all__ = [
     "build_connector",
     "build_harbor_parser",
     "connector_catalog",
+    "connector_definition",
     "env",
     "format_metadata_value",
     "load_env",

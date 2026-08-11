@@ -195,6 +195,77 @@ def test_storage_markup_preserves_structural_macros_references_and_default_title
     assert "Visible macro body" in "\n".join(element.content for element in document.content)
 
 
+def test_storage_include_in_layout_table_becomes_reference_inside_local_tab():
+    storage = """
+    <ac:structured-macro ac:name="localtabgroup" ac:macro-id="tabs-1">
+      <ac:rich-text-body>
+        <ac:structured-macro ac:name="localtab" ac:macro-id="tab-1">
+          <ac:parameter ac:name="title">Project Charter</ac:parameter>
+          <ac:rich-text-body>
+            <table id="layout-table"><tbody><tr><td>
+              <ac:structured-macro ac:name="include" ac:macro-id="include-1">
+                <ac:parameter ac:name="">
+                  <ac:link>
+                    <ri:page ri:content-id="44" ri:content-title="Charter"
+                             ri:space-key="ARCH" />
+                  </ac:link>
+                </ac:parameter>
+              </ac:structured-macro>
+            </td></tr></tbody></table>
+          </ac:rich-text-body>
+        </ac:structured-macro>
+      </ac:rich-text-body>
+    </ac:structured-macro>
+    """
+
+    document = ConfluencePageNormalizer().normalize(
+        page_input(adf=None, storage=storage, rendered_html=None)
+    )
+    blocks = tuple(walk(document.blocks[0]))
+    tab_set = next(block for block in blocks if block.kind == DocumentBlockKind.TAB_SET)
+    tab = next(block for block in blocks if block.kind == DocumentBlockKind.TAB)
+    include = next(block for block in blocks if block.kind == DocumentBlockKind.LINK_REFERENCE)
+
+    assert tab_set.attributes["macro_key"] == "localtabgroup"
+    assert tab.title == "Project Charter"
+    assert include.text == "Charter"
+    assert include.tab_path == ("Project Charter",)
+    assert include.attributes["reference_kind"] == "include"
+    assert include.attributes["target_page_id"] == "44"
+    assert include.attributes["target_title"] == "Charter"
+    assert include.attributes["target_space_key"] == "ARCH"
+    assert document.table_artifacts == ()
+    assert [(relation.predicate, relation.target_id) for relation in document.relations] == [
+        ("includes", "confluence://ARCH/44")
+    ]
+    assert document.warnings == ()
+
+
+def test_title_only_include_is_preserved_without_network_identity_or_relation():
+    storage = """
+    <ac:structured-macro ac:name="include" ac:macro-id="include-title-only">
+      <ac:parameter ac:name="">
+        <ac:link><ri:page ri:content-title="Project Organization" /></ac:link>
+      </ac:parameter>
+    </ac:structured-macro>
+    """
+
+    document = ConfluencePageNormalizer().normalize(
+        page_input(adf=None, storage=storage, rendered_html=None)
+    )
+    include = next(
+        block
+        for block in walk(document.blocks[0])
+        if block.kind == DocumentBlockKind.LINK_REFERENCE
+    )
+
+    assert include.text == "Project Organization"
+    assert include.attributes["target_page_id"] == ""
+    assert include.attributes["target_title"] == "Project Organization"
+    assert include.attributes["target_space_key"] == "ENG"
+    assert document.relations == []
+
+
 def test_unknown_adf_blocks_and_markup_failures_remain_explicit():
     document = ConfluencePageNormalizer().normalize(
         page_input([{"type": "rule"}, {"type": "mystery", "content": []}])
@@ -255,6 +326,10 @@ def test_macro_registry_rejects_duplicate_aliases_and_exposes_known_capabilities
     registry = ConfluenceMacroHandlerRegistry()
 
     assert registry.resolve(" PAGE_PROPERTIES ").emits_table is True
+    assert registry.resolve("localtabgroup").emits_container is True
+    assert registry.resolve("localtab").emits_container is True
+    assert registry.resolve("include").needs_rendered_fallback is True
+    assert registry.resolve("include").emits_visible_content is False
     assert registry.resolve("unknown").needs_rendered_fallback is True
     with pytest.raises(ValueError, match="duplicate"):
         ConfluenceMacroHandlerRegistry((*handlers, handlers[0]))

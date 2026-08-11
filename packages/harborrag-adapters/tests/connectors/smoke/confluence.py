@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from bootstrap import (
@@ -9,7 +11,7 @@ from bootstrap import (
     attachments_passed,
     build_connector,
     build_harbor_parser,
-    connector_catalog,
+    connector_definition,
     load_env,
     output_path_for,
     print_document,
@@ -18,6 +20,7 @@ from bootstrap import (
     save_attachment_asset,
     save_output,
 )
+from bootstrap.confluence_markdown import confluence_html_to_markdown
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
@@ -33,6 +36,19 @@ CONFLUENCE_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Breadcrumb", "breadcrumb"),
     ("Depth", "depth"),
 ]
+
+_RENDER_DEPENDENT_STORAGE_MACRO = re.compile(
+    r"\bac:name\s*=\s*['\"](?:include|excerpt-include|localtab|localtabgroup)['\"]",
+    re.IGNORECASE,
+)
+_NON_CONTENT_RENDERED_BLOCK = re.compile(
+    r"<(?P<tag>style|script)\b[^>]*>.*?</(?P=tag)\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_EMPTY_NON_CONTENT_RENDERED_BLOCK = re.compile(
+    r"<(?:style|script)\b[^>]*/\s*>",
+    re.IGNORECASE,
+)
 
 
 def _save_image_attachments(
@@ -74,7 +90,7 @@ def _render_confluence_output(
 ) -> str:
     """Render one loaded Confluence page (plus any parsed attachments) for saving."""
     attachments = (document.metadata or {}).get("attachments") or []
-    body = document.text()
+    body, preview_representation = _confluence_body_preview(document)
 
     if not markdown:
         text = body
@@ -92,6 +108,10 @@ def _render_confluence_output(
         "- **provider**: `confluence`",
         f"- **source**: `{record.id}`",
         f"- **content_type**: `{document.content_type}`",
+    ]
+    if preview_representation:
+        lines.append(f"- **body_preview**: `{preview_representation}`")
+    lines += [
         "",
         *render_metadata_section(metadata, CONFLUENCE_METADATA_FIELDS),
         body,
@@ -113,11 +133,49 @@ def _render_confluence_output(
     return "\n".join(lines)
 
 
-def _run_attachment_pass(records: list, *, output: str | None, output_dir: Path | None) -> int:
+def _confluence_body_preview(document) -> tuple[str, str | None]:
+    """Use server-rendered HTML only for storage macros that need that view.
+
+    Normal pages intentionally return ``document.text()`` unchanged. Confluence
+    already includes ``export_view`` in the loaded payload, so this diagnostic
+    fallback does not make another request or change the ingestion document.
+    """
+
+    storage = document.text()
+    if not _RENDER_DEPENDENT_STORAGE_MACRO.search(storage):
+        return storage, None
+    payload = document.raw
+    if not isinstance(payload, Mapping):
+        return storage, None
+    body = payload.get("body")
+    if not isinstance(body, Mapping):
+        return storage, None
+    export_view = body.get("export_view")
+    if not isinstance(export_view, Mapping):
+        return storage, None
+    rendered = export_view.get("value")
+    if not isinstance(rendered, str) or not rendered.strip():
+        return storage, None
+    sanitized = _NON_CONTENT_RENDERED_BLOCK.sub("", rendered)
+    sanitized = _EMPTY_NON_CONTENT_RENDERED_BLOCK.sub("", sanitized).strip()
+    markdown = confluence_html_to_markdown(sanitized)
+    return (markdown, "export_view_markdown") if markdown else (storage, None)
+
+
+def _run_attachment_pass(
+    connection_id: str,
+    records: list,
+    *,
+    output: str | None,
+    output_dir: Path | None,
+) -> int:
     """Reload every record with attachment processing enabled and report status."""
     harbor_parser = build_harbor_parser()
     connector_with_attachments = build_connector(
-        "confluence", include_attachments=True, parser=harbor_parser
+        connection_id,
+        include_attachments=True,
+        parser=harbor_parser,
+        expected_provider="confluence",
     )
 
     overall_ok = True
@@ -168,11 +226,21 @@ def _save_attachment_output(
 
 
 def run_confluence(
-    *, limit: int = 3, output: str | None = None, output_dir: Path | None = None
+    *,
+    connection_id: str | None = None,
+    limit: int = 10,
+    output: str | None = None,
+    output_dir: Path | None = None,
 ) -> int:
     load_env()
+    identifier = connection_id or "confluence"
     try:
-        connector = build_connector("confluence", include_attachments=False)
+        definition = connector_definition(identifier, expected_provider="confluence")
+        connector = build_connector(
+            definition.name,
+            include_attachments=False,
+            expected_provider="confluence",
+        )
     except ConnectorConfigurationError as exc:
         print(f"[confluence] not configured: {exc}")
         return 2
@@ -193,7 +261,7 @@ def run_confluence(
         return 1
     print_document("confluence", document)
 
-    if not connector_catalog().get("confluence").settings.get("include_attachments", False):
+    if not definition.settings.get("include_attachments", False):
         print(
             "\n[confluence] include_attachments is false in config/connectors.yaml; "
             "skipping the attachment pass"
@@ -201,7 +269,12 @@ def run_confluence(
         return 0
 
     print(f"\n[confluence] === load with attachments ({len(records)} record(s)) ===")
-    return _run_attachment_pass(records, output=output, output_dir=output_dir)
+    return _run_attachment_pass(
+        definition.name,
+        records,
+        output=output,
+        output_dir=output_dir,
+    )
 
 
 def main() -> int:

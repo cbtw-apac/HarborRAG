@@ -72,6 +72,23 @@ class _ContainerMacroHandler:
         return MacroHandling(self.kind, title, safe)
 
 
+class _IncludeMacroHandler:
+    keys = frozenset({"include", "excerpt-include"})
+    emits_container = False
+    emits_visible_content = False
+    emits_table = False
+    needs_rendered_fallback = True
+
+    def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
+        del macro_key
+        safe = filter_macro_parameters(parameters)
+        return MacroHandling(
+            DocumentBlockKind.LINK_REFERENCE,
+            safe.get("title") or safe.get("name"),
+            safe,
+        )
+
+
 class GenericMacroHandler:
     keys: frozenset[str] = frozenset()
     emits_container = True
@@ -110,6 +127,7 @@ class ConfluenceMacroHandlerRegistry:
 
 def default_macro_handlers() -> tuple[ConfluenceMacroHandler, ...]:
     return (
+        _IncludeMacroHandler(),
         _ContainerMacroHandler(
             frozenset({"expand", "details"}),
             DocumentBlockKind.EXPAND,
@@ -120,11 +138,20 @@ def default_macro_handlers() -> tuple[ConfluenceMacroHandler, ...]:
             DocumentBlockKind.PANEL,
         ),
         _ContainerMacroHandler(
-            frozenset({"tabs", "tab-set", "tabset", "navitabs", "aui-tabs"}),
+            frozenset(
+                {
+                    "tabs",
+                    "tab-set",
+                    "tabset",
+                    "navitabs",
+                    "aui-tabs",
+                    "localtabgroup",
+                }
+            ),
             DocumentBlockKind.TAB_SET,
         ),
         _ContainerMacroHandler(
-            frozenset({"tab", "navitab", "aui-tab"}),
+            frozenset({"tab", "navitab", "aui-tab", "localtab"}),
             DocumentBlockKind.TAB,
         ),
         _ContainerMacroHandler(

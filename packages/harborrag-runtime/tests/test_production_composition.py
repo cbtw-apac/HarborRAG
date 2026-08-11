@@ -52,7 +52,7 @@ async def test_production_repositories_hit_the_real_database(
         await projects.create(
             Project(id="p1", tenant_id="DEFAULT", name="Docs", collection="docs_main")
         )
-        fetched = await projects.get("p1")
+        fetched = await projects.get("p1", tenant_ids=None)
         assert fetched is not None and fetched.name == "Docs"
     finally:
         await composition.aclose()

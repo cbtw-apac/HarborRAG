@@ -133,6 +133,60 @@ def test_html_parser_extracts_visible_text_and_strips_script_style():
     assert document.raw == {"html": html}
 
 
+_LINK_HTML = (
+    "<p>Visit "
+    '<a href="https://example.com/pricing" title="View pricing">our pricing page</a>'
+    " for details.</p>"
+)
+
+
+def test_html_parser_preserves_anchor_href_and_title_as_link_metadata():
+    document = HtmlParser().parse(ParseInput(content=_LINK_HTML, filename="pricing.html"))
+
+    assert "our pricing page" in document.content
+    [paragraph] = document.elements
+    assert paragraph.metadata["links"] == [
+        {
+            "href": "https://example.com/pricing",
+            "title": "View pricing",
+            "text": "our pricing page",
+        }
+    ]
+
+
+def test_html_parser_preserves_anchor_link_metadata_without_beautifulsoup(monkeypatch):
+    """The dependency-free stdlib fallback must preserve link metadata too,
+    not just the primary BeautifulSoup path."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "bs4":
+            raise ImportError
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    document = HtmlParser().parse(ParseInput(content=_LINK_HTML, filename="pricing.html"))
+
+    assert document.metadata["text_engine"] == "python/html.parser"
+    [paragraph] = document.elements
+    assert paragraph.metadata["links"] == [
+        {
+            "href": "https://example.com/pricing",
+            "title": "View pricing",
+            "text": "our pricing page",
+        }
+    ]
+
+
+def test_html_parser_omits_links_key_when_no_anchors_present():
+    document = HtmlParser().parse(ParseInput(content="<p>No links here.</p>", filename="d.html"))
+    [paragraph] = document.elements
+    assert "links" not in paragraph.metadata
+
+
 def test_csv_parser_renders_tab_separated_and_counts_rows():
     document = CsvParser().parse(ParseInput(content="name,role\nAda,engineer", filename="t.csv"))
     assert document.parser_name == "csv"

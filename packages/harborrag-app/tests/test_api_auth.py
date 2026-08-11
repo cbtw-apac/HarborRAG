@@ -191,6 +191,17 @@ def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixt
 
 
 @pytest.mark.blackbox
+def test_dev_defaults_to_safe_loopback_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HARBORRAG_HOST")
+
+    settings = ApiSettings()
+    app = create_fastapi_app(settings)
+
+    assert settings.host == "127.0.0.1"
+    assert app.state.token_verifier is None
+
+
+@pytest.mark.blackbox
 def test_disabled_auth_requires_explicit_opt_in_for_non_loopback_binding() -> None:
     from harborrag_core.contracts.errors import HarborConfigurationError
 

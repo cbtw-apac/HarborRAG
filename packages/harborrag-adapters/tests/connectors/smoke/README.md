@@ -50,11 +50,18 @@ cp config/connectors.example.yaml config/connectors.yaml
 cp env-example/.env.connector.example env/.env.connector
 ```
 
+Each key under `connectors` is an application-level `connection_id`, not a
+provider name. For example, `harborrag-workspace` may use the `local` provider
+and `jira-main` may use the `jira` provider. Smoke commands select these IDs so
+multiple connections can be configured for the same provider.
+
 | Connector | Required environment variables | Optional |
 | --- | --- | --- |
 | Local | `LOCAL_SOURCE_PATH` | None |
+| GitHub | Environment variables referenced by the selected connection, normally `GITHUB_REPOSITORY_URL`, `GITHUB_TOKEN` | Provider settings such as branch/root path stay in YAML |
 | Confluence | `CONFLUENCE_BASE_URL`, `CONFLUENCE_SPACE_KEY`, `CONFLUENCE_TOKEN` | `CONFLUENCE_EMAIL` for Cloud |
 | JIRA | `JIRA_BASE_URL` and either `JIRA_TOKEN` or `JIRA_API_TOKEN` | `JIRA_EMAIL` for Cloud |
+| SharePoint | Environment variables referenced by the selected connection, normally Microsoft tenant/client credentials and `SHAREPOINT_SITE_URL` | Drive/root path stay in YAML |
 
 Everything else — content type filters, attachment limits, pagination, JIRA
 `project_keys` scoping, and so on — is a literal setting in
@@ -62,30 +69,32 @@ Everything else — content type filters, attachment limits, pagination, JIRA
 environment variables. Relative `LOCAL_SOURCE_PATH` values are resolved from
 the repository root.
 
-GitHub and SharePoint smoke checks (`github.py`, `sharepoint.py`) are
-unaffected by this catalog and keep reading directly from environment
-variables; see their required variables in the module docstring of each file.
+GitHub and SharePoint now use the same catalog resolution and environment
+references as every other smoke check.
 
 ## Run a connector
 
 ```bash
-python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector local
-python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector confluence
-python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector harborrag-workspace
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector confluence-main
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira-main
 ```
 
-`confluence.py`, `jira.py`, and `local.py` remain as thin, no-argument
-entry points (`python .../jira.py`) for direct use and for `run_all.py`.
+For convenience, a provider name such as `--connector jira` is accepted when
+exactly one enabled connection uses it. Pass the connection ID when multiple
+connections use the same provider. The provider modules remain thin,
+no-argument entry points; they also require a unique enabled connection for
+their provider.
 
-After individual checks pass, run every configured provider (including GitHub
-and SharePoint):
+After individual checks pass, run every enabled configured connection:
 
 ```bash
 python packages/harborrag-adapters/tests/connectors/smoke/run_all.py
 ```
 
-`run_all.py` skips providers returning `2`, fails when any configured provider
-returns `1`, and returns `2` when none are configured.
+`run_all.py` dispatches by each definition's `provider`, fails when any enabled
+connection fails, and returns `2` when no enabled connection has a smoke
+runner.
 
 ## Save parsed output
 
@@ -94,9 +103,12 @@ save the parsed content under `tests/connectors/smoke/output/` (override with
 `--output-dir`):
 
 ```bash
-python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira --output txt
-python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira --output md
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira-main --output txt
+python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira-main --output md
 ```
+
+Saved output is currently supported by Local, Confluence, and JIRA runners;
+GitHub and SharePoint reject `--output` explicitly.
 
 `txt` saves a flat concatenation of the body and every parsed attachment's
 text. `md` saves a structured Markdown document instead: a `#` title, a

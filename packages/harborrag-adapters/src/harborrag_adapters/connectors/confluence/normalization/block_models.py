@@ -80,6 +80,7 @@ class ConfluenceBuildContext:
     document_version_id: str
     source_version: str
     source_url: str
+    space_key: str
     title: str
 
 

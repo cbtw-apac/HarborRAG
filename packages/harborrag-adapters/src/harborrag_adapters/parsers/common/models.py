@@ -40,6 +40,11 @@ class ParserAttempt:
     duration_ms: float
     quality_score: float | None = None
     message: str | None = None
+    # The typed exception this attempt failed with, when one is known (e.g. a
+    # configured limit or a no-extractable-text condition). Lets a caller
+    # raise that specific type when every attempt shares the same cause,
+    # instead of only ever seeing the generic aggregate failure.
+    error: BaseException | None = None
 
 
 @dataclass(slots=True)

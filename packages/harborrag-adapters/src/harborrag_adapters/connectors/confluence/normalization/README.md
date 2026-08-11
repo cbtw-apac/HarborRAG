@@ -15,6 +15,12 @@ Unknown macros retain their safe key, identifier, filtered display parameters,
 visible children, and a warning. Credential-like parameters and signed URL
 queries are discarded.
 
+Native include macros and the commonly deployed `localtabgroup`/`localtab`
+aliases retain their navigation structure. Includes are references rather than
+recursively inlined content, including title-only targets that do not expose a
+stable page ID. A one-cell table containing only an include is treated as a
+layout wrapper instead of a data table.
+
 Tables are retained separately as immutable `TableArtifact` values. Source
 cells preserve spans, while the logical grid marks inherited merged-cell slots.
 Nested tables receive independent identities and a parent-cell locator.

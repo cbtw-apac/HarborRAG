@@ -1,39 +1,26 @@
-"""Smoke check a real GitHub connection using repo-root `.env`."""
+"""Smoke check a configured GitHub connection."""
 
 from __future__ import annotations
 
-from bootstrap import env, load_env, print_document
+from bootstrap import ConnectorConfigurationError, build_connector, load_env, print_document
 
-from harborrag_adapters.connectors import HarborConnector
-from harborrag_adapters.connectors.github.config import GitHubRepositoryConfig
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 
-def missing_vars() -> list[str]:
-    missing = []
-    if not env("GITHUB_REPOSITORY_URL") and not (env("GITHUB_OWNER") and env("GITHUB_REPO")):
-        missing.append("GITHUB_OWNER+GITHUB_REPO (or GITHUB_REPOSITORY_URL)")
-    if not env("GITHUB_TOKEN"):
-        missing.append("GITHUB_TOKEN")
-    return missing
-
-
-def main() -> int:
+def run_github(*, connection_id: str | None = None, limit: int = 3) -> int:
     load_env()
-    if missing := missing_vars():
-        print(f"[github] missing env vars: {missing}")
+    identifier = connection_id or "github"
+    try:
+        connector = build_connector(
+            identifier,
+            include_attachments=False,
+            expected_provider="github",
+        )
+    except ConnectorConfigurationError as exc:
+        print(f"[github] not configured: {exc}")
         return 2
 
-    config = GitHubRepositoryConfig(
-        owner=env("GITHUB_OWNER"),
-        repo=env("GITHUB_REPO"),
-        repository_url=env("GITHUB_REPOSITORY_URL"),
-        token=env("GITHUB_TOKEN"),
-        ref=env("GITHUB_REF"),
-    )
-
-    connector = HarborConnector("github", config=config)
-    records = list(connector.discover(ConnectorQuery(limit=3)))
+    records = list(connector.discover(ConnectorQuery(limit=limit)))
     print(f"\n[github] discovered {len(records)} record(s)")
     for record in records:
         print(f"  - {record.id} ({record.source_type})")
@@ -44,6 +31,10 @@ def main() -> int:
     document = connector.load(records[0])
     print_document("github", document)
     return 0
+
+
+def main() -> int:
+    return run_github()
 
 
 if __name__ == "__main__":

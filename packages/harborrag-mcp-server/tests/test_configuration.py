@@ -71,7 +71,11 @@ async def test_global_and_tenant_defaults_apply_at_call_time(tmp_path) -> None:
             },
         },
     )
-    server = McpServer(tools=[ConfigurableTool()], configuration=store)
+    server = McpServer(
+        tools=[ConfigurableTool()],
+        audit=store.audit,
+        configuration=store,
+    )
 
     standard = await server.call_tool(
         "search", {"query": "q", "tenant_id": "standard"}, principal_id="owner"
@@ -177,7 +181,9 @@ def test_reload_holds_the_update_lock_while_reading(tmp_path, monkeypatch) -> No
     original_read = store_module._read_configuration
     read_started = Event()
     release_read = Event()
+    replace_started = Event()
     replace_completed = Event()
+    thread_errors: list[BaseException] = []
 
     def blocked_read(path):
         read_started.set()
@@ -185,22 +191,38 @@ def test_reload_holds_the_update_lock_while_reading(tmp_path, monkeypatch) -> No
         return original_read(path)
 
     monkeypatch.setattr(store_module, "_read_configuration", blocked_read)
-    reload_thread = Thread(target=lambda: store.reload(principal_id="reloader"))
+
+    def reload() -> None:
+        try:
+            store.reload(principal_id="reloader")
+        except BaseException as exc:
+            thread_errors.append(exc)
+
+    reload_thread = Thread(target=reload)
     reload_thread.start()
     assert read_started.wait(timeout=2)
 
     replacement = McpConfiguration.model_validate({"tools": {"search": {"enabled": False}}})
 
     def replace() -> None:
-        store.replace(replacement, principal_id="replacer")
-        replace_completed.set()
+        replace_started.set()
+        try:
+            store.replace(replacement, principal_id="replacer")
+        except BaseException as exc:
+            thread_errors.append(exc)
+        else:
+            replace_completed.set()
 
     replace_thread = Thread(target=replace)
     replace_thread.start()
+    assert replace_started.wait(timeout=2)
     assert not replace_completed.wait(timeout=0.1)
     release_read.set()
     reload_thread.join(timeout=2)
     replace_thread.join(timeout=2)
 
+    assert not reload_thread.is_alive()
+    assert not replace_thread.is_alive()
+    assert thread_errors == []
     assert replace_completed.is_set()
     assert store.snapshot().tools["search"].enabled is False

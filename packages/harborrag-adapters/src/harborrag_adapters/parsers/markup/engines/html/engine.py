@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from harborrag_adapters.parsers.common.normalization import html_to_text_with_engine
+from harborrag_adapters.parsers.common.normalization import (
+    _FallbackHTMLTextParser,
+    compact_text,
+    html_to_text_with_engine,
+)
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
     read_parse_input_text,
@@ -18,6 +22,83 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("html")
+
+
+class _LinkCapturingFallbackParser(_FallbackHTMLTextParser):
+    """Stdlib-only text extractor that also records anchor href/title/text.
+
+    Subclasses the shared fallback parser instead of modifying it, since that
+    base class is also used by the EPUB engine and the Jira connector's
+    content builder for plain-text extraction alone.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[dict[str, str | None]] = []
+        self._link_stack: list[dict[str, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        super().handle_starttag(tag, attrs)
+        if tag == "a":
+            attr_map = dict(attrs)
+            href = attr_map.get("href")
+            if href:
+                self._link_stack.append({"href": href, "title": attr_map.get("title"), "text": ""})
+
+    def handle_data(self, data: str) -> None:
+        super().handle_data(data)
+        if self._link_stack and not self._skip_depth:
+            stripped = data.strip()
+            if stripped:
+                current = self._link_stack[-1]
+                current["text"] = (
+                    f"{current['text']} {stripped}".strip() if current["text"] else stripped
+                )
+
+    def handle_endtag(self, tag: str) -> None:
+        super().handle_endtag(tag)
+        if tag == "a" and self._link_stack:
+            self.links.append(self._link_stack.pop())
+
+
+def _attr_str(value: object) -> str | None:
+    """Normalize a bs4 attribute value (str, list, or None) to a plain string.
+
+    bs4 returns a list for space/comma-separated multi-valued attributes
+    (e.g. `class`); `href`/`title` are single-valued in practice, but the
+    stub type is the same for every attribute, so this coerces defensively.
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value) or None
+    return str(value)
+
+
+def _extract_links(html: str) -> list[dict[str, str | None]]:
+    """Collect `<a href title>` metadata that plain-text extraction discards."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        parser = _LinkCapturingFallbackParser()
+        parser.feed(html)
+        parser.close()
+        return parser.links
+
+    soup = BeautifulSoup(html, "html.parser")
+    links: list[dict[str, str | None]] = []
+    for anchor in soup.find_all("a"):
+        href = _attr_str(anchor.get("href"))
+        if not href:
+            continue
+        links.append(
+            {
+                "href": href,
+                "title": _attr_str(anchor.get("title")),
+                "text": compact_text(anchor.get_text(separator=" ", strip=True)),
+            }
+        )
+    return links
 
 
 class HtmlMarkupEngine(HarborMarkupEngine):
@@ -44,13 +125,17 @@ class HtmlMarkupEngine(HarborMarkupEngine):
         data = guard_input_size(read_parse_input_bytes(parse_input))
         html = read_parse_input_text(ParseInput(content=data))
         content, text_engine = html_to_text_with_engine(html)
+        links = _extract_links(html)
         elements = (
             [
                 DocumentElement(
                     id="html:0",
                     type="paragraph",
                     content=content,
-                    metadata={"content_type": parse_input.content_type},
+                    metadata={
+                        "content_type": parse_input.content_type,
+                        **({"links": links} if links else {}),
+                    },
                 )
             ]
             if content

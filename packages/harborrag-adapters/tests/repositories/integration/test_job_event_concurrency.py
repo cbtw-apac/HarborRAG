@@ -48,13 +48,13 @@ async def test_job_repository_roundtrip_and_event_log(
         job_type="bulk_ingest",
     )
     await repo.save(job)
-    assert await repo.get("j1") == job
+    assert await repo.get("j1", tenant_ids=None) == job
     job.status = "running"
     job.attempts = 1
     await repo.save(job)
-    assert [j.id for j in await repo.list(status="running")] == ["j1"]
-    assert await repo.list(status="failed") == []
-    assert [j.id for j in await repo.list(source_id="s1")] == ["j1"]
+    assert [j.id for j in await repo.list(status="running", tenant_ids=None)] == ["j1"]
+    assert await repo.list(status="failed", tenant_ids=None) == []
+    assert [j.id for j in await repo.list(source_id="s1", tenant_ids=None)] == ["j1"]
     job.tenant_id = "tenant-b"
     with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
         await repo.save(job)

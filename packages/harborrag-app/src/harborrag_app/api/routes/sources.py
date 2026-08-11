@@ -2,9 +2,10 @@
 
 Secret-shaped config fields are extracted to the secrets port by the service
 layer (workflow_control.control_plane.writes) -- routes never see or forward
-raw values. Every route checks the caller's tenant against the source's
-``tenant_id``; a source outside the caller's tenants 404s rather than 403s,
-so its existence isn't leaked (mirrors api/v1/ingestion/routes.py).
+raw values. Reads are scoped to the caller's tenants via ``tenant_ids``; write
+routes authorize by fetching the source through that same tenant-scoped
+``get_source`` first, so a source outside the caller's tenants 404s rather
+than 403s and its existence isn't leaked (mirrors api/v1/ingestion/routes.py).
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.workflow_control import BaseAppService
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.redaction import redact_mapping
 
@@ -75,32 +75,15 @@ class SourceOut(BaseModel):
         )
 
 
-async def _authorized_source(
-    service: BaseAppService,
-    source_id: str,
-    principal: Principal,
-) -> SourceConfig:
-    """One source by id, 404 (not 403) when it exists but is outside the caller's tenants."""
-    response = await service.get_source(source_id)
-    source: SourceConfig = response.data["source"]
-    if not principal.can_access_tenant(source.tenant_id):
-        raise HarborNotFoundError(f"source {source_id!r} not found")
-    return source
-
-
 @router.get("/sources", response_model=list[SourceOut])
 async def list_sources(
     service: Annotated[BaseAppService, Depends(get_app_service)],
     principal: Annotated[Principal, Depends(require_role("reader"))],
     project_id: str | None = None,
 ) -> list[SourceOut]:
-    """Sources, optionally filtered to one project, scoped to the caller's tenants."""
-    response = await service.list_sources(project_id)
-    return [
-        SourceOut.from_domain(source)
-        for source in response.data["sources"]
-        if principal.can_access_tenant(source.tenant_id)
-    ]
+    """Sources visible to the caller's tenants, optionally filtered to one project."""
+    response = await service.list_sources(project_id, tenant_ids=principal.tenant_scope)
+    return [SourceOut.from_domain(source) for source in response.data["sources"]]
 
 
 @router.get("/sources/{source_id}", response_model=SourceOut)
@@ -110,7 +93,8 @@ async def get_source(
     principal: Annotated[Principal, Depends(require_role("reader"))],
 ) -> SourceOut:
     """One source by id; 404 (enveloped) when missing or outside the caller's tenants."""
-    return SourceOut.from_domain(await _authorized_source(service, source_id, principal))
+    response = await service.get_source(source_id, tenant_ids=principal.tenant_scope)
+    return SourceOut.from_domain(response.data["source"])
 
 
 @router.post("/sources", status_code=201, response_model=SourceOut)
@@ -141,7 +125,7 @@ async def update_source(
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> SourceOut:
     """Update a source; fields omitted from the request body are left unchanged."""
-    await _authorized_source(service, source_id, principal)
+    await service.get_source(source_id, tenant_ids=principal.tenant_scope)
     response = await service.update_source(
         source_id,
         updates=payload.model_dump(exclude_unset=True),
@@ -157,5 +141,5 @@ async def delete_source(
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> None:
     """Delete a source and forget every secret it referenced."""
-    await _authorized_source(service, source_id, principal)
+    await service.get_source(source_id, tenant_ids=principal.tenant_scope)
     await service.delete_source(source_id, actor=principal.subject)

@@ -82,6 +82,59 @@ class PDFParsingFailedError(ParseError):
         self.attempts = list(attempts)
 
 
+class MaxPagesExceededError(ParseError):
+    """Raised when a document's page count exceeds a configured engine limit.
+
+    Distinct from :class:`PDFParsingFailedError` so a caller can quarantine
+    or retry differently for a structural page-count rejection than for a
+    genuine parse failure -- the two used to be indistinguishable once
+    folded into the router's generic aggregate message.
+    """
+
+    def __init__(self, *, page_count: int, max_pages: int, engine: str) -> None:
+        super().__init__(
+            f"Document has {page_count} pages, exceeds configured max_num_pages "
+            f"{max_pages} ({engine} backend)."
+        )
+        self.page_count = page_count
+        self.max_pages = max_pages
+        self.engine = engine
+
+
+class MaxFileSizeExceededError(ParseError):
+    """Raised when a document's size exceeds a configured engine limit.
+
+    See :class:`MaxPagesExceededError` for why this stays a distinct type
+    instead of a generic :class:`ParseError` string.
+    """
+
+    def __init__(self, *, size_bytes: int, max_bytes: int, engine: str) -> None:
+        super().__init__(
+            f"File size {size_bytes} bytes exceeds configured max_file_size "
+            f"{max_bytes} bytes ({engine} backend)."
+        )
+        self.size_bytes = size_bytes
+        self.max_bytes = max_bytes
+        self.engine = engine
+
+
+class NoExtractableTextError(ParseError):
+    """Raised when a document has pages but no page yielded a text layer.
+
+    Distinguishes an image-only/scanned document (which may need OCR) from a
+    genuinely empty or corrupt file, so callers can route or quarantine it
+    accordingly instead of receiving the same generic failure as any other
+    rejection.
+    """
+
+    def __init__(self, *, page_count: int) -> None:
+        super().__init__(
+            f"Document has {page_count} page(s) but no extractable text layer "
+            "was found; this may be a scanned/image-only document that requires OCR."
+        )
+        self.page_count = page_count
+
+
 class EncryptedPdfError(ParseError):
     """Raised when a PDF is password-protected and cannot be decoded.
 

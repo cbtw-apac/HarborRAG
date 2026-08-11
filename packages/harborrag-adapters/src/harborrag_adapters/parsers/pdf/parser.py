@@ -14,16 +14,17 @@ from harborrag_adapters.parsers.common.utils import (
     input_label,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.errors import (
-    EncryptedPdfError,
-    PDFParsingFailedError,
-)
+from harborrag_adapters.parsers.errors import EncryptedPdfError
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.config import (
     PDFParserProfile,
     PDFRouterConfig,
 )
 from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
+from harborrag_adapters.parsers.pdf.parser_failures import (
+    TYPED_ENGINE_FAILURES,
+    raise_pdf_failure,
+)
 from harborrag_adapters.parsers.pdf.parser_support import PDFParserSupportMixin
 from harborrag_adapters.parsers.pdf.quality import PDFQualityEvaluator
 from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry, PDFEngineRouter
@@ -112,6 +113,25 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 result = await engine.parse(request)
             except EncryptedPdfError:
                 raise
+            except TYPED_ENGINE_FAILURES as error:
+                # A configured limit or no-extractable-text condition is
+                # specific to this engine's config, not necessarily fatal for
+                # a different engine in the chain (e.g. an OCR-capable engine
+                # may still succeed) -- record the typed cause and continue,
+                # unlike `EncryptedPdfError` above.
+                duration_ms = (perf_counter() - started) * 1000
+                message = str(error)
+                attempts.append(
+                    ParserAttempt(
+                        engine=engine.name,
+                        success=False,
+                        duration_ms=duration_ms,
+                        message=message,
+                        error=error,
+                    )
+                )
+                warnings.append(f"{engine.name}: {message}")
+                continue
             except ImportError as error:
                 duration_ms = (perf_counter() - started) * 1000
                 message = f"unavailable ({error})"
@@ -170,7 +190,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 )
             warnings.append(f"{engine.name}: {quality.message}")
 
-        raise PDFParsingFailedError(attempts=attempts)
+        raise_pdf_failure(attempts)
 
     def supports(self, source: Path, mime_type: str | None = None) -> bool:
         normalized_mime = (mime_type or "").partition(";")[0].strip().lower()
@@ -234,6 +254,23 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 result = engine.parse_input(input)
             except EncryptedPdfError:
                 raise
+            except TYPED_ENGINE_FAILURES as error:
+                # See the matching branch in `parse()` above: a configured
+                # limit or no-extractable-text condition isn't necessarily
+                # fatal for a different engine in the fallback chain.
+                duration_ms = (perf_counter() - started) * 1000
+                message = str(error)
+                attempts.append(
+                    ParserAttempt(
+                        engine=engine.name,
+                        success=False,
+                        duration_ms=duration_ms,
+                        message=message,
+                        error=error,
+                    )
+                )
+                warnings.append(f"{engine.name}: {message}")
+                continue
             except ImportError as error:
                 duration_ms = (perf_counter() - started) * 1000
                 message = f"unavailable ({error})"
@@ -292,7 +329,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 )
             warnings.append(f"{engine.name}: {quality.message}")
 
-        raise PDFParsingFailedError(attempts=attempts)
+        raise_pdf_failure(attempts)
 
 
 PdfParser = HarborPDFParser

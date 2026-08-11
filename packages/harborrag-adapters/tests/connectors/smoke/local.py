@@ -133,10 +133,21 @@ def _print_skips(skipped) -> None:
         print(f"  - {skip.path}: {skip.detail} [{skip.reason}]")
 
 
-def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | None = None) -> int:
+def run_local(
+    *,
+    connection_id: str | None = None,
+    limit: int = 5,
+    output: str | None = None,
+    output_dir: Path | None = None,
+) -> int:
     load_env()
+    identifier = connection_id or "local"
     try:
-        connector = build_connector("local", include_attachments=False)
+        connector = build_connector(
+            identifier,
+            include_attachments=False,
+            expected_provider="local",
+        )
     except ConnectorConfigurationError as exc:
         print(f"[local] not configured: {exc}")
         return 2
@@ -153,9 +164,20 @@ def run_local(*, limit: int = 5, output: str | None = None, output_dir: Path | N
     harbor_parser = build_harbor_parser()
     overall_ok = True
     for record in records:
-        path = path_from_record(record)
+        record_path = path_from_record(record)
+        path = (
+            record_path if record_path.is_absolute() else connector.provider.root_path / record_path
+        )
         try:
-            parsed = harbor_parser.parse(ParseInput(path=path))
+            document = connector.load(record)
+            parsed = harbor_parser.parse(
+                ParseInput(
+                    content=document.content,
+                    filename=path.name,
+                    content_type=document.content_type,
+                    metadata=dict(document.metadata or {}),
+                )
+            )
         except Exception as exc:  # noqa: BLE001
             print_failure("local", exc)
             overall_ok = False

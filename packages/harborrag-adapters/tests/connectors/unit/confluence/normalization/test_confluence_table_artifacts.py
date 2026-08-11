@@ -156,6 +156,45 @@ def test_storage_table_fallback_preserves_row_and_column_spans():
     assert artifact.units[0].unit == "GB"
 
 
+def test_single_cell_data_table_is_not_mistaken_for_include_layout():
+    storage = """
+    <table id="one-cell-data">
+      <tr><td><p>Production</p></td></tr>
+    </table>
+    """
+
+    document = ConfluencePageNormalizer().normalize(
+        page_input(adf=None, storage=storage, rendered_html=None)
+    )
+    artifact = document.table_artifacts[0]
+
+    assert artifact.row_count == 1
+    assert artifact.column_count == 1
+    assert artifact.cells[0].text == "Production"
+
+
+def test_include_table_with_visible_sibling_content_remains_a_table():
+    storage = """
+    <table id="mixed-content">
+      <tr><td>
+        <p>Summary</p>
+        <ac:structured-macro ac:name="include">
+          <ac:parameter ac:name="">
+            <ac:link><ri:page ri:content-title="Details" /></ac:link>
+          </ac:parameter>
+        </ac:structured-macro>
+      </td></tr>
+    </table>
+    """
+
+    document = ConfluencePageNormalizer().normalize(
+        page_input(adf=None, storage=storage, rendered_html=None)
+    )
+
+    assert len(document.table_artifacts) == 1
+    assert document.table_artifacts[0].cells[0].text == "Summary"
+
+
 def test_table_without_explicit_headers_uses_stable_names_and_typed_empty_cells():
     source = {
         "type": "table",

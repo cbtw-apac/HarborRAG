@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.dependencies import (
+    authorize_task_tenant,
+    authorize_tenant,
+    require_role,
+)
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.errors import error_envelope
 from harborrag_app.api.schemas import IngestionControlInput, IngestionWorkflowInput
@@ -65,10 +69,11 @@ async def ingestion_status(
 ) -> JSONResponse:
     """Return legacy Temporal-run progress."""
 
-    del principal
+    service = _service(request)
+    await _authorize_run(service, principal, run_id)
     return _render(
         request,
-        await _service(request).ingestion_status(run_id),
+        await service.ingestion_status(run_id),
         operation="status",
     )
 
@@ -81,10 +86,11 @@ async def ingestion_result(
 ) -> JSONResponse:
     """Return a legacy Temporal-run terminal summary."""
 
-    del principal
+    service = _service(request)
+    await _authorize_run(service, principal, run_id)
     return _render(
         request,
-        await _service(request).ingestion_result(run_id),
+        await service.ingestion_result(run_id),
         operation="result",
     )
 
@@ -98,8 +104,9 @@ async def control_ingestion(
 ) -> JSONResponse:
     """Apply a legacy run action through current service operations."""
 
-    del principal, payload.graceful
+    del payload.graceful
     service = _service(request)
+    await _authorize_run(service, principal, run_id)
     if payload.action == "retry":
         result = await cast(IngestionService, service).retry_failures(
             task_id=run_id,
@@ -115,6 +122,20 @@ async def control_ingestion(
 
 def _service(request: Request) -> BaseAppService:
     return cast(BaseAppService, request.app.state.app_service)
+
+
+async def _authorize_run(service: BaseAppService, principal: Principal, run_id: str) -> None:
+    """Reject status/result/control access to a run outside the caller's tenants.
+
+    Runs submitted through this legacy Temporal-run surface and through
+    /v1/ingestions share the same underlying task store (AppResources binds
+    both ``task_registry`` and ``public_task_store`` to one instance), so
+    this reuses IngestionService.get_task exactly as /v1/ingestions does to
+    look up the run's tenant before allowing any read or action on it.
+    """
+
+    task = await cast(IngestionService, service).get_task(run_id)
+    authorize_task_tenant(principal, task)
 
 
 _CLIENT_ERROR_RESPONSES: dict[str, tuple[int, str]] = {

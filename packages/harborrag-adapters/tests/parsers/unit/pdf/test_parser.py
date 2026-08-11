@@ -147,6 +147,43 @@ def test_pdf_parsing_failed_error_names_the_rejection_reason_per_engine():
     assert "empty_pdf" in message
 
 
+class NoTextPdfBackend(PdfBackend):
+    """Mimics a non-OCR engine finding pages but no text layer at all."""
+
+    name: ClassVar[str] = "no_text_pdf_a"
+
+    def parse_input(self, input: ParseInput) -> PdfParseResult:
+        from harborrag_adapters.parsers.errors import NoExtractableTextError
+
+        raise NoExtractableTextError(page_count=3)
+
+
+class AlsoNoTextPdfBackend(NoTextPdfBackend):
+    """A second, independent engine that agrees: no extractable text."""
+
+    name: ClassVar[str] = "no_text_pdf_b"
+
+
+@pytest.mark.graybox
+def test_pdf_parser_raises_shared_typed_cause_when_every_engine_agrees():
+    """When every configured engine independently rejects a document for the
+    *same* typed reason (here: no extractable text), the caller should get
+    that specific typed error directly -- not the generic
+    `PDFParsingFailedError` aggregate, which can't be caught to distinguish
+    "needs OCR" from any other kind of rejection."""
+    from harborrag_adapters.parsers.errors import NoExtractableTextError
+
+    parser = PdfParser(
+        backends=[NoTextPdfBackend(), AlsoNoTextPdfBackend()],
+        min_content_chars=10,
+    )
+
+    with pytest.raises(NoExtractableTextError) as excinfo:
+        parser.parse_input(ParseInput(content=b"%PDF", filename="scan.pdf"))
+
+    assert excinfo.value.page_count == 3
+
+
 @pytest.mark.whitebox
 def test_pdf_quality_profile_builds_expected_advanced_backends():
     backends = HarborParserFactory().create_pdf_parser(profile=PdfParserProfile.QUALITY).backends
