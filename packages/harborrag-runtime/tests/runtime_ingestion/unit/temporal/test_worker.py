@@ -15,9 +15,11 @@ from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
     TemporalTLSConfig,
+    WorkerConfig,
 )
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal import worker as worker_module
+from harborrag_runtime.temporal import worker_registry as worker_registry_module
 from harborrag_runtime.temporal.document_workflow import DocumentIngestionWorkflow
 from harborrag_runtime.temporal.reindex_workflow import ReindexWorkflow
 from harborrag_runtime.temporal.retry_workflow import (
@@ -131,6 +133,73 @@ def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:
     assert (
         options["graceful_shutdown_timeout"].total_seconds()
         == config.worker.graceful_shutdown_seconds
+    )
+
+
+def test_worker_registration_validation_fails_loudly_when_workflows_missing() -> None:
+    registrations = (
+        ("harborrag-discovery", (), ()),
+        ("harborrag-transform", (), ()),
+        ("harborrag-io", (), ()),
+        ("harborrag-parser", (), ()),
+        ("harborrag-model", (), ()),
+        ("harborrag-index", (), ()),
+    )
+
+    with pytest.raises(RuntimeError, match="missing_workflows"):
+        worker_registry_module.validate_worker_registrations(registrations)
+
+
+@pytest.mark.asyncio
+async def test_emit_queue_metrics_records_depth_and_saturation(monkeypatch) -> None:
+    telemetry = Mock()
+    monkeypatch.setattr(
+        worker_module,
+        "_describe_task_queue_depths",
+        AsyncMock(return_value={"harborrag-discovery": 12, "harborrag-index": 0}),
+    )
+    config = TemporalRuntimeConfig(worker=WorkerConfig(max_concurrent_activities=4))
+
+    await worker_module._emit_queue_metrics(telemetry, object(), config)
+
+    assert telemetry.record_temporal_worker_slots.call_count == 6
+    assert telemetry.record_temporal_queue_depth.call_count == 6
+    assert telemetry.record_temporal_worker_slot_saturation.call_count == 6
+    telemetry.record_temporal_worker_slots.assert_any_call("harborrag-discovery", 4)
+    telemetry.record_temporal_queue_depth.assert_any_call("harborrag-discovery", 12)
+
+
+@pytest.mark.asyncio
+async def test_emit_queue_metrics_continues_when_depth_lookup_times_out(monkeypatch) -> None:
+    telemetry = Mock()
+
+    class _WorkflowService:
+        async def describe_task_queue(self, request):
+            queue_name = request.task_queue.name
+            if queue_name == "queue-timeout":
+                await asyncio.Future()
+            return SimpleNamespace(task_queue_status=SimpleNamespace(approximate_backlog_count=5))
+
+    client = SimpleNamespace(service_client=SimpleNamespace(workflow_service=_WorkflowService()))
+    config = TemporalRuntimeConfig(worker=WorkerConfig(max_concurrent_activities=4))
+
+    monkeypatch.setattr(
+        worker_module,
+        "TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS",
+        0.01,
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "ALL_TASK_QUEUES",
+        ("queue-timeout", "queue-ok"),
+    )
+
+    await worker_module._emit_queue_metrics(telemetry, client, config)
+
+    telemetry.record_temporal_queue_depth.assert_any_call("queue-timeout", None)
+    telemetry.record_temporal_queue_depth.assert_any_call("queue-ok", 5)
+    telemetry.record_temporal_worker_slot_saturation.assert_any_call(
+        "queue-timeout", slots=4, depth=None
     )
 
 
