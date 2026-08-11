@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import pytest
 from dataclasses import replace
+
+import pytest
 
 from harborrag_runtime.temporal.maintenance_schemas import ProjectionCleanupResult
 from harborrag_runtime.temporal.schemas import (
@@ -141,12 +142,6 @@ async def test_resume_workflow_skips_completed_batches(monkeypatch) -> None:
     )
     plan = _plan_reference()
 
-    # Simulate resumption from batch 2, document index 2
-    source_with_continuation = replace(
-        source,
-        continuation=_source().continuation,  # Will be set below
-    )
-
     batch_calls = []
 
     async def execute_activity(name, request, **options):
@@ -214,7 +209,6 @@ async def test_resume_workflow_skips_completed_batches(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_pause_signal_stops_at_batch_boundary(monkeypatch) -> None:
     """Pause signal should pause workflow after current batch completes."""
-    source = replace(_source(), batch_size=1)
     plan = _plan_reference()
 
     async def execute_activity(name, request, **options):
