@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Header, Query, status
+from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.contracts.events import HarborEvent
 
 from .commands import build_ingestion_command
 from .dependencies import IngestionServiceDependency
@@ -23,6 +27,8 @@ from .schemas import (
     RetryAcceptedResponse,
     RetryFailuresRequest,
 )
+
+_SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 router = APIRouter(prefix="/ingestions", tags=["Ingestion"])
 
@@ -102,6 +108,48 @@ async def list_ingestion_documents(
         limit=query.limit,
     )
     return IngestionDocumentPage.model_validate(result)
+
+
+@router.get(
+    "/{task_id}/stream",
+    responses=ERROR_RESPONSES,
+)
+async def stream_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+) -> StreamingResponse:
+    """Backlog replay then a live tail of a task's progress events (SSE).
+
+    Pumps the first event outside of StreamingResponse: a missing/
+    unauthorized task must raise here, in the plain route coroutine, so
+    normal exception handling turns it into the usual enveloped 404 --
+    once StreamingResponse starts streaming, the HTTP status is already
+    committed and an error can no longer change it.
+    """
+    task = await service.get_task(task_id)
+    _authorize_task_tenant(principal, task)
+    events = service.stream_ingestion_events(task_id)
+    try:
+        first_event = await events.__anext__()
+    except StopAsyncIteration:
+
+        async def _empty() -> AsyncIterator[bytes]:
+            return
+            yield  # pragma: no cover - unreachable, makes this an async generator
+
+        return StreamingResponse(_empty(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    async def _frames() -> AsyncIterator[bytes]:
+        yield _sse_frame(first_event)
+        async for event in events:
+            yield _sse_frame(event)
+
+    return StreamingResponse(_frames(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+def _sse_frame(event: HarborEvent) -> bytes:
+    return f"event: {event.name}\ndata: {json.dumps(event.payload, default=str)}\n\n".encode()
 
 
 @router.post(

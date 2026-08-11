@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_core.contracts.events import HarborEvent
 
 
 class IngestionService(Protocol):
@@ -38,6 +40,8 @@ class IngestionService(Protocol):
         task_id: str,
         document_ids: list[str],
     ) -> dict[str, object]: ...
+
+    def stream_ingestion_events(self, task_id: str) -> AsyncIterator[HarborEvent]: ...
 
 
 def ingestion_service(request: Request) -> IngestionService:

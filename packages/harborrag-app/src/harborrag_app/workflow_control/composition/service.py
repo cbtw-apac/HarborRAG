@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 
 from harborrag_core.contracts.errors import HarborUnavailableError
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.retrieval import (
     GraphNeighborhoodQuery,
     GraphPathQuery,
@@ -21,8 +22,11 @@ from harborrag_runtime.sdk import RetrievalLane
 from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..control_plane.reads import ControlPlaneReadsMixin
+from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
 from ..ingestion.models import IngestionCreateCommand
+from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
+from ..ingestion.progress_bridge import sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
 from ..ingestion.temporal import TemporalIngestionOperations
 from ..memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
@@ -36,7 +40,13 @@ from .resources import AppResources
 logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
 
-class AppService(ControlPlaneReadsMixin, AgentClientMixin, ChatClientMixin, BaseAppService):
+class AppService(
+    ControlPlaneReadsMixin,
+    ControlPlaneWritesMixin,
+    AgentClientMixin,
+    ChatClientMixin,
+    BaseAppService,
+):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
 
     def __init__(
@@ -140,6 +150,36 @@ class AppService(ControlPlaneReadsMixin, AgentClientMixin, ChatClientMixin, Base
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
         return await self._public_ingestions.recover_pending_submissions(limit=limit)
+
+    async def sync_ingestion_progress(self) -> int:
+        """One poll tick fanning active tasks' progress out via the event bus."""
+        store = await self._resources.public_task_store()
+        return await sync_ingestion_progress(store, self._resources.event_bus())
+
+    async def stream_ingestion_events(self, task_id: str) -> AsyncIterator[HarborEvent]:
+        """Backlog replay then a live tail of a task's progress events.
+
+        Subscribes before reading the backlog so nothing published in the gap
+        between the two is ever dropped (a harmless duplicate at worst, since
+        every progress payload is a full snapshot). Stops after a
+        "task.<id>.done" event, or immediately after the backlog if the
+        task's persisted state is already terminal, since the progress
+        bridge only ever touches active (PENDING/RUNNING) tasks.
+        """
+        task = await self._public_ingestions.get_task(task_id)
+        store = await self._resources.public_task_store()
+        live = None
+        terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
+        if task["status"] not in terminal_names:
+            live = self._resources.event_bus().subscribe(f"task.{task_id}.")
+        for event in await store.list_task_events(task_id):
+            yield event
+        if live is None:
+            return
+        async for event in live:
+            yield event
+            if event.name.endswith(".done"):
+                return
 
     async def list_documents(
         self,

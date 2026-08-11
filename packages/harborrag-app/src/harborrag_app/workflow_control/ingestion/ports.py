@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Protocol
 
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     IngestionTask,
@@ -43,6 +44,18 @@ class PublicTaskStore(Protocol):
     async def get(self, task_id: str) -> IngestionTask | None: ...
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
+
+    async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]: ...
+
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> None: ...
+
+    async def list_task_events(
+        self,
+        task_id: str,
+        *,
+        after_seq: int | None = None,
+        limit: int = 500,
+    ) -> list[HarborEvent]: ...
 
     async def update_summary(
         self,
