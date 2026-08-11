@@ -225,7 +225,11 @@ async def _extract_secrets(
             raise HarborValidationError(
                 f"config field {field_name!r} carries an unrecognized secret_ref"
             )
-        ref = await control_plane.secrets.put(str(value))
+        if not isinstance(value, str):
+            raise HarborValidationError(
+                f"config field {field_name!r} must contain a string secret value"
+            )
+        ref = await control_plane.secrets.put(value)
         newly_put_refs.append(ref)
         if _is_secret_ref_shape(existing_value):
             stale_refs.append(existing_value["secret_ref"])

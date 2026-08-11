@@ -57,6 +57,10 @@ class TaskEventRepository:
         ``after_seq`` resumes a paged read (e.g. after an earlier bounded
         page) rather than always replaying the full backlog.
         """
+        if not 1 <= limit <= 1_000:
+            raise ValueError("task event limit must be between 1 and 1000")
+        if after_seq is not None and after_seq < 0:
+            raise ValueError("task event cursor must not be negative")
         statement = (
             sa.select(TASK_EVENTS)
             .where(TASK_EVENTS.c.task_id == task_id)
