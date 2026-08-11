@@ -80,7 +80,7 @@ class SourceRow(Base):
 
 
 class SecretRefRow(Base):
-    """secrets: refs + provenance only — values live in the secrets backend."""
+    """secrets: refs + provenance, plus the Fernet-encrypted value itself."""
 
     __tablename__ = "secrets"
 
@@ -88,6 +88,7 @@ class SecretRefRow(Base):
     provider: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    ciphertext: Mapped[bytes | None] = mapped_column(sa.LargeBinary, nullable=True)
 
 
 class JobRow(Base):
