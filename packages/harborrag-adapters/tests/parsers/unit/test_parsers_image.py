@@ -125,7 +125,9 @@ def test_image_parser_raises_typed_error_instead_of_crashing_on_decompression_bo
         ImageParser().parse(ParseInput(content=_png_bytes(), filename="huge.png"))
 
 
-def test_image_parser_reports_unreadable_image_with_filename_and_size_not_raw_bytesio_repr() -> None:
+def test_image_parser_reports_unreadable_image_with_filename_and_size_not_raw_bytesio_repr() -> (
+    None
+):
     """Bytes Pillow cannot identify as any supported format (corrupt,
     truncated, or not actually an image) used to surface as a raw
     `UnidentifiedImageError: cannot identify image file <_io.BytesIO object

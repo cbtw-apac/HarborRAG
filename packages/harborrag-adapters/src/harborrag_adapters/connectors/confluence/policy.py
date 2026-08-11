@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from harborrag_adapters.connectors.attachments import attachment_ids_from_filters
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.query_values import normalized_string_list
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
 from .config import ConfluenceSpaceConfig
+from .mappers import validate_content
 from .query import build_cql, validate_content_id
 
 
@@ -75,6 +75,17 @@ class ConfluenceQueryPolicyMixin:
         return record
 
     def _should_process_content(self, content: dict[str, Any]) -> bool:
+        """Apply include/exclude label filters and reject Confluence live docs.
+
+        Live docs report ``type: "page"`` like ordinary pages -- they're
+        differentiated only by ``subtype: "live"``, which CQL's
+        ``type in (...)`` clause can't see, so ``content_types`` alone can
+        never exclude them at the query level. There is currently no
+        supported way to opt into ingesting live docs, so they're rejected
+        unconditionally rather than gated by config.
+        """
+        if content.get("subtype") == "live":
+            return False
         labels = content.get("metadata", {}).get("labels", {}).get("results", [])
         label_names = {str(label.get("name")) for label in labels if isinstance(label, dict)}
         if self.config.exclude_labels and label_names.intersection(self.config.exclude_labels):
@@ -84,22 +95,5 @@ class ConfluenceQueryPolicyMixin:
         return True
 
     def _validate_content(self, content: dict[str, Any], content_id: str) -> None:
-        space_key = content.get("space", {}).get("key")
-        missing = [
-            name
-            for name, value in (
-                ("id", content.get("id")),
-                ("title", content.get("title")),
-                ("space.key", space_key),
-            )
-            if not value
-        ]
-        if missing:
-            raise DocumentProcessingError(
-                f"Confluence content {content_id} missing required fields: {', '.join(missing)}"
-            )
-        if str(space_key) != self.config.space_key:
-            raise DocumentProcessingError(
-                f"Confluence content {content_id} belongs to space {space_key!r}, "
-                f"outside configured space {self.config.space_key!r}"
-            )
+        """Fail fast when content is malformed or outside the configured space."""
+        validate_content(content, content_id, space_key=self.config.space_key)

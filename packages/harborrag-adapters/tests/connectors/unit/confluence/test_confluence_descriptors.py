@@ -86,9 +86,9 @@ def test_describe_reuses_descriptor_fields_returned_by_search() -> None:
     descriptor = connector.describe(record)
 
     assert descriptor.admission.source_version == "3"
-    assert [
-        endpoint for endpoint, _ in client.calls if endpoint != "user/current"
-    ] == ["content/search"]
+    assert [endpoint for endpoint, _ in client.calls if endpoint != "user/current"] == [
+        "content/search"
+    ]
     assert "_confluence_discovery_descriptor" not in descriptor.source.metadata
 
 

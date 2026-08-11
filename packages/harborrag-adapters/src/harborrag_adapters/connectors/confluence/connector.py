@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from itertools import islice
-from typing import Any
 
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
@@ -37,7 +36,6 @@ from .mappers import (
     build_source_record,
     content_id_from_record,
     display_url,
-    validate_content,
 )
 from .policy import ConfluenceQueryPolicyMixin
 from .query import validate_content_id
@@ -337,27 +335,3 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         )
         record.metadata[DISCOVERY_DESCRIPTOR_KEY] = content
         return self._apply_query_policy(record, query)
-
-    def _should_process_content(self, content: dict[str, Any]) -> bool:
-        """Apply include/exclude label filters and reject Confluence live docs.
-
-        Live docs report ``type: "page"`` like ordinary pages -- they're
-        differentiated only by ``subtype: "live"``, which CQL's
-        ``type in (...)`` clause can't see, so ``content_types`` alone can
-        never exclude them at the query level. There is currently no
-        supported way to opt into ingesting live docs, so they're rejected
-        unconditionally rather than gated by config.
-        """
-        if content.get("subtype") == "live":
-            return False
-        labels = content.get("metadata", {}).get("labels", {}).get("results", [])
-        label_names = {str(label.get("name")) for label in labels if isinstance(label, dict)}
-        if self.config.exclude_labels and label_names.intersection(self.config.exclude_labels):
-            return False
-        if self.config.include_labels:
-            return bool(label_names.intersection(self.config.include_labels))
-        return True
-
-    def _validate_content(self, content: dict[str, Any], content_id: str) -> None:
-        """Fail fast when content is malformed or outside the configured space."""
-        validate_content(content, content_id, space_key=self.config.space_key)

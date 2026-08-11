@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import os
-from io import BytesIO
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from harborrag_adapters.parsers.common.base import BaseParser
-from harborrag_adapters.parsers.image.engines.ocr.engine import DEFAULT_MAX_IMAGE_PIXELS
 from harborrag_adapters.parsers.image.parser import HarborImageParser
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -132,28 +130,27 @@ def _parse_image_with_rapidocr(content: bytes, extension: str) -> str:
     if not content:
         return ""
 
-    from PIL import Image
-
     try:
-        with Image.open(BytesIO(content)) as image:
-            width, height = image.size
-            pixel_count = width * height
-            if pixel_count > DEFAULT_MAX_IMAGE_PIXELS:
-                raise RuntimeError(
-                    f"Image {width}x{height} ({pixel_count} pixels) exceeds "
-                    f"max_pixels {DEFAULT_MAX_IMAGE_PIXELS}"
-                )
-    except Image.DecompressionBombError as exc:
-        raise RuntimeError(
-            f"Image OCR failed ({len(content)} bytes): exceeds Pillow's "
-            f"decompression-bomb pixel limit: {exc}"
-        ) from exc
-    except Image.UnidentifiedImageError as exc:
-        raise RuntimeError(
-            f"Image OCR failed ({len(content)} bytes): cannot decode as a supported "
-            "image format; the file may be corrupt, truncated, or not actually an image."
-        ) from exc
+        result = _rapidocr_engine()(content)
+    except Exception as exc:
+        # RapidOCR decodes internally via its own unguarded `Image.open()`,
+        # whose failure carries a raw `<_io.BytesIO object at 0x...>` repr
+        # with no detail about the file -- classify it instead of letting it
+        # escape as-is. Import lazily: this only runs on a decode failure,
+        # so tests that mock `_rapidocr_engine` never reach this branch.
+        from PIL import Image
 
-    result = _rapidocr_engine()(content)
+        if isinstance(exc, Image.DecompressionBombError):
+            raise RuntimeError(
+                f"Image OCR failed ({len(content)} bytes): exceeds Pillow's "
+                f"decompression-bomb pixel limit: {exc}"
+            ) from exc
+        if isinstance(exc, Image.UnidentifiedImageError):
+            raise RuntimeError(
+                f"Image OCR failed ({len(content)} bytes): cannot decode as a supported "
+                "image format; the file may be corrupt, truncated, or not actually an image."
+            ) from exc
+        raise
+
     texts = getattr(result, "txts", None) or ()
     return "\n".join(str(text).strip() for text in texts if str(text).strip())

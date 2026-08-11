@@ -152,9 +152,9 @@ def test_direct_id_discovery_stops_before_child_traversal_at_limit():
     )
 
     assert [record.locator for record in records] == ["1"]
-    assert [
-        endpoint for endpoint, _params in client.calls if endpoint != "user/current"
-    ] == ["content/1"]
+    assert [endpoint for endpoint, _params in client.calls if endpoint != "user/current"] == [
+        "content/1"
+    ]
 
 
 def test_discover_stops_at_limit_during_search():
