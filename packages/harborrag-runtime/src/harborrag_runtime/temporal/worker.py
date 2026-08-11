@@ -37,6 +37,51 @@ from .source_workflow import (
 
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 
+ALL_TASK_QUEUES = (
+    DISCOVERY_QUEUE,
+    TRANSFORM_QUEUE,
+    IO_QUEUE,
+    PARSER_QUEUE,
+    MODEL_QUEUE,
+    INDEX_QUEUE,
+)
+EXPECTED_WORKFLOWS = {
+    "SourceIngestionWorkflow",
+    "RetryFailuresWorkflow",
+    "SourceBatchWorkflow",
+    "DocumentIngestionWorkflow",
+    "DocumentRetryWorkflow",
+    "ReindexWorkflow",
+}
+EXPECTED_ACTIVITIES = {
+    "discover_source_items",
+    "cancel_source_ingestion",
+    "record_source_failure",
+    "finalize_source_ingestion",
+    "prepare_retry_failures",
+    "record_retry_failures_task_failure",
+    "finalize_retry_failures",
+    "sync_content_units",
+    "chunk_and_validate",
+    "build_relations",
+    "build_projections",
+    "fetch_and_capture_raw",
+    "persist_canonical",
+    "record_document_failure",
+    "retry_document_release",
+    "record_retry_document_failure",
+    "parse_and_normalize",
+    "encode_chunks",
+    "write_vector_projection",
+    "write_graph_projection",
+    "verify_projections",
+    "publish_version",
+    "cleanup_source_projections",
+    "cleanup_reindex_projections",
+    "repair_reindex_relations",
+    "reindex",
+}
+
 
 async def run_workers(
     settings: RuntimeSettings,
@@ -58,91 +103,22 @@ async def run_workers(
             runtime,
             telemetry=runtime.telemetry,
         )
-        workers = (
+        registrations = _worker_registrations(activities, maintenance)
+        _validate_worker_registrations(registrations)
+        workers = tuple(
             _build_worker(
                 client,
                 config,
-                task_queue=DISCOVERY_QUEUE,
-                workflows=(SourceIngestionWorkflow, RetryFailuresWorkflow),
-                activities=(
-                    activities.discover_source_items,
-                    activities.cancel_source_ingestion,
-                    activities.record_source_failure,
-                    activities.finalize_source_ingestion,
-                    activities.prepare_retry_failures,
-                    activities.record_retry_failures_task_failure,
-                    activities.finalize_retry_failures,
-                ),
-            ),
-            _build_worker(
-                client,
-                config,
-                task_queue=TRANSFORM_QUEUE,
-                workflows=(
-                    SourceBatchWorkflow,
-                    DocumentIngestionWorkflow,
-                    DocumentRetryWorkflow,
-                ),
-                activities=(
-                    activities.sync_content_units,
-                    activities.chunk_and_validate,
-                    activities.build_relations,
-                    activities.build_projections,
-                ),
-            ),
-            _build_worker(
-                client,
-                config,
-                task_queue=IO_QUEUE,
-                activities=(
-                    activities.fetch_and_capture_raw,
-                    activities.persist_canonical,
-                    activities.record_document_failure,
-                    activities.retry_document_release,
-                    activities.record_retry_document_failure,
-                ),
-            ),
-            _build_worker(
-                client,
-                config,
-                task_queue=PARSER_QUEUE,
-                activities=(activities.parse_and_normalize,),
-            ),
-            _build_worker(
-                client,
-                config,
-                task_queue=MODEL_QUEUE,
-                activities=(activities.encode_chunks,),
-            ),
-            _build_worker(
-                client,
-                config,
-                task_queue=INDEX_QUEUE,
-                workflows=(ReindexWorkflow,),
-                activities=(
-                    activities.write_vector_projection,
-                    activities.write_graph_projection,
-                    activities.verify_projections,
-                    activities.publish_version,
-                    maintenance.cleanup_source_projections,
-                    maintenance.cleanup_reindex_projections,
-                    maintenance.repair_reindex_relations,
-                    maintenance.reindex,
-                ),
-            ),
+                task_queue=task_queue,
+                workflows=workflows,
+                activities=queue_activities,
+            )
+            for task_queue, workflows, queue_activities in registrations
         )
+        await _emit_queue_metrics(runtime.telemetry, client, config)
         logger.info(
             "Temporal ingestion worker polling queues: %s",
-            ", ".join(
-                (
-                    DISCOVERY_QUEUE,
-                    IO_QUEUE,
-                    PARSER_QUEUE,
-                    TRANSFORM_QUEUE,
-                    MODEL_QUEUE,
-                    INDEX_QUEUE,
-                )
-            ),
+            ", ".join(ALL_TASK_QUEUES),
         )
         runs = asyncio.gather(*(worker.run() for worker in workers))
         await _wait_for_shutdown(workers, runs, stop_event=stop_event)
@@ -173,6 +149,198 @@ def _build_worker(
         max_concurrent_workflow_task_polls=(worker.max_concurrent_workflow_polls),
         graceful_shutdown_timeout=timedelta(seconds=worker.graceful_shutdown_seconds),
     )
+
+
+def _worker_registrations(
+    activities: IngestionActivities,
+    maintenance: MaintenanceActivities,
+) -> tuple[
+    tuple[str, tuple[type[Any], ...], tuple[Callable[..., Any], ...]],
+    ...,
+]:
+    return (
+        (
+            DISCOVERY_QUEUE,
+            (SourceIngestionWorkflow, RetryFailuresWorkflow),
+            (
+                activities.discover_source_items,
+                activities.cancel_source_ingestion,
+                activities.record_source_failure,
+                activities.finalize_source_ingestion,
+                activities.prepare_retry_failures,
+                activities.record_retry_failures_task_failure,
+                activities.finalize_retry_failures,
+            ),
+        ),
+        (
+            TRANSFORM_QUEUE,
+            (
+                SourceBatchWorkflow,
+                DocumentIngestionWorkflow,
+                DocumentRetryWorkflow,
+            ),
+            (
+                activities.sync_content_units,
+                activities.chunk_and_validate,
+                activities.build_relations,
+                activities.build_projections,
+            ),
+        ),
+        (
+            IO_QUEUE,
+            (),
+            (
+                activities.fetch_and_capture_raw,
+                activities.persist_canonical,
+                activities.record_document_failure,
+                activities.retry_document_release,
+                activities.record_retry_document_failure,
+            ),
+        ),
+        (
+            PARSER_QUEUE,
+            (),
+            (activities.parse_and_normalize,),
+        ),
+        (
+            MODEL_QUEUE,
+            (),
+            (activities.encode_chunks,),
+        ),
+        (
+            INDEX_QUEUE,
+            (ReindexWorkflow,),
+            (
+                activities.write_vector_projection,
+                activities.write_graph_projection,
+                activities.verify_projections,
+                activities.publish_version,
+                maintenance.cleanup_source_projections,
+                maintenance.cleanup_reindex_projections,
+                maintenance.repair_reindex_relations,
+                maintenance.reindex,
+            ),
+        ),
+    )
+
+
+def _validate_worker_registrations(
+    registrations: tuple[
+        tuple[str, tuple[type[Any], ...], tuple[Callable[..., Any], ...]],
+        ...,
+    ],
+) -> None:
+    queue_names = tuple(task_queue for task_queue, _, _ in registrations)
+    if set(queue_names) != set(ALL_TASK_QUEUES):
+        missing = sorted(set(ALL_TASK_QUEUES) - set(queue_names))
+        unexpected = sorted(set(queue_names) - set(ALL_TASK_QUEUES))
+        raise RuntimeError(
+            "Temporal worker queue registration mismatch "
+            f"missing={missing} unexpected={unexpected}"
+        )
+
+    workflow_names = [
+        workflow_type.__name__
+        for _, workflows, _ in registrations
+        for workflow_type in workflows
+    ]
+    activity_names = [
+        activity_fn.__name__
+        for _, _, activities in registrations
+        for activity_fn in activities
+    ]
+
+    duplicate_workflows = sorted(
+        {name for name in workflow_names if workflow_names.count(name) > 1}
+    )
+    duplicate_activities = sorted(
+        {name for name in activity_names if activity_names.count(name) > 1}
+    )
+    missing_workflows = sorted(EXPECTED_WORKFLOWS - set(workflow_names))
+    missing_activities = sorted(EXPECTED_ACTIVITIES - set(activity_names))
+    unexpected_workflows = sorted(set(workflow_names) - EXPECTED_WORKFLOWS)
+    unexpected_activities = sorted(set(activity_names) - EXPECTED_ACTIVITIES)
+    if any(
+        (
+            duplicate_workflows,
+            duplicate_activities,
+            missing_workflows,
+            missing_activities,
+            unexpected_workflows,
+            unexpected_activities,
+        )
+    ):
+        raise RuntimeError(
+            "Temporal worker registrations are incomplete or inconsistent "
+            f"duplicate_workflows={duplicate_workflows} "
+            f"duplicate_activities={duplicate_activities} "
+            f"missing_workflows={missing_workflows} "
+            f"missing_activities={missing_activities} "
+            f"unexpected_workflows={unexpected_workflows} "
+            f"unexpected_activities={unexpected_activities}"
+        )
+
+
+async def _emit_queue_metrics(
+    telemetry: Any,
+    client: Client,
+    config: TemporalRuntimeConfig,
+) -> None:
+    # Runtime-owned telemetry is optional in tests; skip emission when unavailable.
+    if telemetry is None:
+        return
+
+    queue_depths = await _describe_task_queue_depths(
+        client,
+        namespace=config.connection.namespace,
+        task_queues=ALL_TASK_QUEUES,
+    )
+    for queue_name in ALL_TASK_QUEUES:
+        slots = config.worker.max_concurrent_activities
+        telemetry.record_temporal_worker_slots(queue_name, slots)
+        depth = queue_depths.get(queue_name)
+        telemetry.record_temporal_queue_depth(queue_name, depth)
+        telemetry.record_temporal_worker_slot_saturation(queue_name, slots=slots, depth=depth)
+
+
+async def _describe_task_queue_depths(
+    client: Client,
+    *,
+    namespace: str,
+    task_queues: tuple[str, ...],
+) -> dict[str, int]:
+    service_client = getattr(client, "service_client", None)
+    workflow_service = getattr(service_client, "workflow_service", None)
+    if workflow_service is None:
+        return {}
+
+    try:
+        from temporalio.api.taskqueue.v1 import TaskQueue
+        from temporalio.api.workflowservice.v1 import DescribeTaskQueueRequest
+    except Exception:
+        return {}
+
+    depths: dict[str, int] = {}
+    for queue_name in task_queues:
+        try:
+            response = await workflow_service.describe_task_queue(
+                DescribeTaskQueueRequest(
+                    namespace=namespace,
+                    task_queue=TaskQueue(name=queue_name),
+                )
+            )
+        except Exception:
+            continue
+        status = getattr(response, "task_queue_status", None)
+        depth: int | None = None
+        for field_name in ("approximate_backlog_count", "backlog_count_hint"):
+            value = getattr(status, field_name, None) if status is not None else None
+            if isinstance(value, int):
+                depth = max(0, value)
+                break
+        if depth is not None:
+            depths[queue_name] = depth
+    return depths
 
 
 async def _connect_client(config: TemporalRuntimeConfig) -> Client:

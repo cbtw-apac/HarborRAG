@@ -15,6 +15,7 @@ from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
     TemporalTLSConfig,
+    WorkerConfig,
 )
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal import worker as worker_module
@@ -132,6 +133,39 @@ def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:
         options["graceful_shutdown_timeout"].total_seconds()
         == config.worker.graceful_shutdown_seconds
     )
+
+
+def test_worker_registration_validation_fails_loudly_when_workflows_missing() -> None:
+    registrations = (
+        ("harborrag-discovery", (), ()),
+        ("harborrag-transform", (), ()),
+        ("harborrag-io", (), ()),
+        ("harborrag-parser", (), ()),
+        ("harborrag-model", (), ()),
+        ("harborrag-index", (), ()),
+    )
+
+    with pytest.raises(RuntimeError, match="missing_workflows"):
+        worker_module._validate_worker_registrations(registrations)
+
+
+@pytest.mark.asyncio
+async def test_emit_queue_metrics_records_depth_and_saturation(monkeypatch) -> None:
+    telemetry = Mock()
+    monkeypatch.setattr(
+        worker_module,
+        "_describe_task_queue_depths",
+        AsyncMock(return_value={"harborrag-discovery": 12, "harborrag-index": 0}),
+    )
+    config = TemporalRuntimeConfig(worker=WorkerConfig(max_concurrent_activities=4))
+
+    await worker_module._emit_queue_metrics(telemetry, object(), config)
+
+    assert telemetry.record_temporal_worker_slots.call_count == 6
+    assert telemetry.record_temporal_queue_depth.call_count == 6
+    assert telemetry.record_temporal_worker_slot_saturation.call_count == 6
+    telemetry.record_temporal_worker_slots.assert_any_call("harborrag-discovery", 4)
+    telemetry.record_temporal_queue_depth.assert_any_call("harborrag-discovery", 12)
 
 
 @pytest.mark.asyncio

@@ -153,6 +153,24 @@ class IngestionTelemetry:
             "Stale vector candidates rejected by Postgres active-version validation.",
             registry=self.registry,
         )
+        self._temporal_queue_depth = Gauge(
+            "harborrag_temporal_task_queue_depth",
+            "Best-effort Temporal backlog depth by task queue.",
+            ("task_queue",),
+            registry=self.registry,
+        )
+        self._temporal_worker_slots = Gauge(
+            "harborrag_temporal_worker_slots",
+            "Configured Temporal worker activity slots per task queue.",
+            ("task_queue",),
+            registry=self.registry,
+        )
+        self._temporal_worker_slot_saturation = Gauge(
+            "harborrag_temporal_worker_slot_saturation",
+            "Best-effort activity slot saturation ratio by task queue.",
+            ("task_queue",),
+            registry=self.registry,
+        )
 
     async def start(self) -> None:
         """Expose this process's registry when a metrics port is configured."""
@@ -229,6 +247,27 @@ class IngestionTelemetry:
     def record_stale_candidate_rejections(self, count: int) -> None:
         if count > 0:
             self._stale_rejections.inc(count)
+
+    def record_temporal_queue_depth(self, task_queue: str, depth: int | None) -> None:
+        value = float(depth) if depth is not None else float("nan")
+        self._temporal_queue_depth.labels(task_queue=task_queue).set(value)
+
+    def record_temporal_worker_slots(self, task_queue: str, slots: int) -> None:
+        self._temporal_worker_slots.labels(task_queue=task_queue).set(max(1, slots))
+
+    def record_temporal_worker_slot_saturation(
+        self,
+        task_queue: str,
+        *,
+        slots: int,
+        depth: int | None,
+    ) -> None:
+        if depth is None:
+            value = float("nan")
+        else:
+            normalized_slots = max(1, slots)
+            value = min(1.0, max(0.0, depth / normalized_slots))
+        self._temporal_worker_slot_saturation.labels(task_queue=task_queue).set(value)
 
     def record_rate_limit_wait(
         self,
