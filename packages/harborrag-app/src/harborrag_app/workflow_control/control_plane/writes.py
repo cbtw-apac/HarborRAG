@@ -38,7 +38,7 @@ class ControlPlaneWritesMixin:
     def _control_plane(self) -> ControlPlaneRepositories:
         raise NotImplementedError
 
-    async def create_source(
+    async def create_source(  # noqa: PLR0913 - explicit source-creation fields keep secret handling auditable
         self,
         *,
         tenant_id: str,

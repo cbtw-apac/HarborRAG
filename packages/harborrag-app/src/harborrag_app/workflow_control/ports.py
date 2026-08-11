@@ -226,7 +226,7 @@ class BaseAppService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def create_source(
+    async def create_source(  # noqa: PLR0913 - explicit source-creation fields keep secret handling auditable
         self,
         *,
         tenant_id: str,

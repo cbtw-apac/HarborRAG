@@ -23,7 +23,7 @@ from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositor
 from harborrag_runtime.memory import InMemoryConversationMemory
 
 
-def control_plane_app_service(
+def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control-plane repository
     *,
     projects: list[Project] | None = None,
     sources: list[SourceConfig] | None = None,

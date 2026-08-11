@@ -213,7 +213,7 @@ class MockAppService(
         del source_id, tenant_ids
         return AppResponse(True, {"source": None})
 
-    async def create_source(
+    async def create_source(  # noqa: PLR0913 - mirrors the ports.py protocol signature
         self,
         *,
         tenant_id: str,
