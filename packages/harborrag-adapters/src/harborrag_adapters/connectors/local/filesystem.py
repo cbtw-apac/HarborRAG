@@ -14,6 +14,7 @@ from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
 from .filesystem_paths import (
+    SUPPORTS_DIR_FD,
     is_hidden_path,
     resolve_path,
     stat_signature,
@@ -41,9 +42,15 @@ class LocalFileSystem:
         self.source_path = Path(config.source_path)
         self._source_is_file = self.source_path.is_file()
         self.root_path = self.source_path.parent if self._source_is_file else self.source_path
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
-        self._root_fd = os.open(self.root_path, flags)
+        self._closed = False
+        if SUPPORTS_DIR_FD:
+            flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            self._root_fd = os.open(self.root_path, flags)
+        else:
+            # No dir_fd support (Windows): reads fall back to plain,
+            # per-component symlink-checked opens in `secure_read.py`.
+            self._root_fd = -1
         self._selector = LocalFileSelector(
             config,
             self.root_path,
@@ -55,9 +62,10 @@ class LocalFileSystem:
     def close(self) -> None:
         """Release the trusted root descriptor used for race-free reads."""
 
-        if self._root_fd >= 0:
+        if SUPPORTS_DIR_FD and self._root_fd >= 0:
             os.close(self._root_fd)
             self._root_fd = -1
+        self._closed = True
 
     def files_from_query(self, query: ConnectorQuery) -> Iterator[tuple[Path, bool]]:
         """Yield resolved files (with pre-resolution symlink provenance)."""
@@ -186,9 +194,12 @@ class LocalFileSystem:
     def read_snapshot(self, path: Path) -> LocalFileSnapshot:
         """Open beneath the bound root and read/hash/fstat one descriptor.
 
-        Every component is opened with ``O_NOFOLLOW``. This binds validation,
-        bytes, metadata, and checksum to one inode even if a writer renames a
-        pathname while the connector is loading it.
+        On platforms with `dir_fd` support, every component is opened with
+        ``O_NOFOLLOW``, binding validation, bytes, metadata, and checksum to
+        one inode even if a writer renames a pathname while the connector is
+        loading it. Windows has no `dir_fd`/`openat()` equivalent, so there
+        `read_snapshot_beneath` falls back to per-component symlink checks
+        followed by a plain open -- a narrower, best-effort guarantee.
         """
 
         return read_snapshot_beneath(
@@ -198,6 +209,7 @@ class LocalFileSystem:
                 source_path=self.source_path,
                 source_is_file=self._source_is_file,
                 root_fd=self._root_fd,
+                closed=self._closed,
             ),
             enforce_size_limit=self.enforce_size_limit,
             read_descriptor=self._read_descriptor,

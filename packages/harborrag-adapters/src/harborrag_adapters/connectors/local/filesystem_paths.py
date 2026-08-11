@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 
 from harborrag_adapters.connectors.file_filters import normalize_extension as normalize_extension
+
+# Windows has no openat()/O_NOFOLLOW-per-component equivalent
+SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
 
 DEFAULT_EXCLUDED_DIR_NAMES = {
     ".git",
