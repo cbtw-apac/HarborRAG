@@ -101,9 +101,7 @@ def test_stream_forwards_last_event_id_header_as_the_backlog_cursor(
     """A reconnecting EventSource's Last-Event-ID resumes the backlog past it."""
     service = _StreamingAppService(status="SUCCESS", events=[])
     with _client(service, monkeypatch) as client:
-        response = client.get(
-            "/v1/ingestions/t1/stream", headers={"Last-Event-ID": "5"}
-        )
+        response = client.get("/v1/ingestions/t1/stream", headers={"Last-Event-ID": "5"})
 
     assert response.status_code == 200
     assert service.last_after_seq == 5
@@ -114,9 +112,7 @@ def test_stream_ignores_a_malformed_last_event_id_header(
 ) -> None:
     service = _StreamingAppService(status="SUCCESS", events=[])
     with _client(service, monkeypatch) as client:
-        response = client.get(
-            "/v1/ingestions/t1/stream", headers={"Last-Event-ID": "not-a-number"}
-        )
+        response = client.get("/v1/ingestions/t1/stream", headers={"Last-Event-ID": "not-a-number"})
 
     assert response.status_code == 200
     assert service.last_after_seq is None
