@@ -11,7 +11,11 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import guard_input_size
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import (
+    MaxPixelsExceededError,
+    ParseError,
+    UnreadableImageError,
+)
 from harborrag_adapters.parsers.image.base import HarborImageEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -122,9 +126,11 @@ class OcrImageEngine(HarborImageEngine):
                 width, height = image.size
                 pixel_count = width * height
                 if self.max_pixels is not None and pixel_count > self.max_pixels:
-                    raise ParseError(
-                        f"Image {width}x{height} ({pixel_count} pixels) exceeds "
-                        f"max_pixels {self.max_pixels}"
+                    raise MaxPixelsExceededError(
+                        width=width,
+                        height=height,
+                        max_pixels=self.max_pixels,
+                        filename=parse_input.filename,
                     )
                 image.load()
                 # OCR providers use several no-detection sentinels across
@@ -133,6 +139,22 @@ class OcrImageEngine(HarborImageEngine):
                 content = (self._extract_text(data, image) or "").strip()
         except ParseError:
             raise
+        except Image.UnidentifiedImageError as exc:
+            # Pillow's own message is a raw `<_io.BytesIO object at 0x...>`
+            # repr with no detail about the file, so it gets replaced (not
+            # wrapped) with one naming the file and its size.
+            parser_logger.warning(
+                "Image OCR failed for %s: unreadable image (%d bytes)",
+                input_label(parse_input),
+                len(data),
+                extra=parser_log_extra(
+                    input=parse_input,
+                    parser_name=self.parser_name,
+                    parser_engine=self.ocr_engine,
+                    ocr_lang=self.lang,
+                ),
+            )
+            raise UnreadableImageError(filename=parse_input.filename, size_bytes=len(data)) from exc
         except (RuntimeError, OSError, ValueError, Image.DecompressionBombError) as exc:
             # `Image.open()` runs its own pixel-count guard against Pillow's
             # global `MAX_IMAGE_PIXELS` *before* our `max_pixels` check gets a

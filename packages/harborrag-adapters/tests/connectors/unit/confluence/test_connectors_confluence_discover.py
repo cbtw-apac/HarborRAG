@@ -6,7 +6,7 @@ import pytest
 from confluence_test_helpers import FakeConfluenceClient, cloud_config, light_content
 
 from harborrag_adapters.connectors.confluence import ConfluenceConnector
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import AuthenticationError, DocumentProcessingError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -34,7 +34,8 @@ def test_discover_paginates_and_filters_excluded_labels():
 
     assert [record.metadata["content_id"] for record in records] == ["1", "3"]
     assert records[0].id == "confluence://ENG/1"
-    assert client.calls[1][1]["cursor"] == "abc"
+    # calls[0] is the auth pre-flight (user/current), calls[1] the first search page.
+    assert client.calls[2][1]["cursor"] == "abc"
 
 
 def test_discover_excludes_live_docs_even_when_content_types_is_page():
@@ -151,7 +152,9 @@ def test_direct_id_discovery_stops_before_child_traversal_at_limit():
     )
 
     assert [record.locator for record in records] == ["1"]
-    assert [endpoint for endpoint, _params in client.calls] == ["content/1"]
+    assert [
+        endpoint for endpoint, _params in client.calls if endpoint != "user/current"
+    ] == ["content/1"]
 
 
 def test_discover_stops_at_limit_during_search():
@@ -212,6 +215,53 @@ def test_discover_rejects_unsafe_content_ids(content_id):
 
     with pytest.raises(ValueError, match="content ID"):
         list(connector.discover(ConnectorQuery(filters={"content_ids": [content_id]})))
+
+
+def test_discover_verifies_credentials_before_any_search_call(monkeypatch):
+    """A bad credential must surface as `AuthenticationError` immediately,
+    mirroring JiraConnector's pre-flight check, instead of only failing once
+    a search call happens to be made."""
+    client = FakeConfluenceClient()
+
+    def _raise_auth_error(endpoint, *, params=None):
+        raise AuthenticationError("bad credentials")
+
+    monkeypatch.setattr(client, "get_json", _raise_auth_error)
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    with pytest.raises(AuthenticationError):
+        list(connector.discover())
+
+
+def test_discover_page_verifies_credentials_before_any_search_call(monkeypatch):
+    client = FakeConfluenceClient()
+
+    def _raise_auth_error(endpoint, *, params=None):
+        raise AuthenticationError("bad credentials")
+
+    monkeypatch.setattr(client, "get_json", _raise_auth_error)
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    with pytest.raises(AuthenticationError):
+        connector.discover_page(None, cursor=None, page_size=10)
+
+
+def test_discover_page_verifies_credentials_only_once_across_pages():
+    client = FakeConfluenceClient()
+    client.add(
+        "content/search",
+        {
+            "results": [light_content("1", "A")],
+            "_links": {"next": "/rest/api/content/search?cursor=tok2"},
+        },
+        {"results": [light_content("2", "B")], "_links": {}},
+    )
+    connector = ConfluenceConnector(cloud_config(page_size=1), client=client)
+
+    connector.discover_page(None, cursor=None, page_size=1)
+    connector.discover_page(None, cursor="cursor:tok2", page_size=1)
+
+    assert client.calls.count(("user/current", None)) == 1
 
 
 def test_content_ids_from_query_accepts_bare_string():

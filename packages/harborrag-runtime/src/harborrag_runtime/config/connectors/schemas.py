@@ -149,17 +149,29 @@ class ConnectorCatalog:
     connectors: Mapping[str, ConnectorDefinition]
     source_path: Path
     version: int
+    errors: Mapping[str, ConnectorConfigurationError] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Copy the connector map into a read-only view."""
+        """Copy the connector and error maps into read-only views."""
         object.__setattr__(
             self,
             "connectors",
             MappingProxyType(dict(self.connectors)),
         )
+        object.__setattr__(
+            self,
+            "errors",
+            MappingProxyType(dict(self.errors)),
+        )
 
     def get(self, name: str) -> ConnectorDefinition:
-        """Return one definition or raise a configuration-specific error."""
+        """Return one definition or raise a configuration-specific error.
+
+        If ``name`` failed to parse when the catalog was loaded, this raises
+        that connector's own error rather than a generic "unknown" error.
+        """
+        if name in self.errors:
+            raise self.errors[name]
         try:
             return self.connectors[name]
         except KeyError as exc:

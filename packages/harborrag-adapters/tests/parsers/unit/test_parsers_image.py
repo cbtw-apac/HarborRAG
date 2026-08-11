@@ -125,6 +125,22 @@ def test_image_parser_raises_typed_error_instead_of_crashing_on_decompression_bo
         ImageParser().parse(ParseInput(content=_png_bytes(), filename="huge.png"))
 
 
+def test_image_parser_reports_unreadable_image_with_filename_and_size_not_raw_bytesio_repr() -> None:
+    """Bytes Pillow cannot identify as any supported format (corrupt,
+    truncated, or not actually an image) used to surface as a raw
+    `UnidentifiedImageError: cannot identify image file <_io.BytesIO object
+    at 0x...>` -- unreadable on its own, with no clue which file failed."""
+    garbage = b"not an image, just plain bytes"
+
+    with pytest.raises(ParseError) as exc_info:
+        ImageParser().parse(ParseInput(content=garbage, filename="quarterly_report.png"))
+
+    message = str(exc_info.value)
+    assert "quarterly_report.png" in message
+    assert str(len(garbage)) in message
+    assert "_io.BytesIO" not in message
+
+
 def test_image_parser_rejects_image_over_configured_max_pixels_with_clear_error() -> None:
     """A real, well-formed image whose pixel count exceeds the configured
     `max_pixels` (but stays under Pillow's own default decompression-bomb

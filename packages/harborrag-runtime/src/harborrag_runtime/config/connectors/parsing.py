@@ -31,16 +31,27 @@ def parse_connector_definitions(
     raw_connectors: Mapping[str, Any],
     *,
     base_directory: Path,
-) -> dict[str, ConnectorDefinition]:
-    """Parse all named connector definitions from the top-level mapping."""
-    return {
-        _validate_name(name): _parse_definition(
-            name,
-            raw_definition,
-            base_directory=base_directory,
-        )
-        for name, raw_definition in raw_connectors.items()
-    }
+) -> tuple[dict[str, ConnectorDefinition], dict[str, ConnectorConfigurationError]]:
+    """Parse each named connector definition independently.
+
+    A connector whose own definition is invalid does not prevent other
+    connectors in the same file from parsing; its error is returned
+    alongside the valid definitions and only raised when that specific
+    connector is looked up or built.
+    """
+    definitions: dict[str, ConnectorDefinition] = {}
+    errors: dict[str, ConnectorConfigurationError] = {}
+    for name, raw_definition in raw_connectors.items():
+        try:
+            valid_name = _validate_name(name)
+            definitions[valid_name] = _parse_definition(
+                valid_name,
+                raw_definition,
+                base_directory=base_directory,
+            )
+        except ConnectorConfigurationError as exc:
+            errors[name] = exc
+    return definitions, errors
 
 
 def _validate_name(name: str) -> str:

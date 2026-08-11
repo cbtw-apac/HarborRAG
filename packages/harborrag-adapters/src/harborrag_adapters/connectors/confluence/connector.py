@@ -117,8 +117,21 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         if callable(close):
             close()
 
+    def connect(self) -> None:
+        """Verify Confluence credentials once before the first discovery request.
+
+        Mirrors `JiraConnector.connect` so both connectors surface a bad
+        credential at the same point in a run, before any content-fetch
+        call. `user/current` requires a valid session on both Cloud and
+        Data Center and returns only account data, so it reliably raises
+        `AuthenticationError` (via the shared Atlassian client's existing
+        401 handling) without depending on space-level permissions.
+        """
+        self.client.get_json("user/current")
+
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search Confluence content or materialize explicitly requested IDs."""
+        self._ensure_connected()
         query = query or ConnectorQuery()
         content_ids = self._content_ids_from_query(query)
         yielded = 0
@@ -174,6 +187,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     ) -> ConnectorPage:
         """Use Confluence's Cloud cursor or Data Center offset directly."""
 
+        self._ensure_connected()
         query = query or ConnectorQuery()
         if self._content_ids_from_query(query):
             page = super().discover_page(query, cursor=cursor, page_size=page_size)

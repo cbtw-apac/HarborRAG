@@ -86,6 +86,26 @@ def test_missing_referenced_setting_fails_before_provider_construction(
             """,
             "unknown field",
         ),
+    ],
+)
+def test_rejects_invalid_root_level_file_shapes(
+    tmp_path: Path,
+    content: str,
+    message: str,
+) -> None:
+    """Root-level structural errors are not scoped to a connector and still
+
+    fail the whole file: there is no valid catalog to load independently.
+    """
+    config_path = write_config(tmp_path, content)
+
+    with pytest.raises(ConnectorConfigurationError, match=message):
+        load_connector_catalog(config_path)
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
         (
             """
             version: 1
@@ -171,15 +191,51 @@ def test_missing_referenced_setting_fails_before_provider_construction(
         ),
     ],
 )
-def test_rejects_invalid_file_shapes(
+def test_rejects_invalid_connector_shapes_lazily(
     tmp_path: Path,
     content: str,
     message: str,
 ) -> None:
+    """A single connector's invalid definition loads without raising and
+
+    only surfaces its error when that connector is looked up or built.
+    """
     config_path = write_config(tmp_path, content)
 
+    catalog = load_connector_catalog(config_path)
+
     with pytest.raises(ConnectorConfigurationError, match=message):
-        load_connector_catalog(config_path)
+        catalog.get("broken")
+    with pytest.raises(ConnectorConfigurationError, match=message):
+        catalog.build("broken")
+
+
+def test_one_broken_connector_does_not_affect_a_valid_connector(
+    tmp_path: Path,
+) -> None:
+    config_path = write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          broken-github:
+            provider: unknown
+          local-docs:
+            provider: local
+            settings:
+              source_path: docs
+        """,
+    )
+    (config_path.parent / "docs").mkdir()
+
+    catalog = load_connector_catalog(config_path)
+
+    assert catalog.names(enabled_only=True) == ["local-docs"]
+    connector = catalog.build("local-docs", environment={})
+    assert connector.provider.config.source_path.name == "docs"
+
+    with pytest.raises(ConnectorConfigurationError, match="broken-github"):
+        catalog.get("broken-github")
 
 
 def test_provider_validation_errors_include_connector_identity(tmp_path: Path) -> None:

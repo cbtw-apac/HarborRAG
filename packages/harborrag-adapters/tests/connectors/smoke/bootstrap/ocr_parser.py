@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+from io import BytesIO
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from harborrag_adapters.parsers.common.base import BaseParser
+from harborrag_adapters.parsers.image.engines.ocr.engine import DEFAULT_MAX_IMAGE_PIXELS
 from harborrag_adapters.parsers.image.parser import HarborImageParser
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
@@ -51,10 +53,13 @@ class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
             read_parse_input_bytes,
         )
 
-        text = _parse_image_with_rapidocr(
-            read_parse_input_bytes(parse_input),
-            parse_input_suffix(parse_input),
-        )
+        try:
+            text = _parse_image_with_rapidocr(
+                read_parse_input_bytes(parse_input),
+                parse_input_suffix(parse_input),
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(f"{exc} (file={parse_input.filename!r})") from exc
         elements = (
             [
                 DocumentElement(
@@ -124,6 +129,31 @@ def _rapidocr_engine():
 def _parse_image_with_rapidocr(content: bytes, extension: str) -> str:
     """Extract ordered text lines from one image with RapidOCR."""
     _ = extension
+    if not content:
+        return ""
+
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(content)) as image:
+            width, height = image.size
+            pixel_count = width * height
+            if pixel_count > DEFAULT_MAX_IMAGE_PIXELS:
+                raise RuntimeError(
+                    f"Image {width}x{height} ({pixel_count} pixels) exceeds "
+                    f"max_pixels {DEFAULT_MAX_IMAGE_PIXELS}"
+                )
+    except Image.DecompressionBombError as exc:
+        raise RuntimeError(
+            f"Image OCR failed ({len(content)} bytes): exceeds Pillow's "
+            f"decompression-bomb pixel limit: {exc}"
+        ) from exc
+    except Image.UnidentifiedImageError as exc:
+        raise RuntimeError(
+            f"Image OCR failed ({len(content)} bytes): cannot decode as a supported "
+            "image format; the file may be corrupt, truncated, or not actually an image."
+        ) from exc
+
     result = _rapidocr_engine()(content)
     texts = getattr(result, "txts", None) or ()
     return "\n".join(str(text).strip() for text in texts if str(text).strip())
