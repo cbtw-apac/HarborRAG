@@ -36,6 +36,15 @@ class BrokenService(BaseAppService):
     async def get_source(self, source_id: str) -> AppResponse:
         return await super().get_source(source_id)
 
+    async def create_source(self, **kwargs: object) -> AppResponse:
+        return await super().create_source(**kwargs)
+
+    async def update_source(self, source_id: str, **kwargs: object) -> AppResponse:
+        return await super().update_source(source_id, **kwargs)
+
+    async def delete_source(self, source_id: str, **kwargs: object) -> AppResponse:
+        return await super().delete_source(source_id, **kwargs)
+
     async def list_activity(self, limit: int = 50) -> AppResponse:
         return await super().list_activity(limit)
 

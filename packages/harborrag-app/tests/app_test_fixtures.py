@@ -203,6 +203,34 @@ class MockAppService(
     async def get_source(self, source_id: str) -> AppResponse:
         return AppResponse(True, {"source": None})
 
+    async def create_source(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        source_type: str,
+        name: str,
+        config: Mapping[str, object],
+        schedule: str | None,
+        actor: str,
+    ) -> AppResponse:
+        del tenant_id, project_id, source_type, name, config, schedule, actor
+        return AppResponse(True, {"source": None})
+
+    async def update_source(
+        self,
+        source_id: str,
+        *,
+        updates: dict[str, object],
+        actor: str,
+    ) -> AppResponse:
+        del source_id, updates, actor
+        return AppResponse(True, {"source": None})
+
+    async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
+        del actor
+        return AppResponse(True, {"source_id": source_id})
+
     async def list_activity(self, limit: int = 50) -> AppResponse:
         return AppResponse(True, {"activity": []})
 

@@ -13,6 +13,7 @@ from harborrag_core.testing.fakes import (
     FakeMemberRepository,
     FakeProjectRepository,
     FakeProviderRepository,
+    FakeSecrets,
     FakeSettingsRepository,
     FakeSourceRepository,
 )
@@ -27,6 +28,7 @@ def control_plane_app_service(
     sources: list[SourceConfig] | None = None,
     activity: list[ActivityEntry] | None = None,
     settings: WorkspaceSettings | None = None,
+    secrets: FakeSecrets | None = None,
 ) -> AppService:
     """Build a service with test-only, seedable control-plane repositories."""
 
@@ -40,6 +42,7 @@ def control_plane_app_service(
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
         agent_runs=InMemoryAgentRunRepository(),
+        secrets=secrets or FakeSecrets(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,
