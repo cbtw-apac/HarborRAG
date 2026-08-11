@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
@@ -99,8 +100,9 @@ class IngestionTaskRegistry:
     async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]:
         return await self._control.tasks.list_active(limit=limit)
 
-    async def append_task_event(self, task_id: str, event: HarborEvent) -> None:
-        await self._control.task_events.append_event(task_id, event)
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
+        seq = await self._control.task_events.append_event(task_id, event)
+        return replace(event, seq=seq)
 
     async def list_task_events(
         self,

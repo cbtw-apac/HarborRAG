@@ -114,6 +114,7 @@ async def stream_ingestion(
     task_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
     """Backlog replay then a live tail of a task's progress events (SSE).
 
@@ -122,10 +123,14 @@ async def stream_ingestion(
     normal exception handling turns it into the usual enveloped 404 --
     once StreamingResponse starts streaming, the HTTP status is already
     committed and an error can no longer change it.
+
+    A reconnecting browser EventSource resends the last frame's ``id:`` as
+    the ``Last-Event-ID`` header; that becomes ``after_seq`` so the backlog
+    replay resumes past what the client already has instead of repeating it.
     """
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
-    events = service.stream_ingestion_events(task_id)
+    events = service.stream_ingestion_events(task_id, after_seq=_parse_after_seq(last_event_id))
     try:
         first_event = await events.__anext__()
     except StopAsyncIteration:
@@ -144,8 +149,19 @@ async def stream_ingestion(
     return StreamingResponse(_frames(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
+def _parse_after_seq(last_event_id: str | None) -> int | None:
+    if last_event_id is None:
+        return None
+    try:
+        return int(last_event_id)
+    except ValueError:
+        return None
+
+
 def _sse_frame(event: HarborEvent) -> bytes:
-    return f"event: {event.name}\ndata: {json.dumps(event.payload, default=str)}\n\n".encode()
+    name = event.name.replace("\n", "").replace("\r", "")
+    id_line = f"id: {event.seq}\n" if event.seq is not None else ""
+    return f"{id_line}event: {name}\ndata: {json.dumps(event.payload, default=str)}\n\n".encode()
 
 
 @router.post(

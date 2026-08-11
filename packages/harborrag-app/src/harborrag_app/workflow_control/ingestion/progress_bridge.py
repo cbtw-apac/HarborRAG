@@ -51,7 +51,7 @@ async def sync_ingestion_progress(store: PublicTaskStore, event_bus: EventBusPor
                 trace_id=task.task_id,
                 payload={"status": task.status.value, "counts": counts},
             )
-            await store.append_task_event(task.task_id, event)
+            event = await store.append_task_event(task.task_id, event)
             await event_bus.publish(event)
             await store.update_summary(task.task_id, {_SNAPSHOT_KEY: counts})
         refreshed = await store.get(task.task_id)
@@ -61,7 +61,7 @@ async def sync_ingestion_progress(store: PublicTaskStore, event_bus: EventBusPor
                 trace_id=task.task_id,
                 payload={"status": refreshed.status.value, "counts": counts},
             )
-            await store.append_task_event(task.task_id, done_event)
+            done_event = await store.append_task_event(task.task_id, done_event)
             await event_bus.publish(done_event)
     return len(active)
 

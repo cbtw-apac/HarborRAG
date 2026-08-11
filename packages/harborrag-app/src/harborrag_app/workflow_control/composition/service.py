@@ -156,15 +156,19 @@ class AppService(
         store = await self._resources.public_task_store()
         return await sync_ingestion_progress(store, self._resources.event_bus())
 
-    async def stream_ingestion_events(self, task_id: str) -> AsyncIterator[HarborEvent]:
+    async def stream_ingestion_events(
+        self, task_id: str, *, after_seq: int | None = None
+    ) -> AsyncIterator[HarborEvent]:
         """Backlog replay then a live tail of a task's progress events.
 
-        Subscribes before reading the backlog so nothing published in the gap
-        between the two is ever dropped (a harmless duplicate at worst, since
-        every progress payload is a full snapshot). Stops after a
-        "task.<id>.done" event, or immediately after the backlog if the
-        task's persisted state is already terminal, since the progress
-        bridge only ever touches active (PENDING/RUNNING) tasks.
+        ``after_seq`` resumes a reconnecting client (Last-Event-ID) after its
+        last-seen sequence instead of replaying the full backlog. Subscribes
+        before reading the backlog so nothing published in the gap between
+        the two is ever dropped (a harmless duplicate at worst, since every
+        progress payload is a full snapshot). Stops after a "task.<id>.done"
+        event, or immediately after the backlog if the task's persisted
+        state is already terminal, since the progress bridge only ever
+        touches active (PENDING/RUNNING) tasks.
         """
         task = await self._public_ingestions.get_task(task_id)
         store = await self._resources.public_task_store()
@@ -172,7 +176,7 @@ class AppService(
         terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
         if task["status"] not in terminal_names:
             live = self._resources.event_bus().subscribe(f"task.{task_id}.")
-        for event in await store.list_task_events(task_id):
+        for event in await store.list_task_events(task_id, after_seq=after_seq):
             yield event
         if live is None:
             return

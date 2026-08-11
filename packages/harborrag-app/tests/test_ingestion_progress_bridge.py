@@ -8,7 +8,7 @@ receives the resulting events live (not just after reconnecting).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 
@@ -42,6 +42,7 @@ class FakeTaskStore:
         # exactly the race sync_ingestion_progress's re-fetch is there to catch.
         self._finish_on_progress = dict(finish_on_progress or {})
         self.appended: list[tuple[str, HarborEvent]] = []
+        self._next_seq: dict[str, int] = {}
 
     async def list_active(self, *, limit: int = 500) -> tuple[_FakeTask, ...]:
         del limit
@@ -62,8 +63,12 @@ class FakeTaskStore:
     async def update_summary(self, task_id: str, values: dict[str, object]) -> None:
         self._tasks[task_id].summary.update(values)
 
-    async def append_task_event(self, task_id: str, event: HarborEvent) -> None:
-        self.appended.append((task_id, event))
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
+        seq = self._next_seq.get(task_id, 0) + 1
+        self._next_seq[task_id] = seq
+        stamped = replace(event, seq=seq)
+        self.appended.append((task_id, stamped))
+        return stamped
 
 
 @pytest.mark.asyncio

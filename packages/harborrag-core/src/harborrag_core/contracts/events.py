@@ -11,3 +11,4 @@ class HarborEvent:
     trace_id: str
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    seq: int | None = None  # per-task append sequence, set once persisted (SSE replay cursor)

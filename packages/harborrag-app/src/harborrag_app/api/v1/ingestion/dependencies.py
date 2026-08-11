@@ -41,7 +41,9 @@ class IngestionService(Protocol):
         document_ids: list[str],
     ) -> dict[str, object]: ...
 
-    def stream_ingestion_events(self, task_id: str) -> AsyncIterator[HarborEvent]: ...
+    def stream_ingestion_events(
+        self, task_id: str, *, after_seq: int | None = None
+    ) -> AsyncIterator[HarborEvent]: ...
 
 
 def ingestion_service(request: Request) -> IngestionService:

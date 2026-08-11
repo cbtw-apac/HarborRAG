@@ -22,17 +22,25 @@ class _StreamingAppService(MockAppService):
         super().__init__()
         self._status = status
         self._events = events
+        self.last_after_seq: int | None = None
 
     async def get_task(self, task_id: str) -> dict[str, object]:
         return {"task_id": task_id, "tenant": "DEFAULT", "status": self._status}
 
-    async def stream_ingestion_events(self, task_id: str) -> AsyncIterator[HarborEvent]:
+    async def stream_ingestion_events(
+        self, task_id: str, *, after_seq: int | None = None
+    ) -> AsyncIterator[HarborEvent]:
         del task_id
+        self.last_after_seq = after_seq
         for event in self._events:
             yield event
 
 
 def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
+    return [(name, data) for name, data, _id in _sse_frames_with_id(body)]
+
+
+def _sse_frames_with_id(body: str) -> list[tuple[str, dict[str, object], str | None]]:
     if not body.strip():
         return []
     frames = []
@@ -40,7 +48,10 @@ def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
         lines = block.splitlines()
         event = next(line.removeprefix("event: ") for line in lines if line.startswith("event: "))
         data = next(line.removeprefix("data: ") for line in lines if line.startswith("data: "))
-        frames.append((event, json.loads(data)))
+        event_id = next(
+            (line.removeprefix("id: ") for line in lines if line.startswith("id: ")), None
+        )
+        frames.append((event, json.loads(data), event_id))
     return frames
 
 
@@ -66,6 +77,49 @@ def test_stream_replays_backlog_and_closes_for_an_already_terminal_task(
     frames = _sse_frames(response.text)
     assert [name for name, _ in frames] == ["task.t1.progress", "task.t1.done"]
     assert frames[0][1] == {"n": 1}
+
+
+def test_stream_frames_carry_the_event_sequence_as_the_sse_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each frame's ``id:`` is the durable seq, so a client can resume past it."""
+    events = [
+        HarborEvent(name="task.t1.progress", trace_id="t1", payload={"n": 1}, seq=5),
+        HarborEvent(name="task.t1.done", trace_id="t1", payload={"n": 2}, seq=6),
+    ]
+    service = _StreamingAppService(status="SUCCESS", events=events)
+    with _client(service, monkeypatch) as client:
+        response = client.get("/v1/ingestions/t1/stream")
+
+    frames = _sse_frames_with_id(response.text)
+    assert [event_id for _, _, event_id in frames] == ["5", "6"]
+
+
+def test_stream_forwards_last_event_id_header_as_the_backlog_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reconnecting EventSource's Last-Event-ID resumes the backlog past it."""
+    service = _StreamingAppService(status="SUCCESS", events=[])
+    with _client(service, monkeypatch) as client:
+        response = client.get(
+            "/v1/ingestions/t1/stream", headers={"Last-Event-ID": "5"}
+        )
+
+    assert response.status_code == 200
+    assert service.last_after_seq == 5
+
+
+def test_stream_ignores_a_malformed_last_event_id_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _StreamingAppService(status="SUCCESS", events=[])
+    with _client(service, monkeypatch) as client:
+        response = client.get(
+            "/v1/ingestions/t1/stream", headers={"Last-Event-ID": "not-a-number"}
+        )
+
+    assert response.status_code == 200
+    assert service.last_after_seq is None
 
 
 def test_stream_of_a_task_with_no_backlog_returns_an_empty_stream(

@@ -22,8 +22,12 @@ class TaskEventRepository:
 
     client: SQLAlchemyDBClient
 
-    async def append_event(self, task_id: str, event: HarborEvent) -> None:
-        """Append the event with the next per-task sequence number."""
+    async def append_event(self, task_id: str, event: HarborEvent) -> int:
+        """Append the event with the next per-task sequence number.
+
+        Returns the assigned sequence so callers can stamp the in-memory
+        event before publishing it live (the SSE replay cursor).
+        """
         async with self.client.sessions.begin() as session:
             result = await session.execute(
                 sa.update(INGESTION_TASKS)
@@ -44,6 +48,7 @@ class TaskEventRepository:
                     created_at=event.created_at,
                 )
             )
+            return int(next_seq)
 
     async def list_events(
         self,
@@ -61,6 +66,7 @@ class TaskEventRepository:
             raise ValueError("task event limit must be between 1 and 1000")
         if after_seq is not None and after_seq < 0:
             raise ValueError("task event cursor must not be negative")
+
         statement = (
             sa.select(TASK_EVENTS)
             .where(TASK_EVENTS.c.task_id == task_id)
@@ -77,6 +83,7 @@ class TaskEventRepository:
                     trace_id=row["trace_id"],
                     payload=dict(row["payload_json"]),
                     created_at=row["created_at"],
+                    seq=row["seq"],
                 )
                 for row in rows
             ]
