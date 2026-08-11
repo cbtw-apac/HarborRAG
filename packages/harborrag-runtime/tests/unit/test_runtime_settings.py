@@ -15,6 +15,7 @@ def test_control_database_pool_settings_are_bounded() -> None:
     settings = RuntimeSettings(
         env="prod",
         control_db_url="postgresql+asyncpg://user:pass@database/control",
+        secrets_encryption_key="test-encryption-key",
         control_db_pool_size=12,
         control_db_max_overflow=24,
     )
@@ -98,6 +99,7 @@ def test_remote_plaintext_redis_requires_development_acknowledgement() -> None:
         RuntimeSettings(
             env="prod",
             control_db_url="postgresql+asyncpg://database/control",
+            secrets_encryption_key="test-encryption-key",
             redis_url=remote_url,
             redis_allow_insecure_remote=True,
         )
@@ -125,6 +127,7 @@ def test_remote_plaintext_object_store_requires_development_acknowledgement() ->
         RuntimeSettings(
             env="prod",
             control_db_url="postgresql+asyncpg://database/control",
+            secrets_encryption_key="test-encryption-key",
             object_store_endpoint_url=endpoint,
             object_store_allow_insecure_remote=True,
         )
@@ -134,6 +137,7 @@ def test_remote_secure_object_store_is_accepted_in_production() -> None:
     settings = RuntimeSettings(
         env="prod",
         control_db_url="postgresql+asyncpg://database/control",
+        secrets_encryption_key="test-encryption-key",
         object_store_endpoint_url="https://objects.example.com",
     )
 

@@ -46,9 +46,9 @@ class FakeTaskStore:
     async def list_active(self, *, limit: int = 500) -> tuple[_FakeTask, ...]:
         del limit
         return tuple(
-            task for task in self._tasks.values() if task.status in (
-                IngestionTaskState.PENDING, IngestionTaskState.RUNNING
-            )
+            task
+            for task in self._tasks.values()
+            if task.status in (IngestionTaskState.PENDING, IngestionTaskState.RUNNING)
         )
 
     async def get(self, task_id: str) -> _FakeTask | None:

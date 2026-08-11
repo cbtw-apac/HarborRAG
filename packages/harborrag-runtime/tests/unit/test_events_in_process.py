@@ -78,9 +78,7 @@ async def test_full_queue_still_admits_a_terminal_done_event() -> None:
 
     await bus.publish(HarborEvent(name="job.1.progress", trace_id="t1"))
     await bus.publish(HarborEvent(name="job.1.progress", trace_id="t2"))
-    await asyncio.wait_for(
-        bus.publish(HarborEvent(name="job.1.done", trace_id="t3")), timeout=0.1
-    )
+    await asyncio.wait_for(bus.publish(HarborEvent(name="job.1.done", trace_id="t3")), timeout=0.1)
 
     events = [await stream.__anext__(), await stream.__anext__()]
     assert events[-1].name == "job.1.done"

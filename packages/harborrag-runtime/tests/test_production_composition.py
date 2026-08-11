@@ -33,10 +33,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0013"
+    assert control_db["migrations"] == "0015"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0013" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0015" in caplog.text
 
 
 @pytest.mark.asyncio
