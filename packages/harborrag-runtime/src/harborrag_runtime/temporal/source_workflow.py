@@ -84,7 +84,10 @@ class SourceIngestionWorkflow:
                     return await self._cancelled_result(request, discovery)
                 if (
                     end < discovery.document_count
-                    and completed_in_run >= request.continue_after_batches
+                    and (
+                        completed_in_run >= request.continue_after_batches
+                        or workflow.info().is_continue_as_new_suggested()
+                    )
                 ):
                     workflow.continue_as_new(
                         replace(
