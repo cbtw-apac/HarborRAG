@@ -35,6 +35,9 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --all-packages --all-extras
 
+      - name: Validate pre-commit config
+        run: uv run pre-commit validate-config .pre-commit-config.yaml
+
       - name: Lint
         run: uv run make lint
 
