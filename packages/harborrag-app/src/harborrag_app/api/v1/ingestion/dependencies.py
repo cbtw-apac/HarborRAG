@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
@@ -43,7 +43,7 @@ class IngestionService(Protocol):
 
     def stream_ingestion_events(
         self, task_id: str, *, after_seq: int | None = None
-    ) -> AsyncIterator[HarborEvent]: ...
+    ) -> AsyncGenerator[HarborEvent, None]: ...
 
 
 def ingestion_service(request: Request) -> IngestionService:

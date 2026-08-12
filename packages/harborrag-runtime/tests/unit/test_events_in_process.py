@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 
 import pytest
 
@@ -52,6 +53,28 @@ async def test_subscriber_is_deregistered_on_task_cancellation() -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert bus._subscribers == []
+
+
+@pytest.mark.asyncio
+async def test_subscriber_is_deregistered_when_abandoned_before_first_iteration() -> None:
+    """A subscription dropped before its stream is ever iterated must not leak.
+
+    subscribe() registers eagerly (see its docstring), but the returned
+    async generator's try/finally body doesn't run until it's iterated at
+    least once. A caller that subscribes and then, e.g., is cancelled
+    while still reading a DB backlog -- never reaching `async for` over
+    the live stream -- abandons a generator that never started. GC'ing an
+    unstarted generator skips its try/finally entirely, so without a
+    GC-driven finalizer the subscription would stay registered forever.
+    """
+    bus = InProcessEventBus()
+    stream = bus.subscribe("job.1.")
+    assert len(bus._subscribers) == 1
+
+    del stream
+    gc.collect()
+
     assert bus._subscribers == []
 
 

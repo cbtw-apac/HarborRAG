@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+import weakref
+from collections.abc import AsyncGenerator
 
 from harborrag_core.contracts.events import HarborEvent
 
@@ -60,7 +61,7 @@ class InProcessEventBus:
                         event.name,
                     )
 
-    def subscribe(self, name_prefix: str) -> AsyncIterator[HarborEvent]:
+    def subscribe(self, name_prefix: str) -> AsyncGenerator[HarborEvent, None]:
         """Stream events whose name starts with name_prefix, indefinitely.
 
         Registration happens synchronously, here, before returning -- not
@@ -69,16 +70,33 @@ class InProcessEventBus:
         that reads a DB backlog and only *then* starts consuming this stream
         must be guaranteed that anything published in between is captured
         the moment subscribe() is called, not the moment iteration begins.
+
+        The flip side of that same laziness: if the returned iterator is
+        abandoned before it's ever iterated -- e.g. a caller subscribes,
+        then gets cancelled while still reading a backlog -- the async
+        generator's frame never starts, so its try/finally below never
+        runs and closing/GC'ing it would leave the subscription registered
+        forever. A weakref.finalize tied to the generator object itself
+        (not to its execution reaching the finally) closes that gap: it
+        fires on GC regardless of whether the generator ever started.
         """
         queue: asyncio.Queue[HarborEvent] = asyncio.Queue(maxsize=self._max_queue_size)
         subscription = (name_prefix, queue)
         self._subscribers.append(subscription)
-        return self._consume(subscription)
+        agen = self._consume(subscription)
+        weakref.finalize(agen, self._discard, subscription)
+        return agen
 
-    async def _consume(self, subscription: _Subscription) -> AsyncIterator[HarborEvent]:
+    def _discard(self, subscription: _Subscription) -> None:
+        try:
+            self._subscribers.remove(subscription)
+        except ValueError:
+            pass
+
+    async def _consume(self, subscription: _Subscription) -> AsyncGenerator[HarborEvent, None]:
         _, queue = subscription
         try:
             while True:
                 yield await queue.get()
         finally:
-            self._subscribers.remove(subscription)
+            self._discard(subscription)

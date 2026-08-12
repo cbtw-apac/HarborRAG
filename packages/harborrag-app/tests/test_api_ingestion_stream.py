@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -11,7 +12,9 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.api.v1.ingestion.routes import stream_ingestion
 from harborrag_core.contracts.events import HarborEvent
 
 
@@ -145,3 +148,48 @@ def test_stream_of_an_unknown_task_is_a_plain_enveloped_404(
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")
     assert response.json()["error"]["code"] == "harbor_not_found_error"
+
+
+@pytest.mark.asyncio
+async def test_stream_closes_the_app_service_generator_on_early_disconnect() -> None:
+    """Closing the SSE body iterator early must close the app-service stream too.
+
+    Starlette closes/cancels the response body iterator when a client
+    disconnects mid-tail. Without ``_frames``'s ``finally: await
+    events.aclose()``, that cancellation would abandon whatever the app
+    service still held open (e.g. an event-bus subscription -- see
+    AppService.stream_ingestion_events) to be cleaned up only whenever
+    Python's GC gets around to it, instead of deterministically.
+    """
+    closed = {"value": False}
+    progress_event = HarborEvent(name="task.t1.progress", trace_id="t1", payload={"n": 1})
+
+    class _HangingAppService(MockAppService):
+        async def get_task(self, task_id: str) -> dict[str, object]:
+            return {"task_id": task_id, "tenant": "DEFAULT", "status": "RUNNING"}
+
+        async def stream_ingestion_events(
+            self, task_id: str, *, after_seq: int | None = None
+        ) -> AsyncIterator[HarborEvent]:
+            del task_id, after_seq
+            try:
+                yield progress_event
+                await asyncio.Event().wait()  # never resolves -- simulates a live tail
+            finally:
+                closed["value"] = True
+
+    principal = Principal(subject="test", role="reader", tenant_ids=frozenset({"*"}))
+    response = await stream_ingestion(
+        "t1",
+        service=_HangingAppService(),
+        principal=principal,
+        last_event_id=None,
+    )
+    body = response.body_iterator
+    first_chunk = await body.__anext__()
+    assert b"task.t1.progress" in first_chunk
+    assert closed["value"] is False
+
+    await body.aclose()
+
+    assert closed["value"] is True

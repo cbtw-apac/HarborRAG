@@ -142,9 +142,12 @@ async def stream_ingestion(
         return StreamingResponse(_empty(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     async def _frames() -> AsyncIterator[bytes]:
-        yield _sse_frame(first_event)
-        async for event in events:
-            yield _sse_frame(event)
+        try:
+            yield _sse_frame(first_event)
+            async for event in events:
+                yield _sse_frame(event)
+        finally:
+            await events.aclose()
 
     return StreamingResponse(_frames(), media_type="text/event-stream", headers=_SSE_HEADERS)
 

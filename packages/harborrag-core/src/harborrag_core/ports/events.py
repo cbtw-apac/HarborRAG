@@ -8,7 +8,7 @@ stalled subscriber.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Protocol
 
 from harborrag_core.contracts.events import HarborEvent
@@ -20,5 +20,11 @@ class EventBusPort(Protocol):
     async def publish(self, event: HarborEvent) -> None:
         """Deliver the event to every subscriber whose prefix matches."""
 
-    def subscribe(self, name_prefix: str) -> AsyncIterator[HarborEvent]:
-        """Stream events whose name starts with name_prefix, indefinitely."""
+    def subscribe(self, name_prefix: str) -> AsyncGenerator[HarborEvent, None]:
+        """Stream events whose name starts with name_prefix, indefinitely.
+
+        Returns an async generator (not just an iterator) so a caller that
+        stops consuming early -- e.g. it unsubscribes once a task's live
+        tail is no longer needed -- can call ``aclose()`` to deregister
+        deterministically instead of waiting on garbage collection.
+        """

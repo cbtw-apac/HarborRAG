@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, Mapping
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
@@ -158,7 +158,7 @@ class AppService(
 
     async def stream_ingestion_events(
         self, task_id: str, *, after_seq: int | None = None
-    ) -> AsyncIterator[HarborEvent]:
+    ) -> AsyncGenerator[HarborEvent, None]:
         """Backlog replay then a live tail of a task's progress events.
 
         ``after_seq`` resumes a reconnecting client (Last-Event-ID) after its
@@ -169,6 +169,12 @@ class AppService(
         event, or immediately after the backlog if the task's persisted
         state is already terminal, since the progress bridge only ever
         touches active (PENDING/RUNNING) tasks.
+
+        ``live`` is closed in a ``finally`` so an abandoned caller -- e.g.
+        the SSE route's client disconnecting while this generator is
+        suspended mid-backlog, before it ever reaches the live tail --
+        deterministically unsubscribes instead of leaving the subscription
+        registered until the event bus's GC finalizer happens to run.
         """
         task = await self._public_ingestions.get_task(task_id)
         store = await self._resources.public_task_store()
@@ -176,14 +182,18 @@ class AppService(
         terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
         if task["status"] not in terminal_names:
             live = self._resources.event_bus().subscribe(f"task.{task_id}.")
-        for event in await store.list_task_events(task_id, after_seq=after_seq):
-            yield event
-        if live is None:
-            return
-        async for event in live:
-            yield event
-            if event.name.endswith(".done"):
+        try:
+            for event in await store.list_task_events(task_id, after_seq=after_seq):
+                yield event
+            if live is None:
                 return
+            async for event in live:
+                yield event
+                if event.name.endswith(".done"):
+                    return
+        finally:
+            if live is not None:
+                await live.aclose()
 
     async def list_documents(
         self,
