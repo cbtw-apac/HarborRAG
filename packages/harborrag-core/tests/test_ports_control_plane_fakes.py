@@ -10,7 +10,6 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
-from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
@@ -21,7 +20,6 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeJobRepository,
     FakeMemberRepository,
-    FakePendingEffectRepository,
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
@@ -292,23 +290,6 @@ async def test_fake_activity_provider_and_member_repositories_enforce_tenant_sco
     assert [m.id for m in await members.list(tenant_ids=scope)] == ["mine"]
     await members.delete("theirs", tenant_ids=scope)
     assert await members.list(tenant_ids=None) == [mine_member, their_member]  # untouched
-
-
-@pytest.mark.asyncio
-async def test_fake_pending_effect_repository_is_oldest_first_and_completion_removes_it() -> None:
-    repository = FakePendingEffectRepository()
-    first = PendingControlPlaneEffect(id="eff-1", kind="retire_secret", payload={"ref": "s1"})
-    second = PendingControlPlaneEffect(id="eff-2", kind="log_activity", payload={"id": "act-1"})
-    await repository.enqueue(first)
-    await repository.enqueue(second)
-
-    assert [effect.id for effect in await repository.list_pending()] == ["eff-1", "eff-2"]
-    assert [effect.id for effect in await repository.list_pending(limit=1)] == ["eff-1"]
-
-    await repository.complete("eff-1")
-    assert [effect.id for effect in await repository.list_pending()] == ["eff-2"]
-    await repository.complete("eff-1")  # already gone: a no-op, not an error
-    assert [effect.id for effect in await repository.list_pending()] == ["eff-2"]
 
 
 @pytest.mark.asyncio

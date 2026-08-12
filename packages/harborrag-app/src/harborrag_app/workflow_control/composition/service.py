@@ -8,16 +8,9 @@ from collections.abc import AsyncGenerator, Mapping
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
-    GraphPathQuery,
-    GraphSubgraphQuery,
-    GraphTripletQuery,
-)
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.sdk import RetrievalLane
 
 from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
@@ -31,8 +24,8 @@ from ..ingestion.service import IngestionApplicationService
 from ..ingestion.temporal import TemporalIngestionOperations
 from ..memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
 from ..ports import BaseAppService
+from ..retrieval.client import RetrievalClientMixin
 from ..retrieval.graph import GraphRetrievalService
-from ..retrieval.query import retrieve
 from ..schemas import AppResponse
 from .factories import AppServiceFactories
 from .resources import AppResources
@@ -45,6 +38,7 @@ class AppService(
     ControlPlaneWritesMixin,
     AgentClientMixin,
     ChatClientMixin,
+    RetrievalClientMixin,
     BaseAppService,
 ):
     """Keep transport concerns outside the canonical Temporal ingestion path."""
@@ -223,71 +217,6 @@ class AppService(
             task_id=task_id,
             document_ids=document_ids,
         )
-
-    async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-neutral
-        self,
-        query: str,
-        *,
-        tenant_id: str | None = None,
-        principal_id: str = "harborrag-cli",
-        top_k: int = 10,
-        filters: Mapping[str, object] | None = None,
-        lane: RetrievalLane = RetrievalLane.HYBRID,
-        observe_graph: bool = False,
-        include_content: bool = False,
-        include_metadata: bool = False,
-        score_threshold: float = 0.0,
-    ) -> AppResponse:
-        return await retrieve(
-            self._resources.runtime_sdk,
-            self._settings,
-            query,
-            tenant_id=tenant_id,
-            principal_id=principal_id,
-            top_k=top_k,
-            filters=filters,
-            lane=lane,
-            observe_graph=observe_graph,
-            include_content=include_content,
-            include_metadata=include_metadata,
-            score_threshold=score_threshold,
-        )
-
-    async def retrieve_graph_triplets(
-        self,
-        query: GraphTripletQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.triplets(query, tenant_id=tenant_id, principal_id=principal_id)
-
-    async def retrieve_graph_paths(
-        self,
-        query: GraphPathQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.paths(query, tenant_id=tenant_id, principal_id=principal_id)
-
-    async def retrieve_graph_subgraph(
-        self,
-        query: GraphSubgraphQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.subgraph(query, tenant_id=tenant_id, principal_id=principal_id)
-
-    async def retrieve_graph_neighborhood(
-        self,
-        query: GraphNeighborhoodQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.neighborhood(query, tenant_id=tenant_id, principal_id=principal_id)
 
     async def start_ingestion(  # noqa: PLR0913 - stable service port
         self,
