@@ -50,14 +50,34 @@ load_environment_file() {
     set +a
 }
 
+python_satisfies_requirement() {
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 12) else 1)' >/dev/null 2>&1
+}
+
 python_executable() {
     if [[ -n "${HARBORRAG_MCP_PYTHON_BIN:-}" ]]; then
+        { [[ -x "${HARBORRAG_MCP_PYTHON_BIN}" ]] || command -v "${HARBORRAG_MCP_PYTHON_BIN}" >/dev/null 2>&1; } ||
+            fail "HARBORRAG_MCP_PYTHON_BIN is set to '${HARBORRAG_MCP_PYTHON_BIN}', which does not exist or is not executable."
+        python_satisfies_requirement "${HARBORRAG_MCP_PYTHON_BIN}" ||
+            fail "HARBORRAG_MCP_PYTHON_BIN is set to '${HARBORRAG_MCP_PYTHON_BIN}', which does not satisfy the required Python >=3.12."
         echo "${HARBORRAG_MCP_PYTHON_BIN}"
-    elif [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
-        echo "${ROOT_DIR}/.venv/bin/python"
-    else
-        command -v python || fail "Python is required to start the MCP server."
+        return
     fi
+
+    if [[ -x "${ROOT_DIR}/.venv/bin/python" ]] && python_satisfies_requirement "${ROOT_DIR}/.venv/bin/python"; then
+        echo "${ROOT_DIR}/.venv/bin/python"
+        return
+    fi
+
+    local candidate
+    for candidate in python3 python; do
+        if command -v "${candidate}" >/dev/null 2>&1 && python_satisfies_requirement "${candidate}"; then
+            command -v "${candidate}"
+            return
+        fi
+    done
+
+    fail "Python >=3.12 is required to start the MCP server."
 }
 
 check_only=0
