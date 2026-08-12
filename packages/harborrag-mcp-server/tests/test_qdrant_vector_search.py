@@ -240,9 +240,7 @@ def test_vector_search_tool_threshold_with_qdrant_seeded_scores(
                 diagnostics={"candidate_hits": len(results)},
             )
 
-    tool = VectorSearchTool(
-        runtime=SimpleNamespace(retrieval=QdrantToolRetrieval(seeded_pipeline))
-    )
+    tool = VectorSearchTool(runtime=SimpleNamespace(retrieval=QdrantToolRetrieval(seeded_pipeline)))
     threshold = max(
         0.0,
         min(

@@ -122,10 +122,16 @@ class GraphObserver:
 def _document_neighborhoods(
     seeded_traversals: Sequence[tuple[str, KnowledgeGraphTraversal]],
 ) -> dict[str, list[GraphResultNeighborhood]]:
-    """Per document, which vector result reached it and the 2-hop slice that connects them."""
+    """Per document, which vector result reached it and the 2-hop slice that connects them.
+
+    A relation with only one endpoint in the document (e.g. a cross-document ``LINKS_TO``)
+    still belongs to that document's neighborhood -- it is how the result reached it. Requiring
+    both endpoints would silently drop the connecting edge from both sides of the boundary.
+    """
 
     related: dict[str, list[GraphResultNeighborhood]] = {}
     for result_id, traversal in seeded_traversals:
+        nodes_by_key = {node.node_key: node for node in traversal.nodes}
         by_document: dict[str, list[GraphNodeRecord]] = {}
         for node in traversal.nodes:
             if node.document_id is None:
@@ -137,12 +143,26 @@ def _document_neighborhoods(
                 relation
                 for relation in traversal.relations
                 if relation.source_node_key in doc_node_keys
-                and relation.target_node_key in doc_node_keys
+                or relation.target_node_key in doc_node_keys
+            ]
+            boundary_keys = {
+                other_key
+                for relation in doc_relations
+                for other_key in (relation.source_node_key, relation.target_node_key)
+                if other_key not in doc_node_keys
+            }
+            neighborhood_nodes = [
+                *doc_nodes,
+                *(
+                    nodes_by_key[boundary_key]
+                    for boundary_key in boundary_keys
+                    if boundary_key in nodes_by_key
+                ),
             ]
             related.setdefault(key, []).append(
                 GraphResultNeighborhood(
                     result_id=result_id,
-                    nodes=tuple(compact_node(node) for node in doc_nodes),
+                    nodes=tuple(compact_node(node) for node in neighborhood_nodes),
                     relations=tuple(compact_relation(relation) for relation in doc_relations),
                 )
             )
