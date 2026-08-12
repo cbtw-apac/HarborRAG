@@ -3,11 +3,22 @@
 Split out as a sibling of reads.py, mixed into AppService, which supplies
 the concrete _control_plane(). Secret-shaped config fields never round-trip
 through the route layer -- see _extract_secrets.
+
+Every write here follows the primary source row's commit with one or two
+secondary effects (stale-secret retirement, audit logging) that must never
+turn a successful write into an API error. ``_retire_refs``/``_log_activity``
+therefore never raise: a failed attempt is durably queued via
+``pending_effects`` instead, and ``recover_pending_control_plane_effects``
+retries it later. Both replayed actions are safe to retry blindly -- secret
+deletion is a no-op on an already-gone ref, and a requeued activity entry
+keeps its original id, so it can't double-write.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, TypeGuard
 from uuid import uuid4
 
@@ -17,7 +28,9 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.source_config import SourceConfig
+from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.providers import (
     SECRET_CONFIG_FIELDS,
@@ -29,7 +42,11 @@ from harborrag_runtime.config.connectors.providers import (
 
 from ..schemas import AppResponse
 
+logger = logging.getLogger("harborrag.app.workflow_control.control_plane.writes")
+
 _MUTABLE_SOURCE_FIELDS = frozenset({"name", "config", "schedule", "status"})
+_RETIRE_SECRET_KIND = "retire_secret"
+_LOG_ACTIVITY_KIND = "log_activity"
 
 
 class ControlPlaneWritesMixin:
@@ -164,6 +181,30 @@ class ControlPlaneWritesMixin:
         )
         return AppResponse(True, {"source_id": source_id})
 
+    async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
+        """Retry durably-queued secret retirements and audit-log writes.
+
+        Each pending row's first attempt ran only after the write it depends
+        on already committed, so retrying is always safe and never touches
+        an in-flight request. A row that fails again is left pending for the
+        next drain pass; one bad row must not block the rest.
+        """
+        control_plane = self._control_plane()
+        recovered = 0
+        for effect in await control_plane.pending_effects.list_pending(limit=limit):
+            try:
+                await _replay_effect(control_plane, effect)
+            except Exception:
+                logger.exception(
+                    "control-plane pending effect retry failed id=%s kind=%s",
+                    effect.id,
+                    effect.kind,
+                )
+                continue
+            await control_plane.pending_effects.complete(effect.id)
+            recovered += 1
+        return recovered
+
 
 def _require_connector_factory(source_type: str) -> ConnectorConfigFactory:
     """Look up the provider config factory, or 501 for an unimplemented type."""
@@ -174,8 +215,13 @@ def _require_connector_factory(source_type: str) -> ConnectorConfigFactory:
 
 
 async def _retire_refs(control_plane: ControlPlaneRepositories, refs: list[str]) -> None:
+    """Delete each ref; a failed delete is queued for retry, never raised."""
     for ref in refs:
-        await control_plane.secrets.delete(ref)
+        try:
+            await control_plane.secrets.delete(ref)
+        except Exception:
+            logger.exception("secret retirement failed ref=%r; queued for retry", ref)
+            await _queue_effect(control_plane, _RETIRE_SECRET_KIND, {"ref": ref})
 
 
 async def _extract_secrets(
@@ -251,4 +297,70 @@ def _is_unchanged_ref(value: object, existing_value: object) -> bool:
 
 
 async def _log_activity(control_plane: ControlPlaneRepositories, entry: ActivityEntry) -> None:
-    await control_plane.activity.append(entry)
+    """Append one audit row; a failed append is queued for retry, never raised."""
+    try:
+        await control_plane.activity.append(entry)
+    except Exception:
+        logger.exception("activity logging failed entry_id=%r; queued for retry", entry.id)
+        await _queue_effect(control_plane, _LOG_ACTIVITY_KIND, _activity_payload(entry))
+
+
+async def _queue_effect(
+    control_plane: ControlPlaneRepositories, kind: str, payload: dict[str, Any]
+) -> None:
+    """Durably record a failed side effect; logged (not raised) if even this fails.
+
+    Both call sites here run after the primary write they depend on already
+    committed, so there is no error left to surface to the caller -- a
+    failure enqueuing the retry itself just means this side effect is lost
+    until someone notices the log line.
+    """
+    try:
+        await control_plane.pending_effects.enqueue(
+            PendingControlPlaneEffect(id=f"eff_{uuid4().hex}", kind=kind, payload=payload)
+        )
+    except Exception:
+        logger.critical(
+            "control-plane pending effect enqueue failed kind=%s payload=%r; effect lost",
+            kind,
+            payload,
+            exc_info=True,
+        )
+
+
+async def _replay_effect(
+    control_plane: ControlPlaneRepositories, effect: PendingControlPlaneEffect
+) -> None:
+    if effect.kind == _RETIRE_SECRET_KIND:
+        await control_plane.secrets.delete(effect.payload["ref"])
+        return
+    if effect.kind == _LOG_ACTIVITY_KIND:
+        await control_plane.activity.append(_activity_from_payload(effect.payload))
+        return
+    raise HarborInvariantError(f"unknown pending control-plane effect kind: {effect.kind!r}")
+
+
+def _activity_payload(entry: ActivityEntry) -> dict[str, Any]:
+    return {
+        "id": entry.id,
+        "actor": entry.actor,
+        "verb": entry.verb,
+        "entity_type": entry.entity_type,
+        "entity_id": entry.entity_id,
+        "summary": entry.summary,
+        "tenant_id": entry.tenant_id,
+        "created_at": entry.created_at.isoformat(),
+    }
+
+
+def _activity_from_payload(payload: dict[str, Any]) -> ActivityEntry:
+    return ActivityEntry(
+        id=payload["id"],
+        actor=payload["actor"],
+        verb=payload["verb"],
+        entity_type=payload["entity_type"],
+        entity_id=payload["entity_id"],
+        summary=payload["summary"],
+        tenant_id=payload["tenant_id"],
+        created_at=datetime.fromisoformat(payload["created_at"]),
+    )

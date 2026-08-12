@@ -174,6 +174,20 @@ class ActivityRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
+class PendingControlPlaneEffectRow(Base):
+    """pending_control_plane_effects: durable retry queue for secret retirement and
+    audit logging that failed after the primary source write already committed
+    (ML2 recoverability hardening; not part of the original plan §6 table list).
+    """
+
+    __tablename__ = "pending_control_plane_effects"
+
+    id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+
+
 class ProviderRow(Base):
     """providers: model provider registry; key material via secret_ref only."""
 

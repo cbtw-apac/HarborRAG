@@ -13,6 +13,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -167,6 +168,25 @@ class FakeActivityRepository:
         # avoid surprises when tests seed out-of-order timestamps.
         scoped = [e for e in self.entries if _in_scope(e.tenant_id, tenant_ids)]
         return sorted(scoped, key=lambda e: e.created_at, reverse=True)[:limit]
+
+
+@dataclass(slots=True)
+class FakePendingEffectRepository:
+    """Dict-backed PendingEffectRepositoryPort; insertion order is oldest-first."""
+
+    effects: dict[str, PendingControlPlaneEffect] = field(default_factory=dict)
+
+    async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
+        """Record a failed side effect for later retry."""
+        self.effects[effect.id] = effect
+
+    async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
+        """Oldest-first pending effects, for the recovery drain."""
+        return list(self.effects.values())[:limit]
+
+    async def complete(self, effect_id: str) -> None:
+        """Drop the effect once its retry has succeeded; a no-op if already gone."""
+        self.effects.pop(effect_id, None)
 
 
 @dataclass(slots=True)

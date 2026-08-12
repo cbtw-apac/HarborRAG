@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,9 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 )
 from harborrag_adapters.repositories.database.control_plane.jobs import SqlJobRepository
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_adapters.repositories.database.control_plane.pending_effects import (
+    SqlPendingEffectRepository,
+)
 from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
     SqlSourceRepository,
@@ -23,6 +27,7 @@ from harborrag_adapters.repositories.database.control_plane.session import Sessi
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.source_config import SourceConfig
 
@@ -151,3 +156,43 @@ async def test_job_repository_roundtrip_and_event_log(sessions: SessionFactory) 
             )
         )
     assert seqs == [1, 2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_pending_effect_repository_roundtrip_is_oldest_first_and_completion_removes_it(
+    sessions: SessionFactory,
+) -> None:
+    """enqueue/list_pending/complete against real SQL; completion is a hard delete."""
+
+    repo = SqlPendingEffectRepository(sessions)
+    # Explicit, distinct timestamps make the ordering assertion independent
+    # of enqueue order or the local clock's resolution.
+    first = PendingControlPlaneEffect(
+        id="eff_1",
+        kind="retire_secret",
+        payload={"ref": "secret://db/1"},
+        created_at=datetime(2026, 8, 12, 0, 0, 1, tzinfo=UTC),
+    )
+    second = PendingControlPlaneEffect(
+        id="eff_2",
+        kind="log_activity",
+        payload={"id": "act_1", "summary": "Created source 'Docs'"},
+        created_at=datetime(2026, 8, 12, 0, 0, 0, tzinfo=UTC),
+    )
+    await repo.enqueue(first)
+    await repo.enqueue(second)
+
+    pending = await repo.list_pending()
+
+    assert [effect.id for effect in pending] == ["eff_2", "eff_1"]  # second is older
+    assert pending[0].payload == second.payload
+    assert pending[0].created_at <= pending[1].created_at
+
+    await repo.complete("eff_2")
+
+    remaining = await repo.list_pending()
+    assert [effect.id for effect in remaining] == ["eff_1"]
+
+    await repo.complete("eff_2")  # already gone: a no-op, not an error
+    assert [effect.id for effect in await repo.list_pending()] == ["eff_1"]

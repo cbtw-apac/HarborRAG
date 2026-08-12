@@ -33,6 +33,7 @@ EXPECTED_TABLES = {
     "job_events",
     "ingestion_failures",
     "activity",
+    "pending_control_plane_effects",
     "providers",
     "routing_rules",
     "workspace_settings",
