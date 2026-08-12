@@ -25,7 +25,6 @@ def test_module_check_lists_all_tools(tmp_path, monkeypatch, capsys) -> None:
     assert main(["--check"]) == 0
     assert json.loads(capsys.readouterr().out) == [
         "vector_search",
-        "vector_search_advanced",
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
@@ -102,7 +101,6 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
     assert type(transport).__module__.startswith("fastmcp.")
     assert [tool.name for tool in tools] == [
         "vector_search",
-        "vector_search_advanced",
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
@@ -143,7 +141,6 @@ async def test_mcp_registry_exposes_retrieval_tools():
     server = McpServer()
     expected = [
         "vector_search",
-        "vector_search_advanced",
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",

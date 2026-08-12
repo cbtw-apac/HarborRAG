@@ -11,12 +11,6 @@ tools:
     enabled: true
     defaults:
       top_k: 5
-    limits:
-      top_k: 20
-  vector_search_advanced:
-    enabled: true
-    defaults:
-      top_k: 5
       lane: hybrid
       filters: {}
       observe_graph: true

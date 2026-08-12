@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-from harborrag_mcp_server.tools.vector_search import AdvancedVectorSearchTool
+from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 from harborrag_runtime.sdk import RetrievalLane
 
 _DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
@@ -240,7 +240,7 @@ def test_vector_search_tool_threshold_with_qdrant_seeded_scores(
                 diagnostics={"candidate_hits": len(results)},
             )
 
-    tool = AdvancedVectorSearchTool(
+    tool = VectorSearchTool(
         runtime=SimpleNamespace(retrieval=QdrantToolRetrieval(seeded_pipeline))
     )
     threshold = max(

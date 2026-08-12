@@ -6,8 +6,7 @@
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `vector_search` | Query, tenant, top-k | Default hybrid vector results |
-| `vector_search_advanced` | Query, tenant, lane, filters, graph observation, threshold | Controlled vector results and diagnostics |
+| `vector_search` | Query, tenant, top-k, lane, filters, graph observation, threshold | Vector results and diagnostics |
 | `graph_neighborhood` | Tenant and a natural-language question | Merged active neighborhood plus the `chunk_id` seeds it grew from |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
