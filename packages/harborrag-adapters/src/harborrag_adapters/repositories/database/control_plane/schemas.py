@@ -188,6 +188,18 @@ class PendingControlPlaneEffectRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
+class SingletonLeaseRow(Base):
+    """singleton_leases: leader-election lease per named singleton background job
+    (ML2 multi-process hardening -- one row per lease, seeded by its migration).
+    """
+
+    __tablename__ = "singleton_leases"
+
+    name: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    holder: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class ProviderRow(Base):
     """providers: model provider registry; key material via secret_ref only."""
 

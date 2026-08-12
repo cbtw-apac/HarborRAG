@@ -12,6 +12,7 @@ from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
+    LeaseRepositoryPort,
     MemberRepositoryPort,
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
@@ -51,6 +52,7 @@ class ControlPlaneRepositories:
     agent_runs: AgentRunRepository
     secrets: SecretsPort
     pending_effects: PendingEffectRepositoryPort
+    leases: LeaseRepositoryPort
 
 
 @dataclass(slots=True)
@@ -92,6 +94,9 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.jobs import (
             SqlActivityRepository,
             SqlJobRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.leases import (
+            SqlLeaseRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.migrations import (
             run_migrations,
@@ -169,6 +174,7 @@ class CompositionRoot:
             agent_runs=SqlAgentRunRepository(sessions),
             secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
             pending_effects=SqlPendingEffectRepository(sessions),
+            leases=SqlLeaseRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,

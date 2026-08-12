@@ -8,11 +8,16 @@ from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
-from harborrag_core.ports.control_plane import ActivityRepositoryPort, PendingEffectRepositoryPort
+from harborrag_core.ports.control_plane import (
+    ActivityRepositoryPort,
+    LeaseRepositoryPort,
+    PendingEffectRepositoryPort,
+)
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeJobRepository,
+    FakeLeaseRepository,
     FakeMemberRepository,
     FakePendingEffectRepository,
     FakeProjectRepository,
@@ -36,12 +41,14 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
     settings: WorkspaceSettings | None = None,
     secrets: SecretsPort | None = None,
     pending_effects: PendingEffectRepositoryPort | None = None,
+    leases: LeaseRepositoryPort | None = None,
 ) -> AppService:
     """Build a service with test-only, seedable control-plane repositories.
 
-    ``activity_repository``/``secrets``/``pending_effects`` accept any port
-    implementation, not just the stock fakes -- tests that need a repository
-    which fails on demand (recoverability coverage) inject their own double.
+    ``activity_repository``/``secrets``/``pending_effects``/``leases`` accept
+    any port implementation, not just the stock fakes -- tests that need a
+    repository which fails on demand (recoverability coverage) inject their
+    own double.
     """
 
     control_plane = ControlPlaneRepositories(
@@ -56,6 +63,7 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
         agent_runs=InMemoryAgentRunRepository(),
         secrets=secrets or FakeSecrets(),
         pending_effects=pending_effects or FakePendingEffectRepository(),
+        leases=leases or FakeLeaseRepository(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

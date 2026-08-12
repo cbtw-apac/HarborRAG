@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from collections.abc import AsyncGenerator, Mapping
 
 from harborrag_core.contracts.errors import HarborUnavailableError
@@ -19,7 +20,7 @@ from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
 from ..ingestion.models import IngestionCreateCommand
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
-from ..ingestion.progress_bridge import sync_ingestion_progress
+from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
 from ..ingestion.temporal import TemporalIngestionOperations
 from ..memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
@@ -52,6 +53,9 @@ class AppService(
     ) -> None:
         self._composition = composition
         self._settings = settings or RuntimeSettings()
+        # Identifies this process as a lease holder (ingestion progress bridge);
+        # stable for the process's lifetime, unique across concurrently running ones.
+        self._instance_id = uuid.uuid4().hex
         self._runtime_config = TemporalRuntimeConfig.from_settings(self._settings)
         selected = factories or AppServiceFactories()
         self._source_input_builder = selected.source_input_builder
@@ -146,7 +150,19 @@ class AppService(
         return await self._public_ingestions.recover_pending_submissions(limit=limit)
 
     async def sync_ingestion_progress(self) -> int:
-        """One poll tick fanning active tasks' progress out via the event bus."""
+        """One poll tick fanning active tasks' progress out via the event bus.
+
+        Gated by a DB-backed lease (single-API-process deployment constraint,
+        see deploy/README.md): when the API runs as more than one process,
+        only the instance currently holding the lease ticks -- every other
+        instance's tick is a no-op, so their progress bridges never race each
+        other into double-appending the same task's event log.
+        """
+        acquired = await self._control_plane().leases.try_acquire(
+            LEASE_NAME, self._instance_id, ttl_seconds=LEASE_TTL_SECONDS
+        )
+        if not acquired:
+            return 0
         store = await self._resources.public_task_store()
         return await sync_ingestion_progress(store, self._resources.event_bus())
 

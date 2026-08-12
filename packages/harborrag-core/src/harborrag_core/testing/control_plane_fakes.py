@@ -8,7 +8,9 @@ doubles used by both the test suite and local/dev composition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
+from harborrag_core.base import utc_now
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job, JobStatus
@@ -234,6 +236,22 @@ class FakeProviderRepository:
         provider = self.providers.get(provider_id)
         if provider is not None and _in_scope(provider.tenant_id, tenant_ids):
             del self.providers[provider_id]
+
+
+@dataclass(slots=True)
+class FakeLeaseRepository:
+    """Dict-backed LeaseRepositoryPort; mirrors SqlLeaseRepository's conditional update."""
+
+    leases: dict[str, tuple[str, datetime]] = field(default_factory=dict)
+
+    async def try_acquire(self, name: str, holder: str, *, ttl_seconds: float) -> bool:
+        """Acquire or renew ``name`` for ``holder`` unless another live holder owns it."""
+        now = utc_now()
+        current_holder, expires_at = self.leases.get(name, ("", now))
+        if current_holder != holder and expires_at > now:
+            return False
+        self.leases[name] = (holder, now + timedelta(seconds=ttl_seconds))
+        return True
 
 
 @dataclass(slots=True)

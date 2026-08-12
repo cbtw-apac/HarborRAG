@@ -32,6 +32,17 @@ _TERMINAL_STATES = frozenset(
 _SNAPSHOT_KEY = "_last_progress_snapshot"
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
 
+# Named lease this bridge's tick runs under (LeaseRepositoryPort) so only one
+# process ticks it when the API is scaled to multiple processes/replicas --
+# without this, N processes diff the same tasks concurrently and each one's
+# read-then-write snapshot check races the others into appending duplicate
+# progress rows (distinct by seq, never deduped). Must match the lease name
+# seeded by control_plane migration 0017. TTL is a few tick intervals so a
+# crashed leader's lease lapses and a live process picks the work back up
+# quickly, without either process's own timer jitter costing it the lease.
+LEASE_NAME = "ingestion_progress_bridge"
+LEASE_TTL_SECONDS = _DEFAULT_TICK_INTERVAL_SECONDS * 4
+
 
 async def sync_ingestion_progress(store: PublicTaskStore, event_bus: EventBusPort) -> int:
     """One poll tick: diff every active task's progress snapshot.

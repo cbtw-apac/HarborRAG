@@ -177,6 +177,25 @@ class PendingEffectRepositoryPort(Protocol):
         """Remove an effect once its retry has succeeded; a no-op if already gone."""
 
 
+class LeaseRepositoryPort(Protocol):
+    """Named, time-boxed singleton leases (ML2 multi-process hardening).
+
+    Backs leader election for background loops that must run on at most
+    one process at a time even when the API is scaled to multiple
+    processes/replicas (e.g. the ingestion progress bridge) -- everything
+    the ``InProcessEventBus`` docstrings assume but nothing enforces.
+    """
+
+    async def try_acquire(self, name: str, holder: str, *, ttl_seconds: float) -> bool:
+        """Acquire or renew ``name`` for ``holder``.
+
+        True if ``holder`` now owns the lease (either it already did, or the
+        previous holder's lease had lapsed); False if another holder's lease
+        is still live. A holder that stops calling this simply lets its
+        lease expire after ``ttl_seconds``, letting another holder take over.
+        """
+
+
 TRepository_co = TypeVar("TRepository_co", covariant=True)
 
 

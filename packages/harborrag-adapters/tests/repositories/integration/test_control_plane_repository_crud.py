@@ -15,6 +15,7 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
     create_session_factory,
 )
 from harborrag_adapters.repositories.database.control_plane.jobs import SqlJobRepository
+from harborrag_adapters.repositories.database.control_plane.leases import SqlLeaseRepository
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
 from harborrag_adapters.repositories.database.control_plane.pending_effects import (
     SqlPendingEffectRepository,
@@ -196,3 +197,24 @@ async def test_pending_effect_repository_roundtrip_is_oldest_first_and_completio
 
     await repo.complete("eff_2")  # already gone: a no-op, not an error
     assert [effect.id for effect in await repo.list_pending()] == ["eff_1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_grants_exactly_one_live_holder_at_a_time(
+    sessions: SessionFactory,
+) -> None:
+    """A rival holder is refused while the lease is live, but wins it once it lapses."""
+
+    repo = SqlLeaseRepository(sessions)
+    name = "ingestion_progress_bridge"  # seeded (already-expired) by migration 0017
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False  # still held by a
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True  # a renews
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=-1) is True  # a's lease lapses
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True  # b takes over
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is False  # a is now the rival
+
+    assert await repo.try_acquire("no_such_lease", "holder-a", ttl_seconds=1000) is False
