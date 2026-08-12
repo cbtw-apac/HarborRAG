@@ -215,3 +215,21 @@ async def test_client_health_and_controls_target_source_workflow() -> None:
         "request_graceful_cancel",
     ]
     sdk.source_handle.cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_client_operations_use_stable_workflow_id_for_source_controls() -> None:
+    """Source controls and queries resolve by workflow ID."""
+    sdk = _SdkClient()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    await client.get_status("task-1")
+    await client.get_progress("task-1")
+    await client.pause("task-1")
+
+    workflow_ids = [call.args[0] for call in sdk.get_workflow_handle.call_args_list]
+    assert workflow_ids == [
+        "harborrag-source:task-1",
+        "harborrag-source:task-1",
+        "harborrag-source:task-1",
+    ]

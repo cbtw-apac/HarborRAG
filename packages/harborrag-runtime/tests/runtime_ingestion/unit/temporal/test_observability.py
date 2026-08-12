@@ -130,6 +130,13 @@ def test_domain_counters_use_bounded_labels_and_never_record_zeroes() -> None:
         duration_seconds=0,
         replayed=True,
     )
+    telemetry.record_temporal_worker_slots("harborrag-discovery", 6)
+    telemetry.record_temporal_queue_depth("harborrag-discovery", 12)
+    telemetry.record_temporal_worker_slot_saturation(
+        "harborrag-discovery",
+        slots=6,
+        depth=12,
+    )
     telemetry.record_cleanup_backlog(3)
     telemetry.record_stale_candidate_rejections(2)
 
@@ -144,6 +151,11 @@ def test_domain_counters_use_bounded_labels_and_never_record_zeroes() -> None:
     assert 'connector_type="other",outcome="fetched"' in output
     assert 'connector_type="other",outcome="replayed"' in output
     assert "harborrag_ingestion_discovery_page_duration_seconds_sum" in output
+    assert 'harborrag_temporal_task_queue_depth{task_queue="harborrag-discovery"} 12.0' in output
+    assert 'harborrag_temporal_worker_slots{task_queue="harborrag-discovery"} 6.0' in output
+    assert (
+        'harborrag_temporal_worker_slot_saturation{task_queue="harborrag-discovery"} 1.0' in output
+    )
     assert "harborrag_ingestion_cleanup_backlog 3.0" in output
     assert "harborrag_retrieval_stale_candidates_rejected_total 2.0" in output
 

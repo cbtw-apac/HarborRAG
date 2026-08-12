@@ -54,6 +54,14 @@ def _workflow_wait_condition(monkeypatch):
         "harborrag_runtime.temporal.source_workflow.workflow.wait_condition",
         wait_condition,
     )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.info",
+        lambda: type(
+            "_WorkflowInfoStub",
+            (),
+            {"is_continue_as_new_suggested": staticmethod(lambda: False)},
+        )(),
+    )
 
 
 @pytest.mark.asyncio
