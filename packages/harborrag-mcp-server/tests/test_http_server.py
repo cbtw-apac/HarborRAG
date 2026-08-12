@@ -151,7 +151,6 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
     assert tools_response.status_code == 200
     assert [tool["name"] for tool in tools_response.json()["tools"]] == [
         "vector_search",
-        "vector_search_advanced",
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
