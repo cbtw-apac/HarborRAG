@@ -182,7 +182,7 @@ protection to require the `Quality Gates / build-test` status.
 | Stage | Gates |
 | --- | --- |
 | `pre-commit` | Ruff format, Ruff check, file length, complexity ratchet, and file hygiene (trailing whitespace, end-of-file newline, YAML/TOML/JSON validity, merge conflicts, large files, private keys) |
-| `pre-push` | import-linter contracts, dependency direction, compilation, mypy, then the 90% coverage gate |
+| `pre-push` | import-linter contracts, dependency direction, compilation, then mypy |
 
 Ruff rewrites files and then fails the commit, so you review the diff and
 commit again. Nothing is staged on your behalf.
@@ -191,11 +191,18 @@ Hooks invoke `uv run --all-packages --all-extras` rather than `make`, so tool
 versions resolve from `uv.lock` exactly as CI resolves them, and contributors
 without a bash shell get identical behavior.
 
-The push stage runs the full suite, so it takes minutes. To skip only the
-coverage gate while keeping the other four:
+The push stage takes roughly ten seconds. The 90% coverage gate is not part
+of it: fifteen tests currently fail on Windows, five because creating a
+symlink needs Developer Mode and the rest because
+`harborrag-mcp-server` calls `os.fchmod`, which does not exist there. A local
+pytest gate would block every push from a Windows machine. Run
+`uv run make coverage` before opening a pull request, and restore the hook
+once those failures are fixed.
+
+To skip one gate by id, for example while bisecting a type error:
 
 ```bash
-SKIP=coverage git push
+SKIP=typecheck git push
 ```
 
 `git push --no-verify` skips every push gate and should stay reserved for

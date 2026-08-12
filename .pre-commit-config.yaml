@@ -90,10 +90,4 @@ repos:
         stages: [pre-push]
         fail_fast: true
 
-      - id: coverage
-        name: pytest + 90% coverage gate
-        entry: uv run --all-packages --all-extras pytest -n 4 --cov --cov-report=term-missing
-        language: system
-        types: [python]
-        pass_filenames: false
-        stages: [pre-push]
+      # The 90% coverage gate stays in CI only.

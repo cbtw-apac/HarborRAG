@@ -29,11 +29,17 @@ MAKE_TARGET_TO_HOOK_IDS: dict[str, tuple[str, ...]] = {
     "typecheck": ("typecheck",),
     "deps-check": ("deps-check",),
     "compile": ("compile",),
-    "coverage": ("coverage",),
 }
 
 # CI gates deliberately left out of the hooks, each with a stated reason.
-CI_ONLY_TARGETS: dict[str, str] = {}
+CI_ONLY_TARGETS: dict[str, str] = {
+    "coverage": (
+        "Fifteen tests fail on Windows: five need symlink privileges and the "
+        "rest hit the unguarded os.fchmod calls in harborrag-mcp-server. A "
+        "local pytest gate would block every push from a Windows machine. "
+        "Restore the hook once those failures are fixed."
+    ),
+}
 
 # Hooks that inspect the whole repository rather than the staged paths. Passing
 # filenames to these would silently narrow or corrupt their input.
@@ -45,7 +51,6 @@ REPO_WIDE_HOOK_IDS = frozenset(
         "deps-check",
         "compile",
         "typecheck",
-        "coverage",
     }
 )
 
@@ -56,7 +61,6 @@ PRE_PUSH_HOOK_IDS = frozenset(
         "deps-check",
         "compile",
         "typecheck",
-        "coverage",
     }
 )
 
