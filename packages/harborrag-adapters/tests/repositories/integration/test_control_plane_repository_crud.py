@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -26,6 +26,7 @@ from harborrag_adapters.repositories.database.control_plane.projects import (
 )
 from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
+from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborNotFoundError,
@@ -243,3 +244,48 @@ async def test_lease_repository_grants_exactly_one_live_holder_at_a_time(
     assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is False  # a is now the rival
 
     assert await repo.try_acquire("no_such_lease", "holder-a", ttl_seconds=1000) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_ignores_a_skewed_local_clock(
+    sessions: SessionFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """try_acquire must anchor both the expiry check and the new expiry to
+    the database's own clock, never this process's -- otherwise a contender
+    whose local clock merely runs ahead of the actual holder's (or of the
+    database server) could believe a still-live lease had already lapsed
+    and steal it, letting two holders run at once.
+
+    holder-a acquires on a real, unskewed clock. holder-b then contends
+    with its local clock skewed far enough forward that -- were try_acquire
+    comparing against it -- holder-a's lease would look expired even though
+    no real time (and certainly not the lease's actual 1000s ttl) has
+    passed. Patching ``harborrag_core.base.datetime`` (rather than
+    ``utc_now`` itself) is deliberate: ``utc_now()`` resolves ``datetime``
+    from its own module's globals at call time, so this reaches every
+    caller of ``utc_now`` regardless of how they imported it -- exactly the
+    shape a reintroduced ``now = utc_now()`` in this repository would take.
+    """
+    repo = SqlLeaseRepository(sessions)
+    name = "ingestion_progress_bridge"  # seeded (already-expired) by migration 0017
+
+    real_now = utc_now()
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+
+    skewed_now = real_now + timedelta(seconds=2000)  # past holder-a's real 1000s ttl
+
+    class _SkewedDatetime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            del cls, tz
+            return skewed_now
+
+    monkeypatch.setattr("harborrag_core.base.datetime", _SkewedDatetime)
+
+    # If try_acquire compared expires_at against this skewed process clock
+    # instead of the database's, holder-a's real, still-live lease would
+    # look expired 2000s in -- long past its real 1000s ttl -- and
+    # holder-b would wrongly win it.
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False
