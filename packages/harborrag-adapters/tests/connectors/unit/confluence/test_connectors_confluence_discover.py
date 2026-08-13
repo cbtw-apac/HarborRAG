@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from confluence_test_helpers import FakeConfluenceClient, cloud_config, light_content
 
@@ -224,7 +226,14 @@ def test_discover_rejects_unsafe_content_ids(content_id):
 def test_discover_verifies_credentials_before_any_search_call(monkeypatch):
     """A bad credential must surface as `AuthenticationError` immediately,
     mirroring JiraConnector's pre-flight check, instead of only failing once
-    a search call happens to be made."""
+    a search call happens to be made.
+
+    The message must also carry `connect()`'s own "Confluence
+    authentication failed" framing, not just the bare provider text --
+    otherwise a 401 (raised directly by the shared client, bypassing
+    `connect()`'s except clauses) looks structurally different from a
+    reclassified 403, even though both are the same kind of failure from
+    the caller's view."""
     client = FakeConfluenceClient()
 
     def _raise_auth_error(endpoint, *, params=None):
@@ -233,7 +242,9 @@ def test_discover_verifies_credentials_before_any_search_call(monkeypatch):
     monkeypatch.setattr(client, "get_json", _raise_auth_error)
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(
+        AuthenticationError, match="Confluence authentication failed: bad credentials"
+    ):
         list(connector.discover())
 
 
@@ -269,7 +280,36 @@ def test_discover_reclassifies_403_from_credential_check_as_authentication_error
     monkeypatch.setattr(client, "get_json", _raise_forbidden)
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthenticationError, match="Confluence authentication failed: rejected"):
+        list(connector.discover())
+
+
+def test_discover_strips_json_envelope_from_credential_check_failure(monkeypatch):
+    """The real Confluence 403 body is JSON with a `message` field wrapping
+    an internal Java exception name; the caller should see that message,
+    not the raw `{"statusCode": ..., "message": ...}` envelope around it."""
+    client = FakeConfluenceClient()
+    inner_message = (
+        "com.atlassian.confluence.mvc.rest.common.exception."
+        'StacklessResponseStatusException: 403 FORBIDDEN "Request rejected '
+        'because caller cannot access Confluence"'
+    )
+    detail = json.dumps({"statusCode": 403, "message": inner_message})
+
+    def _raise_forbidden(endpoint, *, params=None):
+        raise FetchError(
+            f"Confluence request failed with HTTP 403: {detail}",
+            status_code=403,
+            detail=detail,
+        )
+
+    monkeypatch.setattr(client, "get_json", _raise_forbidden)
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    with pytest.raises(
+        AuthenticationError,
+        match="Confluence authentication failed: com.atlassian.confluence",
+    ):
         list(connector.discover())
 
 

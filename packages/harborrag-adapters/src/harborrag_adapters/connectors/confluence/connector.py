@@ -20,6 +20,7 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
+from harborrag_adapters.connectors.policies.http import summarize_provider_error
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
@@ -120,12 +121,25 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             close()
 
     def connect(self) -> None:
-        """Verify Confluence credentials once before the first discovery request."""
+        """Verify Confluence credentials once before the first discovery request.
+
+        Both branches re-raise through the same message template so a bad
+        credential looks the same shape on Confluence and Jira: the 401 case
+        otherwise reaches the caller as a bare, un-prefixed provider message
+        (raised deep in the shared HTTP client, bypassing this method's own
+        framing), while only 403 used to get labeled as this connector's.
+        """
         try:
             self.client.get_json("user/current")
+        except AuthenticationError as exc:
+            raise AuthenticationError(
+                f"Confluence authentication failed: {summarize_provider_error(exc)}"
+            ) from exc
         except FetchError as exc:
             if exc.status_code == 403:
-                raise AuthenticationError(exc.detail or str(exc)) from exc
+                raise AuthenticationError(
+                    f"Confluence authentication failed: {summarize_provider_error(exc)}"
+                ) from exc
             raise
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:

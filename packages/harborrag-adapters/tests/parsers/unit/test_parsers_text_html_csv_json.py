@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -228,6 +229,33 @@ def test_csv_parser_skips_and_warns_on_field_count_mismatch(caplog):
     assert document.content == "name\trole\nAda\tengineer\nGrace\tscientist"
     assert document.warnings and "expected 2 fields, found 1" in document.warnings[0]
     assert "expected 2 fields, found 1" in caplog.text
+
+
+def test_csv_parser_quarantines_single_bad_row_in_real_world_fixture():
+    """`csv_bad_encoding_row.csv` has row 9003 with an invalid UTF-8 continuation
+    byte; the other four data rows are well-formed. Before per-row decoding, whole-
+    file encoding detection would drop confidence on the one bad row and reject the
+    entire file with `TextDecodingError`, losing every well-formed row with it.
+    """
+    fixture = (
+        Path(__file__).resolve().parents[5]
+        / "examples"
+        / "samples"
+        / "csv"
+        / "csv_bad_encoding_row.csv"
+    )
+    document = CsvParser().parse(ParseInput(content=fixture.read_bytes(), filename=fixture.name))
+
+    assert document.content == (
+        "OrderID\tCustomerName\tOrderDate\tAmount\n"
+        "9001\tNguyen Van A\t2026-06-01\t129.50\n"
+        "9002\tTran Thi B\t2026-06-02\t89.00\n"
+        "9004\tPham Thi D\t2026-06-04\t15.20\n"
+        "9005\tHoang Van E\t2026-06-05\t310.00"
+    )
+    assert document.metadata["rows"] == 5
+    assert document.warnings and "line 4" in document.warnings[0]
+    assert "invalid UTF-8" in document.warnings[0]
 
 
 def test_json_parser_flattens_jsonpath_lines_and_keeps_raw_json_only():
