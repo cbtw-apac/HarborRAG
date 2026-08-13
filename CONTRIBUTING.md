@@ -17,6 +17,15 @@ uv run python -m harborrag_app.cli.main doctor --json
 uv run pytest
 ```
 
+Then install the git hooks:
+
+```bash
+uv run pre-commit install -t pre-commit -t pre-push
+```
+
+`make hooks` runs the same command where `make` is available. See
+[Git hooks](#git-hooks) for what each stage runs.
+
 For a `pip` editable installation:
 
 ```bash
@@ -165,6 +174,45 @@ The CI quality workflow runs Ruff lint, the complexity ratchet, import-linter, t
 checking, dependency direction, compilation, and the 90% coverage gate. A second
 workflow runs every active package suite plus the website tests. Configure branch
 protection to require the `Quality Gates / build-test` status.
+
+## Git hooks
+
+`.pre-commit-config.yaml` runs the same gates locally, split by cost:
+
+| Stage | Gates |
+| --- | --- |
+| `pre-commit` | Ruff format, Ruff check, file length, complexity ratchet, and file hygiene (trailing whitespace, end-of-file newline, YAML/TOML/JSON validity, merge conflicts, large files, private keys) |
+| `pre-push` | import-linter contracts, dependency direction, compilation, then mypy |
+
+Ruff rewrites files and then fails the commit, so you review the diff and
+commit again. Nothing is staged on your behalf.
+
+Hooks invoke `uv run --all-packages --all-extras` rather than `make`, so tool
+versions resolve from `uv.lock` exactly as CI resolves them, and contributors
+without a bash shell get identical behavior.
+
+The push stage takes roughly ten seconds. The 90% coverage gate is not part
+of it: fifteen tests currently fail on Windows, five because creating a
+symlink needs Developer Mode and the rest because
+`harborrag-mcp-server` calls `os.fchmod`, which does not exist there. A local
+pytest gate would block every push from a Windows machine. Run
+`uv run make coverage` before opening a pull request, and restore the hook
+once those failures are fixed.
+
+To skip one gate by id, for example while bisecting a type error:
+
+```bash
+SKIP=typecheck git push
+```
+
+`git push --no-verify` skips every push gate and should stay reserved for
+emergencies. CI enforces all of them regardless.
+
+The hygiene hooks exclude `LICENSE`, whose text must stay byte-exact, and
+`website/assets/`, which is a vendored icon and script library. The
+private-key check excludes
+`packages/harborrag-core/tests/test_core_contracts_domain_security.py`, which
+asserts that redaction masks a private-key header and holds no key material.
 
 ## Documentation changes
 

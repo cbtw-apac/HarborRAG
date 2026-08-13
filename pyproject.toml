@@ -90,6 +90,12 @@ py-modules = []
 
 [tool.mypy]
 python_version = "3.12"
+# Type-check against POSIX regardless of the contributor's OS. Without this,
+# mypy resolves os/signal stubs for the host platform, so Windows contributors
+# get attr-defined errors on os.fchmod, os.killpg, and signal.SIGKILL that
+# Linux CI never reports. Pinning keeps the local pre-push gate and the CI
+# quality workflow in agreement. Deployment targets are Linux containers.
+platform = "linux"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

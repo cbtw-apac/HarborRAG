@@ -106,36 +106,9 @@ def write_baseline(
     )
 
 
-def repository_python_files(root: Path = REPO_ROOT) -> tuple[str, ...]:
-    """Return non-ignored Python files that exist in the working tree."""
-
-    result = subprocess.run(
-        [
-            "git",
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "--",
-            "*.py",
-        ],
-        cwd=root,
-        check=True,
-        capture_output=True,
-    )
-    return tuple(
-        path
-        for path in result.stdout.decode("utf-8").split("\0")
-        if path and (root / path).is_file()
-    )
-
-
-def run_ruff(files: Sequence[str], root: Path = REPO_ROOT) -> ComplexityCounts:
+def run_ruff(root: Path = REPO_ROOT) -> ComplexityCounts:
     """Run only the ratcheted Ruff rules and return grouped diagnostics."""
 
-    if not files:
-        raise RuntimeError("Git returned no tracked Python files")
     result = subprocess.run(
         [
             sys.executable,
@@ -147,8 +120,7 @@ def run_ruff(files: Sequence[str], root: Path = REPO_ROOT) -> ComplexityCounts:
             "--output-format",
             "json",
             "--no-cache",
-            "--",
-            *files,
+            ".",
         ],
         cwd=root,
         check=False,
@@ -173,6 +145,7 @@ def _summary(counts: Mapping[str, Mapping[str, int]]) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Execute ruff check run"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--write-baseline",
@@ -181,7 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    current = run_ruff(repository_python_files())
+    current = run_ruff()
     if args.write_baseline:
         write_baseline(current)
         print(f"Updated Ruff complexity baseline: {_summary(current)}")

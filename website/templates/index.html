@@ -181,7 +181,7 @@
         .hero-btn {
             width: 100%;
             min-width: 0;
-            justify-content: center;        
+            justify-content: center;
         }
 
         .hero-section {
@@ -362,12 +362,12 @@
     .getting-started-content {
         margin-bottom: 24px;
     }
-    
+
     .section-getting-started .image {
         width: 370px;
         height: 280px;
     }
-    
+
     .getting-started-title {
         font-family: var(--font-family);
         font-weight: 700;
@@ -594,7 +594,7 @@
 
     @media (max-width: 560px) {
         .divider {
-            max-width: calc(100% - 40px); 
+            max-width: calc(100% - 40px);
         }
     }
 
@@ -690,7 +690,7 @@
     @media (max-width: 900px) {
         .section-getting-started {
             padding: 60px 2rem;
-            
+
         }
 
         .section-features h2 {
@@ -740,7 +740,7 @@
     }
 
     @media (max-width: 560px) {
-        
+
         .features-container {
             margin-top: 30px;
             padding-bottom: 30px;
@@ -933,7 +933,7 @@
         background: #191919;
         transition: transform 0.2s ease;
     }
-    
+
     .install-cta {
         font-size: 16px;
         padding: 16px 32px;
@@ -1151,7 +1151,7 @@
         font-weight: 600;
         font-size: 16px;
         line-height: 150%;
-        max-width: 700px; 
+        max-width: 700px;
         margin: 24px auto 24px;
         text-align: center;
         color: var(--text-color-primary-text-black);
@@ -1317,7 +1317,7 @@
         .section-community {
             padding: 4.7rem 1rem 7.2rem;
         }
-        
+
         .community-container {
             padding-left: 0;
             padding-right: 0;
@@ -1822,15 +1822,15 @@
     async function loadCoverageStatus() {
         const coverageEndpoints = [
             'coverage/loader/status.json',
-            'coverage/mcp/status.json', 
+            'coverage/mcp/status.json',
             'coverage/website/status.json',
             'coverage/core/status.json'
         ];
-        
+
         let totalCoverage = 0;
         let packageCount = 0;
         let hasData = false;
-        
+
         for (const endpoint of coverageEndpoints) {
             try {
                 const response = await fetch(endpoint);
@@ -1848,14 +1848,14 @@
                 console.debug(`Coverage data not available for ${endpoint}`);
             }
         }
-        
+
         const coverageSummaryElement = document.getElementById('coverage-summary');
         if (!coverageSummaryElement) return;
-        
+
         if (hasData && packageCount > 0) {
             const avgCoverage = Math.round(totalCoverage / packageCount);
             let statusClass, statusText;
-            
+
             if (avgCoverage >= 80) {
                 statusClass = 'status-success';
                 statusText = `Excellent coverage (${avgCoverage}%)`;
@@ -1866,7 +1866,7 @@
                 statusClass = 'status-failure';
                 statusText = `Coverage needs improvement (${avgCoverage}%)`;
             }
-            
+
             coverageSummaryElement.innerHTML =
                 `<span class="status-indicator ${statusClass}"></span>${statusText}. ` +
                 'Comprehensive test coverage reports for all packages with detailed analysis.';
@@ -1876,12 +1876,12 @@
                 'Comprehensive test coverage reports for all packages with detailed analysis.';
         }
     }
-    
+
     function calculatePackageCoverage(statusData) {
         try {
             let totalStatements = 0;
             let totalMissing = 0;
-            
+
             // Parse the coverage status.json format
             if (statusData.files) {
                 for (const fileKey in statusData.files) {
@@ -1892,13 +1892,13 @@
                     }
                 }
             }
-            
+
             // Fallback to totals if available
             if (totalStatements === 0 && statusData.totals) {
                 totalStatements = statusData.totals.n_statements || statusData.totals.num_statements || 0;
                 totalMissing = statusData.totals.n_missing || (statusData.totals.num_statements - statusData.totals.covered_lines) || 0;
             }
-            
+
             if (totalStatements > 0) {
                 const covered = Math.max(0, totalStatements - totalMissing);
                 return Math.round((covered / totalStatements) * 100);
@@ -1908,7 +1908,7 @@
         }
         return null;
     }
-    
+
     // Load coverage status when page loads
     document.addEventListener('DOMContentLoaded', loadCoverageStatus);
 </script>
