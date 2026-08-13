@@ -289,3 +289,24 @@ async def test_lease_repository_ignores_a_skewed_local_clock(
     # look expired 2000s in -- long past its real 1000s ttl -- and
     # holder-b would wrongly win it.
     assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_has_a_seeded_row_for_effect_recovery(
+    sessions: SessionFactory,
+) -> None:
+    """try_acquire returns False for any lease name with no row (it can only
+    ever UPDATE an existing row). AppService.recover_pending_control_plane_effects
+    acquires "control_plane_effect_recovery" (see
+    harborrag_app.workflow_control.control_plane.effect_recovery.EFFECT_RECOVERY_LEASE_NAME)
+    before every drain pass, so migrations must seed that row the same way
+    migration 0017 seeded "ingestion_progress_bridge" -- otherwise recovery
+    silently never acquires the lease in production and pending effects
+    (secret retirement, audit logging) never drain.
+    """
+
+    repo = SqlLeaseRepository(sessions)
+    name = "control_plane_effect_recovery"  # seeded (already-expired) by migration 0018
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
