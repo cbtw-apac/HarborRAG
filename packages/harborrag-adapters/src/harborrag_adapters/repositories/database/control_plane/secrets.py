@@ -73,9 +73,7 @@ class SqlSecretsRepository:
                 "rotated without re-encrypting stored secrets",
                 ref,
             )
-            raise HarborSecretDecryptionError(
-                f"secret ref cannot be decrypted: {ref!r}"
-            ) from exc
+            raise HarborSecretDecryptionError(f"secret ref cannot be decrypted: {ref!r}") from exc
 
     async def delete(self, ref: str) -> None:
         """Forget the value behind a ref; a no-op if it's already gone."""
