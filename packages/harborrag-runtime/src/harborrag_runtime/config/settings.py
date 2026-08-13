@@ -103,15 +103,20 @@ class RuntimeSettings(BaseSettings):
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
         control_db_url = self.control_db_url.get_secret_value().lower()
-        if self.env == "prod" and control_db_url.startswith("sqlite"):
+        is_sqlite_control_db = control_db_url.startswith("sqlite")
+        if self.env == "prod" and is_sqlite_control_db:
             raise ValueError(
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
                 "HARBORRAG_ENV=prod; SQLite is development-only"
             )
-        if self.env == "prod" and self.secrets_encryption_key is None:
+        if self.secrets_encryption_key is None and not is_sqlite_control_db:
+            # env=dev with a real (non-SQLite) control DB is a legal combination, and
+            # it would otherwise silently encrypt stored secrets with the
+            # publicly-known dev-default key -- require an explicit key for any
+            # persistent control database, not only in prod.
             raise ValueError(
-                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_ENV=prod; "
-                "the dev-only default key is not safe for stored secrets"
+                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
+                "is not SQLite; the dev-only default key is not safe for stored secrets"
             )
         development = self.env == "dev"
         if self.redis_url is not None:

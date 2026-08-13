@@ -233,12 +233,15 @@ class MockAppService(
         *,
         updates: dict[str, object],
         actor: str,
+        tenant_ids: frozenset[str] | None = None,
     ) -> AppResponse:
-        del source_id, updates, actor
+        del source_id, updates, actor, tenant_ids
         return AppResponse(True, {"source": None})
 
-    async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
-        del actor
+    async def delete_source(
+        self, source_id: str, *, actor: str, tenant_ids: frozenset[str] | None = None
+    ) -> AppResponse:
+        del actor, tenant_ids
         return AppResponse(True, {"source_id": source_id})
 
     async def list_activity(

@@ -247,13 +247,16 @@ class BaseAppService(ABC):
         *,
         updates: dict[str, object],
         actor: str,
+        tenant_ids: frozenset[str] | None,
     ) -> AppResponse:
-        """Apply a partial update; only keys present in ``updates`` change."""
+        """Apply a partial update within ``tenant_ids``; only keys present in ``updates`` change."""
         raise NotImplementedError
 
     @abstractmethod
-    async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
-        """Delete a source and forget every secret it referenced."""
+    async def delete_source(
+        self, source_id: str, *, actor: str, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """Delete a source within ``tenant_ids`` and forget every secret it referenced."""
         raise NotImplementedError
 
     @abstractmethod

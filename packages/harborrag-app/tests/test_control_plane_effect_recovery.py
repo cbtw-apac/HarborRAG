@@ -151,6 +151,7 @@ async def test_update_source_survives_failed_stale_secret_retirement_and_activit
         created.data["source"].id,
         updates={"config": {"base_url": "https://example.atlassian.net", "token": "new-token"}},
         actor="tester",
+        tenant_ids=None,
     )
 
     assert response.ok
@@ -194,7 +195,7 @@ async def test_delete_source_survives_failed_secret_retirement_and_activity_log(
         pending_effects=pending,
     )
 
-    response = await service.delete_source(source_id, actor="tester")
+    response = await service.delete_source(source_id, actor="tester", tenant_ids=None)
 
     assert response.ok
     assert ref in flaky_secrets.inner.values

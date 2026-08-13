@@ -58,6 +58,7 @@ def test_temporal_worker_capacity_is_configurable_and_cannot_overcommit_pool() -
 def test_redis_url_is_secret_and_accepts_tls_scheme() -> None:
     settings = RuntimeSettings(
         control_db_url="postgresql+asyncpg://user:database-secret@database/control",
+        secrets_encryption_key="test-encryption-key",
         temporal_api_key="temporal-secret",
         redis_url=SecretStr("rediss://user:private@redis.example.com/0"),
         qdrant_api_key="qdrant-secret",
@@ -157,6 +158,33 @@ def test_ingestion_metrics_settings_validate_the_listener_port() -> None:
 
     with pytest.raises(ValidationError, match="greater than or equal to 1"):
         RuntimeSettings(metrics_port=0)
+
+
+def test_default_sqlite_control_db_does_not_require_an_encryption_key() -> None:
+    settings = RuntimeSettings()
+
+    assert settings.secrets_encryption_key is None
+
+
+def test_non_sqlite_control_db_requires_an_explicit_encryption_key_even_in_dev() -> None:
+    """env=dev with a real Postgres DSN is legal but must not fall back to the
+    publicly-known dev-default Fernet key for stored secrets."""
+    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
+        RuntimeSettings(control_db_url="postgresql+asyncpg://user:pass@database/control")
+
+    settings = RuntimeSettings(
+        control_db_url="postgresql+asyncpg://user:pass@database/control",
+        secrets_encryption_key="test-encryption-key",
+    )
+    assert settings.secrets_encryption_key is not None
+
+
+def test_prod_requires_an_explicit_encryption_key() -> None:
+    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
+        RuntimeSettings(
+            env="prod",
+            control_db_url="postgresql+asyncpg://user:pass@database/control",
+        )
 
 
 def test_graph_concurrency_settings_are_positive_and_independent() -> None:

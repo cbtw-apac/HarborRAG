@@ -24,8 +24,13 @@ from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
     SqlSourceRepository,
 )
+from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import (
+    HarborConflictError,
+    HarborNotFoundError,
+    HarborSecretDecryptionError,
+)
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
@@ -111,6 +116,26 @@ async def test_source_repository_roundtrip_and_project_filter(
         await repo.update(source)
     await repo.delete("s2", tenant_ids=None)
     assert await repo.get("s2", tenant_ids=None) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_secrets_repository_flags_decryption_failure_as_distinct_from_not_found(
+    sessions: SessionFactory,
+) -> None:
+    """A ref encrypted under a since-rotated key must not be conflated with a missing ref."""
+
+    repo = SqlSecretsRepository(sessions, encryption_key="original-key")
+    ref = await repo.put("hunter2")
+    assert await repo.resolve(ref) == "hunter2"
+
+    rotated = SqlSecretsRepository(sessions, encryption_key="rotated-key")
+    with pytest.raises(HarborSecretDecryptionError, match="cannot be decrypted"):
+        await rotated.resolve(ref)
+
+    # A genuinely missing ref still 404s rather than raising the decryption error.
+    with pytest.raises(HarborNotFoundError):
+        await rotated.resolve("secret://db/does-not-exist")
 
 
 @pytest.mark.asyncio

@@ -9,17 +9,20 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 from dataclasses import dataclass, field
 from uuid import uuid4
 
 import sqlalchemy as sa
 from cryptography.fernet import Fernet, InvalidToken
 
-from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborNotFoundError, HarborSecretDecryptionError
 
 from .mapping import utc_now
 from .schemas import SecretRefRow
 from .session import SessionFactory
+
+logger = logging.getLogger("harborrag.adapters.control_plane.secrets")
 
 
 def _fernet_key(raw_key: str) -> bytes:
@@ -64,7 +67,15 @@ class SqlSecretsRepository:
         try:
             return self._fernet.decrypt(row.ciphertext).decode()
         except InvalidToken as exc:
-            raise HarborNotFoundError(f"secret ref cannot be decrypted: {ref!r}") from exc
+            logger.error(
+                "Secret ref exists but failed to decrypt with the configured key "
+                "ref=%r -- this usually means HARBORRAG_SECRETS_ENCRYPTION_KEY was "
+                "rotated without re-encrypting stored secrets",
+                ref,
+            )
+            raise HarborSecretDecryptionError(
+                f"secret ref cannot be decrypted: {ref!r}"
+            ) from exc
 
     async def delete(self, ref: str) -> None:
         """Forget the value behind a ref; a no-op if it's already gone."""

@@ -101,13 +101,14 @@ class ControlPlaneWritesMixin:
         *,
         updates: dict[str, Any],
         actor: str,
+        tenant_ids: frozenset[str] | None,
     ) -> AppResponse:
-        """Apply a partial update; only keys present in ``updates`` change."""
+        """Apply a partial update within ``tenant_ids``; only keys present in ``updates`` change."""
         unknown = set(updates) - _MUTABLE_SOURCE_FIELDS
         if unknown:
             raise HarborValidationError(f"unsupported source fields: {sorted(unknown)}")
         control_plane = self._control_plane()
-        source = await control_plane.sources.get(source_id, tenant_ids=None)
+        source = await control_plane.sources.get(source_id, tenant_ids=tenant_ids)
         if source is None:
             raise HarborNotFoundError(f"source {source_id!r} not found")
         if "name" in updates:
@@ -150,13 +151,15 @@ class ControlPlaneWritesMixin:
         )
         return AppResponse(True, {"source": updated})
 
-    async def delete_source(self, source_id: str, *, actor: str) -> AppResponse:
-        """Delete a source and forget every secret it referenced."""
+    async def delete_source(
+        self, source_id: str, *, actor: str, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """Delete a source within ``tenant_ids`` and forget every secret it referenced."""
         control_plane = self._control_plane()
-        source = await control_plane.sources.get(source_id, tenant_ids=None)
+        source = await control_plane.sources.get(source_id, tenant_ids=tenant_ids)
         if source is None:
             raise HarborNotFoundError(f"source {source_id!r} not found")
-        await control_plane.sources.delete(source_id, tenant_ids=None)
+        await control_plane.sources.delete(source_id, tenant_ids=tenant_ids)
         await _retire_refs(control_plane, source.secret_refs)
         await _log_activity(
             control_plane,

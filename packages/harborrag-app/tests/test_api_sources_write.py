@@ -180,3 +180,38 @@ def test_source_outside_the_callers_tenants_404s_not_403s(project: Project) -> N
 
         list_response = client.get("/api/v1/sources")
         assert list_response.json() == []
+
+
+@pytest.mark.blackbox
+def test_update_and_delete_of_a_source_outside_the_callers_tenants_404s(project: Project) -> None:
+    """A caller scoped to another tenant must not be able to update or delete this source."""
+    app = create_fastapi_app(ApiSettings())
+    service = control_plane_app_service(projects=[project])
+    app.dependency_overrides[get_app_service] = lambda: service
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/sources",
+            json={
+                "tenant_id": "DEFAULT",
+                "project_id": "proj-a",
+                "source_type": "local",
+                "name": "Docs",
+                "config": {"source_path": "./docs"},
+            },
+        ).json()
+
+        app.dependency_overrides[get_principal] = lambda: Principal(
+            subject="other-tenant-user",
+            role="owner",
+            tenant_ids=frozenset({"some-other-tenant"}),
+        )
+        update_response = client.patch(
+            f"/api/v1/sources/{created['id']}", json={"name": "Hijacked"}
+        )
+        assert update_response.status_code == 404
+
+        delete_response = client.delete(f"/api/v1/sources/{created['id']}")
+        assert delete_response.status_code == 404
+
+        del app.dependency_overrides[get_principal]
+        assert client.get(f"/api/v1/sources/{created['id']}").json()["name"] == "Docs"

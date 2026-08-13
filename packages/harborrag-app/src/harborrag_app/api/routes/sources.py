@@ -2,10 +2,12 @@
 
 Secret-shaped config fields are extracted to the secrets port by the service
 layer (workflow_control.control_plane.writes) -- routes never see or forward
-raw values. Reads are scoped to the caller's tenants via ``tenant_ids``; write
-routes authorize by fetching the source through that same tenant-scoped
-``get_source`` first, so a source outside the caller's tenants 404s rather
-than 403s and its existence isn't leaked (mirrors api/v1/ingestion/routes.py).
+raw values. Every read and write is scoped to the caller's tenants via
+``tenant_ids``, threaded straight into the service call rather than checked
+by a separate pre-fetch in the route -- so a source outside the caller's
+tenants 404s rather than 403s and its existence isn't leaked (mirrors
+api/v1/ingestion/routes.py), and the service is safe by construction even if
+some other caller (CLI, MCP) skips a route-level check entirely.
 """
 
 from __future__ import annotations
@@ -125,11 +127,11 @@ async def update_source(
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> SourceOut:
     """Update a source; fields omitted from the request body are left unchanged."""
-    await service.get_source(source_id, tenant_ids=principal.tenant_scope)
     response = await service.update_source(
         source_id,
         updates=payload.model_dump(exclude_unset=True),
         actor=principal.subject,
+        tenant_ids=principal.tenant_scope,
     )
     return SourceOut.from_domain(response.data["source"])
 
@@ -141,5 +143,6 @@ async def delete_source(
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> None:
     """Delete a source and forget every secret it referenced."""
-    await service.get_source(source_id, tenant_ids=principal.tenant_scope)
-    await service.delete_source(source_id, actor=principal.subject)
+    await service.delete_source(
+        source_id, actor=principal.subject, tenant_ids=principal.tenant_scope
+    )

@@ -32,8 +32,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("harborrag.runtime.composition")
 
-# Only reachable when HARBORRAG_ENV=dev and HARBORRAG_SECRETS_ENCRYPTION_KEY is unset;
-# RuntimeSettings.validate_secret_urls() rejects a missing key outright in prod.
+# Only reachable when the control DB is SQLite and HARBORRAG_SECRETS_ENCRYPTION_KEY is
+# unset; RuntimeSettings.validate_secret_urls() rejects a missing key outright for any
+# non-SQLite control database (including dev), and always in prod.
 _DEV_DEFAULT_SECRETS_KEY = "harborrag-dev-insecure-default-key"
 
 
@@ -157,11 +158,15 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
-        secrets_key = (
-            settings.secrets_encryption_key.get_secret_value()
-            if settings.secrets_encryption_key is not None
-            else _DEV_DEFAULT_SECRETS_KEY
-        )
+        if settings.secrets_encryption_key is not None:
+            secrets_key = settings.secrets_encryption_key.get_secret_value()
+        else:
+            secrets_key = _DEV_DEFAULT_SECRETS_KEY
+            logger.warning(
+                "Using the dev-only default secrets encryption key against a SQLite "
+                "control database; set HARBORRAG_SECRETS_ENCRYPTION_KEY before pointing "
+                "this process at any persistent or shared database"
+            )
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
             sources=SqlSourceRepository(sessions),
