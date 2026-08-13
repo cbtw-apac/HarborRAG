@@ -174,7 +174,7 @@ async def find_paths(
                          OR relation.relation_type IN $relationship_types))
         RETURN nodes(path) AS path_nodes,
                relationships(path) AS path_relations
-        ORDER BY length(path)
+        ORDER BY size(path_relations)
         LIMIT $max_paths
         """,
         {
