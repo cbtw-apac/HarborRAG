@@ -234,6 +234,7 @@ class AppService(
             live = self._resources.event_bus().subscribe(f"task.{task_id}.")
         try:
             for event in await store.list_task_events(task_id, after_seq=after_seq):
+                yield event
                 if event.name.endswith(".done"):
                     return
             if live is None:

@@ -18,6 +18,7 @@ from workflow_control_fixtures import FakeComposition
 
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_runtime.events.in_process import InProcessEventBus
 
@@ -25,8 +26,9 @@ from harborrag_runtime.events.in_process import InProcessEventBus
 class _FakeTaskStore:
     """Just enough of PublicTaskStore for stream_ingestion_events to drive."""
 
-    def __init__(self, task: IngestionTask) -> None:
+    def __init__(self, task: IngestionTask, *, backlog: tuple[HarborEvent, ...] = ()) -> None:
         self._task = task
+        self._backlog = backlog
 
     async def get(self, task_id: str) -> IngestionTask | None:
         return self._task if task_id == self._task.task_id else None
@@ -37,11 +39,13 @@ class _FakeTaskStore:
 
     async def list_task_events(self, task_id: str, *, after_seq: int | None = None):
         del task_id, after_seq
-        return ()
+        return self._backlog
 
 
-def _build_service(bus: InProcessEventBus, task: IngestionTask) -> AppService:
-    store = _FakeTaskStore(task)
+def _build_service(
+    bus: InProcessEventBus, task: IngestionTask, *, backlog: tuple[HarborEvent, ...] = ()
+) -> AppService:
+    store = _FakeTaskStore(task, backlog=backlog)
 
     async def registry_factory(_settings):
         return store
@@ -80,4 +84,35 @@ async def test_abandoning_the_stream_mid_backlog_deregisters_the_live_subscripti
     with contextlib.suppress(asyncio.CancelledError):
         await consume
 
+    assert bus._subscribers == []
+
+
+@pytest.mark.asyncio
+async def test_backlog_done_event_is_yielded_and_ends_the_stream() -> None:
+    """Regression for a coderabbit finding: the task can finish (and its
+    ".done" event get persisted) in the gap between this method reading the
+    task's status and it registering the live subscription. That leaves the
+    terminal event sitting only in the backlog, never on the live bus. The
+    backlog loop must yield it -- not just check its name and stop -- or the
+    caller loses every persisted event, and then hang forever awaiting a live
+    event that was never going to arrive.
+    """
+    bus = InProcessEventBus()
+    task = IngestionTask(
+        task_id="t1",
+        source_scope_id="scope-1",
+        status=IngestionTaskState.RUNNING,
+        request={
+            "tenant_id": "DEFAULT",
+            "connector_type": "confluence",
+            "connection_id": "c1",
+        },
+    )
+    done_event = HarborEvent(name="task.t1.done", trace_id="trace-1")
+    service = _build_service(bus, task, backlog=(done_event,))
+
+    events = service.stream_ingestion_events("t1")
+    received = [event async for event in events]
+
+    assert received == [done_event]
     assert bus._subscribers == []
