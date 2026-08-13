@@ -181,7 +181,7 @@ class FakeActivityRepository:
 
 @dataclass(slots=True)
 class FakePendingEffectRepository:
-    """Dict-backed PendingEffectRepositoryPort; insertion order is oldest-first."""
+    """Dict-backed PendingEffectRepositoryPort."""
 
     effects: dict[str, PendingControlPlaneEffect] = field(default_factory=dict)
 
@@ -190,8 +190,16 @@ class FakePendingEffectRepository:
         self.effects[effect.id] = effect
 
     async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
-        """Oldest-first pending effects, for the recovery drain."""
-        return list(self.effects.values())[:limit]
+        """Oldest-first pending effects, for the recovery drain.
+
+        Sorted by (created_at, id) rather than insertion/dict order to match
+        SqlPendingEffectRepository.list_pending -- otherwise a test seeding
+        effects out of timestamp order could pass here while the real drain
+        would process them in a different sequence.
+        """
+        return sorted(self.effects.values(), key=lambda effect: (effect.created_at, effect.id))[
+            :limit
+        ]
 
     async def complete(self, effect_id: str) -> None:
         """Drop the effect once its retry has succeeded; a no-op if already gone."""

@@ -10,6 +10,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
@@ -20,6 +21,7 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeJobRepository,
     FakeMemberRepository,
+    FakePendingEffectRepository,
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
@@ -264,6 +266,31 @@ async def test_fake_activity_append_is_idempotent_by_id() -> None:
     await activity.append(entry)
 
     assert [e.id for e in await activity.list(limit=50, tenant_ids=None)] == ["act_1"]
+
+
+@pytest.mark.asyncio
+async def test_fake_pending_effects_list_oldest_first_with_deterministic_ties() -> None:
+    """SqlPendingEffectRepository.list_pending orders by (created_at, id), not
+    insertion order -- the fake must match, or a recovery-drain test could
+    pass here while processing pending effects in a different sequence than
+    the real drain would."""
+    now = datetime.now(UTC)
+    pending = FakePendingEffectRepository()
+    newest = PendingControlPlaneEffect(id="c", kind="log_activity", payload={}, created_at=now)
+    oldest = PendingControlPlaneEffect(
+        id="a", kind="log_activity", payload={}, created_at=now - timedelta(minutes=1)
+    )
+    # Same created_at as `oldest` -- id must break the tie, ordering it second.
+    oldest_tied_by_id = PendingControlPlaneEffect(
+        id="a-tiebreak", kind="log_activity", payload={}, created_at=oldest.created_at
+    )
+    # Enqueued out of timestamp order, mirroring how effects actually arrive.
+    for effect in (newest, oldest_tied_by_id, oldest):
+        await pending.enqueue(effect)
+
+    listed = await pending.list_pending()
+
+    assert [effect.id for effect in listed] == ["a", "a-tiebreak", "c"]
 
 
 @pytest.mark.asyncio
