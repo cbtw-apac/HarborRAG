@@ -97,8 +97,16 @@ class IngestionTaskRegistry:
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
         return await self._control.tasks.pending_submissions(limit=limit)
 
-    async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]:
-        return await self._control.tasks.list_active(limit=limit)
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: datetime | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[IngestionTask, ...]:
+        return await self._control.tasks.list_active(
+            after_submitted_at=after_submitted_at, after_task_id=after_task_id, limit=limit
+        )
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
         seq = await self._control.task_events.append_event(task_id, event)

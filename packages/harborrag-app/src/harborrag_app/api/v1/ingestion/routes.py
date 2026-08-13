@@ -156,7 +156,8 @@ def _parse_after_seq(last_event_id: str | None) -> int | None:
     if last_event_id is None:
         return None
     try:
-        return int(last_event_id)
+        sequence = int(last_event_id)
+        return sequence if sequence >= 0 else None
     except ValueError:
         return None
 

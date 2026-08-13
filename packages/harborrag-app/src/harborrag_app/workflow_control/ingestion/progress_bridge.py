@@ -31,6 +31,7 @@ _TERMINAL_STATES = frozenset(
 )
 _SNAPSHOT_KEY = "_last_progress_snapshot"
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
+_LIST_ACTIVE_PAGE_LIMIT = 500
 
 # Named lease this bridge's tick runs under (LeaseRepositoryPort) so only one
 # process ticks it when the API is scaled to multiple processes/replicas --
@@ -52,29 +53,51 @@ async def sync_ingestion_progress(store: PublicTaskStore, event_bus: EventBusPor
     since the last tick, append + publish a final "task.<id>.done" event
     too -- the stream route's stop signal. Returns the number of active
     tasks examined.
+
+    list_active() is a bounded, keyset-paginated read, not a single snapshot
+    of every active task -- with more active tasks than fit in one page,
+    stopping after the first page would silently starve later tasks of
+    progress/done events. So this walks every page each tick, following the
+    (submitted_at, task_id) cursor from the last row of each page until a
+    short page signals the end.
     """
-    active = await store.list_active()
-    for task in active:
-        counts = await store.progress(task.task_id)
-        if counts != task.summary.get(_SNAPSHOT_KEY):
-            event = HarborEvent(
-                name=f"task.{task.task_id}.progress",
-                trace_id=task.task_id,
-                payload={"status": task.status.value, "counts": counts},
-            )
-            event = await store.append_task_event(task.task_id, event)
-            await event_bus.publish(event)
-            await store.update_summary(task.task_id, {_SNAPSHOT_KEY: counts})
-        refreshed = await store.get(task.task_id)
-        if refreshed is not None and refreshed.status in _TERMINAL_STATES:
-            done_event = HarborEvent(
-                name=f"task.{task.task_id}.done",
-                trace_id=task.task_id,
-                payload={"status": refreshed.status.value, "counts": counts},
-            )
-            done_event = await store.append_task_event(task.task_id, done_event)
-            await event_bus.publish(done_event)
-    return len(active)
+    examined = 0
+    after_submitted_at = None
+    after_task_id = None
+    while True:
+        page = await store.list_active(
+            after_submitted_at=after_submitted_at,
+            after_task_id=after_task_id,
+            limit=_LIST_ACTIVE_PAGE_LIMIT,
+        )
+        if not page:
+            break
+        for task in page:
+            counts = await store.progress(task.task_id)
+            if counts != task.summary.get(_SNAPSHOT_KEY):
+                event = HarborEvent(
+                    name=f"task.{task.task_id}.progress",
+                    trace_id=task.task_id,
+                    payload={"status": task.status.value, "counts": counts},
+                )
+                event = await store.append_task_event(task.task_id, event)
+                await event_bus.publish(event)
+                await store.update_summary(task.task_id, {_SNAPSHOT_KEY: counts})
+            refreshed = await store.get(task.task_id)
+            if refreshed is not None and refreshed.status in _TERMINAL_STATES:
+                done_event = HarborEvent(
+                    name=f"task.{task.task_id}.done",
+                    trace_id=task.task_id,
+                    payload={"status": refreshed.status.value, "counts": counts},
+                )
+                done_event = await store.append_task_event(task.task_id, done_event)
+                await event_bus.publish(done_event)
+        examined += len(page)
+        if len(page) < _LIST_ACTIVE_PAGE_LIMIT:
+            break
+        after_submitted_at = page[-1].submitted_at
+        after_task_id = page[-1].task_id
+    return examined
 
 
 async def run_ingestion_progress_bridge(

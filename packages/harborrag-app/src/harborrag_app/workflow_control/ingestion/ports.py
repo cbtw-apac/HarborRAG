@@ -45,7 +45,13 @@ class PublicTaskStore(Protocol):
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
 
-    async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]: ...
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: datetime | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[IngestionTask, ...]: ...
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent: ...
 

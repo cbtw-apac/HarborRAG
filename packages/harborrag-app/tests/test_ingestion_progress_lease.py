@@ -54,8 +54,14 @@ class _FakeTaskStore:
         self._counts = counts
         self.tick_count = 0
 
-    async def list_active(self, *, limit: int = 500) -> tuple[_FakeTask, ...]:
-        del limit
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: object | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[_FakeTask, ...]:
+        del after_submitted_at, after_task_id, limit
         return (self._task,)
 
     async def progress(self, task_id: str) -> dict[str, int]:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import insert, or_, select
+from datetime import datetime
+
+from sqlalchemy import and_, insert, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -180,21 +182,46 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
 
-    async def list_active(self, *, limit: int = 500) -> tuple[IngestionTask, ...]:
-        """Non-terminal tasks (PENDING/RUNNING), for a progress-polling bridge."""
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: datetime | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[IngestionTask, ...]:
+        """Non-terminal tasks (PENDING/RUNNING), keyset-paginated for a progress bridge.
+
+        Callers must page through with (submitted_at, task_id) from the last
+        row of the previous page until a short page signals the end -- a
+        single bounded call would silently strand tasks past the limit.
+        """
 
         if not 1 <= limit <= 1_000:
             raise ValueError("active task limit must be between 1 and 1000")
+        if (after_submitted_at is None) != (after_task_id is None):
+            raise ValueError("active task cursor values must be supplied together")
+        statement = select(INGESTION_TASKS).where(
+            INGESTION_TASKS.c.status.in_(
+                (IngestionTaskState.PENDING.value, IngestionTaskState.RUNNING.value)
+            )
+        )
+        if after_submitted_at is not None:
+            if after_task_id is None:
+                raise HarborInvariantError("after_task_id must not be None here")
+            statement = statement.where(
+                or_(
+                    INGESTION_TASKS.c.submitted_at > after_submitted_at,
+                    and_(
+                        INGESTION_TASKS.c.submitted_at == after_submitted_at,
+                        INGESTION_TASKS.c.task_id > after_task_id,
+                    ),
+                )
+            )
         async with self._client.sessions() as session:
             result = await session.execute(
-                select(INGESTION_TASKS)
-                .where(
-                    INGESTION_TASKS.c.status.in_(
-                        (IngestionTaskState.PENDING.value, IngestionTaskState.RUNNING.value)
-                    )
-                )
-                .order_by(INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id)
-                .limit(limit)
+                statement.order_by(
+                    INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id
+                ).limit(limit)
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
 

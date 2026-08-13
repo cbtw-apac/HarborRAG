@@ -44,8 +44,14 @@ class FakeTaskStore:
         self.appended: list[tuple[str, HarborEvent]] = []
         self._next_seq: dict[str, int] = {}
 
-    async def list_active(self, *, limit: int = 500) -> tuple[_FakeTask, ...]:
-        del limit
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: object | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[_FakeTask, ...]:
+        del after_submitted_at, after_task_id, limit
         return tuple(
             task
             for task in self._tasks.values()
