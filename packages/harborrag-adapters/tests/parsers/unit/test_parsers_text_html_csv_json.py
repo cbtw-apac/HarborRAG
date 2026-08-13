@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import pytest
 
@@ -232,19 +231,23 @@ def test_csv_parser_skips_and_warns_on_field_count_mismatch(caplog):
 
 
 def test_csv_parser_quarantines_single_bad_row_in_real_world_fixture():
-    """`csv_bad_encoding_row.csv` has row 9003 with an invalid UTF-8 continuation
-    byte; the other four data rows are well-formed. Before per-row decoding, whole-
-    file encoding detection would drop confidence on the one bad row and reject the
-    entire file with `TextDecodingError`, losing every well-formed row with it.
+    """Row 9003 has an invalid UTF-8 continuation byte; the other four data
+    rows are well-formed. Before per-row decoding, whole-file encoding
+    detection would drop confidence on the one bad row and reject the
+    entire file with `TextDecodingError`, losing every well-formed row
+    with it.
     """
-    fixture = (
-        Path(__file__).resolve().parents[5]
-        / "examples"
-        / "samples"
-        / "csv"
-        / "csv_bad_encoding_row.csv"
+    content = (
+        b"OrderID,CustomerName,OrderDate,Amount\n"
+        b"9001,Nguyen Van A,2026-06-01,129.50\n"
+        b"9002,Tran Thi B,2026-06-02,89.00\n"
+        b"9003,Tr\xe1n Th\xe1 C,2026-06-03,245.75\n"
+        b"9004,Pham Thi D,2026-06-04,15.20\n"
+        b"9005,Hoang Van E,2026-06-05,310.00\n"
     )
-    document = CsvParser().parse(ParseInput(content=fixture.read_bytes(), filename=fixture.name))
+    document = CsvParser().parse(
+        ParseInput(content=content, filename="csv_bad_encoding_row.csv")
+    )
 
     assert document.content == (
         "OrderID\tCustomerName\tOrderDate\tAmount\n"
