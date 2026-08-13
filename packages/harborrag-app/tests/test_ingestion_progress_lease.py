@@ -13,11 +13,14 @@ tick in the same round.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import pytest
 
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_app.workflow_control.ingestion.progress_bridge import LEASE_NAME
+from harborrag_core.base import utc_now
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTaskState
@@ -139,7 +142,8 @@ async def test_only_the_lease_holder_ticks_when_two_processes_share_a_database()
 @pytest.mark.asyncio
 async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
     """A process that stops ticking (crash, restart) must not permanently
-    starve every other instance of the lease."""
+    starve every other instance of the lease -- once its lease's recorded
+    expiry has passed, a live contender takes over."""
 
     lease_repository = FakeLeaseRepository()
     task = _FakeTask("t1", IngestionTaskState.RUNNING)
@@ -149,7 +153,14 @@ async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
     process_b = _build_service(lease_repository=lease_repository, task_store=task_store, bus=bus)
 
     assert await process_a.sync_ingestion_progress() == 1  # a becomes leader
-    # a's lease lapses (crash / restart / a machine clock rolling forward past ttl):
-    lease_repository.leases.clear()
+
+    # a's lease lapses (crash / restart / its own clock rolling forward past
+    # ttl). Modeled by backdating the *existing* row's expiry, not by
+    # deleting it: SqlLeaseRepository.try_acquire returns False outright for
+    # an unseeded/unknown lease name (the row is seeded once, by migration,
+    # and never removed), so clearing the dict here would prove failover
+    # from a state production never reaches -- deterministic, no sleep.
+    holder, _ = lease_repository.leases[LEASE_NAME]
+    lease_repository.leases[LEASE_NAME] = (holder, utc_now() - timedelta(seconds=1))
 
     assert await process_b.sync_ingestion_progress() == 1  # b takes over
