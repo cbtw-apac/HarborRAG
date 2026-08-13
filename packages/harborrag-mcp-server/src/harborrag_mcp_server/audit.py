@@ -111,7 +111,90 @@ class McpAuditLog:
             os.close(descriptor)
 
 
+_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
+
+
 def _open_audit_file(path: Path) -> int:
+    """Open the durable audit file with the strongest hardening the platform supports."""
+
+    if not _SUPPORTS_DIR_FD:
+        return _open_audit_file_fallback(path)
+    return _open_audit_file_dir_fd(path)
+
+
+_REPARSE_POINT_ATTRIBUTE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_reparse_point(metadata: os.stat_result) -> bool:
+    """Return whether an `lstat()` result names a symlink, junction, or other reparse point.
+
+    `Path.is_symlink()` only recognizes the `IO_REPARSE_TAG_SYMLINK` tag.
+    NTFS junctions (`IO_REPARSE_TAG_MOUNT_POINT`) and other reparse points
+    report `is_symlink() == False` while still redirecting file operations to
+    an arbitrary target, so every check here also inspects the
+    `FILE_ATTRIBUTE_REPARSE_POINT` bit, which `lstat()` reports without
+    following the reparse point.
+    """
+    return bool(stat.S_ISLNK(metadata.st_mode)) or bool(
+        getattr(metadata, "st_file_attributes", 0) & _REPARSE_POINT_ATTRIBUTE
+    )
+
+
+def _reject_reparse_component(component: Path) -> None:
+    try:
+        metadata = os.lstat(component)
+    except OSError:
+        return
+    if _is_reparse_point(metadata):
+        raise OSError(
+            f"durable MCP audit path must not contain a symlink or reparse point: {component}"
+        )
+
+
+def _open_audit_file_fallback(path: Path) -> int:
+    """Best-effort open for platforms without `dir_fd`/`openat()` support (Windows).
+
+    Windows has no O_DIRECTORY/O_NOFOLLOW-per-component equivalent, so this
+    narrows rather than closes the TOCTOU window `_open_audit_file_dir_fd`
+    closes on POSIX: every path component -- including `path.parent` and
+    `path` -- is checked for a symlink or reparse point immediately before
+    opening, `path.parent` is re-checked right after `os.open()` to narrow
+    the window where it could be replaced by a junction between the
+    pre-open check and the open call, and the opened descriptor is finally
+    re-checked against a fresh `lstat` of the same path.
+    """
+
+    for component in (*reversed(path.parents), path):
+        _reject_reparse_component(component)
+
+    file_flags = (
+        os.O_WRONLY
+        | os.O_APPEND
+        | os.O_CREAT
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(path, file_flags, 0o600)
+    try:
+        _reject_reparse_component(path.parent)
+        metadata = os.fstat(descriptor)
+        named_metadata = os.lstat(path)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or _is_reparse_point(named_metadata)
+            or _identity(metadata) != _identity(named_metadata)
+            or metadata.st_nlink != 1
+        ):
+            raise OSError("durable MCP audit path must be a single-link regular file")
+        if not _owned_by_current_process(metadata):
+            raise PermissionError("durable MCP audit file must be owned by this process user")
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _open_audit_file_dir_fd(path: Path) -> int:
     """Open an owner-only regular file without following the final directory entries."""
 
     directory_flags = (
