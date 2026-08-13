@@ -219,9 +219,9 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             )
         async with self._client.sessions() as session:
             result = await session.execute(
-                statement.order_by(
-                    INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id
-                ).limit(limit)
+                statement.order_by(INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id).limit(
+                    limit
+                )
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
 
