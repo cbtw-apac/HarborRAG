@@ -187,6 +187,17 @@ def test_prod_requires_an_explicit_encryption_key() -> None:
         )
 
 
+def test_prod_rejects_a_blank_encryption_key() -> None:
+    """A blank key is not None, so it must not slip past the "must be set"
+    check and reach Fernet key derivation as a fixed, guessable value."""
+    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
+        RuntimeSettings(
+            env="prod",
+            control_db_url="postgresql+asyncpg://user:pass@database/control",
+            secrets_encryption_key="   ",
+        )
+
+
 def test_graph_concurrency_settings_are_positive_and_independent() -> None:
     settings = RuntimeSettings(
         falkordb_max_connections=24,

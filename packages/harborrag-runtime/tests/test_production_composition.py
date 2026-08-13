@@ -102,6 +102,27 @@ async def test_prod_env_rejects_every_explicit_sqlite_url(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
+async def test_blank_encryption_key_falls_back_to_the_dev_default(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A whitespace-only key is legal at the settings layer for a SQLite
+    control DB (RuntimeSettings only requires a key for non-SQLite/prod), but
+    composition must not derive a Fernet key from that blank value -- it
+    should fail closed to the known dev-default key instead, exactly as if
+    the key had been left unset."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    settings = RuntimeSettings(control_db_url=dsn, secrets_encryption_key="   ")
+
+    with caplog.at_level(logging.WARNING, logger="harborrag.runtime.composition"):
+        composition = CompositionRoot.production(settings)
+    try:
+        assert "dev-only default secrets encryption key" in caplog.text
+    finally:
+        await composition.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
 async def test_dev_env_allows_default_control_db_url(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

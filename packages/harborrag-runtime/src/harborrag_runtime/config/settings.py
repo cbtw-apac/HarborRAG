@@ -28,6 +28,16 @@ _OBJECT_STORE_TRANSPORT = RemoteTransportPolicy(
 )
 
 
+def is_blank_secret(value: SecretStr | None) -> bool:
+    """True for an unset secret or one that is empty/whitespace-only.
+
+    A blank string is not None, so it would otherwise slip past an
+    `is None` check and reach the encryption key derivation as a fixed,
+    publicly-guessable value -- weaker than even the dev-default key.
+    """
+    return value is None or not value.get_secret_value().strip()
+
+
 class RuntimeSettings(BaseSettings):
     """Environment-driven settings for runtime composition."""
 
@@ -109,7 +119,7 @@ class RuntimeSettings(BaseSettings):
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
                 "HARBORRAG_ENV=prod; SQLite is development-only"
             )
-        if self.secrets_encryption_key is None and not is_sqlite_control_db:
+        if is_blank_secret(self.secrets_encryption_key) and not is_sqlite_control_db:
             # env=dev with a real (non-SQLite) control DB is a legal combination, and
             # it would otherwise silently encrypt stored secrets with the
             # publicly-known dev-default key -- require an explicit key for any

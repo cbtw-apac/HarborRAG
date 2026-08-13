@@ -118,7 +118,7 @@ class CompositionRoot:
             SqlSettingsRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_runtime.config.settings import RuntimeSettings
+        from harborrag_runtime.config.settings import RuntimeSettings, is_blank_secret
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url.get_secret_value()
@@ -158,9 +158,13 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
-        if settings.secrets_encryption_key is not None:
-            secrets_key = settings.secrets_encryption_key.get_secret_value()
+        encryption_key = settings.secrets_encryption_key
+        if encryption_key is not None and not is_blank_secret(encryption_key):
+            secrets_key = encryption_key.get_secret_value()
         else:
+            # Reached only if a blank key slipped past validate_secret_urls (e.g. a
+            # RuntimeSettings built without validation) -- fail closed to the known
+            # dev default rather than deriving a Fernet key from an empty string.
             secrets_key = _DEV_DEFAULT_SECRETS_KEY
             logger.warning(
                 "Using the dev-only default secrets encryption key against a SQLite "
