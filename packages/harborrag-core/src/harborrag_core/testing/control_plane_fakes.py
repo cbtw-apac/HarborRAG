@@ -159,7 +159,14 @@ class FakeActivityRepository:
     entries: list[ActivityEntry] = field(default_factory=list)
 
     async def append(self, entry: ActivityEntry) -> None:
-        """Record one audit entry."""
+        """Record one audit entry; a no-op if this id was already recorded.
+
+        Mirrors the real table's primary key on id: a pending effect replay
+        (possibly raced by two recovery drains) reuses the original entry's
+        id, so a second append of the same id must not create a duplicate.
+        """
+        if any(existing.id == entry.id for existing in self.entries):
+            return
         self.entries.append(entry)
 
     async def list(

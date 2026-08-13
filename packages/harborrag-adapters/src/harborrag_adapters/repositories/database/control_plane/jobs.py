@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from harborrag_adapters.repositories.database.control_plane.schemas import (
     ActivityRow,
@@ -18,6 +20,8 @@ from harborrag_core.domain.job import Job, JobStatus
 
 from .mapping import job_to_domain
 from .session import SessionFactory
+
+logger = logging.getLogger("harborrag.adapters.control_plane.activity")
 
 
 @dataclass(slots=True)
@@ -123,19 +127,32 @@ class SqlActivityRepository:
     sessions: SessionFactory
 
     async def append(self, entry: ActivityEntry) -> None:
-        """Insert one audit row."""
-        async with self.sessions.begin() as session:
-            session.add(
-                ActivityRow(
-                    id=entry.id,
-                    tenant_id=entry.tenant_id,
-                    actor=entry.actor,
-                    verb=entry.verb,
-                    entity_type=entry.entity_type,
-                    entity_id=entry.entity_id,
-                    summary=entry.summary,
-                    created_at=entry.created_at,
+        """Insert one audit row; a no-op if this id is already recorded.
+
+        A pending-effect replay (see effect_recovery.py) reuses the
+        original entry's id, so two recovery drains racing to replay the
+        same effect both attempt this insert -- the table's primary key on
+        id turns the loser's attempt into an IntegrityError rather than a
+        duplicate row, and that's treated as success, not a retry-worthy
+        failure.
+        """
+        try:
+            async with self.sessions.begin() as session:
+                session.add(
+                    ActivityRow(
+                        id=entry.id,
+                        tenant_id=entry.tenant_id,
+                        actor=entry.actor,
+                        verb=entry.verb,
+                        entity_type=entry.entity_type,
+                        entity_id=entry.entity_id,
+                        summary=entry.summary,
+                        created_at=entry.created_at,
+                    )
                 )
+        except IntegrityError:
+            logger.info(
+                "activity entry id=%s already recorded; treating append as a no-op", entry.id
             )
 
     async def list(

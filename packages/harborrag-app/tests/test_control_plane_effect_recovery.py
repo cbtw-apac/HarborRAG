@@ -243,6 +243,76 @@ async def test_recovery_leaves_a_repeatedly_failing_effect_pending_without_block
     assert len(activity_repo.entries) == 1
 
 
+@dataclass(slots=True)
+class _CompleteFailsOnce:
+    """Wraps a real fake; ``complete`` raises for one chosen effect id, once."""
+
+    inner: FakePendingEffectRepository
+    fails_for: str
+
+    async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
+        await self.inner.enqueue(effect)
+
+    async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
+        return await self.inner.list_pending(limit=limit)
+
+    async def complete(self, effect_id: str) -> None:
+        if effect_id == self.fails_for:
+            self.fails_for = ""
+            raise RuntimeError("pending-effect store unavailable")
+        await self.inner.complete(effect_id)
+
+
+@pytest.mark.asyncio
+async def test_a_completion_failure_does_not_block_the_rest_of_the_batch(
+    project: Project,
+) -> None:
+    """A replay can succeed while the follow-up ``complete`` call fails (e.g. a
+    transient DB error). That row simply stays pending for the next drain
+    pass -- both effect kinds are safe to replay again -- but the failure
+    must not abort processing of the other pending rows in this same pass."""
+    activity_repo = FakeActivityRepository()
+    inner = FakePendingEffectRepository()
+    inner.effects["fails-to-complete"] = PendingControlPlaneEffect(
+        id="fails-to-complete",
+        kind="log_activity",
+        payload={
+            "id": "act_1",
+            "actor": "tester",
+            "verb": "created",
+            "entity_type": "source",
+            "entity_id": "src_1",
+            "summary": "Created source 'Docs'",
+            "tenant_id": "DEFAULT",
+            "created_at": "2026-08-12T00:00:00+00:00",
+        },
+    )
+    inner.effects["completes-fine"] = PendingControlPlaneEffect(
+        id="completes-fine",
+        kind="log_activity",
+        payload={
+            "id": "act_2",
+            "actor": "tester",
+            "verb": "created",
+            "entity_type": "source",
+            "entity_id": "src_2",
+            "summary": "Created source 'Sheets'",
+            "tenant_id": "DEFAULT",
+            "created_at": "2026-08-12T00:00:01+00:00",
+        },
+    )
+    pending = _CompleteFailsOnce(inner, fails_for="fails-to-complete")
+    service = control_plane_app_service(
+        projects=[project], activity_repository=activity_repo, pending_effects=pending
+    )
+
+    recovered = await service.recover_pending_control_plane_effects()
+
+    assert recovered == 1
+    assert set(inner.effects) == {"fails-to-complete"}
+    assert {entry.id for entry in activity_repo.entries} == {"act_1", "act_2"}
+
+
 @pytest.mark.asyncio
 async def test_a_failed_enqueue_is_logged_and_swallowed_not_raised(project: Project) -> None:
     """The primary write already committed -- even a double failure must not surface as an error."""

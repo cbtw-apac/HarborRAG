@@ -28,6 +28,19 @@ logger = logging.getLogger("harborrag.app.workflow_control.control_plane.effect_
 _RETIRE_SECRET_KIND = "retire_secret"
 _LOG_ACTIVITY_KIND = "log_activity"
 
+# Named lease AppService.recover_pending_control_plane_effects runs its drain
+# under (LeaseRepositoryPort), mirroring the ingestion progress bridge's
+# LEASE_NAME -- without it, every API process/replica drains the same queue
+# on its own timer and can replay the same pending effect concurrently.
+# retire_secret is idempotent either way (deleting an already-gone ref is a
+# no-op), but log_activity is not: two processes racing to replay the same
+# entry id both attempt an insert, and only a unique-id constraint (or the
+# idempotent-append guard on the repository) stops that from double-logging.
+# TTL is a few drain intervals so a crashed holder's lease lapses quickly
+# without its own timer jitter costing it the lease.
+EFFECT_RECOVERY_LEASE_NAME = "control_plane_effect_recovery"
+EFFECT_RECOVERY_LEASE_TTL_SECONDS = 120.0
+
 
 async def retire_refs(control_plane: ControlPlaneRepositories, refs: list[str]) -> None:
     """Delete each ref; a failed delete is queued for retry, never raised."""
@@ -69,7 +82,19 @@ async def recover_pending_control_plane_effects(
                 effect.kind,
             )
             continue
-        await control_plane.pending_effects.complete(effect.id)
+        try:
+            await control_plane.pending_effects.complete(effect.id)
+        except Exception:
+            # The replay above already succeeded -- only the delete from the
+            # queue failed. Leaving the row pending just means it replays
+            # again next pass (safe: both effect kinds are idempotent), so a
+            # failure here must not abort the rest of this batch.
+            logger.exception(
+                "control-plane pending effect complete failed id=%s kind=%s; will retry",
+                effect.id,
+                effect.kind,
+            )
+            continue
         recovered += 1
     return recovered
 

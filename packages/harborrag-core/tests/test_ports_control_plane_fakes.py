@@ -252,6 +252,21 @@ async def test_fake_activity_settings_provider_and_member_repositories() -> None
 
 
 @pytest.mark.asyncio
+async def test_fake_activity_append_is_idempotent_by_id() -> None:
+    """Mirrors the real table's primary key on id: a pending-effect replay
+    (possibly raced by two concurrent recovery drains) reuses the original
+    entry's id, so a second append of the same id must not double-log it."""
+    now = datetime.now(UTC)
+    activity = FakeActivityRepository()
+    entry = _activity("act_1", now)
+
+    await activity.append(entry)
+    await activity.append(entry)
+
+    assert [e.id for e in await activity.list(limit=50, tenant_ids=None)] == ["act_1"]
+
+
+@pytest.mark.asyncio
 async def test_fake_activity_provider_and_member_repositories_enforce_tenant_scope() -> None:
     now = datetime.now(UTC)
     scope = frozenset({"DEFAULT"})

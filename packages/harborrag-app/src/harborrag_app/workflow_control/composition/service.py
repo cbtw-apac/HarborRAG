@@ -15,6 +15,10 @@ from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 
 from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
+from ..control_plane.effect_recovery import (
+    EFFECT_RECOVERY_LEASE_NAME,
+    EFFECT_RECOVERY_LEASE_TTL_SECONDS,
+)
 from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
@@ -148,6 +152,26 @@ class AppService(
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
         return await self._public_ingestions.recover_pending_submissions(limit=limit)
+
+    async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
+        """Drain one pass of the durable secret-retirement/audit-logging outbox.
+
+        Gated by the same DB-backed lease pattern as sync_ingestion_progress:
+        when the API runs as more than one process, only the lease holder
+        drains the queue this pass -- every other instance's pass is a
+        no-op, so two processes never replay the same pending effect at
+        once (which could double-log the same activity entry).
+        """
+        acquired = await self._control_plane().leases.try_acquire(
+            EFFECT_RECOVERY_LEASE_NAME,
+            self._instance_id,
+            ttl_seconds=EFFECT_RECOVERY_LEASE_TTL_SECONDS,
+        )
+        if not acquired:
+            return 0
+        return await ControlPlaneWritesMixin.recover_pending_control_plane_effects(
+            self, limit=limit
+        )
 
     async def sync_ingestion_progress(self) -> int:
         """One poll tick fanning active tasks' progress out via the event bus.
