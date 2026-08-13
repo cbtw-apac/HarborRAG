@@ -146,6 +146,43 @@ class JiraConnector(BaseConnector):
                 raise AuthenticationError(exc.detail or str(exc)) from exc
             raise
 
+    def _verify_empty_search_result(self, query: ConnectorQuery) -> None:
+        """Rule out a permission gap behind a zero-issue search result.
+
+        `connect()` only proves the credential holds a valid session; it
+        can't catch a credential that authenticates fine but lacks
+        BROWSE_PROJECTS on the project(s) actually being searched, since
+        Jira's search returns HTTP 200 with an empty result set for that
+        case instead of an error. Checked here, once per empty result,
+        rather than eagerly in `connect()`, because the permission scope is
+        per-query (``project_keys``/``project_key``/path filters), not
+        knowable until the query is in hand.
+
+        Raises only on a definitive ``havePermission: false``. If the probe
+        itself is inconclusive (a non-401 `FetchError` -- endpoint disabled,
+        unrecognized permission key, transient failure), the empty result
+        stands as-is rather than turning every genuinely-empty project into
+        a false-positive authentication failure; a real bad credential still
+        surfaces via the shared client's 401 handling on this same call.
+        """
+        project_keys = self._policy.effective_project_keys(query)
+        if not project_keys:
+            return
+        try:
+            permitted = any(self._issues.has_project_permission(key) for key in project_keys)
+        except FetchError:
+            logger.warning(
+                "JIRA permission probe inconclusive for projects=%r; "
+                "treating empty search result as genuine",
+                project_keys,
+            )
+            return
+        if permitted:
+            return
+        raise AuthenticationError(
+            f"JIRA credential lacks BROWSE_PROJECTS permission on {project_keys!r}"
+        )
+
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search JIRA issues or materialize explicitly requested issue keys."""
         self._ensure_connected()
@@ -176,6 +213,8 @@ class JiraConnector(BaseConnector):
                 yield record
                 if query.limit is not None and yielded >= query.limit:
                     return
+            if yielded == 0:
+                self._verify_empty_search_result(query)
         finally:
             logger.info(
                 "JIRA discovery iterator closed mode=%s yielded=%d",
@@ -219,6 +258,8 @@ class JiraConnector(BaseConnector):
                 output.append(self._policy.apply_query(record, query))
             if next_cursor is None:
                 break
+        if not output:
+            self._verify_empty_search_result(query)
         page = ConnectorPage(tuple(output), next_cursor)
         logger.debug(
             "JIRA discovery page mode=search records=%d has_next=%s",

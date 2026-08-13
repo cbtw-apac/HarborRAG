@@ -29,13 +29,18 @@ class JiraDiscoveryPolicy:
         self._config = config
         self._base_url = base_url
 
+    def effective_project_keys(self, query: ConnectorQuery) -> list[str]:
+        """Return the project scope a search is bounded to, filters over config default."""
+        filters = query.filters
+        return normalized_string_list(
+            filters.get("project_keys") or filters.get("project_key") or query.path,
+            default=self._config.project_keys,
+        )
+
     def jql(self, query: ConnectorQuery) -> str:
         filters = query.filters
         return build_jql(
-            project_keys=normalized_string_list(
-                filters.get("project_keys") or filters.get("project_key") or query.path,
-                default=self._config.project_keys,
-            ),
+            project_keys=self.effective_project_keys(query),
             issue_types=normalized_string_list(
                 filters.get("issue_types") or filters.get("issue_type"),
                 default=self._config.issue_types,
