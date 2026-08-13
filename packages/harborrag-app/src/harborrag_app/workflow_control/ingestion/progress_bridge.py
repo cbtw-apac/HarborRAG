@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTaskState
@@ -45,7 +46,12 @@ LEASE_NAME = "ingestion_progress_bridge"
 LEASE_TTL_SECONDS = _DEFAULT_TICK_INTERVAL_SECONDS * 4
 
 
-async def sync_ingestion_progress(store: PublicTaskStore, event_bus: EventBusPort) -> int:
+async def sync_ingestion_progress(
+    store: PublicTaskStore,
+    event_bus: EventBusPort,
+    *,
+    still_leader: Callable[[], Awaitable[bool]] | None = None,
+) -> int:
     """One poll tick: diff every active task's progress snapshot.
 
     For each task whose counts changed since the last tick, append + publish
@@ -60,11 +66,33 @@ async def sync_ingestion_progress(store: PublicTaskStore, event_bus: EventBusPor
     progress/done events. So this walks every page each tick, following the
     (submitted_at, task_id) cursor from the last row of each page until a
     short page signals the end.
+
+    ``still_leader``, when given, is re-checked before every page (an
+    AppService caller passes its lease's try_acquire, which re-confirms
+    ownership and renews the lease's ttl in one call). A single ownership
+    check up front, before this pagination existed, was enough because one
+    tick's work was small and fast; now that a tick can span an unbounded
+    number of pages, a large enough backlog of active tasks could make one
+    tick outlive the lease's ttl, letting another process take over the
+    same lease and start its own overlapping drain while this one is still
+    running. If ownership is no longer confirmed, this stops early and
+    returns however many tasks were examined so far -- safe, because the
+    next tick (by whichever process now holds the lease) restarts the
+    pagination from the beginning and re-diffs every active task's
+    snapshot, so nothing already published needs redoing and nothing
+    skipped here is lost.
     """
     examined = 0
     after_submitted_at = None
     after_task_id = None
     while True:
+        if still_leader is not None and not await still_leader():
+            logger.info(
+                "Ingestion progress bridge lost the lease mid-tick after examining %d tasks; "
+                "stopping early",
+                examined,
+            )
+            break
         page = await store.list_active(
             after_submitted_at=after_submitted_at,
             after_task_id=after_task_id,

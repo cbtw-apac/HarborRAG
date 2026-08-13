@@ -181,6 +181,14 @@ class AppService(
         only the instance currently holding the lease ticks -- every other
         instance's tick is a no-op, so their progress bridges never race each
         other into double-appending the same task's event log.
+
+        This upfront acquire only proves ownership at this instant, not for
+        the tick's whole duration -- list_active() is paginated, so with
+        enough active tasks a tick can run long enough to outlive the
+        lease's ttl. ``still_leader`` re-runs this same try_acquire (renewing
+        the ttl) before every page sync_ingestion_progress reads, so a tick
+        that overruns loses the lease and stops instead of continuing to
+        write alongside whichever process took over next.
         """
         acquired = await self._control_plane().leases.try_acquire(
             LEASE_NAME, self._instance_id, ttl_seconds=LEASE_TTL_SECONDS
@@ -188,7 +196,15 @@ class AppService(
         if not acquired:
             return 0
         store = await self._resources.public_task_store()
-        return await sync_ingestion_progress(store, self._resources.event_bus())
+
+        async def still_leader() -> bool:
+            return await self._control_plane().leases.try_acquire(
+                LEASE_NAME, self._instance_id, ttl_seconds=LEASE_TTL_SECONDS
+            )
+
+        return await sync_ingestion_progress(
+            store, self._resources.event_bus(), still_leader=still_leader
+        )
 
     async def stream_ingestion_events(
         self, task_id: str, *, after_seq: int | None = None

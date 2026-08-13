@@ -23,6 +23,7 @@ class _FakeTask:
     task_id: str
     status: IngestionTaskState
     summary: dict[str, object] = field(default_factory=dict)
+    submitted_at: object = None
 
 
 class FakeTaskStore:
@@ -111,6 +112,75 @@ async def test_unchanged_progress_publishes_nothing_on_the_next_tick() -> None:
         import asyncio
 
         await asyncio.wait_for(subscriber.__anext__(), timeout=0.05)
+
+
+@dataclass
+class _PagingFakeTaskStore:
+    """Unlike FakeTaskStore, actually respects ``limit``/the cursor -- needed
+    to exercise sync_ingestion_progress's multi-page loop, where FakeTaskStore
+    (which always returns every task in one call) never triggers a second
+    list_active() call at all."""
+
+    tasks: list[_FakeTask]
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+
+    async def list_active(
+        self,
+        *,
+        after_submitted_at: object | None = None,
+        after_task_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[_FakeTask, ...]:
+        del after_submitted_at
+        ordered = sorted(self.tasks, key=lambda task: task.task_id)
+        if after_task_id is not None:
+            ordered = [task for task in ordered if task.task_id > after_task_id]
+        return tuple(ordered[:limit])
+
+    async def get(self, task_id: str) -> _FakeTask | None:
+        return next((task for task in self.tasks if task.task_id == task_id), None)
+
+    async def progress(self, task_id: str) -> dict[str, int]:
+        return self.counts.get(task_id, {})
+
+    async def update_summary(self, task_id: str, values: dict[str, object]) -> None:
+        next(task for task in self.tasks if task.task_id == task_id).summary.update(values)
+
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
+        del task_id
+        return event
+
+
+@pytest.mark.asyncio
+async def test_losing_the_lease_mid_tick_stops_further_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """still_leader is re-checked before every page. A tick spanning enough
+    active tasks to outlive the lease's ttl must stop as soon as ownership
+    is no longer confirmed, rather than keep writing progress/done events
+    for later pages alongside whatever process took the lease over next."""
+    monkeypatch.setattr(
+        "harborrag_app.workflow_control.ingestion.progress_bridge._LIST_ACTIVE_PAGE_LIMIT", 1
+    )
+    store = _PagingFakeTaskStore(
+        tasks=[
+            _FakeTask("t1", IngestionTaskState.RUNNING),
+            _FakeTask("t2", IngestionTaskState.RUNNING),
+        ],
+        counts={"t1": {"succeeded": 1}, "t2": {"succeeded": 1}},
+    )
+    bus = InProcessEventBus()
+    leader_calls = 0
+
+    async def still_leader() -> bool:
+        nonlocal leader_calls
+        leader_calls += 1
+        return leader_calls == 1  # loses the lease right after the first page
+
+    examined = await sync_ingestion_progress(store, bus, still_leader=still_leader)
+
+    assert examined == 1  # only t1's page was processed
+    assert leader_calls == 2  # checked before page 1, then again before the (aborted) page 2
 
 
 @pytest.mark.asyncio
