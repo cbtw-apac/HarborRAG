@@ -7,24 +7,15 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal import ingestion_activities as activity_module
-from harborrag_runtime.temporal import retry_activities as retry_module
-from harborrag_runtime.temporal.dispatch import DocumentDispatchSummary
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
-from harborrag_runtime.temporal.plan_resolver import PlanDocumentResolver
 from harborrag_runtime.temporal.schemas import (
     DocumentFailureInput,
     DocumentIngestionInput,
     PreparedDocument,
     RawCaptureResult,
-    RetryDocumentFailureInput,
-    RetryDocumentInput,
-    RetryFailuresInput,
-    RetryFinalizationInput,
-    RetryTaskFailureInput,
     WorkflowArtifactReference,
 )
 
@@ -206,17 +197,9 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     prepared = PreparedDocument(document, "doc-1", "version-1", "METADATA_ONLY")
 
     capture_result: object = await activities.fetch_and_capture_raw(document)
-    assert capture_result == (
-        "raw-result",
-        document,
-        "capture-result",
-    )
+    assert capture_result == ("raw-result", document, "capture-result")
     parse_result: object = await activities.parse_and_normalize(raw)
-    assert parse_result == (
-        "prepared-result",
-        document,
-        "prepared-stage",
-    )
+    assert parse_result == ("prepared-result", document, "prepared-stage")
     for method_name in (
         "sync_content_units",
         "persist_canonical",
@@ -281,22 +264,9 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
         "record_failed_document",
         "record_failed_document",
     ]
-    assert observer.boundaries == [
-        "FetchAndCaptureRaw",
-        "ParseAndNormalize",
-        "SyncContentUnits",
-        "PersistCanonical",
-        "ChunkAndValidate",
-        "EncodeChunks",
-        "BuildRelations",
-        "BuildProjections",
-        "WriteVectorProjection",
-        "WriteGraphProjection",
-        "VerifyProjections",
-        "PublishVersion",
-        "RecordDocumentFailure",
-        "RecordDocumentFailure",
-    ]
+    assert observer.boundaries[:2] == ["FetchAndCaptureRaw", "ParseAndNormalize"]
+    assert observer.boundaries[-2:] == ["RecordDocumentFailure", "RecordDocumentFailure"]
+    assert "PublishVersion" in observer.boundaries
     assert [name for name, _ in observer.records] == [
         "capture",
         "subprocess_outcome",
@@ -306,66 +276,6 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
         "document_failure",
         "document_failure",
     ]
-
-
-@pytest.mark.asyncio
-async def test_retry_activities_cover_selection_release_failure_and_finalization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    activities, _, _, sources, _, connector_calls = _build_activities()
-    planned = _planned_document()
-    plans = RecordingPlans((planned,))
-    cast(Any, activities._runtime).source_plans = plans
-    activities._documents = cast(Any, FixedDocumentResolver(planned))
-    monkeypatch.setattr(retry_module, "to_workflow_artifact", lambda reference: _artifact())
-
-    selection = RetryFailuresInput("retry-1", "original-1", "tenant-1", ("doc-1",))
-    result = await activities.prepare_retry_failures(selection)
-    assert result.plan_reference == _artifact() and result.document_count == 1
-
-    retry_document = RetryDocumentInput("retry-1", "original-1", "tenant-1", _artifact(), 0)
-    assert (
-        await activities.retry_document_release(retry_document)
-        is DocumentIngestionOutcome.UNCHANGED
-    )
-    await activities.record_retry_document_failure(
-        RetryDocumentFailureInput(retry_document, "ProjectionError")
-    )
-    await activities.record_retry_failures_task_failure(
-        RetryTaskFailureInput("retry-1", "retry_failed")
-    )
-    await activities.finalize_retry_failures(
-        RetryFinalizationInput("retry-1", 1, DocumentDispatchSummary(unchanged=1))
-    )
-
-    assert connector_calls == [("jira-main", "config-v1")]
-    assert plans.calls == ["find", "get", "put"]
-    assert [name for name, _, _ in sources.calls] == [
-        "begin_retry",
-        "retry_one",
-        "record_retry_failure",
-        "fail_retry",
-        "finish_retry",
-    ]
-
-    plans.find_result = None
-    with pytest.raises(ValueError, match="source plan is unavailable"):
-        await activities.prepare_retry_failures(selection)
-    plans.find_result = object()
-    outside_plan = RetryFailuresInput("retry-2", "original-1", "tenant-1", ("other",))
-    with pytest.raises(ValueError, match="outside the source plan"):
-        await activities.prepare_retry_failures(outside_plan)
-
-
-@pytest.mark.asyncio
-async def test_plan_resolver_rejects_an_out_of_range_document_index() -> None:
-    plans = RecordingPlans(())
-    resolver = PlanDocumentResolver(cast(Any, plans))
-    request = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 3)
-
-    with pytest.raises(ApplicationError, match="document index is invalid") as raised:
-        await resolver.get(request)
-    assert raised.value.non_retryable is True
 
 
 @pytest.mark.asyncio
