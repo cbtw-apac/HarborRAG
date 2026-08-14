@@ -245,9 +245,7 @@ def test_csv_parser_quarantines_single_bad_row_in_real_world_fixture():
         b"9004,Pham Thi D,2026-06-04,15.20\n"
         b"9005,Hoang Van E,2026-06-05,310.00\n"
     )
-    document = CsvParser().parse(
-        ParseInput(content=content, filename="csv_bad_encoding_row.csv")
-    )
+    document = CsvParser().parse(ParseInput(content=content, filename="csv_bad_encoding_row.csv"))
 
     assert document.content == (
         "OrderID\tCustomerName\tOrderDate\tAmount\n"
