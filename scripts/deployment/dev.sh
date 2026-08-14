@@ -10,6 +10,8 @@ MODEL_ENV_FILE="${MODEL_ENV_FILE:-env/.env.models}"
 API_ENV_FILE="${API_ENV_FILE:-env/.env.api}"
 MCP_ENV_FILE="${MCP_ENV_FILE:-env/.env.mcp}"
 API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
+API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
+TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
 
 usage() {
     cat <<'EOF'
@@ -17,17 +19,19 @@ Usage: scripts/deployment/dev.sh COMMAND [OPTION]
 
 Commands:
   bootstrap          Create missing protected env files, then stop for review
-  up [--no-worker]   Start data, Temporal, worker (default), and API
-  down [--volumes]   Stop API, monitoring, Temporal/worker, and data services
+  up [--no-worker] [--build]
+                     Start data, Temporal, worker (default), and API
+  down [--volumes]   Stop API, Temporal/worker, and data services
   data               Start only PostgreSQL, Qdrant, FalkorDB, Redis, and MinIO
   temporal           Start only Temporal server services; never starts a worker
-  worker             Start or rebuild only the ingestion worker
-  api                Start or rebuild only the API; never starts a worker
-  monitoring         Start only Prometheus, Grafana, and Loki
+  worker [--build]   Start only the ingestion worker; reuse its image by default
+  api [--build]      Start only the API; reuse its image and never start a worker
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
 API_ENV_FILE, and MCP_ENV_FILE.
+Use --build after source, dependency, or baked worker configuration changes.
+If a local API or worker image is missing, the first start builds it automatically.
 EOF
 }
 
@@ -135,12 +139,6 @@ api_compose() {
         "$@"
 }
 
-monitoring_compose() {
-    docker compose \
-        --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml" \
-        "$@"
-}
-
 prepare_worker_mount() {
     require_file "${CONNECTOR_ENV_FILE}" "connector environment"
     require_file "${PARSER_ENV_FILE}" "parser environment"
@@ -198,15 +196,23 @@ start_temporal() {
 }
 
 start_worker() {
+    local rebuild="${1:-0}"
     require_data_network
     require_temporal_server
     prepare_worker_mount
     local replicas
     replicas="$(worker_replicas)"
+    local -a build_args=(--no-build)
+    if ((rebuild)) || ! docker image inspect "${TEMPORAL_WORKER_IMAGE}" >/dev/null 2>&1; then
+        build_args=(--build)
+        echo "Building Temporal ingestion worker image..."
+    else
+        echo "Reusing local worker image ${TEMPORAL_WORKER_IMAGE}."
+    fi
     echo "Starting Temporal ingestion worker (${replicas} replica(s))..."
     temporal_compose --profile worker config --quiet
     temporal_compose --profile worker up \
-        --build \
+        "${build_args[@]}" \
         --detach \
         --no-deps \
         --scale "temporal-worker=${replicas}" \
@@ -214,6 +220,7 @@ start_worker() {
 }
 
 start_api() {
+    local rebuild="${1:-0}"
     require_data_network
     require_temporal_server
     [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
@@ -224,9 +231,16 @@ start_api() {
     if [[ "${#compose_services[@]}" -ne 1 || "${compose_services[0]:-}" != "api" ]]; then
         fail "API Compose configuration must contain only the api service."
     fi
+    local -a build_args=(--no-build)
+    if ((rebuild)) || ! docker image inspect "${API_IMAGE}" >/dev/null 2>&1; then
+        build_args=(--build)
+        echo "Building HarborRAG API image..."
+    else
+        echo "Reusing local API image ${API_IMAGE}."
+    fi
     echo "Starting HarborRAG API (without dependencies)..."
     api_compose up \
-        --build \
+        "${build_args[@]}" \
         --detach \
         --no-deps \
         --wait \
@@ -244,13 +258,6 @@ start_api() {
     echo "Swagger UI: http://127.0.0.1:${api_port}/docs (when enabled)"
 }
 
-start_monitoring() {
-    require_data_network
-    echo "Starting HarborRAG monitoring services..."
-    monitoring_compose config --quiet
-    monitoring_compose up --detach
-}
-
 stop_stack() {
     local -a down_args=(down)
     if [[ "${1:-}" == "--volumes" ]]; then
@@ -265,9 +272,6 @@ stop_stack() {
     else
         echo "Skipping API teardown because environment files are missing." >&2
     fi
-
-    echo "Stopping monitoring services..."
-    monitoring_compose "${down_args[@]}"
 
     echo "Stopping Temporal and worker services..."
     if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" ]]; then
@@ -303,11 +307,15 @@ case "${command}" in
         ;;
     up)
         start_worker_flag=1
-        if [[ "${1:-}" == "--no-worker" ]]; then
-            start_worker_flag=0
+        rebuild_images=0
+        while [[ "$#" -gt 0 ]]; do
+            case "$1" in
+                --no-worker) start_worker_flag=0 ;;
+                --build) rebuild_images=1 ;;
+                *) fail "Unknown up option: $1" ;;
+            esac
             shift
-        fi
-        [[ "$#" -eq 0 ]] || fail "Unknown up option: $1"
+        done
         bootstrap_environment
         if ((created_environment)); then
             fail "Review the new environment files, then run '$0 up' again."
@@ -315,9 +323,9 @@ case "${command}" in
         start_data
         start_temporal
         if ((start_worker_flag)); then
-            start_worker
+            start_worker "${rebuild_images}"
         fi
-        start_api
+        start_api "${rebuild_images}"
         ;;
     down)
         stop_stack "$@"
@@ -331,16 +339,22 @@ case "${command}" in
         start_temporal
         ;;
     worker)
-        [[ "$#" -eq 0 ]] || fail "worker accepts no options."
-        start_worker
+        rebuild_image=0
+        if [[ "${1:-}" == "--build" ]]; then
+            rebuild_image=1
+            shift
+        fi
+        [[ "$#" -eq 0 ]] || fail "Unknown worker option: $1"
+        start_worker "${rebuild_image}"
         ;;
     api)
-        [[ "$#" -eq 0 ]] || fail "api accepts no options."
-        start_api
-        ;;
-    monitoring)
-        [[ "$#" -eq 0 ]] || fail "monitoring accepts no options."
-        start_monitoring
+        rebuild_image=0
+        if [[ "${1:-}" == "--build" ]]; then
+            rebuild_image=1
+            shift
+        fi
+        [[ "$#" -eq 0 ]] || fail "Unknown api option: $1"
+        start_api "${rebuild_image}"
         ;;
     -h|--help|help)
         usage

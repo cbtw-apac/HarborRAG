@@ -46,8 +46,10 @@ Use the repository smoke runner in [Testing](../testing/README.md#real-system-sm
 
 ## Monitoring stack
 
-`docker-compose.monitoring.yml` defines Prometheus, Grafana, and Loki using
-files under `deploy/prometheus`, `deploy/grafana`, and `deploy/loki`.
+`docker-compose.monitoring.yml` defines version-pinned Prometheus, Grafana, and
+Loki services using files under `deploy/prometheus`, `deploy/grafana`, and
+`deploy/loki`. Prometheus and Grafana publish loopback-only ports by default;
+Loki is reachable only inside the private monitoring network.
 Prometheus joins `harborrag-data-network`; API metrics at `/api/v1/metrics`
 require an admin bearer token, while the default configuration scrapes
 the ingestion worker on port `9464`. The API exports request count,
@@ -58,10 +60,19 @@ rate-limiting metrics. Dashboard and alert policy remain
 deployment-specific.
 
 ```bash
-scripts/deployment/dev.sh monitoring
+cp env-example/.env.monitoring.example env/.env.monitoring
+chmod 600 env/.env.monitoring
+# Set GRAFANA_ADMIN_PASSWORD in env/.env.monitoring, then run:
+docker compose --env-file env/.env.monitoring \
+  --file deploy/compose/docker-compose.monitoring.yml up --detach
 ```
 
-Set non-default Grafana credentials in that environment for any non-local use.
+Monitoring remains separate from `scripts/deployment/dev.sh` bootstrap. Keep
+its environment file protected and monitoring bound to loopback unless an
+authenticated TLS reverse proxy and firewall protect it. The hardened stack
+initializes a new `grafana_secure_data` volume so an older Grafana volume
+created with the retired `admin/admin` default is never reused; the old volume
+remains available for manual recovery or removal.
 
 ## Application Compose files
 
@@ -76,12 +87,20 @@ scripts/deployment/dev.sh bootstrap
 scripts/deployment/dev.sh up
 ```
 
-When the database and Temporal stacks are already running, start or rebuild
-only the API with:
+When the database and Temporal stacks are already running, start only the API
+with:
 
 ```bash
 scripts/deployment/dev.sh api
 ```
+
+The API and worker commands reuse Compose's existing local
+`harborrag-api-api` and `harborrag-temporal-temporal-worker` images by default.
+A missing image is built on the first start. Use `api --build`, `worker
+--build`, or `up --build` after changing application source, dependency
+metadata, or worker configuration. Docker then reuses the dependency-install
+layer while `uv.lock` and package metadata are unchanged, so source-only
+rebuilds do not reinstall libraries.
 
 The API binds to `127.0.0.1:8000` by default. Override
 `HARBORRAG_API_BIND_ADDRESS` or `HARBORRAG_API_PORT` when another local binding
