@@ -4,6 +4,8 @@ hung-subprocess heartbeat suspension."""
 from __future__ import annotations
 
 import asyncio
+import queue as _stdlib_queue
+import threading
 
 import pytest
 
@@ -53,6 +55,7 @@ class _FakeProcess:
         self.pid = 12345
         self.killed = False
         self.joined = False
+        self.join_timeouts: list[float | None] = []
 
     def start(self) -> None:
         pass
@@ -66,12 +69,27 @@ class _FakeProcess:
 
     def join(self, timeout: float | None = None) -> None:
         self.joined = True
+        self.join_timeouts.append(timeout)
 
 
 @pytest.fixture(autouse=True)
 def _patch_subprocess_context(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace multiprocessing internals so tests never spawn real processes."""
-    monkeypatch.setattr(module, "_SUBPROCESS_CONTEXT", "spawn")
+
+    class _FakeCtx:
+        """Fake multiprocessing context that creates fake processes and queues."""
+
+        def Queue(self) -> _FakeQueue:
+            return _FakeQueue([])
+
+        def Process(self, **kwargs: object) -> _FakeProcess:
+            return _FakeProcess()
+
+    monkeypatch.setattr(
+        module.multiprocessing,
+        "get_context",
+        lambda _name: _FakeCtx(),
+    )
     monkeypatch.setattr(
         module.activity,
         "in_activity",
@@ -85,6 +103,7 @@ def _patch_subprocess(
     *,
     alive: bool = True,
 ) -> _FakeProcess:
+    """Override the process/queue to use pre-defined messages."""
     fake_queue = _FakeQueue(messages)
     fake_proc = _FakeProcess(alive=alive)
 
@@ -173,15 +192,17 @@ async def test_start_pickling_failure_maps_to_subprocess_crash(
 async def test_cancellation_kills_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CancelledError triggers proc.kill() before re-raising."""
+    """CancelledError triggers proc.kill() before re-raising inside protected path."""
     monkeypatch.setattr(module.activity, "heartbeat", lambda _: None)
     fake_proc = _FakeProcess(alive=True)
 
+    # Signal when the polling loop calls queue.get(), ensuring we're ready.
+    polling_started = threading.Event()
+
     class _StallQueue:
         def get(self, timeout: float = 0) -> tuple[str, object]:
-            import queue
-
-            raise queue.Empty
+            polling_started.set()
+            raise _stdlib_queue.Empty
 
     class _FakeCtx:
         def Queue(self) -> _StallQueue:
@@ -195,9 +216,20 @@ async def test_cancellation_kills_subprocess(
     task = asyncio.create_task(
         module.run_in_isolated_subprocess(_hang_sync, heartbeat_interval=0.01)
     )
-    await asyncio.sleep(0)
+
+    # Yield control to allow executor to call queue.get() without blocking event loop
+    for _ in range(100):
+        await asyncio.sleep(0)
+        if polling_started.is_set():
+            break
+
+    assert polling_started.is_set(), "polling loop must enter queue.get within 1 second"
+
+    # Cancel inside the protected execution path ensures proc.kill() is called.
     task.cancel()
-    with pytest.raises((asyncio.CancelledError, module.SubprocessCrashError)):
+
+    # CancelledError is the only expected exception when cancelled in the loop.
+    with pytest.raises(asyncio.CancelledError):
         await task
 
     assert fake_proc.killed, "subprocess must be killed on cancellation"
@@ -207,7 +239,7 @@ async def test_cancellation_kills_subprocess(
 async def test_hung_subprocess_stops_heartbeating(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No alive signal → SubprocessCrashError; no heartbeat emitted after hang."""
+    """No alive signal → SubprocessCrashError; only initial heartbeat sent."""
     heartbeats: list[object] = []
     monkeypatch.setattr(module.activity, "heartbeat", heartbeats.append)
     proc = _patch_subprocess(monkeypatch, [], alive=False)
@@ -215,5 +247,8 @@ async def test_hung_subprocess_stops_heartbeating(
     with pytest.raises(module.SubprocessCrashError, match="hung"):
         await module.run_in_isolated_subprocess(_hang_sync, heartbeat_interval=0.01)
 
-    assert heartbeats == []
+    assert len(heartbeats) == 1
+    assert heartbeats[0] == "running"
     assert proc.joined
+    assert len(proc.join_timeouts) == 1
+    assert proc.join_timeouts[0] == pytest.approx(0.02, abs=0.001)

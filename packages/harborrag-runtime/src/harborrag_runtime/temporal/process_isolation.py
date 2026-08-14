@@ -117,6 +117,9 @@ async def run_in_isolated_subprocess[ResultT](
     # Allow 2× the interval for each alive signal before declaring a hung process.
     poll_timeout = heartbeat_interval * 2.0
 
+    # Send initial heartbeat before entering subprocess polling loop
+    activity.heartbeat(heartbeat_detail)
+
     try:
         while True:
             try:
@@ -133,7 +136,7 @@ async def run_in_isolated_subprocess[ResultT](
                     poll_timeout,
                     proc.pid,
                 )
-                await loop.run_in_executor(None, proc.join)
+                await loop.run_in_executor(None, functools.partial(proc.join, poll_timeout))
                 raise SubprocessCrashError(
                     f"isolated subprocess (pid={proc.pid}) hung without producing output"
                 )
