@@ -82,6 +82,12 @@ class RecordingObservability:
     def record_document_failure(self, *args: object) -> None:
         self.records.append(("document_failure", args))
 
+    def record_subprocess_outcome(self, *args: object) -> None:
+        self.records.append(("subprocess_outcome", args))
+
+    def record_subprocess_fallback(self, *args: object) -> None:
+        self.records.append(("subprocess_fallback", args))
+
 
 class FixedDocumentResolver:
     def __init__(self, planned: object) -> None:
@@ -168,13 +174,21 @@ def _build_activities() -> tuple[
 async def test_document_activities_delegate_every_stage_and_record_outcomes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    heartbeat_details: list[str] = []
+    heartbeat_details: list[object] = []
 
-    async def heartbeat(operation: Any, *, detail: str) -> object:
+    async def heartbeat(operation: Any, *, detail: object, **_kw: object) -> object:
         heartbeat_details.append(detail)
         return await operation
 
+    async def isolated_subprocess(
+        fn: Any, *args: Any, heartbeat_detail: object = "", **_kw: Any
+    ) -> object:
+        heartbeat_details.append(heartbeat_detail)
+        return await args[0].parse_and_normalize(args[1], args[2])
+
     monkeypatch.setattr(activity_module, "heartbeat_while", heartbeat)
+    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
+    monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
     monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
     monkeypatch.setattr(activity_module, "to_prepared_stage", lambda request: "prepared-stage")
     monkeypatch.setattr(
@@ -228,7 +242,15 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     assert connector_calls == [("jira-main", "config-v1")]
     assert heartbeat_details == [
         "fetch-and-capture",
-        "parse-and-normalize",
+        {
+            "stage": "parse-and-normalize",
+            "task_id": "task-1",
+            "document_id": "doc-1",
+            "document_index": 0,
+            "mode": "subprocess",
+            "resumed": False,
+            "prior": None,
+        },
         "sync-content-units",
         "persist-canonical",
         "chunk-and-validate",
@@ -279,6 +301,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     ]
     assert [name for name, _ in observer.records] == [
         "capture",
+        "subprocess_outcome",
         "prepared",
         "chunking",
         "publication",
@@ -345,3 +368,35 @@ async def test_plan_resolver_rejects_an_out_of_range_document_index() -> None:
     with pytest.raises(ApplicationError, match="document index is invalid") as raised:
         await resolver.get(request)
     assert raised.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+async def test_parse_and_normalize_falls_back_when_subprocess_serialization_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def heartbeat(operation: Any, *, detail: object, **_kw: object) -> object:
+        assert isinstance(detail, dict)
+        assert detail["mode"] == "in-process-fallback"
+        return await operation
+
+    async def isolated_subprocess(*_args: Any, **_kwargs: Any) -> object:
+        raise activity_module.SubprocessCrashError(
+            "isolated subprocess serialization failed: TypeError: cannot pickle 'mappingproxy' object"
+        )
+
+    monkeypatch.setattr(activity_module, "heartbeat_while", heartbeat)
+    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
+    monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
+    monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
+    monkeypatch.setattr(
+        activity_module,
+        "to_prepared_document",
+        lambda request, result: ("prepared-result", request, result),
+    )
+
+    activities, _, _, _, _, _ = _build_activities()
+    document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
+    raw = RawCaptureResult(document, "doc-1", "version-1", "METADATA_ONLY")
+
+    parse_result: object = await activities.parse_and_normalize(raw)
+    assert parse_result == ("prepared-result", document, "prepared-stage")

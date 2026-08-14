@@ -133,6 +133,18 @@ class IngestionTelemetry:
             ("task_queue",),
             registry=self.registry,
         )
+        self._subprocess_executions = Counter(
+            "harborrag_subprocess_executions_total",
+            "Subprocess execution outcomes for CPU-intensive activities.",
+            ("stage", "outcome"),
+            registry=self.registry,
+        )
+        self._subprocess_fallbacks = Counter(
+            "harborrag_subprocess_fallbacks_total",
+            "Subprocess fallbacks to in-process execution due to serialization or other failures.",
+            ("stage", "reason"),
+            registry=self.registry,
+        )
 
     async def start(self) -> None:
         """Expose this process's registry when a metrics port is configured."""
@@ -256,6 +268,20 @@ class IngestionTelemetry:
             duration_seconds=duration_seconds,
             replayed=replayed,
         )
+
+    def record_subprocess_outcome(
+        self,
+        stage: str,
+        outcome: str,
+    ) -> None:
+        self._subprocess_executions.labels(stage=stage, outcome=outcome).inc()
+
+    def record_subprocess_fallback(
+        self,
+        stage: str,
+        reason: str,
+    ) -> None:
+        self._subprocess_fallbacks.labels(stage=stage, reason=reason).inc()
 
     def _record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None:
         self._stage_operations.labels(stage=stage.value, outcome=outcome).inc()

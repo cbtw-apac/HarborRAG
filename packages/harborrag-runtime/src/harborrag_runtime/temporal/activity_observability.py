@@ -228,6 +228,12 @@ class ActivityObservability:
             connector_type,
         )
 
+    def record_subprocess_outcome(self, stage: str, outcome: str) -> None:
+        self._telemetry.record_subprocess_outcome(stage, outcome)
+
+    def record_subprocess_fallback(self, stage: str, reason: str) -> None:
+        self._telemetry.record_subprocess_fallback(stage, reason)
+
     def _record_verification_failure(self, stage: IngestionStage) -> None:
         if stage is IngestionStage.VERIFICATION:
             self._telemetry.record_verification_failure()

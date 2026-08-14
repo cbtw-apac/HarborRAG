@@ -13,8 +13,9 @@ from .conversion import (
     to_prepared_stage,
     to_raw_capture_result,
 )
-from .heartbeats import heartbeat_while
+from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .plan_resolver import PlanDocumentResolver
+from .process_isolation import SubprocessCrashError, run_in_isolated_subprocess
 from .retry_activities import RetryActivitiesMixin
 from .schemas import (
     DocumentFailureInput,
@@ -68,13 +69,56 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> PreparedDocument:
         with self._observability.boundary("ParseAndNormalize"):
             planned = await self._documents.get(request.document)
-            prepared_stage = await heartbeat_while(
-                self._runtime.stages.preparation.parse_and_normalize(
+            capture_stage = to_capture_stage(request)
+            prior = last_heartbeat_detail()
+            heartbeat_detail = {
+                "stage": "parse-and-normalize",
+                "task_id": request.document.task_id,
+                "document_id": request.document_id,
+                "document_index": request.document.document_index,
+                "mode": "subprocess",
+                "resumed": prior is not None,
+                "prior": prior,
+            }
+            try:
+                prepared_stage = await run_in_isolated_subprocess(
+                    _parse_and_normalize_sync,
+                    self._runtime.stages.preparation,
                     planned.request,
-                    to_capture_stage(request),
-                ),
-                detail="parse-and-normalize",
-            )
+                    capture_stage,
+                    heartbeat_detail=heartbeat_detail,
+                )
+                self._observability.record_subprocess_outcome(
+                    "ParseAndNormalize",
+                    "success",
+                )
+            except SubprocessCrashError as error:
+                if "serialization failed" not in str(error):
+                    self._observability.record_subprocess_outcome(
+                        "ParseAndNormalize",
+                        "crash",
+                    )
+                    raise
+
+                self._observability.record_subprocess_outcome(
+                    "ParseAndNormalize",
+                    "serialization_fail",
+                )
+                self._observability.record_subprocess_fallback(
+                    "ParseAndNormalize",
+                    "serialization_fail",
+                )
+                prepared_stage = await heartbeat_while(
+                    self._runtime.stages.preparation.parse_and_normalize(
+                        planned.request,
+                        capture_stage,
+                    ),
+                    detail={
+                        **heartbeat_detail,
+                        "mode": "in-process-fallback",
+                        "fallback_reason": "spawn-unpicklable-args",
+                    },
+                )
             self._observability.record_prepared(prepared_stage)
             return to_prepared_document(request.document, prepared_stage)
 
@@ -265,3 +309,15 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             self._observability.record_document_failure(
                 planned.request.source_identity.connector_type.value,
             )
+
+
+def _parse_and_normalize_sync(preparation: object, request: object, capture: object) -> object:
+    """Module-level target for subprocess isolation; picklable by the spawn context."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(preparation.parse_and_normalize(request, capture))
+    finally:
+        loop.close()
