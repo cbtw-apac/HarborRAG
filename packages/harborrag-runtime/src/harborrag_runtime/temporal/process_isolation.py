@@ -106,7 +106,7 @@ async def run_in_isolated_subprocess[ResultT](
         result = await asyncio.get_running_loop().run_in_executor(
             None, functools.partial(fn, *args, **kwargs)
         )
-        return cast(ResultT, result)
+        return result
 
     ctx = cast(Any, multiprocessing.get_context(_SUBPROCESS_CONTEXT))
     mp_queue: multiprocessing.Queue = ctx.Queue()
