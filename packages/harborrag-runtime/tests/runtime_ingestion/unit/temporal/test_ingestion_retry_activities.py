@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal import retry_activities as retry_module
@@ -18,7 +19,6 @@ from harborrag_runtime.temporal.schemas import (
     RetryFinalizationInput,
     RetryTaskFailureInput,
 )
-from temporalio.exceptions import ApplicationError
 
 from .test_ingestion_activities import (
     FixedDocumentResolver,
