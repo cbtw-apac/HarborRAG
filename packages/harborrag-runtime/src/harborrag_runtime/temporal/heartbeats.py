@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable
+from typing import cast
 
 from temporalio import activity
 
@@ -14,7 +15,7 @@ def last_heartbeat_detail() -> object | None:
     if not details:
         return None
     try:
-        return details[0]
+        return cast(object, details[0])
     except (IndexError, TypeError):
         return None
 

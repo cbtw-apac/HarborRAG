@@ -4,6 +4,12 @@ from temporalio import activity
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.document.models import DocumentReleaseRequest
+from harborrag_runtime.ingestion.document.preparation import DocumentPreparationStages
+from harborrag_runtime.ingestion.document.stage_models import (
+    PreparedDocumentStage,
+    RawCaptureStageResult,
+)
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 
 from .activity_observability import ActivityObservability
@@ -317,7 +323,11 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             )
 
 
-def _parse_and_normalize_sync(preparation: object, request: object, capture: object) -> object:
+def _parse_and_normalize_sync(
+    preparation: DocumentPreparationStages,
+    request: DocumentReleaseRequest,
+    capture: RawCaptureStageResult,
+) -> PreparedDocumentStage:
     """Module-level target for subprocess isolation; picklable by the spawn context."""
     import asyncio
 

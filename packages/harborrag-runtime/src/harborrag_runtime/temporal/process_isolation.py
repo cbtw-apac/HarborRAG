@@ -10,7 +10,7 @@ import pickle
 import queue as _stdlib_queue
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -92,11 +92,12 @@ async def run_in_isolated_subprocess[ResultT](
     that do not run a full Temporal activity environment).
     """
     if not activity.in_activity():
-        return await asyncio.get_running_loop().run_in_executor(
+        result = await asyncio.get_running_loop().run_in_executor(
             None, functools.partial(fn, *args, **kwargs)
         )
+        return cast(ResultT, result)
 
-    ctx = multiprocessing.get_context(_SUBPROCESS_CONTEXT)
+    ctx = cast(Any, multiprocessing.get_context(_SUBPROCESS_CONTEXT))
     mp_queue: multiprocessing.Queue = ctx.Queue()
     proc = ctx.Process(
         target=_subprocess_worker,
@@ -119,10 +120,11 @@ async def run_in_isolated_subprocess[ResultT](
     try:
         while True:
             try:
-                kind, payload = await loop.run_in_executor(
+                message = await loop.run_in_executor(
                     None,
                     functools.partial(mp_queue.get, timeout=poll_timeout),
                 )
+                kind, payload = cast(tuple[str, object], message)
             except _stdlib_queue.Empty:
                 # No alive signal → stop heartbeating so heartbeat_timeout fires.
                 logger.warning(
@@ -140,11 +142,14 @@ async def run_in_isolated_subprocess[ResultT](
                 activity.heartbeat(heartbeat_detail)
             elif kind == "done":
                 await loop.run_in_executor(None, functools.partial(proc.join, 5))
-                return payload  # type: ignore[return-value]
+                return cast(ResultT, payload)
             else:
                 # kind == "error"
                 await loop.run_in_executor(None, functools.partial(proc.join, 5))
-                raise SubprocessCrashError(f"{type(payload).__name__}: {payload}") from payload
+                message = f"{type(payload).__name__}: {payload}"
+                if isinstance(payload, BaseException):
+                    raise SubprocessCrashError(message) from payload
+                raise SubprocessCrashError(message)
 
     except asyncio.CancelledError:
         if proc.is_alive():
