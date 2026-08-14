@@ -246,9 +246,17 @@ class MarkdownHtmlMixin:
             html_content,
         )
 
-        # Add Bootstrap table classes
+        # Preserve native table layout while giving wide Markdown tables their
+        # own horizontal scrolling region.
         html_content = re.sub(
-            r"<table>", '<table class="table table-striped table-hover">', html_content
+            r"<table>(.*?)</table>",
+            (
+                '<div class="table-scroll" role="region" aria-label="Scrollable table" '
+                'tabindex="0"><table class="table table-striped table-hover">'
+                r"\1</table></div>"
+            ),
+            html_content,
+            flags=re.DOTALL,
         )
 
         # Add Bootstrap alert classes for blockquotes

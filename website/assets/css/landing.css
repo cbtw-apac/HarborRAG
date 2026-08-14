@@ -281,7 +281,7 @@
   display: flex;
   align-items: center;
   color: #819da6;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.69rem;
 }
 
@@ -631,7 +631,7 @@
 .step-number {
   display: block;
   color: #98a9af;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.69rem;
   font-weight: 800;
 }
@@ -761,7 +761,7 @@
 
 .capability-index {
   color: #66828b;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
 }
 
@@ -785,7 +785,7 @@
 }
 
 .mini-pipeline span {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   color: #b8d2d7;
   font-size: 0.62rem;
 }
@@ -859,7 +859,7 @@
   border-radius: 7px;
   color: #4a646b;
   background: #fff;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   box-shadow: 0 3px 8px rgba(7, 27, 38, 0.035);
 }

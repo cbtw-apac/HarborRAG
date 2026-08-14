@@ -25,7 +25,7 @@
 
 .footer-release {
   color: #5e7881;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.66rem;
 }
 
@@ -249,7 +249,7 @@ pre {
 }
 
 code {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
 }
 
 :not(pre) > code {
@@ -262,10 +262,14 @@ code {
 
 table {
   width: 100%;
-  display: block;
-  overflow-x: auto;
   border-collapse: collapse;
   font-size: 0.87rem;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 th,
@@ -325,7 +329,7 @@ blockquote {
 
 .not-found-code {
   color: var(--brand);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 850;
   letter-spacing: 0.14em;

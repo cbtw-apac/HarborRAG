@@ -44,7 +44,7 @@ def calculate_new_version(
     if bump_type == 5:
         return _validated_custom_version(custom_version)
 
-    major, minor, patch = parsed.release[:3]
+    major, minor, patch = (*parsed.release, 0, 0)[:3]
     if bump_type == 1:
         return f"{major + 1}.0.0"
     if bump_type == 2:
@@ -160,7 +160,15 @@ def update_development_status_classifier(
             target,
         )
         return
-    updated = source.replace(f'"{current}"', f'"{target}"', 1)
+    classifier_pattern = re.compile(rf"(?P<quote>['\"]){re.escape(current)}(?P=quote)")
+    matches = tuple(classifier_pattern.finditer(source))
+    if len(matches) != 1:
+        raise ValueError(f"Could not locate exactly one classifier {current!r} in {path}")
+    updated = classifier_pattern.sub(
+        lambda match: f"{match.group('quote')}{target}{match.group('quote')}",
+        source,
+        count=1,
+    )
     tomllib.loads(updated)
     path.write_text(updated, encoding="utf-8", newline="")
 

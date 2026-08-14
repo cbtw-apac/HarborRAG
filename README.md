@@ -388,6 +388,8 @@ uv run python release.py --dry-run --bump patch --verbose
 uv run python release.py --bump patch --verbose
 uv run make lint
 uv run make typecheck
+uv run make deps-check
+uv run make compile
 uv run make coverage
 ```
 

@@ -240,7 +240,7 @@ Build and test the documentation site with:
 
 ```bash
 uv run python website/build.py --output site --templates website/templates
-uv run pytest tests/test_website_*.py tests/test_link_checker.py
+uv run pytest tests/test_website_*.py tests/test_link_checker*.py
 uv run python website/check_branding.py
 uv run python website/check_publication.py
 ```

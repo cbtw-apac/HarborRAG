@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Tests for website/builder/site.py — the end-to-end build_site orchestration."""
 
-import os
+import json
+import re
+import tomllib
 from pathlib import Path
 
 
@@ -19,18 +21,19 @@ class TestSiteBuildMixin:
         )
         assert "No coverage artifacts available." in coverage_index
 
-    def test_renders_public_launch_homepage(self, tmp_path, project_root_dir, website_builder_cls):
-        original_cwd = os.getcwd()
-        os.chdir(project_root_dir)
-        try:
-            launch_builder = website_builder_cls("website/templates", str(tmp_path / "launch-site"))
-            launch_builder.build_site()
-            html = (launch_builder.output_dir / "index.html").read_text(encoding="utf-8")
-        finally:
-            os.chdir(original_cwd)
+    def test_renders_public_launch_homepage(
+        self, tmp_path, project_root_dir, website_builder_cls, monkeypatch
+    ):
+        monkeypatch.chdir(project_root_dir)
+        release_version = tomllib.loads(
+            (project_root_dir / "pyproject.toml").read_text(encoding="utf-8")
+        )["project"]["version"]
+        launch_builder = website_builder_cls("website/templates", str(tmp_path / "launch-site"))
+        launch_builder.build_site()
+        html = (launch_builder.output_dir / "index.html").read_text(encoding="utf-8")
 
         assert "Build answers on" in html
-        assert "HarborRAG 2.0.0 · Alpha · Open source" in html
+        assert f"HarborRAG {release_version} · Alpha · Open source" in html
         assert "The engineering knowledge stack" in html
         assert "continues the project lineage" in html
         assert "publication / manifest-02" in html
@@ -38,10 +41,12 @@ class TestSiteBuildMixin:
         assert "data-architecture-explorer" in html
         assert "candidate.version == authority.active_version" in html
         assert "data-interface-examples" in html
-        assert html.count("data-interface-tab=") == 4
-        assert html.count("data-interface-panel=") == 4
+        tabs = re.findall(r'data-interface-tab="([^"]+)"', html)
+        panels = re.findall(r'data-interface-panel="([^"]+)"', html)
+        assert tabs and set(tabs) == set(panels)
         assert "data-nav-toggle" in html
         for stylesheet in (
+            "docs.css",
             "foundation.css",
             "landing.css",
             "explorer.css",
@@ -50,10 +55,41 @@ class TestSiteBuildMixin:
             "responsive.css",
         ):
             assert f"assets/css/{stylesheet}" in html
+            assert (launch_builder.output_dir / "assets" / "css" / stylesheet).exists()
         assert "assets/js/site.js" in html
-        assert (launch_builder.output_dir / "assets" / "css" / "responsive.css").exists()
         assert (launch_builder.output_dir / "assets" / "js" / "site.js").exists()
+        assert f'aria-hidden="true">RELEASE / {release_version}</span>' in html
         assert "{{" not in html
+
+    def test_escapes_html_metadata_and_serializes_json_ld(
+        self, tmp_path, project_root_dir, website_builder_cls, monkeypatch
+    ):
+        monkeypatch.chdir(project_root_dir)
+        launch_builder = website_builder_cls("website/templates", str(tmp_path / "metadata-site"))
+        metadata = {
+            "name": 'Harbor "quoted"',
+            "version": "2.0.0",
+            "status": "Alpha",
+            "license": "Apache-2.0",
+            "description": r"A description with \ and a </script> boundary",
+            "github_url": "https://github.com/example/project",
+            "issues_url": "https://github.com/example/project/issues",
+            "documentation_url": "https://github.com/example/project/tree/main/docs",
+            "commit": {"short": "abc1234"},
+        }
+        monkeypatch.setattr(launch_builder, "generate_project_info", lambda: metadata)
+
+        launch_builder.build_page("base.html", "index.html", "Home", "Landing", "index.html")
+
+        html = (launch_builder.output_dir / "index.html").read_text(encoding="utf-8")
+        assert 'content="Harbor &quot;quoted&quot;"' in html
+        json_ld = re.search(
+            r'<script type="application/ld\+json">\s*(.*?)\s*</script>', html, re.DOTALL
+        )
+        assert json_ld is not None
+        payload = json.loads(json_ld.group(1))
+        assert payload["name"] == metadata["name"]
+        assert payload["description"] == metadata["description"]
 
     def test_manifest_is_portable_under_a_project_pages_prefix(self, builder):
         builder.build_site()

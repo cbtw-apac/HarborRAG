@@ -55,9 +55,10 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
         self._policy = policy
+        self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
         self._search = AuthoritativeProjectionSearch(
             resources.vector_repository,
-            ActiveVersionCandidateValidator(resources.active_versions),
+            self._candidate_validator,
         )
         self._graph_search = (
             AuthoritativeGraphSearch(resources.graph_repository, resources.active_versions)
@@ -120,7 +121,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             ),
             context=context,
         )
-        results, load_failures = await self._load_candidates(
+        loaded, load_failures = await self._load_candidates(
             search.candidates,
             context=context,
             request_id=request_id,
@@ -134,9 +135,26 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             if selected.observe_graph and self._observer is not None
             else GraphObservation()
         )
+        final_validation = await self._candidate_validator.validate(
+            tuple(candidate for candidate, _ in loaded)
+        )
+        active_candidate_ids = {str(candidate.id) for candidate in final_validation.accepted}
+        results = [
+            result for candidate, result in loaded if str(candidate.id) in active_candidate_ids
+        ]
+        if final_validation.rejected_count:
+            # Graph observation is optional diagnostic context. Discard it when
+            # publication advanced during retrieval so it cannot describe a
+            # candidate that the final authority check removed.
+            observation = GraphObservation()
         duration_ms = (perf_counter() - started) * 1_000
         diagnostics = search.diagnostics
-        self._telemetry.record_stale_candidate_rejections(diagnostics.stale_count)
+        stale_count = diagnostics.stale_count + final_validation.stale_count
+        unpublished_count = diagnostics.unpublished_count + final_validation.unpublished_count
+        malformed_count = (
+            diagnostics.malformed_count + final_validation.malformed_count + load_failures
+        )
+        self._telemetry.record_stale_candidate_rejections(stale_count)
         logger.info(
             "Completed authoritative retrieval",
             extra={
@@ -144,7 +162,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 "tenant_id": tenant_id,
                 "lane": selected.lane.value,
                 "candidate_hits": len(search.candidates),
-                "stale_candidates": diagnostics.stale_count,
+                "stale_candidates": stale_count,
                 "result_count": len(results),
                 "duration_ms": duration_ms,
             },
@@ -155,9 +173,9 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             results=tuple(results),
             diagnostics=RetrievalDiagnostics(
                 candidate_hits=len(search.candidates),
-                stale_candidates=diagnostics.stale_count,
-                unpublished_candidates=diagnostics.unpublished_count,
-                malformed_candidates=diagnostics.malformed_count + load_failures,
+                stale_candidates=stale_count,
+                unpublished_candidates=unpublished_count,
+                malformed_candidates=malformed_count,
                 search_window=diagnostics.search_window,
                 graph_nodes=observation.nodes,
                 graph_relations=observation.relations,
@@ -173,7 +191,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         *,
         context: StorageOperationContext,
         request_id: str,
-    ) -> tuple[list[RetrievalResult], int]:
+    ) -> tuple[list[tuple[VectorSearchResult, RetrievalResult]], int]:
         """Validate candidates concurrently, skipping malformed payloads."""
 
         load_limit = asyncio.Semaphore(_CHUNK_LOAD_CONCURRENCY)
@@ -186,7 +204,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             *(load(candidate) for candidate in candidates),
             return_exceptions=True,
         )
-        results: list[RetrievalResult] = []
+        results: list[tuple[VectorSearchResult, RetrievalResult]] = []
         failures = 0
         for candidate, result in zip(candidates, loaded, strict=True):
             if isinstance(result, Exception):
@@ -199,7 +217,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 continue
             if isinstance(result, BaseException):
                 raise result
-            results.append(result)
+            results.append((candidate, result))
         return results, failures
 
     @staticmethod

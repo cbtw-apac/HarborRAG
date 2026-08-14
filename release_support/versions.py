@@ -7,6 +7,7 @@ import tomllib
 from pathlib import Path
 
 from .config import PACKAGES, PRIMARY_PACKAGE, repository_path
+from .metadata import TYPESCRIPT_PACKAGE
 
 
 class CleanFormatter(logging.Formatter):
@@ -152,6 +153,8 @@ def assert_release_files_exist() -> None:
     missing = [
         str(_pyproject_path(name)) for name in PACKAGES if not _pyproject_path(name).is_file()
     ]
+    if not TYPESCRIPT_PACKAGE.is_file():
+        missing.append(str(TYPESCRIPT_PACKAGE))
     if missing:
         logging.getLogger("release").error(
             "Release configuration references missing package metadata:\n%s",

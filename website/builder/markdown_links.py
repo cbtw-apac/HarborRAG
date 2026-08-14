@@ -9,9 +9,18 @@ class MarkdownLinksMixin:
     """Focused Markdown operations composed by ``MarkdownProcessor``."""
 
     _ROOT_DOCUMENTS = frozenset(
-        {"LICENSE", "LICENSE.md", "README.md", "CHANGELOG.md", "CONTRIBUTING.md"}
+        {
+            "LICENSE",
+            "LICENSE.md",
+            "README.md",
+            "CHANGELOG.md",
+            "CONTRIBUTING.md",
+            "SECURITY.md",
+        }
     )
-    _WELL_KNOWN_DOCUMENTS = frozenset({"LICENSE", "README", "CHANGELOG", "CONTRIBUTING"})
+    _WELL_KNOWN_DOCUMENTS = frozenset(
+        {"LICENSE", "README", "CHANGELOG", "CONTRIBUTING", "SECURITY"}
+    )
 
     def extract_title_from_markdown(self, markdown_content: str) -> str:
         """Extract title from markdown content."""
@@ -55,11 +64,11 @@ class MarkdownLinksMixin:
         # Catch .md files and well-known files without extensions
         well_known_link_pattern_md = (
             r"\[([^\]]+)\]\(((?:(?:\.\./)+|\./|/)?"
-            r"(?:LICENSE|README|CHANGELOG|CONTRIBUTING)(?:/[^)]*)?(?:#[^)]*)?)\)"
+            r"(?:LICENSE|README|CHANGELOG|CONTRIBUTING|SECURITY)(?:/[^)]*)?(?:#[^)]*)?)\)"
         )
         well_known_link_pattern_href = (
             r'(href=")((?:(?:\.\./)+|\./|/)?'
-            r'(?:LICENSE|README|CHANGELOG|CONTRIBUTING)(?:/[^"]*)?(?:#[^"]*)?)(")'
+            r'(?:LICENSE|README|CHANGELOG|CONTRIBUTING|SECURITY)(?:/[^"]*)?(?:#[^"]*)?)(")'
         )
 
         content = re.sub(r"\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)", replace_md_links, content)
@@ -150,7 +159,7 @@ class MarkdownLinksMixin:
 
             # Ensure well-known repo root files under /docs have .html extension
             content = re.sub(
-                r'(href=")(/docs/(?:LICENSE|README|CHANGELOG|CONTRIBUTING))(#[^"]*)?(")',
+                r'(href=")(/docs/(?:LICENSE|README|CHANGELOG|CONTRIBUTING|SECURITY))(#[^"]*)?(")',
                 r"\1\2.html\3\4",
                 content,
             )
@@ -222,7 +231,7 @@ class MarkdownLinksMixin:
 
     def _root_document_url(self, link: str) -> str:
         """Return the published URL for a repository-level document."""
-        root_file = re.sub(r"^(?:\.\./)+", "", link)
+        root_file = re.sub(r"^(?:(?:\.\./)+|\./|/+)", "", link)
         if root_file not in self._ROOT_DOCUMENTS:
             return ""
 

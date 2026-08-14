@@ -17,9 +17,6 @@ from release_support.checks import (
     check_unpushed_commits as check_unpushed_commits,
 )
 from release_support.checks import (
-    create_github_release as create_github_release,
-)
-from release_support.checks import (
     extract_changelog_for_version as extract_changelog_for_version,
 )
 from release_support.checks import (
@@ -33,6 +30,7 @@ from release_support.checks import (
 )
 from release_support.cli import release as release
 from release_support.config import PACKAGES as PACKAGES
+from release_support.releases import create_github_release as create_github_release
 from release_support.versioning import (
     calculate_new_version as calculate_new_version,
 )

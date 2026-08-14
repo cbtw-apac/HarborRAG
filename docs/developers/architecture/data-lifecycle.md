@@ -71,7 +71,9 @@ Retrieval does not run through Temporal. A request follows a direct path:
 1. An SDK, CLI, HTTP, or MCP boundary constructs the query and required access context.
 2. The retrieval engine selects dense, sparse, or hybrid lanes and queries Qdrant.
 3. Candidate `document_version_id` values are checked against PostgreSQL's active-version state.
-4. Inactive, superseded, unauthorized, or malformed candidates are removed.
+4. Immediately before returning, the runtime revalidates loaded candidates against the active
+   pointer so a publication that advances during evidence loading cannot expose a superseded
+   version. Inactive, superseded, unauthorized, or malformed candidates are removed.
 5. Evidence content and byte ranges are read from immutable artifacts.
 6. Optional graph expansion adds bounded structural context from FalkorDB.
 7. Results return normalized provenance and evidence, not raw provider responses.

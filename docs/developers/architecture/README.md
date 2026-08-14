@@ -29,7 +29,7 @@ These rules are more important than any individual provider choice:
 | `harborrag-core` | Bounded domain records, identifiers, errors, access context, and ports | Provider-independent language |
 | `harborrag-adapters` | Connectors, parsers, model clients, and repository implementations | External I/O boundary |
 | `harborrag-engine` | Provider-independent ingestion/retrieval policies and transformations | Business behavior and invariants |
-| `harborrag-memory` | Provider-neutral conversation state and memory policy | Optional application memory |
+| `harborrag-memory` | Provider-neutral conversation state and memory policy | Required package; optional memory configuration |
 | `harborrag-runtime` | Composition, direct/Temporal executors, lifecycle, scheduling, and config loading | Execution boundary |
 | `harborrag-app` | HTTP, CLI, authentication, and presentation mapping | User transport |
 | `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy, and audit | Agent transport |

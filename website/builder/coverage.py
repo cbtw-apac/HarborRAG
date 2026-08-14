@@ -83,7 +83,7 @@ class CoverageBuildMixin:
                         <span id="loader-test-indicator" class="badge">Loading...</span>
                     </div>
                     <div class="card-body">
-                        <div id="loader-coverage">Loader coverage data</div>
+                        <div id="loader-coverage">HarborRAG coverage data</div>
                         <a href="loader/" class="btn btn-primary">View Detailed Report</a>
                     </div>
                 </div>

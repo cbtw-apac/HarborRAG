@@ -144,7 +144,7 @@ For an existing development deployment:
 
 1. Stop API and workers with `scripts/deployment/dev.sh down`.
 2. Back up PostgreSQL and the configured object store.
-3. Deploy the updated `2.0.0` packages and start data, Temporal, and workers.
+3. Deploy the updated `2.0.0` packages and start data, Temporal, API, and workers.
 4. Submit the existing connector-free reindex workflow for active documents.
 5. Verify every new projection manifest before publication.
 6. Drain version-addressed cleanup jobs only after the new versions are active.

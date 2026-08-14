@@ -213,6 +213,16 @@ class TestWebsiteBuilderMarkdown:
         assert '<li class="list-group-item"><strong>Fork and Clone</strong></li>' in result
         assert '<li class="list-group-item"><strong>Install Dependencies</strong></li>' in result
 
+    def test_add_bootstrap_classes_wraps_tables_for_scrolling(self):
+        """Wide tables scroll through a wrapper without changing table semantics."""
+        builder = WebsiteBuilder()
+
+        result = builder.add_bootstrap_classes("<table><tr><td>Cell</td></tr></table>")
+
+        assert result.startswith('<div class="table-scroll"')
+        assert '<table class="table table-striped table-hover">' in result
+        assert result.endswith("</table></div>")
+
     def test_markdown_to_html_with_markdown_library(self):
         """Test markdown conversion with markdown library available."""
         builder = WebsiteBuilder()

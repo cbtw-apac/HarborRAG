@@ -1,6 +1,25 @@
 """PageBuildMixin implementation for the website builder."""
 
+import html
+import json
 from pathlib import Path
+
+
+def _html_value(value: object) -> str:
+    """Escape one scalar for text or attribute use in an HTML template."""
+
+    return html.escape(str(value), quote=True)
+
+
+def _json_script_value(value: object) -> str:
+    """Serialize one value for an inline JSON script without closing the element."""
+
+    return (
+        json.dumps(str(value), ensure_ascii=False)
+        .replace("<", r"\u003c")
+        .replace(">", r"\u003e")
+        .replace("&", r"\u0026")
+    )
 
 
 class PageBuildMixin:
@@ -49,29 +68,36 @@ class PageBuildMixin:
         extras.setdefault("additional_head", "")
         extras.setdefault("additional_scripts", "")
 
-        replacements = {
-            "page_title": title,
-            "page_description": description,
-            "content": content,
-            "base_url": base_url,
-            "canonical_url": (
+        canonical_url = (
+            (
                 self.base_url.rstrip("/")
                 if self.base_url
                 else "https://cbtw-apac.github.io/HarborRAG"
             )
             + "/"
-            + canonical_path,
-            "author": project_info.get("name", "HarborRAG"),
-            "version": project_info.get("version", "2.0.0"),
-            "project_name": project_info["name"],
-            "project_version": project_info["version"],
-            "project_status": project_info.get("status", "Alpha"),
-            "project_license": project_info.get("license", "Apache-2.0"),
-            "project_commit": project_info.get("commit", {}).get("short", ""),
-            "project_description": project_info["description"],
-            "github_url": project_info["github_url"],
-            "issues_url": project_info["issues_url"],
-            "documentation_url": project_info["documentation_url"],
+            + canonical_path
+        )
+        replacements = {
+            "page_title": _html_value(title),
+            "page_description": _html_value(description),
+            "content": content,
+            "base_url": _html_value(base_url),
+            "canonical_url": _html_value(canonical_url),
+            "author": _html_value(project_info.get("name", "HarborRAG")),
+            "version": _html_value(project_info.get("version", "2.0.0")),
+            "project_name": _html_value(project_info["name"]),
+            "project_version": _html_value(project_info["version"]),
+            "project_status": _html_value(project_info.get("status", "Alpha")),
+            "project_license": _html_value(project_info.get("license", "Apache-2.0")),
+            "project_commit": _html_value(project_info.get("commit", {}).get("short", "")),
+            "project_description": _html_value(project_info["description"]),
+            "github_url": _html_value(project_info["github_url"]),
+            "issues_url": _html_value(project_info["issues_url"]),
+            "documentation_url": _html_value(project_info["documentation_url"]),
+            "project_name_json": _json_script_value(project_info["name"]),
+            "project_version_json": _json_script_value(project_info["version"]),
+            "project_description_json": _json_script_value(project_info["description"]),
+            "github_url_json": _json_script_value(project_info["github_url"]),
             **extras,
         }
 

@@ -168,7 +168,7 @@ class ProjectStructureMixin:
 
         return f"{path}{separator}{fragment}" if separator else path
 
-    def render_docs_navigation(self, compact: bool = False) -> str:
+    def render_docs_navigation(self, *, compact: bool = False) -> str:
         """Render canonical navigation as cards for docs and landing pages."""
         nav = self.docs_nav_data or self.build_docs_nav()
         if not nav:

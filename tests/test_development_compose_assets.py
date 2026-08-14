@@ -51,6 +51,23 @@ def test_data_and_temporal_ports_bind_to_loopback_by_default() -> None:
     assert temporal.count("HARBORRAG_TEMPORAL_BIND_ADDRESS:-127.0.0.1") == 2
 
 
+def test_compose_files_require_operator_supplied_passwords() -> None:
+    database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
+    monitoring = (ROOT / "deploy/compose/docker-compose.monitoring.yml").read_text(encoding="utf-8")
+    script = DEV_SCRIPT.read_text(encoding="utf-8")
+
+    assert "POSTGRES_PASSWORD:?" in database
+    assert "MINIO_ROOT_PASSWORD:?" in database
+    assert "GRAFANA_ADMIN_PASSWORD:?" in monitoring
+    assert "postgres-change-me" not in database
+    assert "minio-change-me" not in database
+    assert "GRAFANA_ADMIN_PASSWORD:-admin" not in monitoring
+    monitoring_function = script.split("monitoring_compose() {", 1)[1].split(
+        "prepare_worker_mount() {", 1
+    )[0]
+    assert '--env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}"' in monitoring_function
+
+
 def test_falkordb_constraints_use_restart_safe_snapshot_persistence() -> None:
     database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
     falkordb_service = database.split("  falkordb:", 1)[1].split("  redis:", 1)[0]

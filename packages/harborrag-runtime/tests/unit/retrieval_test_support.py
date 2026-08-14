@@ -153,11 +153,13 @@ class MixedVectorRepository(FakeVectorRepository):
         return [*results, malformed]
 
 
-def resources(*, embed=None, vectors=None, chunks=None, graph=None) -> RetrievalResources:
+def resources(
+    *, embed=None, vectors=None, chunks=None, graph=None, active_versions=None
+) -> RetrievalResources:
     return RetrievalResources(
         embed_client=embed or FakeEmbedClient(),  # type: ignore[arg-type]
         vector_repository=vectors or FakeVectorRepository(),  # type: ignore[arg-type]
-        active_versions=FakeActiveVersions(),
+        active_versions=active_versions or FakeActiveVersions(),
         chunk_reader=chunks or FakeChunkReader(),  # type: ignore[arg-type]
         sparse_encoder=BM25SparseEncoder(SparseEncoderProfile(profile_id="bm25-v1")),
         graph_repository=graph,

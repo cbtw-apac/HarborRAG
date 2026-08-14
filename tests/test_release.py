@@ -71,14 +71,14 @@ def test_release_cli_publish_mode_uses_the_reviewed_current_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli, "assert_release_files_exist", lambda: None)
-    monkeypatch.setattr(cli, "_run_initial_checks", lambda dry_run: {"ready": True})
-    monkeypatch.setattr(cli, "get_all_package_versions", lambda: {})
+    monkeypatch.setattr(cli, "_run_initial_checks", lambda _dry_run: {"ready": True})
+    monkeypatch.setattr(cli, "get_all_package_versions", dict)
     monkeypatch.setattr(cli, "get_current_version", lambda: "2.1.0")
-    monkeypatch.setattr(cli, "check_changelog_updated", lambda version, dry_run: True)
+    monkeypatch.setattr(cli, "check_changelog_updated", lambda _version, _dry_run: True)
     monkeypatch.setattr(
         cli,
         "check_release_tags_absent",
-        lambda packages, version, dry_run: True,
+        lambda _packages, _version, _dry_run: True,
     )
 
     result = CliRunner().invoke(release_command, ["--publish", "--dry-run"])

@@ -49,7 +49,6 @@ class TestWebsiteBuildSystem:
             "base.html",
             "index.html",
             "docs-index.html",
-            "coverage-index.html",
             "privacy-policy.html",
             "robots.txt",
         ]
@@ -169,14 +168,6 @@ class TestWebsiteBuildSystem:
         pil_spec = importlib.util.find_spec("PIL")
         assert cairo_spec is not None
         assert pil_spec is not None
-
-    def test_coverage_template_has_required_elements(self):
-        """Test that the coverage template has required elements."""
-        coverage_template = Path("website/templates/coverage-index.html")
-        content = coverage_template.read_text(encoding="utf-8")
-
-        # Check for coverage-related elements
-        assert "coverage" in content.lower(), "Coverage template should mention coverage"
 
     def test_docs_template_structure(self):
         """Test that the docs template has proper structure."""

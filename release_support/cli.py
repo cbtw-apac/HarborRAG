@@ -12,12 +12,12 @@ from .checks import (
     check_main_up_to_date,
     check_release_tags_absent,
     check_unpushed_commits,
-    create_github_release,
     get_github_token,
     require_command,
 )
 from .config import PACKAGES, PRIMARY_PACKAGE
 from .metadata import update_release_metadata
+from .releases import create_github_release
 from .versioning import (
     calculate_new_version,
     update_all_development_status_classifiers,
@@ -91,10 +91,13 @@ def _update_workspace(
 
 
 def _tag_release(version: str, dry_run: bool) -> None:
-    for package_name in get_packages_for_release():
-        tag = f"{package_name}-v{version}"
+    package_names = get_packages_for_release()
+    tags = [f"{package_name}-v{version}" for package_name in package_names]
+    for package_name, tag in zip(package_names, tags, strict=True):
+        if require_command(f"git tag --list {tag}", dry_run):
+            continue
         require_command(f'git tag -a {tag} -m "Release {package_name} v{version}"', dry_run)
-    require_command("git push origin --tags", dry_run)
+    require_command(f"git push origin {' '.join(tags)}", dry_run)
 
 
 def _synchronize_versions(*, dry_run: bool, development_status: str | None) -> None:

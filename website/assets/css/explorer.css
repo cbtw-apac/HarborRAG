@@ -52,7 +52,7 @@
 .architecture-route span {
   margin-right: 7px;
   color: #58737c;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.61rem;
 }
 
@@ -116,10 +116,22 @@
   content: "";
 }
 
-.architecture-flow li:nth-child(4),
-.architecture-flow li:nth-child(5),
+.architecture-flow li:nth-child(4) {
+  grid-column: 3;
+}
+
+.architecture-flow li:nth-child(5) {
+  grid-column: 2;
+}
+
 .architecture-flow li:nth-child(6) {
-  direction: rtl;
+  grid-column: 1;
+}
+
+.architecture-flow li:nth-child(4)::after,
+.architecture-flow li:nth-child(5)::after {
+  right: auto;
+  left: -20px;
 }
 
 .architecture-flow li:nth-child(3)::before {
@@ -158,7 +170,7 @@
 
 .architecture-node small {
   color: var(--brand-bright);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.58rem;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -337,7 +349,7 @@
 
 .stack-layer strong {
   color: var(--ink-strong);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: clamp(0.66rem, 1.1vw, 0.78rem);
 }
 

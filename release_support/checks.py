@@ -8,11 +8,10 @@ import subprocess
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-import requests
 from dotenv import load_dotenv
-from packaging.version import InvalidVersion, Version
 
 from .config import REPOSITORY_ROOT
+from .diagnostics import redact_diagnostic
 
 load_dotenv(REPOSITORY_ROOT / ".env", override=False)
 
@@ -25,6 +24,7 @@ _DRY_RUN_READ_ONLY_COMMANDS = {
     ("git", "rev-list"),
     ("git", "rev-parse"),
     ("git", "status"),
+    ("git", "tag"),
 }
 
 
@@ -71,7 +71,7 @@ def run_command(cmd: str, dry_run: bool = False) -> tuple[str, str]:
         logger = logging.getLogger("release")
         logger.error("Command failed (%s): %s", result.returncode, cmd)
         if result.stderr:
-            logger.error("%s", result.stderr)
+            logger.error("%s", redact_diagnostic(result.stderr))
     return result.stdout, result.stderr
 
 
@@ -83,7 +83,7 @@ def require_command(cmd: str, dry_run: bool = False) -> str:
         logger = logging.getLogger("release")
         logger.error("Command failed (%s): %s", result.returncode, cmd)
         if result.stderr:
-            logger.error("%s", result.stderr)
+            logger.error("%s", redact_diagnostic(result.stderr))
         raise SystemExit(result.returncode)
     return result.stdout
 
@@ -93,7 +93,7 @@ def _check_result(result: CommandResult, failure_message: str, dry_run: bool) ->
         return True
     logging.getLogger("release").error("%s", failure_message)
     if result.stderr:
-        logging.getLogger("release").debug("%s", result.stderr)
+        logging.getLogger("release").debug("%s", redact_diagnostic(result.stderr))
     if not dry_run:
         raise SystemExit(1)
     return False
@@ -177,20 +177,29 @@ def check_main_up_to_date(dry_run: bool = False) -> bool:
 def check_release_tags_absent(
     package_names: list[str], version: str, dry_run: bool = False
 ) -> bool:
-    """Prevent an existing package tag from being moved or overwritten."""
+    """Accept only absent tags or retry tags that already point at ``HEAD``."""
 
-    existing: list[str] = []
+    incompatible: list[str] = []
+    head = _command_result("git rev-parse HEAD", dry_run)
+    if not _check_result(head, "Unable to determine the reviewed release commit.", dry_run):
+        return False
     for package_name in package_names:
         tag = f"{package_name}-v{version}"
         result = _command_result(f"git tag --list {tag}", dry_run)
         if not _check_result(result, f"Unable to inspect release tag {tag}.", dry_run):
             return False
-        if result.stdout:
-            existing.append(tag)
-    if not existing:
+        if not result.stdout:
+            continue
+        target = _command_result(f"git rev-list -n 1 {tag}", dry_run)
+        if not _check_result(target, f"Unable to resolve release tag {tag}.", dry_run):
+            return False
+        if target.stdout != head.stdout:
+            incompatible.append(tag)
+    if not incompatible:
         return True
     logging.getLogger("release").error(
-        "Release tags already exist and will not be moved: %s", ", ".join(existing)
+        "Release tags exist on a different commit and will not be moved: %s",
+        ", ".join(incompatible),
     )
     if not dry_run:
         raise SystemExit(1)
@@ -228,7 +237,8 @@ def extract_repo_info(git_url: str, dry_run: bool = False) -> str:
         return f"{parts[0]}/{parts[1]}"
 
     logging.getLogger("release").error(
-        "Could not parse a GitHub repository from remote URL: %s", git_url
+        "Could not parse a GitHub repository from remote URL: %s",
+        redact_diagnostic(git_url),
     )
     if dry_run:
         return "unknown/repo"
@@ -259,11 +269,19 @@ def check_changelog_updated(new_version: str, dry_run: bool = False) -> bool:
             raise SystemExit(1)
         return False
 
-    headings = re.findall(
-        r"(?m)^## \[((?!Unreleased\])[^\]]+)\](?:\s+-\s+[^\n]+)?$",
-        changelog.read_text(encoding="utf-8"),
+    content = changelog.read_text(encoding="utf-8")
+    unreleased = re.search(r"(?m)^## \[Unreleased\](?:\s+-\s+[^\n]+)?$", content)
+    if unreleased is None:
+        logging.getLogger("release").error(
+            "CHANGELOG.md must contain a '## [Unreleased]' section before releases."
+        )
+        if not dry_run:
+            raise SystemExit(1)
+        return False
+    next_release = re.search(
+        r"(?m)^## \[([^\]]+)\](?:\s+-\s+[^\n]+)?$", content[unreleased.end() :]
     )
-    found = headings[0] if headings else None
+    found = next_release.group(1) if next_release is not None else None
     if found == new_version:
         return True
     logging.getLogger("release").error(
@@ -274,57 +292,3 @@ def check_changelog_updated(new_version: str, dry_run: bool = False) -> bool:
     if not dry_run:
         raise SystemExit(1)
     return False
-
-
-def create_github_release(
-    package_name: str, version: str, token: str, dry_run: bool = False
-) -> None:
-    """Create one GitHub release whose tag triggers the package publisher."""
-
-    tag_name = f"{package_name}-v{version}"
-    logger = logging.getLogger("release")
-    if dry_run:
-        logger.info("[DRY RUN] Would create GitHub release %s", tag_name)
-        return
-
-    remote = _command_result("git remote get-url origin")
-    if remote.returncode:
-        logger.error("Unable to read the origin remote.")
-        raise SystemExit(1)
-    repository = extract_repo_info(remote.stdout)
-    notes = extract_changelog_for_version(version)
-    if not notes:
-        logger.error("No changelog notes found for version %s.", version)
-        raise SystemExit(1)
-
-    try:
-        prerelease = Version(version).is_prerelease
-    except InvalidVersion:
-        logger.error("Invalid release version: %s", version)
-        raise SystemExit(1) from None
-
-    response = requests.post(
-        f"https://api.github.com/repos/{repository}/releases",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        json={
-            "tag_name": tag_name,
-            "name": f"{package_name} v{version}",
-            "body": notes,
-            "draft": False,
-            "prerelease": prerelease,
-        },
-        timeout=30,
-    )
-    if response.status_code != 201:
-        logger.error(
-            "GitHub release creation failed for %s (HTTP %s): %s",
-            package_name,
-            response.status_code,
-            response.text[:500],
-        )
-        raise SystemExit(1)
-    logger.info("Created GitHub release %s", tag_name)

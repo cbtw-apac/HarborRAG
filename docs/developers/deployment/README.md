@@ -61,7 +61,8 @@ deployment-specific.
 scripts/deployment/dev.sh monitoring
 ```
 
-Set non-default Grafana credentials in that environment for any non-local use.
+Set `GRAFANA_ADMIN_PASSWORD` in the protected database environment file before
+starting monitoring. Compose has no checked-in password fallback.
 
 ## Application Compose files
 

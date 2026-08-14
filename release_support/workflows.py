@@ -2,9 +2,9 @@
 
 import logging
 
-import requests
-
 from .checks import extract_repo_info, get_github_token, run_command
+from .diagnostics import redact_diagnostic
+from .github_api import GitHubRequestError, github_request
 
 CRITICAL_WORKFLOWS = {
     "API Contract",
@@ -25,43 +25,37 @@ def _actions_runs(
     repository: str,
     token: str,
     *,
-    status: str,
     head_sha: str,
 ) -> list[dict[str, object]] | None:
     params: dict[str, str | int] = {
         "branch": "main",
         "head_sha": head_sha,
-        "status": status,
         "per_page": 100,
     }
     try:
-        response = requests.get(
-            f"https://api.github.com/repos/{repository}/actions/runs",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            params=params,
-            timeout=30,
+        response = github_request(
+            repository,
+            "actions/runs",
+            token,
+            query=params,
         )
-    except requests.RequestException as exc:
-        logging.getLogger("release").error("GitHub Actions request failed: %s", exc)
+    except GitHubRequestError as exc:
+        logging.getLogger("release").error(
+            "GitHub Actions request failed: %s", redact_diagnostic(exc)
+        )
         return None
     if response.status_code != 200:
         logging.getLogger("release").error(
             "GitHub Actions returned HTTP %s: %s",
             response.status_code,
-            response.text[:500],
+            redact_diagnostic(response.text[:500]),
         )
         return None
-    payload = response.json()
+    payload = response.payload
+    if not isinstance(payload, dict):
+        return None
     runs = payload.get("workflow_runs")
     return runs if isinstance(runs, list) else None
-
-
-def _running_workflow_names(runs: list[dict[str, object]]) -> list[str]:
-    return sorted(str(run.get("name", "unknown")) for run in runs)
 
 
 def _completed_workflow_error(runs: list[dict[str, object]]) -> str | None:
@@ -72,7 +66,16 @@ def _completed_workflow_error(runs: list[dict[str, object]]) -> str | None:
 
     missing = CRITICAL_WORKFLOWS.difference(latest_by_name)
     if missing:
-        return "No completed run exists on the release commit for: " + ", ".join(sorted(missing))
+        return "No run exists on the release commit for: " + ", ".join(sorted(missing))
+
+    unresolved = {
+        name: str(latest_by_name[name].get("status", "unknown"))
+        for name in CRITICAL_WORKFLOWS
+        if latest_by_name[name].get("status") != "completed"
+    }
+    if unresolved:
+        details = ", ".join(f"{name}={status}" for name, status in sorted(unresolved.items()))
+        return f"Critical workflows are not completed: {details}"
 
     failed = {
         name: str(latest_by_name[name].get("conclusion", "unknown"))
@@ -102,19 +105,9 @@ def check_github_workflows(dry_run: bool = False) -> bool:
     if not token:
         return False
 
-    running = _actions_runs(repository, token, status="in_progress", head_sha=commit)
-    if running is None:
-        return _fail("Unable to inspect running GitHub workflows.", dry_run)
-    if running:
-        return _fail(
-            f"Workflows are still running for {commit[:12]}: "
-            + ", ".join(_running_workflow_names(running)),
-            dry_run,
-        )
-
-    completed = _actions_runs(repository, token, status="completed", head_sha=commit)
+    completed = _actions_runs(repository, token, head_sha=commit)
     if completed is None:
-        return _fail("Unable to inspect completed GitHub workflows.", dry_run)
+        return _fail("Unable to inspect GitHub workflows.", dry_run)
 
     workflow_error = _completed_workflow_error(completed)
     if workflow_error:

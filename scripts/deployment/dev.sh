@@ -136,7 +136,9 @@ api_compose() {
 }
 
 monitoring_compose() {
+    require_file "${DATABASE_ENV_FILE}" "database environment"
     docker compose \
+        --env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}" \
         --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml" \
         "$@"
 }

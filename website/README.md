@@ -12,7 +12,7 @@ The templates provide presentation only. Do not copy technical capability, insta
 ## Public launch story
 
 The public homepage is organized around the questions a new open-source user
-needs answered quickly:
+needs quick answers to:
 
 1. **What outcome does HarborRAG create?** Turn scattered engineering
    knowledge into governed, grounded answers.
@@ -101,8 +101,11 @@ Use relative Markdown links in source documents. The builder translates `.md` ta
 
 ## Validation
 
+Keep the local HTTP server from the build instructions running in another
+terminal while executing the link check below.
+
 ```bash
-uv run pytest tests/test_website_*.py tests/test_link_checker.py
+uv run pytest tests/test_website_*.py tests/test_link_checker*.py
 uv run python website/check_branding.py
 uv run python website/check_publication.py
 uv run python website/check_links.py --url http://127.0.0.1:8000 --depth 8

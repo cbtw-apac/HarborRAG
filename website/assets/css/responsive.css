@@ -290,7 +290,7 @@
   }
 
   .architecture-flow li:nth-child(n) {
-    direction: ltr;
+    grid-column: 1;
   }
 
   .architecture-flow li::before,

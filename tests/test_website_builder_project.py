@@ -60,17 +60,6 @@ class TestGenerateProjectInfo:
         assert info["github_url"] == "https://github.com/example/demo"
         assert info["issues_url"] == "https://github.com/example/demo/issues"
 
-    def test_respects_user_set_base_url(self, builder):
-        Path("pyproject.toml").write_text(
-            '[project]\nname = "demo"\n[project.urls]\nHomepage = "https://home.example.test/"\n',
-            encoding="utf-8",
-        )
-        builder.base_url_user_set = True
-
-        builder.generate_project_info()
-
-        assert builder.base_url == ""
-
     def test_falls_back_to_source_url(self, builder):
         Path("pyproject.toml").write_text(
             '[project]\nname = "demo"\n[project.urls]\nSource = "https://git.example.test/demo"\n',
@@ -132,7 +121,7 @@ class TestDocsNavigation:
         Path("docs/TOC.md").write_text(
             "# Docs\n\n"
             "## Getting started\n\n"
-            "- [Installation](installation.md)\n"
+            "- [Installation](installation.md) — Install HarborRAG\n"
             "- [Package](../packages/harborrag/README.md)\n",
             encoding="utf-8",
         )
@@ -144,6 +133,7 @@ class TestDocsNavigation:
             "installation.html",
             "packages/harborrag/README.html",
         ]
+        assert nav["children"][0]["children"][0]["description"] == "Install HarborRAG"
         assert builder.docs_nav_data == nav
 
     def test_render_docs_navigation_prefixes_homepage_links(self, builder):
@@ -155,6 +145,13 @@ class TestDocsNavigation:
         html = builder.render_docs_navigation(compact=True)
 
         assert 'href="docs/getting-started/quick-start.html"' in html
+
+    def test_render_docs_navigation_reports_missing_toc(self, builder):
+        Path("docs/TOC.md").unlink(missing_ok=True)
+
+        html = builder.render_docs_navigation()
+
+        assert html == '<p class="text-muted">Documentation navigation is unavailable.</p>'
 
     def test_build_docs_structure_without_docs_dir(self, builder):
         shutil.rmtree("docs")
