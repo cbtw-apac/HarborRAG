@@ -6,9 +6,7 @@
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `vector_search` | Query, tenant, top-k | Default hybrid vector results |
-| `vector_search_advanced` | Query, tenant, lane, filters, graph observation, threshold | Controlled vector results and diagnostics |
-| `graph_neighborhood` | Tenant and a natural-language question | Merged active neighborhood plus the `chunk_id` seeds it grew from |
+| `vector_search` | Query, tenant, top-k, lane, filters, graph observation, threshold | Vector results and diagnostics |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
@@ -24,10 +22,6 @@ selector you already hold. Only three things resolve: a `node_key`, a `logical_i
 exact full `title` — titles are unset on chunk nodes and are never matched partially.
 The practical selector is a `chunk_id` from `vector_search`, because chunk IDs and
 `Chunk` node keys are the same value.
-
-Starting from a question rather than a node, use `graph_neighborhood`: it resolves its own
-seeds through the vector index and returns the merged expansion around them.
-
 
 ```python
 from harborrag_mcp_server.server import McpServer, list_tools

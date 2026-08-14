@@ -157,23 +157,6 @@ class GraphSubgraphSearchRequest(TenantScopedRetrievalRequest):
         return self
 
 
-class GraphNeighborhoodSearchRequest(TenantScopedRetrievalRequest):
-    """Expand the graph around a natural-language question, with no node selector."""
-
-    query: str = Field(min_length=1, max_length=_MAX_QUERY_LENGTH)
-    seed_limit: int = Field(default=3, ge=1, le=10)
-    relationship_types: list[RelationType] = Field(default_factory=list)
-    max_depth: int = Field(default=2, ge=1, le=8)
-    max_nodes: int = Field(default=20, ge=1, le=100)
-    direction: GraphDirection = GraphDirection.BOTH
-
-    @model_validator(mode="after")
-    def validate_relationship_types(self) -> Self:
-        if len(set(self.relationship_types)) != len(self.relationship_types):
-            raise ValueError("neighborhood relationship types must be unique")
-        return self
-
-
 class GraphSearchDiagnosticsResponse(ApiModel):
     candidate_count: int = Field(ge=0)
     accepted_count: int = Field(ge=0)
@@ -193,13 +176,6 @@ class GraphPathSearchResponse(ApiModel):
 
 
 class GraphSubgraphSearchResponse(ApiModel):
-    nodes: list[GraphNodeRecord]
-    relations: list[GraphEdgeRecord]
-    diagnostics: GraphSearchDiagnosticsResponse
-
-
-class GraphNeighborhoodSearchResponse(ApiModel):
-    seeds: list[str]
     nodes: list[GraphNodeRecord]
     relations: list[GraphEdgeRecord]
     diagnostics: GraphSearchDiagnosticsResponse

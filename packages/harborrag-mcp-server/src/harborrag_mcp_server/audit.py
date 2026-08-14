@@ -97,7 +97,6 @@ class McpAuditLog:
         path = self.path
         if path is None:
             raise RuntimeError("durable MCP audit path is not configured")
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor = _open_audit_file(path)
         try:
             value = memoryview((json.dumps(event, separators=(",", ":")) + "\n").encode("utf-8"))
@@ -118,6 +117,7 @@ def _open_audit_file(path: Path) -> int:
     """Open the durable audit file with the strongest hardening the platform supports."""
 
     if not _SUPPORTS_DIR_FD:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         return _open_audit_file_fallback(path)
     return _open_audit_file_dir_fd(path)
 
@@ -143,7 +143,7 @@ def _is_reparse_point(metadata: os.stat_result) -> bool:
 def _reject_reparse_component(component: Path) -> None:
     try:
         metadata = os.lstat(component)
-    except OSError:
+    except FileNotFoundError:
         return
     if _is_reparse_point(metadata):
         raise OSError(
@@ -194,16 +194,80 @@ def _open_audit_file_fallback(path: Path) -> int:
         raise
 
 
+_DIRECTORY_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_CLOEXEC", 0)
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+)
+
+
+def _open_validated_parent_dir_fd(path: Path) -> int:
+    """Return a held descriptor for `path.parent`, validating every ancestor on the way.
+
+    Each component from the filesystem root down to `path.parent` is opened
+    with `O_NOFOLLOW` via the previous component's descriptor, so a
+    symlinked ancestor is rejected instead of silently followed the way
+    `Path.mkdir()`/string-path `os.open()` would follow it. Missing
+    directories are created with `os.mkdir(..., dir_fd=...)` relative to
+    the already-validated descriptor rather than through `path.parent`.
+    """
+    # `_descend_validated_dir_fd` always closes the descriptor it is handed
+    # -- on success once the child is open, on failure via its own
+    # `finally` -- so this loop must never also close `descriptor` itself;
+    # doing so would close an already-closed (or, worse, reused) fd number.
+    anchored = path if path.is_absolute() else Path.cwd() / path
+    parts = anchored.parent.parts
+    descriptor = os.open(parts[0], _DIRECTORY_OPEN_FLAGS)
+    for component in parts[1:]:
+        descriptor = _descend_validated_dir_fd(descriptor, component)
+    return descriptor
+
+
+def _descend_validated_dir_fd(parent_descriptor: int, name: str) -> int:
+    """Validate/create `name` under `parent_descriptor`, returning its own descriptor.
+
+    `parent_descriptor` is closed once the child descriptor is open.
+    """
+    try:
+        try:
+            named_metadata = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        except FileNotFoundError:
+            try:
+                os.mkdir(name, 0o700, dir_fd=parent_descriptor)
+            except FileExistsError:
+                pass
+            named_metadata = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+
+        if _is_reparse_point(named_metadata) or not stat.S_ISDIR(named_metadata.st_mode):
+            raise OSError(
+                f"durable MCP audit path must not contain a symlink or reparse point: {name}"
+            )
+
+        child_descriptor = os.open(name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_descriptor)
+    finally:
+        os.close(parent_descriptor)
+
+    try:
+        child_metadata = os.fstat(child_descriptor)
+        if (
+            not stat.S_ISDIR(child_metadata.st_mode)
+            or _is_reparse_point(named_metadata)
+            or _identity(child_metadata) != _identity(named_metadata)
+        ):
+            raise OSError(
+                f"durable MCP audit path must not contain a symlink or reparse point: {name}"
+            )
+        return child_descriptor
+    except BaseException:
+        os.close(child_descriptor)
+        raise
+
+
 def _open_audit_file_dir_fd(path: Path) -> int:
     """Open an owner-only regular file without following the final directory entries."""
 
-    directory_flags = (
-        os.O_RDONLY
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    directory_descriptor = os.open(path.parent, directory_flags)
+    directory_descriptor = _open_validated_parent_dir_fd(path)
     try:
         directory_metadata = os.fstat(directory_descriptor)
         named_directory_metadata = os.lstat(path.parent)

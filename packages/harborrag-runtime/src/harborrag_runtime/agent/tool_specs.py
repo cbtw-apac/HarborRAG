@@ -27,8 +27,7 @@ _DEFAULT_MAX_RESULTS = 20
 _SELECTOR_HINT = (
     "Node selectors accept a chunk_id returned by vector_search (chunk IDs and Chunk "
     "node keys are the same value), a node_key from an earlier graph result, or an exact "
-    "full node title. Titles are unset on chunk nodes and are never matched partially. "
-    "To start from a natural-language question instead, use graph_neighborhood."
+    "full node title. Titles are unset on chunk nodes and are never matched partially."
 )
 
 
@@ -155,36 +154,6 @@ def graph_subgraph_schema(
     }
 
 
-def graph_neighborhood_schema(
-    *,
-    max_results: int = _DEFAULT_MAX_RESULTS,
-    tenant: dict[str, object] | None = None,
-) -> dict[str, object]:
-    return {
-        "type": "object",
-        "required": ["tenant_id", "query"],
-        "properties": {
-            "tenant_id": dict(tenant or _TENANT),
-            "query": {"type": "string", "minLength": 1},
-            "seed_limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 3},
-            "relationship_types": _relationship_types(),
-            "max_depth": {"type": "integer", "minimum": 1, "maximum": 8, "default": 2},
-            "max_nodes": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": max_results,
-                "default": max_results,
-            },
-            "direction": {
-                "type": "string",
-                "enum": list(_DIRECTIONS),
-                "default": GraphDirection.BOTH.value,
-            },
-        },
-        "additionalProperties": False,
-    }
-
-
 VECTOR_SEARCH_DESCRIPTION = (
     "Search tenant-scoped indexed evidence for a natural-language query. Each result "
     "carries a chunk_id that doubles as a graph node key for the graph tools."
@@ -199,12 +168,6 @@ GRAPH_PATH_DESCRIPTION = (
 GRAPH_SUBGRAPH_DESCRIPTION = (
     f"Expand an active tenant-scoped graph neighborhood from one known node. {_SELECTOR_HINT}"
 )
-GRAPH_NEIGHBORHOOD_DESCRIPTION = (
-    "Expand the tenant knowledge graph around whatever a natural-language question "
-    "retrieves. Resolves its own seeds through the vector index, so it needs no node "
-    "key -- use this when starting from a question rather than a known node. Returns "
-    "the merged neighborhood plus the chunk_id seeds it grew from."
-)
 
 
 RUNTIME_AGENT_TOOL_SPECS = (
@@ -212,11 +175,6 @@ RUNTIME_AGENT_TOOL_SPECS = (
         "vector_search",
         VECTOR_SEARCH_DESCRIPTION,
         vector_search_schema(),
-    ),
-    RuntimeAgentToolSpec(
-        "graph_neighborhood",
-        GRAPH_NEIGHBORHOOD_DESCRIPTION,
-        graph_neighborhood_schema(),
     ),
     RuntimeAgentToolSpec(
         "graph_triplet_search",
@@ -236,14 +194,12 @@ RUNTIME_AGENT_TOOL_SPECS = (
 )
 
 __all__ = [
-    "GRAPH_NEIGHBORHOOD_DESCRIPTION",
     "GRAPH_PATH_DESCRIPTION",
     "GRAPH_SUBGRAPH_DESCRIPTION",
     "GRAPH_TRIPLET_DESCRIPTION",
     "RUNTIME_AGENT_TOOL_SPECS",
     "RuntimeAgentToolSpec",
     "VECTOR_SEARCH_DESCRIPTION",
-    "graph_neighborhood_schema",
     "graph_path_schema",
     "graph_subgraph_schema",
     "graph_triplet_schema",

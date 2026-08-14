@@ -135,9 +135,7 @@ from harborrag_runtime.sdk import HarborRAG, IngestionRequest, RetrievalRequest
 
 access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
 async with HarborRAG.from_config("harborrag.yaml") as harbor:
-    await harbor.ingestion.run(
-        IngestionRequest(access=access, connector_name="local")
-    )
+    await harbor.ingestion.run(IngestionRequest(access=access, connector_name="local"))
     response = await harbor.retrieval.search(
         RetrievalRequest(access=access, query="deployment requirements")
     )
@@ -183,9 +181,7 @@ source = build_source_input(
         connector_name="local",
     ),
 )
-client = await IngestionTemporalClient.connect(
-    TemporalRuntimeConfig.from_settings(settings)
-)
+client = await IngestionTemporalClient.connect(TemporalRuntimeConfig.from_settings(settings))
 reference = await client.start_ingestion(source)
 status = await client.get_status(reference.run_id)
 ```

@@ -138,6 +138,18 @@ def _is_source_blank(path: Path) -> bool:
         return False
 
 
+def _accepts_empty_content(path: Path) -> bool:
+    """A parse can legitimately yield no text either because the source
+    itself is blank (see `_is_source_blank`) or, for images, because OCR
+    found no text to extract -- a normal outcome for a photo or diagram
+    with no text in it, not a parser failure. Image bytes are never valid
+    UTF-8, so `_is_source_blank` alone always reports them as non-blank.
+    """
+    if path.suffix.lower().lstrip(".") in _IMAGE_SUFFIXES:
+        return True
+    return _is_source_blank(path)
+
+
 def _print_skips(skipped) -> None:
     """Report files discovery deliberately dropped, so none is silently omitted.
 
@@ -202,7 +214,7 @@ def run_local(
             overall_ok = False
             continue
         if not parsed.content.strip():
-            if _is_source_blank(path):
+            if _accepts_empty_content(path):
                 print(f"[local] note: source file is empty or blank for {path}")
             else:
                 print(f"[local] failed: parser returned empty extracted content for {path}")

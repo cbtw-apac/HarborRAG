@@ -2,7 +2,6 @@
 
 from .graph import (
     GraphDirection,
-    GraphNeighborhoodQuery,
     GraphPath,
     GraphPathQuery,
     GraphPathResult,
@@ -18,7 +17,6 @@ from .graph import (
 
 __all__ = [
     "GraphDirection",
-    "GraphNeighborhoodQuery",
     "GraphPath",
     "GraphPathQuery",
     "GraphPathResult",

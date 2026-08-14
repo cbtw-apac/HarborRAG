@@ -11,8 +11,6 @@ from harborrag import (
     ChatPrompt,
     Document,
     ExecutionMode,
-    GraphNeighborhoodQuery,
-    GraphNeighborhoodRequest,
     GraphPathQuery,
     GraphPathRequest,
     GraphSubgraphQuery,
@@ -68,12 +66,8 @@ def test_graph_sdk_requests_are_constructible_from_public_exports() -> None:
         access=access,
         query=GraphSubgraphQuery(start_node="document-1"),
     )
-    neighborhood = GraphNeighborhoodRequest(
-        access=access,
-        query=GraphNeighborhoodQuery(query="related documents"),
-    )
 
-    assert triplet.access == path.access == subgraph.access == neighborhood.access == access
+    assert triplet.access == path.access == subgraph.access == access
 
 
 def test_base_install_declares_only_directly_imported_packages() -> None:

@@ -52,3 +52,21 @@ def test_durable_audit_rejects_symlinked_or_shared_parent_directory(tmp_path) ->
     with pytest.raises(PermissionError, match="owner-only"):
         McpAuditLog(path=shared_directory / "audit.jsonl").start("search", {}, principal_id="owner")
     assert shared_directory.stat().st_mode & 0o777 == 0o755
+
+
+@pytest.mark.skipif(os.name != "posix", reason="dir_fd ancestor-walk contract is POSIX-only")
+def test_durable_audit_rejects_symlinked_grandparent_directory(tmp_path) -> None:
+    real_root = tmp_path / "real-root"
+    real_root.mkdir(mode=0o700)
+    linked_root = tmp_path / "linked-root"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+
+    # The final parent ("subdir") is a real, not-yet-created directory, but
+    # it hangs off a symlinked ancestor -- this must be rejected even though
+    # `subdir` itself is never a symlink.
+    audit_path = linked_root / "subdir" / "audit.jsonl"
+
+    with pytest.raises(OSError):
+        McpAuditLog(path=audit_path).start("search", {}, principal_id="owner")
+
+    assert not (real_root / "subdir").exists()

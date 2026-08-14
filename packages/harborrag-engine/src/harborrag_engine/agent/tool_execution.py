@@ -18,7 +18,7 @@ from harborrag_core.ports.agent_runs import AgentToolExecution
 from .guard import digest_arguments
 from .protocols import AgentToolSpec
 
-ADVANCED_VECTOR_TOOL = "vector_search_advanced"
+VECTOR_SEARCH_TOOL = "vector_search"
 # A provider adapter bug or a model prompted by untrusted retrieved content
 # could return an unbounded number of tool calls in one response; without a
 # cap, asyncio.gather below would fire that many concurrent tool executions
@@ -176,7 +176,7 @@ def _bounded_sequence(
 
 def tool_definition(spec: AgentToolSpec, graph_search: bool) -> HarborChatTool:
     schema = json.loads(json.dumps(spec.input_schema))
-    if spec.name == ADVANCED_VECTOR_TOOL and not graph_search:
+    if spec.name == VECTOR_SEARCH_TOOL and not graph_search:
         properties = schema.get("properties")
         if isinstance(properties, dict):
             properties.pop("observe_graph", None)
@@ -190,9 +190,9 @@ def tool_definition(spec: AgentToolSpec, graph_search: bool) -> HarborChatTool:
 
 
 __all__ = [
-    "ADVANCED_VECTOR_TOOL",
     "MAX_TOOL_CALLS_PER_TURN",
     "MAX_TOOL_RESULT_CHARS",
+    "VECTOR_SEARCH_TOOL",
     "bounded_tool_result_content",
     "rejected_execution",
     "tool_definition",

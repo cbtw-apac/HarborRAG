@@ -8,7 +8,6 @@ from collections.abc import Mapping
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -225,15 +224,6 @@ class AppService(ControlPlaneReadsMixin, AgentClientMixin, ChatClientMixin, Base
         principal_id: str,
     ) -> AppResponse:
         return await self._graph.subgraph(query, tenant_id=tenant_id, principal_id=principal_id)
-
-    async def retrieve_graph_neighborhood(
-        self,
-        query: GraphNeighborhoodQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.neighborhood(query, tenant_id=tenant_id, principal_id=principal_id)
 
     async def start_ingestion(  # noqa: PLR0913 - stable service port
         self,

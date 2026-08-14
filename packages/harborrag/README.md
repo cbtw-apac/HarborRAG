@@ -25,9 +25,7 @@ from harborrag import (
 
 access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
 async with HarborRAG.from_config("harborrag.yaml") as harbor:
-    ingestion = await harbor.ingestion.run(
-        IngestionRequest(access=access, connector_name="local")
-    )
+    ingestion = await harbor.ingestion.run(IngestionRequest(access=access, connector_name="local"))
     results = await harbor.retrieval.search(
         RetrievalRequest(access=access, query="deployment requirements")
     )
@@ -49,9 +47,7 @@ from harborrag import (
 
 async with HarborRAG.from_config("harborrag.yaml") as harbor:
     response = await harbor.chat.complete(
-        HarborChatRequest(
-            messages=(HarborChatMessage.user("Summarize the results"),)
-        ),
+        HarborChatRequest(messages=(HarborChatMessage.user("Summarize the results"),)),
         prompt=ChatPrompt.CONCISE,
     )
 ```
