@@ -45,6 +45,18 @@ def _local_metadata(parsed, figure_count: int) -> dict:
     return metadata
 
 
+def _local_links(parsed) -> list[dict]:
+    """Collect anchor href/title/text captured by the HTML parser as element metadata.
+
+    `parsed.content` is fully flattened text, so this is the only place link
+    destinations still exist; rendering drops them silently otherwise.
+    """
+    links: list[dict] = []
+    for element in parsed.elements:
+        links.extend(element.metadata.get("links") or [])
+    return links
+
+
 def _save_local_figures(parsed, output_path: Path) -> list[Path]:
     """Copy Docling's extracted figure crops next to `output_path` so Markdown can embed them.
 
@@ -93,6 +105,13 @@ def _render_local_output(
     if path.suffix.lower().lstrip(".") in _IMAGE_SUFFIXES:
         lines += [f"![{path.name}]({path.as_uri()})", ""]
     lines.append(parsed.content)
+    links = _local_links(parsed)
+    if links:
+        lines += ["", "## Links", ""]
+        for link in links:
+            title = link.get("title")
+            suffix = f" — {title}" if title else ""
+            lines.append(f"- [{link['text']}]({link['href']}){suffix}")
     if figures and output_path is not None:
         lines += ["", "## Figures", ""]
         for figure in figures:
