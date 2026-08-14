@@ -17,12 +17,8 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.descriptors import (
     ConnectorDocumentDescriptor,
 )
-from harborrag_adapters.connectors.exceptions import (
-    AuthenticationError,
-    DocumentProcessingError,
-    FetchError,
-)
-from harborrag_adapters.connectors.policies.http import summarize_provider_error
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.policies.http import verify_credentials
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
@@ -38,7 +34,11 @@ from .client import JiraClient, _RequestsJiraClient
 from .config import JiraProjectConfig
 from .content import build_raw_content
 from .discovery import JiraDescriptorBuilder
-from .discovery_policy import JiraDiscoveryPolicy, issue_keys_from_query
+from .discovery_policy import (
+    JiraDiscoveryPolicy,
+    issue_keys_from_query,
+    verify_empty_search_result,
+)
 from .issues import DISCOVERY_DESCRIPTOR_KEY, JiraIssueAPI
 from .mappers import (
     build_document_metadata,
@@ -130,71 +130,11 @@ class JiraConnector(BaseConnector):
         a credential that lacks permission, silently masking a bad token as
         "no matching issues" instead of surfacing an authentication failure.
         `myself` requires a valid session on both Cloud and Data Center and
-        returns only account data, so it reliably raises
-        `AuthenticationError` (via the shared Atlassian client's existing 401
-        handling) without an issue-fetch call.
-
-        The 403 reclassification below is defensive symmetry with
-        `ConfluenceConnector.connect` rather than an observed JIRA behavior:
-        `myself` needs no resource permissions either, so if some JIRA
-        deployment's edge ever rejects a bad credential with 403 instead of
-        401, it should fail the same way here too.
-
-        Both branches re-raise through the same message template so a bad
-        credential looks the same shape on Jira and Confluence: the 401 case
-        otherwise reaches the caller as a bare, un-prefixed provider message
-        (raised deep in the shared HTTP client, bypassing this method's own
-        framing), while only 403 used to get labeled as this connector's.
+        returns only account data, so it reliably raises an authentication
+        error without an issue-fetch call. See `verify_credentials` for how
+        a 403 is remapped the same way a bare 401 already is.
         """
-        try:
-            self.client.get_json("myself")
-        except AuthenticationError as exc:
-            raise AuthenticationError(
-                f"JIRA authentication failed: {summarize_provider_error(exc)}"
-            ) from exc
-        except FetchError as exc:
-            if exc.status_code == 403:
-                raise AuthenticationError(
-                    f"JIRA authentication failed: {summarize_provider_error(exc)}"
-                ) from exc
-            raise
-
-    def _verify_empty_search_result(self, query: ConnectorQuery) -> None:
-        """Rule out a permission gap behind a zero-issue search result.
-
-        `connect()` only proves the credential holds a valid session; it
-        can't catch a credential that authenticates fine but lacks
-        BROWSE_PROJECTS on the project(s) actually being searched, since
-        Jira's search returns HTTP 200 with an empty result set for that
-        case instead of an error. Checked here, once per empty result,
-        rather than eagerly in `connect()`, because the permission scope is
-        per-query (``project_keys``/``project_key``/path filters), not
-        knowable until the query is in hand.
-
-        Raises only on a definitive ``havePermission: false``. If the probe
-        itself is inconclusive (a non-401 `FetchError` -- endpoint disabled,
-        unrecognized permission key, transient failure), the empty result
-        stands as-is rather than turning every genuinely-empty project into
-        a false-positive authentication failure; a real bad credential still
-        surfaces via the shared client's 401 handling on this same call.
-        """
-        project_keys = self._policy.effective_project_keys(query)
-        if not project_keys:
-            return
-        try:
-            permitted = any(self._issues.has_project_permission(key) for key in project_keys)
-        except FetchError:
-            logger.warning(
-                "JIRA permission probe inconclusive for projects=%r; "
-                "treating empty search result as genuine",
-                project_keys,
-            )
-            return
-        if permitted:
-            return
-        raise AuthenticationError(
-            f"JIRA credential lacks BROWSE_PROJECTS permission on {project_keys!r}"
-        )
+        verify_credentials(lambda: self.client.get_json("myself"), provider="JIRA")
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search JIRA issues or materialize explicitly requested issue keys."""
@@ -227,7 +167,9 @@ class JiraConnector(BaseConnector):
                 if query.limit is not None and yielded >= query.limit:
                     return
             if yielded == 0:
-                self._verify_empty_search_result(query)
+                verify_empty_search_result(
+                    query, policy=self._policy, issues=self._issues, logger_=logger
+                )
         finally:
             logger.info(
                 "JIRA discovery iterator closed mode=%s yielded=%d",
@@ -272,7 +214,9 @@ class JiraConnector(BaseConnector):
             if next_cursor is None:
                 break
         if not output:
-            self._verify_empty_search_result(query)
+            verify_empty_search_result(
+                query, policy=self._policy, issues=self._issues, logger_=logger
+            )
         page = ConnectorPage(tuple(output), next_cursor)
         logger.debug(
             "JIRA discovery page mode=search records=%d has_next=%s",

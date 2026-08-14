@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http.client import HTTPResponse
@@ -11,6 +11,8 @@ from typing import Protocol
 from urllib.parse import ParseResult, urlparse
 
 from harborrag_core.security.redaction import redact_secrets
+
+from ..exceptions import AuthenticationError, FetchError
 
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -69,6 +71,30 @@ def summarize_provider_error(exc: Exception) -> str:
         return detail
     message = payload.get("message")
     return message if isinstance(message, str) and message.strip() else detail
+
+
+def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
+    """Run a cheap authenticated probe and normalize how it fails.
+
+    A bad credential otherwise reaches the caller as a bare, un-prefixed
+    provider message (raised deep in the shared HTTP client), and some
+    deployments reject it with 403 instead of 401. Both branches re-raise
+    through the same message template so every connector's ``connect()``
+    reports a bad credential the same way regardless of provider or status
+    code.
+    """
+    try:
+        probe()
+    except AuthenticationError as exc:
+        raise AuthenticationError(
+            f"{provider} authentication failed: {summarize_provider_error(exc)}"
+        ) from exc
+    except FetchError as exc:
+        if exc.status_code == 403:
+            raise AuthenticationError(
+                f"{provider} authentication failed: {summarize_provider_error(exc)}"
+            ) from exc
+        raise
 
 
 def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
