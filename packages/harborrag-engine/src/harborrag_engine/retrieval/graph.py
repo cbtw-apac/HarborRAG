@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from asyncio import gather
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -15,7 +14,6 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.ports import GraphRetrievalRepositoryPort
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPath,
     GraphPathQuery,
     GraphSubgraphQuery,
@@ -168,57 +166,6 @@ class AuthoritativeGraphSearch:
             context=context,
         )
         return await self._accept_subgraph(candidates, max_nodes=query.max_nodes)
-
-    async def neighborhood(
-        self,
-        seeds: Sequence[str],
-        query: GraphNeighborhoodQuery,
-        *,
-        context: StorageOperationContext,
-    ) -> AuthoritativeSubgraphResult:
-        """Merge the expansions of several seeds into one deduplicated neighborhood.
-
-        Seeds are resolved by the caller, because only the vector index turns free text
-        into node keys and this layer holds no vector repository.
-        """
-
-        if not seeds:
-            return AuthoritativeSubgraphResult(
-                graph=KnowledgeGraphTraversal(nodes=(), relations=()),
-                diagnostics=GraphSearchDiagnostics(
-                    candidate_count=0,
-                    accepted_count=0,
-                    stale_count=0,
-                    unpublished_count=0,
-                    projection_truncated=False,
-                ),
-            )
-        expansions = await gather(
-            *(
-                self._repository.expand_subgraph(
-                    query.to_subgraph_query(seed).model_copy(
-                        update={"max_nodes": _candidate_limit(query.max_nodes)}
-                    ),
-                    context=context,
-                )
-                for seed in seeds
-            )
-        )
-        merged_nodes: dict[str, GraphNodeRecord] = {}
-        merged_relations: dict[str, GraphEdgeRecord] = {}
-        for expansion in expansions:
-            for node in expansion.nodes:
-                merged_nodes.setdefault(node.node_key, node)
-            for relation in expansion.relations:
-                merged_relations.setdefault(relation.relation_id, relation)
-        return await self._accept_subgraph(
-            KnowledgeGraphTraversal(
-                nodes=tuple(merged_nodes.values()),
-                relations=tuple(merged_relations.values()),
-                truncated=any(expansion.truncated for expansion in expansions),
-            ),
-            max_nodes=query.max_nodes,
-        )
 
     async def _accept_subgraph(
         self,

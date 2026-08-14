@@ -1,11 +1,15 @@
 # API contract pipeline (ST10): export OpenAPI, gate breaking changes, build
 # the TypeScript client. The openapi.json artifact is the published contract;
 # oasdiff blocks merges that break it unless the PR carries the
-# `contract-break-approved` label (requires lead review).
+# `contract-break-approved` label (requires lead review). `labeled`/`unlabeled`
+# are in the trigger list so applying that label re-runs the gate on its own —
+# the label is read from the event payload, so a run started before the label
+# was applied never sees it.
 name: API Contract
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     branches: [dev/v2.0.0, main]
   push:
     branches: [dev/v2.0.0, main]

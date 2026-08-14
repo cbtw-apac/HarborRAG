@@ -65,12 +65,27 @@ class KnowledgeGraphReader(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class GraphResultNeighborhood:
+    """The 2-hop graph neighborhood discovered from one vector result, scoped to a document.
+
+    ``nodes``/``relations`` use the same compact shape as the graph search tools
+    (node_key/node_kind/entity_type/title, relation_type/source_node_key/target_node_key)
+    so a caller can render "how did this result connect to the graph" directly.
+    """
+
+    result_id: str
+    nodes: tuple[dict[str, object], ...] = ()
+    relations: tuple[dict[str, object], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class GraphDocumentSummary:
     """One document the retrieved chunks belong to, with the sections they came from."""
 
     document_id: str
     title: str | None = None
     sections: tuple[str, ...] = ()
+    related_results: tuple[GraphResultNeighborhood, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

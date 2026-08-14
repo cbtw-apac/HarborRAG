@@ -210,7 +210,6 @@ def test_graph_triplet_search_requires_a_selector(client: TestClient) -> None:
             {"start_node": "x" * 1_025, "end_node": "document:2"},
         ),
         ("/v1/retrieval/graph/subgraphs", {"start_node": "x" * 1_025}),
-        ("/v1/retrieval/graph/neighborhoods", {"query": "x" * 16_385}),
     ],
 )
 def test_graph_selectors_and_queries_have_length_limits(

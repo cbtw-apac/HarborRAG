@@ -11,15 +11,11 @@ from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp_server.tools.graph_search import (
-    GraphNeighborhoodTool,
     GraphPathSearchTool,
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
 )
-from harborrag_mcp_server.tools.vector_search import (
-    AdvancedVectorSearchTool,
-    VectorSearchTool,
-)
+from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
 
 if TYPE_CHECKING:
@@ -64,11 +60,9 @@ class McpServer(BaseMcpServer):
         if self.tools is None:
             self.tools = [
                 VectorSearchTool(runtime=self.runtime),
-                AdvancedVectorSearchTool(runtime=self.runtime),
                 GraphTripletSearchTool(runtime=self.runtime),
                 GraphPathSearchTool(runtime=self.runtime),
                 GraphSubgraphSearchTool(runtime=self.runtime),
-                GraphNeighborhoodTool(runtime=self.runtime),
             ]
 
     def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:

@@ -31,8 +31,8 @@ async def test_agent_stops_on_repeated_identical_tool_call() -> None:
     tools = Tools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search_advanced", '{"query":"x"}')),
-            _response(call=("call-2", "vector_search_advanced", '{"query":"x"}')),
+            _response(call=("call-1", "vector_search", '{"query":"x"}')),
+            _response(call=("call-2", "vector_search", '{"query":"x"}')),
             _response(text="repeat-safe answer"),
         ]
     )

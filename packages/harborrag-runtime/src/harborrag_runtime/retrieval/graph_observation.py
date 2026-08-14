@@ -8,10 +8,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from harborrag_core.indexing import VectorSearchResult
-from harborrag_core.ingestion import GraphNodeRecord, KnowledgeNodeKind
+from harborrag_core.ingestion import GraphNodeRecord, KnowledgeGraphTraversal, KnowledgeNodeKind
+from harborrag_core.retrieval import compact_node, compact_relation
 from harborrag_core.storage import StorageOperationContext
 
-from .contracts import GraphDocumentSummary, KnowledgeGraphReader
+from .contracts import GraphDocumentSummary, GraphResultNeighborhood, KnowledgeGraphReader
 from .validation import required_text
 
 logger = logging.getLogger("harborrag.runtime.retrieval")
@@ -111,18 +112,73 @@ class GraphObserver:
             nodes=len(nodes),
             relations=len(relation_ids),
             truncated=any(traversal.truncated for traversal in traversals),
-            documents=_summarise_documents(tuple(nodes.values())),
+            documents=_summarise_documents(
+                tuple(nodes.values()),
+                tuple(zip(seeds, traversals, strict=True)),
+            ),
         )
+
+
+def _document_neighborhoods(
+    seeded_traversals: Sequence[tuple[str, KnowledgeGraphTraversal]],
+) -> dict[str, list[GraphResultNeighborhood]]:
+    """Per document, which vector result reached it and the 2-hop slice that connects them.
+
+    A relation with only one endpoint in the document (e.g. a cross-document ``LINKS_TO``)
+    still belongs to that document's neighborhood -- it is how the result reached it. Requiring
+    both endpoints would silently drop the connecting edge from both sides of the boundary.
+    """
+
+    related: dict[str, list[GraphResultNeighborhood]] = {}
+    for result_id, traversal in seeded_traversals:
+        nodes_by_key = {node.node_key: node for node in traversal.nodes}
+        by_document: dict[str, list[GraphNodeRecord]] = {}
+        for node in traversal.nodes:
+            if node.document_id is None:
+                continue
+            by_document.setdefault(str(node.document_id), []).append(node)
+        for key, doc_nodes in by_document.items():
+            doc_node_keys = {node.node_key for node in doc_nodes}
+            doc_relations = [
+                relation
+                for relation in traversal.relations
+                if relation.source_node_key in doc_node_keys
+                or relation.target_node_key in doc_node_keys
+            ]
+            boundary_keys = {
+                other_key
+                for relation in doc_relations
+                for other_key in (relation.source_node_key, relation.target_node_key)
+                if other_key not in doc_node_keys
+            }
+            neighborhood_nodes = [
+                *doc_nodes,
+                *(
+                    nodes_by_key[boundary_key]
+                    for boundary_key in boundary_keys
+                    if boundary_key in nodes_by_key
+                ),
+            ]
+            related.setdefault(key, []).append(
+                GraphResultNeighborhood(
+                    result_id=result_id,
+                    nodes=tuple(compact_node(node) for node in neighborhood_nodes),
+                    relations=tuple(compact_relation(relation) for relation in doc_relations),
+                )
+            )
+    return related
 
 
 def _summarise_documents(
     nodes: Sequence[GraphNodeRecord],
+    seeded_traversals: Sequence[tuple[str, KnowledgeGraphTraversal]],
 ) -> tuple[GraphDocumentSummary, ...]:
     """Group traversal nodes by the document they belong to.
 
     Titles come from the DocumentVersion node and sections from Structure nodes; chunk
     nodes carry neither, which is why the grouping needs the graph rather than the
-    vector payload.
+    vector payload. ``related_results`` replays, per document, which vector result
+    reached it and the exact nodes/relations within its 2-hop walk that belong to it.
     """
 
     titles: dict[str, str] = {}
@@ -141,14 +197,22 @@ def _summarise_documents(
             titles.setdefault(key, node.title)
         elif node.node_kind == KnowledgeNodeKind.STRUCTURE and node.title not in sections[key]:
             sections[key].append(node.title)
+
+    related = _document_neighborhoods(seeded_traversals)
     return tuple(
         GraphDocumentSummary(
             document_id=key,
             title=titles.get(key),
             sections=tuple(sections[key]),
+            related_results=tuple(related.get(key, ())),
         )
         for key in order
     )
 
 
-__all__ = ["GraphDocumentSummary", "GraphObservation", "GraphObserver"]
+__all__ = [
+    "GraphDocumentSummary",
+    "GraphObservation",
+    "GraphObserver",
+    "GraphResultNeighborhood",
+]
