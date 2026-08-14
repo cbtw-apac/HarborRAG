@@ -49,25 +49,25 @@ jobs:
         id: get-workflow-run
         run: |
           echo "🔍 Finding latest successful test workflow run on main branch..."
-          
+
           # Get the latest successful workflow run for "Test and Coverage" on main branch
           WORKFLOW_RUN=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows" \
             | jq -r '.workflows[] | select(.name == "Test and Coverage") | .id')
-          
+
           if [ "$WORKFLOW_RUN" = "null" ] || [ -z "$WORKFLOW_RUN" ]; then
             echo "❌ Could not find 'Test and Coverage' workflow"
             exit 1
           fi
-          
+
           LATEST_RUN=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$WORKFLOW_RUN/runs?branch=main&status=completed&conclusion=success&per_page=1" \
             | jq -r '.workflow_runs[0].id')
-          
+
           if [ "$LATEST_RUN" = "null" ] || [ -z "$LATEST_RUN" ]; then
             echo "❌ No successful test runs found on main branch"
             if [ "${{ inputs.force_deploy }}" = "true" ]; then
@@ -126,7 +126,7 @@ jobs:
           echo "📊 Total files built: $(find site -type f | wc -l)"
           echo "📄 HTML pages: $(find site -name "*.html" | wc -l)"
           echo "📁 Directories: $(find site -type d | wc -l)"
-          
+
           # Check if main pages exist
           if [ -f "site/index.html" ]; then
             echo "✅ Homepage built successfully"
@@ -134,14 +134,14 @@ jobs:
             echo "❌ Homepage missing"
             exit 1
           fi
-          
+
           if [ -f "site/docs/index.html" ]; then
             echo "✅ Documentation index built successfully"
           else
             echo "❌ Documentation index missing"
             exit 1
           fi
-          
+
           if [ -f "site/coverage/index.html" ]; then
             echo "✅ Coverage index built successfully"
           else
@@ -197,11 +197,11 @@ jobs:
           echo "Commit: ${{ github.sha }}"
           echo "Deploy Requested: ${{ inputs.deploy }}"
           echo "Force Deploy: ${{ inputs.force_deploy }}"
-          
+
           if [ "${{ needs.build-docs.result }}" = "success" ]; then
             echo "✅ Website built successfully"
             echo "📦 Artifact: website-manual-${{ github.run_id }}"
-            
+
             if [ "${{ inputs.deploy }}" = "true" ]; then
               echo "🚀 Deployed manually to GitHub Pages"
             else
@@ -210,4 +210,4 @@ jobs:
           else
             echo "❌ Website build failed"
             exit 1
-          fi 
+          fi

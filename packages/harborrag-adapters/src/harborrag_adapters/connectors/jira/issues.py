@@ -102,6 +102,32 @@ class JiraIssueAPI:
         )
         return issues, None if done else f"offset:{next_offset}"
 
+    def has_project_permission(
+        self,
+        project_key: str,
+        *,
+        permission: str = "BROWSE_PROJECTS",
+    ) -> bool:
+        """Return whether the authenticated credential can browse one project.
+
+        Used to disambiguate a zero-issue search result: Jira's search
+        endpoints return HTTP 200 with an empty ``issues`` list rather than
+        403 when the credential lacks this permission on every project in
+        scope, so a real permission gap otherwise looks identical to "no
+        matching issues".
+
+        ``mypermissions`` predates the Cloud/Data Center API version split
+        and keeps the same ``projectKey``/``permissions`` query params and
+        ``permissions.<KEY>.havePermission`` response shape on both
+        ``/rest/api/2/`` and ``/rest/api/3/``.
+        """
+        response = self.client.get_json(
+            "mypermissions",
+            params={"projectKey": project_key, "permissions": permission},
+        )
+        permissions = response.get("permissions") or {}
+        return bool((permissions.get(permission) or {}).get("havePermission"))
+
     def get_issue(self, issue_key: str) -> dict[str, Any]:
         """Fetch one issue with configured fields and expansion settings."""
         issue_key = validate_issue_key(issue_key)

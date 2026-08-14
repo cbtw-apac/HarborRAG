@@ -48,6 +48,29 @@ def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT
     return text
 
 
+def summarize_provider_error(exc: Exception) -> str:
+    """Reduce a connector exception to one diagnostic line for re-raising.
+
+    Prefers the exception's raw provider ``detail`` (set on `FetchError`) over
+    `str(exc)`, since some call sites format the latter with a redundant
+    "request failed with HTTP ..." prefix. If that detail is a JSON error
+    body -- as Confluence's often is -- pulls just its ``message`` field so
+    callers see a sentence instead of a raw envelope; anything that isn't a
+    JSON object with a string ``message`` (a different shape, or truncation
+    cutting the JSON short) falls back to the raw detail unchanged.
+    """
+    detail = getattr(exc, "detail", None)
+    detail = detail if isinstance(detail, str) and detail else str(exc)
+    try:
+        payload = json.loads(detail)
+    except ValueError:
+        return detail
+    if not isinstance(payload, dict):
+        return detail
+    message = payload.get("message")
+    return message if isinstance(message, str) and message.strip() else detail
+
+
 def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
     """Validate absolute URLs before sending authenticated requests.
 
