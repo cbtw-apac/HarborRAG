@@ -23,6 +23,7 @@ from harborrag_runtime.ingestion.observability import (
     DocumentMetricOutcome,
     IngestionStage,
     IngestionTelemetry,
+    SubprocessOutcomeLabel,
 )
 
 logger = logging.getLogger("harborrag.runtime.temporal.activities")
@@ -228,11 +229,15 @@ class ActivityObservability:
             connector_type,
         )
 
-    def record_subprocess_outcome(self, stage: str, outcome: str) -> None:
-        self._telemetry.record_subprocess_outcome(stage, outcome)
-
-    def record_subprocess_fallback(self, stage: str, reason: str) -> None:
-        self._telemetry.record_subprocess_fallback(stage, reason)
+    def record_subprocess_outcome(self, stage: str, outcome: SubprocessOutcomeLabel) -> None:
+        try:
+            metric_stage = _ACTIVITY_STAGES[stage]
+        except KeyError:
+            raise HarborInvariantError(
+                f"activity stage {stage!r} has no entry in _ACTIVITY_STAGES; "
+                "add it before recording subprocess outcomes"
+            ) from None
+        self._telemetry.record_subprocess_outcome(metric_stage, outcome)
 
     def _record_verification_failure(self, stage: IngestionStage) -> None:
         if stage is IngestionStage.VERIFICATION:

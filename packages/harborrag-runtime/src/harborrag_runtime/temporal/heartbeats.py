@@ -35,10 +35,11 @@ async def heartbeat_while[ResultT](
     info = activity.info()
     if info.start_to_close_timeout is not None and info.start_to_close_timeout.total_seconds() > 0:
         limit = info.start_to_close_timeout.total_seconds()
-        assert interval_seconds < limit, (
-            f"heartbeat interval ({interval_seconds}s) must be shorter than "
-            f"start_to_close_timeout ({limit:.0f}s)"
-        )
+        if interval_seconds >= limit:
+            raise ValueError(
+                f"heartbeat interval ({interval_seconds}s) must be shorter than "
+                f"start_to_close_timeout ({limit:.0f}s)"
+            )
 
     activity.heartbeat(detail)
 

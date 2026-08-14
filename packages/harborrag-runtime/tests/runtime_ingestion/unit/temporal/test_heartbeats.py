@@ -73,7 +73,7 @@ async def test_heartbeat_while_rejects_non_positive_interval(
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_heartbeat_while_asserts_interval_shorter_than_start_to_close(
+async def test_heartbeat_while_rejects_interval_shorter_than_start_to_close(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Interval must be shorter than start_to_close_timeout."""
@@ -96,7 +96,7 @@ async def test_heartbeat_while_asserts_interval_shorter_than_start_to_close(
         pass
 
     coro = _noop()
-    with pytest.raises(AssertionError, match="start_to_close_timeout"):
+    with pytest.raises(ValueError, match="start_to_close_timeout"):
         await heartbeats.heartbeat_while(coro, detail="x", interval_seconds=120)
     # Close any unawaited coroutine to silence ResourceWarning.
     coro.close()

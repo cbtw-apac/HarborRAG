@@ -85,9 +85,6 @@ class RecordingObservability:
     def record_subprocess_outcome(self, *args: object) -> None:
         self.records.append(("subprocess_outcome", args))
 
-    def record_subprocess_fallback(self, *args: object) -> None:
-        self.records.append(("subprocess_fallback", args))
-
 
 class FixedDocumentResolver:
     def __init__(self, planned: object) -> None:
@@ -183,6 +180,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     async def isolated_subprocess(
         fn: Any, *args: Any, heartbeat_detail: object = "", **_kw: Any
     ) -> object:
+        del fn, _kw
         heartbeat_details.append(heartbeat_detail)
         return await args[0].parse_and_normalize(args[1], args[2])
 
@@ -249,7 +247,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
             "document_index": 0,
             "mode": "subprocess",
             "resumed": False,
-            "prior": None,
+            "prior_attempt_count": 0,
         },
         "sync-content-units",
         "persist-canonical",
@@ -377,10 +375,11 @@ async def test_parse_and_normalize_falls_back_when_subprocess_serialization_fail
     async def heartbeat(operation: Any, *, detail: object, **_kw: object) -> object:
         assert isinstance(detail, dict)
         assert detail["mode"] == "in-process-fallback"
+        assert detail["fallback_reason"] == "spawn-unpicklable-args"
         return await operation
 
     async def isolated_subprocess(*_args: Any, **_kwargs: Any) -> object:
-        raise activity_module.SubprocessCrashError(
+        raise activity_module.SubprocessSerializationError(
             "isolated subprocess serialization failed: TypeError: cannot pickle 'mappingproxy' object"
         )
 
@@ -394,9 +393,33 @@ async def test_parse_and_normalize_falls_back_when_subprocess_serialization_fail
         lambda request, result: ("prepared-result", request, result),
     )
 
-    activities, _, _, _, _, _ = _build_activities()
+    activities, _, _, _, observer, _ = _build_activities()
     document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
     raw = RawCaptureResult(document, "doc-1", "version-1", "METADATA_ONLY")
 
     parse_result: object = await activities.parse_and_normalize(raw)
     assert parse_result == ("prepared-result", document, "prepared-stage")
+    assert ("subprocess_outcome", ("ParseAndNormalize", "serialization_fail")) in observer.records
+    assert ("prepared", ("prepared-stage",)) in observer.records
+
+
+@pytest.mark.asyncio
+async def test_parse_and_normalize_raises_on_genuine_subprocess_crash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def isolated_subprocess(*_args: Any, **_kwargs: Any) -> object:
+        raise activity_module.SubprocessCrashError("worker crashed")
+
+    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
+    monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
+    monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
+
+    activities, _, _, _, observer, _ = _build_activities()
+    document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
+    raw = RawCaptureResult(document, "doc-1", "version-1", "METADATA_ONLY")
+
+    with pytest.raises(activity_module.SubprocessCrashError, match="worker crashed"):
+        await activities.parse_and_normalize(raw)
+
+    assert ("subprocess_outcome", ("ParseAndNormalize", "crash")) in observer.records
+    assert not any(name == "prepared" for name, _ in observer.records)

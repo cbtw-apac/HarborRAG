@@ -10,14 +10,12 @@ import pickle
 import queue as _stdlib_queue
 import threading
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 logger = logging.getLogger("harborrag.runtime.temporal.process_isolation")
-
-_T = TypeVar("_T")
 
 # Patched in unit tests to avoid spawning real subprocesses.
 _SUBPROCESS_CONTEXT: str = "spawn"
@@ -28,6 +26,10 @@ class SubprocessCrashError(ApplicationError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, type="SubprocessCrash", non_retryable=False)
+
+
+class SubprocessSerializationError(SubprocessCrashError):
+    """Raised when subprocess spawn fails due to argument serialization."""
 
 
 def _is_spawn_serialization_exception(error: BaseException) -> bool:
@@ -76,14 +78,14 @@ def _subprocess_worker(
         result_queue.put(("done", outcome))
 
 
-async def run_in_isolated_subprocess(
-    fn: Callable[..., _T],
+async def run_in_isolated_subprocess[ResultT](
+    fn: Callable[..., ResultT],
     /,
     *args: Any,
     heartbeat_interval: float = 30.0,
     heartbeat_detail: object = "running",
     **kwargs: Any,
-) -> _T:
+) -> ResultT:
     """Run *fn* in an isolated subprocess with subprocess-driven heartbeating.
 
     Falls back to thread execution outside an activity context (e.g. in tests
@@ -105,7 +107,7 @@ async def run_in_isolated_subprocess(
         proc.start()
     except Exception as error:
         if _is_spawn_serialization_exception(error):
-            raise SubprocessCrashError(
+            raise SubprocessSerializationError(
                 f"isolated subprocess serialization failed: {type(error).__name__}: {error}"
             ) from error
         raise

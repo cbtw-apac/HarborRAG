@@ -15,7 +15,11 @@ from .conversion import (
 )
 from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .plan_resolver import PlanDocumentResolver
-from .process_isolation import SubprocessCrashError, run_in_isolated_subprocess
+from .process_isolation import (
+    SubprocessCrashError,
+    SubprocessSerializationError,
+    run_in_isolated_subprocess,
+)
 from .retry_activities import RetryActivitiesMixin
 from .schemas import (
     DocumentFailureInput,
@@ -71,6 +75,13 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             planned = await self._documents.get(request.document)
             capture_stage = to_capture_stage(request)
             prior = last_heartbeat_detail()
+            prior_attempt_count = 0
+            if prior is not None:
+                prior_attempt_count = 1
+                if isinstance(prior, dict):
+                    candidate = prior.get("prior_attempt_count")
+                    if isinstance(candidate, int) and candidate >= 0:
+                        prior_attempt_count = candidate + 1
             heartbeat_detail = {
                 "stage": "parse-and-normalize",
                 "task_id": request.document.task_id,
@@ -78,7 +89,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 "document_index": request.document.document_index,
                 "mode": "subprocess",
                 "resumed": prior is not None,
-                "prior": prior,
+                "prior_attempt_count": prior_attempt_count,
             }
             try:
                 prepared_stage = await run_in_isolated_subprocess(
@@ -92,19 +103,8 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                     "ParseAndNormalize",
                     "success",
                 )
-            except SubprocessCrashError as error:
-                if "serialization failed" not in str(error):
-                    self._observability.record_subprocess_outcome(
-                        "ParseAndNormalize",
-                        "crash",
-                    )
-                    raise
-
+            except SubprocessSerializationError:
                 self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "serialization_fail",
-                )
-                self._observability.record_subprocess_fallback(
                     "ParseAndNormalize",
                     "serialization_fail",
                 )
@@ -119,6 +119,12 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                         "fallback_reason": "spawn-unpicklable-args",
                     },
                 )
+            except SubprocessCrashError:
+                self._observability.record_subprocess_outcome(
+                    "ParseAndNormalize",
+                    "crash",
+                )
+                raise
             self._observability.record_prepared(prepared_stage)
             return to_prepared_document(request.document, prepared_stage)
 

@@ -28,6 +28,8 @@ from .observability_types import (
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
 
+SubprocessOutcomeLabel = Literal["success", "serialization_fail", "crash"]
+
 
 class IngestionTelemetry:
     """Own low-cardinality ingestion metrics and OpenTelemetry stage spans."""
@@ -134,15 +136,9 @@ class IngestionTelemetry:
             registry=self.registry,
         )
         self._subprocess_executions = Counter(
-            "harborrag_subprocess_executions_total",
+            "harborrag_ingestion_subprocess_executions_total",
             "Subprocess execution outcomes for CPU-intensive activities.",
             ("stage", "outcome"),
-            registry=self.registry,
-        )
-        self._subprocess_fallbacks = Counter(
-            "harborrag_subprocess_fallbacks_total",
-            "Subprocess fallbacks to in-process execution due to serialization or other failures.",
-            ("stage", "reason"),
             registry=self.registry,
         )
 
@@ -271,17 +267,10 @@ class IngestionTelemetry:
 
     def record_subprocess_outcome(
         self,
-        stage: str,
-        outcome: str,
+        stage: IngestionStage,
+        outcome: SubprocessOutcomeLabel,
     ) -> None:
-        self._subprocess_executions.labels(stage=stage, outcome=outcome).inc()
-
-    def record_subprocess_fallback(
-        self,
-        stage: str,
-        reason: str,
-    ) -> None:
-        self._subprocess_fallbacks.labels(stage=stage, reason=reason).inc()
+        self._subprocess_executions.labels(stage=stage.value, outcome=outcome).inc()
 
     def _record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None:
         self._stage_operations.labels(stage=stage.value, outcome=outcome).inc()
