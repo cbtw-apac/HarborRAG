@@ -16,10 +16,7 @@ from retrieval_test_support import (
     resources as _resources,
 )
 
-from harborrag_core.ingestion import ActiveDocumentVersion, KnowledgeGraphTraversal
-from harborrag_core.retrieval import GraphNeighborhoodQuery
-from harborrag_core.schemas.ids import TenantId
-from harborrag_core.security import AccessContext
+from harborrag_core.ingestion import ActiveDocumentVersion
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.retrieval import (
     RetrievalOptions,
