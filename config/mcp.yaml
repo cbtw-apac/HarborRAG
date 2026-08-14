@@ -24,18 +24,6 @@ tools:
       limit: 10
     limits:
       limit: 20
-  graph_neighborhood:
-    enabled: true
-    defaults:
-      seed_limit: 3
-      relationship_types: []
-      max_depth: 2
-      max_nodes: 20
-      direction: both
-    limits:
-      seed_limit: 10
-      max_depth: 8
-      max_nodes: 20
   graph_path_search:
     enabled: true
     defaults:

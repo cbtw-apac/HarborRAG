@@ -11,7 +11,6 @@ from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_mcp_server.tools.graph_search import (
-    GraphNeighborhoodTool,
     GraphPathSearchTool,
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
@@ -64,7 +63,6 @@ class McpServer(BaseMcpServer):
                 GraphTripletSearchTool(runtime=self.runtime),
                 GraphPathSearchTool(runtime=self.runtime),
                 GraphSubgraphSearchTool(runtime=self.runtime),
-                GraphNeighborhoodTool(runtime=self.runtime),
             ]
 
     def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:

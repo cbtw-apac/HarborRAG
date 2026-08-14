@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, cast
 from harborrag_core.chunking import RelationType
 from harborrag_core.retrieval import (
     GraphDirection,
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -24,7 +23,6 @@ from harborrag_engine.agent import AgentToolSpec
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.agent.tool_specs import RUNTIME_AGENT_TOOL_SPECS
 from harborrag_runtime.contracts import (
-    GraphNeighborhoodRequest,
     GraphPathRequest,
     GraphSubgraphRequest,
     GraphTripletRequest,
@@ -59,7 +57,6 @@ class RuntimeAgentToolProvider:
             access = _access(values, principal_id)
             operations = {
                 "vector_search": self._vector,
-                "graph_neighborhood": self._neighborhood,
                 "graph_triplet_search": self._triplets,
                 "graph_path_search": self._paths,
                 "graph_subgraph_search": self._subgraph,
@@ -116,32 +113,6 @@ class RuntimeAgentToolProvider:
         return {
             "ok": True,
             "triplets": [compact_triplet(item) for item in response.triplets],
-            "diagnostics": response.diagnostics,
-        }
-
-    async def _neighborhood(
-        self,
-        values: dict[str, object],
-        access: AccessContext,
-    ) -> dict[str, object]:
-        response = await self.runtime.graph.neighborhood(
-            GraphNeighborhoodRequest(
-                access=access,
-                query=GraphNeighborhoodQuery(
-                    query=_text(values, "query"),
-                    seed_limit=_integer(values, "seed_limit", default=3, maximum=10),
-                    relationship_types=_relations(values),
-                    max_depth=_integer(values, "max_depth", default=2, maximum=8),
-                    max_nodes=_integer(values, "max_nodes", default=20, maximum=20),
-                    direction=_direction(values, GraphDirection.BOTH),
-                ),
-            )
-        )
-        return {
-            "ok": True,
-            "seeds": list(response.seeds),
-            "nodes": [compact_node(item) for item in response.nodes],
-            "relations": [compact_relation(item) for item in response.relations],
             "diagnostics": response.diagnostics,
         }
 
