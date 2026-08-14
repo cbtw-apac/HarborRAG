@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -169,6 +170,34 @@ def test_mcp_entrypoint_runs_stdio_without_starting_other_processes() -> None:
     assert "docker compose" not in mcp_script
     assert "start_mcp" not in dev_script
     assert "    mcp)" not in dev_script
+
+
+def test_mcp_entrypoint_redacts_malformed_environment_values(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    script = project / "scripts/deployment/mcp.sh"
+    environment = project / "env"
+    script.parent.mkdir(parents=True)
+    environment.mkdir()
+    script.write_text(MCP_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    (environment / ".env.database").write_text("POSTGRES_USER=test\n", encoding="utf-8")
+    fake_key = "sk-proj-" + "a" * 40
+    (environment / ".env.models").write_text(
+        f"HARBOR_CHAT_API_KEY= {fake_key}\n",
+        encoding="utf-8",
+    )
+    (environment / ".env.api").write_text("HARBORRAG_AUTH_MODE=none\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        cwd=project,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert fake_key not in result.stderr
+    assert "line 1: ***: command not found" in result.stderr
 
 
 def test_temporal_and_worker_subcommands_have_separate_ownership() -> None:
