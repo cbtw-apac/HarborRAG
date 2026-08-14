@@ -36,6 +36,17 @@ def _is_spawn_serialization_exception(error: BaseException) -> bool:
     return isinstance(error, (AttributeError, TypeError, pickle.PicklingError))
 
 
+def _start_process(proc: Any) -> None:
+    try:
+        proc.start()
+    except Exception as error:
+        if _is_spawn_serialization_exception(error):
+            raise SubprocessSerializationError(
+                f"isolated subprocess serialization failed: {type(error).__name__}: {error}"
+            ) from error
+        raise
+
+
 def _subprocess_worker(
     fn: Callable[..., Any],
     args: tuple[Any, ...],
@@ -104,14 +115,7 @@ async def run_in_isolated_subprocess[ResultT](
         args=(fn, args, kwargs, mp_queue, heartbeat_interval),
         daemon=True,
     )
-    try:
-        proc.start()
-    except Exception as error:
-        if _is_spawn_serialization_exception(error):
-            raise SubprocessSerializationError(
-                f"isolated subprocess serialization failed: {type(error).__name__}: {error}"
-            ) from error
-        raise
+    _start_process(proc)
 
     loop = asyncio.get_running_loop()
     # Allow 2× the interval for each alive signal before declaring a hung process.
