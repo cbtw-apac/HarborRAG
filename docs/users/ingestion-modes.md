@@ -44,6 +44,13 @@ This means `incremental` still detects removals and supports connectors whose
 change tokens are not sufficiently reliable. Connector-specific discovery
 filters and attachment/comment behavior remain in `config/connectors.yaml`.
 
+There are two change checkpoints. Descriptor admission runs before content is
+loaded and can skip a source item cheaply. Canonical admission runs after parsing
+and normalization and prevents a new version when the resulting content,
+retrieval metadata, and processing fingerprint are identical. See the
+[data lifecycle](../developers/architecture/data-lifecycle.md) for the complete
+artifact, projection, verification, and publication path.
+
 ## Force mode
 
 Submit a force ingestion with:

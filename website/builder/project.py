@@ -1,6 +1,8 @@
-"""ProjectStructureMixin implementation for the website builder."""
+"""Project metadata and canonical documentation navigation."""
 
+import html
 import json
+import re
 from pathlib import Path
 
 
@@ -10,10 +12,14 @@ class ProjectStructureMixin:
     def generate_project_info(self, **kwargs) -> dict:
         """Generate project information for templates."""
         project_info = {
-            "name": "QDrant Loader",
-            "version": "0.4.0b1",
-            "description": "Enterprise-ready vector database toolkit",
-            "github_url": "https://github.com/martin-papy/qdrant-loader",
+            "name": "HarborRAG",
+            "version": "2.0.0",
+            "status": "Alpha",
+            "license": "Apache-2.0",
+            "description": "A modular, provider-agnostic RAG framework for engineering knowledge",
+            "github_url": "https://github.com/cbtw-apac/HarborRAG",
+            "issues_url": "https://github.com/cbtw-apac/HarborRAG/issues",
+            "documentation_url": "https://github.com/cbtw-apac/HarborRAG/tree/main/docs",
         }
 
         # Override with any provided kwargs
@@ -35,21 +41,34 @@ class ProjectStructureMixin:
                         ),
                     }
                 )
-                # Normalize workspace naming to product name
+                classifiers = project_section.get("classifiers", [])
+                for classifier in classifiers if isinstance(classifiers, list) else []:
+                    if isinstance(classifier, str) and classifier.startswith(
+                        "Development Status ::"
+                    ):
+                        project_info["status"] = classifier.rsplit(" - ", 1)[-1]
+                        break
+
+                license_value = project_section.get("license")
+                if isinstance(license_value, str):
+                    project_info["license"] = license_value
+                # The root project is a workspace distribution, not the public product name.
                 if isinstance(project_info.get("name"), str) and project_info["name"].endswith(
                     "-workspace"
                 ):
-                    project_info["name"] = "QDrant Loader"
+                    project_info["name"] = "HarborRAG"
 
                 # Try to get homepage/repository from pyproject urls
                 urls = project_section.get("urls", {}) if isinstance(project_section, dict) else {}
-                homepage = urls.get("Homepage")
-                if homepage and not getattr(self, "base_url_user_set", False) and not self.base_url:
-                    # Set base_url from pyproject if not provided externally
-                    self.base_url = homepage.rstrip("/")
                 repo_url = urls.get("Repository") or urls.get("Source")
                 if repo_url:
                     project_info["github_url"] = repo_url
+                project_info["issues_url"] = urls.get(
+                    "Issues", f"{project_info['github_url'].rstrip('/')}/issues"
+                )
+                project_info["documentation_url"] = urls.get(
+                    "Documentation", f"{project_info['github_url'].rstrip('/')}/tree/main/docs"
+                )
         except Exception:
             # Ignore malformed project section entries
             pass
@@ -97,32 +116,86 @@ class ProjectStructureMixin:
         return project_info
 
     def build_docs_nav(self) -> dict:
-        """Build documentation navigation structure."""
-        # Simplified navigation building
-        docs_dir = Path("docs")
-        if not docs_dir.exists():
+        """Parse ``docs/TOC.md`` as the canonical ordered navigation."""
+        toc_path = Path("docs/TOC.md")
+        if not toc_path.exists():
             return {}
 
-        nav_data = {"title": "Documentation", "children": []}
+        nav_data: dict = {"title": "Documentation", "children": []}
+        current_section: dict | None = None
+        heading_pattern = re.compile(r"^##\s+(.+?)\s*$")
+        link_pattern = re.compile(r"^\s*-\s+\[([^]]+)]\(([^)]+)\)(?:\s+[—-]\s+(.+))?\s*$")
 
-        for item in sorted(docs_dir.iterdir()):
-            if item.is_file() and item.suffix == ".md":
-                nav_data["children"].append(
-                    {
-                        "title": self._humanize_title(item.stem),
-                        "url": f"docs/{item.name}",
-                    }
-                )
-            elif item.is_dir():
-                nav_data["children"].append(
-                    {
-                        "title": self._humanize_title(item.name),
-                        "url": f"docs/{item.name}/",
-                    }
-                )
+        for line in toc_path.read_text(encoding="utf-8").splitlines():
+            heading = heading_pattern.match(line)
+            if heading:
+                current_section = {"title": heading.group(1), "children": []}
+                nav_data["children"].append(current_section)
+                continue
+
+            link = link_pattern.match(line)
+            if not link or current_section is None:
+                continue
+            label, target, description = link.groups()
+            current_section["children"].append(
+                {
+                    "title": label,
+                    "url": self._docs_target_to_url(target),
+                    "description": description or "",
+                }
+            )
 
         self.docs_nav_data = nav_data
         return nav_data
+
+    def _docs_target_to_url(self, target: str) -> str:
+        """Translate a TOC Markdown target into a URL relative to ``/docs/``."""
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.IGNORECASE):
+            return target
+
+        path, separator, fragment = target.partition("#")
+        if path.startswith("../packages/") and path.endswith("/README.md"):
+            package_name = Path(path).parent.name
+            path = f"packages/{package_name}/README.html"
+        elif path.startswith("../"):
+            root_name = Path(path).name
+            if root_name in {"LICENSE", "README", "CHANGELOG", "CONTRIBUTING", "SECURITY"}:
+                path = f"{root_name}.html"
+            else:
+                path = f"{Path(root_name).stem}.html" if root_name.endswith(".md") else root_name
+        elif path.endswith(".md"):
+            path = f"{path[:-3]}.html"
+
+        return f"{path}{separator}{fragment}" if separator else path
+
+    def render_docs_navigation(self, compact: bool = False) -> str:
+        """Render canonical navigation as cards for docs and landing pages."""
+        nav = self.docs_nav_data or self.build_docs_nav()
+        if not nav:
+            return '<p class="text-muted">Documentation navigation is unavailable.</p>'
+
+        sections: list[str] = []
+        max_sections = 3 if compact else None
+        for section in nav["children"][:max_sections]:
+            links: list[str] = []
+            max_links = 4 if compact else None
+            for item in section["children"][:max_links]:
+                label = html.escape(item["title"])
+                raw_url = item["url"]
+                if compact and not re.match(r"^[a-z][a-z0-9+.-]*:", raw_url, re.IGNORECASE):
+                    raw_url = f"docs/{raw_url}"
+                url = html.escape(raw_url, quote=True)
+                description = html.escape(item.get("description", ""))
+                detail = f"<small>{description}</small>" if description else ""
+                links.append(f'<li><a href="{url}"><span>{label}</span>{detail}</a></li>')
+            if links:
+                sections.append(
+                    '<section class="docs-nav-card">'
+                    f"<h2>{html.escape(section['title'])}</h2>"
+                    f"<ul>{''.join(links)}</ul>"
+                    "</section>"
+                )
+        return '<div class="docs-nav-grid">' + "".join(sections) + "</div>"
 
     def build_docs_structure(self) -> dict:
         """Build documentation directory structure."""

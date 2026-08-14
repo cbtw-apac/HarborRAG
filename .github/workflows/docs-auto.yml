@@ -7,7 +7,12 @@ on:
       - "docs/**"
       - "README.md"
       - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "LICENSE"
+      - "pyproject.toml"
       - "packages/*/README.md"
+      - "packages/*/pyproject.toml"
       - "website/**"
       - ".github/workflows/docs-auto.yml"
   workflow_run:
@@ -57,8 +62,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check-release]
     if: |
-      (github.event_name != 'release') ||
-      (github.event_name == 'release' && needs.check-release.outputs.should-deploy == 'true')
+      always() &&
+      ((github.event_name != 'release') ||
+      (github.event_name == 'release' && needs.check-release.outputs.should-deploy == 'true'))
     steps:
       - uses: actions/checkout@v6
 
@@ -200,6 +206,26 @@ jobs:
             echo "❌ Coverage index missing"
             exit 1
           fi
+
+      - name: Test website generator and branding
+        run: |
+          uv run pytest tests/test_website_*.py tests/test_link_checker.py
+          uv run python website/check_branding.py
+          uv run python website/check_publication.py
+
+      - name: Check generated internal links
+        run: |
+          uv run python -m http.server 8000 --bind 127.0.0.1 --directory site >/tmp/harborrag-docs-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8000/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:8000/ >/dev/null
+          uv run python website/check_links.py --url http://127.0.0.1:8000/ --depth 8
 
       - name: Upload site artifact
         uses: actions/upload-artifact@v7

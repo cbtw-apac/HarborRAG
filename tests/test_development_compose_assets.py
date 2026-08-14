@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -123,7 +124,10 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
         "chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,"
         "pdf-docling,postgres,qdrant,redis,s3,tables"
     )
-    assert f"harborrag-adapters[{adapter_extras}]==0.1.0" in runtime_project
+    release_version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["version"]
+    assert f"harborrag-adapters[{adapter_extras}]=={release_version}" in runtime_project
     assert f"harborrag-adapters[{adapter_extras}]'" in dockerfile
 
 

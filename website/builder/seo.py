@@ -9,7 +9,9 @@ class SeoBuildMixin:
         from datetime import datetime
 
         # Determine base site URL
-        site_base = self.base_url.rstrip("/") if self.base_url else "https://qdrant-loader.net"
+        site_base = (
+            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
+        )
 
         # Get current date for lastmod
         current_date = datetime.now().strftime("%Y-%m-%d")
@@ -50,7 +52,9 @@ Sitemap: {self.base_url.rstrip("/") if self.base_url else "https://example.com"}
 
     def generate_robots_file(self) -> None:
         """Generate only robots.txt referencing the sitemap URL."""
-        site_base = self.base_url.rstrip("/") if self.base_url else "https://qdrant-loader.net"
+        site_base = (
+            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
+        )
         robots_content = f"""User-agent: *
 Allow: /
 
@@ -65,7 +69,9 @@ Sitemap: {site_base}/sitemap.xml
         """Generate dynamic sitemap with custom pages."""
         from datetime import datetime
 
-        base_url = self.base_url.rstrip("/") if self.base_url else "https://qdrant-loader.net"
+        base_url = (
+            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
+        )
 
         # Auto-discover pages if not provided
         if pages is None:

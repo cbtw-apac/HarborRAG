@@ -19,14 +19,14 @@ class MarkdownHtmlMixin:
 
         # Fix paragraphs with bash/shell commands (with or without language prefix)
         html_content = re.sub(
-            r'<p><code class="inline-code">(?:bash\s*\n\s*)?([^<]*(?:mkdir|cd|pip|uv|qdrant-loader|mcp-)[^<]*)</code></p>',
+            r'<p><code class="inline-code">(?:bash\s*\n\s*)?([^<]*(?:mkdir|cd|pip|uv|harborrag|mcp-)[^<]*)</code></p>',
             r'<div class="code-block-wrapper"><pre class="code-block"><code class="language-bash">\1</code></pre></div>',
             html_content,
         )
 
         # Also handle cases where there's no class attribute
         html_content = re.sub(
-            r"<p><code>(?:bash\s*\n\s*)?([^<]*(?:mkdir|cd|pip|uv|qdrant-loader|mcp-)[^<]*)</code></p>",
+            r"<p><code>(?:bash\s*\n\s*)?([^<]*(?:mkdir|cd|pip|uv|harborrag|mcp-)[^<]*)</code></p>",
             r'<div class="code-block-wrapper"><pre class="code-block"><code class="language-bash">\1</code></pre></div>',
             html_content,
         )

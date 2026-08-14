@@ -32,6 +32,7 @@ class CoverageBuildMixin:
                     dest_name = "mcp"
                 elif "htmlcov-website" in item.name:
                     dest_name = "website"
+                # branding-compat: accept coverage artifacts produced before the rename.
                 elif "htmlcov-core" in item.name or "htmlcov-qdrant-loader-core" in item.name:
                     dest_name = "core"
                 elif "htmlcov" in item.name:
@@ -78,7 +79,7 @@ class CoverageBuildMixin:
             <div class="col-lg-6">
                 <div class="card">
                     <div class="card-header">
-                        <h4>QDrant Loader Core</h4>
+                        <h4>HarborRAG</h4>
                         <span id="loader-test-indicator" class="badge">Loading...</span>
                     </div>
                     <div class="card-body">

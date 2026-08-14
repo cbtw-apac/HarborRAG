@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harborrag-workspace"
-version = "0.1.0"
+version = "2.0.0"
 description = "A modular, provider-agnostic RAG framework for engineering knowledge with connectors, parsers, repositories, runtime, API, and MCP support"
 readme = "README.md"
 authors = [
@@ -33,13 +33,16 @@ requires-python = ">=3.12"
 file = "LICENSE"
 
 [project.urls]
-Homepage = "https://github.com/harborrag/harborrag"
-Repository = "https://github.com/harborrag/harborrag"
-Issues = "https://github.com/harborrag/harborrag/issues"
-Documentation = "https://github.com/harborrag/harborrag/tree/main/docs"
+Homepage = "https://github.com/cbtw-apac/HarborRAG"
+Repository = "https://github.com/cbtw-apac/HarborRAG"
+Issues = "https://github.com/cbtw-apac/HarborRAG/issues"
+Documentation = "https://github.com/cbtw-apac/HarborRAG/tree/main/docs"
 
 [project.optional-dependencies]
 dev = [
+    "click>=8.1,<9",
+    "packaging>=24,<27",
+    "python-dotenv>=1,<2",
     "pytest>=9.0.3",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.1",
@@ -60,7 +63,6 @@ dev = [
     "requests>=2.28.0",
     "responses>=0.24.1",
     "requests-mock>=1.11.0",
-    "tomli-w>=1.0.0,<2",
     "beautifulsoup4>=4.12.0",
     "defusedxml>=0.7.1",
     "docx2txt>=0.9",

@@ -1,10 +1,17 @@
 """MarkdownLinksMixin implementation."""
 
 import re
+from pathlib import Path
+from urllib.parse import quote
 
 
 class MarkdownLinksMixin:
     """Focused Markdown operations composed by ``MarkdownProcessor``."""
+
+    _ROOT_DOCUMENTS = frozenset(
+        {"LICENSE", "LICENSE.md", "README.md", "CHANGELOG.md", "CONTRIBUTING.md"}
+    )
+    _WELL_KNOWN_DOCUMENTS = frozenset({"LICENSE", "README", "CHANGELOG", "CONTRIBUTING"})
 
     def extract_title_from_markdown(self, markdown_content: str) -> str:
         """Extract title from markdown content."""
@@ -39,7 +46,12 @@ class MarkdownLinksMixin:
             link = self._process_link_path(link, source_file)
             return f"{prefix}{link}{suffix}"
 
-        # Apply conversions - expanded patterns to catch more file types
+        # Process every link once so repository-owned files outside docs can
+        # become source links instead of broken generated-site paths.
+        content = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_md_links, content)
+        content = re.sub(r'(href=")([^\"]+)(")', replace_href_links, content)
+
+        # Compatibility passes for callers that provide partially converted content.
         # Catch .md files and well-known files without extensions
         well_known_link_pattern_md = (
             r"\[([^\]]+)\]\(((?:(?:\.\./)+|\./|/)?"
@@ -183,53 +195,96 @@ class MarkdownLinksMixin:
 
     def _process_link_path(self, link: str, source_file: str = "") -> str:
         """Process a link path for conversion."""
-        # Preserve anchor fragments while processing
-        anchor = ""
-        if "#" in link:
-            link, anchor = link.split("#", 1)
-            anchor = "#" + anchor
+        if re.match(r"^[a-z][a-z0-9+.-]*:", link, re.IGNORECASE) or link.startswith("//"):
+            return link
 
-        # Only rewrite to absolute /docs when building from a source file context
+        link, anchor = self._split_link_anchor(link)
+        root_document_url = self._root_document_url(link)
+        if root_document_url:
+            return root_document_url + anchor
+
         if source_file:
-            # ../../docs/... -> /docs/...
-            link = re.sub(r"^(?:\.{2}/)+docs/", "/docs/", link)
-            # ./docs/... -> /docs/...
-            link = re.sub(r"^\./docs/", "/docs/", link)
-            # docs/... (relative) -> /docs/...
-            if link.startswith("docs/"):
-                link = "/" + link
+            repository_link = self._repository_source_link(link, source_file)
+            if repository_link:
+                return repository_link + anchor
 
-        # Decide whether to convert .md to .html (preserving anchors)
-        should_convert_md = True
-        if anchor and "/" not in link and not source_file:
-            # Preserve bare filename.md#anchor in tests (no source context)
-            should_convert_md = False
+        link = self._normalize_docs_link(link, source_file)
+        link = self._convert_document_suffix(link, anchor, source_file)
+        link = self._finalize_docs_link(link, source_file)
+        return link + anchor
 
-        if link.endswith(".md") and should_convert_md:
-            link = link[:-3] + ".html"
-        else:
-            # Handle well-known files without extensions
-            filename = link.split("/")[-1]
-            if (
-                filename.upper() in ["LICENSE", "README", "CHANGELOG", "CONTRIBUTING"]
-                and "." not in filename
-            ):
-                # Ensure these resolve under /docs when referenced from packages
-                if (
-                    source_file
-                    and not link.startswith("/docs/")
-                    and filename.upper() in ["LICENSE", "README", "CHANGELOG", "CONTRIBUTING"]
-                ):
-                    # Nudge to /docs root for repo-wide files
-                    link = "/docs/" + filename
-                link = link + ".html"
+    @staticmethod
+    def _split_link_anchor(link: str) -> tuple[str, str]:
+        """Split a link into its path and optional fragment."""
+        path, separator, fragment = link.partition("#")
+        anchor = f"#{fragment}" if separator else ""
+        return path, anchor
 
-        # Collapse accidental duplicate /docs/docs prefixes
+    def _root_document_url(self, link: str) -> str:
+        """Return the published URL for a repository-level document."""
+        root_file = re.sub(r"^(?:\.\./)+", "", link)
+        if root_file not in self._ROOT_DOCUMENTS:
+            return ""
+
+        output_name = "LICENSE" if root_file.startswith("LICENSE") else Path(root_file).stem
+        return f"/docs/{output_name}.html"
+
+    @staticmethod
+    def _normalize_docs_link(link: str, source_file: str) -> str:
+        """Normalize relative docs paths when a source-file context is available."""
+        if not source_file:
+            return link
+
+        link = re.sub(r"^(?:\.{2}/)+docs/", "/docs/", link)
+        link = re.sub(r"^\./docs/", "/docs/", link)
+        return "/" + link if link.startswith("docs/") else link
+
+    def _convert_document_suffix(self, link: str, anchor: str, source_file: str) -> str:
+        """Convert Markdown and well-known document links to published HTML paths."""
+        if link.endswith(".md"):
+            preserve_bare_anchor = bool(anchor and "/" not in link and not source_file)
+            return link if preserve_bare_anchor else link[:-3] + ".html"
+
+        filename = link.rsplit("/", 1)[-1]
+        if filename.upper() not in self._WELL_KNOWN_DOCUMENTS or "." in filename:
+            return link
+
+        if source_file and not link.startswith("/docs/"):
+            link = "/docs/" + filename
+        return link + ".html"
+
+    @staticmethod
+    def _finalize_docs_link(link: str, source_file: str) -> str:
+        """Collapse duplicate docs prefixes and make build-time docs paths absolute."""
         link = re.sub(r"^/docs/docs/", "/docs/", link)
         link = link.replace("docs/docs/", "docs/")
-
-        # Ensure absolute /docs/ links are normalized (only when building)
         if source_file and link.startswith("docs/"):
-            link = "/" + link
+            return "/" + link
+        return link
 
-        return link + anchor
+    def _repository_source_link(self, link: str, source_file: str) -> str:
+        """Link existing repository files outside ``docs`` to their GitHub source."""
+        if not link or link.startswith(("/", "#")):
+            return ""
+
+        try:
+            repository_root = Path.cwd().resolve()
+            source_path = Path(source_file)
+            if not source_path.is_absolute():
+                source_path = repository_root / source_path
+            target_path = (source_path.parent / link).resolve()
+            relative_target = target_path.relative_to(repository_root)
+        except (OSError, ValueError):
+            return ""
+
+        if relative_target.parts and relative_target.parts[0] == "docs":
+            return ""
+        if not target_path.exists():
+            return ""
+
+        repository_url = getattr(
+            self, "repository_url", "https://github.com/cbtw-apac/HarborRAG"
+        ).rstrip("/")
+        view = "tree" if target_path.is_dir() else "blob"
+        encoded_path = quote(relative_target.as_posix(), safe="/")
+        return f"{repository_url}/{view}/main/{encoded_path}"

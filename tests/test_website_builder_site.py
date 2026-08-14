@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for website/builder/site.py — the end-to-end build_site orchestration."""
 
+import os
 from pathlib import Path
 
 
@@ -18,9 +19,55 @@ class TestSiteBuildMixin:
         )
         assert "No coverage artifacts available." in coverage_index
 
+    def test_renders_public_launch_homepage(self, tmp_path, project_root_dir, website_builder_cls):
+        original_cwd = os.getcwd()
+        os.chdir(project_root_dir)
+        try:
+            launch_builder = website_builder_cls("website/templates", str(tmp_path / "launch-site"))
+            launch_builder.build_site()
+            html = (launch_builder.output_dir / "index.html").read_text(encoding="utf-8")
+        finally:
+            os.chdir(original_cwd)
+
+        assert "Build answers on" in html
+        assert "HarborRAG 2.0.0 · Alpha · Open source" in html
+        assert "The engineering knowledge stack" in html
+        assert "continues the project lineage" in html
+        assert "publication / manifest-02" in html
+        assert "tenant-scoped MCP tools" not in html
+        assert "data-architecture-explorer" in html
+        assert "candidate.version == authority.active_version" in html
+        assert "data-interface-examples" in html
+        assert html.count("data-interface-tab=") == 4
+        assert html.count("data-interface-panel=") == 4
+        assert "data-nav-toggle" in html
+        for stylesheet in (
+            "foundation.css",
+            "landing.css",
+            "explorer.css",
+            "interfaces.css",
+            "content.css",
+            "responsive.css",
+        ):
+            assert f"assets/css/{stylesheet}" in html
+        assert "assets/js/site.js" in html
+        assert (launch_builder.output_dir / "assets" / "css" / "responsive.css").exists()
+        assert (launch_builder.output_dir / "assets" / "js" / "site.js").exists()
+        assert "{{" not in html
+
+    def test_manifest_is_portable_under_a_project_pages_prefix(self, builder):
+        builder.build_site()
+
+        manifest = (builder.output_dir / "assets" / "site.webmanifest").read_text(encoding="utf-8")
+        assert '"start_url": "../"' in manifest
+        assert '"scope": "../"' in manifest
+        assert '"src": "favicons/' in manifest
+        assert '"src": "/assets/' not in manifest
+
     def test_bridges_root_documents(self, builder):
         Path("CHANGELOG.md").write_text("# Changelog\n\n## 1.0.0\n", encoding="utf-8")
         Path("CONTRIBUTING.md").write_text("# Contributing\n\n## Setup\n", encoding="utf-8")
+        Path("SECURITY.md").write_text("# Security\n\nReport privately.\n", encoding="utf-8")
         Path("LICENSE").write_text("GPL-3.0", encoding="utf-8")
 
         builder.build_site()
@@ -29,6 +76,7 @@ class TestSiteBuildMixin:
         assert (docs / "README.html").exists()
         assert (docs / "CHANGELOG.html").exists()
         assert (docs / "CONTRIBUTING.html").exists()
+        assert (docs / "SECURITY.html").exists()
         assert "GPL-3.0" in (docs / "LICENSE.html").read_text(encoding="utf-8")
 
     def test_renders_privacy_policy_with_git_timestamp(self, builder, monkeypatch):

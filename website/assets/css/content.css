@@ -1,0 +1,332 @@
+/* Shared footer and long-form documentation pages. */
+.site-footer {
+  padding: 65px 0 25px;
+  color: #aec0c5;
+  background: #061720;
+}
+
+.site-footer-inner {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.6fr) repeat(3, minmax(120px, 0.66fr));
+  gap: 45px;
+}
+
+.footer-brand .brand-name {
+  color: #fff;
+  font-size: 1.35rem;
+}
+
+.footer-brand p {
+  max-width: 310px;
+  margin: 14px 0 17px;
+  color: #7e979f;
+  font-size: 0.86rem;
+}
+
+.footer-release {
+  color: #5e7881;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+}
+
+.footer-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.footer-column strong {
+  margin-bottom: 5px;
+  color: #e9f4f4;
+  font-size: 0.76rem;
+}
+
+.footer-column a {
+  color: #78919a;
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.footer-column a:hover {
+  color: var(--brand-bright);
+}
+
+.footer-bottom {
+  margin-top: 52px;
+  padding-top: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid rgba(184, 243, 237, 0.1);
+  color: #57717a;
+  font-size: 0.7rem;
+}
+
+.motion-ready [data-reveal] {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.55s var(--ease-out),
+    transform 0.55s var(--ease-out);
+}
+
+.motion-ready [data-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.motion-ready .journey-step[data-reveal]:nth-child(2),
+.motion-ready .capability-card[data-reveal]:nth-child(2),
+.motion-ready .status-card[data-reveal]:nth-child(2) {
+  transition-delay: 70ms;
+}
+
+.motion-ready .journey-step[data-reveal]:nth-child(3),
+.motion-ready .capability-card[data-reveal]:nth-child(3) {
+  transition-delay: 140ms;
+}
+
+.motion-ready .journey-step[data-reveal]:nth-child(4),
+.motion-ready .capability-card[data-reveal]:nth-child(4) {
+  transition-delay: 210ms;
+}
+
+.motion-ready .capability-card[data-reveal]:nth-child(5) {
+  transition-delay: 280ms;
+}
+
+/* Documentation and secondary pages */
+.page-hero,
+.docs-hero {
+  padding: 84px 20px 70px;
+  color: #effbfa;
+  text-align: center;
+  background:
+    radial-gradient(circle at 70% 0%, rgba(67, 210, 210, 0.17), transparent 34%),
+    var(--night);
+}
+
+.page-hero h1,
+.docs-hero h1 {
+  margin: 0 0 14px;
+  color: #fff;
+  font-size: clamp(2.8rem, 7vw, 5rem);
+  letter-spacing: -0.06em;
+  line-height: 1;
+}
+
+.page-hero p,
+.docs-hero p {
+  max-width: 720px;
+  margin: auto;
+  color: #a9bec4;
+  font-size: 1.04rem;
+}
+
+.docs-index,
+.secondary-page {
+  width: min(var(--shell), calc(100% - 40px));
+  margin-inline: auto;
+  padding: 68px 0 95px;
+}
+
+.docs-index .docs-nav-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.docs-actions {
+  margin-top: 38px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.docs-actions a {
+  padding: 10px 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-strong);
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 780;
+  text-decoration: none;
+}
+
+.docs-actions a:hover {
+  border-color: var(--brand);
+  color: var(--brand-dark);
+}
+
+.toc-layout {
+  padding: 50px 0 80px;
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 35px;
+  align-items: start;
+}
+
+.toc-sidebar {
+  min-width: 0;
+}
+
+.toc-sidebar .position-sticky {
+  position: sticky;
+  top: 100px;
+  max-height: calc(100vh - 125px);
+  overflow: auto;
+  padding-right: 15px;
+}
+
+.toc-sidebar ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc-sidebar li {
+  margin: 4px 0;
+}
+
+.toc-sidebar a {
+  padding: 4px 0;
+  display: block;
+  color: #6b7f87;
+  font-size: 0.77rem;
+  text-decoration: none;
+}
+
+.toc-sidebar a:hover {
+  color: var(--brand);
+}
+
+.container-content {
+  min-width: 0;
+  padding: clamp(28px, 5vw, 62px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.container-content > h1:first-child {
+  margin-top: 0;
+  font-size: clamp(2.2rem, 5vw, 3.5rem);
+  letter-spacing: -0.055em;
+  line-height: 1.05;
+}
+
+.container-content h2 {
+  margin: 2.2em 0 0.65em;
+  color: var(--ink-strong);
+  font-size: 1.7rem;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+}
+
+.container-content h3 {
+  margin-top: 1.8em;
+  color: var(--ink-strong);
+  letter-spacing: -0.02em;
+}
+
+.container-content p,
+.container-content li {
+  color: #435860;
+}
+
+pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 19px;
+  border-radius: var(--radius-sm);
+  color: #dce9ea;
+  background: var(--night);
+  font-size: 0.84rem;
+  line-height: 1.7;
+}
+
+code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:not(pre) > code {
+  padding: 0.16em 0.36em;
+  border-radius: 5px;
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+  font-size: 0.88em;
+}
+
+table {
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+
+th,
+td {
+  min-width: 145px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: var(--ink-strong);
+  background: var(--surface-soft);
+}
+
+blockquote {
+  margin: 1.4em 0;
+  padding: 4px 0 4px 20px;
+  border-left: 3px solid var(--brand);
+  color: var(--muted);
+}
+
+.text-muted,
+.small {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.78rem;
+}
+
+.alert {
+  margin: 20px 0;
+  padding: 14px 17px;
+  border: 1px solid #b9deda;
+  border-radius: 10px;
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+}
+
+.privacy-card,
+.not-found-card,
+.coverage-card {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: clamp(28px, 5vw, 58px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.not-found-card {
+  text-align: center;
+}
+
+.not-found-code {
+  color: var(--brand);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}

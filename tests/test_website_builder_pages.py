@@ -28,6 +28,12 @@ class TestPageBuildMixin:
 
         assert (builder.output_dir / "docs" / "deep" / "page.html").exists()
 
+    def test_build_page_uses_public_default_for_canonical_url(self, builder):
+        builder.build_page("base.html", "docs/page.html", "Page", "Docs", "docs/page.html")
+
+        html = (builder.output_dir / "docs" / "page.html").read_text(encoding="utf-8")
+        assert 'href="https://cbtw-apac.github.io/HarborRAG/docs/page.html"' in html
+
     def test_build_page_falls_back_to_empty_content_for_canonical_page(self, builder):
         # No "missing.html" template exists, but output == canonical so it is tolerated.
         builder.build_page("base.html", "missing.html", "Missing", "Missing", "missing.html")
@@ -79,6 +85,17 @@ class TestPageBuildMixin:
 
         html = (builder.output_dir / "docs" / "plain.html").read_text(encoding="utf-8")
         assert "No sections" in html
+
+    def test_build_markdown_page_links_repository_files_to_github(self, builder):
+        Path("config").mkdir(exist_ok=True)
+        Path("config/example.yaml").write_text("enabled: true\n", encoding="utf-8")
+        source = Path("docs/repository-link.md")
+        source.write_text("# Config\n\n[Example](../config/example.yaml)\n", encoding="utf-8")
+
+        builder.build_markdown_page(str(source), "docs/repository-link.html")
+
+        html = (builder.output_dir / "docs" / "repository-link.html").read_text(encoding="utf-8")
+        assert 'href="https://github.com/cbtw-apac/HarborRAG/blob/main/config/example.yaml"' in html
 
     def test_build_license_page_skips_missing_license(self, builder, capsys):
         builder.build_license_page("NOPE-LICENSE", "license.html")

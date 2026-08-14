@@ -1,5 +1,6 @@
 """SiteBuildMixin implementation for the website builder."""
 
+import json
 from datetime import UTC
 from pathlib import Path
 
@@ -13,7 +14,7 @@ class SiteBuildMixin:
         test_results_dir: str | None = None,
     ) -> None:
         """Build the complete website."""
-        print("🏗️  Building QDrant Loader website...")
+        print("🏗️  Building HarborRAG website...")
 
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -22,15 +23,21 @@ class SiteBuildMixin:
         self.copy_assets()
 
         # Generate project info
-        self.generate_project_info()
+        project_info = self.generate_project_info()
+        self.markdown_processor.repository_url = project_info["github_url"]
+        self.generate_web_manifest(project_info)
+
+        # Parse the repository-owned table of contents once for all navigation views.
+        self.build_docs_nav()
 
         # Build main pages
         self.build_page(
             "base.html",
             "index.html",
-            "Home",
-            "Enterprise-ready vector database toolkit for building searchable knowledge bases from multiple data sources including Confluence, Jira, and local files.",
+            "Open-source RAG infrastructure for engineering knowledge",
+            "Connect engineering systems, understand complex documents, and serve governed retrieval through one modular open-source RAG stack.",
             "index.html",
+            homepage_navigation=self.render_docs_navigation(compact=True),
         )
 
         # Build a friendly 404 page
@@ -47,7 +54,6 @@ class SiteBuildMixin:
             print(f"⚠️  Failed to build 404 page: {e}")
 
         # Build docs structure and pages
-        self.build_docs_nav()
         _docs_structure = self.build_docs_structure()
 
         # Create docs directory and index
@@ -59,9 +65,10 @@ class SiteBuildMixin:
             "base.html",
             "docs/index.html",
             "Documentation",
-            "QDrant Loader Documentation",
+            "HarborRAG Documentation",
             "docs/index.html",
             content=self.load_template("docs-index.html"),
+            docs_navigation=self.render_docs_navigation(),
         )
 
         # Bridge root docs from repository top-level files
@@ -72,6 +79,8 @@ class SiteBuildMixin:
                 self.build_markdown_page("CHANGELOG.md", "docs/CHANGELOG.html")
             if Path("CONTRIBUTING.md").exists():
                 self.build_markdown_page("CONTRIBUTING.md", "docs/CONTRIBUTING.html")
+            if Path("SECURITY.md").exists():
+                self.build_markdown_page("SECURITY.md", "docs/SECURITY.html")
             # License (plain text) rendered via helper
             if Path("LICENSE").exists():
                 self.build_license_page("LICENSE", "docs/LICENSE.html", "License", "License")
@@ -95,7 +104,7 @@ class SiteBuildMixin:
                     "base.html",
                     "privacy-policy.html",
                     "Privacy Policy",
-                    "Privacy policy for QDrant Loader",
+                    "Privacy policy for HarborRAG",
                     "privacy-policy.html",
                     content=self.load_template("privacy-policy.html"),
                     last_updated=privacy_last_updated,
@@ -168,3 +177,37 @@ class SiteBuildMixin:
         print("📄 Created .nojekyll file")
 
         print("✅ Website build completed successfully!")
+
+    def generate_web_manifest(self, project_info: dict) -> None:
+        """Write the PWA manifest from canonical project metadata."""
+        manifest = {
+            "name": project_info["name"],
+            "short_name": project_info["name"],
+            "description": project_info["description"],
+            "start_url": "../",
+            "scope": "../",
+            "display": "standalone",
+            "background_color": "#07131f",
+            "theme_color": "#0b7285",
+            "icons": [
+                {
+                    "src": "favicons/android-chrome-192x192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                },
+                {
+                    "src": "favicons/android-chrome-512x512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                },
+                # branding-compat: company FE will replace the existing artwork.
+                {
+                    "src": "icons/qdrant-loader-icon-static.svg",
+                    "sizes": "any",
+                    "type": "image/svg+xml",
+                },
+            ],
+        }
+        manifest_path = self.output_dir / "assets" / "site.webmanifest"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

@@ -2,13 +2,16 @@
 
 HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into independently testable Python packages.
 
+**Current release: 2.0.0.** HarborRAG 2.0 continues the project lineage of
+Qdrant Loader as a breaking rename and architectural expansion. See the
+[2.0.0 changelog](CHANGELOG.md#200---2026-07-07) for the migration boundary.
+
 > **Project status:** alpha. Connectors, parsers, model clients, repositories,
 > a repository-backed Temporal ingestion pipeline, the operator CLI, and the
-> control-plane API are implemented. The checked-in data and Temporal Compose
-> definitions are suitable for local development, but the current
-> Alpine-based HarborRAG application images do not build with the locked
-> Temporal and ML dependencies. Public production topology, distributed
-> object storage, and full MCP capability exposure remain incomplete.
+> control-plane API are implemented. The checked-in data, Temporal Compose,
+> and Debian-based application images are suitable for local development.
+> Internet-facing identity policy, infrastructure hardening, backup/restore,
+> observability, and a complete public production topology remain operator work.
 
 ## What is implemented
 
@@ -23,10 +26,31 @@ HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framewo
 | Operator surfaces | FastAPI ingestion control, Temporal-backed CLI commands, hybrid graph/vector retrieval, and an authenticated MCP server boundary with a local stdio health tool |
 
 The runtime supplies a default dependency graph; deployments may override it
-with a custom provider. MCP ingestion capabilities remain disabled until they
-are explicitly implemented and enabled; the shipped stdio transport exposes
-the health tool only. See [What is HarborRAG?](docs/getting-started/what-is-harborrag.md)
-for the boundary.
+with a custom provider. MCP exposes six audited, tenant-scoped retrieval tools;
+chat and agent operations are served through the REST API, and ingestion is
+controlled through the CLI or authenticated API rather than MCP. See
+[What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the boundary.
+
+## How HarborRAG keeps evidence trustworthy
+
+HarborRAG separates authority, evidence, and search acceleration instead of
+asking one database to play all three roles:
+
+| Boundary | Responsibility |
+| --- | --- |
+| PostgreSQL | Authoritative tenant, source, document, version, job, and active-publication state |
+| S3-compatible object store | Immutable raw, parsed, canonical, chunk, representation, and manifest artifacts |
+| Qdrant | Rebuildable dense and sparse vector projections |
+| FalkorDB | Rebuildable deterministic structure and source-declared relationship projections |
+
+A document version becomes active only after its required projections verify.
+Retrieval then rejects any candidate whose version is not the active version in
+PostgreSQL before resolving immutable evidence. Temporal coordinates durable
+ingestion and replay; it is not on the latency-sensitive retrieval path.
+
+Read the [data lifecycle](docs/developers/architecture/data-lifecycle.md) for
+the complete path and [runtime reliability](docs/developers/architecture/runtime-reliability.md)
+for workflow, retry, and failure behavior.
 
 ## Requirements
 
@@ -46,7 +70,7 @@ uv run pytest packages/harborrag-core/tests
 
 The CLI help command does not require external services. `harborrag doctor`
 checks a live Temporal frontend, so run it only after starting Temporal. See
-[the Temporal deployment guide](deploy/temporal/README.md).
+[the deployment guide](docs/developers/deployment/README.md).
 
 `--extra dev` is enough for the commands above, but not for the full test
 suite. Several packages gate optional adapters (Redis, Alembic/control-plane,
@@ -63,10 +87,10 @@ For `pip`, platform notes, and optional adapter extras, see [Installation](docs/
 ## Configure durable ingestion locally
 
 The intended local topology runs PostgreSQL-backed Temporal, Qdrant,
-FalkorDB, Redis, and two HarborRAG worker replicas. Artifact workflows use a
-rolling pool with a default concurrency of 16, so a slow artifact does not
-hold a completed batch slot idle. Both replicas share persistent ingestion and
-model-cache volumes.
+FalkorDB, Redis, and HarborRAG ingestion workers. Workers share persistent
+ingestion and model-cache volumes. Concurrency, retry, and worker counts are
+deployment policy: tune them for source quotas, model latency, document size,
+and available resources instead of treating repository defaults as universal.
 
 > **Container base image:** all four Dockerfiles use
 > `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`. It must stay a glibc (Debian)
@@ -131,9 +155,8 @@ scripts/deployment/dev.sh temporal
 scripts/deployment/dev.sh worker
 ```
 
-After the application image compatibility issue above is resolved, the first
-worker build installs the selected parser/model dependencies and can take
-several minutes. Downloaded Hugging Face assets persist in the shared
+The first worker build installs the selected parser/model dependencies and can
+take several minutes. Downloaded Hugging Face assets persist in the shared
 `harborrag-model-cache` volume and are reused after container replacement.
 
 ### 3. Verify the deployment
@@ -195,7 +218,7 @@ docker compose \
   logs --follow --tail=200 temporal-worker
 ```
 
-See the [Temporal deployment guide](deploy/temporal/README.md) and
+See the [deployment guide](docs/developers/deployment/README.md) and
 [CLI reference](docs/users/cli-reference/README.md) for persistence, worker
 controls, and troubleshooting details.
 
@@ -296,7 +319,7 @@ tenant configuration, and audit path as MCP calls.
 packages/
   harborrag-core/      domain objects, model contracts, schemas, security
   harborrag-adapters/  connectors, parsers, model clients, repositories
-  harborrag-memory/    short-term, working, and long-term memory contracts (skeleton, not yet implemented)
+  harborrag-memory/    scope-aware short-term, working, and long-term memory facade
   harborrag-engine/    ingestion, retrieval, indexing, graph boundaries
   harborrag-runtime/   production composition and Temporal orchestration
   harborrag-app/       application service, CLI, HTTP API boundary
@@ -355,22 +378,36 @@ uv run make compile
 uv run make coverage
 ```
 
-After merging to `main` and confirming GitHub Actions are green, simulate the
-coordinated package release before allowing it to write commits, tags, and
-GitHub releases:
+Prepare release metadata on a branch after adding the new version section to
+`CHANGELOG.md`. The preparation command changes package versions, internal
+dependency pins, the TypeScript client version, classifiers when requested,
+and `uv.lock`; it never commits, pushes, tags, or publishes:
+
+```bash
+uv run python release.py --dry-run --bump patch --verbose
+uv run python release.py --bump patch --verbose
+uv run make lint
+uv run make typecheck
+uv run make coverage
+```
+
+Review those changes through a pull request. After the release commit is merged
+and all required workflows pass on that exact commit, publish the already
+reviewed version from a clean, up-to-date `main`:
 
 ```bash
 git switch main
 git pull --ff-only
 git status --short
-uv run python release.py --dry-run --verbose
-uv run python release.py --verbose
+uv run python release.py --publish --dry-run --verbose
+uv run python release.py --publish --verbose
 ```
 
-The real release command requires a clean `main`, synchronized package
-versions, an updated changelog, no unpushed commits, passing workflows, and a
-`GITHUB_TOKEN` authorized for this repository. See [Contributing](CONTRIBUTING.md)
-for the pull-request and release gates.
+Publishing does not modify repository files. It requires synchronized package
+versions, an updated changelog, absent release tags, a clean `main`, no unpushed
+commits, passing workflows on the current commit, and a `GITHUB_TOKEN`
+authorized for this repository. See [Contributing](CONTRIBUTING.md) for the
+pull-request and release gates.
 
 ## Development commands
 
@@ -397,6 +434,9 @@ uv run make doctor
 - [Getting started](docs/getting-started/README.md)
 - [User guides](docs/users/README.md)
 - [Developer guides](docs/developers/README.md)
+- [Architecture and data lifecycle](docs/developers/architecture/data-lifecycle.md)
+- [Open-source publication guidelines](docs/developers/publication-guidelines.md)
+- [Security policy](SECURITY.md)
 - [Control Plane API](packages/harborrag-app/src/harborrag_app/api/README.md)
 - [Operator CLI](packages/harborrag-app/src/harborrag_app/cli/README.md)
 - [Contributing](CONTRIBUTING.md)

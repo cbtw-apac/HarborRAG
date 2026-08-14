@@ -191,7 +191,7 @@ status = await client.get_status(reference.run_id)
 ```
 
 For the PostgreSQL-backed local server and worker profile, see
-[`deploy/temporal/README.md`](../../deploy/temporal/README.md).
+[deployment guide](../../docs/developers/deployment/README.md).
 
 ## File configuration
 

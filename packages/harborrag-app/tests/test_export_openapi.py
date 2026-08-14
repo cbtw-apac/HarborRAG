@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from harborrag_app import __version__
 from harborrag_app.api.export_openapi import export_openapi
 
 
@@ -16,7 +17,7 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     rendered = export_openapi()
     schema = json.loads(rendered)
     assert schema["info"]["title"] == "HarborRAG Control Plane API"
-    assert schema["info"]["version"] == "0.1.0"
+    assert schema["info"]["version"] == __version__
     paths = schema["paths"]
     assert {
         "/api/v1/metrics",

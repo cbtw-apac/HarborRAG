@@ -12,9 +12,9 @@ class TestSeoBuildMixin:
         sitemap = (builder.output_dir / "sitemap.xml").read_text(encoding="utf-8")
         robots = (builder.output_dir / "robots.txt").read_text(encoding="utf-8")
 
-        assert "<loc>https://qdrant-loader.net/</loc>" in sitemap
-        assert "<loc>https://qdrant-loader.net/docs/</loc>" in sitemap
-        assert "Sitemap: https://qdrant-loader.net/sitemap.xml" in robots
+        assert "<loc>https://cbtw-apac.github.io/HarborRAG/</loc>" in sitemap
+        assert "<loc>https://cbtw-apac.github.io/HarborRAG/docs/</loc>" in sitemap
+        assert "Sitemap: https://cbtw-apac.github.io/HarborRAG/sitemap.xml" in robots
 
     def test_generate_seo_files_uses_configured_base_url(self, builder):
         builder.output_dir.mkdir(parents=True, exist_ok=True)
@@ -46,8 +46,8 @@ class TestSeoBuildMixin:
         )
 
         assert "<lastmod>2026-01-02</lastmod>" in content
-        assert "<loc>https://qdrant-loader.net/index.html</loc>" in content
-        assert "<loc>https://qdrant-loader.net/docs/index.html</loc>" in content
+        assert "<loc>https://cbtw-apac.github.io/HarborRAG/index.html</loc>" in content
+        assert "<loc>https://cbtw-apac.github.io/HarborRAG/docs/index.html</loc>" in content
         assert (builder.output_dir / "sitemap.xml").read_text(encoding="utf-8") == content
 
     def test_generate_dynamic_sitemap_discovers_pages(self, builder):

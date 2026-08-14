@@ -5,13 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- Rebuilt the public documentation website around HarborRAG 2.0.0 capabilities,
+  limitations, package boundaries, and project lineage.
+- Added a publication-manifest hero, interactive ingestion/retrieval explorer,
+  accessible interface examples, and responsive navigation while retaining the
+  existing visual assets and splitting presentation code into focused modules.
+- Added public data-lifecycle, runtime-reliability, publication, and security
+  guidance plus a CI guard against publishing private reference material.
+
 ## [2.0.0] - 2026-07-07
 
 ### Changed
 
 #### Project renamed: Qdrant-loader → HarborRAG
 
-- Qdrant-loader is now **HarborRAG**, restructured from a single Qdrant-coupled ingestion tool into a modular, provider-agnostic RAG framework. The old `qdrant-loader` / `qdrant-loader-core` / `qdrant-loader-mcp-server` packages are replaced by seven ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp-server`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently instead of being hardwired to Qdrant and a fixed provider set.
+- Qdrant-loader is now **HarborRAG**, restructured from a single Qdrant-coupled ingestion tool into a modular, provider-agnostic RAG framework. The old `qdrant-loader` / `qdrant-loader-core` / `qdrant-loader-mcp-server` packages are replaced by eight ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp-server`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently instead of being hardwired to Qdrant and a fixed provider set.
 - Documentation, Docker assets, and CI workflows updated to reflect the new package layout and naming.
 
 > This is a breaking rename: import paths, package names, and CLI/config references from `qdrant-loader` do not carry over. See [README.md](README.md) for the current architecture.

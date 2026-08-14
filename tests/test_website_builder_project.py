@@ -28,8 +28,20 @@ class TestGenerateProjectInfo:
 
         info = builder.generate_project_info()
 
-        assert info["name"] == "QDrant Loader"
+        assert info["name"] == "HarborRAG"
         assert info["version"] == "1.2.3"
+
+    def test_reads_public_release_status(self, builder):
+        Path("pyproject.toml").write_text(
+            '[project]\nname = "harborrag-workspace"\nversion = "2.0.0"\n'
+            'classifiers = ["Development Status :: 3 - Alpha"]\n',
+            encoding="utf-8",
+        )
+
+        info = builder.generate_project_info()
+
+        assert info["status"] == "Alpha"
+        assert info["version"] == "2.0.0"
 
     def test_picks_up_urls(self, builder):
         Path("pyproject.toml").write_text(
@@ -44,8 +56,9 @@ class TestGenerateProjectInfo:
 
         info = builder.generate_project_info()
 
-        assert builder.base_url == "https://home.example.test"
+        assert builder.base_url == ""
         assert info["github_url"] == "https://github.com/example/demo"
+        assert info["issues_url"] == "https://github.com/example/demo/issues"
 
     def test_respects_user_set_base_url(self, builder):
         Path("pyproject.toml").write_text(
@@ -73,8 +86,9 @@ class TestGenerateProjectInfo:
 
         info = builder.generate_project_info()
 
-        assert info["name"] == "QDrant Loader"
-        assert info["version"] == "0.4.0b1"
+        assert info["name"] == "HarborRAG"
+        assert info["version"] == "2.0.0"
+        assert info["status"] == "Alpha"
 
     def test_includes_git_metadata(self, tmp_path, project_root_dir, website_builder_cls):
         """Run against the real repository so the git lookups succeed."""
@@ -114,16 +128,33 @@ class TestDocsNavigation:
 
         assert builder.build_docs_nav() == {}
 
-    def test_build_docs_nav_lists_files_and_directories(self, builder):
-        Path("docs/guides").mkdir(parents=True, exist_ok=True)
-        Path("docs/guides/nested.md").write_text("# Nested", encoding="utf-8")
+    def test_build_docs_nav_uses_canonical_toc_order(self, builder):
+        Path("docs/TOC.md").write_text(
+            "# Docs\n\n"
+            "## Getting started\n\n"
+            "- [Installation](installation.md)\n"
+            "- [Package](../packages/harborrag/README.md)\n",
+            encoding="utf-8",
+        )
 
         nav = builder.build_docs_nav()
 
-        urls = {child["url"] for child in nav["children"]}
-        assert "docs/installation.md" in urls
-        assert "docs/guides/" in urls
+        assert [section["title"] for section in nav["children"]] == ["Getting started"]
+        assert [item["url"] for item in nav["children"][0]["children"]] == [
+            "installation.html",
+            "packages/harborrag/README.html",
+        ]
         assert builder.docs_nav_data == nav
+
+    def test_render_docs_navigation_prefixes_homepage_links(self, builder):
+        Path("docs/TOC.md").write_text(
+            "# Docs\n\n## Guides\n\n- [Quick start](getting-started/quick-start.md)\n",
+            encoding="utf-8",
+        )
+
+        html = builder.render_docs_navigation(compact=True)
+
+        assert 'href="docs/getting-started/quick-start.html"' in html
 
     def test_build_docs_structure_without_docs_dir(self, builder):
         shutil.rmtree("docs")

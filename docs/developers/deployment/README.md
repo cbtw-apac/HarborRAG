@@ -165,4 +165,6 @@ infrastructure-as-code.
 Before an internet-facing deployment can be considered production-ready,
 operators still need deployment-specific authorization policy, TLS/network
 policy, secret delivery, backup/restore, resource limits, alert thresholds, and
-end-to-end tests against their chosen source systems.
+end-to-end tests against their chosen source systems. Review the
+[runtime reliability boundary](../architecture/runtime-reliability.md) before
+choosing worker, retry, timeout, retention, and recovery policy.

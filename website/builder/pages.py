@@ -55,15 +55,23 @@ class PageBuildMixin:
             "content": content,
             "base_url": base_url,
             "canonical_url": (
-                self.base_url.rstrip("/") + "/" + canonical_path
+                self.base_url.rstrip("/")
                 if self.base_url
-                else canonical_path
-            ),
-            "author": project_info.get("name", "QDrant Loader"),
-            "version": project_info.get("version", "0.4.0b1"),
+                else "https://cbtw-apac.github.io/HarborRAG"
+            )
+            + "/"
+            + canonical_path,
+            "author": project_info.get("name", "HarborRAG"),
+            "version": project_info.get("version", "2.0.0"),
             "project_name": project_info["name"],
             "project_version": project_info["version"],
+            "project_status": project_info.get("status", "Alpha"),
+            "project_license": project_info.get("license", "Apache-2.0"),
+            "project_commit": project_info.get("commit", {}).get("short", ""),
             "project_description": project_info["description"],
+            "github_url": project_info["github_url"],
+            "issues_url": project_info["issues_url"],
+            "documentation_url": project_info["documentation_url"],
             **extras,
         }
 
@@ -111,7 +119,7 @@ class PageBuildMixin:
         html_content = self.markdown_to_html(markdown_content, str(markdown_path), output_path)
         # Normalize any remaining HTML hrefs
         html_content = self.markdown_processor.convert_markdown_links_to_html(
-            html_content, str(markdown_path)
+            html_content, str(markdown_path), output_path
         )
 
         # Build a Table of Contents and wrap in docs layout
@@ -141,7 +149,7 @@ class PageBuildMixin:
             "base.html",
             output_path,
             title,
-            f"{title} - QDrant Loader",
+            f"{title} - HarborRAG",
             output_path,
             content=wrapped_content,
             breadcrumb=breadcrumb,

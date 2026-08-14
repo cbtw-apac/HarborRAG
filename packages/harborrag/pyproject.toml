@@ -1,6 +1,6 @@
 [project]
 name = "harborrag"
-version = "0.1.0"
+version = "2.0.0"
 description = "Meta-package public facade for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
@@ -13,39 +13,39 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "harborrag-core==0.1.0",
-    "harborrag-runtime==0.1.0",
+    "harborrag-core==2.0.0",
+    "harborrag-runtime==2.0.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/harborrag/harborrag"
-Repository = "https://github.com/harborrag/harborrag"
-Issues = "https://github.com/harborrag/harborrag/issues"
+Homepage = "https://github.com/cbtw-apac/HarborRAG"
+Repository = "https://github.com/cbtw-apac/HarborRAG"
+Issues = "https://github.com/cbtw-apac/HarborRAG/issues"
 
 [project.optional-dependencies]
 local = [
-    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant,s3,tables]==0.1.0",
+    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant,s3,tables]==2.0.0",
 ]
-chat = ["harborrag-adapters[llm]==0.1.0"]
-cli = ["harborrag-app==0.1.0"]
-memory = ["harborrag-memory==0.1.0"]
+chat = ["harborrag-adapters[llm]==2.0.0"]
+cli = ["harborrag-app==2.0.0"]
+memory = ["harborrag-memory==2.0.0"]
 server = [
-    "harborrag-app[api]==0.1.0",
-    "harborrag-runtime[production,temporal]==0.1.0",
+    "harborrag-app[api]==2.0.0",
+    "harborrag-runtime[production,temporal]==2.0.0",
 ]
-temporal = ["harborrag-runtime[temporal]==0.1.0"]
-mcp = ["harborrag-mcp-server[mcp]==0.1.0"]
-qdrant = ["harborrag-adapters[qdrant]==0.1.0"]
-falkordb = ["harborrag-adapters[falkordb]==0.1.0"]
-postgres = ["harborrag-adapters[control-plane,postgres]==0.1.0"]
-s3 = ["harborrag-adapters[s3]==0.1.0"]
-redis = ["harborrag-adapters[redis]==0.1.0"]
+temporal = ["harborrag-runtime[temporal]==2.0.0"]
+mcp = ["harborrag-mcp-server[mcp]==2.0.0"]
+qdrant = ["harborrag-adapters[qdrant]==2.0.0"]
+falkordb = ["harborrag-adapters[falkordb]==2.0.0"]
+postgres = ["harborrag-adapters[control-plane,postgres]==2.0.0"]
+s3 = ["harborrag-adapters[s3]==2.0.0"]
+redis = ["harborrag-adapters[redis]==2.0.0"]
 all = [
-    "harborrag-adapters[parsers-all]==0.1.0",
-    "harborrag-app[api]==0.1.0",
-    "harborrag-mcp-server[mcp]==0.1.0",
-    "harborrag-memory==0.1.0",
-    "harborrag-runtime[production,temporal]==0.1.0",
+    "harborrag-adapters[parsers-all]==2.0.0",
+    "harborrag-app[api]==2.0.0",
+    "harborrag-mcp-server[mcp]==2.0.0",
+    "harborrag-memory==2.0.0",
+    "harborrag-runtime[production,temporal]==2.0.0",
 ]
 
 [build-system]

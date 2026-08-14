@@ -81,17 +81,17 @@ def test_base_install_declares_only_directly_imported_packages() -> None:
         "project"
     ]
 
-    assert project["version"] == "0.1.0"
+    version = project["version"]
     assert project["dependencies"] == [
-        "harborrag-core==0.1.0",
-        "harborrag-runtime==0.1.0",
+        f"harborrag-core=={version}",
+        f"harborrag-runtime=={version}",
     ]
-    assert project["optional-dependencies"]["chat"] == ["harborrag-adapters[llm]==0.1.0"]
+    assert project["optional-dependencies"]["chat"] == [f"harborrag-adapters[llm]=={version}"]
     assert project["optional-dependencies"]["local"] == [
         "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,"
-        "pdf-docling,qdrant,s3,tables]==0.1.0"
+        f"pdf-docling,qdrant,s3,tables]=={version}"
     ]
-    assert "harborrag-adapters[parsers-all]==0.1.0" in project["optional-dependencies"]["all"]
+    assert f"harborrag-adapters[parsers-all]=={version}" in project["optional-dependencies"]["all"]
 
 
 def test_base_facade_import_does_not_load_optional_providers() -> None:

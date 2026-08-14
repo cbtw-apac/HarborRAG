@@ -68,6 +68,7 @@ def generate_ico(png_files: list, ico_path: str):
 def main():
     # Paths
     script_dir = Path(__file__).parent
+    # branding-compat: company FE will replace the existing artwork.
     svg_path = script_dir / "icons" / "qdrant-loader-icon-static.svg"
     favicon_dir = script_dir / "favicons"
 
