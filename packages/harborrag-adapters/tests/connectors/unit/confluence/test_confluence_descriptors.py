@@ -86,16 +86,13 @@ def test_describe_reuses_descriptor_fields_returned_by_search() -> None:
     descriptor = connector.describe(record)
 
     assert descriptor.admission.source_version == "3"
-    assert [endpoint for endpoint, _ in client.calls] == ["content/search"]
+    assert [endpoint for endpoint, _ in client.calls if endpoint != "user/current"] == [
+        "content/search"
+    ]
     assert "_confluence_discovery_descriptor" not in descriptor.source.metadata
 
 
 def test_describe_rejects_content_outside_configured_space() -> None:
-    # describe() used to skip the _validate_content check that every other
-    # content-fetching path (discover/discover_page/load/_record_for_id)
-    # applies -- a content_id from outside the configured space (e.g. a
-    # replayed or forged record) was silently attributed to this
-    # connector's own space instead of being rejected.
     client = FakeConfluenceClient()
     content = full_content()
     content["space"] = {"key": "OTHER"}
@@ -109,9 +106,6 @@ def test_describe_rejects_content_outside_configured_space() -> None:
 
 
 def test_describe_rejects_cached_descriptor_content_outside_configured_space() -> None:
-    # Same check, exercised via the cached-descriptor branch (a record
-    # already carrying a discovery descriptor, e.g. from search) rather
-    # than the fresh-fetch branch.
     content = full_content()
     content["space"] = {"key": "OTHER"}
     connector = ConfluenceConnector(cloud_config(), client=FakeConfluenceClient())

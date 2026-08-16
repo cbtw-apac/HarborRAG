@@ -36,6 +36,18 @@ class AuthenticationError(SourceForbiddenError, ConnectorError):
 class FetchError(SourceUnavailableError, ConnectorError):
     """Raised when a connector cannot fetch source data."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Carry the originating HTTP status/body so callers can inspect them without parsing the message."""
+        super().__init__(message)
+        self.status_code = status_code
+        self.detail = detail
+
 
 class RateLimitError(FetchError):
     """Raised when the source system rate-limits the connector."""

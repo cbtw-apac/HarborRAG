@@ -50,14 +50,34 @@ load_environment_file() {
     set +a
 }
 
+python_satisfies_requirement() {
+    "$1" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 12) else 1)' >/dev/null 2>&1
+}
+
 python_executable() {
     if [[ -n "${HARBORRAG_MCP_PYTHON_BIN:-}" ]]; then
+        { [[ -x "${HARBORRAG_MCP_PYTHON_BIN}" ]] || command -v "${HARBORRAG_MCP_PYTHON_BIN}" >/dev/null 2>&1; } ||
+            fail "HARBORRAG_MCP_PYTHON_BIN is set to '${HARBORRAG_MCP_PYTHON_BIN}', which does not exist or is not executable."
+        python_satisfies_requirement "${HARBORRAG_MCP_PYTHON_BIN}" ||
+            fail "HARBORRAG_MCP_PYTHON_BIN is set to '${HARBORRAG_MCP_PYTHON_BIN}', which does not satisfy the required Python >=3.12."
         echo "${HARBORRAG_MCP_PYTHON_BIN}"
-    elif [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
-        echo "${ROOT_DIR}/.venv/bin/python"
-    else
-        command -v python3 || fail "Python 3 is required to start the MCP server."
+        return
     fi
+
+    if [[ -x "${ROOT_DIR}/.venv/bin/python" ]] && python_satisfies_requirement "${ROOT_DIR}/.venv/bin/python"; then
+        echo "${ROOT_DIR}/.venv/bin/python"
+        return
+    fi
+
+    local candidate
+    for candidate in python3 python; do
+        if command -v "${candidate}" >/dev/null 2>&1 && python_satisfies_requirement "${candidate}"; then
+            command -v "${candidate}"
+            return
+        fi
+    done
+
+    fail "Python >=3.12 is required to start the MCP server."
 }
 
 check_only=0
@@ -104,9 +124,9 @@ fi
 
 mcp_python="$(python_executable)"
 "${mcp_python}" -c \
-    "import importlib.util, sys; sys.exit(any(importlib.util.find_spec(name) is None for name in ('fastmcp', 'harborrag_mcp_server', 'harborrag_runtime')))" \
+    "import importlib.util, sys; sys.exit(any(importlib.util.find_spec(name) is None for name in ('fastmcp', 'harborrag_mcp_server', 'harborrag_runtime', 'alembic', 'asyncpg', 'litellm', 'aioboto3', 'qdrant_client', 'falkordb')))" \
     >/dev/null 2>&1 ||
-    fail "MCP dependencies are missing. Run 'uv sync --package harborrag-mcp-server --extra mcp'."
+    fail "MCP dependencies are missing. Run 'uv sync --package harborrag-mcp-server --extra mcp --package harborrag-adapters --extra control-plane --extra postgres --extra llm --extra s3 --extra qdrant --extra falkordb'."
 
 [[ -n "${POSTGRES_USER:-}" && -n "${POSTGRES_PASSWORD:-}" && -n "${POSTGRES_DB:-}" ]] ||
     fail "Database environment must define POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB."
@@ -143,4 +163,10 @@ else
 fi
 
 cd "${ROOT_DIR}"
+# HARBORRAG_MCP_PATH is a URL route ("/mcp"), not a filesystem path. On Git
+# Bash for Windows, MSYS rewrites env values that look like POSIX paths
+# (e.g. "/mcp") into a Windows path before exec'ing the native python.exe,
+# which then fails the server's path validation. Excluding it here is a
+# no-op on Linux/macOS.
+export MSYS2_ENV_CONV_EXCL="HARBORRAG_MCP_PATH"
 exec "${mcp_python}" -m harborrag_mcp_server "${mcp_arguments[@]}"

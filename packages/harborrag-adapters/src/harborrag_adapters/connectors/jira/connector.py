@@ -18,6 +18,7 @@ from harborrag_adapters.connectors.descriptors import (
     ConnectorDocumentDescriptor,
 )
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.policies.http import verify_credentials
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
@@ -33,7 +34,11 @@ from .client import JiraClient, _RequestsJiraClient
 from .config import JiraProjectConfig
 from .content import build_raw_content
 from .discovery import JiraDescriptorBuilder
-from .discovery_policy import JiraDiscoveryPolicy, issue_keys_from_query
+from .discovery_policy import (
+    JiraDiscoveryPolicy,
+    issue_keys_from_query,
+    verify_empty_search_result,
+)
 from .issues import DISCOVERY_DESCRIPTOR_KEY, JiraIssueAPI
 from .mappers import (
     build_document_metadata,
@@ -81,7 +86,6 @@ class JiraConnector(BaseConnector):
             config,
             rate_limiter=rate_limiter,
         )
-        self._authenticated = False
         self._issues = JiraIssueAPI(self.client, config)
         self._policy = JiraDiscoveryPolicy(config, base_url=self.base_url)
         self._attachments = AttachmentProcessor(
@@ -119,25 +123,22 @@ class JiraConnector(BaseConnector):
         if callable(close):
             close()
 
-    def _ensure_authenticated(self) -> None:
+    def connect(self) -> None:
         """Verify JIRA credentials once before the first discovery request.
 
         JIRA's issue search can return HTTP 200 with an empty result set for
         a credential that lacks permission, silently masking a bad token as
         "no matching issues" instead of surfacing an authentication failure.
         `myself` requires a valid session on both Cloud and Data Center and
-        returns only account data, so it reliably raises
-        `AuthenticationError` (via the shared Atlassian client's existing 401
-        handling) without an issue-fetch call.
+        returns only account data, so it reliably raises an authentication
+        error without an issue-fetch call. See `verify_credentials` for how
+        a 403 is remapped the same way a bare 401 already is.
         """
-        if self._authenticated:
-            return
-        self.client.get_json("myself")
-        self._authenticated = True
+        verify_credentials(lambda: self.client.get_json("myself"), provider="JIRA")
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search JIRA issues or materialize explicitly requested issue keys."""
-        self._ensure_authenticated()
+        self._ensure_connected()
         query = query or ConnectorQuery()
         issue_keys = issue_keys_from_query(query)
         yielded = 0
@@ -165,6 +166,10 @@ class JiraConnector(BaseConnector):
                 yield record
                 if query.limit is not None and yielded >= query.limit:
                     return
+            if yielded == 0:
+                verify_empty_search_result(
+                    query, policy=self._policy, issues=self._issues, logger_=logger
+                )
         finally:
             logger.info(
                 "JIRA discovery iterator closed mode=%s yielded=%d",
@@ -181,7 +186,7 @@ class JiraConnector(BaseConnector):
     ) -> ConnectorPage:
         """Use Jira's native page token or offset without replaying prior pages."""
 
-        self._ensure_authenticated()
+        self._ensure_connected()
         query = query or ConnectorQuery()
         if issue_keys_from_query(query):
             page = super().discover_page(query, cursor=cursor, page_size=page_size)
@@ -208,6 +213,10 @@ class JiraConnector(BaseConnector):
                 output.append(self._policy.apply_query(record, query))
             if next_cursor is None:
                 break
+        if not output:
+            verify_empty_search_result(
+                query, policy=self._policy, issues=self._issues, logger_=logger
+            )
         page = ConnectorPage(tuple(output), next_cursor)
         logger.debug(
             "JIRA discovery page mode=search records=%d has_next=%s",

@@ -53,10 +53,6 @@ lowercased `title` — nothing partial, and `title` is null on every `Chunk` nod
 bridge that makes the graph reachable is that a vector payload's `chunk_id` *is* the
 `Chunk` node key, so `vector_search` resolves selectors for the graph tools.
 
-`graph_neighborhood` packages that flow: it runs the vector search itself, seeds the
-top `chunk_id` values, expands each, and merges the results. It is the only graph entry
-point that needs no prior node identifier, and the tool descriptions point callers to it.
-
 Two traversal defaults follow from the spine not being uniformly directed —
 `(:Chunk)-[:SUPPORTS]->(:Structure)` points *into* it while
 `(:DocumentVersion)-[:CONTAINS]->(:Structure)` points down it:

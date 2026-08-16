@@ -6,10 +6,7 @@ import pytest
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.vector_search import (
-    AdvancedVectorSearchTool,
-    VectorSearchTool,
-)
+from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 from harborrag_runtime.sdk import RetrievalLane
 
 
@@ -35,7 +32,7 @@ def runtime(results: list[RetrievalResult]):
 
 
 @pytest.mark.asyncio
-async def test_normal_vector_search_uses_hybrid_without_graph_observation() -> None:
+async def test_vector_search_defaults_to_hybrid_without_graph_observation() -> None:
     harbor, retrieval = runtime([RetrievalResult("vec-1", "one", 0.95)])
 
     result = await VectorSearchTool(runtime=harbor).call(
@@ -53,12 +50,12 @@ async def test_normal_vector_search_uses_hybrid_without_graph_observation() -> N
 
 
 @pytest.mark.asyncio
-async def test_advanced_vector_search_forwards_controls_and_threshold() -> None:
+async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
     harbor, retrieval = runtime(
         [RetrievalResult("high", "alpha", 0.9), RetrievalResult("low", "beta", 0.2)]
     )
 
-    result = await AdvancedVectorSearchTool(runtime=harbor).call(
+    result = await VectorSearchTool(runtime=harbor).call(
         {
             "query": "alpha",
             "tenant_id": "demo",
@@ -79,39 +76,36 @@ async def test_advanced_vector_search_forwards_controls_and_threshold() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "tool,arguments",
+    "arguments",
     [
-        (VectorSearchTool(), {}),
-        (VectorSearchTool(), {"query": " ", "tenant_id": "demo"}),
-        (VectorSearchTool(), {"query": "x", "tenant_id": " ", "top_k": 1}),
-        (VectorSearchTool(), {"query": "x", "tenant_id": "demo", "top_k": True}),
-        (VectorSearchTool(), {"query": "x", "tenant_id": "demo", "top_k": 21}),
-        (
-            AdvancedVectorSearchTool(),
-            {"query": "x", "tenant_id": "demo", "lane": "invalid"},
-        ),
-        (
-            AdvancedVectorSearchTool(),
-            {"query": "x", "tenant_id": "demo", "filters": "invalid"},
-        ),
-        (
-            AdvancedVectorSearchTool(),
-            {"query": "x", "tenant_id": "demo", "score_threshold": True},
-        ),
+        {},
+        {"query": " ", "tenant_id": "demo"},
+        {"query": "x", "tenant_id": " ", "top_k": 1},
+        {"query": "x", "tenant_id": "demo", "top_k": True},
+        {"query": "x", "tenant_id": "demo", "top_k": 21},
+        {"query": "x", "tenant_id": "demo", "lane": "invalid"},
+        {"query": "x", "tenant_id": "demo", "filters": "invalid"},
+        {"query": "x", "tenant_id": "demo", "score_threshold": True},
     ],
 )
-async def test_vector_tools_reject_invalid_direct_inputs(tool, arguments) -> None:
-    assert (await tool.call(arguments, principal_id="subject-1"))["ok"] is False
+async def test_vector_search_rejects_invalid_direct_inputs(arguments) -> None:
+    assert (await VectorSearchTool().call(arguments, principal_id="subject-1"))["ok"] is False
 
 
-def test_vector_schemas_split_basic_and_advanced_controls() -> None:
-    normal = VectorSearchTool.spec.input_schema
-    advanced = AdvancedVectorSearchTool.spec.input_schema
+def test_vector_search_schema_exposes_all_retrieval_controls() -> None:
+    schema = VectorSearchTool.spec.input_schema
 
-    assert normal["required"] == ["query", "tenant_id"]
-    assert set(normal["properties"]) == {"query", "tenant_id", "top_k"}
-    assert {"lane", "filters", "observe_graph", "score_threshold"} <= set(advanced["properties"])
-    assert normal["properties"]["top_k"]["maximum"] == 20
+    assert schema["required"] == ["query", "tenant_id"]
+    assert {
+        "query",
+        "tenant_id",
+        "top_k",
+        "lane",
+        "filters",
+        "observe_graph",
+        "score_threshold",
+    } <= set(schema["properties"])
+    assert schema["properties"]["top_k"]["maximum"] == 20
 
 
 @pytest.mark.asyncio

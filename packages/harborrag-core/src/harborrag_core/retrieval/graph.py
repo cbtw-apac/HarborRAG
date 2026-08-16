@@ -115,43 +115,6 @@ class GraphSubgraphQuery(StrictModel):
         return self
 
 
-class GraphNeighborhoodQuery(StrictModel):
-    """Expand the graph around whatever a natural-language query retrieves.
-
-    Every other graph query needs a node selector the caller must already possess:
-    a ``node_key`` is an opaque hash, ``logical_id`` is internal, and ``title`` is unset
-    on chunk nodes and otherwise matches only in full. This query removes that
-    precondition by resolving its own seeds through the vector index, which is the one
-    component that accepts free text.
-    """
-
-    query: str = Field(min_length=1)
-    seed_limit: int = Field(default=3, ge=1, le=10)
-    relationship_types: tuple[RelationType, ...] = ()
-    max_depth: int = Field(default=2, ge=1, le=8)
-    max_nodes: int = Field(default=20, ge=1, le=100)
-    direction: GraphDirection = GraphDirection.BOTH
-
-    @model_validator(mode="after")
-    def validate_relationship_types(self) -> Self:
-        if len(set(self.relationship_types)) != len(self.relationship_types):
-            raise ValueError("neighborhood relationship types must be unique")
-        if not self.query.strip():
-            raise ValueError("neighborhood query must not be blank")
-        return self
-
-    def to_subgraph_query(self, start_node: str) -> GraphSubgraphQuery:
-        """Build the per-seed expansion that this neighborhood fans out into."""
-
-        return GraphSubgraphQuery(
-            start_node=start_node,
-            relationship_types=self.relationship_types,
-            max_depth=self.max_depth,
-            max_nodes=self.max_nodes,
-            direction=self.direction,
-        )
-
-
 def compact_node(node: GraphNodeRecord) -> dict[str, object]:
     """Project a node to the fields a caller can act on.
 

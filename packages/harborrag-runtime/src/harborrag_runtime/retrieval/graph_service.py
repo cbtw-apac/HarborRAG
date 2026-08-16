@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, cast
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborCapabilityError
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -19,23 +17,7 @@ from harborrag_engine.retrieval import (
     AuthoritativePathResult,
     AuthoritativeSubgraphResult,
     AuthoritativeTripletResult,
-    RetrievalLane,
 )
-
-from .contracts import RetrievalOptions, RuntimeRetrievalReport
-
-if TYPE_CHECKING:
-
-    class _RetrievalOwner(Protocol):
-        async def retrieve(
-            self,
-            query: str,
-            *,
-            tenant_id: str,
-            top_k: int = 10,
-            options: RetrievalOptions | None = None,
-            access: AccessContext | None = None,
-        ) -> RuntimeRetrievalReport: ...
 
 
 class RuntimeGraphRetrievalMixin:
@@ -74,29 +56,6 @@ class RuntimeGraphRetrievalMixin:
         return await self._require_graph_search().subgraph(
             query,
             context=self._graph_context(access, "graph-subgraph-search"),
-        )
-
-    async def search_graph_neighborhood(
-        self,
-        query: GraphNeighborhoodQuery,
-        *,
-        access: AccessContext,
-    ) -> tuple[tuple[str, ...], AuthoritativeSubgraphResult]:
-        """Resolve vector seeds from free text and expand their graph neighborhood."""
-
-        graph_search = self._require_graph_search()
-        report = await cast("_RetrievalOwner", self).retrieve(
-            query.query,
-            tenant_id=str(access.tenant_id),
-            top_k=query.seed_limit,
-            access=access,
-            options=RetrievalOptions(lane=RetrievalLane.HYBRID, observe_graph=False),
-        )
-        seeds = tuple(dict.fromkeys(result.id for result in report.results))
-        return seeds, await graph_search.neighborhood(
-            seeds,
-            query,
-            context=self._graph_context(access, "graph-neighborhood-search"),
         )
 
     def _require_graph_search(self) -> AuthoritativeGraphSearch:

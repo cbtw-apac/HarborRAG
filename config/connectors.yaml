@@ -10,7 +10,7 @@ connectors:
     environment:
       source_path: LOCAL_SOURCE_PATH
     settings:
-      allowed_extensions: [md, markdown, txt, pdf, docx, odt, pptx, csv, xlsx, png, jpg, jpeg]
+      allowed_extensions: [md, markdown, txt, pdf, docx, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
       excluded_extensions: []
       include_paths: []
       exclude_paths: []

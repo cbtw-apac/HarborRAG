@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean hooks
 
 help:
 	@echo "HarborRAG development targets"
@@ -11,6 +11,7 @@ help:
 	@echo "Setup:"
 	@echo "  make bootstrap        Install workspace in editable mode with dev tools"
 	@echo "  make install-dev      Alias for bootstrap"
+	@echo "  make hooks            Install git pre-commit and pre-push hooks"
 	@echo ""
 	@echo "Quality:"
 	@echo "  make test             Run all root and package-local tests"
@@ -64,7 +65,7 @@ coverage-html:
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html
 
 lint:
-	ruff format --check packages tests scripts
+	ruff format --check .
 	ruff check --ignore C901,PLR0913 .
 
 complexity:
@@ -77,8 +78,8 @@ import-boundaries:
 	lint-imports
 
 format:
-	ruff format packages tests scripts
-	ruff check --fix --ignore C901,PLR0913 packages tests scripts
+	ruff format .
+	ruff check --fix --ignore C901,PLR0913 .
 
 typecheck:
 	mypy packages
@@ -98,3 +99,6 @@ provider-matrix:
 clean:
 	find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .ruff_cache -o -name .mypy_cache -o -name htmlcov \) -prune -exec rm -rf {} +
 	find . -type f \( -name "*.pyc" -o -name ".coverage" -o -name "coverage.xml" \) -delete
+
+hooks:
+	pre-commit install -t pre-commit -t pre-push

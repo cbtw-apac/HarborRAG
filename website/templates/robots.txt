@@ -18,4 +18,4 @@ User-agent: Slurp
 Allow: /
 
 User-agent: DuckDuckBot
-Allow: / 
+Allow: /

@@ -26,6 +26,19 @@ server/base.py + server/server.py
 - Service-level tools must never expose raw database/provider access or place
   retrieved document text in descriptions.
 
+Install dependencies before running the launcher. The stdio and HTTP transports
+both configure the durable conversation memory, which runs control-plane
+database migrations via Alembic/asyncpg on startup; the retrieval tools call
+embedding providers through LiteLLM, read/write documents through the S3/MinIO
+object store, and query the Qdrant and FalkorDB backends. The `mcp` extra
+alone is not enough:
+
+```bash
+uv sync --package harborrag-mcp-server --extra mcp \
+    --package harborrag-adapters --extra control-plane --extra postgres \
+    --extra llm --extra s3 --extra qdrant --extra falkordb
+```
+
 Run the standard stdio transport:
 
 ```bash

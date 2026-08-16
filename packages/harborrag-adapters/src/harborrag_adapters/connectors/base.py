@@ -32,13 +32,15 @@ class BaseConnector(ABC):
     capabilities: ConnectorCapabilities = ConnectorCapabilities()
 
     def connect(self) -> None:
-        """Perform an optional eager connection check.
-
-        Most providers authenticate lazily during the first API request. Override
-        this only when a connector needs an explicit session setup or health
-        check before discovery starts.
-        """
+        """Perform an optional eager connection check."""
         return None
+
+    def _ensure_connected(self) -> None:
+        """Run :meth:`connect` exactly once, memoized across repeated calls."""
+        if getattr(self, "_connected", False):
+            return
+        self.connect()
+        self._connected = True
 
     def close(self) -> None:
         """Release any connector-owned resources (HTTP sessions, handles, etc.).
@@ -132,7 +134,7 @@ class BaseConnector(ABC):
         if on_error not in ("raise", "skip"):
             raise ValueError(f"Unknown on_error policy: {on_error!r}")
 
-        self.connect()
+        self._ensure_connected()
         try:
             for record in self.discover(query):
                 try:

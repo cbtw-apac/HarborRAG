@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from harborrag_adapters.chunking import RecursiveTextRefiner
@@ -38,6 +39,7 @@ from harborrag_engine.ingestion import (
     build_chunking_service,
 )
 from harborrag_runtime.config import (
+    ConnectorConfigurationError,
     connector_fingerprint,
     load_connector_catalog,
     load_parser_catalog,
@@ -69,6 +71,8 @@ from .profiles import build_processing_profile
 from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
+logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
+
 
 class IngestionRuntimeBuilder:
     """Assemble one runtime graph without performing external I/O."""
@@ -96,7 +100,7 @@ class IngestionRuntimeBuilder:
         )
         parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
         rate_limiter = self._rate_limiter(telemetry)
-        connectors, connector_fingerprints = self._connectors(
+        connectors, connector_fingerprints, connector_errors = self._connectors(
             attachment_parser=parser,
             rate_limiter=rate_limiter,
         )
@@ -167,6 +171,7 @@ class IngestionRuntimeBuilder:
         return IngestionRuntime(
             connectors=connectors,
             connector_fingerprints=connector_fingerprints,
+            connector_errors=connector_errors,
             processing=build_processing_profile(settings),
             control=control,
             documents=documents,
@@ -211,32 +216,40 @@ class IngestionRuntimeBuilder:
         *,
         attachment_parser: HarborParserRegistry,
         rate_limiter: ConnectorRateLimiter,
-    ) -> tuple[dict[str, BaseConnector | HarborConnector], dict[str, str]]:
+    ) -> tuple[
+        dict[str, BaseConnector | HarborConnector],
+        dict[str, str],
+        dict[str, ConnectorConfigurationError],
+    ]:
         catalog = load_connector_catalog(self._settings.connector_config_path)
         names = catalog.names(enabled_only=True)
         dependencies = {
             "attachment_parser": attachment_parser,
             "rate_limiter": rate_limiter,
         }
-        connectors: dict[str, BaseConnector | HarborConnector] = {
-            name: catalog.build(
-                name,
-                connector_kwargs=self._connector_kwargs(
-                    catalog.get(name).provider,
-                    dependencies,
-                ),
-            )
-            for name in names
-        }
-        fingerprints = {
-            name: connector_fingerprint(
+        connectors: dict[str, BaseConnector | HarborConnector] = {}
+        fingerprints: dict[str, str] = {}
+        errors: dict[str, ConnectorConfigurationError] = dict(catalog.errors)
+        for name in names:
+            definition = catalog.get(name)
+            connector_kwargs = self._connector_kwargs(definition.provider, dependencies)
+            try:
+                connectors[name] = catalog.build(name, connector_kwargs=connector_kwargs)
+            except ConnectorConfigurationError as exc:
+                logger.warning(
+                    "Connector %r configuration is invalid; it will remain "
+                    "unavailable until fixed and other connectors are unaffected: %s",
+                    name,
+                    exc,
+                )
+                errors[name] = exc
+                continue
+            fingerprints[name] = connector_fingerprint(
                 catalog_version=catalog.version,
-                definition=catalog.get(name),
+                definition=definition,
                 environment=os.environ,
             )
-            for name in names
-        }
-        return connectors, fingerprints
+        return connectors, fingerprints, errors
 
     @staticmethod
     def _connector_kwargs(

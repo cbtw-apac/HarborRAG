@@ -9,7 +9,6 @@ from typing import Protocol
 from pydantic_core import to_jsonable_python
 
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -17,7 +16,6 @@ from harborrag_core.retrieval import (
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import (
-    GraphNeighborhoodRequest,
     GraphPathRequest,
     GraphSubgraphRequest,
     GraphTripletRequest,
@@ -94,27 +92,6 @@ class GraphRetrievalService:
                 GraphSubgraphRequest(access=access, query=query)
             ),
             payload=lambda response: {
-                "nodes": to_jsonable_python(response.nodes),
-                "relations": to_jsonable_python(response.relations),
-            },
-            principal_id=principal_id,
-        )
-
-    async def neighborhood(
-        self,
-        query: GraphNeighborhoodQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._query(
-            label="neighborhood",
-            tenant_id=tenant_id,
-            operation=lambda access: self._runtime().graph.neighborhood(
-                GraphNeighborhoodRequest(access=access, query=query)
-            ),
-            payload=lambda response: {
-                "seeds": list(response.seeds),
                 "nodes": to_jsonable_python(response.nodes),
                 "relations": to_jsonable_python(response.relations),
             },

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from enum import StrEnum
 from time import perf_counter
 from types import TracebackType
 from typing import Any, Literal, Self
@@ -20,51 +19,14 @@ from harborrag_adapters.models.runtime import (
 
 from .connector_metrics import connector_metric_label
 from .discovery_metrics import DiscoveryMetrics
+from .observability_types import (
+    ArtifactMetricKind,
+    ChunkMetricKind,
+    DocumentMetricOutcome,
+    IngestionStage,
+)
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
-
-
-class IngestionStage(StrEnum):
-    DISCOVERY = "discovery"
-    FETCH = "fetch"
-    PARSE_NORMALIZE = "parse_normalize"
-    CONTENT_SYNC = "content_sync"
-    CANONICAL_PERSIST = "canonical_persist"
-    CHUNK = "chunk"
-    ENCODE = "encode"
-    RELATION_BUILD = "relation_build"
-    PROJECTION_BUILD = "projection_build"
-    QDRANT_WRITE = "qdrant_write"
-    FALKORDB_WRITE = "falkordb_write"
-    VERIFICATION = "verification"
-    PUBLICATION = "publication"
-    FAILURE_CAPTURE = "failure_capture"
-    FINALIZATION = "finalization"
-    CANCELLATION = "cancellation"
-    CLEANUP = "cleanup"
-    RELATION_REPAIR = "relation_repair"
-    REINDEX = "reindex"
-
-
-class DocumentMetricOutcome(StrEnum):
-    DISCOVERED = "discovered"
-    ADMITTED = "admitted"
-    SKIPPED = "skipped"
-    ACTIVATED = "activated"
-    FAILED = "failed"
-    REPLAYED = "replayed"
-
-
-class ArtifactMetricKind(StrEnum):
-    RAW = "raw"
-    CANONICAL = "canonical"
-
-
-class ChunkMetricKind(StrEnum):
-    ROUTE = "route"
-    EVIDENCE = "evidence"
-    TABLE = "table"
-    REJECTED = "rejected"
 
 
 class IngestionTelemetry:
@@ -153,6 +115,24 @@ class IngestionTelemetry:
             "Stale vector candidates rejected by Postgres active-version validation.",
             registry=self.registry,
         )
+        self._temporal_queue_depth = Gauge(
+            "harborrag_temporal_task_queue_depth",
+            "Best-effort Temporal backlog depth by task queue.",
+            ("task_queue",),
+            registry=self.registry,
+        )
+        self._temporal_worker_slots = Gauge(
+            "harborrag_temporal_worker_slots",
+            "Configured Temporal worker activity slots per task queue.",
+            ("task_queue",),
+            registry=self.registry,
+        )
+        self._temporal_worker_slot_saturation = Gauge(
+            "harborrag_temporal_worker_slot_saturation",
+            "Best-effort activity slot saturation ratio by task queue.",
+            ("task_queue",),
+            registry=self.registry,
+        )
 
     async def start(self) -> None:
         """Expose this process's registry when a metrics port is configured."""
@@ -229,6 +209,27 @@ class IngestionTelemetry:
     def record_stale_candidate_rejections(self, count: int) -> None:
         if count > 0:
             self._stale_rejections.inc(count)
+
+    def record_temporal_queue_depth(self, task_queue: str, depth: int | None) -> None:
+        value = float(depth) if depth is not None else float("nan")
+        self._temporal_queue_depth.labels(task_queue=task_queue).set(value)
+
+    def record_temporal_worker_slots(self, task_queue: str, slots: int) -> None:
+        self._temporal_worker_slots.labels(task_queue=task_queue).set(max(1, slots))
+
+    def record_temporal_worker_slot_saturation(
+        self,
+        task_queue: str,
+        *,
+        slots: int,
+        depth: int | None,
+    ) -> None:
+        if depth is None:
+            value = float("nan")
+        else:
+            normalized_slots = max(1, slots)
+            value = min(1.0, max(0.0, depth / normalized_slots))
+        self._temporal_worker_slot_saturation.labels(task_queue=task_queue).set(value)
 
     def record_rate_limit_wait(
         self,

@@ -135,6 +135,50 @@ class NoExtractableTextError(ParseError):
         self.page_count = page_count
 
 
+class MaxPixelsExceededError(ParseError):
+    """Raised when a decoded image's pixel count exceeds a configured engine limit.
+
+    See :class:`MaxPagesExceededError` for why this stays a distinct type
+    instead of a generic :class:`ParseError` string.
+    """
+
+    def __init__(
+        self, *, width: int, height: int, max_pixels: int, filename: str | None = None
+    ) -> None:
+        pixel_count = width * height
+        suffix = f" (file={filename!r})" if filename else ""
+        super().__init__(
+            f"Image {width}x{height} ({pixel_count} pixels) exceeds max_pixels "
+            f"{max_pixels}{suffix}."
+        )
+        self.width = width
+        self.height = height
+        self.pixel_count = pixel_count
+        self.max_pixels = max_pixels
+        self.filename = filename
+
+
+class UnreadableImageError(ParseError):
+    """Raised when Pillow cannot identify or decode bytes as any supported
+    image format (corrupt, truncated, empty-after-header, or not actually an
+    image despite its extension/content type).
+
+    Distinct from a genuine OCR-engine failure on a valid, decoded image --
+    that case already raises through the generic exception path below with
+    the underlying engine's own message. Pillow's ``UnidentifiedImageError``
+    carries a `<_io.BytesIO object at 0x...>` repr instead of any detail
+    about the file, so it must be replaced rather than just re-wrapped.
+    """
+
+    def __init__(self, *, filename: str | None, size_bytes: int) -> None:
+        super().__init__(
+            f"Cannot decode {filename or 'image'} ({size_bytes} bytes) as a supported "
+            "image format; the file may be corrupt, truncated, or not actually an image."
+        )
+        self.filename = filename
+        self.size_bytes = size_bytes
+
+
 class EncryptedPdfError(ParseError):
     """Raised when a PDF is password-protected and cannot be decoded.
 

@@ -60,6 +60,7 @@ class IngestionRuntime:
     embed_client: HarborEmbedClient
     connector_rate_limiter: ConnectorRateLimiter
     telemetry: IngestionTelemetry
+    connector_errors: Mapping[str, ConnectorConfigurationError] = field(default_factory=dict)
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:
@@ -152,6 +153,8 @@ class IngestionRuntime:
         *,
         configuration_fingerprint: str | None = None,
     ) -> BaseConnector | HarborConnector:
+        if name in self.connector_errors:
+            raise self.connector_errors[name]
         try:
             connector = self.connectors[name]
         except KeyError as error:

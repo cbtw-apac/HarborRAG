@@ -51,10 +51,13 @@ class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
             read_parse_input_bytes,
         )
 
-        text = _parse_image_with_rapidocr(
-            read_parse_input_bytes(parse_input),
-            parse_input_suffix(parse_input),
-        )
+        try:
+            text = _parse_image_with_rapidocr(
+                read_parse_input_bytes(parse_input),
+                parse_input_suffix(parse_input),
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(f"{exc} (file={parse_input.filename!r})") from exc
         elements = (
             [
                 DocumentElement(
@@ -124,6 +127,30 @@ def _rapidocr_engine():
 def _parse_image_with_rapidocr(content: bytes, extension: str) -> str:
     """Extract ordered text lines from one image with RapidOCR."""
     _ = extension
-    result = _rapidocr_engine()(content)
+    if not content:
+        return ""
+
+    try:
+        result = _rapidocr_engine()(content)
+    except Exception as exc:
+        # RapidOCR decodes internally via its own unguarded `Image.open()`,
+        # whose failure carries a raw `<_io.BytesIO object at 0x...>` repr
+        # with no detail about the file -- classify it instead of letting it
+        # escape as-is. Import lazily: this only runs on a decode failure,
+        # so tests that mock `_rapidocr_engine` never reach this branch.
+        from PIL import Image
+
+        if isinstance(exc, Image.DecompressionBombError):
+            raise RuntimeError(
+                f"Image OCR failed ({len(content)} bytes): exceeds Pillow's "
+                f"decompression-bomb pixel limit: {exc}"
+            ) from exc
+        if isinstance(exc, Image.UnidentifiedImageError):
+            raise RuntimeError(
+                f"Image OCR failed ({len(content)} bytes): cannot decode as a supported "
+                "image format; the file may be corrupt, truncated, or not actually an image."
+            ) from exc
+        raise
+
     texts = getattr(result, "txts", None) or ()
     return "\n".join(str(text).strip() for text in texts if str(text).strip())

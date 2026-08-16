@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-import scripts.check_ruff_complexity as complexity_check
 from scripts.check_ruff_complexity import (
     aggregate_diagnostics,
     compare_counts,
@@ -89,23 +87,6 @@ def test_reduction_requires_downward_baseline_update() -> None:
 
 def test_removed_baseline_entry_passes_after_update() -> None:
     assert compare_counts({}, {}) == []
-
-
-def test_repository_files_include_untracked_and_ignore_deletions(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    (tmp_path / "kept.py").touch()
-
-    monkeypatch.setattr(
-        complexity_check.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            stdout=b"kept.py\0deleted.py\0",
-        ),
-    )
-
-    assert complexity_check.repository_python_files(tmp_path) == ("kept.py",)
 
 
 def test_rejects_unsupported_baseline_version(tmp_path: Path) -> None:

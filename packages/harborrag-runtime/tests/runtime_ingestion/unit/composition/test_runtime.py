@@ -17,6 +17,7 @@ def test_runtime_rejects_submission_worker_connector_drift() -> None:
     runtime = object.__new__(IngestionRuntime)
     runtime.connectors = {"docs": connector}  # type: ignore[assignment]
     runtime.connector_fingerprints = {"docs": "connector-current"}
+    runtime.connector_errors = {}
 
     assert (
         runtime.connector(
@@ -30,6 +31,19 @@ def test_runtime_rejects_submission_worker_connector_drift() -> None:
             "docs",
             configuration_fingerprint="connector-stale",
         )
+
+
+def test_runtime_raises_stored_error_for_a_connector_that_failed_to_build() -> None:
+    working_connector = object()
+    stored_error = ConnectorConfigurationError("Connector 'broken' is invalid: missing token")
+    runtime = object.__new__(IngestionRuntime)
+    runtime.connectors = {"docs": working_connector}  # type: ignore[assignment]
+    runtime.connector_fingerprints = {"docs": "connector-current"}
+    runtime.connector_errors = {"broken": stored_error}
+
+    assert runtime.connector("docs") is working_connector
+    with pytest.raises(ConnectorConfigurationError, match="missing token"):
+        runtime.connector("broken")
 
 
 @pytest.mark.asyncio

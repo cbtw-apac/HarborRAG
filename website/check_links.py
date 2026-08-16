@@ -44,9 +44,7 @@ class LinkChecker:
                 # Drop the filename, keep the directory
                 path = path.rsplit("/", 1)[0] or "/"
         # Ensure prefix always starts with "/" and has no trailing slash ("/website/site")
-        self.base_path_prefix = (path if path.startswith("/") else "/" + path).rstrip(
-            "/"
-        ) or "/"
+        self.base_path_prefix = (path if path.startswith("/") else "/" + path).rstrip("/") or "/"
         # Derive site root prefix from the first path segment (e.g., "/site" from "/site/docs")
         segments = [seg for seg in self.base_path_prefix.split("/") if seg]
         if segments:
@@ -109,10 +107,7 @@ class LinkChecker:
             # Absolute root links -> prefix with site root path (e.g., /docs/ -> /site/docs/)
             if link.startswith("/"):
                 # If the link already includes the full base path prefix, keep as-is
-                if (
-                    link.startswith(self.base_path_prefix + "/")
-                    or link == self.base_path_prefix
-                ):
+                if link.startswith(self.base_path_prefix + "/") or link == self.base_path_prefix:
                     return f"{self.base_scheme}://{self.base_netloc}{link}"
                 # Otherwise, join with the site root prefix so /docs -> /site/docs on local dev
                 if self.site_root_prefix == "/":
@@ -120,9 +115,7 @@ class LinkChecker:
                 return f"{self.base_scheme}://{self.base_netloc}{self.site_root_prefix}{link}"
             # Relative link
             base_dir = (
-                current_url
-                if current_url.endswith("/")
-                else current_url.rsplit("/", 1)[0] + "/"
+                current_url if current_url.endswith("/") else current_url.rsplit("/", 1)[0] + "/"
             )
             return urljoin(base_dir, link)
 
@@ -202,9 +195,7 @@ class LinkChecker:
                             }
                         )
                         self.broken_links[url].append(link)
-                        print(
-                            f"{'  ' * depth}❌ BROKEN: {link} ({status_code}: {reason})"
-                        )
+                        print(f"{'  ' * depth}❌ BROKEN: {link} ({status_code}: {reason})")
                     elif status_code >= 300:
                         print(f"{'  ' * depth}🔄 REDIRECT: {link} ({status_code})")
                     else:
@@ -276,9 +267,7 @@ def main():
         "--url", default="http://127.0.0.1:3000/website/site", help="Base URL to check"
     )
     parser.add_argument("--depth", type=int, default=3, help="Maximum crawl depth")
-    parser.add_argument(
-        "--external", action="store_true", help="Also check external links"
-    )
+    parser.add_argument("--external", action="store_true", help="Also check external links")
 
     args = parser.parse_args()
 

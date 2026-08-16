@@ -52,7 +52,7 @@ def _checkpoint(  # noqa: PLR0913 - test helper covers every checkpoint field ex
             AgentToolExecution(
                 step=1,
                 call_id="call-1",
-                tool="vector_search_advanced",
+                tool="vector_search",
                 ok=True,
                 arguments_digest="deadbeef",
             ),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from http.client import HTTPResponse
@@ -11,6 +11,8 @@ from typing import Protocol
 from urllib.parse import ParseResult, urlparse
 
 from harborrag_core.security.redaction import redact_secrets
+
+from ..exceptions import AuthenticationError, FetchError
 
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -46,6 +48,53 @@ def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT
     if len(text) > limit:
         return f"{text[:limit]}… (truncated)"
     return text
+
+
+def summarize_provider_error(exc: Exception) -> str:
+    """Reduce a connector exception to one diagnostic line for re-raising.
+
+    Prefers the exception's raw provider ``detail`` (set on `FetchError`) over
+    `str(exc)`, since some call sites format the latter with a redundant
+    "request failed with HTTP ..." prefix. If that detail is a JSON error
+    body -- as Confluence's often is -- pulls just its ``message`` field so
+    callers see a sentence instead of a raw envelope; anything that isn't a
+    JSON object with a string ``message`` (a different shape, or truncation
+    cutting the JSON short) falls back to the raw detail unchanged.
+    """
+    detail = getattr(exc, "detail", None)
+    detail = detail if isinstance(detail, str) and detail else str(exc)
+    try:
+        payload = json.loads(detail)
+    except ValueError:
+        return detail
+    if not isinstance(payload, dict):
+        return detail
+    message = payload.get("message")
+    return message if isinstance(message, str) and message.strip() else detail
+
+
+def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
+    """Run a cheap authenticated probe and normalize how it fails.
+
+    A bad credential otherwise reaches the caller as a bare, un-prefixed
+    provider message (raised deep in the shared HTTP client), and some
+    deployments reject it with 403 instead of 401. Both branches re-raise
+    through the same message template so every connector's ``connect()``
+    reports a bad credential the same way regardless of provider or status
+    code.
+    """
+    try:
+        probe()
+    except AuthenticationError as exc:
+        raise AuthenticationError(
+            f"{provider} authentication failed: {summarize_provider_error(exc)}"
+        ) from exc
+    except FetchError as exc:
+        if exc.status_code == 403:
+            raise AuthenticationError(
+                f"{provider} authentication failed: {summarize_provider_error(exc)}"
+            ) from exc
+        raise
 
 
 def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:

@@ -230,6 +230,35 @@ def test_csv_parser_skips_and_warns_on_field_count_mismatch(caplog):
     assert "expected 2 fields, found 1" in caplog.text
 
 
+def test_csv_parser_quarantines_single_bad_row_in_real_world_fixture():
+    """Row 9003 has an invalid UTF-8 continuation byte; the other four data
+    rows are well-formed. Before per-row decoding, whole-file encoding
+    detection would drop confidence on the one bad row and reject the
+    entire file with `TextDecodingError`, losing every well-formed row
+    with it.
+    """
+    content = (
+        b"OrderID,CustomerName,OrderDate,Amount\n"
+        b"9001,Nguyen Van A,2026-06-01,129.50\n"
+        b"9002,Tran Thi B,2026-06-02,89.00\n"
+        b"9003,Tr\xe1n Th\xe1 C,2026-06-03,245.75\n"
+        b"9004,Pham Thi D,2026-06-04,15.20\n"
+        b"9005,Hoang Van E,2026-06-05,310.00\n"
+    )
+    document = CsvParser().parse(ParseInput(content=content, filename="csv_bad_encoding_row.csv"))
+
+    assert document.content == (
+        "OrderID\tCustomerName\tOrderDate\tAmount\n"
+        "9001\tNguyen Van A\t2026-06-01\t129.50\n"
+        "9002\tTran Thi B\t2026-06-02\t89.00\n"
+        "9004\tPham Thi D\t2026-06-04\t15.20\n"
+        "9005\tHoang Van E\t2026-06-05\t310.00"
+    )
+    assert document.metadata["rows"] == 5
+    assert document.warnings and "line 4" in document.warnings[0]
+    assert "invalid UTF-8" in document.warnings[0]
+
+
 def test_json_parser_flattens_jsonpath_lines_and_keeps_raw_json_only():
     document = JsonParser().parse(
         ParseInput(content='{"name": "Ada", "nested": {"k": 1}}', filename="d.json")

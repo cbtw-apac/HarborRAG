@@ -1,4 +1,4 @@
-"""Basic and advanced vector retrieval tools."""
+"""Tenant-scoped vector retrieval tool."""
 
 from __future__ import annotations
 
@@ -37,61 +37,11 @@ def _results(response: RetrievalResponse, threshold: float = 0.0) -> list[dict[s
 
 @dataclass(slots=True)
 class VectorSearchTool(BaseMcpTool):
-    """Simple hybrid vector search with a deliberately small input surface."""
-
-    runtime: HarborRAG | None = None
-    spec = McpToolSpec(
-        "vector_search",
-        "Search tenant-scoped vectors with the default hybrid retrieval policy.",
-        {
-            "type": "object",
-            "required": ["query", "tenant_id"],
-            "properties": {
-                "query": {"type": "string", "minLength": 1},
-                "tenant_id": TENANT_PROPERTY,
-                "top_k": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": _MAX_TOP_K,
-                    "default": _DEFAULT_TOP_K,
-                },
-            },
-            "additionalProperties": False,
-        },
-    )
-
-    async def call(
-        self,
-        arguments: dict[str, object],
-        *,
-        principal_id: str,
-    ) -> dict[str, object]:
-        try:
-            request = RetrievalRequest(
-                access=access(arguments, principal_id),
-                query=text(arguments, "query"),
-                top_k=integer(
-                    arguments,
-                    "top_k",
-                    _DEFAULT_TOP_K,
-                    minimum=1,
-                    maximum=_MAX_TOP_K,
-                ),
-                lane=RetrievalLane.HYBRID,
-                observe_graph=False,
-            )
-        except (HarborValidationError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
-        return await _search(self.runtime, request)
-
-
-@dataclass(slots=True)
-class AdvancedVectorSearchTool(BaseMcpTool):
     """Vector search with explicit lane, filters, graph observation, and threshold."""
 
     runtime: HarborRAG | None = None
     spec = McpToolSpec(
-        "vector_search_advanced",
+        "vector_search",
         "Search tenant-scoped vectors with explicit retrieval controls.",
         {
             "type": "object",

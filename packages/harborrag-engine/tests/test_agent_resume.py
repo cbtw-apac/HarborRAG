@@ -32,7 +32,7 @@ async def test_agent_emits_lifecycle_events_in_order() -> None:
     tools = Tools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search_advanced", '{"query":"x"}')),
+            _response(call=("call-1", "vector_search", '{"query":"x"}')),
             _response(text="final answer"),
         ]
     )
@@ -86,7 +86,7 @@ async def test_agent_resume_continues_from_last_checkpoint() -> None:
                     HarborToolCall(
                         id="call-1",
                         function=HarborToolCallFunction(
-                            name="vector_search_advanced",
+                            name="vector_search",
                             arguments='{"query":"x"}',
                             parsed_arguments={"query": "x"},
                         ),
@@ -96,14 +96,14 @@ async def test_agent_resume_continues_from_last_checkpoint() -> None:
             HarborChatMessage.tool(
                 json.dumps({"ok": True}),
                 tool_call_id="call-1",
-                name="vector_search_advanced",
+                name="vector_search",
             ),
         ),
         executions=(
             AgentToolExecution(
                 step=1,
                 call_id="call-1",
-                tool="vector_search_advanced",
+                tool="vector_search",
                 ok=True,
                 arguments_digest=prior_digest,
             ),

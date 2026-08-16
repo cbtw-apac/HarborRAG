@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping
 
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -167,15 +166,6 @@ class BaseAppService(ABC):
     async def retrieve_graph_subgraph(
         self,
         query: GraphSubgraphQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        raise NotImplementedError
-
-    async def retrieve_graph_neighborhood(
-        self,
-        query: GraphNeighborhoodQuery,
         *,
         tenant_id: str,
         principal_id: str,

@@ -13,7 +13,6 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
@@ -255,51 +254,6 @@ async def test_subgraph_reports_truncation_when_active_nodes_were_cut() -> None:
     assert len(result.graph.nodes) == 1
     assert result.graph.truncated is True
     assert result.diagnostics.projection_truncated is True
-
-
-@pytest.mark.asyncio
-async def test_neighborhood_merges_seed_expansions_without_duplicates() -> None:
-    class CountingRepository(Repository):
-        def __init__(self) -> None:
-            super().__init__()
-            self.seeds: list[str] = []
-
-        async def expand_subgraph(self, query, *, context):
-            del context
-            self.seeds.append(query.start_node)
-            active = triplet("version-active")
-            return KnowledgeGraphTraversal(
-                nodes=(active.subject, active.object),
-                relations=(active.predicate,),
-            )
-
-    repository = CountingRepository()
-    search = AuthoritativeGraphSearch(repository, ActiveVersions())  # type: ignore[arg-type]
-
-    result = await search.neighborhood(
-        ("chunk:a", "chunk:b"),
-        GraphNeighborhoodQuery(query="anything"),
-        context=StorageOperationContext.system("tenant-1"),
-    )
-
-    assert repository.seeds == ["chunk:a", "chunk:b"]
-    # Both seeds expand into the same two nodes; the merge must not double them.
-    assert len(result.graph.nodes) == 2
-    assert len(result.graph.relations) == 1
-
-
-@pytest.mark.asyncio
-async def test_neighborhood_without_seeds_returns_an_empty_graph() -> None:
-    search = AuthoritativeGraphSearch(Repository(), ActiveVersions())  # type: ignore[arg-type]
-
-    result = await search.neighborhood(
-        (),
-        GraphNeighborhoodQuery(query="nothing matches"),
-        context=StorageOperationContext.system("tenant-1"),
-    )
-
-    assert result.graph.nodes == ()
-    assert result.diagnostics.accepted_count == 0
 
 
 def test_path_search_defaults_to_an_undirected_walk() -> None:

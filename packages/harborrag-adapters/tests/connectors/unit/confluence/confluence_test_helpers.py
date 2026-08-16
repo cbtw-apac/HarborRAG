@@ -16,6 +16,7 @@ class FakeConfluenceClient:
         self.responses: dict[str, list[dict[str, Any]]] = {}
         self.downloads: dict[str, bytes] = {}
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.responses["user/current"] = [{"accountId": "fake-user"}]
 
     def add(self, endpoint: str, *responses: dict[str, Any]) -> None:
         self.responses.setdefault(endpoint, []).extend(responses)
