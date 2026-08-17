@@ -5,6 +5,7 @@ from pydantic import SecretStr, ValidationError
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.errors import RuntimeConfigurationError
 
 
 def test_default_tenant_is_operator_readable() -> None:
@@ -46,12 +47,13 @@ def test_temporal_worker_capacity_is_configurable_and_cannot_overcommit_pool() -
     assert worker.max_concurrent_workflow_polls == 3
     assert worker.graceful_shutdown_seconds == 45
 
-    with pytest.raises(ValidationError, match="exceeds the control database pool"):
-        RuntimeSettings(
-            control_db_pool_size=5,
-            control_db_max_overflow=0,
-            temporal_max_concurrent_activities=2,
-        )
+    constrained = RuntimeSettings(
+        control_db_pool_size=5,
+        control_db_max_overflow=0,
+        temporal_max_concurrent_activities=2,
+    )
+    with pytest.raises(RuntimeConfigurationError, match="exceeds the control database pool"):
+        TemporalRuntimeConfig.from_settings(constrained)
 
 
 def test_redis_url_is_secret_and_accepts_tls_scheme() -> None:

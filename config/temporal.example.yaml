@@ -1,0 +1,67 @@
+# HarborRAG Temporal runtime configuration reference.
+#
+# Copy the settings you need into config/temporal.yaml. The active file is
+# loaded by API, CLI, and worker processes. Explicit HARBORRAG_TEMPORAL_*
+# environment variables override YAML values; secrets must remain in the
+# ignored env/.env.temporal file or an external secret manager.
+version: 1
+
+connection:
+  # Use the Temporal gRPC frontend as a plain host:port authority. Host
+  # commands normally use localhost:7233; never use http(s):// or the Web UI
+  # at localhost:8080. Compose overrides this with temporal:7233.
+  target: localhost:7233
+  namespace: harborrag
+  # Client identity shown in Temporal event history. Set null to let the SDK
+  # choose an identity; the worker has a separate identity below.
+  identity: harborrag-runtime
+  # Plaintext remote connections are rejected unless this development-only
+  # acknowledgement is true. Production and Temporal Cloud should use TLS.
+  allow_insecure_remote: false
+  tls:
+    enabled: false
+    # Optional TLS server-name override. Leave null to use the target host.
+    domain: null
+
+worker:
+  identity: harborrag-runtime
+  # One process creates one worker for each of the six task queues. Keep
+  # queue_count * max_concurrent_activities no greater than the control DB
+  # pool size plus overflow.
+  max_concurrent_activities: 2
+  max_concurrent_workflow_tasks: 4
+  max_concurrent_activity_polls: 2
+  max_concurrent_workflow_polls: 2
+  graceful_shutdown_seconds: 30
+
+task_queues:
+  # Names must be non-empty and unique. Drain active workflows before
+  # renaming a queue: existing executions retain the old routing snapshot.
+  discovery: harborrag-discovery
+  transform: harborrag-transform
+  io: harborrag-io
+  parser: harborrag-parser
+  model: harborrag-model
+  index: harborrag-index
+
+retries:
+  # maximum_attempts counts the initial execution, so 8 means one initial
+  # attempt plus at most 7 retries.
+  discovery:
+    initial_interval_seconds: 2
+    backoff_coefficient: 2
+    maximum_interval_seconds: 60
+    maximum_attempts: 8
+  document:
+    initial_interval_seconds: 2
+    backoff_coefficient: 2
+    maximum_interval_seconds: 120
+    maximum_attempts: 5
+
+workflow:
+  execution_timeout_seconds: 2592000  # 30 days
+  task_timeout_seconds: 10
+
+health:
+  # Deadline used by API/CLI/worker readiness checks.
+  timeout_seconds: 5

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from harborrag_runtime.ingestion.limits import validate_reindex_limit
+from harborrag_runtime.temporal_models import TemporalWorkflowOptions
+
 from .schemas import ProcessingProfileInput
 
 
@@ -48,12 +51,12 @@ class ReindexInput:
     processing: ProcessingProfileInput
     document_id: str | None = None
     limit: int = 10_000
+    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
 
     def __post_init__(self) -> None:
         if not self.reindex_job_id.strip() or not self.tenant_id.strip():
             raise ValueError("reindex identities must be non-empty")
-        if not 1 <= self.limit <= 100_000:
-            raise ValueError("reindex limit must be between 1 and 100000")
+        validate_reindex_limit(self.limit)
 
 
 @dataclass(frozen=True, slots=True)

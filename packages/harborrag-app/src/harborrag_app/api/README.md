@@ -303,8 +303,11 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Server-owned wall-clock deadline for expensive requests |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
 | `HARBORRAG_INGESTION_TENANT_ID` | `DEFAULT` | Fallback tenant for non-HTTP runtime operations |
-| `HARBORRAG_TEMPORAL_TARGET` | `localhost:7233` | Temporal frontend address |
-| `HARBORRAG_TEMPORAL_NAMESPACE` | `harborrag` | Temporal namespace |
+| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health, and workflow configuration |
+| `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
+| `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional Temporal namespace override |
+| `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
+| `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
 | `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Explicit opt-in for trusted plaintext remote targets |
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
 

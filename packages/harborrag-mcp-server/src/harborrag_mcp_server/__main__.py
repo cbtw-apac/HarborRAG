@@ -61,9 +61,9 @@ def _configure_registry(registry: McpServer, path: str) -> McpConfigurationStore
 
 
 def _configured_memory(settings: RuntimeSettings) -> ConversationRepository:
-    from harborrag_runtime.memory import DatabaseConversationMemory
+    from harborrag_runtime.memory import build_database_conversation_memory
 
-    return DatabaseConversationMemory.configured(settings)
+    return build_database_conversation_memory(settings)
 
 
 async def _check_protocol(transport: FastMCP[Any]) -> list[str]:

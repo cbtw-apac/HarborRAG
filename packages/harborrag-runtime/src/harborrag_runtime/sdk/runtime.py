@@ -12,8 +12,8 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse, HarborChatStreamChunk
 from harborrag_engine.retrieval import RetrievalLane
 
-from .chat import ChatFacade, ChatPrompt, RuntimeChatService
-from .contracts import (
+from ..chat import ChatFacade, ChatPrompt, RuntimeChatService
+from ..contracts import (
     ExecutionMode,
     GraphPathRequest,
     GraphPathResponse,
@@ -28,13 +28,13 @@ from .contracts import (
     RetrievalRequest,
     RetrievalResponse,
 )
-from .execution import IngestionExecutor, build_ingestion_executor
-from .execution.contracts import DurableIngestionExecutor
-from .sdk_configuration import HarborRAGConfig
-from .sdk_facades import GraphFacade, IngestionFacade, RetrievalFacade
+from ..execution import IngestionExecutor, build_ingestion_executor
+from ..execution.contracts import DurableIngestionExecutor
+from .configuration import HarborRAGConfig
+from .facades import GraphFacade, IngestionFacade, RetrievalFacade
 
 if TYPE_CHECKING:
-    from .retrieval import RuntimeRetrievalService
+    from ..retrieval import RuntimeRetrievalService
 
 
 class HarborRAG:
@@ -67,7 +67,7 @@ class HarborRAG:
         if self._executor is not None:
             return
         if self.config.discover_plugins:
-            from .plugins import discover_runtime_plugins
+            from ..plugins import discover_runtime_plugins
 
             discover_runtime_plugins()
         self._executor = build_ingestion_executor(
@@ -119,7 +119,7 @@ class HarborRAG:
             return self._retrieval
         async with self._retrieval_lock:
             if self._retrieval is None:
-                from .retrieval_factory import connect_retrieval_service
+                from ..retrieval.composition import connect_retrieval_service
 
                 self._retrieval = await connect_retrieval_service(self.config.runtime)
         return self._retrieval

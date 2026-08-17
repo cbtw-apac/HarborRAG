@@ -14,11 +14,7 @@ from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult
 from .policies import (
-    DISCOVERY_QUEUE,
-    DISCOVERY_RETRY,
-    DOCUMENT_RETRY,
-    INDEX_QUEUE,
-    TRANSFORM_QUEUE,
+    temporal_retry_policy,
 )
 from .schemas import (
     DocumentDispatchSummary,
@@ -32,9 +28,6 @@ from .schemas import (
     SourceIngestionResult,
     SourceIngestionStatus,
 )
-from .source_batch_workflow import SourceBatchWorkflow
-
-__all__ = ["SourceBatchWorkflow", "SourceIngestionWorkflow"]
 
 
 @workflow.defn(name="harborrag.source_ingestion")
@@ -109,13 +102,13 @@ class SourceIngestionWorkflow:
                     plan_reference=discovery.plan_reference,
                     summary=self._summary,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=request.workflow_options.task_queues.discovery,
                 start_to_close_timeout=timedelta(minutes=15),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                 result_type=SourceIngestionResult,
             )
         except asyncio.CancelledError:
-            await self._record_hard_cancellation(request.task_id)
+            await self._record_hard_cancellation(request)
             raise
         except (ActivityError, ChildWorkflowError) as error:
             # A child batch, or finalization itself, can exhaust its retries
@@ -130,9 +123,9 @@ class SourceIngestionWorkflow:
                     task_id=request.task_id,
                     error_code=error_code,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=request.workflow_options.task_queues.discovery,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
         self._status = result.status
@@ -157,7 +150,7 @@ class SourceIngestionWorkflow:
         try:
             return await self._discover(request), 0
         except asyncio.CancelledError:
-            await self._record_hard_cancellation(request.task_id)
+            await self._record_hard_cancellation(request)
             raise
 
     async def _run_batch(
@@ -178,9 +171,10 @@ class SourceIngestionWorkflow:
                 end_index=end,
                 batch_number=self._batch_number,
                 document_concurrency=request.document_concurrency,
+                workflow_options=request.workflow_options,
             ),
             id=(f"harborrag-source-batch:{request.task_id}:{self._batch_number}"),
-            task_queue=TRANSFORM_QUEUE,
+            task_queue=request.workflow_options.task_queues.transform,
             result_type=DocumentDispatchSummary,
             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
         )
@@ -198,13 +192,13 @@ class SourceIngestionWorkflow:
         return cast(DocumentDispatchSummary, await batch_future), True
 
     @staticmethod
-    async def _record_hard_cancellation(task_id: str) -> None:
+    async def _record_hard_cancellation(request: SourceIngestionInput) -> None:
         cleanup = workflow.execute_activity(
             "harborrag.cancel_source_ingestion",
-            SourceCancellationInput(task_id=task_id),
-            task_queue=DISCOVERY_QUEUE,
+            SourceCancellationInput(task_id=request.task_id),
+            task_queue=request.workflow_options.task_queues.discovery,
             start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=DISCOVERY_RETRY,
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
         )
         await asyncio.shield(cleanup)
 
@@ -218,10 +212,10 @@ class SourceIngestionWorkflow:
                 await workflow.execute_activity(
                     "harborrag.discover_source_items",
                     request,
-                    task_queue=DISCOVERY_QUEUE,
+                    task_queue=request.workflow_options.task_queues.discovery,
                     start_to_close_timeout=timedelta(minutes=30),
                     heartbeat_timeout=timedelta(minutes=2),
-                    retry_policy=DISCOVERY_RETRY,
+                    retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                     result_type=SourceDiscoveryResult,
                 ),
             )
@@ -233,9 +227,9 @@ class SourceIngestionWorkflow:
                     task_id=request.task_id,
                     error_code=error_code,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=request.workflow_options.task_queues.discovery,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
 
@@ -245,9 +239,9 @@ class SourceIngestionWorkflow:
             await workflow.execute_activity(
                 "harborrag.cleanup_source_projections",
                 request,
-                task_queue=INDEX_QUEUE,
+                task_queue=request.workflow_options.task_queues.index,
                 start_to_close_timeout=timedelta(minutes=30),
-                retry_policy=DOCUMENT_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.document),
                 result_type=ProjectionCleanupResult,
             )
         except ActivityError:
@@ -268,9 +262,9 @@ class SourceIngestionWorkflow:
         await workflow.execute_activity(
             "harborrag.cancel_source_ingestion",
             SourceCancellationInput(task_id=request.task_id),
-            task_queue=DISCOVERY_QUEUE,
+            task_queue=request.workflow_options.task_queues.discovery,
             start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=DISCOVERY_RETRY,
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
         )
         await self._cleanup_source(request)
         self._status = "CANCELLED"

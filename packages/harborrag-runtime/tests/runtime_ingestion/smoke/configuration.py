@@ -68,6 +68,7 @@ def load_smoke_configuration() -> SmokeConfiguration:
             "harborrag",
         ),
         temporal_identity="harborrag-ingestion-smoke",
+        temporal_config_path=ROOT / "config/temporal.yaml",
         redis_url=SecretStr(f"redis://127.0.0.1:{_env('REDIS_PORT', '6380')}/0"),
         connector_config_path=ROOT / "config/connectors.yaml",
         parser_config_path=ROOT / "config/parsers.yaml",

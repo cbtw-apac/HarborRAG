@@ -105,7 +105,7 @@ class AppService(ControlPlaneReadsMixin, AgentClientMixin, ChatClientMixin, Base
 
     async def runtime_health(self) -> AppResponse:
         try:
-            async with asyncio.timeout(self._settings.temporal_health_timeout_seconds):
+            async with asyncio.timeout(self._runtime_config.health_timeout_seconds):
                 client = await self._resources.runtime_client()
                 ready = await client.health()
             return AppResponse(

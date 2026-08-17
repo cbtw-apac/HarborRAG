@@ -15,7 +15,8 @@ from harborrag_runtime.temporal.schemas import (
     RawCaptureResult,
     SourceBatchInput,
 )
-from harborrag_runtime.temporal.source_workflow import SourceBatchWorkflow
+from harborrag_runtime.temporal.source_batch_workflow import SourceBatchWorkflow
+from harborrag_runtime.temporal_models import TaskQueueConfig, TemporalWorkflowOptions
 
 from .fixtures import plan_reference as _plan_reference
 
@@ -53,30 +54,39 @@ async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeyp
         "harborrag_runtime.temporal.document_workflow.workflow.execute_activity",
         execute_activity,
     )
+    queues = TaskQueueConfig(
+        discovery="test-discovery",
+        transform="test-transform",
+        io="test-io",
+        parser="test-parser",
+        model="test-model",
+        index="test-index",
+    )
     request = DocumentIngestionInput(
         task_id="task-1",
         tenant_id="tenant-1",
         connector_name="local-docs",
         plan_reference=_plan_reference(),
         document_index=4,
+        workflow_options=TemporalWorkflowOptions(task_queues=queues),
     )
 
     result = await DocumentIngestionWorkflow().run(request)
 
     assert result is DocumentIngestionOutcome.PUBLISHED
     assert tuple((call[0], call[2]["task_queue"]) for call in calls) == (
-        ("harborrag.fetch_and_capture_raw", "harborrag-io"),
-        ("harborrag.parse_and_normalize", "harborrag-parser"),
-        ("harborrag.sync_content_units", "harborrag-transform"),
-        ("harborrag.persist_canonical", "harborrag-io"),
-        ("harborrag.chunk_and_validate", "harborrag-transform"),
-        ("harborrag.encode_chunks", "harborrag-model"),
-        ("harborrag.build_relations", "harborrag-transform"),
-        ("harborrag.build_projections", "harborrag-transform"),
-        ("harborrag.write_vector_projection", "harborrag-index"),
-        ("harborrag.write_graph_projection", "harborrag-index"),
-        ("harborrag.verify_projections", "harborrag-index"),
-        ("harborrag.publish_version", "harborrag-index"),
+        ("harborrag.fetch_and_capture_raw", "test-io"),
+        ("harborrag.parse_and_normalize", "test-parser"),
+        ("harborrag.sync_content_units", "test-transform"),
+        ("harborrag.persist_canonical", "test-io"),
+        ("harborrag.chunk_and_validate", "test-transform"),
+        ("harborrag.encode_chunks", "test-model"),
+        ("harborrag.build_relations", "test-transform"),
+        ("harborrag.build_projections", "test-transform"),
+        ("harborrag.write_vector_projection", "test-index"),
+        ("harborrag.write_graph_projection", "test-index"),
+        ("harborrag.verify_projections", "test-index"),
+        ("harborrag.publish_version", "test-index"),
     )
 
 

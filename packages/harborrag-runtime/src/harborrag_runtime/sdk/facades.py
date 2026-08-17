@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 
-from .contracts import (
+from ..contracts import (
     GraphPathRequest,
     GraphPathResponse,
     GraphSubgraphRequest,
@@ -23,7 +23,7 @@ from .contracts import (
 )
 
 if TYPE_CHECKING:
-    from .sdk import HarborRAG
+    from .runtime import HarborRAG
 
 
 class IngestionFacade:
@@ -54,7 +54,7 @@ class RetrievalFacade:
         self._owner = owner
 
     async def search(self, request: RetrievalRequest) -> RetrievalResponse:
-        from .retrieval import RetrievalOptions
+        from ..retrieval import RetrievalOptions
 
         service = await self._owner._retrieval_service()
         report = await service.retrieve(

@@ -19,13 +19,13 @@ from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     EVIDENCE_INDEX,
 )
-from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion_control_factory import build_ingestion_control
-from harborrag_runtime.storage_factory import (
+from harborrag_runtime.composition.resources import (
+    build_ingestion_control,
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
 )
+from harborrag_runtime.config.settings import RuntimeSettings
 
 
 @dataclass(frozen=True, slots=True)

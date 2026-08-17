@@ -9,7 +9,6 @@ from temporalio.workflow import ParentClosePolicy
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 
-from .policies import TRANSFORM_QUEUE
 from .schemas import DocumentDispatchSummary, DocumentIngestionInput, SourceBatchInput
 
 
@@ -41,9 +40,10 @@ class SourceBatchWorkflow:
                             connector_name=request.connector_name,
                             plan_reference=request.plan_reference,
                             document_index=index,
+                            workflow_options=request.workflow_options,
                         ),
                         id=f"harborrag-document:{request.task_id}:{request.batch_number}:{index}",
-                        task_queue=TRANSFORM_QUEUE,
+                        task_queue=request.workflow_options.task_queues.transform,
                         result_type=DocumentIngestionOutcome,
                         parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                     )

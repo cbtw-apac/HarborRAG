@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from datetime import timedelta
 from typing import Any
 
-from temporalio.client import Client, TLSConfig
+from temporalio.client import Client
 from temporalio.worker import Worker
 
 from harborrag_core.observability.process_logging import configure_logging
@@ -15,10 +15,10 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion import build_ingestion_runtime
 
+from .connection import connect_temporal_client
 from .ingestion_activities import IngestionActivities
 from .maintenance_activities import MaintenanceActivities
 from .worker_registry import (
-    ALL_TASK_QUEUES,
     validate_worker_registrations,
     worker_registrations,
 )
@@ -35,10 +35,13 @@ async def run_workers(
     """Run the Postgres-authoritative workflow hierarchy until shutdown."""
 
     config = TemporalRuntimeConfig.from_settings(settings)
+    # Establish the control-plane dependency before opening every ingestion
+    # repository and connector. This fails fast during Temporal startup or
+    # transport errors and avoids expensive start/close churn in restart loops.
+    client = await connect_temporal_client(config)
     runtime = build_ingestion_runtime(settings)
     await runtime.start()
     try:
-        client = await _connect_client(config)
         activities = IngestionActivities(
             runtime,
             telemetry=runtime.telemetry,
@@ -47,8 +50,8 @@ async def run_workers(
             runtime,
             telemetry=runtime.telemetry,
         )
-        registrations = worker_registrations(activities, maintenance)
-        validate_worker_registrations(registrations)
+        registrations = worker_registrations(activities, maintenance, config.task_queues)
+        validate_worker_registrations(registrations, config.task_queues.as_tuple())
         workers = tuple(
             _build_worker(
                 client,
@@ -62,7 +65,7 @@ async def run_workers(
         await _emit_queue_metrics(runtime.telemetry, client, config)
         logger.info(
             "Temporal ingestion worker polling queues: %s",
-            ", ".join(ALL_TASK_QUEUES),
+            ", ".join(config.task_queues.as_tuple()),
         )
         runs = asyncio.gather(*(worker.run() for worker in workers))
         await _wait_for_shutdown(workers, runs, stop_event=stop_event)
@@ -107,9 +110,9 @@ async def _emit_queue_metrics(
     queue_depths = await _describe_task_queue_depths(
         client,
         namespace=config.connection.namespace,
-        task_queues=ALL_TASK_QUEUES,
+        task_queues=config.task_queues.as_tuple(),
     )
-    for queue_name in ALL_TASK_QUEUES:
+    for queue_name in config.task_queues.as_tuple():
         slots = config.worker.max_concurrent_activities
         telemetry.record_temporal_worker_slots(queue_name, slots)
         depth = queue_depths.get(queue_name)
@@ -158,25 +161,6 @@ async def _describe_task_queue_depths(
         if depth is not None:
             depths[queue_name] = depth
     return depths
-
-
-async def _connect_client(config: TemporalRuntimeConfig) -> Client:
-    connection = config.connection
-    tls: bool | TLSConfig | None = None
-    if connection.tls.enabled:
-        tls = TLSConfig(
-            server_root_ca_cert=connection.tls.server_root_ca_cert,
-            domain=connection.tls.domain,
-            client_cert=connection.tls.client_cert,
-            client_private_key=connection.tls.client_private_key,
-        )
-    return await Client.connect(
-        connection.target,
-        namespace=connection.namespace,
-        identity=connection.identity,
-        api_key=connection.api_key,
-        tls=tls,
-    )
 
 
 async def _wait_for_shutdown(

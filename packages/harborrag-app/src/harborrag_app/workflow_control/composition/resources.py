@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.projection_admin import ProjectionAdministrationService
+from harborrag_runtime.ingestion.maintenance.projection_admin import (
+    ProjectionAdministrationService,
+)
 from harborrag_runtime.sdk import HarborRAG
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 

@@ -35,6 +35,7 @@ from ..document.dependencies import DocumentReleaseDependencies
 from ..document.lifecycle import DocumentVersionLifecycle
 from ..document.models import DocumentReleaseRequest
 from ..document.pipeline import DocumentStagePipeline
+from ..limits import validate_reindex_limit
 from .reindex_plan import ReindexPlan, processing_profile_from_canonical
 from .reindex_reuse import ChunkReuseCoordinator
 
@@ -54,8 +55,7 @@ class ReindexRequest:
     def __post_init__(self) -> None:
         if not self.reindex_job_id.strip() or not self.tenant_id.strip():
             raise ValueError("reindex job and tenant IDs must be non-empty")
-        if not 1 <= self.limit <= 100_000:
-            raise ValueError("reindex limit must be between 1 and 100000")
+        validate_reindex_limit(self.limit)
 
 
 class DocumentReindexService:

@@ -318,8 +318,11 @@ Relevant `HARBORRAG_` variables include:
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | Runtime safety policy |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite | Control-plane migrations and diagnostics |
-| `HARBORRAG_TEMPORAL_TARGET` | `localhost:7233` | `doctor` and all ingestion commands |
-| `HARBORRAG_TEMPORAL_NAMESPACE` | `harborrag` | Temporal workflow lookup |
+| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, health, and workflow configuration |
+| `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional `doctor` and ingestion override |
+| `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional workflow namespace override |
+| `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
+| `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
 | `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` | Chat and query embedding configuration |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Vector retrieval |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | Graph expansion |

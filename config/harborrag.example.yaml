@@ -4,6 +4,7 @@ discover_plugins: false
 
 runtime:
   env: dev
+  temporal_config_path: config/temporal.yaml
   connector_config_path: config/connectors.yaml
   parser_config_path: config/parsers.yaml
   model_config_path: config/models.yaml

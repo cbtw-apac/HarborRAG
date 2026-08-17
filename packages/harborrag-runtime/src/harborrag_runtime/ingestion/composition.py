@@ -18,7 +18,6 @@ from harborrag_adapters.repositories.object_store.s3 import S3ObjectStore
 from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
-from harborrag_engine.ingestion import BaseChunker
 from harborrag_runtime.config import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -178,19 +177,11 @@ def build_ingestion_runtime(
 ) -> IngestionRuntime:
     """Build an ingestion runtime through the production object-graph builder."""
 
-    from .runtime_builder import IngestionRuntimeBuilder
+    from .runtime_builder import build_ingestion_runtime as build
 
-    return IngestionRuntimeBuilder(
-        settings or RuntimeSettings(),
+    return build(
+        settings,
         normalizer_builder=normalizer_builder,
         chunking_config=chunking_config,
         chunking_strategies=chunking_strategies,
-    ).build()
-
-
-def _chunker() -> BaseChunker:
-    """Compatibility hook for white-box chunking policy tests."""
-
-    from .runtime_builder import build_default_chunker
-
-    return build_default_chunker()
+    )
