@@ -24,6 +24,11 @@ class PlanDocumentResolver:
             to_artifact_reference(request.plan_reference),
             context=StorageOperationContext.system(request.tenant_id),
         )
+        if request.document_index < 0:
+            raise ApplicationError(
+                "source plan document index is invalid",
+                non_retryable=True,
+            )
         try:
             return planned[request.document_index]
         except IndexError as error:

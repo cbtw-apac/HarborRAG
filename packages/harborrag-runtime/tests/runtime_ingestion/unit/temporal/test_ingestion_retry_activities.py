@@ -40,7 +40,7 @@ async def test_retry_activities_cover_selection_release_failure_and_finalization
     plans = RecordingPlans((planned,))
     cast(Any, activities._runtime).source_plans = plans
     activities._documents = cast(Any, FixedDocumentResolver(planned))
-    monkeypatch.setattr(retry_module, "to_workflow_artifact", lambda reference: _artifact())
+    monkeypatch.setattr(retry_module, "to_workflow_artifact", lambda _reference: _artifact())
 
     selection = RetryFailuresInput("retry-1", "original-1", "tenant-1", ("doc-1",))
     result = await activities.prepare_retry_failures(selection)
@@ -85,6 +85,18 @@ async def test_plan_resolver_rejects_an_out_of_range_document_index() -> None:
     plans = RecordingPlans(())
     resolver = PlanDocumentResolver(cast(Any, plans))
     request = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 3)
+
+    with pytest.raises(ApplicationError, match="document index is invalid") as raised:
+        await resolver.get(request)
+    assert raised.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+async def test_plan_resolver_rejects_a_negative_document_index() -> None:
+    """A negative index must not silently select from the end of the plan."""
+    plans = RecordingPlans((_planned_document(),))
+    resolver = PlanDocumentResolver(cast(Any, plans))
+    request = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), -1)
 
     with pytest.raises(ApplicationError, match="document index is invalid") as raised:
         await resolver.get(request)

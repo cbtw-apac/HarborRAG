@@ -27,7 +27,9 @@ from .stage_observation import StageObservation
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
 
-SubprocessOutcomeLabel = Literal["success", "serialization_fail", "crash"]
+SubprocessOutcomeLabel = Literal[
+    "success", "serialization_fail", "result_serialization_fail", "crash"
+]
 
 
 class IngestionTelemetry:
@@ -271,7 +273,10 @@ class IngestionTelemetry:
     ) -> None:
         self._subprocess_executions.labels(stage=stage.value, outcome=outcome).inc()
 
-    def _record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None:
+    def stage_tracer(self) -> Any:
+        return self._tracer
+
+    def record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None:
         self._stage_operations.labels(stage=stage.value, outcome=outcome).inc()
         self._stage_duration.labels(stage=stage.value).observe(duration)
 

@@ -22,6 +22,7 @@ from harborrag_runtime.ingestion.observability import (
     IngestionStage,
     IngestionTelemetry,
 )
+from harborrag_runtime.ingestion.stage_observation import StageObservation
 from harborrag_runtime.temporal.activity_observability import (
     ActivityObservability,
 )
@@ -105,6 +106,74 @@ def test_stage_observation_preserves_failures_and_marks_span() -> None:
     assert tracer.contexts[0].exception_type is RuntimeError
     assert tracer.contexts[0].span.attributes["harborrag.ingestion.outcome"] == "failed"
     assert 'outcome="failed"' in output
+
+
+class _FailingSpan:
+    def set_attribute(self, key: str, value: object) -> None:
+        raise RuntimeError("set_attribute boom")
+
+
+class _FailingSpanContext:
+    def __enter__(self) -> _FailingSpan:
+        return _FailingSpan()
+
+    def __exit__(
+        self,
+        _exception_type: type[BaseException] | None,
+        _exception: BaseException | None,
+        _traceback: Any,
+    ) -> Literal[False]:
+        raise RuntimeError("end_span boom")
+
+
+class _FailingTracer:
+    def start_as_current_span(self, _name: str) -> _FailingSpanContext:
+        return _FailingSpanContext()
+
+
+class _FailingTelemetry:
+    """Telemetry double whose every hook raises, to prove failure isolation."""
+
+    def __init__(self, *, fail_start_span: bool = True) -> None:
+        self._fail_start_span = fail_start_span
+
+    def record_activity_retry(self, stage: IngestionStage) -> None:
+        raise RuntimeError("record_activity_retry boom")
+
+    def record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None:
+        raise RuntimeError("record_metrics boom")
+
+    def stage_tracer(self) -> Any:
+        if self._fail_start_span:
+            raise RuntimeError("start_span boom")
+        return _FailingTracer()
+
+
+def test_stage_observation_isolates_start_span_and_retry_failures() -> None:
+    observation = StageObservation(
+        telemetry=cast(Any, _FailingTelemetry(fail_start_span=True)),
+        stage=IngestionStage.CHUNK,
+        attempt=2,
+        attributes={},
+    )
+
+    entered = observation.__enter__()
+    assert entered is observation
+
+    assert observation.__exit__(None, None, None) is False
+
+
+def test_stage_observation_isolates_span_and_metric_failures() -> None:
+    observation = StageObservation(
+        telemetry=cast(Any, _FailingTelemetry(fail_start_span=False)),
+        stage=IngestionStage.CHUNK,
+        attempt=1,
+        attributes={},
+    )
+
+    observation.__enter__()
+
+    assert observation.__exit__(None, None, None) is False
 
 
 def test_domain_counters_use_bounded_labels_and_never_record_zeroes() -> None:

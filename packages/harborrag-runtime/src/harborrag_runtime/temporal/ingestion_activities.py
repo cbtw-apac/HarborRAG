@@ -23,6 +23,7 @@ from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .plan_resolver import PlanDocumentResolver
 from .process_isolation import (
     SubprocessCrashError,
+    SubprocessResultSerializationError,
     SubprocessSerializationError,
     run_in_isolated_subprocess,
 )
@@ -109,10 +110,11 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                     "ParseAndNormalize",
                     "success",
                 )
-            except SubprocessSerializationError:
+            except SubprocessSerializationError as error:
+                is_result_error = isinstance(error, SubprocessResultSerializationError)
                 self._observability.record_subprocess_outcome(
                     "ParseAndNormalize",
-                    "serialization_fail",
+                    "result_serialization_fail" if is_result_error else "serialization_fail",
                 )
                 prepared_stage = await heartbeat_while(
                     self._runtime.stages.preparation.parse_and_normalize(
@@ -122,7 +124,11 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                     detail={
                         **heartbeat_detail,
                         "mode": "in-process-fallback",
-                        "fallback_reason": "spawn-unpicklable-args",
+                        "fallback_reason": (
+                            "spawn-unpicklable-result"
+                            if is_result_error
+                            else "spawn-unpicklable-args"
+                        ),
                     },
                 )
             except SubprocessCrashError:
@@ -331,9 +337,4 @@ def _parse_and_normalize_sync(
     """Module-level target for subprocess isolation; picklable by the spawn context."""
     import asyncio
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(preparation.parse_and_normalize(request, capture))
-    finally:
-        loop.close()
+    return asyncio.run(preparation.parse_and_normalize(request, capture))

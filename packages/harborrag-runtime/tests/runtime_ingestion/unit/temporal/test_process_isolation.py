@@ -1,9 +1,14 @@
-"""Tests for subprocess isolation: crash surfacing, cancellation, and
-hung-subprocess heartbeat suspension."""
+"""Tests for subprocess isolation: orchestration, cancellation, and
+hung-subprocess heartbeat suspension.
+
+Serialization/crash-surfacing behavior (pickling failures, worker-level
+pre-serialization) is split out in test_process_isolation_serialization.py.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import pickle
 import queue as _stdlib_queue
 import threading
 
@@ -95,6 +100,11 @@ def _patch_subprocess_context(monkeypatch: pytest.MonkeyPatch) -> None:
         "in_activity",
         lambda: True,
     )
+    monkeypatch.setattr(
+        module.activity,
+        "info",
+        lambda: type("Info", (), {"heartbeat_timeout": None})(),
+    )
 
 
 def _patch_subprocess(
@@ -127,7 +137,7 @@ async def test_run_in_isolated_subprocess_returns_result_on_success(
     monkeypatch.setattr(module.activity, "heartbeat", recorded.append)
     proc = _patch_subprocess(
         monkeypatch,
-        [("alive", None), ("done", "expected-value")],
+        [("alive", None), ("done", pickle.dumps("expected-value"))],
     )
 
     result = await module.run_in_isolated_subprocess(
@@ -143,49 +153,30 @@ async def test_run_in_isolated_subprocess_returns_result_on_success(
 
 
 @pytest.mark.asyncio
-async def test_subprocess_crash_raises_typed_application_error(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("invalid_interval", [0, -1, float("nan"), float("inf"), float("-inf")])
+async def test_run_in_isolated_subprocess_rejects_invalid_interval(
+    invalid_interval: float,
 ) -> None:
-    """A subprocess error message raises SubprocessCrashError (ApplicationError)."""
-    monkeypatch.setattr(module.activity, "heartbeat", lambda _: None)
-    _patch_subprocess(
-        monkeypatch,
-        [("error", RuntimeError("segfault"))],
-    )
-
-    with pytest.raises(module.SubprocessCrashError) as exc_info:
-        await module.run_in_isolated_subprocess(_crash_sync, heartbeat_interval=0.01)
-
-    assert exc_info.value.type == "SubprocessCrash"
-    assert "RuntimeError" in str(exc_info.value)
+    """Non-finite and non-positive intervals are rejected before spawning."""
+    with pytest.raises(ValueError, match="finite and positive"):
+        await module.run_in_isolated_subprocess(_noop_sync, heartbeat_interval=invalid_interval)
 
 
 @pytest.mark.asyncio
-async def test_start_pickling_failure_maps_to_subprocess_crash(
+async def test_run_in_isolated_subprocess_rejects_interval_at_heartbeat_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Spawn-time pickling failures should surface as SubprocessCrashError."""
-    monkeypatch.setattr(module.activity, "heartbeat", lambda _: None)
+    """Interval must be shorter than the configured heartbeat_timeout."""
+    from datetime import timedelta
 
-    class _FakeCtx:
-        def Queue(self) -> _FakeQueue:
-            return _FakeQueue([])
+    monkeypatch.setattr(
+        module.activity,
+        "info",
+        lambda: type("Info", (), {"heartbeat_timeout": timedelta(seconds=1)})(),
+    )
 
-        def Process(self, **_kwargs: object) -> _FakeProcess:
-            class _StartFailsProcess(_FakeProcess):
-                def start(self) -> None:
-                    raise AttributeError(
-                        "Can't get local object 'HarborParserRegistry.register_family.<locals>.builder'"
-                    )
-
-            return _StartFailsProcess(alive=False)
-
-    monkeypatch.setattr(module.multiprocessing, "get_context", lambda _: _FakeCtx())
-
-    with pytest.raises(module.SubprocessCrashError, match="serialization failed") as exc_info:
-        await module.run_in_isolated_subprocess(_noop_sync, heartbeat_interval=0.01)
-
-    assert exc_info.value.type == "SubprocessCrash"
+    with pytest.raises(ValueError, match="heartbeat_timeout"):
+        await module.run_in_isolated_subprocess(_noop_sync, heartbeat_interval=1.0)
 
 
 @pytest.mark.asyncio

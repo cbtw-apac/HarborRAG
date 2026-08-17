@@ -4,11 +4,21 @@ import logging
 from collections.abc import Mapping
 from time import perf_counter
 from types import TracebackType
-from typing import Any, Literal, Self
+from typing import Any, Literal, Protocol, Self
 
 from .observability_types import IngestionStage
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
+
+
+class _StageTelemetry(Protocol):
+    """Telemetry surface required by StageObservation."""
+
+    def record_activity_retry(self, stage: IngestionStage) -> None: ...
+
+    def record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None: ...
+
+    def stage_tracer(self) -> Any: ...
 
 
 class StageObservation:
@@ -17,7 +27,7 @@ class StageObservation:
     def __init__(
         self,
         *,
-        telemetry: Any,
+        telemetry: _StageTelemetry,
         stage: IngestionStage,
         attempt: int,
         attributes: Mapping[str, str | int | float],
@@ -33,9 +43,12 @@ class StageObservation:
     def __enter__(self) -> Self:
         self._started_at = perf_counter()
         if self._attempt > 1:
-            self._telemetry.record_activity_retry(self._stage)
+            try:
+                self._telemetry.record_activity_retry(self._stage)
+            except Exception as error:
+                _log_telemetry_failure("record_activity_retry", error)
         try:
-            self._span_context = self._telemetry._tracer.start_as_current_span(
+            self._span_context = self._telemetry.stage_tracer().start_as_current_span(
                 f"harborrag.ingestion.{self._stage.value}"
             )
             self._span = self._span_context.__enter__()
@@ -57,7 +70,7 @@ class StageObservation:
     ) -> Literal[False]:
         outcome = "failed" if exception is not None else "succeeded"
         try:
-            self._telemetry._record_stage(
+            self._telemetry.record_stage(
                 self._stage,
                 outcome,
                 max(0.0, perf_counter() - self._started_at),
@@ -78,4 +91,6 @@ class StageObservation:
 
 
 def _log_telemetry_failure(operation: str, error: Exception) -> None:
-    logger.warning("Telemetry %s failed (%s)", operation, type(error).__name__)
+    logger.warning(
+        "Telemetry %s failed (%s: %s)", operation, type(error).__name__, error, exc_info=True
+    )

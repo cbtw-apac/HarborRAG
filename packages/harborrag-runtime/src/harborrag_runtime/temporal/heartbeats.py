@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable
 from typing import cast
 
@@ -27,8 +28,10 @@ async def heartbeat_while[ResultT](
     interval_seconds: float = 30.0,
 ) -> ResultT:
     """Heartbeat a long operation without changing service-layer APIs."""
-    if interval_seconds <= 0:
-        raise ValueError(f"heartbeat interval must be positive, got {interval_seconds!r}")
+    if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+        raise ValueError(
+            f"heartbeat interval must be finite and positive, got {interval_seconds!r}"
+        )
 
     if not activity.in_activity():
         return await operation
@@ -40,6 +43,13 @@ async def heartbeat_while[ResultT](
             raise ValueError(
                 f"heartbeat interval ({interval_seconds}s) must be shorter than "
                 f"start_to_close_timeout ({limit:.0f}s)"
+            )
+    if info.heartbeat_timeout is not None and info.heartbeat_timeout.total_seconds() > 0:
+        limit = info.heartbeat_timeout.total_seconds()
+        if interval_seconds >= limit:
+            raise ValueError(
+                f"heartbeat interval ({interval_seconds}s) must be shorter than "
+                f"heartbeat_timeout ({limit:.0f}s)"
             )
 
     activity.heartbeat(detail)
