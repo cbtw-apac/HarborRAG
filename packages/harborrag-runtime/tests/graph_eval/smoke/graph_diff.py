@@ -19,7 +19,7 @@ from pathlib import Path
 # (graph_eval.corpus, .golden, .health) resolves the same way it does under pytest.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from graph_eval.health.diffing import diff_reports  # noqa: E402
+from graph_eval.health.diffing import diff_reports, reports_by_tenant  # noqa: E402
 
 
 def main() -> int:
@@ -31,8 +31,8 @@ def main() -> int:
     parser.add_argument("--allow-new-signatures", action="store_true")
     arguments = parser.parse_args()
     try:
-        baselines = {r["tenant_id"]: r for r in json.loads(arguments.baseline.read_text())}
-        currents = {r["tenant_id"]: r for r in json.loads(arguments.current.read_text())}
+        baselines = reports_by_tenant(json.loads(arguments.baseline.read_text()))
+        currents = reports_by_tenant(json.loads(arguments.current.read_text()))
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"unusable report input: {error}", file=sys.stderr)
         return 2

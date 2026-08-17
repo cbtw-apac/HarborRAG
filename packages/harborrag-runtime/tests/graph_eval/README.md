@@ -14,6 +14,8 @@ This directory holds **two different things** — do not confuse them:
   them and pytest never collects them. They diagnose a running graph; they do
   not gate code.
 
+Defects this suite has caught live in [ISSUES.md](ISSUES.md).
+
 Both draw on the same shared library, which belongs to neither:
 
     corpus.py             the deterministic corpus
@@ -45,7 +47,10 @@ whoever's PR moves it; the diff in review is the sign-off.
 
 ## The manual CLIs (`smoke/`)
 
-All need a running FalkorDB (env in `env/.env.database`) and share one
+All need a running FalkorDB (env in `env/.env.database`, where
+`HARBORRAG_EVAL_TENANT_ID` / `HARBORRAG_EVAL_GRAPH_NAME` can also override the
+eval tenant and graph — defaults `graph-eval` / `harborrag-graph-eval` match
+the committed baseline) and share one
 exit-code convention: **0** pass, **1** gate/case failure, **2** prerequisites
 unavailable. Exit 2 also covers a query failure *after* a successful connect
 (e.g. Cypher FalkorDB rejects), so read stderr instead of treating it as a

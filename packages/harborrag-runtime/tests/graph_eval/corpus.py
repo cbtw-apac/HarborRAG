@@ -14,17 +14,17 @@ whole corpus is required to exercise.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
-from harborrag_core.contracts.chunking import (
-    SourceSpan,
-    SplitBoundaryKind,
-    TextRefinementRequest,
-    TextSplit,
-)
+from dotenv import load_dotenv
+
 from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
+from harborrag_core.testing.chunking import CharacterCounter, CharacterRefiner
 from harborrag_engine.ingestion import (
+    PROJECTED_EDGE_SIGNATURES,
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
@@ -41,70 +41,16 @@ from harborrag_engine.ingestion.chunking import (
 
 from .sources import eval_documents
 
-TENANT_ID = "graph-eval"
-GRAPH_NAME = "harborrag-graph-eval"
+# Overridable via env/.env.database (or exported variables). The defaults are
+# the committed-baseline identity: overriding HARBORRAG_EVAL_TENANT_ID also
+# moves the baseline filename unit/test_health_baseline.py diffs against.
+load_dotenv(Path(__file__).resolve().parents[4] / "env/.env.database", override=False)
+TENANT_ID = os.getenv("HARBORRAG_EVAL_TENANT_ID", "").strip() or "graph-eval"
+GRAPH_NAME = os.getenv("HARBORRAG_EVAL_GRAPH_NAME", "").strip() or "harborrag-graph-eval"
 
-# KEEP IN SYNC (by review) with EXPECTED_SIGNATURES in
-# packages/harborrag-engine/tests/ingestion/unit/test_graph_signatures.py -- engine test
-# modules are not importable from this package, so this is a reviewed copy. Task 1 locks
-# what the projection *can* emit; test_corpus.py asserts equality with what this corpus
-# *does* emit, so the two frozensets have to stay identical set-for-set.
-CORPUS_SIGNATURES: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("Tenant", "has_data_source", "DataSource"),
-        ("DataSource", "contains", "SourceEntity"),
-        ("SourceEntity", "has_version", "DocumentVersion"),
-        ("DocumentVersion", "contains", "Structure"),
-        ("Structure", "parent_of", "Structure"),
-        ("Structure", "contains", "Structure"),
-        ("Structure", "links_to", "Structure"),
-        ("Structure", "reply_to", "Structure"),
-        ("Chunk", "supports", "Structure"),
-        ("Chunk", "supports", "DocumentVersion"),
-        ("SourceEntity", "links_to", "SourceEntity"),
-        ("SourceEntity", "parent_of", "SourceEntity"),
-        ("SourceEntity", "blocks", "SourceEntity"),
-        ("SourceEntity", "duplicates", "SourceEntity"),
-        ("SourceEntity", "relates_to", "SourceEntity"),
-        ("SourceEntity", "has_attachment", "SourceEntity"),
-        ("SourceEntity", "contains", "SourceEntity"),
-        ("SourceEntity", "points_to", "SourceEntity"),
-        ("DocumentVersion", "resolved_at", "SourceEntity"),
-    }
-)
-
-
-class _CharacterCounter:
-    def count(self, text: str) -> int:
-        return len(text)
-
-
-class _CharacterRefiner:
-    def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
-        if not request.content:
-            return ()
-        results: list[TextSplit] = []
-        start = 0
-        base = request.source_span
-        offset = base.start_offset if base and base.start_offset is not None else 0
-        while start < len(request.content):
-            end = min(start + request.maximum_tokens, len(request.content))
-            results.append(
-                TextSplit(
-                    content=request.content[start:end],
-                    token_count=end - start,
-                    source_span=SourceSpan(
-                        start_offset=offset + start,
-                        end_offset=offset + end,
-                        element_ids=base.element_ids if base else (),
-                    ),
-                    boundary_kind=SplitBoundaryKind.FORCED,
-                    structural_path=request.structural_path,
-                    forced_split=True,
-                )
-            )
-            start = end
-        return tuple(results)
+# The reviewed vocabulary lives in engine src next to the builder; test_corpus.py
+# asserts this corpus exercises every edge shape set-for-set.
+CORPUS_SIGNATURES = PROJECTED_EDGE_SIGNATURES
 
 
 def _chunking_service() -> ChunkingService:
@@ -119,8 +65,8 @@ def _chunking_service() -> ChunkingService:
             profiles={profile.name: profile},
             source_profiles={},
         ),
-        token_counter=_CharacterCounter(),
-        refiner=_CharacterRefiner(),
+        token_counter=CharacterCounter(),
+        refiner=CharacterRefiner(),
     )
 
 

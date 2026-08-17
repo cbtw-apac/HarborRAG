@@ -1,4 +1,5 @@
 from .graph import (
+    PROJECTED_EDGE_SIGNATURES,
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
@@ -24,6 +25,7 @@ from .verification import (
 
 __all__ = [
     "EVIDENCE_INDEX",
+    "PROJECTED_EDGE_SIGNATURES",
     "GraphDocumentTarget",
     "GraphProjectionBatch",
     "GraphProjectionBuilder",

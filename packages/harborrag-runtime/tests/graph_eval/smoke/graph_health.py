@@ -1,7 +1,7 @@
 """Whole-graph conformance and structural-health gate over live FalkorDB.
 
 Usage:
-    .venv/bin/python packages/harborrag-runtime/tests/graph_eval/smoke/health/graph_health.py \
+    .venv/bin/python packages/harborrag-runtime/tests/graph_eval/smoke/graph_health.py \
         [--tenant TENANT_ID ...] [--output report.json] [--identities]
 
 `--identities` adds sorted `node_keys` and `relation_ids` to every report, the
@@ -157,8 +157,8 @@ async def _graph_level_failures(client: FalkorDBClient) -> list[str]:
 
 
 async def run(tenants: list[str], output: Path | None, *, identities: bool) -> int:
-    client = build_client()
     try:
+        client = build_client()
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
         print(f"prerequisites unavailable: {error}", file=sys.stderr)

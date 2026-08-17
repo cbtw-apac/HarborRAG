@@ -25,6 +25,10 @@ Envelope; file keys win over the directory's ``_defaults.json``::
 ``note`` says what projection shape the sample is here to exercise. It is required and
 never reaches the ``Document`` -- a sample nobody can explain is a sample nobody can
 maintain.
+
+Deliberately not the canonical-codec envelope (``load_canonical_document``): fixtures
+stay hand-authorable, and this loader validates element types against the domain
+vocabulary with per-file errors, which the codec does not.
 """
 
 from __future__ import annotations

@@ -133,8 +133,8 @@ rules, and target-specific variables.
 
 Graph evaluation gates the FalkorDB knowledge graph (conformance census,
 structural health, build-to-build regression); see its
-[`README.md`](../../../packages/harborrag-runtime/tests/graph_eval/README.md) and
-`GRAPH_EVAL.md` at the repo root for the research basis. Its pure modules are
+[`README.md`](../../../packages/harborrag-runtime/tests/graph_eval/README.md).
+Its pure modules are
 covered by ordinary collected tests in `graph_eval/unit/`; only the live scripts
 below sit outside discovery:
 

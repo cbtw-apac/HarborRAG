@@ -89,8 +89,8 @@ DETACH DELETE node
 
 async def run() -> int:
     corpus = build_corpus()
-    client = build_client(GRAPH_NAME)
     try:
+        client = build_client(GRAPH_NAME)
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
         print(f"prerequisites unavailable: {error}", file=sys.stderr)

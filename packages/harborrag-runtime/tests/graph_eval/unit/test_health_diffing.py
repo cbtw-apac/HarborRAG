@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ..health.diffing import diff_reports
+from ..health.diffing import diff_reports, reports_by_tenant
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -51,6 +51,21 @@ def test_missing_identities_disable_jaccard() -> None:
     diff = diff_reports(baseline, current)
     assert diff.node_jaccard is None
     assert diff.gate_failures(0.9, 0.9, allow_new_signatures=False) == ()
+
+
+def test_null_identities_disable_jaccard_like_missing_ones() -> None:
+    diff = diff_reports(_report(node_keys=None, relation_ids=None), _report())
+    assert diff.node_jaccard is None
+    assert diff.relation_jaccard is None
+
+
+def test_reports_by_tenant_rejects_duplicates_and_non_lists() -> None:
+    with pytest.raises(ValueError, match="duplicate tenant_id"):
+        reports_by_tenant([_report(), _report()])
+    with pytest.raises(ValueError, match="JSON array"):
+        reports_by_tenant({"tenant_id": "tenant-1"})
+    by_tenant = reports_by_tenant([_report(), _report(tenant_id="tenant-2")])
+    assert set(by_tenant) == {"tenant-1", "tenant-2"}
 
 
 def test_placeholder_drift_fails_the_default_gate() -> None:

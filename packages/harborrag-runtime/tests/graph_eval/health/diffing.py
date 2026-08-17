@@ -68,10 +68,26 @@ class GraphDiff:
         }
 
 
+def reports_by_tenant(payload: Any) -> dict[str, Report]:
+    """Index report entries by tenant, rejecting duplicates rather than keeping the last."""
+
+    if not isinstance(payload, list):
+        raise ValueError("report payload must be a JSON array of tenant reports")
+    reports: dict[str, Report] = {}
+    for entry in payload:
+        tenant_id = str(entry["tenant_id"])
+        if tenant_id in reports:
+            raise ValueError(f"duplicate tenant_id {tenant_id!r}")
+        reports[tenant_id] = entry
+    return reports
+
+
 def _identity_jaccard(baseline: Report, current: Report, key: str) -> float | None:
-    if key not in baseline or key not in current:
+    left, right = baseline.get(key), current.get(key)
+    # A null identity list (hand-edited report) is as unusable as an absent one.
+    if left is None or right is None:
         return None
-    return _jaccard(set(baseline[key]), set(current[key]))
+    return _jaccard(set(left), set(right))
 
 
 def diff_reports(baseline: Report, current: Report) -> GraphDiff:

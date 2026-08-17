@@ -7,44 +7,17 @@ from typing import Any
 from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_engine.ingestion import (
+    PROJECTED_EDGE_SIGNATURES,
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
     GraphProjectionInput,
 )
+from harborrag_engine.ingestion.projections.graph import (
+    default_graph_source_projector_registry,
+)
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
-
-# Reviewed edge-shape vocabulary of graph schema v2. A signature observed but absent
-# here is a schema change: trace it to its builder code path, review, then add it.
-# KEEP IN SYNC (by review) with CORPUS_SIGNATURES in
-# packages/harborrag-runtime/tests/graph_eval/corpus.py -- test modules are not
-# importable across packages, so that frozenset is a reviewed copy of this one. This
-# test locks what the projection *can* emit; the eval corpus asserts equality with what
-# it *does* emit, so the two have to stay identical set-for-set.
-EXPECTED_SIGNATURES: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("Tenant", "has_data_source", "DataSource"),
-        ("DataSource", "contains", "SourceEntity"),
-        ("SourceEntity", "has_version", "DocumentVersion"),
-        ("DocumentVersion", "contains", "Structure"),
-        ("Structure", "parent_of", "Structure"),
-        ("Structure", "contains", "Structure"),
-        ("Structure", "links_to", "Structure"),
-        ("Structure", "reply_to", "Structure"),
-        ("Chunk", "supports", "Structure"),
-        ("Chunk", "supports", "DocumentVersion"),
-        ("SourceEntity", "links_to", "SourceEntity"),
-        ("SourceEntity", "parent_of", "SourceEntity"),
-        ("SourceEntity", "blocks", "SourceEntity"),
-        ("SourceEntity", "duplicates", "SourceEntity"),
-        ("SourceEntity", "relates_to", "SourceEntity"),
-        ("SourceEntity", "has_attachment", "SourceEntity"),
-        ("SourceEntity", "contains", "SourceEntity"),
-        ("SourceEntity", "points_to", "SourceEntity"),
-        ("DocumentVersion", "resolved_at", "SourceEntity"),
-    }
-)
 
 # The signatures the fixtures must keep producing; if these go missing the fixtures
 # have rotted and the superset assertion below is no longer meaningful. The first five
@@ -160,10 +133,17 @@ def _batch_for(source: str) -> GraphProjectionBatch:
 
 
 def test_projection_signatures_stay_within_reviewed_vocabulary() -> None:
+    # A projector registered without a SOURCE_PROVENANCE entry would never be exercised
+    # here, disarming the vocabulary lock exactly when a new schema shape ships.
+    registered = default_graph_source_projector_registry().connector_types()
+    assert frozenset(SOURCE_PROVENANCE) == registered, (
+        f"SOURCE_PROVENANCE must cover every registered projector: "
+        f"{sorted(registered ^ frozenset(SOURCE_PROVENANCE))}"
+    )
     observed: set[tuple[str, str, str]] = set()
     for source in SOURCE_PROVENANCE:
         observed |= _signatures(_batch_for(source))
-    unexpected = observed - EXPECTED_SIGNATURES
+    unexpected = observed - PROJECTED_EDGE_SIGNATURES
     assert not unexpected, f"unreviewed projection signatures: {sorted(unexpected)}"
     missing = REQUIRED_SIGNATURES - observed
     assert not missing, f"fixtures no longer exercise the spine: {sorted(missing)}"

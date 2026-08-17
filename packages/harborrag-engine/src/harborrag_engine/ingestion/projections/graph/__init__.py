@@ -1,5 +1,6 @@
 """Deterministic knowledge-graph projection building."""
 
+from .edge_signatures import PROJECTED_EDGE_SIGNATURES
 from .graph import GraphProjectionBuilder
 from .graph_models import (
     GraphDocumentTarget,
@@ -20,6 +21,7 @@ from .source_projectors import (
 )
 
 __all__ = [
+    "PROJECTED_EDGE_SIGNATURES",
     "GraphDocumentTarget",
     "GraphProjectionBatch",
     "GraphProjectionBuilder",
