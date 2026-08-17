@@ -1,0 +1,40 @@
+{
+  "id": "architecture",
+  "title": "Architecture",
+  "note": "Pinned by the golden path/subgraph/triplet cases: the middle of the two-hop links_to chain.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Architecture",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Postgres is the publication authority."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Projections",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "FalkorDB holds the rebuildable graph."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "links_to",
+      "target_id": "decisions",
+      "target_type": "document"
+    }
+  ]
+}

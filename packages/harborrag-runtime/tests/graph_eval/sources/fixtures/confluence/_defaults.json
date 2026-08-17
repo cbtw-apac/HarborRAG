@@ -1,0 +1,10 @@
+{
+  "source": "confluence",
+  "content_type": "page",
+  "extra": {
+    "connector_type": "confluence",
+    "space_id": "space-1",
+    "space_key": "SPACE",
+    "space_name": "Team Space"
+  }
+}

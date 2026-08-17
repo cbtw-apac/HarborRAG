@@ -1,0 +1,45 @@
+{
+  "id": "runbook",
+  "title": "Runbook",
+  "note": "Pinned by the golden path cases: links_to chain head, plus the one unresolved link that becomes a placeholder node.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Runbook",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Restart the worker before failover."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Escalation",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Escalate to the on-call architect."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "links_to",
+      "target_id": "architecture",
+      "target_type": "document"
+    },
+    {
+      "predicate": "links_to",
+      "target_id": "missing-page",
+      "target_type": "document"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "id": "style-guide",
+  "title": "Style Guide",
+  "note": "List, list_item and code elements: element kinds the pinned four never produce, so structure projection is exercised beyond headings and paragraphs.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Style Guide",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Keep modules short and boring."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Rules",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "l1",
+      "type": "list",
+      "content": "Ordered house rules"
+    },
+    {
+      "id": "li1",
+      "type": "list_item",
+      "content": "One responsibility per module."
+    },
+    {
+      "id": "li2",
+      "type": "list_item",
+      "content": "No abstraction without two uses."
+    },
+    {
+      "id": "li3",
+      "type": "list_item",
+      "content": "Delete before you add."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Formatting",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "c1",
+      "type": "code",
+      "content": "ruff format packages/",
+      "metadata": {
+        "language": "bash"
+      }
+    }
+  ]
+}

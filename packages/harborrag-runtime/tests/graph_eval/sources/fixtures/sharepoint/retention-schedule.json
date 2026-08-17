@@ -1,0 +1,32 @@
+{
+  "id": "retention-schedule",
+  "title": "Retention Schedule.xlsx",
+  "note": "Second item in the same folder as security-policy (same parent id), so the leaf folder placeholder is shared and the two items are two hops apart.",
+  "extra": {
+    "site_id": "site-1",
+    "site_name": "Harbor Ops",
+    "drive_id": "drive-1",
+    "drive_name": "Documents",
+    "item_id": "file-10",
+    "item_name": "Retention Schedule.xlsx",
+    "parent": {
+      "id": "folder-2",
+      "path": "/drives/drive-1/root:/Policies/Security"
+    }
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Retention Schedule",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Audit logs are kept for seven years."
+    }
+  ]
+}

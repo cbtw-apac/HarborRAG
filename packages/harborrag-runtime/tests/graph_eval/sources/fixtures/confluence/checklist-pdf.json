@@ -1,0 +1,33 @@
+{
+  "id": "checklist-pdf",
+  "title": "Checklist.pdf",
+  "note": "Second Confluence attachment, on a different parent page than handbook-pdf, so the attached_to reversal is pinned on more than one page.",
+  "content_type": "attachment",
+  "extra": {
+    "page_id": "checklist-pdf",
+    "binding_kind": "ATTACHMENT",
+    "parent_page_id": "deploy-checklist"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Printable Checklist",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Extracted text of the deploy checklist."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "attached_to",
+      "target_id": "deploy-checklist",
+      "target_type": "document"
+    }
+  ]
+}

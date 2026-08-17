@@ -71,7 +71,9 @@ ensure_mcp_environment_file() {
     command -v openssl >/dev/null ||
         fail "OpenSSL is required to generate the local MCP bearer token."
     bearer_token="$(openssl rand -hex 32)"
-    sed -i "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
+    # ponytail: -i.bak keeps BSD and GNU sed both happy
+    sed -i.bak "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
+    rm -f "${target_path}.bak"
     chmod 600 "${target_path}"
     echo "Generated a protected MCP bearer token in ${target}."
 }
@@ -168,7 +170,7 @@ prepare_worker_mount() {
 
 worker_replicas() {
     local replicas
-    if [[ -v HARBORRAG_TEMPORAL_WORKER_REPLICAS ]]; then
+    if [[ -n "${HARBORRAG_TEMPORAL_WORKER_REPLICAS+x}" ]]; then
         replicas="${HARBORRAG_TEMPORAL_WORKER_REPLICAS}"
     else
         replicas="$(
@@ -220,7 +222,11 @@ start_api() {
         fail "HARBORRAG_API_STARTUP_TIMEOUT must be a positive integer."
 
     api_compose config --quiet
-    mapfile -t compose_services < <(api_compose config --services)
+    # ponytail: mapfile needs bash 4; macOS ships 3.2
+    compose_services=()
+    while IFS= read -r service; do
+        compose_services+=("${service}")
+    done < <(api_compose config --services)
     if [[ "${#compose_services[@]}" -ne 1 || "${compose_services[0]:-}" != "api" ]]; then
         fail "API Compose configuration must contain only the api service."
     fi

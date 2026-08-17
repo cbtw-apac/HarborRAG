@@ -1,0 +1,7 @@
+{
+  "source": "sharepoint",
+  "content_type": "page",
+  "extra": {
+    "connector_type": "sharepoint"
+  }
+}

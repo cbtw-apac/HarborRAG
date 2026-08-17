@@ -1,0 +1,33 @@
+{
+  "id": "handbook-pdf",
+  "title": "Handbook.pdf",
+  "content_type": "attachment",
+  "note": "Confluence attachment: attached_to reverses, and its batch re-creates its parent page as a placeholder stand-in.",
+  "extra": {
+    "page_id": "handbook-pdf",
+    "binding_kind": "ATTACHMENT",
+    "parent_page_id": "team-handbook"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Printable Handbook",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Extracted text of the handbook."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "attached_to",
+      "target_id": "team-handbook",
+      "target_type": "document"
+    }
+  ]
+}
