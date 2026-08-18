@@ -108,6 +108,5 @@ def test_agent_tool_catalog_exposes_only_bounded_read_tools() -> None:
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
-        "graph_neighborhood",
     }
     assert {tool.capability for tool in tools} == {"read"}

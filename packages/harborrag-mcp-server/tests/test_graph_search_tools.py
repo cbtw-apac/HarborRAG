@@ -14,13 +14,11 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.retrieval import GraphPath, GraphTriplet
 from harborrag_mcp_server.tools.graph_search import (
-    GraphNeighborhoodTool,
     GraphPathSearchTool,
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
 )
 from harborrag_runtime.sdk import (
-    GraphNeighborhoodResponse,
     GraphPathResponse,
     GraphSubgraphResponse,
     GraphTripletResponse,
@@ -81,15 +79,6 @@ class StaticGraphFacade:
             diagnostics={"accepted_count": 1},
         )
 
-    async def neighborhood(self, request):
-        self.calls.append(request)
-        return GraphNeighborhoodResponse(
-            seeds=("chunk:seed-1",),
-            nodes=(self.source, self.target),
-            relations=(self.relation,),
-            diagnostics={"accepted_count": 2},
-        )
-
     async def expand_subgraph(self, request):
         self.calls.append(request)
         return GraphSubgraphResponse(
@@ -111,9 +100,6 @@ class _RaisingGraphFacade:
     async def find_paths(self, request):
         raise RuntimeError("graph store unreachable")
 
-    async def neighborhood(self, request):
-        raise RuntimeError("graph store unreachable")
-
     async def expand_subgraph(self, request):
         raise RuntimeError("graph store unreachable")
 
@@ -122,11 +108,6 @@ class _RaisingGraphFacade:
 @pytest.mark.parametrize(
     "tool_cls,arguments,log_message",
     [
-        (
-            GraphNeighborhoodTool,
-            {"tenant_id": "demo", "query": "release owner"},
-            "graph_neighborhood backend raised during call",
-        ),
         (
             GraphTripletSearchTool,
             {"tenant_id": "demo", "subject": "document-a"},
@@ -242,8 +223,6 @@ async def test_subgraph_tool_returns_canonical_nodes_and_relations() -> None:
             {"tenant_id": "demo", "start_node": "a", "end_node": "b", "max_depth": 9},
         ),
         (GraphSubgraphSearchTool(), {"tenant_id": "demo", "start_node": "a", "max_nodes": 21}),
-        (GraphNeighborhoodTool(), {"tenant_id": "demo"}),
-        (GraphNeighborhoodTool(), {"tenant_id": "demo", "query": "q", "seed_limit": 11}),
     ],
 )
 async def test_graph_tools_reject_invalid_direct_inputs(tool, arguments) -> None:
@@ -255,26 +234,9 @@ def test_graph_tool_schemas_are_strict_and_tenant_scoped() -> None:
         GraphTripletSearchTool,
         GraphPathSearchTool,
         GraphSubgraphSearchTool,
-        GraphNeighborhoodTool,
     ):
         assert "tenant_id" in tool.spec.input_schema["required"]
         assert tool.spec.input_schema["additionalProperties"] is False
-
-
-@pytest.mark.asyncio
-async def test_neighborhood_tool_needs_no_node_selector() -> None:
-    harbor, graph = runtime()
-
-    result = await GraphNeighborhoodTool(runtime=harbor).call(
-        {"tenant_id": "demo", "query": "how do we release?"},
-        principal_id="reader-1",
-    )
-
-    assert result["ok"] is True
-    # The point of this tool: a free-text question is the only required input.
-    assert graph.calls[0].query.query == "how do we release?"
-    assert result["seeds"] == ["chunk:seed-1"]
-    assert [item["node_key"] for item in result["nodes"]] == ["node-a", "node-b"]
 
 
 def test_graph_tool_schemas_only_offer_projected_predicates() -> None:
@@ -304,7 +266,6 @@ def test_mcp_and_agent_tool_schemas_are_the_same_definition() -> None:
         GraphTripletSearchTool,
         GraphPathSearchTool,
         GraphSubgraphSearchTool,
-        GraphNeighborhoodTool,
     ):
         agent = agent_specs[tool.spec.name]
         assert tool.spec.description == agent.description

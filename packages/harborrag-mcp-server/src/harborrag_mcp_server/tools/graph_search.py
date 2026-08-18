@@ -1,4 +1,4 @@
-"""Neighborhood, triplet, path, and subgraph retrieval tools.
+"""Triplet, path, and subgraph retrieval tools.
 
 Schemas come from ``harborrag_runtime.agent.tool_specs`` so the MCP surface and the
 in-process agent surface cannot drift; only the policy bounds and the tenant property
@@ -15,7 +15,6 @@ from harborrag_core.chunking import RelationType
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.retrieval import (
     GraphDirection,
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -26,17 +25,14 @@ from harborrag_core.retrieval import (
 )
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_runtime.agent.tool_specs import (
-    GRAPH_NEIGHBORHOOD_DESCRIPTION,
     GRAPH_PATH_DESCRIPTION,
     GRAPH_SUBGRAPH_DESCRIPTION,
     GRAPH_TRIPLET_DESCRIPTION,
-    graph_neighborhood_schema,
     graph_path_schema,
     graph_subgraph_schema,
     graph_triplet_schema,
 )
 from harborrag_runtime.contracts import (
-    GraphNeighborhoodRequest,
     GraphPathRequest,
     GraphSubgraphRequest,
     GraphTripletRequest,
@@ -57,57 +53,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("harborrag.mcp.tools.graph_search")
 _MAX_RESULTS = McpToolPolicy().max_results
-
-
-@dataclass(slots=True)
-class GraphNeighborhoodTool(BaseMcpTool):
-    runtime: HarborRAG | None = None
-    spec = McpToolSpec(
-        "graph_neighborhood",
-        GRAPH_NEIGHBORHOOD_DESCRIPTION,
-        graph_neighborhood_schema(max_results=_MAX_RESULTS, tenant=TENANT_PROPERTY),
-    )
-
-    async def call(
-        self,
-        arguments: dict[str, object],
-        *,
-        principal_id: str,
-    ) -> dict[str, object]:
-        try:
-            request = GraphNeighborhoodRequest(
-                access=access(arguments, principal_id),
-                query=GraphNeighborhoodQuery(
-                    query=text(arguments, "query"),
-                    seed_limit=integer(arguments, "seed_limit", 3, minimum=1, maximum=10),
-                    relationship_types=_relations(arguments),
-                    max_depth=integer(arguments, "max_depth", 2, minimum=1, maximum=8),
-                    max_nodes=integer(
-                        arguments,
-                        "max_nodes",
-                        _MAX_RESULTS,
-                        minimum=1,
-                        maximum=_MAX_RESULTS,
-                    ),
-                    direction=_direction(arguments, GraphDirection.BOTH),
-                ),
-            )
-        except (HarborValidationError, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
-        if self.runtime is None:
-            return {"ok": False, "error": "graph retrieval backend is not configured"}
-        try:
-            response = await self.runtime.graph.neighborhood(request)
-        except Exception:
-            logger.exception("graph_neighborhood backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
-        return {
-            "ok": True,
-            "seeds": list(response.seeds),
-            "nodes": [compact_node(item) for item in response.nodes],
-            "relations": [compact_relation(item) for item in response.relations],
-            "diagnostics": response.diagnostics,
-        }
 
 
 @dataclass(slots=True)

@@ -15,6 +15,7 @@ from harborrag_app.api.auth.dependencies import (
     require_role,
 )
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import error_envelope
 from harborrag_app.api.schemas import IngestionControlInput, IngestionWorkflowInput
 from harborrag_app.api.v1.ingestion.dependencies import IngestionService
@@ -28,7 +29,11 @@ from harborrag_runtime.errors import (
 
 logger = logging.getLogger("harborrag.app.api.legacy_ingestions")
 
-router = APIRouter(prefix="/ingestions", tags=["ingestions"])
+router = APIRouter(
+    prefix="/ingestions",
+    tags=["ingestions"],
+    dependencies=[Depends(require_api_capacity)],
+)
 
 _DEPRECATION_HEADERS = {
     "Deprecation": "true",

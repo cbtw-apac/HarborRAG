@@ -24,7 +24,7 @@ from harborrag_engine.conversation import ConversationIdentity, ConversationMemo
 from .guard import ExecutionGuard, digest_arguments
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
 from .schemas import AgentRunOptions
-from .tool_execution import ADVANCED_VECTOR_TOOL, bounded_tool_result_content
+from .tool_execution import VECTOR_SEARCH_TOOL, bounded_tool_result_content
 
 _BLOCKED_TOOL_NAMES = frozenset({"agent", "chat"})
 _GRAPH_TOOL_PREFIX = "graph_"
@@ -180,7 +180,7 @@ class ChatAndToolExecutor:
 
         scoped = dict(arguments)
         scoped["tenant_id"] = options.tenant_id
-        if name == ADVANCED_VECTOR_TOOL and not options.graph_search:
+        if name == VECTOR_SEARCH_TOOL and not options.graph_search:
             scoped["observe_graph"] = False
         return scoped
 

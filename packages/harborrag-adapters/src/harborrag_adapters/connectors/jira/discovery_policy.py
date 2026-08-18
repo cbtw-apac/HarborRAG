@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from harborrag_adapters.connectors.attachments import attachment_ids_from_filters
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import (
+    AuthenticationError,
+    DocumentProcessingError,
+    FetchError,
+)
 from harborrag_adapters.connectors.query_values import normalized_string_list
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
 from .config import JiraProjectConfig
+from .issues import JiraIssueAPI
 from .mappers import issue_url
 from .query import build_jql, validate_issue_key
 
@@ -110,3 +116,47 @@ class JiraDiscoveryPolicy:
                 f"JIRA issue {issue_key} belongs to project {project_key!r}, "
                 f"outside configured projects {self._config.project_keys!r}"
             )
+
+
+def verify_empty_search_result(
+    query: ConnectorQuery,
+    *,
+    policy: JiraDiscoveryPolicy,
+    issues: JiraIssueAPI,
+    logger_: logging.Logger,
+) -> None:
+    """Rule out a permission gap behind a zero-issue search result.
+
+    `JiraConnector.connect()` only proves the credential holds a valid session; it
+    can't catch a credential that authenticates fine but lacks
+    BROWSE_PROJECTS on the project(s) actually being searched, since
+    Jira's search returns HTTP 200 with an empty result set for that
+    case instead of an error. Checked here, once per empty result,
+    rather than eagerly in `connect()`, because the permission scope is
+    per-query (``project_keys``/``project_key``/path filters), not
+    knowable until the query is in hand.
+
+    Raises only on a definitive ``havePermission: false``. If the probe
+    itself is inconclusive (a non-401 `FetchError` -- endpoint disabled,
+    unrecognized permission key, transient failure), the empty result
+    stands as-is rather than turning every genuinely-empty project into
+    a false-positive authentication failure; a real bad credential still
+    surfaces via the shared client's 401 handling on this same call.
+    """
+    project_keys = policy.effective_project_keys(query)
+    if not project_keys:
+        return
+    try:
+        permitted = any(issues.has_project_permission(key) for key in project_keys)
+    except FetchError:
+        logger_.warning(
+            "JIRA permission probe inconclusive for projects=%r; "
+            "treating empty search result as genuine",
+            project_keys,
+        )
+        return
+    if permitted:
+        return
+    raise AuthenticationError(
+        f"JIRA credential lacks BROWSE_PROJECTS permission on {project_keys!r}"
+    )

@@ -42,7 +42,7 @@ class Spec:
 class Tools:
     def __init__(self) -> None:
         self.specs = [
-            Spec("vector_search_advanced"),
+            Spec("vector_search"),
             Spec("graph_path_search"),
             Spec("agent"),
         ]
@@ -175,7 +175,7 @@ def many_tool_calls_response(count: int, *, identical: bool = False) -> HarborCh
         HarborToolCall(
             id=f"call-{index}",
             function=HarborToolCallFunction(
-                name="vector_search_advanced",
+                name="vector_search",
                 arguments="{}" if identical else json.dumps({"index": index}),
                 parsed_arguments={} if identical else {"index": index},
             ),

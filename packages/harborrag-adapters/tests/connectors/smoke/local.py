@@ -45,6 +45,18 @@ def _local_metadata(parsed, figure_count: int) -> dict:
     return metadata
 
 
+def _local_links(parsed) -> list[dict]:
+    """Collect anchor href/title/text captured by the HTML parser as element metadata.
+
+    `parsed.content` is fully flattened text, so this is the only place link
+    destinations still exist; rendering drops them silently otherwise.
+    """
+    links: list[dict] = []
+    for element in parsed.elements:
+        links.extend(element.metadata.get("links") or [])
+    return links
+
+
 def _save_local_figures(parsed, output_path: Path) -> list[Path]:
     """Copy Docling's extracted figure crops next to `output_path` so Markdown can embed them.
 
@@ -93,6 +105,13 @@ def _render_local_output(
     if path.suffix.lower().lstrip(".") in _IMAGE_SUFFIXES:
         lines += [f"![{path.name}]({path.as_uri()})", ""]
     lines.append(parsed.content)
+    links = _local_links(parsed)
+    if links:
+        lines += ["", "## Links", ""]
+        for link in links:
+            title = link.get("title")
+            suffix = f" — {title}" if title else ""
+            lines.append(f"- [{link['text']}]({link['href']}){suffix}")
     if figures and output_path is not None:
         lines += ["", "## Figures", ""]
         for figure in figures:
@@ -117,6 +136,18 @@ def _is_source_blank(path: Path) -> bool:
         return not raw.decode("utf-8").strip()
     except UnicodeDecodeError:
         return False
+
+
+def _accepts_empty_content(path: Path) -> bool:
+    """A parse can legitimately yield no text either because the source
+    itself is blank (see `_is_source_blank`) or, for images, because OCR
+    found no text to extract -- a normal outcome for a photo or diagram
+    with no text in it, not a parser failure. Image bytes are never valid
+    UTF-8, so `_is_source_blank` alone always reports them as non-blank.
+    """
+    if path.suffix.lower().lstrip(".") in _IMAGE_SUFFIXES:
+        return True
+    return _is_source_blank(path)
 
 
 def _print_skips(skipped) -> None:
@@ -183,7 +214,7 @@ def run_local(
             overall_ok = False
             continue
         if not parsed.content.strip():
-            if _is_source_blank(path):
+            if _accepts_empty_content(path):
                 print(f"[local] note: source file is empty or blank for {path}")
             else:
                 print(f"[local] failed: parser returned empty extracted content for {path}")

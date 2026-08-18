@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -183,8 +184,13 @@ def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixt
     deployment that forgets HARBORRAG_ENV=prod boots wide open with no
     signal. The prod check can't catch that misconfiguration, so booting
     with auth disabled must never be silent."""
-    with caplog.at_level("WARNING", logger="harborrag.app.api.auth"):
-        create_fastapi_app(ApiSettings())
+    namespace_logger = logging.getLogger("harborrag")
+    namespace_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level("WARNING", logger="harborrag.app.api.auth"):
+            create_fastapi_app(ApiSettings())
+    finally:
+        namespace_logger.removeHandler(caplog.handler)
 
     assert any("auth" in record.message.lower() for record in caplog.records)
     assert any("HARBORRAG_AUTH_MODE=none" in record.message for record in caplog.records)

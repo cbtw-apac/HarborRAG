@@ -15,12 +15,8 @@ from harborrag_adapters.connectors.attachments import (
 )
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
-from harborrag_adapters.connectors.exceptions import (
-    AuthenticationError,
-    DocumentProcessingError,
-    FetchError,
-)
-from harborrag_adapters.connectors.policies.http import summarize_provider_error
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.policies.http import verify_credentials
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
@@ -43,7 +39,6 @@ from .mappers import (
     display_url,
 )
 from .policy import ConfluenceQueryPolicyMixin
-from .query import validate_content_id
 from .relations import ConfluenceSourceRelationResolver
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
@@ -123,24 +118,11 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     def connect(self) -> None:
         """Verify Confluence credentials once before the first discovery request.
 
-        Both branches re-raise through the same message template so a bad
-        credential looks the same shape on Confluence and Jira: the 401 case
-        otherwise reaches the caller as a bare, un-prefixed provider message
-        (raised deep in the shared HTTP client, bypassing this method's own
-        framing), while only 403 used to get labeled as this connector's.
+        See `verify_credentials` for how a 403 is remapped the same way a
+        bare 401 already is, so a bad credential looks the same shape on
+        Confluence and Jira.
         """
-        try:
-            self.client.get_json("user/current")
-        except AuthenticationError as exc:
-            raise AuthenticationError(
-                f"Confluence authentication failed: {summarize_provider_error(exc)}"
-            ) from exc
-        except FetchError as exc:
-            if exc.status_code == 403:
-                raise AuthenticationError(
-                    f"Confluence authentication failed: {summarize_provider_error(exc)}"
-                ) from exc
-            raise
+        verify_credentials(lambda: self.client.get_json("user/current"), provider="Confluence")
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search Confluence content or materialize explicitly requested IDs."""
@@ -337,16 +319,3 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         """Load content for callers that already have Confluence IDs."""
         for content_id in content_ids:
             yield self.load(self._record_for_id(content_id, ConnectorQuery()))
-
-    def _record_for_id(self, content_id: str, query: ConnectorQuery) -> SourceRecord:
-        """Build a direct-load record when discovery is driven by explicit IDs."""
-        content = self._content.get_content_summary(validate_content_id(content_id))
-        self._validate_content(content, content_id)
-        record = build_source_record(
-            content,
-            base_url=self.base_url,
-            deployment_type=self.config.deployment,
-            default_space_key=self.config.space_key,
-        )
-        record.metadata[DISCOVERY_DESCRIPTOR_KEY] = content
-        return self._apply_query_policy(record, query)

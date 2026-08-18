@@ -1,11 +1,15 @@
 # API contract pipeline (ST10): export OpenAPI, gate breaking changes, build
 # the TypeScript client. The openapi.json artifact is the published contract;
 # oasdiff blocks merges that break it unless the PR carries the
-# `contract-break-approved` label (requires lead review).
+# `contract-break-approved` label (requires lead review). `labeled`/`unlabeled`
+# are in the trigger list so applying that label re-runs the gate on its own —
+# the label is read from the event payload, so a run started before the label
+# was applied never sees it.
 name: API Contract
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     branches: [dev/v2.0.0, main]
   push:
     branches: [dev/v2.0.0, main]
@@ -20,6 +24,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
@@ -47,7 +54,6 @@ jobs:
       - name: Export OpenAPI (base)
         if: github.event_name == 'pull_request'
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
           git worktree add /tmp/base "origin/${{ github.base_ref }}"
           if [ -f /tmp/base/packages/harborrag-app/src/harborrag_app/api/export_openapi.py ]; then
             uv venv /tmp/base-venv
@@ -100,9 +106,10 @@ jobs:
       - name: Generate typed schema
         working-directory: clients/typescript
         run: |
-          npm ci || npm install
-          npx openapi-typescript ../../openapi.json -o src/schema.d.ts
-          npm run build --if-present
+          npm ci --ignore-scripts
+          npm audit --audit-level=moderate
+          npm run generate
+          npm run build
 
       - name: Upload client artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

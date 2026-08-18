@@ -8,11 +8,11 @@ from fastapi import APIRouter, Depends
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborConnectionError
 from harborrag_core.retrieval import (
-    GraphNeighborhoodQuery,
     GraphPathQuery,
     GraphSubgraphQuery,
     GraphTripletQuery,
@@ -20,8 +20,6 @@ from harborrag_core.retrieval import (
 
 from .dependencies import RetrievalServiceDependency
 from .schemas import (
-    GraphNeighborhoodSearchRequest,
-    GraphNeighborhoodSearchResponse,
     GraphPathSearchRequest,
     GraphPathSearchResponse,
     GraphSubgraphSearchRequest,
@@ -32,7 +30,11 @@ from .schemas import (
     VectorSearchResponse,
 )
 
-router = APIRouter(prefix="/retrieval", tags=["Retrieval"])
+router = APIRouter(
+    prefix="/retrieval",
+    tags=["Retrieval"],
+    dependencies=[Depends(require_api_capacity)],
+)
 
 ERROR_RESPONSES = documented_error_responses(
     {
@@ -148,36 +150,6 @@ async def graph_subgraph_search(
     )
     return GraphSubgraphSearchResponse.model_validate(
         _response_data(response, capability="Graph subgraph retrieval")
-    )
-
-
-@router.post(
-    "/graph/neighborhoods",
-    response_model=GraphNeighborhoodSearchResponse,
-    responses=ERROR_RESPONSES,
-)
-async def graph_neighborhood_search(
-    request: GraphNeighborhoodSearchRequest,
-    service: RetrievalServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
-) -> GraphNeighborhoodSearchResponse:
-    """Expand the graph around a question, without requiring a node selector."""
-
-    authorize_tenant(principal, request.tenant)
-    response = await service.retrieve_graph_neighborhood(
-        GraphNeighborhoodQuery(
-            query=request.query,
-            seed_limit=request.seed_limit,
-            relationship_types=tuple(request.relationship_types),
-            max_depth=request.max_depth,
-            max_nodes=request.max_nodes,
-            direction=request.direction,
-        ),
-        tenant_id=request.tenant,
-        principal_id=principal.subject,
-    )
-    return GraphNeighborhoodSearchResponse.model_validate(
-        _response_data(response, capability="Graph neighborhood retrieval")
     )
 
 

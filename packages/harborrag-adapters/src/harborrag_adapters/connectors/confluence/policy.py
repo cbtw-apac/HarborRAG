@@ -10,19 +10,24 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
 from .config import ConfluenceSpaceConfig
-from .mappers import validate_content
+from .content import ConfluenceContentAPI
+from .discovery import DISCOVERY_DESCRIPTOR_KEY
+from .mappers import build_source_record, validate_content
 from .query import build_cql, validate_content_id
 
 
 class ConfluenceQueryPolicyMixin:
     """Translate queries and enforce the configured Confluence scope.
 
-    The eleven `self.config` reads below are the mixin's contract with its host. Declaring
-    it here is annotation-only — it creates no attribute at runtime — but it makes the
-    dependency explicit and type-checked instead of one the host merely happens to satisfy.
+    The `self.config`/`self.base_url`/`self._content` reads below are the mixin's contract
+    with its host. Declaring them here is annotation-only — it creates no attribute at
+    runtime — but it makes the dependency explicit and type-checked instead of one the
+    host merely happens to satisfy.
     """
 
     config: ConfluenceSpaceConfig
+    base_url: str
+    _content: ConfluenceContentAPI
 
     def _cql_from_query(self, query: ConnectorQuery) -> str:
         filters = query.filters
@@ -97,3 +102,16 @@ class ConfluenceQueryPolicyMixin:
     def _validate_content(self, content: dict[str, Any], content_id: str) -> None:
         """Fail fast when content is malformed or outside the configured space."""
         validate_content(content, content_id, space_key=self.config.space_key)
+
+    def _record_for_id(self, content_id: str, query: ConnectorQuery) -> SourceRecord:
+        """Build a direct-load record when discovery is driven by explicit IDs."""
+        content = self._content.get_content_summary(validate_content_id(content_id))
+        self._validate_content(content, content_id)
+        record = build_source_record(
+            content,
+            base_url=self.base_url,
+            deployment_type=self.config.deployment,
+            default_space_key=self.config.space_key,
+        )
+        record.metadata[DISCOVERY_DESCRIPTOR_KEY] = content
+        return self._apply_query_policy(record, query)

@@ -34,7 +34,7 @@ async def test_agent_runs_multiple_tool_hops_and_enforces_identity() -> None:
     tools = Tools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search_advanced", '{"tenant_id":"OTHER"}')),
+            _response(call=("call-1", "vector_search", '{"tenant_id":"OTHER"}')),
             _response(call=("call-2", "graph_path_search", '{"tenant_id":"OTHER"}')),
             _response(text="grounded answer"),
         ]
@@ -55,7 +55,7 @@ async def test_agent_runs_multiple_tool_hops_and_enforces_identity() -> None:
     assert result.run_id.startswith("run-")
     assert result.stop_reason is AgentStopReason.FINAL_ANSWER
     assert [execution.tool for execution in result.executions] == [
-        "vector_search_advanced",
+        "vector_search",
         "graph_path_search",
     ]
     assert [call[1]["tenant_id"] for call in tools.calls] == ["ACME", "ACME"]
@@ -78,7 +78,7 @@ async def test_agent_graph_switch_filters_graph_capabilities() -> None:
     )
 
     definitions = chat.requests[0].tools
-    assert [tool.function.name for tool in definitions] == ["vector_search_advanced"]
+    assert [tool.function.name for tool in definitions] == ["vector_search"]
     assert "observe_graph" not in definitions[0].function.parameters["properties"]
 
 
@@ -87,7 +87,7 @@ async def test_agent_forces_final_synthesis_when_step_budget_is_used() -> None:
     tools = Tools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search_advanced", "{}")),
+            _response(call=("call-1", "vector_search", "{}")),
             _response(text="budgeted answer"),
         ]
     )
@@ -207,7 +207,7 @@ async def test_agent_rejects_non_dict_tool_arguments_without_calling_the_tool() 
     call = HarborToolCall(
         id="call-1",
         function=HarborToolCallFunction(
-            name="vector_search_advanced",
+            name="vector_search",
             arguments="[]",
             parsed_arguments=None,
         ),
@@ -248,7 +248,7 @@ async def test_agent_truncates_oversized_tool_results() -> None:
     tools = _HugeResultTools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search_advanced", "{}")),
+            _response(call=("call-1", "vector_search", "{}")),
             _response(text="answer"),
         ]
     )
@@ -274,7 +274,7 @@ async def test_agent_bounds_circular_tool_results() -> None:
 
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search_advanced", "{}")),
+            _response(call=("call-1", "vector_search", "{}")),
             _response(text="answer"),
         ]
     )
