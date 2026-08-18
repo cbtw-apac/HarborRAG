@@ -255,7 +255,7 @@
       "Tenant": 1
     },
     "orphans_by_kind": {},
-    "placeholder_count": 9,
+    "placeholder_count": 11,
     "relation_count": 244,
     "relation_ids": [
       "graph-relation:003b4022d81443935e883747a7d30881daf77d609a1abae89f01dbd3cf6ac0b3",
@@ -563,7 +563,7 @@
         "degree": 7,
         "kind": "SourceEntity",
         "node_key": "graph-v2-source-entity:3067849e2c209c6832496865cdac99d65b8cac067d45ac6e9307abc61730ac56",
-        "title": "HR-1"
+        "title": "HR-1 Rotate graph credentials"
       },
       {
         "degree": 7,

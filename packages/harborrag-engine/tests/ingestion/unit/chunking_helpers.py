@@ -17,8 +17,16 @@ from harborrag_engine.ingestion.chunking import (
     build_chunking_service,
 )
 
-# Re-exported for the sibling test modules that import the fakes from here.
-__all__ = ["CharacterCounter", "CharacterRefiner"]
+# Everything sibling test modules import from here, including the two re-exported fakes.
+__all__ = [
+    "CharacterCounter",
+    "CharacterRefiner",
+    "make_config",
+    "make_document",
+    "make_profile",
+    "make_request",
+    "make_service",
+]
 
 
 def make_document(

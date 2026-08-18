@@ -28,8 +28,22 @@ def _merge(corpus: EvalCorpus) -> tuple[dict[str, GraphNodeRecord], dict[str, Gr
         for node in batch.nodes:
             # Placeholders share the real node's key and must never downgrade it —
             # mirrors upsert_nodes, where placeholder rows are ON CREATE SET only.
-            if node.attributes.get("placeholder") is True and node.node_key in nodes:
+            existing = nodes.get(node.node_key)
+            if node.attributes.get("placeholder") is True and existing is not None:
                 continue
+            # Two *concrete* records for one key make this merge order-dependent, so the
+            # committed baseline would turn on fixture filenames rather than on projection
+            # behaviour. The DataSource node is the known exception: every fixture
+            # directory shares one source_scope_id, so all five connectors fuse onto one
+            # node whose connector_type is whichever batch merged last. Splitting the
+            # fixtures by scope is the real fix and moves every source-entity node key.
+            if (
+                existing is not None
+                and existing != node
+                and not existing.attributes.get("placeholder")
+                and node.node_kind is not KnowledgeNodeKind.DATA_SOURCE
+            ):
+                raise AssertionError(f"order-dependent merge for node_key {node.node_key}")
             nodes[node.node_key] = node
         relations.update({relation.relation_id: relation for relation in batch.relations})
     # An edge whose endpoints are not both present is never written live: upsert_relations

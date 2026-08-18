@@ -12,8 +12,9 @@ Report = Mapping[str, Any]
 
 
 def _jaccard(left: set[str], right: set[str]) -> float:
-    union = left | right
-    return len(left & right) / len(union) if union else 1.0
+    # Callers must reject empty identity lists first: two empty sets would score a
+    # perfect 1.0, which is the determinism gate passing by comparing nothing.
+    return len(left & right) / len(left | right)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,8 +85,10 @@ def reports_by_tenant(payload: Any) -> dict[str, Report]:
 
 def _identity_jaccard(baseline: Report, current: Report, key: str) -> float | None:
     left, right = baseline.get(key), current.get(key)
-    # A null identity list (hand-edited report) is as unusable as an absent one.
-    if left is None or right is None:
+    # A null (hand-edited report) or empty (wiped tenant) identity list is as unusable as
+    # an absent one -- graph_diff turns None into a failure unless the caller opted out
+    # with a 0 bound.
+    if not left or not right:
         return None
     return _jaccard(set(left), set(right))
 

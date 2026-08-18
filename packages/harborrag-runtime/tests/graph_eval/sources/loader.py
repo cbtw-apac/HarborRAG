@@ -130,7 +130,11 @@ def eval_documents() -> dict[str, Document]:
     """Every sample document, keyed by document id, freshly built on each call."""
 
     documents: dict[str, Document] = {}
-    for directory in sorted(path for path in FIXTURES.iterdir() if path.is_dir()):
+    # A source directory is one with defaults in it, so a stray __pycache__ or editor
+    # backup directory is skipped rather than failing the whole corpus build.
+    for directory in sorted(
+        path for path in FIXTURES.iterdir() if (path / DEFAULTS_NAME).is_file()
+    ):
         defaults = _read_object(directory / DEFAULTS_NAME)
         for path in sorted(directory.glob("*.json")):
             if path.name == DEFAULTS_NAME:

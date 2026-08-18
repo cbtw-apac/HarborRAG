@@ -46,9 +46,12 @@ def test_corpus_projects_the_declared_topology(corpus: EvalCorpus) -> None:
         corpus.source_item_key("runbook"),
         corpus.source_item_key("architecture"),
     ) in links
-    # The unresolved link produced a placeholder target in the runbook batch.
+    # Every link target is a stand-in for a node some other document owns, resolved or
+    # not -- it carries no provider attributes, so it may only ever fill a gap. Only the
+    # unresolved one has no corpus document behind it at all.
     placeholders = [node for node in runbook.nodes if node.attributes.get("placeholder") is True]
-    assert len(placeholders) == 1
+    assert sorted(node.logical_id for node in placeholders) == ["architecture", "missing-page"]
+    assert [r.target_source_item_id for r in runbook.unresolved_relations] == ["missing-page"]
     # Every document contributes chunks, a version node, and exactly one source item --
     # including the attachment and placeholder-heavy provider batches.
     for document_id in corpus.batches:
@@ -98,7 +101,10 @@ def test_confluence_attachment_resolves_and_attached_to_reverses(corpus: EvalCor
     attachment = corpus.source_item_key("handbook-pdf")
     page_batch = corpus.batches["team-handbook"]
     assert (page, attachment) in _edges(page_batch, "has_attachment")
-    assert _node(page_batch, attachment).attributes.get("placeholder") is None
+    # Resolving the target supplies a better stand-in title, not provider metadata: the
+    # page's batch still holds the attachment as a stub, so writing this batch after
+    # handbook-pdf's own cannot downgrade the concretely-projected attachment.
+    assert _node(page_batch, attachment).attributes["placeholder"] is True
     # The attachment's own batch carries the same edge twice: once from the Confluence
     # projector's parent_page_id branch (page -> attachment) and once from the reversed
     # `attached_to` predicate. `relation_entity_type` types the far end of any
@@ -231,12 +237,14 @@ def test_sharepoint_contains_chain_runs_through_placeholder_folders(corpus: Eval
 
 def test_cross_source_link_never_resolves(corpus: EvalCorpus) -> None:
     batch = corpus.batches["HR-1"]
-    placeholders = [node for node in batch.nodes if node.attributes.get("placeholder") is True]
-    assert [node.logical_id for node in placeholders] == ["confluence://SPACE/team-handbook"]
-    assert (corpus.source_item_key("HR-1"), placeholders[0].node_key) in _edges(batch, "links_to")
-    # The placeholder is its own node: resolved_targets is per-run scope, so the real
+    stand_in = next(
+        node for node in batch.nodes if node.logical_id == "confluence://SPACE/team-handbook"
+    )
+    assert stand_in.attributes["placeholder"] is True
+    assert (corpus.source_item_key("HR-1"), stand_in.node_key) in _edges(batch, "links_to")
+    # The stand-in is its own node: resolved_targets is per-run scope, so the real
     # Confluence page in the same corpus is never reached by a Jira link.
-    assert placeholders[0].node_key != corpus.source_item_key("team-handbook")
+    assert stand_in.node_key != corpus.source_item_key("team-handbook")
     assert ("links_to", "confluence://SPACE/team-handbook") in {
         (relation.relation_type, relation.target_source_item_id)
         for relation in batch.unresolved_relations

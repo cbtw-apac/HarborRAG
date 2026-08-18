@@ -129,6 +129,10 @@ class SourceRelationProjector:
                 if resolved is not None
                 else self._state.context.source_scope_id
             )
+            # Every node this projector creates stands in for something another document
+            # owns, resolved or not: it carries no provider attributes of its own, so it
+            # must never overwrite the concrete projection (adapter writes placeholders
+            # ON CREATE SET only). A resolved target only supplies a better stub title.
             target = self._state.source_node(
                 relation_entity_type(
                     self._state.context.connector_type.value,
@@ -138,7 +142,7 @@ class SourceRelationProjector:
                 target_id,
                 title=((resolved.title or target_id) if resolved is not None else target_id),
                 source_scope_id=target_scope,
-                attributes=({} if resolved is not None else {"placeholder": True}),
+                attributes={"placeholder": True},
             )
             source, destination = (target, self._current) if reverse else (self._current, target)
             key = (relation_type, source.node_key, destination.node_key)

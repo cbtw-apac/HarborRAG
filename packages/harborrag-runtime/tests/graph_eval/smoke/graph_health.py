@@ -7,10 +7,12 @@ unions both stores so a tenant with zero graph nodes still gets gated.
 
 Usage:
     .venv/bin/python packages/harborrag-runtime/tests/graph_eval/smoke/graph_health.py \
-        [--tenant TENANT_ID ...] [--output report.json] [--identities]
+        [--tenant TENANT_ID ...] [--output report.json] [--identities] [--graph NAME]
 
 `--identities` adds sorted `node_keys` and `relation_ids` to every report, the
 baseline material `graph_diff.py` needs; they are omitted entirely without it.
+`--graph` selects the FalkorDB graph key, defaulting to the one the runtime
+writes; the eval suite's seeded graph is `harborrag-graph-eval`.
 
 Exit codes: 0 all gates pass, 1 gate failure, 2 prerequisites unavailable.
 """
@@ -93,9 +95,14 @@ MATCH (node:KnowledgeNode:DocumentVersion)
 WHERE node.tenant_id = $tenant_id AND node.graph_schema_version = $graph_schema_version
 RETURN DISTINCT node.document_version_id AS identity
 """
+# The relation is filtered too, not just the anchor node: on a shared graph an edge to
+# another tenant, or one left behind at an older schema version, would otherwise inflate
+# the degree and disagree with corpus_census's offline (tenant-scoped) degree count.
 _HUBS = """
 MATCH (node:KnowledgeNode)-[relation]-()
 WHERE node.tenant_id = $tenant_id AND node.graph_schema_version = $graph_schema_version
+  AND relation.tenant_id = $tenant_id
+  AND relation.graph_schema_version = $graph_schema_version
 RETURN node.node_key AS node_key, node.node_kind AS kind, node.title AS title,
        count(relation) AS degree
 ORDER BY degree DESC
@@ -195,9 +202,9 @@ async def _graph_level_failures(client: FalkorDBClient) -> list[str]:
     return failures
 
 
-async def run(tenants: list[str], output: Path | None, *, identities: bool) -> int:
+async def run(tenants: list[str], output: Path | None, *, identities: bool, graph: str) -> int:
     try:
-        client = build_client()
+        client = build_client(graph)
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
         print(f"prerequisites unavailable: {error}", file=sys.stderr)
@@ -262,8 +269,18 @@ def main() -> int:
     parser.add_argument("--tenant", action="append", default=[], dest="tenants")
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--identities", action="store_true")
+    # Defaults to RuntimeSettings.falkordb_graph's default, i.e. the graph the runtime
+    # writes. Point it at HARBORRAG_EVAL_GRAPH_NAME to report on the seeded eval graph.
+    parser.add_argument("--graph", default="harborrag")
     arguments = parser.parse_args()
-    return asyncio.run(run(arguments.tenants, arguments.output, identities=arguments.identities))
+    return asyncio.run(
+        run(
+            arguments.tenants,
+            arguments.output,
+            identities=arguments.identities,
+            graph=arguments.graph,
+        )
+    )
 
 
 if __name__ == "__main__":

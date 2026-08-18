@@ -50,7 +50,10 @@ whoever's PR moves it; the diff in review is the sign-off.
 All need a running FalkorDB (env in `env/.env.database`, where
 `HARBORRAG_EVAL_TENANT_ID` / `HARBORRAG_EVAL_GRAPH_NAME` can also override the
 eval tenant and graph — defaults `graph-eval` / `harborrag-graph-eval` match
-the committed baseline) and share one
+the committed baseline). Those two variables steer the scripts that *seed*
+(`retrieval_eval.py`, `gate_mutation_check.py`); `graph_health.py` reads
+whatever graph `--graph` names, defaulting to the one the runtime writes. All
+share one
 exit-code convention: **0** pass, **1** gate/case failure, **2** prerequisites
 unavailable. Exit 2 also covers a query failure *after* a successful connect
 (e.g. Cypher FalkorDB rejects), so read stderr instead of treating it as a
@@ -89,8 +92,17 @@ printed deltas. Generate reports with `--identities` — diffing a report
 without it exits 1 rather than passing a `null` Jaccard as green. To diff on
 censuses and signatures alone, opt out explicitly with `--min-node-jaccard 0
 --min-relation-jaccard 0` (a zero node bound also disables the
-placeholder-count gate). The committed baseline is written in the same report
-format, so `graph_diff.py` can be pointed straight at it.
+placeholder-count gate). An empty identity list is treated like a missing one,
+so a wiped tenant fails rather than diffing clean against nothing.
+
+The committed baseline is written in the same report format, so `graph_diff.py`
+can be pointed straight at it — seed the eval graph first, then report on that
+graph rather than the runtime's:
+
+    retrieval_eval.py                                       # seeds harborrag-graph-eval
+    graph_health.py --graph harborrag-graph-eval \
+        --tenant graph-eval --identities --output current.json
+    graph_diff.py health/baselines/graph-eval.json current.json
 
 **`retrieval_eval.py`** seeds the corpus into the isolated
 `harborrag-graph-eval` graph and asserts the golden expectations against

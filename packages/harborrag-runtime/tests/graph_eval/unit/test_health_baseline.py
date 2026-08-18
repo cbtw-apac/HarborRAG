@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from ..corpus import TENANT_ID, build_corpus
+from ..corpus import TENANT_ID, EvalCorpus
 from ..health.corpus_census import corpus_health_entry
 from ..health.diffing import diff_reports
 
@@ -41,13 +41,22 @@ def _stored() -> dict[str, object]:
     ``graph_diff.py`` can be pointed straight at this baseline.
     """
 
+    # Named explicitly: TENANT_ID picks the filename, so an HARBORRAG_EVAL_TENANT_ID
+    # override (env or env/.env.database) otherwise surfaces as a bare FileNotFoundError.
+    assert BASELINE.exists(), (
+        f"no committed baseline {BASELINE.name} -- HARBORRAG_EVAL_TENANT_ID is {TENANT_ID!r}"
+    )
     reports = json.loads(BASELINE.read_text())
     assert len(reports) == 1, f"expected one report in {BASELINE.name}, got {len(reports)}"
     return reports[0]
 
 
-def test_corpus_health_matches_the_committed_baseline() -> None:
-    current = corpus_health_entry(build_corpus())
+def test_corpus_health_matches_the_committed_baseline(corpus: EvalCorpus) -> None:
+    current = corpus_health_entry(corpus)
+    # Before anything is compared, and before a regeneration can bake it in: gate_failures
+    # is part of the serialized report, so equality alone would compare failures against
+    # failures and hold CI green on a corpus the health gate is meant to reject.
+    assert not current["gate_failures"]
     if os.environ.get("HARBORRAG_UPDATE_BASELINE"):
         BASELINE.write_text(json.dumps([current], indent=2, sort_keys=True) + "\n")
     baseline = _stored()
