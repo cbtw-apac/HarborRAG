@@ -1,11 +1,11 @@
 """Census the eval corpus offline, shaped exactly like graph_health.py's Cypher returns.
 
 Reproduces what FalkorDB holds once every corpus batch has been written: nodes merge by
-node_key and relations by relation_id, both with the last batch's properties winning
-(`SET node = row` / `SET relation = row` in the adapter's knowledge_writes.py), and the
-batches are merged in the same order the live seeders write them. That equivalence is
-what lets a committed offline baseline gate a change without a running graph -- including
-the cross-batch placeholder overwrite, which is reproduced rather than papered over.
+node_key and relations by relation_id, the last batch's properties winning (`SET node =
+row` / `SET relation = row` in the adapter's knowledge_writes.py) except that placeholder
+nodes only ever fill gaps (`ON CREATE SET`) and never overwrite an existing node. Batches
+are merged in the same order the live seeders write them. That equivalence is what lets a
+committed offline baseline gate a change without a running graph.
 
 Verified against a live seeded graph: every report key matches exactly except ``top_hubs``
 (see its tie-break note below), identity lists included.
@@ -25,7 +25,12 @@ def _merge(corpus: EvalCorpus) -> tuple[dict[str, GraphNodeRecord], dict[str, Gr
     nodes: dict[str, GraphNodeRecord] = {}
     relations: dict[str, GraphEdgeRecord] = {}
     for batch in corpus.batches.values():
-        nodes.update({node.node_key: node for node in batch.nodes})
+        for node in batch.nodes:
+            # Placeholders share the real node's key and must never downgrade it —
+            # mirrors upsert_nodes, where placeholder rows are ON CREATE SET only.
+            if node.attributes.get("placeholder") is True and node.node_key in nodes:
+                continue
+            nodes[node.node_key] = node
         relations.update({relation.relation_id: relation for relation in batch.relations})
     # An edge whose endpoints are not both present is never written live: upsert_relations
     # MATCHes both ends and silently writes nothing. Drop it here for the same reason,

@@ -35,12 +35,14 @@ async def upsert_nodes(
     """Merge node rows by tenant, node_key, and schema version, one round trip per label."""
 
     grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    placeholders: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for node in nodes:
         if str(node.owner_id) != str(context.tenant_id):
             raise ValueError("graph node owner does not match storage tenant context")
         row = _node_row(node, tenant_id=str(context.tenant_id))
         reject_runtime_fields(row)
-        grouped[NODE_LABELS[node.node_kind]].append(FalkorDBMapper.encode_properties(row))
+        target = placeholders if node.attributes.get("placeholder") is True else grouped
+        target[NODE_LABELS[node.node_kind]].append(FalkorDBMapper.encode_properties(row))
     for label, rows in sorted(grouped.items()):
         # tenant_id is part of the merge identity, not just a filter property. Version-owned
         # node keys (DocumentVersion, Structure, Chunk) do not hash the tenant, so without
@@ -56,6 +58,23 @@ async def upsert_nodes(
                 tenant_id: row.tenant_id
             }})
             SET node = row
+            """,
+            {"rows": rows},
+        )
+    for label, rows in sorted(placeholders.items()):
+        # A placeholder shares the real node's key so the concrete projection can
+        # claim it later. It must therefore only ever fill a gap: writing it over
+        # an existing node would downgrade concrete provider metadata to a stub
+        # whenever another document's batch re-projects (ISSUES.md, defect 4).
+        await database.write(
+            f"""
+            UNWIND $rows AS row
+            MERGE (node:KnowledgeNode:{label} {{
+                node_key: row.node_key,
+                graph_schema_version: row.graph_schema_version,
+                tenant_id: row.tenant_id
+            }})
+            ON CREATE SET node = row
             """,
             {"rows": rows},
         )

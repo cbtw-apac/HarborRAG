@@ -74,6 +74,39 @@ class GraphHealthReport:
         }
 
 
+def publication_completeness(
+    active_versions: Mapping[str, str],
+    graph_version_ids: Iterable[str],
+) -> tuple[dict[str, object], list[str]]:
+    """Compare Postgres-published active versions against graph DocumentVersion nodes.
+
+    ``active_versions`` maps document_id -> active_document_version_id for one tenant.
+    Returns the report block and gate failures: a published version with no
+    DocumentVersion node is a hard failure — the document died after publication and
+    no graph-side census can see an absence. Versions only the graph knows are
+    reported, not gated: superseded versions legitimately linger until cleanup.
+    """
+
+    graph_versions = set(graph_version_ids)
+    missing = {
+        document_id: version_id
+        for document_id, version_id in active_versions.items()
+        if version_id not in graph_versions
+    }
+    census: dict[str, object] = {
+        "published_count": len(active_versions),
+        "missing_count": len(missing),
+        "missing": [f"{doc} -> {version}" for doc, version in sorted(missing.items())[:5]],
+        "graph_only_version_count": len(graph_versions - set(active_versions.values())),
+    }
+    failures = (
+        [f"published versions missing from graph: {len(missing)} (e.g. {census['missing'][0]})"]
+        if missing
+        else []
+    )
+    return census, failures
+
+
 def compute_report(  # noqa: PLR0913 - one keyword argument per census the Cypher returns
     *,
     tenant_id: str,

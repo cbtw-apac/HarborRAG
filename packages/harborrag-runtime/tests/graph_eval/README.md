@@ -66,8 +66,11 @@ plain skip.
 **`graph_health.py`** censuses the graph per tenant and hard-fails on
 structural violations (unknown relation types or node kinds, orphaned
 version-owned nodes, duplicate semantic relations, failed constraints, missing
-merge-identity properties, empty/undiscoverable tenants). Everything else is
-report-only.
+merge-identity properties, empty/undiscoverable tenants, published document
+versions with no DocumentVersion node). The publication gate reads the Postgres
+control plane from the same env file — a document that fails after publication
+is absent from the graph, which no graph-side census can see. Everything else
+is report-only.
 
     .venv/bin/python packages/harborrag-runtime/tests/graph_eval/smoke/graph_health.py
 

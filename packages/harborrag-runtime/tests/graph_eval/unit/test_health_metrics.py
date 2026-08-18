@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from ..health.metrics import compute_report, connected_component_sizes
+from ..health.metrics import (
+    compute_report,
+    connected_component_sizes,
+    publication_completeness,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -121,3 +125,27 @@ def test_component_sizes_ignore_singletons() -> None:
         [("a", "b"), ("b", "c"), ("d", "e")],
     )
     assert sizes == (3, 2)
+
+
+def test_publication_completeness_gates_only_on_missing_published_versions() -> None:
+    census, failures = publication_completeness(
+        {"document:a": "version:a1", "document:b": "version:b2"},
+        ["version:a1", "version:b1", "version:b2"],
+    )
+    assert census == {
+        "published_count": 2,
+        "missing_count": 0,
+        "missing": [],
+        "graph_only_version_count": 1,
+    }
+    assert failures == []
+
+
+def test_publication_completeness_fails_when_a_published_version_has_no_node() -> None:
+    census, failures = publication_completeness(
+        {"document:a": "version:a1"},
+        ["version:zz"],
+    )
+    assert census["missing_count"] == 1
+    assert census["missing"] == ["document:a -> version:a1"]
+    assert failures == ["published versions missing from graph: 1 (e.g. document:a -> version:a1)"]

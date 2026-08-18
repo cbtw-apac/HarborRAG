@@ -112,9 +112,9 @@ def test_confluence_attachment_resolves_and_attached_to_reverses(corpus: EvalCor
     assert (page, attachment) in reversed_edges
     # The attachment's own batch only knows its parent page as a placeholder stand-in and
     # the page's batch supplies the same node key concretely. `GraphProjectionState.node`
-    # prefers the concrete record within one batch, but nothing arbitrates across batches,
-    # so in a live graph the later write wins -- a real page can end up flagged
-    # placeholder. Deliberately reproduced here so the census can account for it.
+    # prefers the concrete record within one batch; across batches the adapter writes
+    # placeholders with ON CREATE SET only, so the stand-in fills a gap but can never
+    # downgrade the concretely-projected page.
     assert _node(attachment_batch, page).attributes["placeholder"] is True
 
 
