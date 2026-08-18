@@ -173,7 +173,7 @@ async def test_client_translates_native_transport_errors(monkeypatch) -> None:
         AsyncMock(side_effect=low_level),
     )
 
-    with pytest.raises(RuntimeConnectionError, match="gRPC frontend.*7233.*8080") as captured:
+    with pytest.raises(RuntimeConnectionError, match=r"gRPC frontend.*7233.*8080") as captured:
         await IngestionTemporalClient.connect(TemporalRuntimeConfig())
 
     assert captured.value.__cause__ is low_level

@@ -90,7 +90,9 @@ def read_yaml_file(
         raise error_type(f"{label} file does not exist: {source_path}{hint}")
 
     try:
-        value = yaml.load(
+        # _UniqueKeyLoader derives from yaml.SafeLoader and only overrides the
+        # mapping constructor, so no arbitrary object construction is possible.
+        value = yaml.load(  # noqa: S506  # nosemgrep: coderabbit.deserialization.python-yaml-unsafe-load
             source_path.read_text(encoding="utf-8"),
             Loader=_UniqueKeyLoader,
         )

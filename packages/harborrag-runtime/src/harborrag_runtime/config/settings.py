@@ -46,6 +46,7 @@ class RuntimeSettings(BaseSettings):
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"
+    temporal_worker_identity: str = "harborrag-runtime"
     temporal_api_key: SecretStr | None = None
     temporal_tls: bool = False
     temporal_allow_insecure_remote: bool = False

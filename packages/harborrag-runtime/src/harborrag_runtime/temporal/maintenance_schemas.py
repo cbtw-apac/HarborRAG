@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from harborrag_runtime.ingestion.limits import validate_reindex_limit
 from harborrag_runtime.temporal_models import TemporalWorkflowOptions
@@ -51,7 +51,7 @@ class ReindexInput:
     processing: ProcessingProfileInput
     document_id: str | None = None
     limit: int = 10_000
-    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
     def __post_init__(self) -> None:
         if not self.reindex_job_id.strip() or not self.tenant_id.strip():

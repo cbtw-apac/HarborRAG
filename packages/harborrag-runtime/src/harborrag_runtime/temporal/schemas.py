@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from harborrag_runtime.ingestion.limits import (
     MAX_RETRY_DOCUMENT_IDS,
@@ -89,7 +89,7 @@ class SourceIngestionInput:
     batch_size: int = 200
     continue_after_batches: int = 25
     continuation: SourceContinuation | None = None
-    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
     def __post_init__(self) -> None:
         values = (
@@ -133,7 +133,7 @@ class SourceBatchInput:
     end_index: int
     batch_number: int
     document_concurrency: int
-    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +143,7 @@ class DocumentIngestionInput:
     connector_name: str
     plan_reference: WorkflowArtifactReference
     document_index: int
-    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,7 +264,7 @@ class RetryFailuresInput:
     tenant_id: str
     document_ids: tuple[str, ...]
     document_concurrency: int = 8
-    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
     def __post_init__(self) -> None:
         if any(
@@ -298,7 +298,7 @@ class RetryDocumentInput:
     tenant_id: str
     plan_reference: WorkflowArtifactReference
     document_index: int
-    workflow_options: TemporalWorkflowOptions = TemporalWorkflowOptions()
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
 
 @dataclass(frozen=True, slots=True)

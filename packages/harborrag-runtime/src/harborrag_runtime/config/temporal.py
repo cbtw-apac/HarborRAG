@@ -226,8 +226,8 @@ class TemporalRuntimeConfig:
         )
         selected_worker = replace(
             worker,
-            identity=settings.temporal_identity
-            if "temporal_identity" in explicit_fields
+            identity=settings.temporal_worker_identity
+            if "temporal_worker_identity" in explicit_fields
             else worker.identity,
             max_concurrent_activities=settings.temporal_max_concurrent_activities
             if "temporal_max_concurrent_activities" in explicit_fields

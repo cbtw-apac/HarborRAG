@@ -198,7 +198,7 @@ def test_temporal_api_key_requires_tls() -> None:
 
 @pytest.mark.parametrize(
     "target",
-    (
+    [
         "http://temporal:7233",
         "temporal:7233/path",
         "temporal",
@@ -208,7 +208,7 @@ def test_temporal_api_key_requires_tls() -> None:
         "user@temporal:7233",
         "temporal:7233?query=true",
         "[broken:7233",
-    ),
+    ],
 )
 def test_temporal_target_requires_plain_host_port_authority(target: str) -> None:
     with pytest.raises(RuntimeConfigurationError, match="host:port"):

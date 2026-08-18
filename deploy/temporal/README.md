@@ -74,7 +74,7 @@ Create the ignored environment files, then start the data services, Temporal,
 worker, and API:
 
 ```bash
-scripts/deployment/dev.sh init
+scripts/deployment/dev.sh bootstrap
 scripts/deployment/dev.sh data
 scripts/deployment/dev.sh temporal
 scripts/deployment/dev.sh worker --build

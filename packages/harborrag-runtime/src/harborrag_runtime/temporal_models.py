@@ -57,6 +57,8 @@ class TaskQueueConfig:
                 return self.model
             case "index":
                 return self.index
+            case _:
+                raise RuntimeConfigurationError(f"Unknown Temporal task-queue role: {role!r}")
 
 
 @dataclass(frozen=True, slots=True)

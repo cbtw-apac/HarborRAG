@@ -29,11 +29,12 @@ def _stage_activities(
 def worker_registrations(
     activities: IngestionActivities,
     maintenance: MaintenanceActivities,
-    task_queues: TaskQueueConfig = TaskQueueConfig(),
+    task_queues: TaskQueueConfig | None = None,
 ) -> tuple[
     tuple[str, tuple[type[Any], ...], tuple[Callable[..., Any], ...]],
     ...,
 ]:
+    task_queues = task_queues or TaskQueueConfig()
     return (
         (
             task_queues.discovery,

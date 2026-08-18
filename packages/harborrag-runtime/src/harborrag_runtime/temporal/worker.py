@@ -40,8 +40,8 @@ async def run_workers(
     # transport errors and avoids expensive start/close churn in restart loops.
     client = await connect_temporal_client(config)
     runtime = build_ingestion_runtime(settings)
-    await runtime.start()
     try:
+        await runtime.start()
         activities = IngestionActivities(
             runtime,
             telemetry=runtime.telemetry,

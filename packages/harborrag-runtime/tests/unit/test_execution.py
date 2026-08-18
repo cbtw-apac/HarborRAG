@@ -233,7 +233,7 @@ async def test_temporal_controls_connect_a_fresh_executor(monkeypatch, operation
 
     class ClientFactory:
         @classmethod
-        async def connect(cls, _config):
+        async def connect(cls, _config) -> Client:
             return Client()
 
     monkeypatch.setattr(temporal_module, "IngestionTemporalClient", ClientFactory)
