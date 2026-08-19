@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from harborrag_runtime.errors import RuntimeConfigurationError
-from harborrag_runtime.ingestion.limits import MAX_BATCH_SIZE, MAX_DOCUMENT_CONCURRENCY
 from harborrag_runtime.temporal_models import (
     ActivityRetryConfig,
     TaskQueueConfig,
@@ -143,6 +142,13 @@ class WorkerConfig:
             raise RuntimeConfigurationError("Temporal worker identity or capacity is out of range")
 
 
+# Mirrors harborrag_runtime.ingestion.limits.MAX_BATCH_SIZE / MAX_DOCUMENT_CONCURRENCY:
+# config stays decoupled from runtime services, so the bounds are duplicated rather
+# than imported (see settings.py, which does the same for these fields).
+_MAX_INGESTION_BATCH_SIZE = 300
+_MAX_INGESTION_DOCUMENT_CONCURRENCY = 100
+
+
 @dataclass(frozen=True, slots=True)
 class IngestionConfig:
     """Default per-run source batching; a CLI/API caller may override it."""
@@ -151,8 +157,8 @@ class IngestionConfig:
     document_concurrency: int = 8
 
     def __post_init__(self) -> None:
-        if not 1 <= self.batch_size <= MAX_BATCH_SIZE or not (
-            1 <= self.document_concurrency <= MAX_DOCUMENT_CONCURRENCY
+        if not 1 <= self.batch_size <= _MAX_INGESTION_BATCH_SIZE or not (
+            1 <= self.document_concurrency <= _MAX_INGESTION_DOCUMENT_CONCURRENCY
         ):
             raise RuntimeConfigurationError(
                 "Temporal ingestion batch_size or document_concurrency is out of range"
