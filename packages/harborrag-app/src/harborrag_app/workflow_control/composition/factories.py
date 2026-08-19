@@ -6,8 +6,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.events import InProcessEventBus
 from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
@@ -32,6 +34,7 @@ type ProjectionAdminFactory = Callable[
     [RuntimeSettings],
     ProjectionAdministrationService,
 ]
+type EventBusFactory = Callable[[], EventBusPort]
 
 
 class TaskRegistry(PublicTaskStore, Protocol):
@@ -54,3 +57,4 @@ class AppServiceFactories:
     source_input_builder: SourceInputBuilder = build_source_input
     task_registry: TaskRegistryFactory = IngestionTaskRegistry.connect
     projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
+    event_bus: EventBusFactory = InProcessEventBus

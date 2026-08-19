@@ -8,7 +8,9 @@ from typing import Any, cast
 import sqlalchemy as sa
 from sqlalchemy.engine import CursorResult
 
-from harborrag_adapters.repositories.database.control_plane.schemas import AgentRunRow
+from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+    AgentRunRow,
+)
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage

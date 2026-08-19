@@ -164,6 +164,8 @@ venv.bak/
 # HarborRAG local runtime state and ingested object data
 /.harborrag/
 /.local/
+# ...and the same, wherever a package nests its own local runtime state.
+**/.local/
 
 # Spyder project settings
 .spyderproject

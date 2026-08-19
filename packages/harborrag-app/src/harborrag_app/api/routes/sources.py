@@ -1,7 +1,13 @@
-"""Read-side source endpoints (ML1/M1).
+"""Source endpoints: read side (ML1/M1) plus write side and catalog (ML2).
 
-Thin HTTP wrapper over BaseAppService.{list_sources,get_source}; write
-operations (create/update/delete, secrets handling) land with ML2.
+Secret-shaped config fields are extracted to the secrets port by the service
+layer (workflow_control.control_plane.writes) -- routes never see or forward
+raw values. Every read and write is scoped to the caller's tenants via
+``tenant_ids``, threaded straight into the service call rather than checked
+by a separate pre-fetch in the route -- so a source outside the caller's
+tenants 404s rather than 403s and its existence isn't leaked (mirrors
+api/v1/ingestion/routes.py), and the service is safe by construction even if
+some other caller (CLI, MCP) skips a route-level check entirely.
 """
 
 from __future__ import annotations
@@ -9,11 +15,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, JsonValue, model_validator
 
-from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
+from harborrag_app.api.schemas import ApiModel
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.redaction import redact_mapping
@@ -21,8 +28,32 @@ from harborrag_core.security.redaction import redact_mapping
 router = APIRouter(tags=["sources"], dependencies=[Depends(require_role("reader"))])
 
 
+class SourceCreateInput(ApiModel):
+    tenant_id: str = Field(min_length=1, max_length=128)
+    project_id: str = Field(min_length=1, max_length=255)
+    source_type: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=255)
+    config: dict[str, JsonValue] = Field(default_factory=dict)
+    schedule: str | None = None
+
+
+class SourceUpdateInput(ApiModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    config: dict[str, JsonValue] | None = None
+    schedule: str | None = None
+    status: str | None = None
+
+    @model_validator(mode="after")
+    def reject_explicit_null_config(self) -> SourceUpdateInput:
+        """`{"config": null}` must 422, not crash the secrets-extraction path."""
+        if "config" in self.model_fields_set and self.config is None:
+            raise ValueError("config must be omitted, not null; send {} to clear it")
+        return self
+
+
 class SourceOut(BaseModel):
     id: str
+    tenant_id: str
     project_id: str
     source_type: str
     name: str
@@ -35,6 +66,7 @@ class SourceOut(BaseModel):
     def from_domain(cls, source: SourceConfig) -> SourceOut:
         return cls(
             id=source.id,
+            tenant_id=source.tenant_id,
             project_id=source.project_id,
             source_type=source.source_type,
             name=source.name,
@@ -65,3 +97,52 @@ async def get_source(
     """One source by id; 404 (enveloped) when missing or outside the caller's tenants."""
     response = await service.get_source(source_id, tenant_ids=principal.tenant_scope)
     return SourceOut.from_domain(response.data["source"])
+
+
+@router.post("/sources", status_code=201, response_model=SourceOut)
+async def create_source(
+    payload: SourceCreateInput,
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> SourceOut:
+    """Create a source; secret-shaped config fields never round-trip in the response."""
+    authorize_tenant(principal, payload.tenant_id)
+    response = await service.create_source(
+        tenant_id=payload.tenant_id,
+        project_id=payload.project_id,
+        source_type=payload.source_type,
+        name=payload.name,
+        config=payload.config,
+        schedule=payload.schedule,
+        actor=principal.subject,
+    )
+    return SourceOut.from_domain(response.data["source"])
+
+
+@router.patch("/sources/{source_id}", response_model=SourceOut)
+async def update_source(
+    source_id: str,
+    payload: SourceUpdateInput,
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> SourceOut:
+    """Update a source; fields omitted from the request body are left unchanged."""
+    response = await service.update_source(
+        source_id,
+        updates=payload.model_dump(exclude_unset=True),
+        actor=principal.subject,
+        tenant_ids=principal.tenant_scope,
+    )
+    return SourceOut.from_domain(response.data["source"])
+
+
+@router.delete("/sources/{source_id}", status_code=204)
+async def delete_source(
+    source_id: str,
+    service: Annotated[BaseAppService, Depends(get_app_service)],
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> None:
+    """Delete a source and forget every secret it referenced."""
+    await service.delete_source(
+        source_id, actor=principal.subject, tenant_ids=principal.tenant_scope
+    )

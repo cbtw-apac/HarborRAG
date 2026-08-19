@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -14,15 +15,26 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
     create_session_factory,
 )
 from harborrag_adapters.repositories.database.control_plane.jobs import SqlJobRepository
+from harborrag_adapters.repositories.database.control_plane.leases import SqlLeaseRepository
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_adapters.repositories.database.control_plane.pending_effects import (
+    SqlPendingEffectRepository,
+)
 from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
     SqlSourceRepository,
 )
+from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import (
+    HarborConflictError,
+    HarborNotFoundError,
+    HarborSecretDecryptionError,
+)
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.source_config import SourceConfig
 
@@ -109,6 +121,26 @@ async def test_source_repository_roundtrip_and_project_filter(
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
+async def test_secrets_repository_flags_decryption_failure_as_distinct_from_not_found(
+    sessions: SessionFactory,
+) -> None:
+    """A ref encrypted under a since-rotated key must not be conflated with a missing ref."""
+
+    repo = SqlSecretsRepository(sessions, encryption_key="original-key")
+    ref = await repo.put("hunter2")
+    assert await repo.resolve(ref) == "hunter2"
+
+    rotated = SqlSecretsRepository(sessions, encryption_key="rotated-key")
+    with pytest.raises(HarborSecretDecryptionError, match="cannot be decrypted"):
+        await rotated.resolve(ref)
+
+    # A genuinely missing ref still 404s rather than raising the decryption error.
+    with pytest.raises(HarborNotFoundError):
+        await rotated.resolve("secret://db/does-not-exist")
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
 async def test_job_repository_roundtrip_and_event_log(sessions: SessionFactory) -> None:
     """Job save/get/list filters + ordered per-job event sequence numbers."""
 
@@ -151,3 +183,130 @@ async def test_job_repository_roundtrip_and_event_log(sessions: SessionFactory) 
             )
         )
     assert seqs == [1, 2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_pending_effect_repository_roundtrip_is_oldest_first_and_completion_removes_it(
+    sessions: SessionFactory,
+) -> None:
+    """enqueue/list_pending/complete against real SQL; completion is a hard delete."""
+
+    repo = SqlPendingEffectRepository(sessions)
+    # Explicit, distinct timestamps make the ordering assertion independent
+    # of enqueue order or the local clock's resolution.
+    first = PendingControlPlaneEffect(
+        id="eff_1",
+        kind="retire_secret",
+        payload={"ref": "secret://db/1"},
+        created_at=datetime(2026, 8, 12, 0, 0, 1, tzinfo=UTC),
+    )
+    second = PendingControlPlaneEffect(
+        id="eff_2",
+        kind="log_activity",
+        payload={"id": "act_1", "summary": "Created source 'Docs'"},
+        created_at=datetime(2026, 8, 12, 0, 0, 0, tzinfo=UTC),
+    )
+    await repo.enqueue(first)
+    await repo.enqueue(second)
+
+    pending = await repo.list_pending()
+
+    assert [effect.id for effect in pending] == ["eff_2", "eff_1"]  # second is older
+    assert pending[0].payload == second.payload
+    assert pending[0].created_at <= pending[1].created_at
+
+    await repo.complete("eff_2")
+
+    remaining = await repo.list_pending()
+    assert [effect.id for effect in remaining] == ["eff_1"]
+
+    await repo.complete("eff_2")  # already gone: a no-op, not an error
+    assert [effect.id for effect in await repo.list_pending()] == ["eff_1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_grants_exactly_one_live_holder_at_a_time(
+    sessions: SessionFactory,
+) -> None:
+    """A rival holder is refused while the lease is live, but wins it once it lapses."""
+
+    repo = SqlLeaseRepository(sessions)
+    name = "ingestion_progress_bridge"  # seeded (already-expired) by migration 0017
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False  # still held by a
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True  # a renews
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=-1) is True  # a's lease lapses
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True  # b takes over
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is False  # a is now the rival
+
+    assert await repo.try_acquire("no_such_lease", "holder-a", ttl_seconds=1000) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_ignores_a_skewed_local_clock(
+    sessions: SessionFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """try_acquire must anchor both the expiry check and the new expiry to
+    the database's own clock, never this process's -- otherwise a contender
+    whose local clock merely runs ahead of the actual holder's (or of the
+    database server) could believe a still-live lease had already lapsed
+    and steal it, letting two holders run at once.
+
+    holder-a acquires on a real, unskewed clock. holder-b then contends
+    with its local clock skewed far enough forward that -- were try_acquire
+    comparing against it -- holder-a's lease would look expired even though
+    no real time (and certainly not the lease's actual 1000s ttl) has
+    passed. Patching ``harborrag_core.base.datetime`` (rather than
+    ``utc_now`` itself) is deliberate: ``utc_now()`` resolves ``datetime``
+    from its own module's globals at call time, so this reaches every
+    caller of ``utc_now`` regardless of how they imported it -- exactly the
+    shape a reintroduced ``now = utc_now()`` in this repository would take.
+    """
+    repo = SqlLeaseRepository(sessions)
+    name = "ingestion_progress_bridge"  # seeded (already-expired) by migration 0017
+
+    real_now = utc_now()
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+
+    skewed_now = real_now + timedelta(seconds=2000)  # past holder-a's real 1000s ttl
+
+    class _SkewedDatetime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            del cls, tz
+            return skewed_now
+
+    monkeypatch.setattr("harborrag_core.base.datetime", _SkewedDatetime)
+
+    # If try_acquire compared expires_at against this skewed process clock
+    # instead of the database's, holder-a's real, still-live lease would
+    # look expired 2000s in -- long past its real 1000s ttl -- and
+    # holder-b would wrongly win it.
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_has_a_seeded_row_for_effect_recovery(
+    sessions: SessionFactory,
+) -> None:
+    """try_acquire returns False for any lease name with no row (it can only
+    ever UPDATE an existing row). AppService.recover_pending_control_plane_effects
+    acquires "control_plane_effect_recovery" (see
+    harborrag_app.workflow_control.control_plane.effect_recovery.EFFECT_RECOVERY_LEASE_NAME)
+    before every drain pass, so migrations must seed that row the same way
+    migration 0017 seeded "ingestion_progress_bridge" -- otherwise recovery
+    silently never acquires the lease in production and pending effects
+    (secret retirement, audit logging) never drain.
+    """
+
+    repo = SqlLeaseRepository(sessions)
+    name = "control_plane_effect_recovery"  # seeded (already-expired) by migration 0018
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True

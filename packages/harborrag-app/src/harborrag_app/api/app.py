@@ -32,6 +32,8 @@ from harborrag_core.observability.process_logging import configure_logging
 
 logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
+_INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
+_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -61,6 +63,34 @@ async def _recover_pending_submissions(app: FastAPI) -> None:
         await asyncio.sleep(_SUBMISSION_RECOVERY_INTERVAL_SECONDS)
 
 
+async def _sync_ingestion_progress(app: FastAPI) -> None:
+    """Continuously fan active ingestion tasks' progress out via the event bus."""
+
+    while True:
+        try:
+            await app.state.app_service.sync_ingestion_progress()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Ingestion progress sync tick failed")
+        await asyncio.sleep(_INGESTION_PROGRESS_INTERVAL_SECONDS)
+
+
+async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
+    """Continuously drain the durable secret-retirement/audit-logging outbox."""
+
+    while True:
+        try:
+            recovered = await app.state.app_service.recover_pending_control_plane_effects()
+            if recovered:
+                logger.info("Recovered %d pending control-plane effects", recovered)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Pending control-plane effect recovery pass failed")
+        await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Compose the app service on startup (ST8 selection rule).
@@ -73,11 +103,22 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.composition_mode = mode
     logger.info("Application service composed in %s mode", mode)
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
+    progress_task = asyncio.create_task(_sync_ingestion_progress(app))
+    control_plane_effect_recovery_task = asyncio.create_task(
+        _recover_pending_control_plane_effects(app)
+    )
     try:
         yield
     finally:
         recovery_task.cancel()
-        await asyncio.gather(recovery_task, return_exceptions=True)
+        progress_task.cancel()
+        control_plane_effect_recovery_task.cancel()
+        await asyncio.gather(
+            recovery_task,
+            progress_task,
+            control_plane_effect_recovery_task,
+            return_exceptions=True,
+        )
         logger.info("Closing the application service")
         try:
             close = getattr(service, "aclose", None)

@@ -5,6 +5,7 @@ from .control_plane import (
     JobRepositoryProvider,
     MemberRepositoryPort,
     MemberRepositoryProvider,
+    PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProjectRepositoryProvider,
     ProviderRepositoryPort,
@@ -23,6 +24,7 @@ from .conversation import (
     ConversationTurn,
     new_session_id,
 )
+from .events import EventBusPort
 from .indexing import KnowledgeGraphRepositoryPort, VectorIndexRepositoryPort
 from .model_clients import (
     AsyncHarborChatClientProtocol,
@@ -33,6 +35,7 @@ from .model_clients import (
     HarborRerankClientProtocol,
 )
 from .retrieval import GraphRetrievalRepositoryPort
+from .secrets import SecretsPort
 
 __all__ = [
     "ActivityRepositoryPort",
@@ -45,6 +48,7 @@ __all__ = [
     "ConversationRepository",
     "ConversationSessions",
     "ConversationTurn",
+    "EventBusPort",
     "GraphRetrievalRepositoryPort",
     "HarborChatClientProtocol",
     "HarborEmbedClientProtocol",
@@ -54,10 +58,12 @@ __all__ = [
     "KnowledgeGraphRepositoryPort",
     "MemberRepositoryPort",
     "MemberRepositoryProvider",
+    "PendingEffectRepositoryPort",
     "ProjectRepositoryProvider",
     "ProjectRepositoryPort",
     "ProviderRepositoryProvider",
     "ProviderRepositoryPort",
+    "SecretsPort",
     "SettingsRepositoryProvider",
     "SettingsRepositoryPort",
     "SourceRepositoryProvider",

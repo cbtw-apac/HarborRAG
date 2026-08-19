@@ -28,6 +28,16 @@ _OBJECT_STORE_TRANSPORT = RemoteTransportPolicy(
 )
 
 
+def is_blank_secret(value: SecretStr | None) -> bool:
+    """True for an unset secret or one that is empty/whitespace-only.
+
+    A blank string is not None, so it would otherwise slip past an
+    `is None` check and reach the encryption key derivation as a fixed,
+    publicly-guessable value -- weaker than even the dev-default key.
+    """
+    return value is None or not value.get_secret_value().strip()
+
+
 class RuntimeSettings(BaseSettings):
     """Environment-driven settings for runtime composition."""
 
@@ -43,6 +53,7 @@ class RuntimeSettings(BaseSettings):
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
     control_db_pool_size: int = Field(default=5, ge=1, le=100)
     control_db_max_overflow: int = Field(default=10, ge=0, le=200)
+    secrets_encryption_key: SecretStr | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"
@@ -106,10 +117,20 @@ class RuntimeSettings(BaseSettings):
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
         control_db_url = self.control_db_url.get_secret_value().lower()
-        if self.env == "prod" and control_db_url.startswith("sqlite"):
+        is_sqlite_control_db = control_db_url.startswith("sqlite")
+        if self.env == "prod" and is_sqlite_control_db:
             raise ValueError(
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
                 "HARBORRAG_ENV=prod; SQLite is development-only"
+            )
+        if is_blank_secret(self.secrets_encryption_key) and not is_sqlite_control_db:
+            # env=dev with a real (non-SQLite) control DB is a legal combination, and
+            # it would otherwise silently encrypt stored secrets with the
+            # publicly-known dev-default key -- require an explicit key for any
+            # persistent control database, not only in prod.
+            raise ValueError(
+                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
+                "is not SQLite; the dev-only default key is not safe for stored secrets"
             )
         development = self.env == "dev"
         if self.redis_url is not None:

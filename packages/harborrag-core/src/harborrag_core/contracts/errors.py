@@ -42,6 +42,17 @@ class HarborNotFoundError(HarborError):
     """Request resource does not exist."""
 
 
+class HarborSecretDecryptionError(HarborError):
+    """A stored secret exists but cannot be decrypted with the configured key.
+
+    Distinct from HarborNotFoundError: the ref is real and the row is present,
+    but decryption failed -- almost always a key-rotation mistake (the secret
+    was encrypted under a key that is no longer configured), not a missing
+    resource. Conflating the two would mask that operational failure as an
+    ordinary 404.
+    """
+
+
 class HarborUnavailableError(HarborError):
     """A required backing service is not configured or reachable."""
 

@@ -12,7 +12,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from harborrag_adapters.repositories.database.control_plane.schemas import MemoryRow
+from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import MemoryRow
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConflictError

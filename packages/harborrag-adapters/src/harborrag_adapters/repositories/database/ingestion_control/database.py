@@ -9,6 +9,7 @@ from .reindex import ReindexJobRepository
 from .reliability import IngestionReliabilityRepository
 from .schema import METADATA
 from .source_scans import SourceScanRepository
+from .task_events import TaskEventRepository
 from .tasks import IngestionTaskRepository
 
 
@@ -31,6 +32,7 @@ class IngestionControlPlaneDatabase:
         self.reliability = IngestionReliabilityRepository(client)
         self.reindex = ReindexJobRepository(client)
         self.tasks = IngestionTaskRepository(client)
+        self.task_events = TaskEventRepository(client)
 
     async def __aenter__(self) -> IngestionControlPlaneDatabase:
         await self.connect()

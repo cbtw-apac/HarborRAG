@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncGenerator, Iterable
 from dataclasses import dataclass, field
 
 from harborrag_core.contracts.events import HarborEvent
@@ -120,10 +120,10 @@ class FakeEventBus:
         """Record the event."""
         self.events.append(event)
 
-    def subscribe(self, name_prefix: str) -> AsyncIterator[HarborEvent]:
+    def subscribe(self, name_prefix: str) -> AsyncGenerator[HarborEvent, None]:
         """Yield recorded events whose name starts with name_prefix."""
 
-        async def _replay() -> AsyncIterator[HarborEvent]:
+        async def _replay() -> AsyncGenerator[HarborEvent, None]:
             for event in list(self.events):
                 if event.name.startswith(name_prefix):
                     yield event
