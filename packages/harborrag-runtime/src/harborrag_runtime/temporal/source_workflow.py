@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 from dataclasses import replace
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ChildWorkflowError
@@ -197,7 +197,9 @@ class SourceIngestionWorkflow:
             with contextlib.suppress(asyncio.CancelledError):
                 await pause_relay
 
-    async def _relay_pause_signals(self, handle) -> None:
+    async def _relay_pause_signals(
+        self, handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary]
+    ) -> None:
         """Forward this workflow's pause/resume signals to the active batch child.
 
         Without this, a pause requested while a batch's document waves are
@@ -206,7 +208,11 @@ class SourceIngestionWorkflow:
         """
         relayed = False
         while True:
-            await workflow.wait_condition(lambda relayed=relayed: self._paused != relayed)
+
+            def _paused_differs_from(current: bool = relayed) -> bool:
+                return self._paused != current
+
+            await workflow.wait_condition(_paused_differs_from)
             relayed = self._paused
             await handle.signal("pause" if relayed else "resume")
 

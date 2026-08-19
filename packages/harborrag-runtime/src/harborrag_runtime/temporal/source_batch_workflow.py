@@ -28,8 +28,6 @@ class SourceBatchWorkflow:
             request.end_index,
             request.document_concurrency,
         ):
-            if self._cancel_requested:
-                break
             if self._paused:
                 await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
             if self._cancel_requested:
