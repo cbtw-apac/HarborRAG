@@ -7,6 +7,7 @@ from .contracts import (
     RetrievalOptions,
     RetrievalPolicy,
     RetrievalResources,
+    RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
 from .service import RuntimeRetrievalService
@@ -18,6 +19,7 @@ __all__ = [
     "RetrievalOptions",
     "RetrievalPolicy",
     "RetrievalResources",
+    "RetrievalTelemetry",
     "RuntimeRetrievalReport",
     "RuntimeRetrievalService",
 ]

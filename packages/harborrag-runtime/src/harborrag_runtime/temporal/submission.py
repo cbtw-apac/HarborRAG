@@ -18,6 +18,7 @@ from harborrag_runtime.config.connectors.providers import (
 )
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion.profiles import build_processing_profile
 from harborrag_runtime.serialization import to_json_value
 
@@ -41,9 +42,9 @@ class SourceSubmission:
     force_reprocess: bool = False
     discovery_page_size: int = 50
     discovery_concurrency: int = 4
-    document_concurrency: int = 8
+    document_concurrency: int | None = None
     missing_threshold: int = 2
-    batch_size: int = 200
+    batch_size: int | None = None
     continue_after_batches: int = 25
 
 
@@ -81,6 +82,17 @@ def build_source_input(
         query=query,
     )
     processing = build_processing_profile(settings)
+    ingestion_defaults = TemporalRuntimeConfig.from_settings(settings).ingestion
+    batch_size = (
+        submission.batch_size
+        if submission.batch_size is not None
+        else ingestion_defaults.batch_size
+    )
+    document_concurrency = (
+        submission.document_concurrency
+        if submission.document_concurrency is not None
+        else ingestion_defaults.document_concurrency
+    )
     return SourceIngestionInput(
         task_id=submission.task_id,
         tenant_id=submission.tenant_id,
@@ -102,9 +114,9 @@ def build_source_input(
         force_reprocess=submission.force_reprocess,
         discovery_page_size=submission.discovery_page_size,
         discovery_concurrency=submission.discovery_concurrency,
-        document_concurrency=submission.document_concurrency,
+        document_concurrency=document_concurrency,
         missing_threshold=submission.missing_threshold,
-        batch_size=submission.batch_size,
+        batch_size=batch_size,
         continue_after_batches=submission.continue_after_batches,
     )
 

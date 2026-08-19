@@ -119,6 +119,8 @@ class BaseAppService(ABC):
         include_attachments: bool = True,
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
+        batch_size: int | None = None,
+        document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
         raise NotImplementedError

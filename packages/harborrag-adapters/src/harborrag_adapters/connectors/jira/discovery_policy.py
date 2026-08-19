@@ -7,7 +7,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.attachments import attachment_ids_from_filters
 from harborrag_adapters.connectors.exceptions import (
-    AuthenticationError,
+    AuthorizationError,
     DocumentProcessingError,
     FetchError,
 )
@@ -136,12 +136,14 @@ def verify_empty_search_result(
     per-query (``project_keys``/``project_key``/path filters), not
     knowable until the query is in hand.
 
-    Raises only on a definitive ``havePermission: false``. If the probe
-    itself is inconclusive (a non-401 `FetchError` -- endpoint disabled,
-    unrecognized permission key, transient failure), the empty result
-    stands as-is rather than turning every genuinely-empty project into
-    a false-positive authentication failure; a real bad credential still
-    surfaces via the shared client's 401 handling on this same call.
+    Raises only on a definitive ``havePermission: false`` -- a valid
+    credential that lacks scope, which is an authorization failure, not an
+    authentication one; a real bad credential still surfaces via the shared
+    client's own 401/403 handling on this same call. If the probe itself is
+    inconclusive (a `FetchError` -- endpoint disabled, unrecognized
+    permission key, transient failure), the empty result stands as-is rather
+    than turning every genuinely-empty project into a false-positive
+    authorization failure.
     """
     project_keys = policy.effective_project_keys(query)
     if not project_keys:
@@ -157,6 +159,6 @@ def verify_empty_search_result(
         return
     if permitted:
         return
-    raise AuthenticationError(
+    raise AuthorizationError(
         f"JIRA credential lacks BROWSE_PROJECTS permission on {project_keys!r}"
     )

@@ -17,6 +17,14 @@ class SourceForbiddenError(IngestionDomainError):
     pass
 
 
+class SourceAuthenticationError(SourceForbiddenError):
+    """Credentials themselves are rejected as invalid (e.g. HTTP 401)."""
+
+
+class SourceAuthorizationError(SourceForbiddenError):
+    """Credentials are valid but lack permission/scope for the request (e.g. HTTP 403)."""
+
+
 class ParserRejectedDocumentError(IngestionDomainError):
     pass
 

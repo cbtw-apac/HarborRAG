@@ -12,7 +12,7 @@ from urllib.parse import ParseResult, urlparse
 
 from harborrag_core.security.redaction import redact_secrets
 
-from ..exceptions import AuthenticationError, FetchError
+from ..exceptions import AuthenticationError, AuthorizationError, FetchError
 
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 300.0
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -73,26 +73,56 @@ def summarize_provider_error(exc: Exception) -> str:
     return message if isinstance(message, str) and message.strip() else detail
 
 
+def _with_status_code(message: str, status_code: int | None) -> str:
+    """Append the raw HTTP status so it's always visible, even when the
+    provider's own error body happens not to mention it (Jira Cloud's 401
+    body is just "Client must be authenticated..." with no digits, while
+    Confluence's 403 body happens to embed "403 FORBIDDEN" -- callers must
+    not depend on incidental provider wording to see the status code)."""
+    return message if status_code is None else f"{message} (HTTP {status_code})"
+
+
 def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
     """Run a cheap authenticated probe and normalize how it fails.
 
-    A bad credential otherwise reaches the caller as a bare, un-prefixed
-    provider message (raised deep in the shared HTTP client), and some
-    deployments reject it with 403 instead of 401. Both branches re-raise
-    through the same message template so every connector's ``connect()``
-    reports a bad credential the same way regardless of provider or status
-    code.
+    A bad credential (401) otherwise reaches the caller as a bare, un-prefixed
+    provider message, raised deep in the shared HTTP client. A 403 means the
+    credential itself checks out but lacks permission/scope for the probed
+    resource -- a different failure a caller must be able to tell apart from
+    an outright invalid credential, so it is reported as an authorization
+    failure, not an authentication one. Some deployments reject a probe with
+    a bare 403 `FetchError` instead of the shared client's own
+    `AuthorizationError`, so that case is normalized here too. Every branch
+    re-raises through the same message template so every connector's
+    ``connect()`` reports each kind of failure the same way regardless of
+    provider.
     """
     try:
         probe()
     except AuthenticationError as exc:
         raise AuthenticationError(
-            f"{provider} authentication failed: {summarize_provider_error(exc)}"
+            _with_status_code(
+                f"{provider} authentication failed: {summarize_provider_error(exc)}",
+                exc.status_code,
+            ),
+            status_code=exc.status_code,
+        ) from exc
+    except AuthorizationError as exc:
+        raise AuthorizationError(
+            _with_status_code(
+                f"{provider} authorization failed: {summarize_provider_error(exc)}",
+                exc.status_code,
+            ),
+            status_code=exc.status_code,
         ) from exc
     except FetchError as exc:
         if exc.status_code == 403:
-            raise AuthenticationError(
-                f"{provider} authentication failed: {summarize_provider_error(exc)}"
+            raise AuthorizationError(
+                _with_status_code(
+                    f"{provider} authorization failed: {summarize_provider_error(exc)}",
+                    exc.status_code,
+                ),
+                status_code=exc.status_code,
             ) from exc
         raise
 

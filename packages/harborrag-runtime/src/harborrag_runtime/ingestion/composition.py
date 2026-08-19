@@ -18,7 +18,6 @@ from harborrag_adapters.repositories.object_store.s3 import S3ObjectStore
 from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
-from harborrag_engine.ingestion import BaseChunker
 from harborrag_runtime.config import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -64,11 +63,20 @@ class IngestionRuntime:
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:
+        """Connect shared infrastructure only.
+
+        Connectors are deliberately left untouched here: each provider verifies
+        its own credentials lazily, once, on its first real `discover`/`load`
+        call (see `BaseConnector._ensure_connected`). Eagerly connecting every
+        enabled connector at startup would mean one connector with bad
+        credentials (e.g. a stale Confluence token) aborts the whole runtime
+        and blocks ingestion for every other connector, including ones never
+        used in a given run.
+        """
         if self._started:
             logger.debug("Ingestion runtime start skipped reason=already_started")
             return
         connected: list[Callable[[], Awaitable[None]]] = []
-        connected_connectors: list[BaseConnector | HarborConnector] = []
         try:
             await self.telemetry.start()
             connected.append(self.telemetry.close)
@@ -80,23 +88,14 @@ class IngestionRuntime:
             ):
                 await resource.connect()
                 connected.append(resource.close)
-            for connector in self.connectors.values():
-                await asyncio.to_thread(connector.connect)
-                connected_connectors.append(connector)
             await self.object_store.ensure_buckets((RAW_BUCKET, ARTIFACT_BUCKET))
         except BaseException as error:
             logger.error(
-                "Ingestion runtime startup failed error_type=%s connected_resources=%d "
-                "connected_connectors=%d",
+                "Ingestion runtime startup failed error_type=%s connected_resources=%d",
                 type(error).__name__,
                 len(connected),
-                len(connected_connectors),
             )
             await asyncio.gather(
-                *(
-                    asyncio.to_thread(connector.close)
-                    for connector in reversed(connected_connectors)
-                ),
                 *(close() for close in reversed(connected)),
                 asyncio.to_thread(self.connector_rate_limiter.close),
                 self.embed_client.aclose(),
@@ -107,7 +106,7 @@ class IngestionRuntime:
         logger.info(
             "Ingestion runtime started resources=%d connectors=%d",
             len(connected),
-            len(connected_connectors),
+            len(self.connectors),
         )
 
     async def close(self) -> None:
@@ -178,19 +177,11 @@ def build_ingestion_runtime(
 ) -> IngestionRuntime:
     """Build an ingestion runtime through the production object-graph builder."""
 
-    from .runtime_builder import IngestionRuntimeBuilder
+    from .runtime_builder import build_ingestion_runtime as build
 
-    return IngestionRuntimeBuilder(
-        settings or RuntimeSettings(),
+    return build(
+        settings,
         normalizer_builder=normalizer_builder,
         chunking_config=chunking_config,
         chunking_strategies=chunking_strategies,
-    ).build()
-
-
-def _chunker() -> BaseChunker:
-    """Compatibility hook for white-box chunking policy tests."""
-
-    from .runtime_builder import build_default_chunker
-
-    return build_default_chunker()
+    )

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.graph.falkordb import (
     FalkorDBGraphConfig,
     FalkorKnowledgeGraphRepository,
@@ -20,7 +22,7 @@ from harborrag_core.ports import (
     KnowledgeGraphRepositoryPort,
 )
 
-from .config.settings import RuntimeSettings
+from ..config.settings import RuntimeSettings
 
 
 class RuntimeKnowledgeGraphPort(
@@ -29,6 +31,43 @@ class RuntimeKnowledgeGraphPort(
     Protocol,
 ):
     """Combined write and retrieval capabilities required by runtime composition."""
+
+
+def build_ingestion_control(
+    settings: RuntimeSettings,
+) -> IngestionControlPlaneDatabase:
+    """Create the Postgres authority without importing projection providers."""
+
+    url = settings.control_db_url.get_secret_value()
+    backend = "postgresql" if url.startswith("postgresql+asyncpg://") else "sqlite"
+    client = SQLAlchemyDBClient(
+        backend=backend,
+        url=url,
+        pool_size=(settings.control_db_pool_size if backend == "postgresql" else None),
+        max_overflow=(settings.control_db_max_overflow if backend == "postgresql" else None),
+        pool_recycle_seconds=1800,
+        echo=False,
+    )
+    return IngestionControlPlaneDatabase(client, create_schema=False)
+
+
+def embedding_dimensions(config: Any, model_name: str) -> int:
+    """Resolve one unambiguous embedding dimension from the model catalog."""
+
+    _, model = config.model_for(model_name)
+    expected = {
+        deployment.expected_dimensions
+        for deployment in model.deployments
+        if deployment.expected_dimensions is not None
+    }
+    if len(expected) == 1:
+        return int(expected.pop())
+    if model.default_params.dimensions is not None:
+        return int(model.default_params.dimensions)
+    raise ValueError(
+        f"embedding model {model_name!r} has no unambiguous expected_dimensions; "
+        "set HARBORRAG_EMBEDDING_DIMENSIONS"
+    )
 
 
 def build_object_store(settings: RuntimeSettings) -> S3ObjectStore:

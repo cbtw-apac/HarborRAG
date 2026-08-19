@@ -123,6 +123,32 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             help="Reprocess admitted documents even when source descriptors are unchanged.",
         ),
     ] = False,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(
+            "--batch-size",
+            min=1,
+            max=300,
+            metavar="COUNT",
+            help=(
+                "Documents per SourceBatchWorkflow child; "
+                "defaults to config/temporal.yaml's ingestion.batch_size."
+            ),
+        ),
+    ] = None,
+    document_concurrency: Annotated[
+        int | None,
+        typer.Option(
+            "--document-concurrency",
+            min=1,
+            max=100,
+            metavar="COUNT",
+            help=(
+                "Concurrent DocumentIngestionWorkflow children per wave; "
+                "defaults to config/temporal.yaml's ingestion.document_concurrency."
+            ),
+        ),
+    ] = None,
     wait: Annotated[
         bool,
         typer.Option("--wait", help="Wait for completion and display the final summary."),
@@ -146,6 +172,8 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             include_attachments=include_attachments,
             filters=_filters(filters_json),
             force_reprocess=force_reprocess,
+            batch_size=batch_size,
+            document_concurrency=document_concurrency,
             wait=wait,
         ),
         context=context,

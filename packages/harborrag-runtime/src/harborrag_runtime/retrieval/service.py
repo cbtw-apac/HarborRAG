@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from time import perf_counter
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -21,14 +22,13 @@ from harborrag_engine.retrieval import (
     RetrievalLane,
 )
 
-from ..config.settings import RuntimeSettings
-from ..ingestion.observability import IngestionTelemetry
 from .contracts import (
     CloseOperation,
     RetrievalDiagnostics,
     RetrievalOptions,
     RetrievalPolicy,
     RetrievalResources,
+    RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
 from .graph_observation import GraphObservation, GraphObserver
@@ -38,6 +38,14 @@ from .validation import required_text, validate_retrieval_request
 _CHUNK_LOAD_CONCURRENCY = 8
 
 logger = logging.getLogger("harborrag.runtime.retrieval")
+
+if TYPE_CHECKING:
+    from ..config.settings import RuntimeSettings
+
+
+class _NullRetrievalTelemetry:
+    def record_stale_candidate_rejections(self, count: int) -> None:
+        del count
 
 
 class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
@@ -49,7 +57,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         resources: RetrievalResources,
         policy: RetrievalPolicy,
         close_resources: tuple[CloseOperation, ...] = (),
-        telemetry: IngestionTelemetry | None = None,
+        telemetry: RetrievalTelemetry | None = None,
     ) -> None:
         self._embed = resources.embed_client
         self._sparse = resources.sparse_encoder
@@ -65,7 +73,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             else None
         )
         self._close_resources = close_resources
-        self._telemetry = telemetry or IngestionTelemetry()
+        self._telemetry = telemetry or _NullRetrievalTelemetry()
         self._observer = (
             GraphObserver(resources.graph_repository)
             if resources.graph_repository is not None
@@ -75,7 +83,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
 
     @classmethod
     async def connect(cls, settings: RuntimeSettings) -> RuntimeRetrievalService:
-        from ..retrieval_factory import connect_retrieval_service
+        from .composition import connect_retrieval_service
 
         return await connect_retrieval_service(settings)
 

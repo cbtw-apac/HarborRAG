@@ -107,13 +107,14 @@ class ActivityObservability:
                 failure = self._failures.classify(stage, error)
                 logger.error(
                     "Activity failed stage=%s workflow_id=%s activity_id=%s "
-                    "attempt=%d error_code=%s error_type=%s retryable=%s",
+                    "attempt=%d error_code=%s error_type=%s status_code=%s retryable=%s",
                     stage,
                     context.workflow_id,
                     context.activity_id,
                     context.attempt,
                     failure.code,
                     type(error).__name__,
+                    getattr(error, "status_code", None),
                     failure.retryable,
                 )
                 raise ApplicationError(

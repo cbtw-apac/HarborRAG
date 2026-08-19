@@ -118,7 +118,7 @@ class AppService(
 
     async def runtime_health(self) -> AppResponse:
         try:
-            async with asyncio.timeout(self._settings.temporal_health_timeout_seconds):
+            async with asyncio.timeout(self._runtime_config.health_timeout_seconds):
                 client = await self._resources.runtime_client()
                 ready = await client.health()
             return AppResponse(
@@ -292,6 +292,8 @@ class AppService(
         include_attachments: bool = True,
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
+        batch_size: int | None = None,
+        document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
         return await self._temporal.start_ingestion(
@@ -308,6 +310,8 @@ class AppService(
             include_attachments=include_attachments,
             filters=filters,
             force_reprocess=force_reprocess,
+            batch_size=batch_size,
+            document_concurrency=document_concurrency,
             wait=wait,
         )
 

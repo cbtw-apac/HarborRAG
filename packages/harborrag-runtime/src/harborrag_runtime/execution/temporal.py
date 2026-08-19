@@ -27,21 +27,24 @@ class TemporalIngestionExecutor:
                 TemporalRuntimeConfig.from_settings(self._settings)
             )
 
+    async def _connected_client(self) -> IngestionTemporalClient:
+        await self.start()
+        if self._client is None:
+            raise HarborInvariantError("Temporal client must be initialized after start")
+        return self._client
+
     def _input(self, request: IngestionRequest) -> SourceIngestionInput:
         return build_ingestion_input(self._settings, request)
 
     async def submit(self, request: IngestionRequest) -> IngestionTaskReference:
-        await self.start()
-        if self._client is None:
-            raise HarborInvariantError("self._client must not be None here")
-        reference = await self._client.start_ingestion(self._input(request))
+        client = await self._connected_client()
+        reference = await client.start_ingestion(self._input(request))
         return IngestionTaskReference(reference.run_id, reference.workflow_id)
 
     async def run(self, request: IngestionRequest) -> IngestionResult:
         await self.submit(request)
-        if self._client is None:
-            raise HarborInvariantError("self._client must not be None here")
-        result = await self._client.result(request.task_id)
+        client = await self._connected_client()
+        result = await client.result(request.task_id)
         return IngestionResult(
             task_id=result.task_id,
             status=result.status,
@@ -52,10 +55,8 @@ class TemporalIngestionExecutor:
         )
 
     async def status(self, task_id: str) -> IngestionStatus:
-        await self.start()
-        if self._client is None:
-            raise HarborInvariantError("self._client must not be None here")
-        status = await self._client.get_status(task_id)
+        client = await self._connected_client()
+        status = await client.get_status(task_id)
         return IngestionStatus(
             task_id=status.task_id,
             status=status.status,
@@ -64,19 +65,16 @@ class TemporalIngestionExecutor:
         )
 
     async def pause(self, task_id: str) -> None:
-        if self._client is None:
-            raise HarborInvariantError("self._client must not be None here")
-        await self._client.pause(task_id)
+        client = await self._connected_client()
+        await client.pause(task_id)
 
     async def resume(self, task_id: str) -> None:
-        if self._client is None:
-            raise HarborInvariantError("self._client must not be None here")
-        await self._client.resume(task_id)
+        client = await self._connected_client()
+        await client.resume(task_id)
 
     async def cancel(self, task_id: str) -> None:
-        if self._client is None:
-            raise HarborInvariantError("self._client must not be None here")
-        await self._client.cancel(task_id)
+        client = await self._connected_client()
+        await client.cancel(task_id)
 
     async def aclose(self) -> None:
         self._client = None

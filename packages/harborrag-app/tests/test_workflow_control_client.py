@@ -78,6 +78,33 @@ async def test_runtime_health_reports_a_ready_target() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_health_enforces_the_configured_timeout(tmp_path) -> None:
+    config_path = tmp_path / "temporal.yaml"
+    config_path.write_text("version: 1\nhealth:\n  timeout_seconds: 0.05\n", encoding="utf-8")
+
+    class SlowRuntimeClient(FakeRuntimeClient):
+        async def health(self) -> bool:
+            await asyncio.sleep(0.2)
+            return await super().health()
+
+    client = SlowRuntimeClient()
+
+    async def client_factory(_config):
+        return client
+
+    service = AppService(
+        FakeComposition({"runtime": {"ready": True}}),
+        settings=RuntimeSettings(temporal_config_path=config_path),
+        factories=AppServiceFactories(client=client_factory, source_input_builder=source_input),
+    )
+
+    response = await service.runtime_health()
+
+    assert response.ok is False
+    assert response.data["error_type"] == "TimeoutError"
+
+
+@pytest.mark.asyncio
 async def test_start_ingestion_generates_identifiers_and_returns_the_reference() -> None:
     service, client, _ = build_service()
 
@@ -109,6 +136,36 @@ async def test_start_ingestion_honours_explicit_identifiers_and_waiting() -> Non
     assert request.query.limit == 3
     assert response.data["result"]["processed"] == 2
     assert [name for name, _ in client.calls] == ["start_ingestion", "result"]
+
+
+@pytest.mark.asyncio
+async def test_start_ingestion_honours_explicit_batching_overrides() -> None:
+    service, client, _ = build_service()
+
+    response = await service.start_ingestion(
+        tenant_id="tenant-1",
+        connector_name="local_file",
+        batch_size=5,
+        document_concurrency=5,
+    )
+
+    assert response.ok is True
+    request = client.calls[0][1][0]
+    assert isinstance(request, SourceIngestionInput)
+    assert request.batch_size == 5
+    assert request.document_concurrency == 5
+
+
+@pytest.mark.asyncio
+async def test_start_ingestion_defaults_batching_when_unset() -> None:
+    service, client, _ = build_service()
+
+    await service.start_ingestion(tenant_id="tenant-1", connector_name="local_file")
+
+    request = client.calls[0][1][0]
+    assert isinstance(request, SourceIngestionInput)
+    assert request.batch_size == 200
+    assert request.document_concurrency == 8
 
 
 @pytest.mark.asyncio

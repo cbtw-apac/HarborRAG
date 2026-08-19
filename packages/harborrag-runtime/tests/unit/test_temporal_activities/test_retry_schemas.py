@@ -3,7 +3,7 @@
 RetryFailuresWorkflow has no `continue_as_new` checkpoint (unlike
 SourceIngestionWorkflow's batch_size x continue_after_batches), so an
 unbounded document selection can exceed Temporal's workflow history limits
-mid-run with no partial-progress recovery. `_MAX_RETRY_DOCUMENT_IDS` caps
+mid-run with no partial-progress recovery. ``MAX_RETRY_DOCUMENT_IDS`` caps
 that at construction time instead.
 """
 
@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_runtime.temporal.schemas import (
-    _MAX_RETRY_DOCUMENT_IDS,
-    RetryFailuresInput,
-)
+from harborrag_runtime.ingestion.limits import MAX_RETRY_DOCUMENT_IDS
+from harborrag_runtime.temporal.schemas import RetryFailuresInput
 
 
 def _input(**overrides: object) -> RetryFailuresInput:
@@ -34,18 +32,18 @@ def test_retry_failures_input_accepts_a_normal_selection() -> None:
 
 
 def test_retry_failures_input_rejects_more_than_the_cap() -> None:
-    oversized = tuple(f"doc-{index}" for index in range(_MAX_RETRY_DOCUMENT_IDS + 1))
+    oversized = tuple(f"doc-{index}" for index in range(MAX_RETRY_DOCUMENT_IDS + 1))
 
     with pytest.raises(ValueError, match="at most"):
         _input(document_ids=oversized)
 
 
 def test_retry_failures_input_accepts_exactly_the_cap() -> None:
-    exactly_at_cap = tuple(f"doc-{index}" for index in range(_MAX_RETRY_DOCUMENT_IDS))
+    exactly_at_cap = tuple(f"doc-{index}" for index in range(MAX_RETRY_DOCUMENT_IDS))
 
     retry_input = _input(document_ids=exactly_at_cap)
 
-    assert len(retry_input.document_ids) == _MAX_RETRY_DOCUMENT_IDS
+    assert len(retry_input.document_ids) == MAX_RETRY_DOCUMENT_IDS
 
 
 def test_retry_failures_input_rejects_empty_document_ids() -> None:

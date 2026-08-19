@@ -174,21 +174,17 @@ services:
         required: false
     environment:
       HARBORRAG_ENV: ${HARBORRAG_ENV:-dev}
-      HARBORRAG_TEMPORAL_TARGET: temporal:7233
-      HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_TEMPORAL_TARGET: "${HARBORRAG_TEMPORAL_TARGET:-temporal:7233}"
+      HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "${HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE:-true}"
       HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}
-      HARBORRAG_TEMPORAL_IDENTITY: ${HARBORRAG_TEMPORAL_IDENTITY:-harborrag-runtime}
-      HARBORRAG_TEMPORAL_MAX_CONCURRENT_ACTIVITIES: ${HARBORRAG_TEMPORAL_MAX_CONCURRENT_ACTIVITIES:-2}
-      HARBORRAG_TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS: ${HARBORRAG_TEMPORAL_MAX_CONCURRENT_WORKFLOW_TASKS:-4}
-      HARBORRAG_TEMPORAL_MAX_CONCURRENT_ACTIVITY_POLLS: ${HARBORRAG_TEMPORAL_MAX_CONCURRENT_ACTIVITY_POLLS:-2}
-      HARBORRAG_TEMPORAL_MAX_CONCURRENT_WORKFLOW_POLLS: ${HARBORRAG_TEMPORAL_MAX_CONCURRENT_WORKFLOW_POLLS:-2}
-      HARBORRAG_TEMPORAL_GRACEFUL_SHUTDOWN_SECONDS: ${HARBORRAG_TEMPORAL_GRACEFUL_SHUTDOWN_SECONDS:-30}
+      HARBORRAG_TEMPORAL_API_KEY: "${HARBORRAG_TEMPORAL_API_KEY:-}"
       HARBORRAG_LOG_LEVEL: ${HARBORRAG_LOG_LEVEL:-INFO}
       HARBORRAG_METRICS_PORT: "9464"
       HARBORRAG_METRICS_BIND_ADDRESS: 0.0.0.0
       HARBORRAG_LANGFUSE_ENABLED: ${HARBORRAG_LANGFUSE_ENABLED:-false}
       # Pin image-internal paths. Host-relative values from env files are not
       # valid after WORKDIR changes to /var/lib/harborrag.
+      HARBORRAG_TEMPORAL_CONFIG_PATH: /app/config/temporal.yaml
       HARBORRAG_CONNECTOR_CONFIG_PATH: /app/config/connectors.yaml
       HARBORRAG_PARSER_CONFIG_PATH: /app/config/parsers.yaml
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
@@ -208,9 +204,10 @@ services:
       HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY: ${HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY:-8}
       HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
     volumes:
-      # Configuration is baked into the worker image. Use `dev.sh worker
-      # --build` after changing config/*.yaml; ordinary starts reuse the local
-      # image and avoid an unnecessary build.
+      # Temporal policy is mounted separately so queue/retry changes used by
+      # resilience tests need only a worker restart, not an image rebuild.
+      - ../../config/temporal.yaml:/app/config/temporal.yaml:ro
+      # Other runtime configuration remains baked into the worker image.
       - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
       # scripts/deployment/dev.sh sets this from LOCAL_SOURCE_PATH in
       # env/.env.connector. The fallback only applies to a hand-run compose.

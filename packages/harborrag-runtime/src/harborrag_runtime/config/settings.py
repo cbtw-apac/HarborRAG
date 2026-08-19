@@ -57,6 +57,7 @@ class RuntimeSettings(BaseSettings):
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"
+    temporal_worker_identity: str = "harborrag-runtime"
     temporal_api_key: SecretStr | None = None
     temporal_tls: bool = False
     temporal_allow_insecure_remote: bool = False
@@ -66,6 +67,9 @@ class RuntimeSettings(BaseSettings):
     temporal_max_concurrent_activity_polls: int = Field(default=2, ge=1, le=100)
     temporal_max_concurrent_workflow_polls: int = Field(default=2, ge=1, le=100)
     temporal_graceful_shutdown_seconds: int = Field(default=30, ge=1, le=3600)
+    temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
+    temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
+    temporal_config_path: Path = Path("config/temporal.yaml")
     metrics_port: int | None = Field(default=None, ge=1, le=65_535)
     metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
     langfuse_enabled: bool = False
@@ -145,15 +149,6 @@ class RuntimeSettings(BaseSettings):
                 )
             except ValueError as exc:
                 raise ValueError(f"HARBORRAG_OBJECT_STORE_ENDPOINT_URL: {exc}") from exc
-        worker_count = 6
-        database_capacity = self.control_db_pool_size + self.control_db_max_overflow
-        requested_activity_capacity = self.temporal_max_concurrent_activities * worker_count
-        if requested_activity_capacity > database_capacity:
-            raise ValueError(
-                "Temporal activity capacity across six task-queue workers "
-                f"({requested_activity_capacity}) exceeds the control database pool "
-                f"capacity ({database_capacity})"
-            )
         return self
 
 

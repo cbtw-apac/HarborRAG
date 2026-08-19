@@ -15,9 +15,9 @@ from harborrag_core.ingestion import (
     TaskRegistration,
 )
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_runtime.composition.resources import build_ingestion_control
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.source.tasks import pending_source_task
-from harborrag_runtime.ingestion_control_factory import build_ingestion_control
 
 from .conversion import to_source_request
 from .schemas import SourceIngestionInput

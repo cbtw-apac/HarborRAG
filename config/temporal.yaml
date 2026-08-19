@@ -1,0 +1,62 @@
+version: 1
+
+# Runtime client connection. Keep credentials in HARBORRAG_TEMPORAL_API_KEY;
+# secrets are intentionally not accepted from this tracked file.
+connection:
+  # Temporal gRPC frontend authority; the Web UI on port 8080 is not valid.
+  target: localhost:7233
+  namespace: harborrag
+  identity: harborrag-runtime
+  allow_insecure_remote: false
+  tls:
+    enabled: false
+    domain: null
+
+# One process owns six task-queue workers. Keep six times the activity limit at
+# or below HARBORRAG_CONTROL_DB_POOL_SIZE + HARBORRAG_CONTROL_DB_MAX_OVERFLOW.
+worker:
+  identity: harborrag-runtime
+  max_concurrent_activities: 2
+  max_concurrent_workflow_tasks: 4
+  max_concurrent_activity_polls: 2
+  max_concurrent_workflow_polls: 2
+  graceful_shutdown_seconds: 30
+
+# Queue names appear in the Temporal UI and are shared by API clients and
+# workers. Keep them unique and do not rename them while runs are in flight;
+# those histories retain their original queue names. Restart API and workers.
+task_queues:
+  discovery: harborrag-discovery
+  transform: harborrag-transform
+  io: harborrag-io
+  parser: harborrag-parser
+  model: harborrag-model
+  index: harborrag-index
+
+# These policies are embedded in each root workflow input so an in-flight run
+# keeps replaying with the policy it started with, even if this file changes.
+retries:
+  discovery:
+    initial_interval_seconds: 2
+    backoff_coefficient: 2
+    maximum_interval_seconds: 60
+    maximum_attempts: 8
+  document:
+    initial_interval_seconds: 2
+    backoff_coefficient: 2
+    maximum_interval_seconds: 120
+    maximum_attempts: 5
+
+# Default per-run source batching (documents per SourceBatchWorkflow child,
+# and concurrent DocumentIngestionWorkflow children per wave). A CLI/API
+# caller may override either per submission; these apply when they don't.
+ingestion:
+  batch_size: 200
+  document_concurrency: 8
+
+workflow:
+  execution_timeout_seconds: 2592000  # 30 days
+  task_timeout_seconds: 10
+
+health:
+  timeout_seconds: 5

@@ -12,7 +12,8 @@ from harborrag_runtime.config.temporal import (
     TemporalRuntimeConfig,
     TemporalTLSConfig,
 )
-from harborrag_runtime.temporal import client as client_module
+from harborrag_runtime.errors import RuntimeConnectionError
+from harborrag_runtime.temporal import connection as connection_module
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.maintenance_schemas import (
     ReindexInput,
@@ -23,6 +24,11 @@ from harborrag_runtime.temporal.schemas import (
     SourceIngestionInput,
     SourceIngestionResult,
     SourceIngestionStatus,
+)
+from harborrag_runtime.temporal_models import (
+    ActivityRetryConfig,
+    RetryPolicyConfig,
+    TaskQueueConfig,
 )
 
 
@@ -131,7 +137,7 @@ class _SdkClient:
 @pytest.mark.asyncio
 async def test_client_connects_with_plaintext_and_tls(monkeypatch) -> None:
     connect = AsyncMock(return_value=_SdkClient())
-    monkeypatch.setattr(client_module.Client, "connect", connect)
+    monkeypatch.setattr(connection_module.Client, "connect", connect)
 
     plaintext = TemporalRuntimeConfig()
     assert isinstance(
@@ -159,6 +165,21 @@ async def test_client_connects_with_plaintext_and_tls(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_client_translates_native_transport_errors(monkeypatch) -> None:
+    low_level = RuntimeError("InvalidMessage(InvalidContentType)")
+    monkeypatch.setattr(
+        connection_module.Client,
+        "connect",
+        AsyncMock(side_effect=low_level),
+    )
+
+    with pytest.raises(RuntimeConnectionError, match=r"gRPC frontend.*7233.*8080") as captured:
+        await IngestionTemporalClient.connect(TemporalRuntimeConfig())
+
+    assert captured.value.__cause__ is low_level
+
+
+@pytest.mark.asyncio
 async def test_client_submits_source_and_reindex_with_bounded_options() -> None:
     sdk = _SdkClient()
     config = TemporalRuntimeConfig(
@@ -183,6 +204,35 @@ async def test_client_submits_source_and_reindex_with_bounded_options() -> None:
     assert reindex_call.args[0] == "harborrag.reindex"
     assert reindex_call.kwargs["id"] == "harborrag-reindex:reindex-1"
     assert reindex_call.kwargs["task_timeout"].total_seconds() == 7
+
+
+@pytest.mark.asyncio
+async def test_client_embeds_configured_queues_and_retries_in_root_input() -> None:
+    sdk = _SdkClient()
+    queues = TaskQueueConfig(
+        discovery="test-discovery",
+        transform="test-transform",
+        io="test-io",
+        parser="test-parser",
+        model="test-model",
+        index="test-index",
+    )
+    retries = ActivityRetryConfig(
+        discovery=RetryPolicyConfig(maximum_attempts=3),
+        document=RetryPolicyConfig(maximum_attempts=2),
+    )
+    client = IngestionTemporalClient(
+        sdk,
+        TemporalRuntimeConfig(task_queues=queues, retries=retries),
+    )
+
+    await client.start(_source())
+
+    call = sdk.start_workflow.await_args
+    submitted = call.args[1]
+    assert call.kwargs["task_queue"] == "test-discovery"
+    assert submitted.workflow_options.task_queues == queues
+    assert submitted.workflow_options.retries == retries
 
 
 @pytest.mark.asyncio

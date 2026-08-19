@@ -73,7 +73,7 @@ def test_production_probe_failure_aborts_startup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "harborrag_runtime.composition._probe_control_db",
+        "harborrag_runtime.composition.control_plane._probe_control_db",
         lambda _dsn: {"ping": "failed", "error": "probe failed", "scheme": "sqlite"},
     )
 
