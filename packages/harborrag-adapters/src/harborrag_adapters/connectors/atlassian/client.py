@@ -202,9 +202,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
                 continue
 
             if response.status_code == 401:
-                raise AuthenticationError(
-                    safe_response_error_detail(response), status_code=401
-                )
+                raise AuthenticationError(safe_response_error_detail(response), status_code=401)
             if response.status_code == 403:
                 raise AuthorizationError(safe_response_error_detail(response), status_code=403)
             if response.status_code == 429 and attempt == self.config.max_retries:

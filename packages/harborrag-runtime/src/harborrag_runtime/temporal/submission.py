@@ -84,7 +84,9 @@ def build_source_input(
     processing = build_processing_profile(settings)
     ingestion_defaults = TemporalRuntimeConfig.from_settings(settings).ingestion
     batch_size = (
-        submission.batch_size if submission.batch_size is not None else ingestion_defaults.batch_size
+        submission.batch_size
+        if submission.batch_size is not None
+        else ingestion_defaults.batch_size
     )
     document_concurrency = (
         submission.document_concurrency
