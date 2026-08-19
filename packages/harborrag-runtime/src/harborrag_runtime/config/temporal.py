@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from harborrag_runtime.errors import RuntimeConfigurationError
+from harborrag_runtime.ingestion.limits import MAX_BATCH_SIZE, MAX_DOCUMENT_CONCURRENCY
 from harborrag_runtime.temporal_models import (
     ActivityRetryConfig,
     TaskQueueConfig,
@@ -143,6 +144,22 @@ class WorkerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class IngestionConfig:
+    """Default per-run source batching; a CLI/API caller may override it."""
+
+    batch_size: int = 200
+    document_concurrency: int = 8
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.batch_size <= MAX_BATCH_SIZE or not (
+            1 <= self.document_concurrency <= MAX_DOCUMENT_CONCURRENCY
+        ):
+            raise RuntimeConfigurationError(
+                "Temporal ingestion batch_size or document_concurrency is out of range"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class TemporalRuntimeConfig:
     """Connection and capacity settings shared by the client and worker."""
 
@@ -150,6 +167,7 @@ class TemporalRuntimeConfig:
     worker: WorkerConfig = WorkerConfig()
     task_queues: TaskQueueConfig = TaskQueueConfig()
     retries: ActivityRetryConfig = ActivityRetryConfig()
+    ingestion: IngestionConfig = IngestionConfig()
     workflow_execution_timeout_seconds: int = 2_592_000
     workflow_task_timeout_seconds: int = 10
     health_timeout_seconds: float = 5.0
@@ -245,10 +263,20 @@ class TemporalRuntimeConfig:
             if "temporal_graceful_shutdown_seconds" in explicit_fields
             else worker.graceful_shutdown_seconds,
         )
+        selected_ingestion = replace(
+            config.ingestion,
+            batch_size=settings.temporal_ingestion_batch_size
+            if "temporal_ingestion_batch_size" in explicit_fields
+            else config.ingestion.batch_size,
+            document_concurrency=settings.temporal_ingestion_document_concurrency
+            if "temporal_ingestion_document_concurrency" in explicit_fields
+            else config.ingestion.document_concurrency,
+        )
         selected = replace(
             config,
             connection=selected_connection,
             worker=selected_worker,
+            ingestion=selected_ingestion,
             health_timeout_seconds=settings.temporal_health_timeout_seconds
             if "temporal_health_timeout_seconds" in explicit_fields
             else config.health_timeout_seconds,

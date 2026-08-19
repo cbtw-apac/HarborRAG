@@ -180,16 +180,35 @@ class SourceIngestionWorkflow:
         )
         batch_future = asyncio.ensure_future(handle)
         cancel_future = asyncio.create_task(workflow.wait_condition(lambda: self._cancel_requested))
-        done, _ = await workflow.wait(
-            {batch_future, cancel_future}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if batch_future in done:
-            cancel_future.cancel()
+        pause_relay = asyncio.create_task(self._relay_pause_signals(handle))
+        try:
+            done, _ = await workflow.wait(
+                {batch_future, cancel_future}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if batch_future in done:
+                cancel_future.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await cancel_future
+                return cast(DocumentDispatchSummary, await batch_future), False
+            await handle.signal("request_graceful_cancel")
+            return cast(DocumentDispatchSummary, await batch_future), True
+        finally:
+            pause_relay.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await cancel_future
-            return cast(DocumentDispatchSummary, await batch_future), False
-        await handle.signal("request_graceful_cancel")
-        return cast(DocumentDispatchSummary, await batch_future), True
+                await pause_relay
+
+    async def _relay_pause_signals(self, handle) -> None:
+        """Forward this workflow's pause/resume signals to the active batch child.
+
+        Without this, a pause requested while a batch's document waves are
+        dispatching would sit unenforced until that batch drained on its own,
+        since the child has no way to observe the parent's `_paused` state.
+        """
+        relayed = False
+        while True:
+            await workflow.wait_condition(lambda relayed=relayed: self._paused != relayed)
+            relayed = self._paused
+            await handle.signal("pause" if relayed else "resume")
 
     @staticmethod
     async def _record_hard_cancellation(request: SourceIngestionInput) -> None:
@@ -284,10 +303,14 @@ class SourceIngestionWorkflow:
     def pause(self) -> None:
         if not self._cancel_requested:
             self._paused = True
+            self._status = "PAUSED"
 
     @workflow.signal
     def resume(self) -> None:
+        was_paused = self._paused
         self._paused = False
+        if was_paused and not self._cancel_requested:
+            self._status = "RUNNING"
 
     @workflow.signal
     def request_graceful_cancel(self) -> None:

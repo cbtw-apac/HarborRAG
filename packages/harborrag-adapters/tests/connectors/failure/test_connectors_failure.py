@@ -8,6 +8,7 @@ from harbor_test_builders import FakeResponse, FakeSession
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
+    AuthorizationError,
     FetchError,
     RateLimitError,
 )
@@ -281,10 +282,10 @@ def test_jira_retry_exhaustion_raises_fetch_error():
     assert len(client.session.calls) == 3
 
 
-def test_jira_403_is_skippable_fetch_error_not_retried():
+def test_jira_403_is_a_non_retryable_authorization_error():
     client = _RequestsJiraClient(_jira_config())
     client.session = FakeSession(responses=[FakeResponse(status_code=403, text="forbidden")])
-    with pytest.raises(FetchError, match="403"):
+    with pytest.raises(AuthorizationError, match="forbidden"):
         client.get_json("search")
     assert len(client.session.calls) == 1
 

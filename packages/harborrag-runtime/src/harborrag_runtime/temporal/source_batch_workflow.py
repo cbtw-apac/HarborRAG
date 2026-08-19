@@ -18,6 +18,7 @@ class SourceBatchWorkflow:
 
     def __init__(self) -> None:
         self._cancel_requested = False
+        self._paused = False
 
     @workflow.run
     async def run(self, request: SourceBatchInput) -> DocumentDispatchSummary:
@@ -27,6 +28,10 @@ class SourceBatchWorkflow:
             request.end_index,
             request.document_concurrency,
         ):
+            if self._cancel_requested:
+                break
+            if self._paused:
+                await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
             if self._cancel_requested:
                 break
             end = min(request.end_index, start + request.document_concurrency)
@@ -59,3 +64,15 @@ class SourceBatchWorkflow:
         """Stop dispatching after the currently active concurrency wave."""
 
         self._cancel_requested = True
+        self._paused = False
+
+    @workflow.signal
+    def pause(self) -> None:
+        """Stop starting new concurrency waves; documents already in flight finish."""
+
+        if not self._cancel_requested:
+            self._paused = True
+
+    @workflow.signal
+    def resume(self) -> None:
+        self._paused = False

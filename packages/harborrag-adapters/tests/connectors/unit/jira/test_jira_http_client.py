@@ -188,13 +188,13 @@ def test_jira_request_raises_authentication_error_on_401():
         client.get_json("issue/ENG-1")
 
 
-def test_jira_request_maps_403_to_skippable_fetch_error():
-    from harborrag_adapters.connectors.exceptions import FetchError
+def test_jira_request_raises_authorization_error_on_403():
+    from harborrag_adapters.connectors.exceptions import AuthorizationError
 
     client = _jira_client()
     client.session = FakeSession(responses=[FakeResponse(status_code=403, text="restricted issue")])
 
-    with pytest.raises(FetchError, match="403"):
+    with pytest.raises(AuthorizationError, match="restricted issue"):
         client.get_json("issue/ENG-1")
 
 

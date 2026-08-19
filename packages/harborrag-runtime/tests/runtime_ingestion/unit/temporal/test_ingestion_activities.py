@@ -287,6 +287,60 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     ]
 
 
+class FlakyGraphProjections:
+    """Fails ``write_graph_projection`` once, like a Temporal-redelivered attempt.
+
+    ``write_vector_projection`` always succeeds, mirroring the real pipeline where
+    vector and graph writes are separate activities (``document_stage_catalog.py``):
+    a graph-write failure only retries the graph-write activity, never replays the
+    vector-write activity that already completed.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+        self._graph_write_attempts = 0
+
+    async def write_vector_projection(self, *args: object) -> object:
+        self.calls.append(("write_vector_projection", args))
+        return "prepared-stage"
+
+    async def write_graph_projection(self, *args: object) -> object:
+        self.calls.append(("write_graph_projection", args))
+        self._graph_write_attempts += 1
+        if self._graph_write_attempts == 1:
+            raise ConnectionError("simulated transient graph-store failure")
+        return "prepared-stage"
+
+
+@pytest.mark.asyncio
+async def test_graph_projection_retry_does_not_replay_the_vector_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(activity_module, "to_prepared_stage", lambda request: "prepared-stage")
+
+    activities, *_ = _build_activities()
+    projections = FlakyGraphProjections()
+    activities._runtime.stages.projections = projections
+    document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
+    prepared = PreparedDocument(document, "doc-1", "version-1", "METADATA_ONLY")
+
+    assert await activities.write_vector_projection(prepared) is prepared
+
+    with pytest.raises(ConnectionError):
+        await activities.write_graph_projection(prepared)
+
+    # Temporal replays only the failed activity with its original input, not the
+    # sibling activity that already completed.
+    assert await activities.write_graph_projection(prepared) is prepared
+
+    assert [name for name, _ in projections.calls] == [
+        "write_vector_projection",
+        "write_graph_projection",
+        "write_graph_projection",
+    ]
+    assert projections.calls[1][1] == projections.calls[2][1]
+
+
 @pytest.mark.asyncio
 async def test_retry_activities_cover_selection_release_failure_and_finalization(
     monkeypatch: pytest.MonkeyPatch,

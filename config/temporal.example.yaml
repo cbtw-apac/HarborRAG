@@ -58,6 +58,13 @@ retries:
     maximum_interval_seconds: 120
     maximum_attempts: 5
 
+ingestion:
+  # Default per-run source batching: documents per SourceBatchWorkflow child,
+  # and concurrent DocumentIngestionWorkflow children per wave. A CLI/API
+  # caller may override either per submission; these apply when they don't.
+  batch_size: 200
+  document_concurrency: 8
+
 workflow:
   execution_timeout_seconds: 2592000  # 30 days
   task_timeout_seconds: 10

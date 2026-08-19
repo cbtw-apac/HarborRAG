@@ -139,6 +139,36 @@ async def test_start_ingestion_honours_explicit_identifiers_and_waiting() -> Non
 
 
 @pytest.mark.asyncio
+async def test_start_ingestion_honours_explicit_batching_overrides() -> None:
+    service, client, _ = build_service()
+
+    response = await service.start_ingestion(
+        tenant_id="tenant-1",
+        connector_name="local_file",
+        batch_size=5,
+        document_concurrency=5,
+    )
+
+    assert response.ok is True
+    request = client.calls[0][1][0]
+    assert isinstance(request, SourceIngestionInput)
+    assert request.batch_size == 5
+    assert request.document_concurrency == 5
+
+
+@pytest.mark.asyncio
+async def test_start_ingestion_defaults_batching_when_unset() -> None:
+    service, client, _ = build_service()
+
+    await service.start_ingestion(tenant_id="tenant-1", connector_name="local_file")
+
+    request = client.calls[0][1][0]
+    assert isinstance(request, SourceIngestionInput)
+    assert request.batch_size == 200
+    assert request.document_concurrency == 8
+
+
+@pytest.mark.asyncio
 async def test_start_persists_pending_task_before_temporal_submission() -> None:
     events: list[str] = []
     client = FakeRuntimeClient()

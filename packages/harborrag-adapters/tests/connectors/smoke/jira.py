@@ -190,7 +190,11 @@ def run_jira(
         print(f"[jira] not configured: {exc}")
         return 2
 
-    records = list(connector.discover(ConnectorQuery(limit=limit)))
+    try:
+        records = list(connector.discover(ConnectorQuery(limit=limit)))
+    except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code
+        print_failure("jira", exc)
+        return 1
     print(f"\n[jira] discovered {len(records)} record(s)")
     for record in records:
         print(f"  - {record.id} ({record.source_type})")

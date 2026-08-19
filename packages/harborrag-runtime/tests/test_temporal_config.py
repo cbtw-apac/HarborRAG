@@ -39,6 +39,8 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.retries.document.maximum_attempts == 5
     assert config.workflow_execution_timeout_seconds == 2_592_000
     assert config.health_timeout_seconds == 5
+    assert config.ingestion.batch_size == 200
+    assert config.ingestion.document_concurrency == 8
 
 
 def test_annotated_temporal_example_matches_active_defaults() -> None:
@@ -123,6 +125,9 @@ workflow:
   task_timeout_seconds: 8
 health:
   timeout_seconds: 2.5
+ingestion:
+  batch_size: 50
+  document_concurrency: 6
 """,
         encoding="utf-8",
     )
@@ -132,6 +137,7 @@ health:
         temporal_allow_insecure_remote=True,
         control_db_pool_size=18,
         control_db_max_overflow=0,
+        temporal_ingestion_batch_size=5,
     )
 
     config = TemporalRuntimeConfig.from_settings(settings)
@@ -148,6 +154,8 @@ health:
     assert config.workflow_execution_timeout_seconds == 600
     assert config.workflow_task_timeout_seconds == 8
     assert config.health_timeout_seconds == 2.5
+    assert config.ingestion.batch_size == 5
+    assert config.ingestion.document_concurrency == 6
 
 
 def test_explicit_missing_temporal_configuration_fails(tmp_path: Path) -> None:
@@ -240,3 +248,34 @@ def test_workflow_options_preserve_existing_positional_input_order() -> None:
     names = tuple(field.name for field in fields(SourceIngestionInput))
 
     assert names[-2:] == ("continuation", "workflow_options")
+
+
+def test_temporal_ingestion_section_rejects_unknown_keys(tmp_path: Path) -> None:
+    config_path = tmp_path / "temporal.yaml"
+    config_path.write_text(
+        "version: 1\ningestion:\n  continue_after_batches: 10\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TemporalConfigurationError, match="unknown field"):
+        load_temporal_config(config_path)
+
+
+@pytest.mark.parametrize(
+    "ingestion_yaml",
+    [
+        "batch_size: 0",
+        "batch_size: 301",
+        "document_concurrency: 0",
+        "document_concurrency: 101",
+    ],
+)
+def test_temporal_ingestion_section_rejects_out_of_range_values(
+    tmp_path: Path,
+    ingestion_yaml: str,
+) -> None:
+    config_path = tmp_path / "temporal.yaml"
+    config_path.write_text(f"version: 1\ningestion:\n  {ingestion_yaml}\n", encoding="utf-8")
+
+    with pytest.raises(TemporalConfigurationError, match="out of range"):
+        load_temporal_config(config_path)
