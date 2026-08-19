@@ -12,13 +12,16 @@ from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     JobRepositoryPort,
+    LeaseRepositoryPort,
     MemberRepositoryPort,
+    PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationRepository
+from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -28,6 +31,11 @@ if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.runtime.composition")
+
+# Only reachable when the control DB is SQLite and HARBORRAG_SECRETS_ENCRYPTION_KEY is
+# unset; RuntimeSettings.validate_secret_urls() rejects a missing key outright for any
+# non-SQLite control database (including dev), and always in prod.
+_DEV_DEFAULT_SECRETS_KEY = "harborrag-dev-insecure-default-key"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +51,9 @@ class ControlPlaneRepositories:
     members: MemberRepositoryPort
     conversation_memory: ConversationRepository
     agent_runs: AgentRunRepository
+    secrets: SecretsPort
+    pending_effects: PendingEffectRepositoryPort
+    leases: LeaseRepositoryPort
 
 
 @dataclass(slots=True)
@@ -85,12 +96,21 @@ class CompositionRoot:
             SqlActivityRepository,
             SqlJobRepository,
         )
+        from harborrag_adapters.repositories.database.control_plane.leases import (
+            SqlLeaseRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.migrations import (
             run_migrations,
+        )
+        from harborrag_adapters.repositories.database.control_plane.pending_effects import (
+            SqlPendingEffectRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.projects import (
             SqlProjectRepository,
             SqlSourceRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.secrets import (
+            SqlSecretsRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.workspace import (
             SqlMemberRepository,
@@ -98,7 +118,7 @@ class CompositionRoot:
             SqlSettingsRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_runtime.config.settings import RuntimeSettings
+        from harborrag_runtime.config.settings import RuntimeSettings, is_blank_secret
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url.get_secret_value()
@@ -138,6 +158,19 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
+        encryption_key = settings.secrets_encryption_key
+        if encryption_key is not None and not is_blank_secret(encryption_key):
+            secrets_key = encryption_key.get_secret_value()
+        else:
+            # Reached only if a blank key slipped past validate_secret_urls (e.g. a
+            # RuntimeSettings built without validation) -- fail closed to the known
+            # dev default rather than deriving a Fernet key from an empty string.
+            secrets_key = _DEV_DEFAULT_SECRETS_KEY
+            logger.warning(
+                "Using the dev-only default secrets encryption key against a SQLite "
+                "control database; set HARBORRAG_SECRETS_ENCRYPTION_KEY before pointing "
+                "this process at any persistent or shared database"
+            )
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
             sources=SqlSourceRepository(sessions),
@@ -148,6 +181,9 @@ class CompositionRoot:
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
             agent_runs=SqlAgentRunRepository(sessions),
+            secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
+            pending_effects=SqlPendingEffectRepository(sessions),
+            leases=SqlLeaseRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,

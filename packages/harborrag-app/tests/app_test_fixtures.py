@@ -213,6 +213,37 @@ class MockAppService(
         del source_id, tenant_ids
         return AppResponse(True, {"source": None})
 
+    async def create_source(  # noqa: PLR0913 - mirrors the ports.py protocol signature
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        source_type: str,
+        name: str,
+        config: Mapping[str, object],
+        schedule: str | None,
+        actor: str,
+    ) -> AppResponse:
+        del tenant_id, project_id, source_type, name, config, schedule, actor
+        return AppResponse(True, {"source": None})
+
+    async def update_source(
+        self,
+        source_id: str,
+        *,
+        updates: dict[str, object],
+        actor: str,
+        tenant_ids: frozenset[str] | None = None,
+    ) -> AppResponse:
+        del source_id, updates, actor, tenant_ids
+        return AppResponse(True, {"source": None})
+
+    async def delete_source(
+        self, source_id: str, *, actor: str, tenant_ids: frozenset[str] | None = None
+    ) -> AppResponse:
+        del actor, tenant_ids
+        return AppResponse(True, {"source_id": source_id})
+
     async def list_activity(
         self, limit: int = 50, *, tenant_ids: frozenset[str] | None = None
     ) -> AppResponse:

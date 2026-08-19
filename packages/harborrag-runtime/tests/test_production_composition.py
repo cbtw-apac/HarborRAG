@@ -33,10 +33,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0013"
+    assert control_db["migrations"] == "0018"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0013" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0018" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -98,6 +98,27 @@ async def test_prod_env_rejects_every_explicit_sqlite_url(tmp_path: Path) -> Non
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     with pytest.raises(ValueError, match="SQLite is development-only"):
         RuntimeSettings(env="prod", control_db_url=dsn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_blank_encryption_key_falls_back_to_the_dev_default(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A whitespace-only key is legal at the settings layer for a SQLite
+    control DB (RuntimeSettings only requires a key for non-SQLite/prod), but
+    composition must not derive a Fernet key from that blank value -- it
+    should fail closed to the known dev-default key instead, exactly as if
+    the key had been left unset."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    settings = RuntimeSettings(control_db_url=dsn, secrets_encryption_key="   ")
+
+    with caplog.at_level(logging.WARNING, logger="harborrag.runtime.composition"):
+        composition = CompositionRoot.production(settings)
+    try:
+        assert "dev-only default secrets encryption key" in caplog.text
+    finally:
+        await composition.aclose()
 
 
 @pytest.mark.asyncio

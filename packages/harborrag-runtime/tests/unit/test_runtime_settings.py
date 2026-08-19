@@ -15,6 +15,7 @@ def test_control_database_pool_settings_are_bounded() -> None:
     settings = RuntimeSettings(
         env="prod",
         control_db_url="postgresql+asyncpg://user:pass@database/control",
+        secrets_encryption_key="test-encryption-key",
         control_db_pool_size=12,
         control_db_max_overflow=24,
     )
@@ -57,6 +58,7 @@ def test_temporal_worker_capacity_is_configurable_and_cannot_overcommit_pool() -
 def test_redis_url_is_secret_and_accepts_tls_scheme() -> None:
     settings = RuntimeSettings(
         control_db_url="postgresql+asyncpg://user:database-secret@database/control",
+        secrets_encryption_key="test-encryption-key",
         temporal_api_key="temporal-secret",
         redis_url=SecretStr("rediss://user:private@redis.example.com/0"),
         qdrant_api_key="qdrant-secret",
@@ -98,6 +100,7 @@ def test_remote_plaintext_redis_requires_development_acknowledgement() -> None:
         RuntimeSettings(
             env="prod",
             control_db_url="postgresql+asyncpg://database/control",
+            secrets_encryption_key="test-encryption-key",
             redis_url=remote_url,
             redis_allow_insecure_remote=True,
         )
@@ -125,6 +128,7 @@ def test_remote_plaintext_object_store_requires_development_acknowledgement() ->
         RuntimeSettings(
             env="prod",
             control_db_url="postgresql+asyncpg://database/control",
+            secrets_encryption_key="test-encryption-key",
             object_store_endpoint_url=endpoint,
             object_store_allow_insecure_remote=True,
         )
@@ -134,6 +138,7 @@ def test_remote_secure_object_store_is_accepted_in_production() -> None:
     settings = RuntimeSettings(
         env="prod",
         control_db_url="postgresql+asyncpg://database/control",
+        secrets_encryption_key="test-encryption-key",
         object_store_endpoint_url="https://objects.example.com",
     )
 
@@ -153,6 +158,44 @@ def test_ingestion_metrics_settings_validate_the_listener_port() -> None:
 
     with pytest.raises(ValidationError, match="greater than or equal to 1"):
         RuntimeSettings(metrics_port=0)
+
+
+def test_default_sqlite_control_db_does_not_require_an_encryption_key() -> None:
+    settings = RuntimeSettings()
+
+    assert settings.secrets_encryption_key is None
+
+
+def test_non_sqlite_control_db_requires_an_explicit_encryption_key_even_in_dev() -> None:
+    """env=dev with a real Postgres DSN is legal but must not fall back to the
+    publicly-known dev-default Fernet key for stored secrets."""
+    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
+        RuntimeSettings(control_db_url="postgresql+asyncpg://user:pass@database/control")
+
+    settings = RuntimeSettings(
+        control_db_url="postgresql+asyncpg://user:pass@database/control",
+        secrets_encryption_key="test-encryption-key",
+    )
+    assert settings.secrets_encryption_key is not None
+
+
+def test_prod_requires_an_explicit_encryption_key() -> None:
+    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
+        RuntimeSettings(
+            env="prod",
+            control_db_url="postgresql+asyncpg://user:pass@database/control",
+        )
+
+
+def test_prod_rejects_a_blank_encryption_key() -> None:
+    """A blank key is not None, so it must not slip past the "must be set"
+    check and reach Fernet key derivation as a fixed, guessable value."""
+    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
+        RuntimeSettings(
+            env="prod",
+            control_db_url="postgresql+asyncpg://user:pass@database/control",
+            secrets_encryption_key="   ",
+        )
 
 
 def test_graph_concurrency_settings_are_positive_and_independent() -> None:

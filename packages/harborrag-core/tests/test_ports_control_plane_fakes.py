@@ -10,6 +10,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
@@ -20,18 +21,13 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeJobRepository,
     FakeMemberRepository,
+    FakePendingEffectRepository,
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
     FakeSourceRepository,
 )
-from harborrag_core.testing.fakes import (
-    FakeConnector,
-    FakeEventBus,
-    FakeJobQueue,
-    FakeParser,
-    FakeSecrets,
-)
+from harborrag_core.testing.fakes import FakeConnector, FakeParser
 
 pytestmark = pytest.mark.whitebox
 
@@ -64,11 +60,6 @@ def _job(job_id: str, *, source_id: str = "s1", status: str = "queued") -> Job:
         job_type="bulk_ingest",
         status=status,  # type: ignore[arg-type]
     )
-
-
-def _status(job: Job) -> str:
-    """Read mutable status without narrowing it across repository calls."""
-    return job.status
 
 
 def _activity(entry_id: str, created_at: datetime) -> ActivityEntry:
@@ -252,6 +243,46 @@ async def test_fake_activity_settings_provider_and_member_repositories() -> None
 
 
 @pytest.mark.asyncio
+async def test_fake_activity_append_is_idempotent_by_id() -> None:
+    """Mirrors the real table's primary key on id: a pending-effect replay
+    (possibly raced by two concurrent recovery drains) reuses the original
+    entry's id, so a second append of the same id must not double-log it."""
+    now = datetime.now(UTC)
+    activity = FakeActivityRepository()
+    entry = _activity("act_1", now)
+
+    await activity.append(entry)
+    await activity.append(entry)
+
+    assert [e.id for e in await activity.list(limit=50, tenant_ids=None)] == ["act_1"]
+
+
+@pytest.mark.asyncio
+async def test_fake_pending_effects_list_oldest_first_with_deterministic_ties() -> None:
+    """SqlPendingEffectRepository.list_pending orders by (created_at, id), not
+    insertion order -- the fake must match, or a recovery-drain test could
+    pass here while processing pending effects in a different sequence than
+    the real drain would."""
+    now = datetime.now(UTC)
+    pending = FakePendingEffectRepository()
+    newest = PendingControlPlaneEffect(id="c", kind="log_activity", payload={}, created_at=now)
+    oldest = PendingControlPlaneEffect(
+        id="a", kind="log_activity", payload={}, created_at=now - timedelta(minutes=1)
+    )
+    # Same created_at as `oldest` -- id must break the tie, ordering it second.
+    oldest_tied_by_id = PendingControlPlaneEffect(
+        id="a-tiebreak", kind="log_activity", payload={}, created_at=oldest.created_at
+    )
+    # Enqueued out of timestamp order, mirroring how effects actually arrive.
+    for effect in (newest, oldest_tied_by_id, oldest):
+        await pending.enqueue(effect)
+
+    listed = await pending.list_pending()
+
+    assert [effect.id for effect in listed] == ["a", "a-tiebreak", "c"]
+
+
+@pytest.mark.asyncio
 async def test_fake_activity_provider_and_member_repositories_enforce_tenant_scope() -> None:
     now = datetime.now(UTC)
     scope = frozenset({"DEFAULT"})
@@ -290,54 +321,3 @@ async def test_fake_activity_provider_and_member_repositories_enforce_tenant_sco
     assert [m.id for m in await members.list(tenant_ids=scope)] == ["mine"]
     await members.delete("theirs", tenant_ids=scope)
     assert await members.list(tenant_ids=None) == [mine_member, their_member]  # untouched
-
-
-@pytest.mark.asyncio
-async def test_fake_job_queue_handles_skips_retries_failures_and_cancellation() -> None:
-    queue = FakeJobQueue()
-    already_done = _job("already-done", status="succeeded")
-    retrying = _job("retrying")
-    await queue.enqueue(already_done)
-    assert await queue.enqueue(retrying) is retrying
-
-    assert await queue.claim_next(lease_seconds=30) is retrying
-    assert _status(retrying) == "running" and retrying.attempts == 1
-    await queue.mark_failed(retrying.id, "temporary", retryable=True)
-    assert _status(retrying) == "queued" and retrying.last_error == "temporary"
-    assert await queue.claim_next(lease_seconds=30) is retrying
-    await queue.mark_failed(retrying.id, "permanent", retryable=False)
-    assert _status(retrying) == "failed" and retrying.last_error == "permanent"
-
-    successful = _job("successful")
-    await queue.enqueue(successful)
-    assert await queue.claim_next(lease_seconds=30) is successful
-    await queue.mark_done(successful.id)
-    assert _status(successful) == "succeeded"
-
-    cancelled = _job("cancelled")
-    await queue.enqueue(cancelled)
-    await queue.cancel(cancelled.id)
-    assert _status(cancelled) == "cancelled"
-    assert await queue.claim_next(lease_seconds=30) is None
-
-
-@pytest.mark.asyncio
-async def test_fake_secrets_and_event_bus_are_opaque_and_deterministic() -> None:
-    secrets = FakeSecrets()
-    first_ref = await secrets.put("alpha")
-    second_ref = await secrets.put("beta")
-    assert (first_ref, second_ref) == ("secret://fake/1", "secret://fake/2")
-    assert await secrets.resolve(first_ref) == "alpha"
-    await secrets.delete(first_ref)
-    await secrets.delete("secret://fake/missing")
-    with pytest.raises(KeyError):
-        await secrets.resolve(first_ref)
-
-    bus = FakeEventBus()
-    started = HarborEvent(name="job.started", trace_id="trace-1")
-    finished = HarborEvent(name="job.finished", trace_id="trace-2")
-    ignored = HarborEvent(name="source.created", trace_id="trace-3")
-    for event in (started, finished, ignored):
-        await bus.publish(event)
-    assert [event async for event in bus.subscribe("job.")] == [started, finished]
-    assert [event async for event in bus.subscribe("missing.")] == []

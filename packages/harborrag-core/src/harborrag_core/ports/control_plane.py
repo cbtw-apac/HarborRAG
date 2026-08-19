@@ -13,6 +13,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -154,6 +155,45 @@ class MemberRepositoryPort(Protocol):
 
     async def delete(self, member_id: str, *, tenant_ids: frozenset[str] | None) -> None:
         """Remove a member within ``tenant_ids``."""
+
+
+class PendingEffectRepositoryPort(Protocol):
+    """Durable retry queue for control-plane side effects (ML2 recoverability hardening).
+
+    A row is enqueued only when a secondary effect -- secret retirement or
+    audit logging -- fails after the primary write it depends on has already
+    committed. It is never a step on the happy path. The recovery drain
+    retries each pending row and calls ``complete`` once the retry succeeds;
+    a row that keeps failing simply stays pending for the next drain pass.
+    """
+
+    async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
+        """Durably record a failed side effect for later retry."""
+
+    async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
+        """Oldest-first pending effects, for the recovery drain."""
+
+    async def complete(self, effect_id: str) -> None:
+        """Remove an effect once its retry has succeeded; a no-op if already gone."""
+
+
+class LeaseRepositoryPort(Protocol):
+    """Named, time-boxed singleton leases (ML2 multi-process hardening).
+
+    Backs leader election for background loops that must run on at most
+    one process at a time even when the API is scaled to multiple
+    processes/replicas (e.g. the ingestion progress bridge) -- everything
+    the ``InProcessEventBus`` docstrings assume but nothing enforces.
+    """
+
+    async def try_acquire(self, name: str, holder: str, *, ttl_seconds: float) -> bool:
+        """Acquire or renew ``name`` for ``holder``.
+
+        True if ``holder`` now owns the lease (either it already did, or the
+        previous holder's lease had lapsed); False if another holder's lease
+        is still live. A holder that stops calling this simply lets its
+        lease expire after ``ttl_seconds``, letting another holder take over.
+        """
 
 
 TRepository_co = TypeVar("TRepository_co", covariant=True)

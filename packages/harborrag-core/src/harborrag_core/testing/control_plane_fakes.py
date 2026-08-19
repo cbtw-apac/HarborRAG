@@ -8,11 +8,14 @@ doubles used by both the test suite and local/dev composition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
+from harborrag_core.base import utc_now
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -156,7 +159,14 @@ class FakeActivityRepository:
     entries: list[ActivityEntry] = field(default_factory=list)
 
     async def append(self, entry: ActivityEntry) -> None:
-        """Record one audit entry."""
+        """Record one audit entry; a no-op if this id was already recorded.
+
+        Mirrors the real table's primary key on id: a pending effect replay
+        (possibly raced by two recovery drains) reuses the original entry's
+        id, so a second append of the same id must not create a duplicate.
+        """
+        if any(existing.id == entry.id for existing in self.entries):
+            return
         self.entries.append(entry)
 
     async def list(
@@ -167,6 +177,33 @@ class FakeActivityRepository:
         # avoid surprises when tests seed out-of-order timestamps.
         scoped = [e for e in self.entries if _in_scope(e.tenant_id, tenant_ids)]
         return sorted(scoped, key=lambda e: e.created_at, reverse=True)[:limit]
+
+
+@dataclass(slots=True)
+class FakePendingEffectRepository:
+    """Dict-backed PendingEffectRepositoryPort."""
+
+    effects: dict[str, PendingControlPlaneEffect] = field(default_factory=dict)
+
+    async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
+        """Record a failed side effect for later retry."""
+        self.effects[effect.id] = effect
+
+    async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
+        """Oldest-first pending effects, for the recovery drain.
+
+        Sorted by (created_at, id) rather than insertion/dict order to match
+        SqlPendingEffectRepository.list_pending -- otherwise a test seeding
+        effects out of timestamp order could pass here while the real drain
+        would process them in a different sequence.
+        """
+        return sorted(self.effects.values(), key=lambda effect: (effect.created_at, effect.id))[
+            :limit
+        ]
+
+    async def complete(self, effect_id: str) -> None:
+        """Drop the effect once its retry has succeeded; a no-op if already gone."""
+        self.effects.pop(effect_id, None)
 
 
 @dataclass(slots=True)
@@ -214,6 +251,22 @@ class FakeProviderRepository:
         provider = self.providers.get(provider_id)
         if provider is not None and _in_scope(provider.tenant_id, tenant_ids):
             del self.providers[provider_id]
+
+
+@dataclass(slots=True)
+class FakeLeaseRepository:
+    """Dict-backed LeaseRepositoryPort; mirrors SqlLeaseRepository's conditional update."""
+
+    leases: dict[str, tuple[str, datetime]] = field(default_factory=dict)
+
+    async def try_acquire(self, name: str, holder: str, *, ttl_seconds: float) -> bool:
+        """Acquire or renew ``name`` for ``holder`` unless another live holder owns it."""
+        now = utc_now()
+        current_holder, expires_at = self.leases.get(name, ("", now))
+        if current_holder != holder and expires_at > now:
+            return False
+        self.leases[name] = (holder, now + timedelta(seconds=ttl_seconds))
+        return True
 
 
 @dataclass(slots=True)

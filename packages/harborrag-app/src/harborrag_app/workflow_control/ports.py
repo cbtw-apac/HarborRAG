@@ -37,6 +37,11 @@ class BaseAppService(ABC):
         del limit
         return 0
 
+    async def sync_ingestion_progress(self) -> int:
+        """One progress-bridge poll tick where the concrete service supports it."""
+
+        return 0
+
     async def create_chat_session(
         self,
         *,
@@ -208,6 +213,40 @@ class BaseAppService(ABC):
     @abstractmethod
     async def get_source(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> AppResponse:
         """One source by id within ``tenant_ids``; raises HarborNotFoundError when missing."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def create_source(  # noqa: PLR0913 - explicit source-creation fields keep secret handling auditable
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        source_type: str,
+        name: str,
+        config: Mapping[str, object],
+        schedule: str | None,
+        actor: str,
+    ) -> AppResponse:
+        """Create a source; secret-shaped config fields are extracted up front."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def update_source(
+        self,
+        source_id: str,
+        *,
+        updates: dict[str, object],
+        actor: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
+        """Apply a partial update within ``tenant_ids``; only keys present in ``updates`` change."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete_source(
+        self, source_id: str, *, actor: str, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """Delete a source within ``tenant_ids`` and forget every secret it referenced."""
         raise NotImplementedError
 
     @abstractmethod

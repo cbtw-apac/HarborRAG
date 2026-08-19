@@ -1941,6 +1941,7 @@ chunking = [
 control-plane = [
     { name = "aiosqlite" },
     { name = "alembic" },
+    { name = "cryptography" },
     { name = "greenlet" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
@@ -2093,6 +2094,7 @@ requires-dist = [
     { name = "beautifulsoup4", marker = "extra == 'markup'", specifier = ">=4.12.0" },
     { name = "beautifulsoup4", marker = "extra == 'parsers'", specifier = ">=4.12.0" },
     { name = "beautifulsoup4", marker = "extra == 'parsers-all'", specifier = ">=4.12.0" },
+    { name = "cryptography", marker = "extra == 'control-plane'", specifier = ">=42,<51" },
     { name = "defusedxml", marker = "extra == 'document'", specifier = ">=0.7.1" },
     { name = "defusedxml", marker = "extra == 'markup'", specifier = ">=0.7.1" },
     { name = "defusedxml", marker = "extra == 'parsers'", specifier = ">=0.7.1" },
