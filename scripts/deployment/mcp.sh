@@ -42,11 +42,17 @@ require_file() {
         fail "Missing ${label}: ${path}. Run 'scripts/deployment/dev.sh bootstrap'."
 }
 
+redact_environment_errors() {
+    sed -E \
+        -e 's/(line [0-9]+: )[^:]+(: command not found)/\1***\2/g' \
+        -e 's/sk-[A-Za-z0-9_-]{16,}/***/g'
+}
+
 load_environment_file() {
     local path="$1"
     set -a
     # shellcheck disable=SC1090 -- protected environment paths are configurable.
-    source "${ROOT_DIR}/${path}"
+    source "${ROOT_DIR}/${path}" 2> >(redact_environment_errors >&2)
     set +a
 }
 

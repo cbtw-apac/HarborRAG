@@ -2,43 +2,53 @@ name: harborrag-monitoring
 
 services:
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.13.1
     ports:
-      - "9090:9090"
+      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
-      - default
+      - monitoring-network
       - harborrag-data-network
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.1.0
     ports:
-      - "3000:3000"
+      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in the monitoring environment file}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ../grafana/provisioning:/etc/grafana/provisioning:ro
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
+      - grafana_secure_data:/var/lib/grafana
+    networks:
+      - monitoring-network
 
   loki:
-    image: grafana/loki:latest
-    ports:
-      - "3100:3100"
+    image: grafana/loki:3.7.2
+    expose:
+      - "3100"
     command: ["-config.file=/etc/loki/loki-config.yml"]
     volumes:
       - ../loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/loki
+    networks:
+      - monitoring-network
 
 volumes:
   prometheus_data:
-  grafana_data:
+  # Deliberately differs from the legacy `grafana_data` key: existing stacks
+  # may have initialized that volume with the former admin/admin default.
+  grafana_secure_data:
   loki_data:
 
 networks:
+  monitoring-network:
+    internal: true
   harborrag-data-network:
     name: harborrag-data-network
     external: true

@@ -158,6 +158,7 @@ services:
   temporal-worker:
     profiles:
       - worker
+    image: ${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.temporal-worker
@@ -207,16 +208,9 @@ services:
       HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY: ${HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY:-8}
       HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
     volumes:
-      # No bind mount over /app/config: `start_worker()` in dev.sh always
-      # passes `--build`, so editing config/*.yaml and re-running already
-      # rebuilds the image with the change via Dockerfile.temporal-worker's
-      # `COPY config ./config`. A runtime bind mount here bought no live-edit
-      # benefit but did add a real failure mode -- Docker silently creates a
-      # missing bind-mount source as an empty host directory (confirmed: even
-      # the long-form `bind.create_host_path: false` guard does not prevent
-      # this with `docker compose` outside Swarm mode), which would shadow
-      # the correctly-baked config with nothing and crash the worker at
-      # startup with a confusing "file does not exist" deep in the traceback.
+      # Configuration is baked into the worker image. Use `dev.sh worker
+      # --build` after changing config/*.yaml; ordinary starts reuse the local
+      # image and avoid an unnecessary build.
       - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
       # scripts/deployment/dev.sh sets this from LOCAL_SOURCE_PATH in
       # env/.env.connector. The fallback only applies to a hand-run compose.

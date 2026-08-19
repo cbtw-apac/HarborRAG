@@ -15,6 +15,7 @@ from harborrag_app.api.auth.dependencies import (
     require_role,
 )
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_core.contracts.events import HarborEvent
 
@@ -33,7 +34,11 @@ from .schemas import (
 
 _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
-router = APIRouter(prefix="/ingestions", tags=["Ingestion"])
+router = APIRouter(
+    prefix="/ingestions",
+    tags=["Ingestion"],
+    dependencies=[Depends(require_api_capacity)],
+)
 
 
 ERROR_RESPONSES = documented_error_responses(

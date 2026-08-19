@@ -18,7 +18,7 @@ control-plane = [
     "alembic>=1.13",
     "aiosqlite>=0.20,<1",
     "greenlet>=3",
-    "cryptography>=42,<44",
+    "cryptography>=42,<51",
 ]
 redis = ["redis>=5,<6"]
 s3 = ["aioboto3>=13,<14"]
