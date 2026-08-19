@@ -8,7 +8,9 @@ asserts every gate fires. Exit: 0 all fired, 1 a gate missed, 2 unavailable.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from graph_eval.corpus import GRAPH_NAME, TENANT_ID, build_corpus  # noqa: E402
+from graph_eval.smoke import configure_logging  # noqa: E402
 from graph_eval.smoke.configuration import build_client  # noqa: E402
 from graph_eval.smoke.graph_health import _tenant_report  # noqa: E402
 from harborrag_adapters.repositories.graph.falkordb import (  # noqa: E402
@@ -25,6 +28,8 @@ from harborrag_adapters.repositories.graph.falkordb import (  # noqa: E402
 )
 from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION  # noqa: E402
 from harborrag_core.schemas.storage import StorageOperationContext  # noqa: E402
+
+logger = logging.getLogger("harborrag.graph_eval.gate_mutation_check")
 
 # (name, violation Cypher, substring the resulting gate failure must contain) —
 # one entry per gated census in metrics.py. Every mutation must carry tenant_id and
@@ -93,7 +98,7 @@ async def run() -> int:
         client = build_client(GRAPH_NAME)
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        print(f"prerequisites unavailable: {error}", file=sys.stderr)
+        logger.error("prerequisites unavailable: %s", error)
         return 2
     context = StorageOperationContext.system(TENANT_ID, operation_kind="graph-eval")
     # The explicit client= wins, so the config's connection fields are inert; they
@@ -141,16 +146,20 @@ async def run() -> int:
     # escaping the block above is infrastructural, not a mutation verdict -- including a
     # failed sweep, which leaves residue that must be loud rather than reported as green.
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        print(f"prerequisites unavailable: {error}", file=sys.stderr)
+        logger.error("prerequisites unavailable: %s", error)
         return 2
     finally:
         await client.close()
 
-    print(f"caught {len(_MUTATIONS) - len(missed)}/{len(_MUTATIONS)} seeded violations")
+    verdict = logger.error if missed else logger.info
+    verdict("caught %d/%d seeded violations", len(_MUTATIONS) - len(missed), len(_MUTATIONS))
     for name in missed:
-        print(f"GATE DID NOT FIRE: {name}", file=sys.stderr)
+        logger.error("GATE DID NOT FIRE: %s", name)
     return 1 if missed else 0
 
 
 if __name__ == "__main__":
+    # No arguments; this exists so --help prints the docstring instead of connecting.
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    configure_logging()
     raise SystemExit(asyncio.run(run()))

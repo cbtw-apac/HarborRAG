@@ -14,8 +14,6 @@ This directory holds **two different things** — do not confuse them:
   them and pytest never collects them. They diagnose a running graph; they do
   not gate code.
 
-Defects this suite has caught live in [ISSUES.md](ISSUES.md).
-
 Both draw on the same shared library, which belongs to neither:
 
     corpus.py             the deterministic corpus
@@ -59,6 +57,14 @@ unavailable. Exit 2 also covers a query failure *after* a successful connect
 (e.g. Cypher FalkorDB rejects), so read stderr instead of treating it as a
 plain skip.
 
+Human output (per-tenant/per-case summary lines, `PASS`/`FAIL` verdicts,
+`GATE FAILURE` lines) goes to stderr; the JSON report is written to whatever
+`--output` names and to stdout only when stdout is piped or redirected, so
+`| jq` and `> report.json` work while interactive runs show just the
+summaries. Variables already set in
+your shell win over `env/.env.database` — a stack on nonstandard ports just
+needs a prefix, e.g. `FALKORDB_PORT=6390 POSTGRES_PORT=5442 .venv/bin/python …`.
+
 | CLI | Run it when | It answers |
 |---|---|---|
 | `graph_health.py` | after a live ingest, deploy, or re-run | is the live graph structurally sound? |
@@ -72,8 +78,10 @@ version-owned nodes, duplicate semantic relations, failed constraints, missing
 merge-identity properties, empty/undiscoverable tenants, published document
 versions with no DocumentVersion node). The publication gate reads the Postgres
 control plane from the same env file — a document that fails after publication
-is absent from the graph, which no graph-side census can see. Everything else
-is report-only.
+is absent from the graph, which no graph-side census can see. That gate always
+runs, so Postgres must be reachable even when `--graph` points at the seeded
+eval graph (the other scripts need FalkorDB only). Everything else is
+report-only.
 
     .venv/bin/python packages/harborrag-runtime/tests/graph_eval/smoke/graph_health.py
 

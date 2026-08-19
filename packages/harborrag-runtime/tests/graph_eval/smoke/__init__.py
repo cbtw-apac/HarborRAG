@@ -8,4 +8,20 @@ rather than treating it as a skip.
 
 The pure logic these scripts drive lives in the shared library beside this package
 (``../corpus.py``, ``../golden/``, ``../health/``) and is tested in ``../unit/``.
+
+Human-readable output (leveled summary lines) goes to stderr; stdout stays
+machine-readable JSON, because graph_diff.py and --output files consume it.
 """
+
+import logging
+import sys
+
+
+def configure_logging() -> None:
+    """Route the scripts' harborrag.graph_eval.* loggers to plain stderr lines."""
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(message)s",
+        stream=sys.stderr,
+    )

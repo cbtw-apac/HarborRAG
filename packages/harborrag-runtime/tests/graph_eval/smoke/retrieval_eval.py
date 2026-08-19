@@ -13,8 +13,10 @@ Exit codes: 0 all cases pass, 1 case failure, 2 prerequisites unavailable.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+import logging
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -31,6 +33,7 @@ from graph_eval.golden import (  # noqa: E402
     SUBGRAPH_CASES,
     TRIPLET_CASES,
 )
+from graph_eval.smoke import configure_logging  # noqa: E402
 from graph_eval.smoke.configuration import build_client  # noqa: E402
 from harborrag_adapters.repositories.graph.falkordb import (  # noqa: E402
     FalkorDBGraphConfig,
@@ -45,6 +48,8 @@ from harborrag_core.retrieval import (  # noqa: E402
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId  # noqa: E402
 from harborrag_core.schemas.storage import StorageOperationContext  # noqa: E402
 from harborrag_engine.retrieval.graph import AuthoritativeGraphSearch  # noqa: E402
+
+logger = logging.getLogger("harborrag.graph_eval.retrieval_eval")
 
 
 class StaticActiveVersions:
@@ -152,7 +157,7 @@ async def run() -> int:
         client = build_client(GRAPH_NAME)
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        print(f"prerequisites unavailable: {error}", file=sys.stderr)
+        logger.error("prerequisites unavailable: %s", error)
         return 2
     context = StorageOperationContext.system(TENANT_ID, operation_kind="graph-eval")
     # The explicit client= wins, so the config's connection fields are inert; they
@@ -167,17 +172,33 @@ async def run() -> int:
     # Case verdicts are only ever collected into CaseResults, never raised, so anything
     # escaping the block above is infrastructural, not a retrieval verdict.
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        print(f"prerequisites unavailable: {error}", file=sys.stderr)
+        logger.error("prerequisites unavailable: %s", error)
         return 2
     finally:
         await client.close()
 
-    print(json.dumps(summarize(results), indent=2, sort_keys=True))
+    # JSON is for machines: emit it only when stdout is piped/redirected, so an
+    # interactive run shows just the per-case lines and verdict.
+    if not sys.stdout.isatty():
+        print(json.dumps(summarize(results), indent=2, sort_keys=True))
     failures = [result for result in results if not result.passed]
-    for failure in failures:
-        print(f"CASE FAILURE {failure.name}: {failure.detail}", file=sys.stderr)
+    for result in results:
+        if result.passed:
+            logger.info("pass: %s", result.name)
+        else:
+            logger.error("CASE FAILURE %s: %s", result.name, result.detail)
+    verdict = logger.error if failures else logger.info
+    verdict(
+        "%s: %d/%d cases passed",
+        "FAIL" if failures else "PASS",
+        len(results) - len(failures),
+        len(results),
+    )
     return 1 if failures else 0
 
 
 if __name__ == "__main__":
+    # No arguments; this exists so --help prints the docstring instead of connecting.
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    configure_logging()
     raise SystemExit(asyncio.run(run()))

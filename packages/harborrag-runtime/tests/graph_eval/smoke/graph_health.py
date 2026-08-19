@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -40,6 +41,7 @@ from graph_eval.health.metrics import (  # noqa: E402
     connected_component_sizes,
     publication_completeness,
 )
+from graph_eval.smoke import configure_logging  # noqa: E402
 from graph_eval.smoke.configuration import build_client, postgres_url  # noqa: E402
 from harborrag_adapters.repositories.database.ingestion_control.schema import (  # noqa: E402
     DOCUMENTS,
@@ -49,6 +51,8 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (  
     read_rows,
 )
 from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION  # noqa: E402
+
+logger = logging.getLogger("harborrag.graph_eval.graph_health")
 
 _TENANTS = """
 MATCH (node:KnowledgeNode)
@@ -202,12 +206,29 @@ async def _graph_level_failures(client: FalkorDBClient) -> list[str]:
     return failures
 
 
+def _render_summary(payload: list[dict[str, object]]) -> None:
+    """One per-tenant summary line on stderr; stdout keeps the machine-readable JSON."""
+
+    for entry in payload:
+        gate_count = len(entry["gate_failures"])  # type: ignore[arg-type]
+        logger.info(
+            "%s: %s nodes, %s relations, %s orphans, %s placeholders, %s duplicates, gates %s",
+            entry["tenant_id"],
+            entry["node_count"],
+            entry["relation_count"],
+            sum(entry["orphans_by_kind"].values()),  # type: ignore[union-attr]
+            entry["placeholder_count"],
+            entry["duplicate_semantic_count"],
+            f"{gate_count} failed" if gate_count else "pass",
+        )
+
+
 async def run(tenants: list[str], output: Path | None, *, identities: bool, graph: str) -> int:
     try:
         client = build_client(graph)
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        print(f"prerequisites unavailable: {error}", file=sys.stderr)
+        logger.error("prerequisites unavailable: %s", error)
         return 2
     failures: list[str] = []
     payload: list[dict[str, object]] = []
@@ -252,19 +273,31 @@ async def run(tenants: list[str], output: Path | None, *, identities: bool, grap
     # Gate failures are only ever collected into lists, never raised, so anything
     # escaping the block above is infrastructural, not a graph verdict.
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        print(f"prerequisites unavailable: {error}", file=sys.stderr)
+        logger.error("prerequisites unavailable: %s", error)
         return 2
     finally:
         await client.close()
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    # JSON is for machines: emit it only when stdout is piped/redirected, so an
+    # interactive run shows just the summary and verdict.
+    if not sys.stdout.isatty():
+        print(json.dumps(payload, indent=2, sort_keys=True))
     if output is not None:
         output.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    _render_summary(payload)
     for failure in failures:
-        print(f"GATE FAILURE {failure}", file=sys.stderr)
+        logger.error("GATE FAILURE %s", failure)
+    verdict = logger.error if failures else logger.info
+    verdict(
+        "%s: %d gate failures across %d tenants",
+        "FAIL" if failures else "PASS",
+        len(failures),
+        len(payload),
+    )
     return 1 if failures else 0
 
 
 def main() -> int:
+    configure_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tenant", action="append", default=[], dest="tenants")
     parser.add_argument("--output", type=Path, default=None)
