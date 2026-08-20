@@ -1,7 +1,7 @@
 # Graph evaluation suite
 
 Opt-in evaluation of the FalkorDB knowledge graph, complementing the ingestion
-smoke suite (`../../runtime_ingestion/smoke/`).
+smoke suite (`../runtime_ingestion/smoke/`).
 
 This directory holds **two different things** — do not confuse them:
 

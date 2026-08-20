@@ -119,7 +119,7 @@ class StalenessCase:
             if corpus.document_version_key(document_id) in keys
             or corpus.chunk_keys(document_id) & keys
         }
-        stale_ok = result.diagnostics.stale_count > 0 if self.expect_stale_rejections else True
+        stale_ok = (result.diagnostics.stale_count > 0) is self.expect_stale_rejections
         return check(
             self.name,
             not leaked and stale_ok,

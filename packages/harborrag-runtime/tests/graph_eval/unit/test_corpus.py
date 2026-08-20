@@ -62,13 +62,11 @@ def test_corpus_projects_the_declared_topology(corpus: EvalCorpus) -> None:
 
 def test_corpus_is_deterministic() -> None:
     first, second = build_corpus(), build_corpus()
+    assert set(first.batches) == set(second.batches)
     for document_id in first.batches:
-        assert {n.node_key for n in first.batches[document_id].nodes} == {
-            n.node_key for n in second.batches[document_id].nodes
-        }
-        assert {r.relation_id for r in first.batches[document_id].relations} == {
-            r.relation_id for r in second.batches[document_id].relations
-        }
+        # Whole records, not just identity sets: a property that drifts between builds
+        # (titles, attributes, unresolved links) must fail here too.
+        assert first.batches[document_id] == second.batches[document_id]
 
 
 def test_every_provider_set_reaches_its_own_projector(corpus: EvalCorpus) -> None:

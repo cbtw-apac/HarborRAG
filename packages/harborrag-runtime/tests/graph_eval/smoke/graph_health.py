@@ -51,6 +51,7 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (  
     read_rows,
 )
 from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION  # noqa: E402
+from harborrag_runtime.config.settings import RuntimeSettings  # noqa: E402
 
 logger = logging.getLogger("harborrag.graph_eval.graph_health")
 
@@ -228,7 +229,7 @@ async def run(tenants: list[str], output: Path | None, *, identities: bool, grap
         client = build_client(graph)
         await client.connect()
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        logger.error("prerequisites unavailable: %s", error)
+        logger.exception("prerequisites unavailable: %s", error)
         return 2
     failures: list[str] = []
     payload: list[dict[str, object]] = []
@@ -273,7 +274,7 @@ async def run(tenants: list[str], output: Path | None, *, identities: bool, grap
     # Gate failures are only ever collected into lists, never raised, so anything
     # escaping the block above is infrastructural, not a graph verdict.
     except Exception as error:  # noqa: BLE001 - prerequisite probe
-        logger.error("prerequisites unavailable: %s", error)
+        logger.exception("prerequisites unavailable: %s", error)
         return 2
     finally:
         await client.close()
@@ -302,9 +303,9 @@ def main() -> int:
     parser.add_argument("--tenant", action="append", default=[], dest="tenants")
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--identities", action="store_true")
-    # Defaults to RuntimeSettings.falkordb_graph's default, i.e. the graph the runtime
-    # writes. Point it at HARBORRAG_EVAL_GRAPH_NAME to report on the seeded eval graph.
-    parser.add_argument("--graph", default="harborrag")
+    # Defaults to the graph the runtime writes. Point it at HARBORRAG_EVAL_GRAPH_NAME
+    # to report on the seeded eval graph.
+    parser.add_argument("--graph", default=RuntimeSettings.model_fields["falkordb_graph"].default)
     arguments = parser.parse_args()
     return asyncio.run(
         run(

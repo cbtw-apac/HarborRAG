@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from ..health.metrics import (
+    GraphHealthReport,
     compute_report,
     connected_component_sizes,
     publication_completeness,
@@ -11,7 +12,7 @@ from ..health.metrics import (
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
-def _healthy_report(**overrides):
+def _healthy_report(**overrides: object) -> GraphHealthReport:
     arguments: dict = {
         "tenant_id": "tenant-1",
         "node_census": [
