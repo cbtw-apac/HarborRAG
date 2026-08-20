@@ -164,6 +164,28 @@ def _print_skips(skipped) -> None:
         print(f"  - {skip.path}: {skip.detail} [{skip.reason}]")
 
 
+def _discover_records(connector, limit: int) -> list | None:
+    """Discover records for `run_local`, printing status/skips as it goes.
+
+    Returns `None` (having already printed why) when discovery failed or
+    nothing was found, so the caller can return 1 without repeating these
+    same failure/empty-result checks inline.
+    """
+    try:
+        records = list(connector.discover(ConnectorQuery(limit=limit)))
+    except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code
+        print_failure("local", exc)
+        return None
+    print(f"\n[local] discovered {len(records)} record(s)")
+    for record in records:
+        print(f"  - {record.id} ({record.source_type})")
+    _print_skips(connector.skipped)
+    if not records:
+        print("[local] no records discovered")
+        return None
+    return records
+
+
 def run_local(
     *,
     connection_id: str | None = None,
@@ -183,13 +205,8 @@ def run_local(
         print(f"[local] not configured: {exc}")
         return 2
 
-    records = list(connector.discover(ConnectorQuery(limit=limit)))
-    print(f"\n[local] discovered {len(records)} record(s)")
-    for record in records:
-        print(f"  - {record.id} ({record.source_type})")
-    _print_skips(connector.skipped)
-    if not records:
-        print("[local] no records discovered")
+    records = _discover_records(connector, limit)
+    if records is None:
         return 1
 
     harbor_parser = build_harbor_parser()

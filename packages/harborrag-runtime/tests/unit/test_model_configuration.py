@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 from pydantic import SecretStr
 
-from harborrag_runtime.model_configuration import embedding_dimensions
+from harborrag_runtime.composition.resources import embedding_dimensions
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 
 

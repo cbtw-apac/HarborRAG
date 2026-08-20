@@ -13,6 +13,8 @@ from harborrag_core.ingestion import (
     PublicationConflictError,
     RepresentationProviderError,
     SourceAdmissionDecision,
+    SourceAuthenticationError,
+    SourceAuthorizationError,
     SourceForbiddenError,
     SourceUnavailableError,
     UnsupportedDocumentError,
@@ -42,6 +44,20 @@ _SIMPLE_FAILURES: tuple[
     tuple[type[Exception], FailureCategory, bool, str],
     ...,
 ] = (
+    # More specific than SourceForbiddenError below; order matters since the
+    # first isinstance match wins and both are SourceForbiddenError subclasses.
+    (
+        SourceAuthenticationError,
+        FailureCategory.SOURCE_FORBIDDEN,
+        False,
+        "authentication_failed",
+    ),
+    (
+        SourceAuthorizationError,
+        FailureCategory.SOURCE_FORBIDDEN,
+        False,
+        "authorization_failed",
+    ),
     (SourceForbiddenError, FailureCategory.SOURCE_FORBIDDEN, False, "source_forbidden"),
     (SourceUnavailableError, FailureCategory.TRANSIENT, True, "source_unavailable"),
     (UnsupportedDocumentError, FailureCategory.UNSUPPORTED, False, "document_unsupported"),

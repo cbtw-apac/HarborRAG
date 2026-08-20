@@ -14,6 +14,11 @@ from harborrag_core.ingestion import (
 from harborrag_core.invariants import HarborInvariantError
 
 from ..document.models import DocumentReleaseRequest
+from ..limits import (
+    validate_discovery_concurrency,
+    validate_discovery_page_size,
+    validate_document_concurrency,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,12 +49,9 @@ class SourceIngestionRequest:
         )
         if any(not value.strip() for value in text_values):
             raise ValueError("source ingestion identity values must be non-empty")
-        if not 1 <= self.document_concurrency <= 100:
-            raise ValueError("document_concurrency must be between 1 and 100")
-        if not 1 <= self.discovery_page_size <= 300:
-            raise ValueError("discovery_page_size must be between 1 and 300")
-        if not 1 <= self.discovery_concurrency <= 32:
-            raise ValueError("discovery_concurrency must be between 1 and 32")
+        validate_document_concurrency(self.document_concurrency)
+        validate_discovery_page_size(self.discovery_page_size)
+        validate_discovery_concurrency(self.discovery_concurrency)
         if self.missing_threshold < 1:
             raise ValueError("missing_threshold must be positive")
 

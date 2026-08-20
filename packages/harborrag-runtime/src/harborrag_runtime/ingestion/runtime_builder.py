@@ -38,6 +38,13 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_runtime.composition.resources import (
+    build_ingestion_control,
+    build_knowledge_graph,
+    build_object_store,
+    build_vector_repository,
+    embedding_dimensions,
+)
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
     connector_fingerprint,
@@ -45,14 +52,7 @@ from harborrag_runtime.config import (
     load_parser_catalog,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion_control_factory import build_ingestion_control
-from harborrag_runtime.model_configuration import embedding_dimensions
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
-from harborrag_runtime.storage_factory import (
-    build_knowledge_graph,
-    build_object_store,
-    build_vector_repository,
-)
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .composition import IngestionRuntime
@@ -314,3 +314,20 @@ def build_default_chunker(
         refiner=RecursiveTextRefiner(token_counter),
         additional_strategies=additional_strategies,
     )
+
+
+def build_ingestion_runtime(
+    settings: RuntimeSettings | None = None,
+    *,
+    normalizer_builder: SourceDocumentNormalizerBuilder | None = None,
+    chunking_config: ChunkingConfig | None = None,
+    chunking_strategies: tuple[ChunkStrategy, ...] = (),
+) -> IngestionRuntime:
+    """Build the production ingestion object graph without starting resources."""
+
+    return IngestionRuntimeBuilder(
+        settings or RuntimeSettings(),
+        normalizer_builder=normalizer_builder,
+        chunking_config=chunking_config,
+        chunking_strategies=chunking_strategies,
+    ).build()

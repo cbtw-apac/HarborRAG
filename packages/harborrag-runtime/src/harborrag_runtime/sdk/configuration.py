@@ -7,8 +7,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from .config.settings import RuntimeSettings
-from .contracts import ExecutionMode
+from ..config.settings import RuntimeSettings
+from ..contracts import ExecutionMode
 
 
 class HarborRAGConfig(BaseModel):

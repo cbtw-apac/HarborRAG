@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
-from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import AccessContext
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import ExecutionMode, IngestionRequest
@@ -217,14 +216,32 @@ async def test_temporal_executor_submits_controls_and_reads_results(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["pause", "resume", "cancel"])
-async def test_temporal_controls_require_a_started_client(operation: str) -> None:
+async def test_temporal_controls_connect_a_fresh_executor(monkeypatch, operation: str) -> None:
+    from harborrag_runtime.execution import temporal as temporal_module
+
+    calls: list[tuple[str, str]] = []
+
+    class Client:
+        async def pause(self, task_id: str) -> None:
+            calls.append(("pause", task_id))
+
+        async def resume(self, task_id: str) -> None:
+            calls.append(("resume", task_id))
+
+        async def cancel(self, task_id: str) -> None:
+            calls.append(("cancel", task_id))
+
+    class ClientFactory:
+        @classmethod
+        async def connect(cls, _config) -> Client:
+            return Client()
+
+    monkeypatch.setattr(temporal_module, "IngestionTemporalClient", ClientFactory)
     executor = TemporalIngestionExecutor(RuntimeSettings())
 
-    with pytest.raises(
-        HarborInvariantError,
-        match="self._client must not be None here",
-    ):
-        await getattr(executor, operation)("task-1")
+    await getattr(executor, operation)("task-1")
+
+    assert calls == [(operation, "task-1")]
 
 
 def test_submission_maps_public_request_without_losing_query_controls(

@@ -10,9 +10,11 @@ from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
-
-from .config.settings import RuntimeSettings
-from .storage_factory import build_knowledge_graph, build_vector_repository
+from harborrag_runtime.composition.resources import (
+    build_knowledge_graph,
+    build_vector_repository,
+)
+from harborrag_runtime.config.settings import RuntimeSettings
 
 _VECTOR_INDEXES = ("evidence",)
 _STORES = frozenset({"vector", "graph"})

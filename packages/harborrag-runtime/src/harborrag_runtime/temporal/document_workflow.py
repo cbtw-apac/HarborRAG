@@ -7,16 +7,10 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
-from .policies import (
-    DISCOVERY_RETRY,
-    DOCUMENT_RETRY,
-    DOCUMENT_STAGES,
-    INDEX_QUEUE,
-    IO_QUEUE,
-    PARSER_QUEUE,
-)
+from .policies import temporal_retry_policy
 from .schemas import (
     DocumentFailureInput,
     DocumentIngestionInput,
@@ -33,36 +27,39 @@ class DocumentIngestionWorkflow:
     async def run(self, request: DocumentIngestionInput) -> DocumentIngestionOutcome:
         prepared: PreparedDocument | None = None
         failed_stage = "FetchAndCaptureRaw"
+        queues = request.workflow_options.task_queues
+        discovery_retry = temporal_retry_policy(request.workflow_options.retries.discovery)
+        document_retry = temporal_retry_policy(request.workflow_options.retries.document)
         try:
             capture = await workflow.execute_activity(
                 "harborrag.fetch_and_capture_raw",
                 request,
-                task_queue=IO_QUEUE,
+                task_queue=queues.io,
                 start_to_close_timeout=timedelta(minutes=30),
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=DOCUMENT_RETRY,
+                retry_policy=document_retry,
                 result_type=RawCaptureResult,
             )
             failed_stage = "ParseAndNormalize"
             prepared = await workflow.execute_activity(
                 "harborrag.parse_and_normalize",
                 capture,
-                task_queue=PARSER_QUEUE,
+                task_queue=queues.parser,
                 start_to_close_timeout=timedelta(minutes=30),
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=DOCUMENT_RETRY,
+                retry_policy=document_retry,
                 result_type=PreparedDocument,
             )
             if prepared.canonical_reference is not None:
-                for stage_name, name, queue in DOCUMENT_STAGES:
-                    failed_stage = stage_name
+                for stage in DOCUMENT_STAGE_CATALOG:
+                    failed_stage = stage.name
                     prepared = await workflow.execute_activity(
-                        name,
+                        stage.activity,
                         prepared,
-                        task_queue=queue,
+                        task_queue=queues.for_role(stage.task_queue_role),
                         start_to_close_timeout=timedelta(minutes=60),
                         heartbeat_timeout=timedelta(minutes=2),
-                        retry_policy=DOCUMENT_RETRY,
+                        retry_policy=document_retry,
                         result_type=PreparedDocument,
                     )
             failed_stage = "PublishVersion"
@@ -70,9 +67,9 @@ class DocumentIngestionWorkflow:
                 await workflow.execute_activity(
                     "harborrag.publish_version",
                     prepared,
-                    task_queue=INDEX_QUEUE,
+                    task_queue=queues.index,
                     start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=DOCUMENT_RETRY,
+                    retry_policy=document_retry,
                     result_type=DocumentIngestionOutcome,
                 )
             )
@@ -85,9 +82,9 @@ class DocumentIngestionWorkflow:
                     failed_stage=failed_stage,
                     error_type="cancelled",
                 ),
-                task_queue=IO_QUEUE,
+                task_queue=queues.io,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=discovery_retry,
             )
             await asyncio.shield(cleanup)
             raise
@@ -101,8 +98,8 @@ class DocumentIngestionWorkflow:
                     failed_stage=failed_stage,
                     error_type=error_type,
                 ),
-                task_queue=IO_QUEUE,
+                task_queue=queues.io,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=discovery_retry,
             )
             return DocumentIngestionOutcome.FAILED

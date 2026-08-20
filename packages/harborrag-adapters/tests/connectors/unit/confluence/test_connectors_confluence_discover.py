@@ -10,6 +10,7 @@ from confluence_test_helpers import FakeConfluenceClient, cloud_config, light_co
 from harborrag_adapters.connectors.confluence import ConfluenceConnector
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
+    AuthorizationError,
     DocumentProcessingError,
     FetchError,
 )
@@ -261,13 +262,17 @@ def test_discover_page_verifies_credentials_before_any_search_call(monkeypatch):
         connector.discover_page(None, cursor=None, page_size=10)
 
 
-def test_discover_reclassifies_403_from_credential_check_as_authentication_error(monkeypatch):
+def test_discover_reclassifies_403_from_credential_check_as_authorization_error(monkeypatch):
     """Confluence Cloud's edge gateway has been observed rejecting an
     invalid/revoked credential on `user/current` with HTTP 403 ("Request
-    rejected because caller cannot access Confluence") instead of 401. Since
-    that endpoint needs no resource permissions, a 403 there can only mean
-    the credential was rejected -- it must surface as `AuthenticationError`,
-    not the generic (retryable) `FetchError` a 403 gets everywhere else."""
+    rejected because caller cannot access Confluence") instead of 401. A 403
+    means authorization, not authentication -- the credential itself may be
+    fine but lack the scope/permission the edge requires -- so it must
+    surface as `AuthorizationError`, distinct from the 401/`AuthenticationError`
+    case, not the generic (retryable) `FetchError` a 403 gets everywhere
+    else. Also covers a bare (unwrapped) `FetchError(403)`, in case the edge
+    rejects the probe before the shared client raises `AuthorizationError`
+    directly."""
     client = FakeConfluenceClient()
 
     def _raise_forbidden(endpoint, *, params=None):
@@ -280,7 +285,7 @@ def test_discover_reclassifies_403_from_credential_check_as_authentication_error
     monkeypatch.setattr(client, "get_json", _raise_forbidden)
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    with pytest.raises(AuthenticationError, match="Confluence authentication failed: rejected"):
+    with pytest.raises(AuthorizationError, match="Confluence authorization failed: rejected"):
         list(connector.discover())
 
 
@@ -307,8 +312,8 @@ def test_discover_strips_json_envelope_from_credential_check_failure(monkeypatch
     connector = ConfluenceConnector(cloud_config(), client=client)
 
     with pytest.raises(
-        AuthenticationError,
-        match="Confluence authentication failed: com.atlassian.confluence",
+        AuthorizationError,
+        match="Confluence authorization failed: com.atlassian.confluence",
     ):
         list(connector.discover())
 

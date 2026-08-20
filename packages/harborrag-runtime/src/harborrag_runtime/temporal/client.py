@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable
+from dataclasses import replace
 from datetime import timedelta
 from typing import TypeVar, cast
 
-from temporalio.client import Client, TLSConfig, WorkflowHandle
+from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -18,12 +19,12 @@ from harborrag_runtime.errors import (
     WorkflowSubmissionError,
 )
 
+from .connection import connect_temporal_client
 from .identity import RuntimeWorkflowRef
 from .maintenance_schemas import (
     ReindexInput,
     ReindexResult,
 )
-from .policies import DISCOVERY_QUEUE, INDEX_QUEUE
 from .schemas import (
     RetryFailuresInput,
     RetryFailuresResult,
@@ -47,39 +48,19 @@ class IngestionTemporalClient:
         cls,
         config: TemporalRuntimeConfig,
     ) -> IngestionTemporalClient:
-        connection = config.connection
-        tls: bool | TLSConfig | None = None
-        if connection.tls.enabled:
-            tls = TLSConfig(
-                server_root_ca_cert=connection.tls.server_root_ca_cert,
-                domain=connection.tls.domain,
-                client_cert=connection.tls.client_cert,
-                client_private_key=connection.tls.client_private_key,
-            )
-        try:
-            client = await Client.connect(
-                connection.target,
-                namespace=connection.namespace,
-                identity=connection.identity,
-                api_key=connection.api_key,
-                tls=tls,
-            )
-        except (RPCError, OSError) as error:
-            raise RuntimeConnectionError(
-                f"Could not connect to Temporal target {connection.target!r}"
-            ) from error
-        return cls(client, config)
+        return cls(await connect_temporal_client(config), config)
 
     async def start(
         self,
         request: SourceIngestionInput,
     ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
+        request = replace(request, workflow_options=self._config.workflow_options())
         try:
             return await self._client.start_workflow(
                 "harborrag.source_ingestion",
                 request,
                 id=self._workflow_id(request.task_id),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=self._config.task_queues.discovery,
                 execution_timeout=timedelta(
                     seconds=self._config.workflow_execution_timeout_seconds
                 ),
@@ -109,13 +90,14 @@ class IngestionTemporalClient:
         self,
         request: RetryFailuresInput,
     ) -> RuntimeWorkflowRef:
+        request = replace(request, workflow_options=self._config.workflow_options())
         workflow_id = f"harborrag-retry:{request.retry_task_id}"
         try:
             handle = await self._client.start_workflow(
                 "harborrag.retry_failures",
                 request,
                 id=workflow_id,
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=self._config.task_queues.discovery,
                 execution_timeout=timedelta(
                     seconds=self._config.workflow_execution_timeout_seconds
                 ),
@@ -138,7 +120,7 @@ class IngestionTemporalClient:
     async def health(self) -> bool:
         try:
             return bool(await self._client.service_client.check_health())
-        except (RPCError, OSError) as error:
+        except (RPCError, OSError, RuntimeError) as error:
             raise RuntimeConnectionError("Temporal workflow service health check failed") from error
 
     async def result(self, task_id: str) -> SourceIngestionResult:
@@ -189,16 +171,27 @@ class IngestionTemporalClient:
         self,
         request: ReindexInput,
     ) -> WorkflowHandle[ReindexInput, ReindexResult]:
-        return await self._client.start_workflow(
-            "harborrag.reindex",
-            request,
-            id=f"harborrag-reindex:{request.reindex_job_id}",
-            task_queue=INDEX_QUEUE,
-            execution_timeout=timedelta(seconds=self._config.workflow_execution_timeout_seconds),
-            task_timeout=timedelta(seconds=self._config.workflow_task_timeout_seconds),
-            id_reuse_policy=(WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY),
-            result_type=ReindexResult,
-        )
+        request = replace(request, workflow_options=self._config.workflow_options())
+        workflow_id = f"harborrag-reindex:{request.reindex_job_id}"
+        try:
+            return await self._client.start_workflow(
+                "harborrag.reindex",
+                request,
+                id=workflow_id,
+                task_queue=self._config.task_queues.index,
+                execution_timeout=timedelta(
+                    seconds=self._config.workflow_execution_timeout_seconds
+                ),
+                task_timeout=timedelta(seconds=self._config.workflow_task_timeout_seconds),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                result_type=ReindexResult,
+            )
+        except WorkflowAlreadyStartedError:
+            return self._client.get_workflow_handle(workflow_id, result_type=ReindexResult)
+        except RPCError as error:
+            raise WorkflowSubmissionError(
+                f"Could not start reindex job {request.reindex_job_id!r}"
+            ) from error
 
     async def reindex_result(
         self,

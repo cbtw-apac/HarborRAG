@@ -13,10 +13,10 @@ from harborrag_engine.ingestion import (
     GraphProjectionInput,
 )
 from harborrag_engine.ingestion.chunking import ChunkingRequest
-from harborrag_runtime.ingestion.composition import _chunker
 from harborrag_runtime.ingestion.document.normalization import (
     build_source_document_normalizer,
 )
+from harborrag_runtime.ingestion.runtime_builder import build_default_chunker
 
 
 def _parsed() -> ParsedDocument:
@@ -156,7 +156,7 @@ def test_confluence_comment_flows_to_comment_chunk_and_structural_graph() -> Non
     )
     document = build_source_document_normalizer().normalize(raw, _parsed())
     chunks = (
-        _chunker()
+        build_default_chunker()
         .chunk(
             ChunkingRequest(
                 tenant_id="tenant-1",
@@ -243,7 +243,7 @@ def test_jira_normalization_separates_prose_comments_and_typed_attributes() -> N
 
     document = build_source_document_normalizer().normalize(raw, _parsed())
     chunks = (
-        _chunker()
+        build_default_chunker()
         .chunk(
             ChunkingRequest(
                 tenant_id="tenant-1",
@@ -309,7 +309,7 @@ def test_jira_spreadsheet_attachment_chunks_reference_every_canonical_table() ->
     )
 
     document = build_source_document_normalizer().normalize(raw, parsed)
-    chunking = _chunker().chunk(
+    chunking = build_default_chunker().chunk(
         ChunkingRequest(
             tenant_id="tenant-1",
             document_version_id="document-version:jira-attachment-v1",

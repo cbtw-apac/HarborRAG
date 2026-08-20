@@ -1,6 +1,10 @@
 from urllib.parse import urlparse, urlunparse
 
-from harborrag_core.ingestion import SourceForbiddenError, SourceUnavailableError
+from harborrag_core.ingestion import (
+    SourceAuthenticationError,
+    SourceAuthorizationError,
+    SourceUnavailableError,
+)
 
 
 def _redact_url(url: str) -> str:
@@ -29,8 +33,22 @@ class ConnectorNotInitializedError(ConnectorError):
     """Raised when the connector is not properly initialized."""
 
 
-class AuthenticationError(SourceForbiddenError, ConnectorError):
-    """Raised when source credentials are rejected for the whole connector."""
+class AuthenticationError(SourceAuthenticationError, ConnectorError):
+    """Raised when source credentials are rejected as invalid for the whole connector."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        """Carry the originating HTTP status so callers/logs can surface it without parsing the message."""
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class AuthorizationError(SourceAuthorizationError, ConnectorError):
+    """Raised when credentials are valid but lack permission/scope for a request."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        """Carry the originating HTTP status so callers/logs can surface it without parsing the message."""
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class FetchError(SourceUnavailableError, ConnectorError):

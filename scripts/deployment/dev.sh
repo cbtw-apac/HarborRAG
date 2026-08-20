@@ -15,7 +15,7 @@ TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-tem
 
 usage() {
     cat <<'EOF'
-Usage: scripts/deployment/dev.sh COMMAND [OPTION]
+Usage: scripts/deployment/dev.sh [--build] COMMAND [OPTION...]
 
 Commands:
   bootstrap          Create missing protected env files, then stop for review
@@ -31,6 +31,7 @@ Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
 API_ENV_FILE, and MCP_ENV_FILE.
 Use --build after source, dependency, or baked worker configuration changes.
+For up, worker, and api, --build may appear before or after the command.
 If a local API or worker image is missing, the first start builds it automatically.
 EOF
 }
@@ -288,12 +289,22 @@ stop_stack() {
     fi
 }
 
+global_rebuild=0
+while [[ "${1:-}" == "--build" ]]; do
+    global_rebuild=1
+    shift
+done
+
 command="${1:-}"
 [[ -n "${command}" ]] || {
     usage
     exit 2
 }
 shift
+
+if ((global_rebuild)) && [[ ! "${command}" =~ ^(up|worker|api)$ ]]; then
+    fail "--build is supported only with up, worker, or api."
+fi
 
 case "${command}" in
     bootstrap)
@@ -307,7 +318,7 @@ case "${command}" in
         ;;
     up)
         start_worker_flag=1
-        rebuild_images=0
+        rebuild_images="${global_rebuild}"
         while [[ "$#" -gt 0 ]]; do
             case "$1" in
                 --no-worker) start_worker_flag=0 ;;
@@ -339,7 +350,7 @@ case "${command}" in
         start_temporal
         ;;
     worker)
-        rebuild_image=0
+        rebuild_image="${global_rebuild}"
         if [[ "${1:-}" == "--build" ]]; then
             rebuild_image=1
             shift
@@ -348,7 +359,7 @@ case "${command}" in
         start_worker "${rebuild_image}"
         ;;
     api)
-        rebuild_image=0
+        rebuild_image="${global_rebuild}"
         if [[ "${1:-}" == "--build" ]]; then
             rebuild_image=1
             shift

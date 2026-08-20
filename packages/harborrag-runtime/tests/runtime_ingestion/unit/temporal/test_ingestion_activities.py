@@ -278,58 +278,55 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     ]
 
 
-@pytest.mark.asyncio
-async def test_parse_and_normalize_falls_back_when_subprocess_serialization_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def heartbeat(operation: Any, *, detail: object, **_kw: object) -> object:
-        assert isinstance(detail, dict)
-        assert detail["mode"] == "in-process-fallback"
-        assert detail["fallback_reason"] == "spawn-unpicklable-args"
-        return await operation
+class FlakyGraphProjections:
+    """Fails ``write_graph_projection`` once, like a Temporal-redelivered attempt.
 
-    async def isolated_subprocess(*_args: Any, **_kwargs: Any) -> object:
-        raise activity_module.SubprocessSerializationError(
-            "isolated subprocess serialization failed: TypeError: cannot pickle 'mappingproxy' object"
-        )
+    ``write_vector_projection`` always succeeds, mirroring the real pipeline where
+    vector and graph writes are separate activities (``document_stage_catalog.py``):
+    a graph-write failure only retries the graph-write activity, never replays the
+    vector-write activity that already completed.
+    """
 
-    monkeypatch.setattr(activity_module, "heartbeat_while", heartbeat)
-    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
-    monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
-    monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
-    monkeypatch.setattr(
-        activity_module,
-        "to_prepared_document",
-        lambda request, result: ("prepared-result", request, result),
-    )
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+        self._graph_write_attempts = 0
 
-    activities, _, _, _, observer, _ = _build_activities()
-    document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
-    raw = RawCaptureResult(document, "doc-1", "version-1", "METADATA_ONLY")
+    async def write_vector_projection(self, *args: object) -> object:
+        self.calls.append(("write_vector_projection", args))
+        return "prepared-stage"
 
-    parse_result: object = await activities.parse_and_normalize(raw)
-    assert parse_result == ("prepared-result", document, "prepared-stage")
-    assert ("subprocess_outcome", ("ParseAndNormalize", "serialization_fail")) in observer.records
-    assert ("prepared", ("prepared-stage",)) in observer.records
+    async def write_graph_projection(self, *args: object) -> object:
+        self.calls.append(("write_graph_projection", args))
+        self._graph_write_attempts += 1
+        if self._graph_write_attempts == 1:
+            raise ConnectionError("simulated transient graph-store failure")
+        return "prepared-stage"
 
 
 @pytest.mark.asyncio
-async def test_parse_and_normalize_raises_on_genuine_subprocess_crash(
+async def test_graph_projection_retry_does_not_replay_the_vector_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def isolated_subprocess(*_args: Any, **_kwargs: Any) -> object:
-        raise activity_module.SubprocessCrashError("worker crashed")
+    monkeypatch.setattr(activity_module, "to_prepared_stage", lambda request: "prepared-stage")
 
-    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
-    monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
-    monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
-
-    activities, _, _, _, observer, _ = _build_activities()
+    activities, *_ = _build_activities()
+    projections = FlakyGraphProjections()
+    activities._runtime.stages.projections = projections
     document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
-    raw = RawCaptureResult(document, "doc-1", "version-1", "METADATA_ONLY")
+    prepared = PreparedDocument(document, "doc-1", "version-1", "METADATA_ONLY")
 
-    with pytest.raises(activity_module.SubprocessCrashError, match="worker crashed"):
-        await activities.parse_and_normalize(raw)
+    assert await activities.write_vector_projection(prepared) is prepared
 
-    assert ("subprocess_outcome", ("ParseAndNormalize", "crash")) in observer.records
-    assert not any(name == "prepared" for name, _ in observer.records)
+    with pytest.raises(ConnectionError):
+        await activities.write_graph_projection(prepared)
+
+    # Temporal replays only the failed activity with its original input, not the
+    # sibling activity that already completed.
+    assert await activities.write_graph_projection(prepared) is prepared
+
+    assert [name for name, _ in projections.calls] == [
+        "write_vector_projection",
+        "write_graph_projection",
+        "write_graph_projection",
+    ]
+    assert projections.calls[1][1] == projections.calls[2][1]

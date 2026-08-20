@@ -67,6 +67,8 @@ class TemporalIngestionOperations:
         include_attachments: bool = True,
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
+        batch_size: int | None = None,
+        document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
         suffix = uuid4().hex
@@ -95,6 +97,8 @@ class TemporalIngestionOperations:
                         ),
                     ),
                     force_reprocess=force_reprocess,
+                    batch_size=batch_size,
+                    document_concurrency=document_concurrency,
                 ),
             )
             await (await self._source_task_registry()).register(request)

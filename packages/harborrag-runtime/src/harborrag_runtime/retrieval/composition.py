@@ -16,20 +16,17 @@ from harborrag_adapters.repositories.object_store import (
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import BM25SparseEncoder
 
-from .config.settings import RuntimeSettings
-from .ingestion.observability import IngestionTelemetry, build_model_telemetry
-from .ingestion_control_factory import build_ingestion_control
-from .model_configuration import embedding_dimensions
-from .retrieval import (
-    RetrievalPolicy,
-    RetrievalResources,
-    RuntimeRetrievalService,
-)
-from .storage_factory import (
+from ..composition.resources import (
+    build_ingestion_control,
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
+    embedding_dimensions,
 )
+from ..config.settings import RuntimeSettings
+from ..ingestion.observability import IngestionTelemetry, build_model_telemetry
+from .contracts import RetrievalPolicy, RetrievalResources
+from .service import RuntimeRetrievalService
 
 
 async def connect_retrieval_service(

@@ -31,6 +31,12 @@ class ActiveVersionResolver(Protocol):
     ) -> Mapping[str, ActiveDocumentVersion]: ...
 
 
+class RetrievalTelemetry(Protocol):
+    """Minimal metrics surface consumed by retrieval."""
+
+    def record_stale_candidate_rejections(self, count: int) -> None: ...
+
+
 class KnowledgeGraphReader(Protocol):
     async def traverse(
         self,

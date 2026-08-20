@@ -4,7 +4,8 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest, IngestionResult
 from harborrag_runtime.execution.submission import build_ingestion_input
-from harborrag_runtime.ingestion.composition import IngestionRuntime, build_ingestion_runtime
+from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.runtime_builder import build_ingestion_runtime
 from harborrag_runtime.temporal.conversion import to_source_request
 
 

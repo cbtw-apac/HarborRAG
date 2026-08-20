@@ -160,6 +160,8 @@ class IngestionServiceFixture:
         include_attachments: bool = True,
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
+        batch_size: int | None = None,
+        document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
         del (
@@ -182,6 +184,8 @@ class IngestionServiceFixture:
                     "connection_id": connection_id or connector_name,
                     "source_scope_id": source_scope_id or "mock-scope",
                     "filters": dict(filters or {}),
+                    "batch_size": batch_size,
+                    "document_concurrency": document_concurrency,
                 },
                 "workflow": {"workflow_id": "mock-workflow"},
             },

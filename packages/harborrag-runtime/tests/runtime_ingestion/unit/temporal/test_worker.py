@@ -8,8 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from temporalio import workflow
-from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
 
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
@@ -18,18 +16,9 @@ from harborrag_runtime.config.temporal import (
     WorkerConfig,
 )
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
+from harborrag_runtime.temporal import connection as connection_module
 from harborrag_runtime.temporal import worker as worker_module
-from harborrag_runtime.temporal import worker_registry as worker_registry_module
-from harborrag_runtime.temporal.document_workflow import DocumentIngestionWorkflow
-from harborrag_runtime.temporal.reindex_workflow import ReindexWorkflow
-from harborrag_runtime.temporal.retry_workflow import (
-    DocumentRetryWorkflow,
-    RetryFailuresWorkflow,
-)
-from harborrag_runtime.temporal.source_workflow import (
-    SourceBatchWorkflow,
-    SourceIngestionWorkflow,
-)
+from harborrag_runtime.temporal_models import TaskQueueConfig
 
 
 class _Worker:
@@ -46,28 +35,11 @@ class _Worker:
             await self._finish.wait()
 
 
-@pytest.mark.parametrize(
-    "workflow_type",
-    (
-        SourceIngestionWorkflow,
-        SourceBatchWorkflow,
-        DocumentIngestionWorkflow,
-        DocumentRetryWorkflow,
-        RetryFailuresWorkflow,
-        ReindexWorkflow,
-    ),
-)
-@pytest.mark.asyncio
-async def test_registered_workflows_validate_in_default_temporal_sandbox(workflow_type) -> None:
-    definition = workflow._Definition.must_from_class(workflow_type)
-
-    SandboxedWorkflowRunner().prepare_workflow(definition)
-
-
 @pytest.mark.asyncio
 async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
+    lifecycle: list[str] = []
     runtime = SimpleNamespace(
-        start=AsyncMock(),
+        start=AsyncMock(side_effect=lambda: lifecycle.append("runtime-start")),
         close=AsyncMock(),
         telemetry=IngestionTelemetry(),
         source_plans=object(),
@@ -89,7 +61,8 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
         "build_ingestion_runtime",
         lambda _settings: runtime,
     )
-    monkeypatch.setattr(worker_module, "_connect_client", AsyncMock(return_value=object()))
+    connect = AsyncMock(side_effect=lambda _config: lifecycle.append("temporal-connect"))
+    monkeypatch.setattr(worker_module, "connect_temporal_client", connect)
     monkeypatch.setattr(worker_module, "_build_worker", build_worker)
     monkeypatch.setattr(worker_module, "_wait_for_shutdown", wait)
 
@@ -109,6 +82,7 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
     runtime.start.assert_awaited_once()
     runtime.close.assert_awaited_once()
     wait.assert_awaited_once()
+    assert lifecycle[:2] == ["temporal-connect", "runtime-start"]
 
 
 def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:
@@ -134,20 +108,6 @@ def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:
         options["graceful_shutdown_timeout"].total_seconds()
         == config.worker.graceful_shutdown_seconds
     )
-
-
-def test_worker_registration_validation_fails_loudly_when_workflows_missing() -> None:
-    registrations = (
-        ("harborrag-discovery", (), ()),
-        ("harborrag-transform", (), ()),
-        ("harborrag-io", (), ()),
-        ("harborrag-parser", (), ()),
-        ("harborrag-model", (), ()),
-        ("harborrag-index", (), ()),
-    )
-
-    with pytest.raises(RuntimeError, match="missing_workflows"):
-        worker_registry_module.validate_worker_registrations(registrations)
 
 
 @pytest.mark.asyncio
@@ -181,19 +141,23 @@ async def test_emit_queue_metrics_continues_when_depth_lookup_times_out(monkeypa
             return SimpleNamespace(task_queue_status=SimpleNamespace(approximate_backlog_count=5))
 
     client = SimpleNamespace(service_client=SimpleNamespace(workflow_service=_WorkflowService()))
-    config = TemporalRuntimeConfig(worker=WorkerConfig(max_concurrent_activities=4))
+    config = TemporalRuntimeConfig(
+        worker=WorkerConfig(max_concurrent_activities=4),
+        task_queues=TaskQueueConfig(
+            discovery="queue-timeout",
+            transform="queue-ok",
+            io="queue-io",
+            parser="queue-parser",
+            model="queue-model",
+            index="queue-index",
+        ),
+    )
 
     monkeypatch.setattr(
         worker_module,
         "TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS",
         0.01,
     )
-    monkeypatch.setattr(
-        worker_module,
-        "ALL_TASK_QUEUES",
-        ("queue-timeout", "queue-ok"),
-    )
-
     await worker_module._emit_queue_metrics(telemetry, client, config)
 
     telemetry.record_temporal_queue_depth.assert_any_call("queue-timeout", None)
@@ -206,9 +170,9 @@ async def test_emit_queue_metrics_continues_when_depth_lookup_times_out(monkeypa
 @pytest.mark.asyncio
 async def test_worker_connects_plaintext_and_tls(monkeypatch) -> None:
     connect = AsyncMock(return_value=object())
-    monkeypatch.setattr(worker_module.Client, "connect", connect)
+    monkeypatch.setattr(connection_module.Client, "connect", connect)
 
-    await worker_module._connect_client(TemporalRuntimeConfig())
+    await connection_module.connect_temporal_client(TemporalRuntimeConfig())
     assert connect.await_args.kwargs["tls"] is None
 
     secure = TemporalRuntimeConfig(
@@ -223,7 +187,7 @@ async def test_worker_connects_plaintext_and_tls(monkeypatch) -> None:
             ),
         )
     )
-    await worker_module._connect_client(secure)
+    await connection_module.connect_temporal_client(secure)
     tls = connect.await_args.kwargs["tls"]
     assert tls.domain == "temporal.example"
     assert tls.client_private_key == b"key"

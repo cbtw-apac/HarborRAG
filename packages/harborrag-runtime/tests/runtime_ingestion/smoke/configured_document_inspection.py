@@ -21,13 +21,13 @@ from harborrag_adapters.repositories.object_store.s3 import S3ObjectStore
 from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.ingestion import canonical_document_bytes, reject_runtime_fields
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion_control_factory import build_ingestion_control
-from harborrag_runtime.storage_factory import (
+from harborrag_runtime.composition.resources import (
+    build_ingestion_control,
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
 )
+from harborrag_runtime.config.settings import RuntimeSettings
 
 
 class ConfiguredStores:
