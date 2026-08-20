@@ -190,6 +190,7 @@ services:
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
       LOCAL_SOURCE_PATH: /data/sources
       HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
+      HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?set HARBORRAG_SECRETS_ENCRYPTION_KEY in the database environment file}
       HARBORRAG_OBJECT_STORE_ENDPOINT_URL: ${HARBORRAG_OBJECT_STORE_ENDPOINT_URL:-http://minio:9000}
       HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the database environment file}
