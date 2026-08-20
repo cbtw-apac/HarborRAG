@@ -36,17 +36,27 @@ async def test_placeholder_nodes_only_fill_gaps_and_never_overwrite() -> None:
 
     await graph.write_projection((*nodes(), placeholder), (), context=context)
 
-    statements = {
-        statement
+    placeholder_calls = [
+        (statement, parameters)
         for statement, parameters in client.write_calls
         if any(row["node_key"] == "node-parent-page" for row in parameters.get("rows", ()))
-    }
-    assert statements
-    assert all("ON CREATE SET node = row" in statement for statement in statements)
+    ]
+    assert placeholder_calls
+    for statement, parameters in placeholder_calls:
+        assert "ON CREATE SET node = row" in statement
+        # The refresh path must stay gated on the existing node being a placeholder.
+        assert "ON MATCH SET node = CASE WHEN node.placeholder = true" in statement
+        assert all(
+            row["placeholder"] is True
+            for row in parameters["rows"]
+            if row["node_key"] == "node-parent-page"
+        )
     concrete = [
-        statement
+        (statement, parameters)
         for statement, parameters in client.write_calls
         if any(row["node_key"] == "node-document" for row in parameters.get("rows", ()))
     ]
     assert concrete
-    assert all("ON CREATE" not in statement for statement in concrete)
+    for statement, parameters in concrete:
+        assert "ON CREATE" not in statement
+        assert all(row["placeholder"] is False for row in parameters["rows"])

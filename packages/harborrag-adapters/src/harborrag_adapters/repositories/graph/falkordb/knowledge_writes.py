@@ -65,6 +65,8 @@ async def upsert_nodes(
         # A placeholder shares the real node's key so the concrete projection can
         # claim it later. It must therefore only ever fill a gap: writing it over
         # an existing node would downgrade concrete provider metadata to a stub.
+        # A placeholder overwriting a placeholder is safe and is the only refresh
+        # path these nodes have (renamed above-scope ancestors, moved folders).
         await database.write(
             f"""
             UNWIND $rows AS row
@@ -74,6 +76,7 @@ async def upsert_nodes(
                 tenant_id: row.tenant_id
             }})
             ON CREATE SET node = row
+            ON MATCH SET node = CASE WHEN node.placeholder = true THEN row ELSE node END
             """,
             {"rows": rows},
         )
@@ -187,6 +190,9 @@ def _node_row(node: GraphNodeRecord, *, tenant_id: str) -> dict[str, Any]:
             str(node.document_version_id) if node.document_version_id is not None else None
         ),
         "attributes": node.attributes,
+        # Top-level copy of attributes["placeholder"]: FalkorDB stores attributes as a
+        # JSON string, so the placeholder guard in upsert_nodes needs it as a property.
+        "placeholder": node.attributes.get("placeholder") is True,
         "tenant_id": tenant_id,
     }
 
