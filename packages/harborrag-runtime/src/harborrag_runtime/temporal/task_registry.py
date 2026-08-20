@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     IngestionTaskState,
     TaskDocumentPage,
     TaskDocumentResult,
+    TaskPage,
     TaskRegistration,
 )
 from harborrag_core.invariants import HarborInvariantError
@@ -97,6 +98,23 @@ class IngestionTaskRegistry:
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
         return await self._control.tasks.pending_submissions(limit=limit)
 
+    async def list_tasks(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None = None,
+        statuses: Sequence[str] | None = None,
+        before_submitted_at: datetime | None = None,
+        before_task_id: str | None = None,
+        limit: int = 50,
+    ) -> TaskPage:
+        return await self._control.tasks.list_tasks(
+            tenant_ids=tenant_ids,
+            statuses=statuses,
+            before_submitted_at=before_submitted_at,
+            before_task_id=before_task_id,
+            limit=limit,
+        )
+
     async def list_active(
         self,
         *,
@@ -132,6 +150,9 @@ class IngestionTaskRegistry:
 
     async def progress(self, task_id: str) -> dict[str, int]:
         return await self._control.tasks.progress(task_id)
+
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        return await self._control.tasks.progress_for_tasks(task_ids)
 
     async def document_results_page(
         self,

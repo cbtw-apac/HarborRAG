@@ -95,6 +95,7 @@ from .states import (
 from .task_query_contracts import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
+    TaskPage,
     TaskRegistration,
 )
 
@@ -173,6 +174,7 @@ __all__ = [
     "SparseEncoding",
     "TaskDocumentResult",
     "TaskDocumentPage",
+    "TaskPage",
     "TaskRegistration",
     "VectorProjectionVerification",
     "canonical_document_bytes",

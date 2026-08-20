@@ -27,6 +27,8 @@ from .schemas import (
     IngestionCreateRequest,
     IngestionDocumentPage,
     IngestionDocumentQuery,
+    IngestionTaskPage,
+    IngestionTaskQuery,
     IngestionTaskResponse,
     RetryAcceptedResponse,
     RetryFailuresRequest,
@@ -46,6 +48,14 @@ ERROR_RESPONSES = documented_error_responses(
         404: "Ingestion task not found",
         409: "Action conflicts with task state",
         422: "Invalid ingestion request",
+        503: "Ingestion service unavailable",
+    }
+)
+# A listing has no single task to miss and no task state to conflict with, so it
+# never answers 404 or 409 -- documenting them would only mislead callers.
+LIST_ERROR_RESPONSES = documented_error_responses(
+    {
+        422: "Invalid listing query or cursor",
         503: "Ingestion service unavailable",
     }
 )
@@ -72,6 +82,47 @@ async def create_ingestion(
         idempotency_key=idempotency_key,
     )
     return IngestionAcceptedResponse.model_validate(result)
+
+
+@router.get(
+    "",
+    response_model=IngestionTaskPage,
+    responses=LIST_ERROR_RESPONSES,
+)
+async def list_ingestions(
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+    query: Annotated[IngestionTaskQuery, Query()],
+) -> IngestionTaskPage:
+    """Newest-first page of the caller's ingestion tasks.
+
+    The tenant filter is resolved to the caller's authorized scope before the
+    query runs, so an unscoped listing can never spill another tenant's tasks
+    -- unlike the by-ID routes, there is no single record to authorize after
+    the fact.
+    """
+    result = await service.list_tasks(
+        tenants=_authorized_tenants(principal, query.tenant),
+        status=query.status.value if query.status is not None else None,
+        cursor=query.cursor,
+        limit=query.limit,
+    )
+    return IngestionTaskPage.model_validate(result)
+
+
+def _authorized_tenants(principal: Principal, tenant: str | None) -> frozenset[str] | None:
+    """Resolve the requested tenant filter into the scope this caller may read.
+
+    An explicit tenant outside the caller's scope is a rejected filter rather
+    than a hidden resource, so it is a 403 like ``POST /v1/ingestions`` -- it
+    reveals nothing about whether that tenant has any tasks. Omitting it falls
+    back to the caller's own scope, where None means an unrestricted principal.
+    """
+
+    if tenant is None:
+        return principal.tenant_scope
+    authorize_tenant(principal, tenant)
+    return frozenset({tenant})
 
 
 @router.get(

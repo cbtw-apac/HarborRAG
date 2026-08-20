@@ -17,3 +17,9 @@ class IngestionCreateCommand:
 class DocumentPageCursor:
     updated_at: str
     document_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPageCursor:
+    submitted_at: str
+    task_id: str

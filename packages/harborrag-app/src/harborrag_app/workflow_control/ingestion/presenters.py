@@ -15,7 +15,7 @@ from harborrag_core.ingestion import (
 from harborrag_core.invariants import HarborInvariantError
 
 from ..errors import IngestionCursorError
-from .models import DocumentPageCursor
+from .models import DocumentPageCursor, TaskPageCursor
 
 TERMINAL_STATES = frozenset(
     {
@@ -44,6 +44,9 @@ DOCUMENT_STATUS_NAMES = {
     "removed": "REMOVED",
     "cancelled": "CANCELLED",
 }
+# API status name -> the durable states it selects. Derived from STATUS_NAMES so
+# the filter can never drift from the name the same task is reported under.
+TASK_STATES = {name: (state.value,) for state, name in STATUS_NAMES.items()}
 STORAGE_STATUSES = {
     "PENDING": ("pending",),
     "PROCESSING": ("processing",),
@@ -196,29 +199,66 @@ def task_id() -> str:
 
 
 def encode_cursor(*, task_id: str, position: DocumentPageCursor) -> str:
-    payload = json.dumps(
+    return _pack(
         {
             "task_id": task_id,
             "updated_at": position.updated_at,
             "document_id": position.document_id,
-        },
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+        }
+    )
 
 
 def decode_cursor(value: str, *, task_id: str) -> DocumentPageCursor:
     try:
-        padding = "=" * (-len(value) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(value + padding))
-        if not isinstance(payload, dict) or payload.get("task_id") != task_id:
+        payload = _unpack(value)
+        if payload.get("task_id") != task_id:
             raise ValueError
-        updated_at = str(payload["updated_at"])
-        datetime.fromisoformat(updated_at)
+        updated_at = _cursor_timestamp(payload, "updated_at")
         document_id = str(payload["document_id"])
         if not document_id:
             raise ValueError
         return DocumentPageCursor(updated_at=updated_at, document_id=document_id)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise IngestionCursorError("Document cursor is invalid.") from error
+
+
+def encode_task_cursor(position: TaskPageCursor) -> str:
+    return _pack({"submitted_at": position.submitted_at, "task_id": position.task_id})
+
+
+def decode_task_cursor(value: str) -> TaskPageCursor:
+    """Read a task-list keyset position, rejecting anything malformed.
+
+    Unlike the document cursor there is nothing in the path to bind against;
+    the cursor carries only a position, and the tenant and status filters are
+    re-derived from the caller's own request on every page.
+    """
+
+    try:
+        payload = _unpack(value)
+        submitted_at = _cursor_timestamp(payload, "submitted_at")
+        task_id = str(payload["task_id"])
+        if not task_id:
+            raise ValueError
+        return TaskPageCursor(submitted_at=submitted_at, task_id=task_id)
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise IngestionCursorError("Task cursor is invalid.") from error
+
+
+def _pack(payload: dict[str, str]) -> str:
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+
+
+def _unpack(value: str) -> dict[str, object]:
+    padding = "=" * (-len(value) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(value + padding))
+    if not isinstance(payload, dict):
+        raise ValueError
+    return payload
+
+
+def _cursor_timestamp(payload: dict[str, object], key: str) -> str:
+    timestamp = str(payload[key])
+    datetime.fromisoformat(timestamp)
+    return timestamp

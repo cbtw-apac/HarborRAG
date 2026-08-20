@@ -11,6 +11,7 @@ from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     IngestionTask,
     TaskDocumentPage,
+    TaskPage,
     TaskRegistration,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -45,6 +46,16 @@ class PublicTaskStore(Protocol):
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
 
+    async def list_tasks(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None = None,
+        statuses: Sequence[str] | None = None,
+        before_submitted_at: datetime | None = None,
+        before_task_id: str | None = None,
+        limit: int = 50,
+    ) -> TaskPage: ...
+
     async def list_active(
         self,
         *,
@@ -70,6 +81,11 @@ class PublicTaskStore(Protocol):
     ) -> None: ...
 
     async def progress(self, task_id: str) -> dict[str, int]: ...
+
+    async def progress_for_tasks(
+        self,
+        task_ids: Sequence[str],
+    ) -> dict[str, dict[str, int]]: ...
 
     async def document_results_page(
         self,
