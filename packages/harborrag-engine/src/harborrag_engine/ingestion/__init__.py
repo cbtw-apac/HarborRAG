@@ -40,7 +40,6 @@ from harborrag_engine.ingestion.policies import (
 )
 from harborrag_engine.ingestion.projections import (
     EVIDENCE_INDEX,
-    PROJECTED_EDGE_SIGNATURES,
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
@@ -91,7 +90,6 @@ __all__ = [
     "PublicationPolicy",
     "SafeFailure",
     "EVIDENCE_INDEX",
-    "PROJECTED_EDGE_SIGNATURES",
     "GraphDocumentTarget",
     "GraphProjectionBatch",
     "GraphProjectionBuilder",

@@ -245,3 +245,6 @@ docs/developers/architecture/http_backend/
 
 # Docling image output (config/parsers.yaml pdf-docling.image_output_dir)
 /data/docling-images/
+
+# Local macOS-compatible copy of dev.sh (bash 3.2 / BSD sed tweaks)
+scripts/deployment/dev-mac.sh

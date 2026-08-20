@@ -2,8 +2,7 @@
 
 Jira payloads carry both the numeric id and the issue key for related issues.
 The real issue node is keyed by issue key (issue_key before issue_id), so
-placeholders projected from ``parent``/``subtasks`` must prefer the key too —
-otherwise the same issue lands as two nodes (ISSUES.md, projection defect 1).
+placeholders projected from ``parent``/``subtasks`` must prefer the key too.
 """
 
 from __future__ import annotations

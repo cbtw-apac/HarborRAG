@@ -7,7 +7,6 @@ from typing import Any
 from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_engine.ingestion import (
-    PROJECTED_EDGE_SIGNATURES,
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
@@ -16,6 +15,7 @@ from harborrag_engine.ingestion import (
 from harborrag_engine.ingestion.projections.graph import (
     default_graph_source_projector_registry,
 )
+from harborrag_engine.testing.edge_signatures import PROJECTED_EDGE_SIGNATURES
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 

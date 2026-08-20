@@ -150,11 +150,6 @@ async def find_paths(
     """Return bounded explicit paths without exposing provider node IDs."""
 
     left, right = GraphTraversalSyntax.arrows(query.direction)
-    # Shortest paths first, ordered through the projected alias. ORDER BY length(path) is
-    # what a reader expects and what FalkorDB rejects: the sort runs after the projection,
-    # where `path` no longer exists, so every path query that actually matched died with
-    # "_AR_EXP_UpdateEntityIdx: Unable to locate a value with alias path within the
-    # record". size(path_relations) is the same number as length(path).
     rows = await read_rows(
         database,
         f"""

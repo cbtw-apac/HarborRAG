@@ -64,8 +64,7 @@ async def upsert_nodes(
     for label, rows in sorted(placeholders.items()):
         # A placeholder shares the real node's key so the concrete projection can
         # claim it later. It must therefore only ever fill a gap: writing it over
-        # an existing node would downgrade concrete provider metadata to a stub
-        # whenever another document's batch re-projects (ISSUES.md, defect 4).
+        # an existing node would downgrade concrete provider metadata to a stub.
         await database.write(
             f"""
             UNWIND $rows AS row

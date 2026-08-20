@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 # A signature observed but absent here is a schema change: trace it to its builder code
-# path, review it, then add it. The engine signature test locks what the projection *can*
-# emit against this set; the runtime graph-eval corpus asserts equality with what it
-# *does* emit, so both import this single copy.
+# path (ingestion/projections/graph), review it, then add it. The engine signature test
+# locks what the projection *can* emit against this set; the runtime graph-eval corpus
+# asserts equality with what it *does* emit, so both import this single copy. Test-only,
+# but it lives in shipped code because the two suites span packages.
 PROJECTED_EDGE_SIGNATURES: frozenset[tuple[str, str, str]] = frozenset(
     {
         ("Tenant", "has_data_source", "DataSource"),

@@ -6,9 +6,8 @@ Local topology (every Task 7-9 golden expectation derives from it):
     incident --blocks--->   architecture
     runbook  --links_to-->  missing-page          (unresolved -> placeholder node)
 
-Phase 3b widens that to one sample set per provider projector, additively -- see
-``sources/fixtures/`` for the per-source shapes (one directory per source type, one
-JSON file per sample) and ``CORPUS_SIGNATURES`` below for the edge vocabulary the
+See ``sources/fixtures/`` for the per-source shapes (one directory per source type,
+one JSON file per sample) and ``CORPUS_SIGNATURES`` below for the edge vocabulary the
 whole corpus is required to exercise.
 """
 
@@ -24,7 +23,6 @@ from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.testing.chunking import CharacterCounter, CharacterRefiner
 from harborrag_engine.ingestion import (
-    PROJECTED_EDGE_SIGNATURES,
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
@@ -38,6 +36,7 @@ from harborrag_engine.ingestion.chunking import (
     ChunkingService,
     build_chunking_service,
 )
+from harborrag_engine.testing.edge_signatures import PROJECTED_EDGE_SIGNATURES
 
 from .sources import eval_documents
 
@@ -48,7 +47,7 @@ load_dotenv(Path(__file__).resolve().parents[4] / "env/.env.database", override=
 TENANT_ID = os.getenv("HARBORRAG_EVAL_TENANT_ID", "").strip() or "graph-eval"
 GRAPH_NAME = os.getenv("HARBORRAG_EVAL_GRAPH_NAME", "").strip() or "harborrag-graph-eval"
 
-# The reviewed vocabulary lives in engine src next to the builder; test_corpus.py
+# The reviewed vocabulary lives in harborrag_engine.testing; test_corpus.py
 # asserts this corpus exercises every edge shape set-for-set.
 CORPUS_SIGNATURES = PROJECTED_EDGE_SIGNATURES
 
