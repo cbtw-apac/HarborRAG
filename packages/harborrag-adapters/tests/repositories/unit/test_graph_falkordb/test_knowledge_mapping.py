@@ -62,7 +62,10 @@ def test_build_knowledge_traversal_keeps_accumulating_past_the_row_limit() -> No
     # first row - producing a near-empty subgraph even though max_nodes was nowhere close
     # to being reached.
     rows = [
-        {"path_nodes": [_node("root"), _node(f"n{i}")], "path_relations": [_relation(f"r{i}", "root", f"n{i}")]}
+        {
+            "path_nodes": [_node("root"), _node(f"n{i}")],
+            "path_relations": [_relation(f"r{i}", "root", f"n{i}")],
+        }
         for i in range(5)
     ]
 
@@ -75,7 +78,10 @@ def test_build_knowledge_traversal_keeps_accumulating_past_the_row_limit() -> No
 
 def test_build_knowledge_traversal_stops_at_max_nodes_within_the_row_budget() -> None:
     rows = [
-        {"path_nodes": [_node("root"), _node(f"n{i}")], "path_relations": [_relation(f"r{i}", "root", f"n{i}")]}
+        {
+            "path_nodes": [_node("root"), _node(f"n{i}")],
+            "path_relations": [_relation(f"r{i}", "root", f"n{i}")],
+        }
         for i in range(5)
     ]
 
@@ -87,7 +93,10 @@ def test_build_knowledge_traversal_stops_at_max_nodes_within_the_row_budget() ->
 
 def test_build_knowledge_traversal_not_truncated_when_everything_fits() -> None:
     rows = [
-        {"path_nodes": [_node("root"), _node("n0")], "path_relations": [_relation("r0", "root", "n0")]},
+        {
+            "path_nodes": [_node("root"), _node("n0")],
+            "path_relations": [_relation("r0", "root", "n0")],
+        },
     ]
 
     traversal = build_knowledge_traversal(rows, max_nodes=10, path_limit=10)
