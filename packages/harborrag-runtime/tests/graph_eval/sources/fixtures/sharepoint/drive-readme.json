@@ -1,0 +1,31 @@
+{
+  "id": "drive-readme",
+  "title": "README.docx",
+  "note": "Item at drive root with a parent ref carrying no id: the only SharePoint sample that produces zero folder placeholders, so the census can tell folder placeholders from unresolved-link placeholders.",
+  "extra": {
+    "site_id": "site-1",
+    "site_name": "Harbor Ops",
+    "drive_id": "drive-1",
+    "drive_name": "Documents",
+    "item_id": "file-11",
+    "item_name": "README.docx",
+    "parent": {
+      "path": "/drives/drive-1/root:"
+    }
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Drive README",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Policies live under the Policies folder."
+    }
+  ]
+}

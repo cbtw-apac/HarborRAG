@@ -1,0 +1,32 @@
+{
+  "id": "deep-audit",
+  "title": "Audit 2026.docx",
+  "note": "Four-folder chain under the same Security folder security-policy uses -- but keyed by accumulated path rather than parent id, because only the last folder in a path takes the parent's id.",
+  "extra": {
+    "site_id": "site-1",
+    "site_name": "Harbor Ops",
+    "drive_id": "drive-1",
+    "drive_name": "Documents",
+    "item_id": "file-12",
+    "item_name": "Audit 2026.docx",
+    "parent": {
+      "id": "folder-9",
+      "path": "/drives/drive-1/root:/Policies/Security/Audits/2026"
+    }
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Audit 2026",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Quarterly access review findings."
+    }
+  ]
+}

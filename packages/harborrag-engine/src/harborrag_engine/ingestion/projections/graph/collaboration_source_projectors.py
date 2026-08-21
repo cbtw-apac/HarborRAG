@@ -114,7 +114,9 @@ class JiraSourceProjector(BaseSourceProjector):
         )
         self.edge(state, RelationType.CONTAINS, project, issue)
         parent = mapping_value(extra.get("parent"))
-        parent_id = text_value(parent, "id", "key")
+        # Key before numeric id, matching the real issue's identity above —
+        # otherwise the placeholder and the ingested issue land as two nodes.
+        parent_id = text_value(parent, "key", "id")
         if parent_id:
             parent_issue = state.source_node(
                 GraphEntityType.JIRA_ISSUE,
@@ -125,7 +127,7 @@ class JiraSourceProjector(BaseSourceProjector):
             self.edge(state, RelationType.CONTAINS, project, parent_issue)
             self.edge(state, RelationType.PARENT_OF, parent_issue, issue, explicit=True)
         for child in mapping_sequence(extra.get("subtasks")):
-            child_id = text_value(child, "id", "key")
+            child_id = text_value(child, "key", "id")
             if not child_id:
                 continue
             child_issue = state.source_node(

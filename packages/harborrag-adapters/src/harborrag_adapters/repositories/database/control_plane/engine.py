@@ -19,6 +19,8 @@ DEFAULT_DSN = "sqlite+aiosqlite:///./harborrag_control.db"
 
 def _is_memory_sqlite_dsn(dsn: str) -> bool:
     """Detect the in-memory SQLite DSN forms (no on-disk file)."""
+    if not dsn.startswith("sqlite"):
+        return False
     path = dsn.split("///", 1)[-1] if "///" in dsn else ""
     return path in ("", ":memory:") or path.startswith(":memory:?")
 

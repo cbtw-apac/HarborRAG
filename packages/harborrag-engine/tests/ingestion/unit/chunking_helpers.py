@@ -2,16 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_core.contracts.chunking import (
-    SourceSpan,
-    SplitBoundaryKind,
-    TextRefinementRequest,
-    TextRefiner,
-    TextSplit,
-)
+from harborrag_core.contracts.chunking import TextRefiner
 from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.provenance import DocumentProvenance
+from harborrag_core.testing.chunking import CharacterCounter, CharacterRefiner
 from harborrag_engine.ingestion.chunking import (
     ChunkingConfig,
     ChunkingLimits,
@@ -22,38 +17,16 @@ from harborrag_engine.ingestion.chunking import (
     build_chunking_service,
 )
 
-
-class CharacterCounter:
-    def count(self, text: str) -> int:
-        return len(text)
-
-
-class CharacterRefiner:
-    def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
-        if not request.content:
-            return ()
-        results = []
-        start = 0
-        while start < len(request.content):
-            end = min(start + request.maximum_tokens, len(request.content))
-            base = request.source_span
-            base_offset = base.start_offset if base and base.start_offset is not None else 0
-            results.append(
-                TextSplit(
-                    content=request.content[start:end],
-                    token_count=end - start,
-                    source_span=SourceSpan(
-                        start_offset=base_offset + start,
-                        end_offset=base_offset + end,
-                        element_ids=base.element_ids if base else (),
-                    ),
-                    boundary_kind=SplitBoundaryKind.FORCED,
-                    structural_path=request.structural_path,
-                    forced_split=True,
-                )
-            )
-            start = end
-        return tuple(results)
+# Everything sibling test modules import from here, including the two re-exported fakes.
+__all__ = [
+    "CharacterCounter",
+    "CharacterRefiner",
+    "make_config",
+    "make_document",
+    "make_profile",
+    "make_request",
+    "make_service",
+]
 
 
 def make_document(

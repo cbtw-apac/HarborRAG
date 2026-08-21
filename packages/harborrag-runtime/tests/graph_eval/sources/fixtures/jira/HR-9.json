@@ -1,0 +1,32 @@
+{
+  "id": "HR-9",
+  "title": "HR-9 Write the loader",
+  "note": "Subtask level of the epic chain: two parent_of hops from HR-7.",
+  "extra": {
+    "issue_key": "HR-9",
+    "issue_type": "Sub-task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Write the loader",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Read the envelope and layer the defaults."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "HR-8",
+      "target_type": "document"
+    }
+  ]
+}

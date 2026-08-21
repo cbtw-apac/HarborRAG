@@ -1,0 +1,45 @@
+{
+  "id": "changelog",
+  "title": "Changelog",
+  "note": "Two unresolved links in one batch: runbook proves a single placeholder, this proves the placeholder census counts more than one per document. A self-referential link belongs here too, but it raises -- see the self-link defect in README.md.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Changelog",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Every release records its graph schema version."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Unreleased",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Both retired notes below are gone from the tree."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "links_to",
+      "target_id": "retired-notes",
+      "target_type": "document"
+    },
+    {
+      "predicate": "links_to",
+      "target_id": "retired-plan",
+      "target_type": "document"
+    }
+  ]
+}
