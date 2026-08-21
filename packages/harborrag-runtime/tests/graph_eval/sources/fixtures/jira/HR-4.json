@@ -1,0 +1,32 @@
+{
+  "id": "HR-4",
+  "title": "HR-4 Write the rebuild runbook",
+  "note": "Jira is_duplicated_by: the inverted duplicates predicate.",
+  "extra": {
+    "issue_key": "HR-4",
+    "issue_type": "Task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Write the rebuild runbook",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Same scope as the runbook task."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "is_duplicated_by",
+      "target_id": "HR-2",
+      "target_type": "document"
+    }
+  ]
+}

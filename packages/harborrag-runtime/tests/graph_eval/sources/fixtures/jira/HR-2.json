@@ -1,0 +1,37 @@
+{
+  "id": "HR-2",
+  "title": "HR-2 Publish the projection runbook",
+  "note": "Jira duplicates subject plus a plain issue links_to.",
+  "extra": {
+    "issue_key": "HR-2",
+    "issue_type": "Task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Publish the projection runbook",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Document the rebuild order."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "duplicates",
+      "target_id": "HR-4",
+      "target_type": "document"
+    },
+    {
+      "predicate": "links_to",
+      "target_id": "HR-5",
+      "target_type": "document"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "id": "runbook-index",
+  "title": "Runbook Index",
+  "note": "Middle of a three-level Confluence page tree: child of space-overview and parent of deploy-checklist, so parent_of chains rather than fanning out.",
+  "extra": {
+    "page_id": "runbook-index"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Runbook Index",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Every runbook is listed under this page."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Ownership",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Platform owns the deploy runbooks."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "space-overview",
+      "target_type": "document"
+    }
+  ]
+}

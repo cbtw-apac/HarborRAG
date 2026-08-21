@@ -1,0 +1,32 @@
+{
+  "id": "security-policy",
+  "title": "Security Policy.docx",
+  "note": "SharePoint site -> drive -> folder chain -> item; folder nodes are census placeholders, not unresolved links.",
+  "extra": {
+    "site_id": "site-1",
+    "site_name": "Harbor Ops",
+    "drive_id": "drive-1",
+    "drive_name": "Documents",
+    "item_id": "file-9",
+    "item_name": "Security Policy.docx",
+    "parent": {
+      "id": "folder-2",
+      "path": "/drives/drive-1/root:/Policies/Security"
+    }
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Security Policy",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Rotate every secret quarterly."
+    }
+  ]
+}

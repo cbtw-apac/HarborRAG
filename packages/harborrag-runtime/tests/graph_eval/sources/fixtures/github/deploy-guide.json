@@ -1,0 +1,29 @@
+{
+  "id": "deploy-guide",
+  "title": "deploy.md",
+  "note": "Second file under docs/guides: proves directory nodes are shared across batches by source-entity identity, which is what makes a two-hop file -> directory -> file path exist at all.",
+  "extra": {
+    "owner": "acme",
+    "repository_id": "repo-1",
+    "repo": "harbor",
+    "default_branch": "main",
+    "path": "docs/guides/deploy.md",
+    "ref": "main",
+    "commit_sha": "9f1c0de5a2b34c7d"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Deploy",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Promote the build after the health gate passes."
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "HR-5",
+  "title": "HR-5 Review the eval corpus",
+  "note": "Jira relates_to, the only predicate joining HR-5 to HR-1 directly.",
+  "extra": {
+    "issue_key": "HR-5",
+    "issue_type": "Task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Review the eval corpus",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Check the golden expectations."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "relates_to",
+      "target_id": "HR-1",
+      "target_type": "document"
+    }
+  ]
+}

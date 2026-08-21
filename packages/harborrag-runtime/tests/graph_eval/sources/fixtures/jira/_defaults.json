@@ -1,0 +1,10 @@
+{
+  "source": "jira",
+  "content_type": "page",
+  "extra": {
+    "connector_type": "jira",
+    "project_id": "project-1",
+    "project_key": "HR",
+    "project_name": "Harbor Rollout"
+  }
+}

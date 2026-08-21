@@ -11,6 +11,10 @@ from urllib.parse import quote
 from dotenv import load_dotenv
 from pydantic import SecretStr
 
+from harborrag_runtime.config import (
+    connector_fingerprint,
+    load_connector_catalog,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.document.normalization import (
     CANONICAL_NORMALIZER_VERSION,
@@ -25,6 +29,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 TENANT_ID = "ingestion-smoke"
 SOURCE_SCOPE_ID = "local-ingestion-smoke"
 CONNECTION_ID = "local-ingestion-smoke"
+CONNECTOR_NAME = "harborrag-workspace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +42,7 @@ class SmokeConfiguration:
         return SourceIngestionInput(
             task_id=task_id,
             tenant_id=TENANT_ID,
-            connector_name="harborrag-workspace",
+            connector_name=CONNECTOR_NAME,
             connector_type="local",
             connection_id=CONNECTION_ID,
             source_scope_id=SOURCE_SCOPE_ID,
@@ -58,6 +63,10 @@ def load_smoke_configuration() -> SmokeConfiguration:
         "env/.env.connector",
     ):
         load_dotenv(ROOT / relative, override=False)
+    # The worker equality-checks the submitted connector fingerprint. Path
+    # environment references are hashed by name, not value, so the variable
+    # only has to exist here; the fixture directory is its honest local value.
+    os.environ.setdefault("LOCAL_SOURCE_PATH", str(FIXTURES))
     database_url = _postgres_url()
     settings = RuntimeSettings(
         env="prod",
@@ -81,9 +90,14 @@ def load_smoke_configuration() -> SmokeConfiguration:
         falkordb_host="127.0.0.1",
         falkordb_port=int(_env("FALKORDB_PORT", "6379")),
     )
+    catalog = load_connector_catalog(settings.connector_config_path)
     return SmokeConfiguration(
         settings=settings,
-        configuration_fingerprint=_fixture_fingerprint(),
+        configuration_fingerprint=connector_fingerprint(
+            catalog_version=catalog.version,
+            definition=catalog.get(CONNECTOR_NAME),
+            environment=os.environ,
+        ),
         processing=ProcessingProfileInput(
             parser_profile=_file_fingerprint(
                 "parser",
@@ -104,16 +118,6 @@ def _postgres_url() -> str:
     database = quote(_required("POSTGRES_DB"), safe="")
     port = _env("POSTGRES_PORT", "5432")
     return f"postgresql+asyncpg://{username}:{password}@127.0.0.1:{port}/{database}"
-
-
-def _fixture_fingerprint() -> str:
-    digest = sha256()
-    for path in sorted(FIXTURES.glob("*.md")):
-        digest.update(path.name.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return f"local-smoke-{digest.hexdigest()[:24]}"
 
 
 def _file_fingerprint(prefix: str, path: Path) -> str:

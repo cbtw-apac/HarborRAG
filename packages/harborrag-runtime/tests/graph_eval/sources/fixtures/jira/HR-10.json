@@ -1,0 +1,68 @@
+{
+  "id": "HR-10",
+  "title": "HR-10 Review the sample coverage",
+  "note": "Four issue-link predicates on one issue plus a comment reply pair: the pinned issues each carry a single predicate, so nothing tested multiple outbound link types from the same subject.",
+  "extra": {
+    "issue_key": "HR-10",
+    "issue_type": "Task",
+    "status": "In Progress"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Review the sample coverage",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Check every projector has a negative case."
+    },
+    {
+      "id": "jira-comment:hr10-c1",
+      "type": "paragraph",
+      "content": "Does github cover a missing commit?",
+      "metadata": {
+        "role": "jira.comment",
+        "comment_id": "hr10-c1",
+        "comment_kind": "PAGE_COMMENT"
+      }
+    },
+    {
+      "id": "jira-comment:hr10-c2",
+      "type": "paragraph",
+      "content": "legacy-notes does.",
+      "metadata": {
+        "role": "jira.comment",
+        "comment_id": "hr10-c2",
+        "comment_kind": "PAGE_COMMENT",
+        "parent_comment_id": "hr10-c1"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "blocks",
+      "target_id": "HR-9",
+      "target_type": "document"
+    },
+    {
+      "predicate": "relates_to",
+      "target_id": "HR-7",
+      "target_type": "document"
+    },
+    {
+      "predicate": "duplicates",
+      "target_id": "HR-8",
+      "target_type": "document"
+    },
+    {
+      "predicate": "links_to",
+      "target_id": "HR-5",
+      "target_type": "document"
+    }
+  ]
+}

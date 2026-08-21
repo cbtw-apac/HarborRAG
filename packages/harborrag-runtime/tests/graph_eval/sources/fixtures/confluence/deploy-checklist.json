@@ -1,0 +1,48 @@
+{
+  "id": "deploy-checklist",
+  "title": "Deploy Checklist",
+  "note": "Leaf of the three-level page tree, and the second page in the corpus to own an attachment -- so has_attachment is not a single-page accident.",
+  "extra": {
+    "page_id": "deploy-checklist"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Deploy Checklist",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Run the health gate before promoting a build."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Rollback",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Restore the previous projection baseline."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "runbook-index",
+      "target_type": "document"
+    },
+    {
+      "predicate": "has_attachment",
+      "target_id": "checklist-pdf",
+      "target_type": "attachment"
+    }
+  ]
+}

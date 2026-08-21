@@ -1,0 +1,52 @@
+{
+  "id": "space-overview",
+  "title": "Space Overview",
+  "note": "Space root of the Confluence page tree; carries the reserved `includes` predicate that must stay unprojected, and a table element.",
+  "extra": {
+    "page_id": "space-overview"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Space Overview",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "This space indexes team pages."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Page Inventory",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Every page has one owner."
+    },
+    {
+      "id": "t1",
+      "type": "table",
+      "content": "Page\tOwner\nHandbook\tPlatform\n",
+      "metadata": {
+        "table_id": "space-inventory",
+        "table_caption": "Page owners"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "includes",
+      "target_id": "confluence://SPACE/team-handbook",
+      "target_type": "document"
+    }
+  ]
+}
