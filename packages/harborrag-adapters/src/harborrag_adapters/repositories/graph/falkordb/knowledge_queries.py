@@ -14,7 +14,12 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
     read_rows,
 )
 from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
-from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION, KnowledgeGraphTraversal
+from harborrag_core.ingestion import (
+    GRAPH_SCHEMA_VERSION,
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    KnowledgeGraphTraversal,
+)
 from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphPathResult,
@@ -83,6 +88,7 @@ async def traverse(
                     AND relation.graph_schema_version = $graph_schema_version)
         RETURN nodes(path) AS path_nodes,
                relationships(path) AS path_relations
+        ORDER BY size(path_relations)
         LIMIT $path_limit
         """,
         {
@@ -198,37 +204,109 @@ async def expand_subgraph(
     *,
     context: StorageOperationContext,
 ) -> KnowledgeGraphTraversal:
-    """Expand a bounded filtered neighborhood from a portable selector."""
+    """Expand a bounded filtered neighborhood one hop at a time.
 
+    A single variable-length MATCH ...-[*1..max_depth]-... forces the engine to enumerate
+    nearly every walk up to max_depth before it can sort and apply LIMIT, so cost grows
+    combinatorially with the branching factor at the start node. On a densely connected
+    tenant this times out well before max_depth reaches its documented upper bound (8).
+    Expanding one hop per round trip instead bounds every query to a single-hop pattern
+    match from an already-known frontier, so total work scales with max_nodes rather than
+    with max_depth, and "closest node first" falls out of the level order for free instead
+    of needing an ORDER BY over the full search space.
+    """
+
+    tenant_id = str(context.tenant_id)
+    relationship_types = [item.value for item in query.relationship_types]
     left, right = GraphTraversalSyntax.arrows(query.direction)
-    path_limit = path_limit_for(query.max_nodes)
-    rows = await read_rows(
+
+    start_rows = await read_rows(
         database,
-        f"""
-        MATCH path=(start:KnowledgeNode){left}[*1..{query.max_depth}]
-                   {right}(related:KnowledgeNode)
+        """
+        MATCH (start:KnowledgeNode)
         WHERE start.tenant_id = $tenant_id
           AND start.graph_schema_version = $graph_schema_version
           AND (start.node_key = $start_node
                OR start.logical_id = $start_node
                OR toLower(start.title) = toLower($start_node))
-          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
-                  AND node.graph_schema_version = $graph_schema_version)
-          AND all(relation IN relationships(path)
-                  WHERE relation.tenant_id = $tenant_id
-                    AND relation.graph_schema_version = $graph_schema_version
-                    AND (size($relationship_types) = 0
-                         OR relation.relation_type IN $relationship_types))
-        RETURN nodes(path) AS path_nodes,
-               relationships(path) AS path_relations
-        LIMIT $path_limit
+        RETURN start AS node
+        LIMIT $max_nodes
         """,
         {
-            "tenant_id": str(context.tenant_id),
+            "tenant_id": tenant_id,
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "start_node": query.start_node,
-            "relationship_types": [item.value for item in query.relationship_types],
-            "path_limit": path_limit + 1,
+            "max_nodes": query.max_nodes,
         },
     )
-    return build_knowledge_traversal(rows, max_nodes=query.max_nodes, path_limit=path_limit)
+
+    nodes: dict[str, GraphNodeRecord] = {}
+    for row in start_rows:
+        node = KnowledgeGraphMapper.node(row["node"])
+        nodes[node.node_key] = node
+
+    relations: dict[str, GraphEdgeRecord] = {}
+    truncated = False
+    frontier = list(nodes.keys())
+
+    for _level in range(query.max_depth):
+        if not frontier or len(nodes) >= query.max_nodes:
+            break
+        remaining = max(query.max_nodes - len(nodes), 1)
+        level_limit = path_limit_for(remaining)
+        rows = await read_rows(
+            database,
+            f"""
+            UNWIND $frontier AS start_key
+            MATCH (start:KnowledgeNode {{
+                node_key: start_key,
+                graph_schema_version: $graph_schema_version,
+                tenant_id: $tenant_id
+            }}){left}[relation]{right}(related:KnowledgeNode)
+            WHERE related.tenant_id = $tenant_id
+              AND related.graph_schema_version = $graph_schema_version
+              AND relation.tenant_id = $tenant_id
+              AND relation.graph_schema_version = $graph_schema_version
+              AND (size($relationship_types) = 0
+                   OR relation.relation_type IN $relationship_types)
+            RETURN relation, related
+            LIMIT $level_limit
+            """,
+            {
+                "tenant_id": tenant_id,
+                "graph_schema_version": GRAPH_SCHEMA_VERSION,
+                "frontier": frontier,
+                "relationship_types": relationship_types,
+                "level_limit": level_limit + 1,
+            },
+        )
+        if len(rows) > level_limit:
+            truncated = True
+
+        next_frontier: list[str] = []
+        for row in rows[:level_limit]:
+            relation = KnowledgeGraphMapper.relation(row["relation"])
+            relations[relation.relation_id] = relation
+            related = KnowledgeGraphMapper.node(row["related"])
+            if related.node_key in nodes:
+                continue
+            if len(nodes) >= query.max_nodes:
+                truncated = True
+                continue
+            nodes[related.node_key] = related
+            next_frontier.append(related.node_key)
+        frontier = next_frontier
+
+    if len(nodes) >= query.max_nodes:
+        truncated = True
+
+    valid_relations = tuple(
+        relation
+        for relation in relations.values()
+        if relation.source_node_key in nodes and relation.target_node_key in nodes
+    )
+    return KnowledgeGraphTraversal(
+        nodes=tuple(nodes.values()),
+        relations=valid_relations,
+        truncated=truncated,
+    )
