@@ -219,8 +219,21 @@ class OcrImageEngine(HarborImageEngine):
         """Dispatch OCR while keeping optional dependencies lazy."""
 
         if self.ocr_engine == "rapidocr":
+            data = self._prepare_rapidocr_bytes(data, image)
             return self._extract_with_rapidocr(data)
         return self._extract_with_pytesseract(image)
+
+    def _prepare_rapidocr_bytes(self, data: bytes, image: Any) -> bytes:
+        """RapidOCR is sensitive to CMYK and similar non-RGB modes; convert to
+        RGB before handing the payload to the ONNX detector so scans and print
+        images do not fail with a misleading empty detection result."""
+        mode = getattr(image, "mode", "")
+        if mode.upper() in {"CMYK", "YCBCR", "YCbCr", "RGBA", "LA", "P"}:
+            rgb_image = image.convert("RGB")
+            buffer = BytesIO()
+            rgb_image.save(buffer, format="PNG")
+            return buffer.getvalue()
+        return data
 
     def _extract_with_pytesseract(self, image: Any) -> str:
         """Extract text with the legacy Tesseract adapter."""

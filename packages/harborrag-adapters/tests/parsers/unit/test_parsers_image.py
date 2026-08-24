@@ -44,6 +44,26 @@ def test_rapidocr_extracts_ordered_lines_and_reuses_engine(monkeypatch) -> None:
     assert created == [parser._rapidocr_engine]
 
 
+def test_rapidocr_converts_cmyk_to_rgb_before_ocr(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    class _RapidOCR:
+        def __call__(self, content: bytes) -> object:
+            seen["mode"] = Image.open(io.BytesIO(content)).mode
+            return SimpleNamespace(txts=("cmyk text",))
+
+    monkeypatch.setitem(sys.modules, "rapidocr", SimpleNamespace(RapidOCR=_RapidOCR))
+    buffer = io.BytesIO()
+    Image.new("CMYK", (10, 10), color=(0, 0, 0, 0)).save(buffer, format="JPEG")
+
+    document = ImageParser(ocr_engine="rapidocr").parse(
+        ParseInput(content=buffer.getvalue(), filename="cmyk.jpg")
+    )
+
+    assert document.content == "cmyk text"
+    assert seen["mode"] == "RGB"
+
+
 def test_image_parser_rejects_unknown_ocr_engine() -> None:
     with pytest.raises(ValueError, match="Unsupported image OCR engine"):
         ImageParser(ocr_engine="unknown")
