@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from uuid import uuid4
 
-from configuration import ROOT, load_smoke_configuration
+from configuration import load_smoke_configuration
 from configured_inspection import (
     ConfiguredInspectionRequest,
     inspect_configured_source,
@@ -16,6 +17,7 @@ from configured_inspection import (
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_runtime.config import (
+    connector_fingerprint,
     load_connector_catalog,
     load_parser_catalog,
 )
@@ -35,6 +37,8 @@ _SELECTION_WINDOW = 10
 @dataclass(frozen=True, slots=True)
 class SourceSelection:
     provider: str
+    connector_name: str
+    configuration_fingerprint: str
     source_item_id: str
     locator: str
     title: str
@@ -112,7 +116,9 @@ async def run_configured_smoke() -> dict[str, object]:
                 connection_id=selected.connection_id,
                 source_item_id=selected.source_item_id,
                 dense_query=selected.title,
-                sparse_query=selected.locator,
+                # A Confluence/Jira locator is an ID that rarely appears in
+                # chunk content; sparse term matching needs the title.
+                sparse_query=selected.title,
                 expected_documents=result.discovered,
             )
         )
@@ -153,9 +159,21 @@ def _select_sources() -> tuple[SourceSelection, ...]:
     catalog = load_connector_catalog(configuration.settings.connector_config_path)
     selections = []
     for provider in ("confluence", "jira"):
-        connector = catalog.build(
-            provider,
-            connector_kwargs={"parser": parser},
+        definition = next(
+            (
+                catalog.get(name)
+                for name in catalog.names(enabled_only=True)
+                if catalog.get(name).provider == provider
+            ),
+            None,
+        )
+        if definition is None:
+            raise AssertionError(f"no enabled {provider} connector is configured")
+        connector = definition.build(connector_kwargs={"parser": parser})
+        fingerprint = connector_fingerprint(
+            catalog_version=catalog.version,
+            definition=definition,
+            environment=os.environ,
         )
         try:
             connector.connect()
@@ -163,6 +181,8 @@ def _select_sources() -> tuple[SourceSelection, ...]:
                 _select_provider_source(
                     provider,
                     connector,
+                    connector_name=definition.name,
+                    configuration_fingerprint=fingerprint,
                 )
             )
         finally:
@@ -170,7 +190,13 @@ def _select_sources() -> tuple[SourceSelection, ...]:
     return tuple(selections)
 
 
-def _select_provider_source(provider: str, connector) -> SourceSelection:
+def _select_provider_source(
+    provider: str,
+    connector,
+    *,
+    connector_name: str,
+    configuration_fingerprint: str,
+) -> SourceSelection:
     query = ConnectorQuery(
         limit=_SELECTION_WINDOW,
         include_attachments=True,
@@ -181,6 +207,8 @@ def _select_provider_source(provider: str, connector) -> SourceSelection:
         attachments = len(descriptor.bound_records)
         candidate = SourceSelection(
             provider=provider,
+            connector_name=connector_name,
+            configuration_fingerprint=configuration_fingerprint,
             source_item_id=descriptor.source.id,
             locator=descriptor.source.locator,
             title=str(descriptor.source.metadata.get("title") or descriptor.source.locator).strip(),
@@ -220,11 +248,11 @@ def _source_input(
     return SourceIngestionInput(
         task_id=task_id,
         tenant_id=selected.tenant_id,
-        connector_name=selected.provider,
+        connector_name=selected.connector_name,
         connector_type=selected.provider,
         connection_id=selected.connection_id,
         source_scope_id=selected.source_scope_id,
-        configuration_fingerprint=_configuration_fingerprint(selected),
+        configuration_fingerprint=selected.configuration_fingerprint,
         processing=processing,
         query=SourceQuery(
             limit=1,
@@ -234,21 +262,6 @@ def _source_input(
         document_concurrency=3,
         batch_size=100,
     )
-
-
-def _configuration_fingerprint(
-    selected: SourceSelection,
-) -> str:
-    digest = sha256()
-    digest.update((ROOT / "config/connectors.yaml").read_bytes())
-    digest.update(b"\0")
-    digest.update(selected.source_item_id.encode("utf-8"))
-    digest.update(b"\0")
-    digest.update(str(selected.include_attachments).encode("ascii"))
-    for attachment_id in sorted(selected.selected_attachment_ids):
-        digest.update(b"\0")
-        digest.update(attachment_id.encode("utf-8"))
-    return f"configured-smoke-{digest.hexdigest()[:24]}"
 
 
 def _assert_result(selected: SourceSelection, result) -> None:

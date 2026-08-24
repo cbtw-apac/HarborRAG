@@ -1,0 +1,7 @@
+{
+  "source": "local_file",
+  "content_type": "page",
+  "extra": {
+    "connector_type": "local"
+  }
+}

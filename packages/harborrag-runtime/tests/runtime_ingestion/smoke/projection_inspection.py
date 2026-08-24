@@ -70,6 +70,7 @@ class GraphObservation:
     relations: int
     duplicate_relations: int
     relation_types: tuple[str, ...]
+    entity_types: tuple[str, ...]
     outgoing_relations: int
     incoming_relations: int
     reviewable_nodes: int
@@ -203,6 +204,7 @@ async def _graph_observations(
                 relation_types=tuple(
                     sorted({relation.relation_type.value for relation in traversal.relations})
                 ),
+                entity_types=tuple(sorted({node.entity_type.value for node in traversal.nodes})),
                 outgoing_relations=len(outgoing.relations),
                 incoming_relations=len(incoming.relations),
                 reviewable_nodes=sum(
@@ -282,9 +284,12 @@ def _assert_graph_content(graphs: tuple[GraphObservation, ...]) -> None:
     relation_types = {relation for graph in graphs for relation in graph.relation_types}
     if "links_to" not in relation_types:
         raise AssertionError("local document LINKS_TO relation is missing")
-    if "has_section" not in relation_types:
-        raise AssertionError("document section structure is missing")
-    if "has_table" not in relation_types:
-        raise AssertionError("document table structure is missing")
+    if "contains" not in relation_types:
+        raise AssertionError("document structure containment is missing")
     if "supports" not in relation_types:
         raise AssertionError("vector chunk IDs are not linked into the graph")
+    entity_types = {entity for graph in graphs for entity in graph.entity_types}
+    if "section" not in entity_types:
+        raise AssertionError("document section structure is missing")
+    if "table" not in entity_types:
+        raise AssertionError("document table structure is missing")

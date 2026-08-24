@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 from dataclasses import replace
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ChildWorkflowError
@@ -14,11 +14,7 @@ from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult
 from .policies import (
-    DISCOVERY_QUEUE,
-    DISCOVERY_RETRY,
-    DOCUMENT_RETRY,
-    INDEX_QUEUE,
-    TRANSFORM_QUEUE,
+    temporal_retry_policy,
 )
 from .schemas import (
     DocumentDispatchSummary,
@@ -32,9 +28,6 @@ from .schemas import (
     SourceIngestionResult,
     SourceIngestionStatus,
 )
-from .source_batch_workflow import SourceBatchWorkflow
-
-__all__ = ["SourceBatchWorkflow", "SourceIngestionWorkflow"]
 
 
 @workflow.defn(name="harborrag.source_ingestion")
@@ -109,13 +102,13 @@ class SourceIngestionWorkflow:
                     plan_reference=discovery.plan_reference,
                     summary=self._summary,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=request.workflow_options.task_queues.discovery,
                 start_to_close_timeout=timedelta(minutes=15),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                 result_type=SourceIngestionResult,
             )
         except asyncio.CancelledError:
-            await self._record_hard_cancellation(request.task_id)
+            await self._record_hard_cancellation(request)
             raise
         except (ActivityError, ChildWorkflowError) as error:
             # A child batch, or finalization itself, can exhaust its retries
@@ -130,9 +123,9 @@ class SourceIngestionWorkflow:
                     task_id=request.task_id,
                     error_code=error_code,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=request.workflow_options.task_queues.discovery,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
         self._status = result.status
@@ -157,7 +150,7 @@ class SourceIngestionWorkflow:
         try:
             return await self._discover(request), 0
         except asyncio.CancelledError:
-            await self._record_hard_cancellation(request.task_id)
+            await self._record_hard_cancellation(request)
             raise
 
     async def _run_batch(
@@ -178,33 +171,59 @@ class SourceIngestionWorkflow:
                 end_index=end,
                 batch_number=self._batch_number,
                 document_concurrency=request.document_concurrency,
+                workflow_options=request.workflow_options,
             ),
             id=(f"harborrag-source-batch:{request.task_id}:{self._batch_number}"),
-            task_queue=TRANSFORM_QUEUE,
+            task_queue=request.workflow_options.task_queues.transform,
             result_type=DocumentDispatchSummary,
             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
         )
         batch_future = asyncio.ensure_future(handle)
         cancel_future = asyncio.create_task(workflow.wait_condition(lambda: self._cancel_requested))
-        done, _ = await workflow.wait(
-            {batch_future, cancel_future}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if batch_future in done:
-            cancel_future.cancel()
+        pause_relay = asyncio.create_task(self._relay_pause_signals(handle))
+        try:
+            done, _ = await workflow.wait(
+                {batch_future, cancel_future}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if batch_future in done:
+                cancel_future.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await cancel_future
+                return cast(DocumentDispatchSummary, await batch_future), False
+            await handle.signal("request_graceful_cancel")
+            return cast(DocumentDispatchSummary, await batch_future), True
+        finally:
+            pause_relay.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await cancel_future
-            return cast(DocumentDispatchSummary, await batch_future), False
-        await handle.signal("request_graceful_cancel")
-        return cast(DocumentDispatchSummary, await batch_future), True
+                await pause_relay
+
+    async def _relay_pause_signals(
+        self, handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary]
+    ) -> None:
+        """Forward this workflow's pause/resume signals to the active batch child.
+
+        Without this, a pause requested while a batch's document waves are
+        dispatching would sit unenforced until that batch drained on its own,
+        since the child has no way to observe the parent's `_paused` state.
+        """
+        relayed = False
+        while True:
+
+            def _paused_differs_from(current: bool = relayed) -> bool:
+                return self._paused != current
+
+            await workflow.wait_condition(_paused_differs_from)
+            relayed = self._paused
+            await handle.signal("pause" if relayed else "resume")
 
     @staticmethod
-    async def _record_hard_cancellation(task_id: str) -> None:
+    async def _record_hard_cancellation(request: SourceIngestionInput) -> None:
         cleanup = workflow.execute_activity(
             "harborrag.cancel_source_ingestion",
-            SourceCancellationInput(task_id=task_id),
-            task_queue=DISCOVERY_QUEUE,
+            SourceCancellationInput(task_id=request.task_id),
+            task_queue=request.workflow_options.task_queues.discovery,
             start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=DISCOVERY_RETRY,
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
         )
         await asyncio.shield(cleanup)
 
@@ -218,10 +237,10 @@ class SourceIngestionWorkflow:
                 await workflow.execute_activity(
                     "harborrag.discover_source_items",
                     request,
-                    task_queue=DISCOVERY_QUEUE,
+                    task_queue=request.workflow_options.task_queues.discovery,
                     start_to_close_timeout=timedelta(minutes=30),
                     heartbeat_timeout=timedelta(minutes=2),
-                    retry_policy=DISCOVERY_RETRY,
+                    retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                     result_type=SourceDiscoveryResult,
                 ),
             )
@@ -233,9 +252,9 @@ class SourceIngestionWorkflow:
                     task_id=request.task_id,
                     error_code=error_code,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=request.workflow_options.task_queues.discovery,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
 
@@ -245,9 +264,9 @@ class SourceIngestionWorkflow:
             await workflow.execute_activity(
                 "harborrag.cleanup_source_projections",
                 request,
-                task_queue=INDEX_QUEUE,
+                task_queue=request.workflow_options.task_queues.index,
                 start_to_close_timeout=timedelta(minutes=30),
-                retry_policy=DOCUMENT_RETRY,
+                retry_policy=temporal_retry_policy(request.workflow_options.retries.document),
                 result_type=ProjectionCleanupResult,
             )
         except ActivityError:
@@ -268,9 +287,9 @@ class SourceIngestionWorkflow:
         await workflow.execute_activity(
             "harborrag.cancel_source_ingestion",
             SourceCancellationInput(task_id=request.task_id),
-            task_queue=DISCOVERY_QUEUE,
+            task_queue=request.workflow_options.task_queues.discovery,
             start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=DISCOVERY_RETRY,
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
         )
         await self._cleanup_source(request)
         self._status = "CANCELLED"
@@ -290,10 +309,14 @@ class SourceIngestionWorkflow:
     def pause(self) -> None:
         if not self._cancel_requested:
             self._paused = True
+            self._status = "PAUSED"
 
     @workflow.signal
     def resume(self) -> None:
+        was_paused = self._paused
         self._paused = False
+        if was_paused and not self._cancel_requested:
+            self._status = "RUNNING"
 
     @workflow.signal
     def request_graceful_cancel(self) -> None:

@@ -1,0 +1,82 @@
+{
+  "id": "team-handbook",
+  "title": "Team Handbook",
+  "note": "Confluence page tree child (child_of reverses to parent_of), a resolved attachment, and a comment reply pair.",
+  "extra": {
+    "page_id": "team-handbook"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Team Handbook",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Start here on your first day."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Onboarding",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Request access to the stack."
+    },
+    {
+      "id": "h3",
+      "type": "heading",
+      "content": "Week One",
+      "metadata": {
+        "level": 3
+      }
+    },
+    {
+      "id": "p3",
+      "type": "paragraph",
+      "content": "Shadow one on-call rotation."
+    },
+    {
+      "id": "confluence-comment:handbook-c1",
+      "type": "paragraph",
+      "content": "Does week one cover the eval suite?",
+      "metadata": {
+        "role": "confluence.comment",
+        "comment_id": "handbook-c1",
+        "comment_kind": "PAGE_COMMENT"
+      }
+    },
+    {
+      "id": "confluence-comment:handbook-c2",
+      "type": "paragraph",
+      "content": "Yes, on the third day.",
+      "metadata": {
+        "role": "confluence.comment",
+        "comment_id": "handbook-c2",
+        "comment_kind": "PAGE_COMMENT",
+        "parent_comment_id": "handbook-c1"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "space-overview",
+      "target_type": "document"
+    },
+    {
+      "predicate": "has_attachment",
+      "target_id": "handbook-pdf",
+      "target_type": "attachment"
+    }
+  ]
+}

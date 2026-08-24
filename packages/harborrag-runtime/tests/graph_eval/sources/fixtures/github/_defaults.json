@@ -1,0 +1,7 @@
+{
+  "source": "github",
+  "content_type": "page",
+  "extra": {
+    "connector_type": "github"
+  }
+}

@@ -13,7 +13,7 @@ from temporalio.workflow import ParentClosePolicy
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
-from .policies import DISCOVERY_QUEUE, DISCOVERY_RETRY, DOCUMENT_RETRY, IO_QUEUE, TRANSFORM_QUEUE
+from .policies import temporal_retry_policy
 from .schemas import (
     DocumentDispatchSummary,
     RetryDocumentFailureInput,
@@ -30,14 +30,16 @@ from .schemas import (
 class DocumentRetryWorkflow:
     @workflow.run
     async def run(self, request: RetryDocumentInput) -> DocumentIngestionOutcome:
+        queues = request.workflow_options.task_queues
+        retries = request.workflow_options.retries
         try:
             return DocumentIngestionOutcome(
                 await workflow.execute_activity(
                     "harborrag.retry_document_release",
                     request,
-                    task_queue=IO_QUEUE,
+                    task_queue=queues.io,
                     start_to_close_timeout=timedelta(minutes=60),
-                    retry_policy=DOCUMENT_RETRY,
+                    retry_policy=temporal_retry_policy(retries.document),
                     result_type=DocumentIngestionOutcome,
                 )
             )
@@ -49,9 +51,9 @@ class DocumentRetryWorkflow:
                     document=request,
                     error_type=error_type,
                 ),
-                task_queue=IO_QUEUE,
+                task_queue=queues.io,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(retries.discovery),
             )
             return DocumentIngestionOutcome.FAILED
 
@@ -60,15 +62,17 @@ class DocumentRetryWorkflow:
 class RetryFailuresWorkflow:
     @workflow.run
     async def run(self, request: RetryFailuresInput) -> RetryFailuresResult:
+        queues = request.workflow_options.task_queues
+        retries = request.workflow_options.retries
         try:
             prepared = cast(
                 RetryPreparationResult,
                 await workflow.execute_activity(
                     "harborrag.prepare_retry_failures",
                     request,
-                    task_queue=DISCOVERY_QUEUE,
+                    task_queue=queues.discovery,
                     start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=DISCOVERY_RETRY,
+                    retry_policy=temporal_retry_policy(retries.discovery),
                     result_type=RetryPreparationResult,
                 ),
             )
@@ -85,9 +89,10 @@ class RetryFailuresWorkflow:
                                 tenant_id=request.tenant_id,
                                 plan_reference=prepared.plan_reference,
                                 document_index=index,
+                                workflow_options=request.workflow_options,
                             ),
                             id=f"harborrag-document-retry:{request.retry_task_id}:{index}",
-                            task_queue=TRANSFORM_QUEUE,
+                            task_queue=queues.transform,
                             result_type=DocumentIngestionOutcome,
                             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                         )
@@ -103,9 +108,9 @@ class RetryFailuresWorkflow:
                     selected=prepared.document_count,
                     summary=summary,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=queues.discovery,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(retries.discovery),
             )
         except (ActivityError, ChildWorkflowError) as error:
             # Preparation, a child document-retry, or finalization itself can
@@ -120,9 +125,9 @@ class RetryFailuresWorkflow:
                     retry_task_id=request.retry_task_id,
                     error_code=error_code,
                 ),
-                task_queue=DISCOVERY_QUEUE,
+                task_queue=queues.discovery,
                 start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=DISCOVERY_RETRY,
+                retry_policy=temporal_retry_policy(retries.discovery),
             )
             raise
         completed = summary.published + summary.unchanged

@@ -1,0 +1,29 @@
+{
+  "id": "setup-guide",
+  "title": "setup.md",
+  "note": "GitHub owner -> repository -> directory chain -> file, with ref and commit_sha present so points_to and resolved_at are emitted.",
+  "extra": {
+    "owner": "acme",
+    "repository_id": "repo-1",
+    "repo": "harbor",
+    "default_branch": "main",
+    "path": "docs/guides/setup.md",
+    "ref": "main",
+    "commit_sha": "9f1c0de5a2b34c7d"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Setup",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Install the toolchain first."
+    }
+  ]
+}

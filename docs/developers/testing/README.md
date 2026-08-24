@@ -131,6 +131,17 @@ not a successful provider check. Start with the
 then follow the owning module's `smoke/README.md` for advanced setup, safety
 rules, and target-specific variables.
 
+Graph evaluation gates the FalkorDB knowledge graph (conformance census,
+structural health, build-to-build regression); see its
+[`README.md`](../../../packages/harborrag-runtime/tests/graph_eval/README.md).
+Its pure modules are
+covered by ordinary collected tests in `graph_eval/unit/`; only the live scripts
+below sit outside discovery:
+
+```bash
+python packages/harborrag-runtime/tests/graph_eval/smoke/graph_health.py
+```
+
 ## Quality and documentation tests
 
 ```bash

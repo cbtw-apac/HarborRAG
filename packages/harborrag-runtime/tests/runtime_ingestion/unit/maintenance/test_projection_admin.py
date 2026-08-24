@@ -8,7 +8,9 @@ import pytest
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.projection_admin import ProjectionAdministrationService
+from harborrag_runtime.ingestion.maintenance.projection_admin import (
+    ProjectionAdministrationService,
+)
 
 
 class VectorRepository:

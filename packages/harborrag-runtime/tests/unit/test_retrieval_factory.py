@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from harborrag_runtime import retrieval_factory
+from harborrag_runtime.retrieval import composition as retrieval_factory
 
 
 class _Resource:

@@ -79,7 +79,7 @@ def test_submission_builds_deterministic_secret_free_source_identity(
     assert first.connection_id == "docs"
     assert first.source_scope_id.startswith("scope-")
     assert first.processing.vector_projection_schema == "vector-v2"
-    assert first.processing.graph_projection_version == "graph-v2"
+    assert first.processing.graph_projection_version == "graph-v3"
     assert first.discovery_page_size == 50
     assert first.discovery_concurrency == 4
     assert "first-secret" not in first.configuration_fingerprint
@@ -213,3 +213,65 @@ def test_source_query_rejects_credentials(filters_json: str) -> None:
 def test_source_query_requires_an_aware_iso_timestamp(updated_after: str) -> None:
     with pytest.raises(ValueError, match="updated_after"):
         SourceQuery(updated_after=updated_after)
+
+
+def _settings_with_ingestion_defaults(
+    tmp_path: Path,
+    *,
+    batch_size: int,
+    document_concurrency: int,
+) -> RuntimeSettings:
+    settings = _settings(tmp_path)
+    temporal_config = tmp_path / "temporal.yaml"
+    temporal_config.write_text(
+        f"version: 1\ningestion:\n  batch_size: {batch_size}\n"
+        f"  document_concurrency: {document_concurrency}\n",
+        encoding="utf-8",
+    )
+    return settings.__class__(
+        connector_config_path=settings.connector_config_path,
+        parser_config_path=settings.parser_config_path,
+        temporal_config_path=temporal_config,
+    )
+
+
+def test_unset_batching_falls_back_to_the_configured_ingestion_defaults(
+    tmp_path: Path,
+) -> None:
+    settings = _settings_with_ingestion_defaults(
+        tmp_path,
+        batch_size=5,
+        document_concurrency=5,
+    )
+    environment = {
+        "JIRA_BASE_URL": "https://jira.example.test",
+        "JIRA_PROJECT_KEYS": "DOCS",
+    }
+
+    source = build_source_input(settings, _submission(), environment=environment)
+
+    assert source.batch_size == 5
+    assert source.document_concurrency == 5
+
+
+def test_explicit_batching_overrides_the_configured_ingestion_defaults(
+    tmp_path: Path,
+) -> None:
+    settings = _settings_with_ingestion_defaults(
+        tmp_path,
+        batch_size=5,
+        document_concurrency=5,
+    )
+    environment = {
+        "JIRA_BASE_URL": "https://jira.example.test",
+        "JIRA_PROJECT_KEYS": "DOCS",
+    }
+
+    source = build_source_input(
+        settings,
+        _submission(batch_size=200, document_concurrency=8),
+        environment=environment,
+    )
+
+    assert source.batch_size == 200
+    assert source.document_concurrency == 8

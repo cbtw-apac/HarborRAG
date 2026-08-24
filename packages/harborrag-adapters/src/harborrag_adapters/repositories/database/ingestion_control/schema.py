@@ -11,6 +11,7 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -171,6 +172,7 @@ INGESTION_TASKS = Table(
     Column("summary", JSON, nullable=False, default=dict),
     Column("idempotency_key", String(255), nullable=True),
     Column("request_hash", String(64), nullable=True),
+    Column("event_sequence", Integer, nullable=False, server_default="0"),
     CheckConstraint(
         f"status IN ({','.join(repr(state.value) for state in IngestionTaskState)})",
         name="ck_ingestion_task_status",
@@ -188,6 +190,22 @@ Index(
     unique=True,
     postgresql_where=INGESTION_TASKS.c.idempotency_key.is_not(None),
     sqlite_where=INGESTION_TASKS.c.idempotency_key.is_not(None),
+)
+
+TASK_EVENTS = Table(
+    "task_events",
+    METADATA,
+    Column(
+        "task_id",
+        String(128),
+        ForeignKey("ingestion_tasks.task_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("seq", Integer, primary_key=True),
+    Column("name", Text, nullable=False),
+    Column("trace_id", Text, nullable=False),
+    Column("payload_json", JSON, nullable=False),
+    Column("created_at", UTCDateTime(), nullable=False),
 )
 
 TASK_DOCUMENT_RESULTS = Table(

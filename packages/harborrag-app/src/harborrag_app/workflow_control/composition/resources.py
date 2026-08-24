@@ -11,11 +11,15 @@ from typing import TYPE_CHECKING
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.projection_admin import ProjectionAdministrationService
+from harborrag_runtime.ingestion.maintenance.projection_admin import (
+    ProjectionAdministrationService,
+)
 from harborrag_runtime.sdk import HarborRAG
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.events import EventBusPort
+
     from ..ingestion.ports import PublicTaskStore
     from .factories import AppServiceFactories, TaskRegistry
 
@@ -37,6 +41,7 @@ class AppResources:
         self._retrieval_runtime: HarborRAG | None = None
         self._task_registry: TaskRegistry | None = None
         self._projection_admin: ProjectionAdministrationService | None = None
+        self._event_bus: EventBusPort | None = None
         self._client_lock = asyncio.Lock()
         self._task_registry_lock = asyncio.Lock()
 
@@ -68,6 +73,11 @@ class AppResources:
         if self._projection_admin is None:
             self._projection_admin = self._factories.projection_admin(self._settings)
         return self._projection_admin
+
+    def event_bus(self) -> EventBusPort:
+        if self._event_bus is None:
+            self._event_bus = self._factories.event_bus()
+        return self._event_bus
 
     async def aclose(self) -> None:
         """Close every resource that was created, then report any failures together."""

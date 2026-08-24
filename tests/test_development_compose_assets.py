@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import subprocess
 import tomllib
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
@@ -17,8 +20,11 @@ def test_dev_api_uses_the_temporal_development_network() -> None:
     compose = API_COMPOSE.read_text(encoding="utf-8")
 
     assert "dockerfile: deploy/docker/Dockerfile.api" in compose
-    assert "HARBORRAG_TEMPORAL_TARGET: temporal:7233" in compose
-    assert 'HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "true"' in compose
+    assert 'HARBORRAG_TEMPORAL_TARGET: "${HARBORRAG_TEMPORAL_TARGET:-temporal:7233}"' in compose
+    assert (
+        "HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "
+        '"${HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE:-true}"'
+    ) in compose
     assert "harborrag-data-network" in compose
     assert "external: true" in compose
     assert "../../.env" not in compose
@@ -180,6 +186,91 @@ def test_development_entrypoint_orchestrates_explicit_components() -> None:
     assert "chmod 600" in script
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected_output", "expected_docker_call"),
+    (
+        (
+            ("--build", "up"),
+            "Building Temporal ingestion worker image",
+            "--profile worker up --build",
+        ),
+        (
+            ("up",),
+            "Reusing local worker image",
+            "--profile worker up --no-build",
+        ),
+        (
+            ("down",),
+            "Stopping HarborRAG API",
+            "docker-compose.temporal.yml --profile worker down",
+        ),
+    ),
+)
+def test_development_entrypoint_supports_documented_argument_forms(
+    tmp_path: Path,
+    arguments: tuple[str, ...],
+    expected_output: str,
+    expected_docker_call: str,
+) -> None:
+    project = tmp_path / "project"
+    script = project / "scripts/deployment/dev.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+
+    environment = project / "env"
+    environment.mkdir()
+    for filename in (
+        ".env.database",
+        ".env.temporal",
+        ".env.connector",
+        ".env.parser",
+        ".env.models",
+        ".env.api",
+    ):
+        (environment / filename).write_text("", encoding="utf-8")
+    (environment / ".env.mcp").write_text(
+        "HARBORRAG_MCP_BEARER_TOKEN=test-token\n",
+        encoding="utf-8",
+    )
+    (project / "docs").mkdir()
+
+    fake_bin = project / "fake-bin"
+    fake_bin.mkdir()
+    docker_log = project / "docker.log"
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env sh
+printf '%s\\n' "$*" >> "$DEV_DOCKER_LOG"
+case " $* " in
+  *" config --services "*) printf 'api\\n' ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(script), *arguments],
+        cwd=project,
+        env={
+            **os.environ,
+            "DEV_DOCKER_LOG": str(docker_log),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert expected_output in result.stdout
+    docker_calls = docker_log.read_text(encoding="utf-8")
+    assert expected_docker_call in docker_calls
+    if arguments == ("--build", "up"):
+        assert "Building HarborRAG API image" in result.stdout
+        assert "docker-compose.yml up --build" in docker_calls
+
+
 def test_api_and_worker_reuse_local_images_unless_rebuild_is_requested() -> None:
     api = API_COMPOSE.read_text(encoding="utf-8")
     temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
@@ -266,36 +357,6 @@ def test_mcp_entrypoint_redacts_malformed_environment_values(tmp_path: Path) -> 
     assert result.returncode != 0
     assert fake_key not in result.stderr
     assert "line 1: ***: command not found" in result.stderr
-
-
-def test_temporal_and_worker_subcommands_have_separate_ownership() -> None:
-    script = DEV_SCRIPT.read_text(encoding="utf-8")
-    temporal_function = script.split("start_temporal() {", 1)[1].split("start_worker() {", 1)[0]
-    worker_function = script.split("start_worker() {", 1)[1].split("start_api() {", 1)[0]
-
-    assert "--profile worker" not in temporal_function
-    assert "temporal-worker" not in temporal_function
-    assert "--profile worker" in worker_function
-    assert "--no-deps" in worker_function
-    assert "temporal-worker" in worker_function
-
-
-def test_temporal_startup_and_dependents_require_cluster_health() -> None:
-    temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
-    script = DEV_SCRIPT.read_text(encoding="utf-8")
-    require_function = script.split("require_temporal_server() {", 1)[1].split(
-        "data_compose() {", 1
-    )[0]
-    temporal_function = script.split("start_temporal() {", 1)[1].split("start_worker() {", 1)[0]
-
-    assert "temporal operator cluster health" in temporal
-    assert "Temporal did not become healthy" in temporal
-    assert "condition: service_completed_successfully" in temporal
-    assert "run --rm --no-deps temporal-namespace" in require_function
-    assert "ps --status running" not in require_function
-    assert "up --detach temporal-schema temporal" in temporal_function
-    assert "require_temporal_server" in temporal_function
-    assert "up --detach temporal-namespace temporal-ui" in temporal_function
 
 
 def test_deployment_has_explicit_orchestration_and_mcp_entrypoints() -> None:

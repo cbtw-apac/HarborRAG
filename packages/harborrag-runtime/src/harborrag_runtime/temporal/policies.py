@@ -4,27 +4,15 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
+from harborrag_runtime.temporal_models import RetryPolicyConfig
 
-DISCOVERY_QUEUE = "harborrag-discovery"
-IO_QUEUE = "harborrag-io"
-PARSER_QUEUE = "harborrag-parser"
-TRANSFORM_QUEUE = "harborrag-transform"
-MODEL_QUEUE = "harborrag-model"
-INDEX_QUEUE = "harborrag-index"
 
-DISCOVERY_RETRY = RetryPolicy(
-    initial_interval=timedelta(seconds=2),
-    backoff_coefficient=2,
-    maximum_interval=timedelta(minutes=1),
-    maximum_attempts=8,
-)
-DOCUMENT_RETRY = RetryPolicy(
-    initial_interval=timedelta(seconds=2),
-    backoff_coefficient=2,
-    maximum_interval=timedelta(minutes=2),
-    maximum_attempts=5,
-)
-DOCUMENT_STAGES = tuple(
-    (stage.name, stage.activity, stage.task_queue) for stage in DOCUMENT_STAGE_CATALOG
-)
+def temporal_retry_policy(config: RetryPolicyConfig) -> RetryPolicy:
+    """Convert replay-stable YAML values to the Temporal SDK policy."""
+
+    return RetryPolicy(
+        initial_interval=timedelta(seconds=config.initial_interval_seconds),
+        backoff_coefficient=config.backoff_coefficient,
+        maximum_interval=timedelta(seconds=config.maximum_interval_seconds),
+        maximum_attempts=config.maximum_attempts,
+    )

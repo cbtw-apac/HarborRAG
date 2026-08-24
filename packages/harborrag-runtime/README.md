@@ -10,11 +10,17 @@ for HarborRAG ingestion. Framework-independent domain types and ports live in
 src/harborrag_runtime/
   __init__.py       # lazy public facade
   contracts.py      # stable SDK request/response value objects
-  sdk.py            # SDK lifecycle and service orchestration
-  sdk_facades.py    # narrow ingestion/retrieval/graph facades
-  sdk_configuration.py
-  composition.py    # production resource/repository assembly
+  document_stage_catalog.py # sandbox-safe document stage metadata
+  temporal_models.py        # replay-safe routing/retry payload models
   errors.py         # runtime failures
+  sdk/
+    __init__.py     # stable SDK facade
+    runtime.py      # SDK lifecycle and service orchestration
+    facades.py      # narrow ingestion/retrieval/graph facades
+    configuration.py
+  composition/
+    control_plane.py # production repository assembly
+    resources.py     # storage/control resource factories
   execution/
     contracts.py    # execution strategy protocols
     submission.py   # shared request-to-source translation
@@ -22,8 +28,13 @@ src/harborrag_runtime/
     temporal.py     # durable execution strategy
   retrieval/
     contracts.py    # retrieval ports, policy, and reports
+    composition.py  # retrieval resource assembly and lifecycle ownership
     service.py      # authoritative retrieval use case
     validation.py   # public and projection-boundary validation
+  memory/
+    __init__.py     # stable memory facade
+    composition.py  # database resource assembly and migrations
+    service.py      # database-backed conversation memory
   config/
     settings.py     # HARBORRAG_* process settings
     temporal.py     # validated Temporal client/worker configuration
@@ -53,6 +64,7 @@ src/harborrag_runtime/
       plan.py            # immutable source-plan persistence
     maintenance/
       cleanup.py         # projection cleanup
+      projection_admin.py # tenant projection inspection/deletion
       relation_repair.py # structural relation-repair service
       reindex.py         # connector-free reindexing
       reindex_plan.py    # stale-lane selection policy
@@ -61,7 +73,11 @@ src/harborrag_runtime/
     schemas.py      # small workflow-history contracts
     ingestion_activities.py   # twelve document-stage activity boundaries
     activity_observability.py
-    source_workflow.py    # source, batch, and document workflows
+    source_workflow.py       # source orchestration workflow
+    source_batch_workflow.py # bounded child-batch workflow
+    document_workflow.py     # independently retryable document workflow
+    retry_workflow.py        # failed-document retry workflows
+    reindex_workflow.py      # projection reindex workflow
     worker.py       # six-queue worker process
 ```
 
@@ -70,6 +86,11 @@ contracts, configuration parsing, execution strategies, and retrieval service
 live in focused modules behind that facade. Direct and Temporal strategies use
 the same submission builder, so execution mode does not change request
 identity or filtering semantics.
+
+`document_stage_catalog.py` and `temporal_models.py` intentionally remain
+lightweight top-level modules. Temporal imports them inside its restricted
+workflow sandbox, so placing them below provider-owning packages would execute
+adapter initialization during workflow registration.
 
 Resource lifecycle and runtime observation stay with the runtime components that
 own them. The obsolete generic lifecycle port, local job queue, scheduler,
@@ -96,13 +117,18 @@ the configured connector, parser, model, state, object, vector, and graph
 settings:
 
 ```bash
-export HARBORRAG_TEMPORAL_TARGET=localhost:7233
-export HARBORRAG_TEMPORAL_NAMESPACE=harborrag
+export HARBORRAG_TEMPORAL_CONFIG_PATH=config/temporal.yaml
 export HARBORRAG_CONNECTOR_CONFIG_PATH=config/connectors.yaml
 export HARBORRAG_PARSER_CONFIG_PATH=config/parsers.yaml
 export HARBORRAG_MODEL_CONFIG_PATH=config/models.yaml
 python -m harborrag_runtime.temporal.worker
 ```
+
+The Temporal YAML owns connection defaults, task queues, retry budgets, worker
+capacity, and timeouts. Environment values such as
+`HARBORRAG_TEMPORAL_TARGET` remain available for deployment-specific overrides.
+See `config/temporal.example.yaml` for every supported non-secret field; keep
+`HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret manager.
 
 The normal operator path is the app CLI:
 

@@ -245,7 +245,11 @@ def run_confluence(
         print(f"[confluence] not configured: {exc}")
         return 2
 
-    records = list(connector.discover(ConnectorQuery(limit=limit)))
+    try:
+        records = list(connector.discover(ConnectorQuery(limit=limit)))
+    except Exception as exc:  # noqa: BLE001 - smoke runner returns a stable exit code
+        print_failure("confluence", exc)
+        return 1
     print(f"\n[confluence] discovered {len(records)} record(s)")
     for record in records:
         print(f"  - {record.id} ({record.source_type})")

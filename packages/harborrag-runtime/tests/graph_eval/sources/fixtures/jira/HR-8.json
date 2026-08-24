@@ -1,0 +1,32 @@
+{
+  "id": "HR-8",
+  "title": "HR-8 Split the corpus by source",
+  "note": "Story level of the epic chain: child of HR-7 and parent of HR-9.",
+  "extra": {
+    "issue_key": "HR-8",
+    "issue_type": "Story",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Split the corpus by source",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "One fixture directory per projector."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "HR-7",
+      "target_type": "document"
+    }
+  ]
+}

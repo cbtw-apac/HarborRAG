@@ -1,0 +1,25 @@
+{
+  "id": "HR-7",
+  "title": "HR-7 Harden the graph eval suite",
+  "note": "Epic at the head of a three-level issue chain (epic -> story -> subtask), which no pinned issue provides -- HR-6 is only one level under HR-1.",
+  "extra": {
+    "issue_key": "HR-7",
+    "issue_type": "Epic",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Harden the graph eval suite",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Cover every projector with samples."
+    }
+  ]
+}

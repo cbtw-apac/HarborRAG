@@ -1,0 +1,27 @@
+{
+  "id": "metrics-table",
+  "title": "Metrics Table",
+  "note": "A page whose body is a single table under one heading: the minimum shape that still has to produce a section, a table node, and a chunk.",
+  "extra": {
+    "page_id": "metrics-table"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Metrics Table",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "t1",
+      "type": "table",
+      "content": "Metric\tTarget\nNode Jaccard\t1.0\nPlaceholders\tstable\n",
+      "metadata": {
+        "table_id": "eval-metrics",
+        "table_caption": "Gate targets"
+      }
+    }
+  ]
+}

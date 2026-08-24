@@ -8,7 +8,10 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 from .document.normalization import CANONICAL_NORMALIZER_VERSION
 
-GRAPH_PROJECTION_VERSION = "graph-v2"
+# graph-v3: Jira parent/subtask placeholders switched identity from numeric issue id
+# to issue key; the bump forces a graph rebuild so id-keyed placeholders and their
+# edges written by graph-v2 builds are replaced instead of stranded alongside.
+GRAPH_PROJECTION_VERSION = "graph-v3"
 VECTOR_PROJECTION_SCHEMA = "vector-v2"
 
 

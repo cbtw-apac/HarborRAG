@@ -91,3 +91,42 @@ forbidden_modules =
     harborrag_app
     harborrag_mcp_server
     harborrag_runtime
+
+[importlinter:contract:8]
+name = Runtime config does not depend on runtime services
+type = forbidden
+source_modules =
+    harborrag_runtime.config
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.ingestion
+    harborrag_runtime.memory
+    harborrag_runtime.retrieval
+    harborrag_runtime.sdk
+    harborrag_runtime.temporal
+
+[importlinter:contract:9]
+name = Ingestion domain does not depend on orchestration or serving
+type = forbidden
+source_modules =
+    harborrag_runtime.ingestion.document
+    harborrag_runtime.ingestion.maintenance
+    harborrag_runtime.ingestion.source
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.retrieval
+    harborrag_runtime.sdk
+    harborrag_runtime.temporal
+
+[importlinter:contract:10]
+name = Retrieval does not depend on orchestration or serving
+type = forbidden
+source_modules =
+    harborrag_runtime.retrieval
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.sdk
+    harborrag_runtime.temporal

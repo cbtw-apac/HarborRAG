@@ -100,6 +100,32 @@ async def test_activity_settings_provider_member_roundtrips(
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
+async def test_activity_append_is_idempotent_by_id(sessions: SessionFactory) -> None:
+    """A replayed pending effect (see effect_recovery.py) reuses the original
+    entry's id -- possibly raced by two concurrent recovery drains against
+    the same database -- so a second append of that id must not raise or
+    create a duplicate row; it's the table's primary key on id, treated as
+    an already-recorded no-op."""
+    activity = SqlActivityRepository(sessions)
+    entry = ActivityEntry(
+        id="a1",
+        tenant_id="tenant-a",
+        actor="nguyen.vu@cbtw.tech",
+        verb="created",
+        entity_type="project",
+        entity_id="p1",
+        summary="Created project Docs",
+    )
+
+    await activity.append(entry)
+    await activity.append(entry)
+
+    entries = await activity.list(tenant_ids=None)
+    assert [e.id for e in entries] == ["a1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
 async def test_activity_provider_member_repositories_enforce_tenant_scope(
     sessions: SessionFactory,
 ) -> None:

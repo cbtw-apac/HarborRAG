@@ -312,5 +312,8 @@ async def test_path_search_returns_explicit_canonical_paths() -> None:
 
     statement, parameters = client.read_calls[0]
     assert "all(node IN nodes(path) WHERE node.tenant_id = $tenant_id" in statement
+    # FalkorDB rejects ORDER BY over an unprojected path expression, so the ordering has
+    # to name the projected alias. Pinned because the failure is query-time only.
+    assert "ORDER BY size(path_relations)" in statement
     assert parameters["relationship_types"] == ["contains"]
     assert result.paths[0].nodes[1].node_key == "node-section"

@@ -136,7 +136,6 @@ module = [
     "azure.identity",
     "azure.keyvault.secrets",
     "falkordb.asyncio",
-    "cloudpickle",
     "docling.*",
     "fastmcp",
     "langfuse",

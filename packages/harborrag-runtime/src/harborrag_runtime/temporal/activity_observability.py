@@ -23,6 +23,7 @@ from harborrag_runtime.ingestion.observability import (
     DocumentMetricOutcome,
     IngestionStage,
     IngestionTelemetry,
+    SubprocessOutcomeLabel,
 )
 
 logger = logging.getLogger("harborrag.runtime.temporal.activities")
@@ -106,13 +107,14 @@ class ActivityObservability:
                 failure = self._failures.classify(stage, error)
                 logger.error(
                     "Activity failed stage=%s workflow_id=%s activity_id=%s "
-                    "attempt=%d error_code=%s error_type=%s retryable=%s",
+                    "attempt=%d error_code=%s error_type=%s status_code=%s retryable=%s",
                     stage,
                     context.workflow_id,
                     context.activity_id,
                     context.attempt,
                     failure.code,
                     type(error).__name__,
+                    getattr(error, "status_code", None),
                     failure.retryable,
                 )
                 raise ApplicationError(
@@ -227,6 +229,16 @@ class ActivityObservability:
             DocumentMetricOutcome.FAILED,
             connector_type,
         )
+
+    def record_subprocess_outcome(self, stage: str, outcome: SubprocessOutcomeLabel) -> None:
+        try:
+            metric_stage = _ACTIVITY_STAGES[stage]
+        except KeyError:
+            raise HarborInvariantError(
+                f"activity stage {stage!r} has no entry in _ACTIVITY_STAGES; "
+                "add it before recording subprocess outcomes"
+            ) from None
+        self._telemetry.record_subprocess_outcome(metric_stage, outcome)
 
     def _record_verification_failure(self, stage: IngestionStage) -> None:
         if stage is IngestionStage.VERIFICATION:

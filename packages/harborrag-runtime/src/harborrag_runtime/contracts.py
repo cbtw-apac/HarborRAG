@@ -17,6 +17,11 @@ from harborrag_core.retrieval import (
 )
 from harborrag_core.security import AccessContext
 from harborrag_engine.retrieval import RetrievalLane
+from harborrag_runtime.ingestion.limits import (
+    validate_discovery_concurrency,
+    validate_discovery_page_size,
+    validate_document_concurrency,
+)
 
 
 class ExecutionMode(StrEnum):
@@ -48,12 +53,9 @@ class IngestionRequest:
             raise ValueError("ingestion connector and task identities must be non-empty")
         if self.limit is not None and self.limit < 1:
             raise ValueError("ingestion limit must be positive")
-        if not 1 <= self.document_concurrency <= 100:
-            raise ValueError("document_concurrency must be between 1 and 100")
-        if not 1 <= self.discovery_page_size <= 300:
-            raise ValueError("discovery_page_size must be between 1 and 300")
-        if not 1 <= self.discovery_concurrency <= 32:
-            raise ValueError("discovery_concurrency must be between 1 and 32")
+        validate_document_concurrency(self.document_concurrency)
+        validate_discovery_page_size(self.discovery_page_size)
+        validate_discovery_concurrency(self.discovery_concurrency)
 
 
 @dataclass(frozen=True, slots=True)

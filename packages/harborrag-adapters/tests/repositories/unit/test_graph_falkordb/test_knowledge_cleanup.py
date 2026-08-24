@@ -75,30 +75,29 @@ def relation() -> GraphEdgeRecord:
 @pytest.mark.asyncio
 async def test_subgraph_search_applies_bounded_filtered_traversal() -> None:
     client = FakeFalkorDBClient()
+    document, section = nodes()
     client.read_results = [
+        FakeQueryResult([HeaderItem("node")], [[document.model_dump(mode="json")]]),
         FakeQueryResult(
-            [HeaderItem("path_nodes"), HeaderItem("path_relations")],
-            [
-                [
-                    [node.model_dump(mode="json") for node in nodes()],
-                    [relation().model_dump(mode="json")],
-                ]
-            ],
-        )
+            [HeaderItem("relation"), HeaderItem("related")],
+            [[relation().model_dump(mode="json"), section.model_dump(mode="json")]],
+        ),
     ]
 
     result = await repository(client).expand_subgraph(
         GraphSubgraphQuery(
             start_node="node-document",
             relationship_types=(RelationType.CONTAINS,),
+            max_depth=1,
             max_nodes=10,
         ),
         context=StorageOperationContext.system("tenant-1"),
     )
 
-    _, parameters = client.read_calls[0]
-    assert parameters["start_node"] == "node-document"
-    assert parameters["relationship_types"] == ["contains"]
+    _, start_parameters = client.read_calls[0]
+    assert start_parameters["start_node"] == "node-document"
+    _, level_parameters = client.read_calls[1]
+    assert level_parameters["relationship_types"] == ["contains"]
     assert len(result.nodes) == 2
     assert len(result.relations) == 1
 

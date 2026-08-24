@@ -45,6 +45,11 @@ class GraphSourceProjectorRegistry:
     def resolve(self, connector_type: str) -> GraphSourceProjector:
         return self._projectors.get(connector_type.casefold(), GenericSourceProjector())
 
+    def connector_types(self) -> frozenset[str]:
+        """Registered connector-type keys, as ``register`` casefolded them."""
+
+        return frozenset(self._projectors)
+
 
 def default_graph_source_projector_registry() -> GraphSourceProjectorRegistry:
     registry = GraphSourceProjectorRegistry()

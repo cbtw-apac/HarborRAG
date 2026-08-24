@@ -139,7 +139,8 @@ JIRA_TOKEN=replace-with-a-least-privilege-token
 The active model catalog in [`config/models.yaml`](config/models.yaml) requires
 the `HARBOR_CHAT_*` and `HARBOR_EMBED_*` values from `env/.env.models`. Set a
 strong `POSTGRES_PASSWORD` in `env/.env.database`, and configure the Temporal
-worker in `env/.env.temporal`:
+worker replica count in `env/.env.temporal`. Worker capacity, task queues,
+retry budgets, TLS, and timeouts live in `config/temporal.yaml`:
 
 ```dotenv
 HARBORRAG_TEMPORAL_WORKER_REPLICAS=2
@@ -169,6 +170,7 @@ docker compose \
   ps
 
 docker compose \
+  --env-file env/.env.database \
   --env-file env/.env.temporal \
   --file deploy/compose/docker-compose.temporal.yml \
   --profile worker \
@@ -213,6 +215,7 @@ Follow worker logs during a run:
 
 ```bash
 docker compose \
+  --env-file env/.env.database \
   --env-file env/.env.temporal \
   --file deploy/compose/docker-compose.temporal.yml \
   --profile worker \
@@ -348,6 +351,8 @@ See [Architecture](docs/developers/architecture/README.md) for the exact allowed
 
 | File | Purpose |
 | --- | --- |
+| `config/temporal.yaml` | Temporal connection, TLS, task queues, retries, worker capacity, health, and workflow timeouts |
+| `config/temporal.example.yaml` | Annotated Temporal configuration reference with every supported non-secret setting |
 | `config/connectors.yaml` | Active named connector definitions and environment references |
 | `config/parsers.yaml` | Active parser definitions and commented backend alternatives |
 | `config/models.yaml` | Active chat and embedding model configuration |

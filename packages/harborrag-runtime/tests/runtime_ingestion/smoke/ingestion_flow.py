@@ -293,14 +293,9 @@ def _store_report(observation: StoreObservation) -> dict[str, object]:
                 "chunk_kind": chunk.chunk_kind,
                 "dense_dimensions": chunk.dense_dimensions,
                 "sparse_terms": chunk.sparse_terms,
-                "payload_preview": chunk.preview,
-                "range_loaded_content": chunk.content[:300],
+                "content_preview": chunk.content[:300],
                 "payload_fields": chunk.payload_fields,
                 "citation_fields": chunk.citation_fields,
-                "content_range": {
-                    "byte_offset": chunk.content_byte_offset,
-                    "byte_length": chunk.content_byte_length,
-                },
             }
             for chunk in observation.chunks
         ],

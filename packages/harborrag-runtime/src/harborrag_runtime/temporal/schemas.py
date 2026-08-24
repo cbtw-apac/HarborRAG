@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from harborrag_runtime.ingestion.limits import (
+    MAX_RETRY_DOCUMENT_IDS,
+    validate_discovery_concurrency,
+    validate_discovery_page_size,
+    validate_document_concurrency,
+    validate_source_orchestration_limits,
+)
 from harborrag_runtime.temporal.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .dispatch import DocumentDispatchSummary
 
 _SOURCE_TASK_STATES = frozenset(
     "PENDING RUNNING PAUSED CANCELLING COMPLETED PARTIAL FAILED CANCELLED".split()
 )
-
-# Bound retries because this workflow has no continue-as-new checkpoint for
-# recovering from Temporal history limits.
-_MAX_RETRY_DOCUMENT_IDS = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +89,7 @@ class SourceIngestionInput:
     batch_size: int = 200
     continue_after_batches: int = 25
     continuation: SourceContinuation | None = None
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
     def __post_init__(self) -> None:
         values = (
@@ -100,18 +105,15 @@ class SourceIngestionInput:
             raise ValueError("source input identities must be non-empty")
         if len(self.task_id) > 128:
             raise ValueError("source task ID must not exceed 128 characters")
-        if not 1 <= self.batch_size <= 300:
-            raise ValueError("source batch_size must be between 1 and 300")
-        if not 1 <= self.document_concurrency <= 100:
-            raise ValueError("document_concurrency must be between 1 and 100")
-        if not 1 <= self.discovery_page_size <= 300:
-            raise ValueError("discovery_page_size must be between 1 and 300")
-        if not 1 <= self.discovery_concurrency <= 32:
-            raise ValueError("discovery_concurrency must be between 1 and 32")
+        validate_source_orchestration_limits(
+            batch_size=self.batch_size,
+            continue_after_batches=self.continue_after_batches,
+        )
+        validate_document_concurrency(self.document_concurrency)
+        validate_discovery_page_size(self.discovery_page_size)
+        validate_discovery_concurrency(self.discovery_concurrency)
         if self.missing_threshold < 1:
             raise ValueError("missing_threshold must be positive")
-        if not 1 <= self.continue_after_batches <= 100:
-            raise ValueError("continue_after_batches must be between 1 and 100")
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +133,7 @@ class SourceBatchInput:
     end_index: int
     batch_number: int
     document_concurrency: int
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +143,7 @@ class DocumentIngestionInput:
     connector_name: str
     plan_reference: WorkflowArtifactReference
     document_index: int
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +264,7 @@ class RetryFailuresInput:
     tenant_id: str
     document_ids: tuple[str, ...]
     document_concurrency: int = 8
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
     def __post_init__(self) -> None:
         if any(
@@ -269,9 +274,9 @@ class RetryFailuresInput:
             raise ValueError("retry task identities must be non-empty")
         if not self.document_ids or any(not value.strip() for value in self.document_ids):
             raise ValueError("retry task document IDs must be non-empty")
-        if len(self.document_ids) > _MAX_RETRY_DOCUMENT_IDS:
+        if len(self.document_ids) > MAX_RETRY_DOCUMENT_IDS:
             raise ValueError(
-                f"retry task document IDs must number at most {_MAX_RETRY_DOCUMENT_IDS} "
+                f"retry task document IDs must number at most {MAX_RETRY_DOCUMENT_IDS} "
                 "per retry run (RetryFailuresWorkflow has no continue_as_new checkpoint)"
             )
         if len(set(self.document_ids)) != len(self.document_ids):
@@ -293,6 +298,7 @@ class RetryDocumentInput:
     tenant_id: str
     plan_reference: WorkflowArtifactReference
     document_index: int
+    workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
 
 @dataclass(frozen=True, slots=True)

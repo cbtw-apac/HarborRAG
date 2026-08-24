@@ -7,6 +7,7 @@ from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborError,
     HarborNotFoundError,
+    HarborSecretDecryptionError,
     HarborValidationError,
 )
 
@@ -14,7 +15,13 @@ from harborrag_core.contracts.errors import (
 @pytest.mark.whitebox
 @pytest.mark.parametrize(
     "exc_type",
-    [HarborNotFoundError, HarborValidationError, HarborConflictError, HarborAuthError],
+    [
+        HarborNotFoundError,
+        HarborValidationError,
+        HarborConflictError,
+        HarborAuthError,
+        HarborSecretDecryptionError,
+    ],
 )
 def test_new_errors_subclass_harbor_error(exc_type: type[HarborError]) -> None:
     """API-facing errors is part of the HarborError hierarchy"""

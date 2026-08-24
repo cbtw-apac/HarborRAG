@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from jira_test_helpers import FakeJiraClient, cloud_config, dc_config
 
-from harborrag_adapters.connectors.exceptions import AuthenticationError, FetchError
+from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
 from harborrag_adapters.connectors.jira import JiraConnector
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -32,7 +32,7 @@ def test_discover_raises_when_empty_search_hides_a_permission_gap(config_factory
     )
     connector = JiraConnector(config_factory(), client=client)
 
-    with pytest.raises(AuthenticationError, match="BROWSE_PROJECTS"):
+    with pytest.raises(AuthorizationError, match="BROWSE_PROJECTS"):
         list(connector.discover())
 
     assert ("mypermissions", {"projectKey": "ENG", "permissions": "BROWSE_PROJECTS"}) in (
@@ -43,7 +43,7 @@ def test_discover_raises_when_empty_search_hides_a_permission_gap(config_factory
 def test_discover_allows_genuinely_empty_result_when_permission_is_granted():
     """A zero-result search with a confirmed BROWSE_PROJECTS grant is a real
     "no matching issues" -- the permission probe must not turn every empty
-    project into a false-positive authentication failure."""
+    project into a false-positive authorization failure."""
     client = FakeJiraClient()
     client.add_post("search/jql", {"issues": [], "isLast": True})
     client.add_get(
@@ -71,9 +71,9 @@ def test_discover_lets_empty_result_stand_when_permission_probe_is_inconclusive(
     """If the `mypermissions` probe itself fails (endpoint disabled,
     unrecognized permission key, transient error), that's inconclusive, not
     a confirmed permission gap -- it must not turn every genuinely-empty
-    project into a false-positive `AuthenticationError`. A real bad
-    credential still surfaces via the shared client's 401 handling on this
-    same call."""
+    project into a false-positive `AuthorizationError`. A real bad
+    credential still surfaces via the shared client's own 401/403 handling
+    on this same call."""
     client = FakeJiraClient()
     client.add_post("search/jql", {"issues": [], "isLast": True})
 
@@ -106,5 +106,5 @@ def test_discover_page_raises_when_empty_search_hides_a_permission_gap():
     )
     connector = JiraConnector(cloud_config(), client=client)
 
-    with pytest.raises(AuthenticationError, match="BROWSE_PROJECTS"):
+    with pytest.raises(AuthorizationError, match="BROWSE_PROJECTS"):
         connector.discover_page(None, cursor=None, page_size=10)

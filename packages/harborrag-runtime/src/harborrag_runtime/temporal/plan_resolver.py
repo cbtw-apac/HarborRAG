@@ -10,6 +10,13 @@ from .conversion import to_artifact_reference
 from .schemas import DocumentIngestionInput, RetryDocumentInput
 
 
+class InvalidDocumentIndexError(ApplicationError):
+    """Raised when a plan document index is negative or out of range."""
+
+    def __init__(self) -> None:
+        super().__init__("source plan document index is invalid", non_retryable=True)
+
+
 class PlanDocumentResolver:
     """Resolve one bounded document from an immutable source dispatch plan."""
 
@@ -24,10 +31,9 @@ class PlanDocumentResolver:
             to_artifact_reference(request.plan_reference),
             context=StorageOperationContext.system(request.tenant_id),
         )
+        if request.document_index < 0:
+            raise InvalidDocumentIndexError()
         try:
             return planned[request.document_index]
         except IndexError as error:
-            raise ApplicationError(
-                "source plan document index is invalid",
-                non_retryable=True,
-            ) from error
+            raise InvalidDocumentIndexError() from error

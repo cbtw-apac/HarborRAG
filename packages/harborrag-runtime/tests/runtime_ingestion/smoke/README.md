@@ -36,7 +36,7 @@ printing secret values. It publishes the two Markdown fixtures and verifies:
 
 - immutable raw, canonical, chunk, representation, and projection artifacts;
 - Qdrant dense, sparse, and hybrid retrieval with active-version validation;
-- single-chunk MinIO range reads and complete chunk provenance;
+- chunk payload content, citation fields, and complete chunk provenance;
 - FalkorDB forward/reverse traversal, endpoint integrity, and no duplicate
   semantic relations;
 - unchanged replay without parsing, chunking, or encoding;

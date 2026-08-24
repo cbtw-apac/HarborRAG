@@ -163,6 +163,33 @@ def test_ingest_cli_has_stable_json_envelope(monkeypatch, capsys) -> None:
     assert payload["data"]["run"]["run_id"] == "run-1"
 
 
+def test_ingest_cli_passes_batching_overrides(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    exit_code = cli.main(
+        [
+            "ingest",
+            "start",
+            "--tenant",
+            "tenant-1",
+            "--connector",
+            "local-docs",
+            "--run-id",
+            "run-1",
+            "--batch-size",
+            "5",
+            "--document-concurrency",
+            "5",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["data"]["run"]["batch_size"] == 5
+    assert payload["data"]["run"]["document_concurrency"] == 5
+
+
 def test_ingest_cli_constructs_service_outside_event_loop(monkeypatch, capsys) -> None:
     caller_thread = threading.get_ident()
     factory_threads: list[int] = []

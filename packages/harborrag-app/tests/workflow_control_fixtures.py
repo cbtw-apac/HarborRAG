@@ -137,4 +137,8 @@ def source_input(
         ),
         query=submission.query,
         force_reprocess=submission.force_reprocess,
+        batch_size=submission.batch_size if submission.batch_size is not None else 200,
+        document_concurrency=(
+            submission.document_concurrency if submission.document_concurrency is not None else 8
+        ),
     )

@@ -3,6 +3,7 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_NO_CACHE=1 \
+    HARBORRAG_TEMPORAL_CONFIG_PATH=/app/config/temporal.yaml \
     HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml \
     HARBORRAG_PARSER_CONFIG_PATH=/app/config/parsers.yaml \
     HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml
