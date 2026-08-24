@@ -7,10 +7,12 @@ rest of that service.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from harborrag_core.invariants import require
 
+from ..errors import IngestionStatusFilterError
 from .models import TaskPageCursor
 from .ports import TaskStoreProvider
 from .presenters import TASK_STATES, decode_task_cursor, encode_task_cursor, task_response
@@ -25,7 +27,7 @@ class TaskListingMixin:
         self,
         *,
         tenants: frozenset[str] | None,
-        status: str | None,
+        statuses: Sequence[str] | None,
         cursor: str | None,
         limit: int,
     ) -> dict[str, object]:
@@ -42,7 +44,7 @@ class TaskListingMixin:
         position = decode_task_cursor(cursor) if cursor else None
         page = await store.list_tasks(
             tenant_ids=tenants,
-            statuses=TASK_STATES[status] if status is not None else None,
+            statuses=_resolve_statuses(statuses),
             before_submitted_at=(
                 datetime.fromisoformat(position.submitted_at) if position is not None else None
             ),
@@ -65,6 +67,25 @@ class TaskListingMixin:
                 )
             )
         return {"items": items, "next_cursor": next_cursor}
+
+
+def _resolve_statuses(statuses: Sequence[str] | None) -> tuple[str, ...] | None:
+    """Translate public status names into the durable states they select.
+
+    A route validates its status filter against the public enum before this
+    runs, so an unknown name here can only reach a caller that skipped that
+    check -- raise the same validation error rather than a raw ``KeyError``.
+    """
+
+    if statuses is None:
+        return None
+    resolved: list[str] = []
+    for name in statuses:
+        matched = TASK_STATES.get(name)
+        if matched is None:
+            raise IngestionStatusFilterError(f"Unknown ingestion status filter: {name!r}")
+        resolved.extend(matched)
+    return tuple(resolved)
 
 
 __all__ = ["TaskListingMixin"]

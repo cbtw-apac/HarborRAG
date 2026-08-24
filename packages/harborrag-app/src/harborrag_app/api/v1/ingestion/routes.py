@@ -103,7 +103,7 @@ async def list_ingestions(
     """
     result = await service.list_tasks(
         tenants=_authorized_tenants(principal, query.tenant),
-        status=query.status.value if query.status is not None else None,
+        statuses=[value.value for value in query.status] if query.status else None,
         cursor=query.cursor,
         limit=query.limit,
     )

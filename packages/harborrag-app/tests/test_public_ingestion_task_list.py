@@ -80,7 +80,7 @@ async def test_pages_walk_every_task_newest_first(
     visited: list[str] = []
     cursor: str | None = None
     while True:
-        page = await service.list_tasks(tenants=None, status=None, cursor=cursor, limit=2)
+        page = await service.list_tasks(tenants=None, statuses=None, cursor=cursor, limit=2)
         visited.extend(str(item["task_id"]) for item in page["items"])  # type: ignore[index]
         cursor = page["next_cursor"]  # type: ignore[assignment]
         if cursor is None:
@@ -98,7 +98,7 @@ async def test_last_page_reports_no_cursor(
     service, control = listing
     await _seed_task(control, "task-1")
 
-    page = await service.list_tasks(tenants=None, status=None, cursor=None, limit=50)
+    page = await service.list_tasks(tenants=None, statuses=None, cursor=None, limit=50)
 
     assert [item["task_id"] for item in page["items"]] == ["task-1"]  # type: ignore[index]
     assert page["next_cursor"] is None
@@ -116,7 +116,7 @@ async def test_tenant_scope_excludes_other_tenants(
 
     scoped = await service.list_tasks(
         tenants=frozenset({"ACME"}),
-        status=None,
+        statuses=None,
         cursor=None,
         limit=50,
     )
@@ -133,7 +133,7 @@ async def test_empty_tenant_scope_returns_nothing(
     service, control = listing
     await _seed_task(control, "task-1", tenant="ACME")
 
-    page = await service.list_tasks(tenants=frozenset(), status=None, cursor=None, limit=50)
+    page = await service.list_tasks(tenants=frozenset(), statuses=None, cursor=None, limit=50)
 
     assert page == {"items": [], "next_cursor": None}
 
@@ -150,8 +150,8 @@ async def test_status_filter_uses_the_public_status_name(
     await control.tasks.transition("done-1", IngestionTaskState.RUNNING)
     await control.tasks.transition("done-1", IngestionTaskState.COMPLETED)
 
-    completed = await service.list_tasks(tenants=None, status="SUCCESS", cursor=None, limit=50)
-    pending = await service.list_tasks(tenants=None, status="PENDING", cursor=None, limit=50)
+    completed = await service.list_tasks(tenants=None, statuses=["SUCCESS"], cursor=None, limit=50)
+    pending = await service.list_tasks(tenants=None, statuses=["PENDING"], cursor=None, limit=50)
 
     assert [item["task_id"] for item in completed["items"]] == ["done-1"]  # type: ignore[index]
     assert [item["status"] for item in completed["items"]] == ["SUCCESS"]  # type: ignore[index]
@@ -177,7 +177,7 @@ async def test_progress_counts_come_from_the_recorded_outcomes(
             )
         )
 
-    page = await service.list_tasks(tenants=None, status=None, cursor=None, limit=50)
+    page = await service.list_tasks(tenants=None, statuses=None, cursor=None, limit=50)
     progress = {str(item["task_id"]): item["progress"] for item in page["items"]}  # type: ignore[index]
 
     assert progress["task-1"]["processed"] == 2  # type: ignore[index]
@@ -197,4 +197,4 @@ async def test_malformed_cursors_are_rejected(
     service, _ = listing
 
     with pytest.raises(IngestionCursorError):
-        await service.list_tasks(tenants=None, status=None, cursor=cursor, limit=50)
+        await service.list_tasks(tenants=None, statuses=None, cursor=cursor, limit=50)

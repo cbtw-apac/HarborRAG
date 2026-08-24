@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
@@ -27,7 +27,7 @@ class IngestionService(Protocol):
         self,
         *,
         tenants: frozenset[str] | None,
-        status: str | None,
+        statuses: Sequence[str] | None,
         cursor: str | None,
         limit: int,
     ) -> dict[str, object]: ...

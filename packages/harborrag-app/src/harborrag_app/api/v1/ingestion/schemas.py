@@ -102,7 +102,10 @@ class IngestionTaskQuery(ApiModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
         description="Restrict the listing to one tenant the caller may read.",
     )
-    status: IngestionStatus | None = None
+    status: list[IngestionStatus] | None = Field(
+        default=None,
+        description="Restrict to one or more statuses; repeat to OR them (?status=PENDING&status=RUNNING).",
+    )
     cursor: str | None = None
     limit: int = Field(default=50, ge=1, le=200)
 

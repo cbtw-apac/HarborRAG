@@ -26,7 +26,6 @@ def upgrade() -> None:
         _INDEX_NAME,
         "ingestion_tasks",
         ["tenant_id", "submitted_at", "task_id"],
-        postgresql_ops={"submitted_at": "DESC", "task_id": "DESC"},
     )
 
 

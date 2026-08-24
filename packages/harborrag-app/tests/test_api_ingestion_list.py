@@ -70,7 +70,7 @@ def test_default_query_reads_the_callers_full_scope(
     assert client.get("/v1/ingestions").status_code == 200
     assert service.task_list_calls[-1] == {
         "tenants": None,
-        "status": None,
+        "statuses": None,
         "cursor": None,
         "limit": 50,
     }
@@ -88,10 +88,35 @@ def test_filters_and_cursor_reach_the_application_service(
     assert response.status_code == 200
     assert service.task_list_calls[-1] == {
         "tenants": frozenset({"ACME"}),
-        "status": "SUCCESS",
+        "statuses": ["SUCCESS"],
         "cursor": "abc",
         "limit": 5,
     }
+
+
+def test_repeated_status_reaches_the_application_service_as_one_filter(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    """?status=PENDING&status=RUNNING ORs both, instead of costing two calls."""
+    response = client.get(
+        "/v1/ingestions",
+        params=[("status", "PENDING"), ("status", "RUNNING")],
+    )
+
+    assert response.status_code == 200
+    assert service.task_list_calls[-1]["statuses"] == ["PENDING", "RUNNING"]
+
+
+def test_malformed_cursor_is_rejected_at_the_route(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    response = client.get("/v1/ingestions", params={"cursor": "not-base64"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INGESTION_CURSOR_INVALID"
+    assert service.task_list_calls == []
 
 
 @pytest.mark.parametrize(

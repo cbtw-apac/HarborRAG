@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from harborrag_app.workflow_control.errors import IngestionAlreadyCompletedError
+from harborrag_app.workflow_control.errors import (
+    IngestionAlreadyCompletedError,
+    IngestionCursorError,
+)
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.schemas import AppResponse
 
@@ -77,12 +80,14 @@ class IngestionServiceFixture:
         self,
         *,
         tenants: frozenset[str] | None,
-        status: str | None,
+        statuses: Sequence[str] | None,
         cursor: str | None,
         limit: int,
     ) -> dict[str, object]:
+        if cursor == "not-base64":
+            raise IngestionCursorError("Task cursor is invalid.")
         self.task_list_calls.append(
-            {"tenants": tenants, "status": status, "cursor": cursor, "limit": limit}
+            {"tenants": tenants, "statuses": statuses, "cursor": cursor, "limit": limit}
         )
         return {
             "items": [await self.get_task("00000000-0000-4000-8000-000000000001")],
