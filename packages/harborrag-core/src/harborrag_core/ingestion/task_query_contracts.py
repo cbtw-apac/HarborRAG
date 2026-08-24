@@ -34,3 +34,11 @@ class TaskDocumentPage:
 
     items: tuple[StoredTaskDocumentResult, ...]
     has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPage:
+    """Cursor page of durable ingestion tasks, newest submission first."""
+
+    items: tuple[IngestionTask, ...]
+    has_more: bool

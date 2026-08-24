@@ -22,7 +22,7 @@ from ..control_plane.effect_recovery import (
 from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
-from ..ingestion.models import IngestionCreateCommand
+from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
@@ -43,6 +43,7 @@ class AppService(
     ControlPlaneWritesMixin,
     AgentClientMixin,
     ChatClientMixin,
+    PublicIngestionClientMixin,
     RetrievalClientMixin,
     BaseAppService,
 ):
@@ -135,23 +136,6 @@ class AppService(
             )
         except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
             return failure_response(logger, exc, "check Temporal runtime health")
-
-    async def submit(
-        self,
-        command: IngestionCreateCommand,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, object]:
-        return await self._public_ingestions.submit(
-            command,
-            idempotency_key=idempotency_key,
-        )
-
-    async def get_task(self, task_id: str) -> dict[str, object]:
-        return await self._public_ingestions.get_task(task_id)
-
-    async def recover_pending_submissions(self, *, limit: int = 100) -> int:
-        return await self._public_ingestions.recover_pending_submissions(limit=limit)
 
     async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
         """Drain one pass of the durable secret-retirement/audit-logging outbox.
@@ -246,35 +230,6 @@ class AppService(
         finally:
             if live is not None:
                 await live.aclose()
-
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        return await self._public_ingestions.list_documents(
-            task_id=task_id,
-            status=status,
-            cursor=cursor,
-            limit=limit,
-        )
-
-    async def cancel(self, task_id: str) -> dict[str, object]:
-        return await self._public_ingestions.cancel(task_id)
-
-    async def retry_failures(
-        self,
-        *,
-        task_id: str,
-        document_ids: list[str],
-    ) -> dict[str, object]:
-        return await self._public_ingestions.retry_failures(
-            task_id=task_id,
-            document_ids=document_ids,
-        )
 
     async def start_ingestion(  # noqa: PLR0913 - stable service port
         self,

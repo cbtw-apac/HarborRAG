@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
@@ -22,6 +22,15 @@ class IngestionService(Protocol):
     ) -> dict[str, object]: ...
 
     async def get_task(self, task_id: str) -> dict[str, object]: ...
+
+    async def list_tasks(
+        self,
+        *,
+        tenants: frozenset[str] | None,
+        statuses: Sequence[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> dict[str, object]: ...
 
     async def list_documents(
         self,

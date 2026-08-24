@@ -43,6 +43,10 @@ class IngestionCursorError(HarborValidationError):
     error_code = "INGESTION_CURSOR_INVALID"
 
 
+class IngestionStatusFilterError(HarborValidationError):
+    error_code = "INGESTION_STATUS_INVALID"
+
+
 # Error types whose messages are authored inside HarborRAG at the Temporal
 # boundary and only ever interpolate caller-supplied identifiers (run IDs,
 # connector names, queue names) -- never provider responses, credentials, or
