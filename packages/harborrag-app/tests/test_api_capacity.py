@@ -5,12 +5,18 @@ from __future__ import annotations
 import math
 
 import pytest
+from fastapi.routing import APIRoute
 
 from harborrag_app.api.capacity import (
     LocalApiCapacityLimiter,
     RedisApiCapacityLimiter,
     build_api_capacity_limiter,
 )
+from harborrag_app.api.capacity_dependency import require_api_capacity
+from harborrag_app.api.routes.legacy_ingestions import router as legacy_ingestions_router
+from harborrag_app.api.v1.admin import router as admin_router
+from harborrag_app.api.v1.ingestion import router as ingestion_router
+from harborrag_app.api.v1.retrieval import router as retrieval_router
 from harborrag_core.contracts.errors import HarborConnectionError, HarborRateLimitError
 
 
@@ -161,3 +167,16 @@ def test_capacity_builder_applies_lease_duration_to_local_limiter() -> None:
 
     assert isinstance(limiter, LocalApiCapacityLimiter)
     assert limiter.lease_seconds == 15
+
+
+@pytest.mark.parametrize(
+    "router",
+    [retrieval_router, ingestion_router, admin_router, legacy_ingestions_router],
+)
+def test_all_expensive_api_routers_require_capacity(router: object) -> None:
+    protected_routes = [route for route in router.routes if isinstance(route, APIRoute)]
+
+    assert protected_routes
+    for route in protected_routes:
+        dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+        assert require_api_capacity in dependency_calls, route.path

@@ -9,13 +9,18 @@ from fastapi import APIRouter, Depends, Header, Path, Query
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_core.contracts.errors import HarborValidationError
 
 from .dependencies import ProjectionAdminServiceDependency
 from .schemas import ProjectionDeletionResponse, ProjectionInventoryResponse
 
-router = APIRouter(prefix="/admin/projections", tags=["Administration"])
+router = APIRouter(
+    prefix="/admin/projections",
+    tags=["Administration"],
+    dependencies=[Depends(require_api_capacity)],
+)
 logger = logging.getLogger("harborrag.app.api.admin.projections")
 
 TenantPath = Annotated[

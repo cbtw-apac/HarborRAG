@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -54,7 +55,6 @@ def test_data_and_temporal_ports_bind_to_loopback_by_default() -> None:
 def test_compose_files_require_operator_supplied_passwords() -> None:
     database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
     monitoring = (ROOT / "deploy/compose/docker-compose.monitoring.yml").read_text(encoding="utf-8")
-    script = DEV_SCRIPT.read_text(encoding="utf-8")
 
     assert "POSTGRES_PASSWORD:?" in database
     assert "MINIO_ROOT_PASSWORD:?" in database
@@ -62,10 +62,25 @@ def test_compose_files_require_operator_supplied_passwords() -> None:
     assert "postgres-change-me" not in database
     assert "minio-change-me" not in database
     assert "GRAFANA_ADMIN_PASSWORD:-admin" not in monitoring
-    monitoring_function = script.split("monitoring_compose() {", 1)[1].split(
-        "prepare_worker_mount() {", 1
-    )[0]
-    assert '--env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}"' in monitoring_function
+
+
+def test_monitoring_is_private_authenticated_and_version_pinned() -> None:
+    monitoring = (ROOT / "deploy/compose/docker-compose.monitoring.yml").read_text(encoding="utf-8")
+
+    assert monitoring.count("HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1") == 2
+    assert "GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?" in monitoring
+    assert 'GF_AUTH_ANONYMOUS_ENABLED: "false"' in monitoring
+    assert 'GF_USERS_ALLOW_SIGN_UP: "false"' in monitoring
+    assert 'expose:\n      - "3100"' in monitoring
+    assert '"3100:3100"' not in monitoring
+    assert "image: prom/prometheus:v3.13.1" in monitoring
+    assert "image: grafana/grafana:13.1.0" in monitoring
+    assert "image: grafana/loki:3.7.2" in monitoring
+    assert "@sha256:" not in monitoring
+    assert ":latest" not in monitoring
+    assert "internal: true" in monitoring
+    assert "grafana_secure_data:/var/lib/grafana" in monitoring
+    assert "grafana_data:/var/lib/grafana" not in monitoring
 
 
 def test_falkordb_constraints_use_restart_safe_snapshot_persistence() -> None:
@@ -158,13 +173,44 @@ def test_development_entrypoint_orchestrates_explicit_components() -> None:
     assert "start_temporal" in script
     assert "start_worker" in script
     assert "start_api" in script
-    assert "up [--no-worker]" in script
+    assert "start_monitoring" not in script
+    assert "monitoring_compose" not in script
+    assert "    monitoring)" not in script
+    assert "up [--no-worker] [--build]" in script
     assert "chmod 600" in script
+
+
+def test_api_and_worker_reuse_local_images_unless_rebuild_is_requested() -> None:
+    api = API_COMPOSE.read_text(encoding="utf-8")
+    temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    script = DEV_SCRIPT.read_text(encoding="utf-8")
+
+    assert "image: ${HARBORRAG_API_IMAGE:-harborrag-api-api}" in api
+    assert (
+        "image: ${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}" in temporal
+    )
+    assert 'docker image inspect "${API_IMAGE}"' in script
+    assert 'docker image inspect "${TEMPORAL_WORKER_IMAGE}"' in script
+    assert "local -a build_args=(--no-build)" in script
+    assert "build_args=(--build)" in script
+    assert "api [--build]" in script
+    assert "worker [--build]" in script
+
+
+def test_monitoring_credentials_are_configured_outside_the_development_script() -> None:
+    script = DEV_SCRIPT.read_text(encoding="utf-8")
+    example = (ROOT / "env-example/.env.monitoring.example").read_text(encoding="utf-8")
+
+    assert "MONITORING_ENV_FILE" not in script
+    assert "ensure_monitoring_environment_file" not in script
+    assert "env-example/.env.monitoring.example" not in script
+    assert "HARBORRAG_MONITORING_BIND_ADDRESS=127.0.0.1" in example
+    assert "GRAFANA_ADMIN_PASSWORD=\n" in example
 
 
 def test_api_subcommand_validates_configuration_and_never_starts_worker() -> None:
     script = DEV_SCRIPT.read_text(encoding="utf-8")
-    api_function = script.split("start_api() {", 1)[1].split("start_monitoring() {", 1)[0]
+    api_function = script.split("start_api() {", 1)[1].split("stop_stack() {", 1)[0]
 
     assert "config --services" in api_function
     assert '"${compose_services[0]:-}" != "api"' in api_function
@@ -190,6 +236,34 @@ def test_mcp_entrypoint_runs_stdio_without_starting_other_processes() -> None:
     assert "docker compose" not in mcp_script
     assert "start_mcp" not in dev_script
     assert "    mcp)" not in dev_script
+
+
+def test_mcp_entrypoint_redacts_malformed_environment_values(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    script = project / "scripts/deployment/mcp.sh"
+    environment = project / "env"
+    script.parent.mkdir(parents=True)
+    environment.mkdir()
+    script.write_text(MCP_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    (environment / ".env.database").write_text("POSTGRES_USER=test\n", encoding="utf-8")
+    fake_key = "sk-proj-" + "a" * 40
+    (environment / ".env.models").write_text(
+        f"HARBOR_CHAT_API_KEY= {fake_key}\n",
+        encoding="utf-8",
+    )
+    (environment / ".env.api").write_text("HARBORRAG_AUTH_MODE=none\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        cwd=project,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert fake_key not in result.stderr
+    assert "line 1: ***: command not found" in result.stderr
 
 
 def test_temporal_and_worker_subcommands_have_separate_ownership() -> None:

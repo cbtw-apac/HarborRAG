@@ -12,6 +12,7 @@ from harborrag_app.api.auth.dependencies import (
     require_role,
 )
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 
 from .commands import build_ingestion_command
@@ -27,7 +28,11 @@ from .schemas import (
     RetryFailuresRequest,
 )
 
-router = APIRouter(prefix="/ingestions", tags=["Ingestion"])
+router = APIRouter(
+    prefix="/ingestions",
+    tags=["Ingestion"],
+    dependencies=[Depends(require_api_capacity)],
+)
 
 
 ERROR_RESPONSES = documented_error_responses(

@@ -191,7 +191,7 @@ def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixt
     namespace_logger = logging.getLogger("harborrag")
     namespace_logger.addHandler(caplog.handler)
     try:
-        with caplog.at_level("WARNING", logger="harborrag"):
+        with caplog.at_level("WARNING", logger="harborrag.app.api.auth"):
             create_fastapi_app(ApiSettings())
     finally:
         namespace_logger.removeHandler(caplog.handler)

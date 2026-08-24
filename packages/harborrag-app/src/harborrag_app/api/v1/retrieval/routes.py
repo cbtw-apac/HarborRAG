@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborConnectionError
@@ -29,7 +30,11 @@ from .schemas import (
     VectorSearchResponse,
 )
 
-router = APIRouter(prefix="/retrieval", tags=["Retrieval"])
+router = APIRouter(
+    prefix="/retrieval",
+    tags=["Retrieval"],
+    dependencies=[Depends(require_api_capacity)],
+)
 
 ERROR_RESPONSES = documented_error_responses(
     {

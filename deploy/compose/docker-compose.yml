@@ -2,6 +2,7 @@ name: harborrag-api
 
 services:
   api:
+    image: ${HARBORRAG_API_IMAGE:-harborrag-api-api}
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.api
