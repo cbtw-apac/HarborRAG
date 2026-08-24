@@ -26,7 +26,7 @@ from harborrag_core.ingestion import (
 
 from .config import JiraProjectConfig
 from .issues import DISCOVERY_DESCRIPTOR_KEY, JiraIssueAPI
-from .mappers import build_source_record, issue_key_from_record
+from .mappers import build_source_record, issue_key_from_record, project_identity
 
 
 class JiraDescriptorBuilder:
@@ -82,8 +82,14 @@ class JiraDescriptorBuilder:
             setting_name="max_attachments",
         )
         attachment_descriptors = self._attachments.describe(raw_attachments)
+        # Same project identity the issue projects, so issue and attachment land under
+        # one project node instead of the attachment falling back to the data source.
         bound_records = tuple(
-            attachment_source_record(discovered, descriptor)
+            attachment_source_record(
+                discovered,
+                descriptor,
+                inherited=project_identity(issue),
+            )
             for descriptor in attachment_descriptors
             if descriptor.status == "admitted"
         )

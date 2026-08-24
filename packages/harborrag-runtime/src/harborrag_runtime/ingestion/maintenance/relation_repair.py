@@ -55,7 +55,6 @@ class _RepairTarget:
     document_id: str
     processing_fingerprint: str
     graph_projection_version: str
-    source_scope_id: str | None
 
 
 class GraphRelationRepairService:
@@ -95,7 +94,6 @@ class GraphRelationRepairService:
                         profile=item.request.processing
                     ),
                     graph_projection_version=item.request.processing.graph_projection_version,
-                    source_scope_id=item.request.source_identity.source_scope_id,
                 )
                 for item in planned
             ),
@@ -126,7 +124,6 @@ class GraphRelationRepairService:
                     document_id=document_id,
                     processing_fingerprint=fingerprint,
                     graph_projection_version=processing.graph_projection_version,
-                    source_scope_id=None,
                 )
                 for document_id in document_ids
             ),
@@ -148,7 +145,6 @@ class GraphRelationRepairService:
                     target.document_id,
                     expected_processing_fingerprint=target.processing_fingerprint,
                     graph_projection_version=target.graph_projection_version,
-                    source_scope_id=target.source_scope_id,
                     context=context,
                 )
 
@@ -168,7 +164,6 @@ class GraphRelationRepairService:
         *,
         expected_processing_fingerprint: str,
         graph_projection_version: str,
-        source_scope_id: str | None,
         context: StorageOperationContext,
     ) -> tuple[int, int, int]:
         snapshot = await self._control.document_versions.active_snapshot(document_id)
@@ -201,10 +196,11 @@ class GraphRelationRepairService:
                 snapshot.document_version_id,
             )
             return (0, 0, 1)
-        resolved_scope_id = source_scope_id or self._source_scope_id(document)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))
         targets = await self._control.document_versions.resolve_active_sources(
-            source_scope_id=resolved_scope_id,
+            tenant_id=context.tenant_id,
+            connector_type=self._required_extra(document, "connector_type"),
+            connection_id=self._required_extra(document, "connection_id"),
             source_item_ids=source_ids,
         )
         graph = self._builder.build(
@@ -263,9 +259,9 @@ class GraphRelationRepairService:
         )
 
     @staticmethod
-    def _source_scope_id(document: Document) -> str:
-        value = document.provenance.extra.get("source_scope_id")
-        source_scope_id = str(value).strip() if value is not None else ""
-        if not source_scope_id:
-            raise ValueError("canonical document is missing its source scope")
-        return source_scope_id
+    def _required_extra(document: Document, key: str) -> str:
+        value = document.provenance.extra.get(key)
+        text = str(value).strip() if value is not None else ""
+        if not text:
+            raise ValueError(f"canonical document is missing its {key}")
+        return text

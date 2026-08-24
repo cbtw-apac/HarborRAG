@@ -11,6 +11,31 @@ from harborrag_core.domain.element import DocumentElement
 from ..config import ChunkingProfile
 from ..schemas import ChunkUnit
 
+_STRUCTURE_ONLY_ELEMENT_TYPES = frozenset({"heading"})
+
+
+def produces_evidence(document: Document) -> bool:
+    """Report whether segmentation will emit at least one evidence unit.
+
+    A heading contributes a section path and never a unit, so a document whose every
+    element is a heading segments to nothing. ``RouteChunkPlanner`` then builds a
+    document-only route -- deliberately, for navigational pages -- but a route carries
+    ``RecordKind.ROUTE`` and ``VectorProjectionBuilder`` keeps only ``EVIDENCE``, so
+    the batch comes out empty and ``VectorProjectionBatch.assemble`` raises. The
+    release dies at ``BuildProjections`` with a ``ValueError``.
+
+    Callers that gate admission need to know that before they commit, and they must ask
+    segmentation rather than re-deriving the rule, which is why the skip below reads the
+    same frozenset.
+    """
+
+    return bool(document.table_artifacts) or any(
+        element.type not in _STRUCTURE_ONLY_ELEMENT_TYPES
+        and element.content is not None
+        and element.content.strip()
+        for element in document.content
+    )
+
 
 def integer_metadata(metadata: Mapping[str, Any], *keys: str) -> int | None:
     """Return the first integer metadata value, excluding booleans."""
@@ -78,7 +103,7 @@ class DocumentStructureSegmenter:
             if not content or not content.strip():
                 continue
 
-            if element.type == "heading":
+            if element.type in _STRUCTURE_ONLY_ELEMENT_TYPES:
                 level = self._heading_level(element.metadata)
                 if level == 1 and content.strip() == document.title.strip():
                     headings.clear()

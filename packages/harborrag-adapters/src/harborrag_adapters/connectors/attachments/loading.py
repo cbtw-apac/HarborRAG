@@ -5,7 +5,7 @@ import hashlib
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
-from .records import attachment_descriptor_from_record
+from .records import CONTAINER_IDENTITY_KEYS, attachment_descriptor_from_record
 from .sources import AttachmentSourceGateway
 
 
@@ -27,6 +27,14 @@ class AttachmentDocumentLoader:
             content=content,
             content_type=descriptor.media_type,
             metadata={
+                # Forward the parent's container identity before the loader's own keys,
+                # so the projector can file this attachment under the same space or
+                # project its parent lives in instead of falling back to the data source.
+                **{
+                    key: record.metadata[key]
+                    for key in CONTAINER_IDENTITY_KEYS
+                    if key in record.metadata
+                },
                 "attachment_id": descriptor.attachment_id,
                 "title": descriptor.title,
                 "filename": descriptor.title,

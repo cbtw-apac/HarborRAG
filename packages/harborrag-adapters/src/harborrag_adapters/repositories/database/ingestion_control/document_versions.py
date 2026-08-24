@@ -317,11 +317,15 @@ class DocumentVersionRepository:
     async def resolve_active_sources(
         self,
         *,
-        source_scope_id: str,
+        tenant_id: str,
+        connector_type: str,
+        connection_id: str,
         source_item_ids: Sequence[str],
     ) -> dict[str, ActiveSourceDocument]:
         return await self._reader.resolve_active_sources(
-            source_scope_id=source_scope_id,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=connection_id,
             source_item_ids=source_item_ids,
         )
 

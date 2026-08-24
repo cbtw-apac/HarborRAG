@@ -24,6 +24,7 @@ from harborrag_core.ingestion import (
 from .config import ConfluenceSpaceConfig
 from .content import ConfluenceContentAPI
 from .mappers import build_source_record, content_id_from_record, validate_content
+from .normalization.schemas import space_identity
 
 DISCOVERY_DESCRIPTOR_KEY = "_confluence_discovery_descriptor"
 
@@ -81,8 +82,14 @@ class ConfluenceDescriptorBuilder:
                 ),
             )
         attachment_descriptors = self._attachments.describe(raw_attachments)
+        # The same space identity the page itself projects, so page and attachment land
+        # under one space node instead of the attachment falling back to the data source.
+        container = space_identity(
+            content.get("space") or {},
+            default_space_key=self._config.space_key,
+        )
         bound_records = tuple(
-            attachment_source_record(discovered, descriptor)
+            attachment_source_record(discovered, descriptor, inherited=container)
             for descriptor in attachment_descriptors
             if descriptor.status == "admitted"
         )
@@ -107,7 +114,10 @@ class ConfluenceDescriptorBuilder:
                 "source_version": source_version,
                 "defer_attachments": True,
                 "attachment_names": [descriptor.title for descriptor in attachment_descriptors],
-                "relations": [self._relation_payload(relation) for relation in relations],
+                "relations": [
+                    self._relation_payload(relation, titles=self._ancestor_titles(content))
+                    for relation in relations
+                ],
             },
         )
         return ConnectorDocumentDescriptor(
@@ -202,10 +212,38 @@ class ConfluenceDescriptorBuilder:
     @staticmethod
     def _relation_payload(
         relation: SourceRelationDescriptor,
+        *,
+        titles: dict[str, str],
     ) -> dict[str, object]:
+        metadata: dict[str, object] = {"source_relation_version": relation.source_relation_version}
+        # Carried on the payload, never on the descriptor: the descriptor feeds
+        # admission_change_key, so adding a field there would re-admit every document.
+        # The payload is not free either -- SourceAdmissionPolicy.retrieval_metadata_view
+        # hashes document.relations, so adding this key re-versions every page that has a
+        # relation, once. Measured on a live re-run: 84 of 98 pages took a second version
+        # whose canonical_content_hash, processing_fingerprint and admission_change_key
+        # were all unchanged. That is the intended trade -- it is what republished the
+        # graph with resolved target titles -- but it is a re-embed, so do not add
+        # cosmetic keys here.
+        title = titles.get(relation.target_source_item_id)
+        if title:
+            metadata["target_title"] = title
         return {
             "predicate": relation.relation_type.value,
             "target_id": relation.target_source_item_id,
             "target_type": "document",
-            "metadata": {"source_relation_version": relation.source_relation_version},
+            "metadata": metadata,
         }
+
+    @staticmethod
+    def _ancestor_titles(content: dict[str, Any]) -> dict[str, str]:
+        """Map each ancestor's canonical source id to its human title."""
+
+        space_key = str((content.get("space") or {}).get("key") or "").strip()
+        titles: dict[str, str] = {}
+        for ancestor in content.get("ancestors") or []:
+            ancestor_id = str(ancestor.get("id") or "").strip()
+            title = str(ancestor.get("title") or "").strip()
+            if ancestor_id and title and space_key:
+                titles[f"confluence://{space_key}/{ancestor_id}"] = title
+        return titles

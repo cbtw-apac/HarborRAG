@@ -14,11 +14,10 @@ from .graph_models import (
 )
 from .graph_state import GraphProjectionContext, GraphProjectionState, GraphRelationSpec
 from .graph_structure import StructuralGraphProjector
+from .source_projector_support import relation_entity_type, source_provider_id
 from .source_projectors import (
     GraphSourceProjectorRegistry,
     default_graph_source_projector_registry,
-    relation_entity_type,
-    source_provider_id,
 )
 
 
@@ -138,9 +137,10 @@ class SourceRelationProjector:
                     self._state.context.connector_type.value,
                     relation_type,
                     relation.target_type,
+                    reverse=reverse,
                 ),
                 target_id,
-                title=((resolved.title or target_id) if resolved is not None else target_id),
+                title=self._target_title(relation, resolved, target_id),
                 source_scope_id=target_scope,
                 attributes={"placeholder": True},
             )
@@ -166,6 +166,28 @@ class SourceRelationProjector:
         return tuple(unresolved)
 
     @staticmethod
+    def _target_title(
+        relation: DocumentRelation,
+        resolved: GraphDocumentTarget | None,
+        target_id: str,
+    ) -> str:
+        """Name a relation's far end as well as the connector allows.
+
+        An unresolved target used to fall back to its own provider id, so a page that
+        was referenced but never ingested surfaced in the graph titled with a bare
+        numeric id -- and ``title`` is one of only three node selectors, so those nodes
+        were unfindable by name. Connectors that know the far end's name put it in
+        ``target_title``; use it before giving up on the id.
+        """
+
+        if resolved is not None and resolved.title:
+            return resolved.title
+        supplied = relation.metadata.get("target_title")
+        if supplied is not None and str(supplied).strip():
+            return str(supplied).strip()
+        return target_id
+
+    @staticmethod
     def _normalize(relation: DocumentRelation) -> tuple[RelationType, bool] | None:
         predicate = relation.predicate.strip().lower().replace("-", "_").replace(" ", "_")
         registry: dict[str, tuple[RelationType, bool]] = {
@@ -179,5 +201,9 @@ class SourceRelationProjector:
             "duplicates": (RelationType.DUPLICATES, False),
             "is_duplicated_by": (RelationType.DUPLICATES, True),
             "relates_to": (RelationType.RELATES_TO, False),
+            # Was absent, so the loop `continue`d BEFORE the unresolved_relations append:
+            # a transclusion produced no edge, no placeholder and no unresolved record --
+            # dropped without trace. Measured on a live space: 9 include macros, 0 edges.
+            "includes": (RelationType.INCLUDES, False),
         }
         return registry.get(predicate)

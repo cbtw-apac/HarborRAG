@@ -122,21 +122,32 @@ def test_confluence_attachment_resolves_and_attached_to_reverses(corpus: EvalCor
     assert _node(attachment_batch, page).attributes["placeholder"] is True
 
 
-def test_unmapped_includes_predicate_is_dropped_without_trace(corpus: EvalCorpus) -> None:
-    """`includes` is reserved in RelationType and never projected -- pin that decision.
+def test_confluence_include_macro_projects_a_transclusion_edge(corpus: EvalCorpus) -> None:
+    """A macro include is a real relation and now gets a real edge.
 
-    A macro include is a real Confluence relation, so a future decision to map it (most
-    likely onto LINKS_TO) has to be a reviewed change: today it produces no edge, no
-    placeholder node, and no unresolved record at all.
+    It used to be absent from ``SourceRelationProjector._normalize``, which ``continue``d
+    before the ``unresolved_relations`` append -- so a transclusion produced no edge, no
+    placeholder and no unresolved record. Measured on a live space: 9 ``include`` macros,
+    0 edges. It is deliberately not LINKS_TO: a link is a reference the reader may follow,
+    a transclusion is the target's content already rendered into the host page.
     """
 
     assert "includes" in {
         relation.predicate for relation in eval_documents()["space-overview"].relations
     }
     batch = corpus.batches["space-overview"]
-    assert not batch.unresolved_relations
-    assert not [node for node in batch.nodes if node.attributes.get("placeholder") is True]
-    assert corpus.source_item_key("team-handbook") not in {node.node_key for node in batch.nodes}
+
+    assert corpus.source_item_key("team-handbook") in {
+        target for _, target in _edges(batch, "includes")
+    }
+    # The stub this batch writes for the far end carries the very node key that
+    # team-handbook's own batch projects concretely, so the two MERGE rather than fork.
+    concrete = {
+        node.node_key
+        for node in corpus.batches["team-handbook"].nodes
+        if not node.attributes.get("placeholder")
+    }
+    assert corpus.source_item_key("team-handbook") in concrete
 
 
 def test_confluence_comments_project_reply_to_and_section_links(corpus: EvalCorpus) -> None:
@@ -197,36 +208,60 @@ def test_jira_subtask_child_of_reverses_to_parent_of(corpus: EvalCorpus) -> None
     assert (subtask, parent) not in edges
 
 
-def test_github_contains_chain_pins_ref_and_commit(corpus: EvalCorpus) -> None:
+def test_github_splits_membership_from_the_directory_chain(corpus: EvalCorpus) -> None:
+    """The repository holds every file flat; directories carry position only.
+
+    All of this used to be one CONTAINS chain, so a repository's children mixed files with
+    directories with refs -- three kinds in one edge set, and counting the files meant
+    filtering by entity_type and guessing a depth.
+    """
+
     batch = corpus.batches["setup-guide"]
     keys = _by_entity(batch)
     file_key = corpus.source_item_key("setup-guide")
+    owner = keys[("github_owner", "acme")]
+    repository = keys[("github_repository", "repo-1")]
     assert keys[("github_file", "docs/guides/setup.md")] == file_key
-    chain = (
-        keys[("github_owner", "acme")],
-        keys[("github_repository", "repo-1")],
+
+    contains = _edges(batch, "contains")
+    # Spine, then membership -- each set single-typed.
+    assert {(owner, repository), (repository, file_key)} <= contains
+    assert (repository, keys[("github_directory", "docs")]) not in contains
+
+    tree = (
+        repository,
         keys[("github_directory", "docs")],
         keys[("github_directory", "docs/guides")],
         file_key,
     )
-    contains = _edges(batch, "contains")
-    assert set(zip(chain[:-1], chain[1:], strict=True)) <= contains
+    assert set(zip(tree[:-1], tree[1:], strict=True)) <= _edges(batch, "parent_of")
+
     commit = keys[("github_commit", "9f1c0de5a2b34c7d")]
-    assert (keys[("github_ref", "main")], commit) in _edges(batch, "points_to")
+    ref = keys[("github_ref", "main")]
+    # A ref is version metadata, not a document: off the membership axis by design.
+    assert (repository, ref) not in contains
+    assert (repository, ref) in _edges(batch, "parent_of")
+    assert (ref, commit) in _edges(batch, "points_to")
     assert (corpus.document_version_key("setup-guide"), commit) in _edges(batch, "resolved_at")
 
 
 def test_sharepoint_contains_chain_runs_through_placeholder_folders(corpus: EvalCorpus) -> None:
     batch = corpus.batches["security-policy"]
     keys = _by_entity(batch)
-    folders = (keys[("sharepoint_folder", "Policies")], keys[("sharepoint_folder", "folder-2")])
-    chain = (
-        keys[("sharepoint_site", "site-1")],
-        keys[("sharepoint_drive", "drive-1")],
-        *folders,
-        corpus.source_item_key("security-policy"),
+    folders = (
+        keys[("sharepoint_folder", "Policies")],
+        keys[("sharepoint_folder", "Policies/Security")],
     )
-    assert set(zip(chain[:-1], chain[1:], strict=True)) <= _edges(batch, "contains")
+    site = keys[("sharepoint_site", "site-1")]
+    drive = keys[("sharepoint_drive", "drive-1")]
+    item = corpus.source_item_key("security-policy")
+
+    contains = _edges(batch, "contains")
+    # Spine down to the drive, then the drive holds files -- never folders.
+    assert {(site, drive), (drive, item)} <= contains
+    assert (drive, folders[0]) not in contains
+    # The folder chain is position, on the other axis.
+    assert set(zip((drive, *folders), (*folders, item), strict=True)) <= _edges(batch, "parent_of")
     # Folder nodes are census placeholders, not unresolved links: Task 11's placeholder
     # report has to split them out by entity_type.
     for folder in folders:
@@ -247,6 +282,34 @@ def test_cross_source_link_never_resolves(corpus: EvalCorpus) -> None:
         (relation.relation_type, relation.target_source_item_id)
         for relation in batch.unresolved_relations
     }
+
+
+def test_confluence_space_directly_contains_every_page(corpus: EvalCorpus) -> None:
+    """Membership is one hop, not a walk down the ancestor chain.
+
+    CONTAINS used to reach only a page with no ancestors -- in a real space that is the
+    single root -- so counting a space's pages meant a variable-length PARENT_OF walk.
+    Measured on a live graph before this changed: out-degree 1 for 98 pages, deepest page
+    7 hops down, against a traversal ceiling of 8. PARENT_OF still carries the tree; this
+    pins that it is no longer the only way in, for ancestors as well as ingested pages.
+    """
+
+    pages: set[str] = set()
+    contained: set[str] = set()
+    space_keys: set[str] = set()
+    for batch in corpus.batches.values():
+        types = _entity_types(batch)
+        pages |= {key for key, value in types.items() if value == "confluence_page"}
+        space_keys |= {key for key, value in types.items() if value == "confluence_space"}
+        contained |= {
+            target
+            for source, target in _edges(batch, "contains")
+            if types.get(source) == "confluence_space"
+        }
+
+    assert len(space_keys) == 1, space_keys
+    assert pages, "corpus has no Confluence pages to check"
+    assert pages <= contained, pages - contained
 
 
 def test_every_golden_case_names_a_corpus_document(corpus: EvalCorpus) -> None:

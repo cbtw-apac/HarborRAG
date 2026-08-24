@@ -73,19 +73,19 @@ PATH_CASES: tuple[PathCase, ...] = (
         expect_found=True,
         hops=2,
     ),
-    # security-policy and deep-audit both sit under .../Policies/Security, but SharePoint
-    # keys only the *last* folder of a path by the item's parent id and every earlier one by
-    # accumulated path -- so that one real folder is two nodes, and the two items are six
-    # hops apart through the drive rather than two hops through a shared folder. Pinned as
-    # the behaviour it is; see the folder identity note in README.md.
+    # security-policy sits directly in .../Policies/Security and deep-audit two folders
+    # below it. Every folder is keyed by its drive-relative path, so that shared folder is
+    # one node and the two items meet through it: file -> Security -> Audits -> 2026 ->
+    # file. Keying only the *last* folder of a path by the item's parent id made the same
+    # folder two nodes and forced this walk up to the drive and back down in six hops.
     PathCase(
-        name="sharepoint folder split keeps same-folder items far apart",
+        name="sharepoint same-folder subtree meets through one shared folder",
         start_doc="security-policy",
         end_doc="deep-audit",
-        max_depth=3,
+        max_depth=4,
         relationship_types=(RelationType.CONTAINS,),
-        expect_found=False,
-        hops=6,
+        expect_found=True,
+        hops=4,
     ),
 )
 

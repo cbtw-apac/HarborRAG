@@ -29,6 +29,7 @@ from harborrag_engine.ingestion.chunking import (
     TableClassificationThresholds,
     TableShape,
     build_chunking_service,
+    produces_evidence,
 )
 from harborrag_engine.ingestion.normalizer import DocumentNormalizer
 from harborrag_engine.ingestion.policies import (
@@ -117,5 +118,6 @@ __all__ = [
     "VectorProjectionPolicy",
     "VectorProjectionStore",
     "build_chunking_service",
+    "produces_evidence",
     "source_version_from_document",
 ]

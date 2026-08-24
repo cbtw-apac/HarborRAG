@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from io import BytesIO
 from typing import ClassVar
 
 from harborrag_adapters.parsers.common.resources import (
@@ -24,7 +23,12 @@ from harborrag_adapters.parsers.spreadsheet.base import HarborSpreadsheetEngine
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
-from .rendering import guard_declared_table_size, legacy_cell_to_text, openxml_cell_to_text
+from .rendering import (
+    guard_declared_table_size,
+    legacy_cell_to_text,
+    open_data_workbook,
+    openxml_cell_to_text,
+)
 
 parser_logger = get_parser_logger("excel")
 
@@ -157,12 +161,7 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                     format_name="xlsx",
                     archive=archive,
                 )
-            workbook = load_workbook(
-                BytesIO(source_bytes),
-                read_only=True,
-                data_only=True,
-                keep_links=False,
-            )
+            workbook = open_data_workbook(load_workbook, source_bytes)
             try:
                 sheet_names = workbook.sheetnames
                 sections: list[str] = []
