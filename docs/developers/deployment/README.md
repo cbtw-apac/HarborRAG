@@ -33,6 +33,13 @@ cp env-example/.env.database.example env/.env.database
 scripts/deployment/dev.sh data
 ```
 
+When upgrading an existing checkout, add `POSTGRES_PASSWORD` and
+`MINIO_ROOT_PASSWORD` to the existing protected `env/.env.database` before the
+next start. Monitoring now uses a separate `env/.env.monitoring`; create it
+from `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`.
+Compose intentionally refuses to start an affected service when one of these
+required passwords is absent.
+
 The unified deployment helper accepts `DATABASE_ENV_FILE` overrides and passes
 the selected file to Docker Compose. Change the example password before using
 the stack outside an isolated developer machine.

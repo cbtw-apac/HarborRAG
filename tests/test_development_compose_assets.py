@@ -199,13 +199,15 @@ def test_api_and_worker_reuse_local_images_unless_rebuild_is_requested() -> None
 
 def test_monitoring_credentials_are_configured_outside_the_development_script() -> None:
     script = DEV_SCRIPT.read_text(encoding="utf-8")
-    example = (ROOT / "env-example/.env.monitoring.example").read_text(encoding="utf-8")
+    database_example = (ROOT / "env-example/.env.database.example").read_text(encoding="utf-8")
+    monitoring_example = (ROOT / "env-example/.env.monitoring.example").read_text(encoding="utf-8")
 
     assert "MONITORING_ENV_FILE" not in script
     assert "ensure_monitoring_environment_file" not in script
     assert "env-example/.env.monitoring.example" not in script
-    assert "HARBORRAG_MONITORING_BIND_ADDRESS=127.0.0.1" in example
-    assert "GRAFANA_ADMIN_PASSWORD=\n" in example
+    assert "GRAFANA_ADMIN_PASSWORD" not in database_example
+    assert "HARBORRAG_MONITORING_BIND_ADDRESS=127.0.0.1" in monitoring_example
+    assert "GRAFANA_ADMIN_PASSWORD=\n" in monitoring_example
 
 
 def test_api_subcommand_validates_configuration_and_never_starts_worker() -> None:

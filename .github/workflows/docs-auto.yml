@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check-release]
     if: |
-      always() &&
+      !cancelled() &&
       ((github.event_name != 'release') ||
       (github.event_name == 'release' && needs.check-release.outputs.should-deploy == 'true'))
     permissions:

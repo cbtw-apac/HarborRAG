@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Revalidate retrieval candidates against the authoritative active document
+  versions immediately before returning results, preventing a concurrent
+  publication from exposing a superseded document version.
+
+### Security
+
+- Require operator-supplied PostgreSQL, MinIO, and Grafana passwords instead
+  of checked-in Compose fallbacks. Existing development environments must add
+  the required database credentials and create the separate protected
+  monitoring environment file before restarting the affected stacks.
+
 ## [2.0.0a1] - 2026-08-27
 
 This is the first public HarborRAG 2.0 alpha release. Python package metadata,
