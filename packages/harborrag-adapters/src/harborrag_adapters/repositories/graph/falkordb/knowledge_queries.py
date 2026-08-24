@@ -230,15 +230,16 @@ async def expand_subgraph(
                OR start.logical_id = $start_node
                OR toLower(start.title) = toLower($start_node))
         RETURN start AS node
-        LIMIT $max_nodes
+        ORDER BY start.node_key
+        LIMIT 1
         """,
         {
             "tenant_id": tenant_id,
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "start_node": query.start_node,
-            "max_nodes": query.max_nodes,
         },
     )
+    assert len(start_rows) <= 1, "start resolution must be constrained to a single row"
 
     nodes: dict[str, GraphNodeRecord] = {}
     for row in start_rows:
