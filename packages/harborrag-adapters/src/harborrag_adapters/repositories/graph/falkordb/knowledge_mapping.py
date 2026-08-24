@@ -39,13 +39,20 @@ class KnowledgeGraphMapper:
             relations=tuple(cls.relation(raw) for raw in row["path_relations"]),
         )
 
-    @staticmethod
-    def properties(raw: Any) -> dict[str, Any]:
+    # Write-side-only properties stored on every node/relation row but not part of the
+    # GraphNodeRecord/GraphEdgeRecord contract: tenant_id is a filter key, and placeholder
+    # (see knowledge_writes._node_row) is a merge-ordering guard used only at write time.
+    # Both models are StrictModel (extra="forbid"), so leaving either one in would make
+    # every read raise a ValidationError instead of returning the node.
+    _INTERNAL_PROPERTY_KEYS = frozenset({"tenant_id", "placeholder"})
+
+    @classmethod
+    def properties(cls, raw: Any) -> dict[str, Any]:
         values = dict(getattr(raw, "properties", raw))
         return {
             key: FalkorDBMapper.decode_property(value)
             for key, value in values.items()
-            if key != "tenant_id"
+            if key not in cls._INTERNAL_PROPERTY_KEYS
         }
 
     @staticmethod
@@ -117,18 +124,25 @@ def build_knowledge_traversal(
     """Deduplicate bounded path rows into canonical graph records."""
     nodes: dict[str, GraphNodeRecord] = {}
     relations: dict[str, GraphEdgeRecord] = {}
-    truncated = len(rows) > path_limit
+    # row_limit_exceeded reports "more paths existed than we fetched"; node_cap_reached
+    # controls when to stop accumulating. Keeping them separate matters because more rows
+    # than path_limit is common precisely when the neighborhood is large enough to need
+    # full node accumulation — collapsing them into one flag stopped the loop after the
+    # first row (a single 2-node path) any time that happened, before max_nodes was ever
+    # approached.
+    row_limit_exceeded = len(rows) > path_limit
+    node_cap_reached = False
     for row in rows[:path_limit]:
         for raw_node in row["path_nodes"]:
             node = KnowledgeGraphMapper.node(raw_node)
             nodes[node.node_key] = node
             if len(nodes) >= max_nodes:
-                truncated = True
+                node_cap_reached = True
                 break
         for raw_relation in row["path_relations"]:
             relation = KnowledgeGraphMapper.relation(raw_relation)
             relations[relation.relation_id] = relation
-        if truncated:
+        if node_cap_reached:
             break
     valid_relations = tuple(
         relation
@@ -138,5 +152,5 @@ def build_knowledge_traversal(
     return KnowledgeGraphTraversal(
         nodes=tuple(nodes.values()),
         relations=valid_relations,
-        truncated=truncated,
+        truncated=row_limit_exceeded or node_cap_reached,
     )
