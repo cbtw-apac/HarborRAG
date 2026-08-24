@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import release
 from click.testing import CliRunner
-from release_support import checks, cli, versioning, versions
+from release_support import checks, cli, metadata, versioning, versions
 from release_support.cli import release as release_command
 from release_support.config import PRIMARY_PACKAGE, WORKSPACE_PACKAGE
 
@@ -112,6 +112,70 @@ def test_calculate_new_version_validates_explicit_versions() -> None:
 
 
 @pytest.mark.parametrize(
+    ("friendly", "canonical"),
+    [
+        ("2.0.0-alpha", "2.0.0a1"),
+        ("2.0.0-alpha.2", "2.0.0a2"),
+        ("2.0.0-beta", "2.0.0b1"),
+        ("2.0.0-beta.3", "2.0.0b3"),
+        ("2.0.0-rc", "2.0.0rc1"),
+        ("2.0.0-rc.4", "2.0.0rc4"),
+    ],
+)
+def test_calculate_new_version_normalizes_friendly_prerelease_aliases(
+    friendly: str, canonical: str
+) -> None:
+    assert release.calculate_new_version("1.0.3", 5, friendly) == canonical
+
+
+def test_publish_dry_run_exits_nonzero_when_a_gate_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "assert_release_files_exist", lambda: None)
+    monkeypatch.setattr(cli, "_run_initial_checks", lambda _dry_run: {"ready": False})
+    monkeypatch.setattr(cli, "get_all_package_versions", dict)
+    monkeypatch.setattr(cli, "get_current_version", lambda: "2.0.0a1")
+    monkeypatch.setattr(cli, "check_changelog_updated", lambda _version, _dry_run: True)
+    monkeypatch.setattr(
+        cli,
+        "check_release_tags_absent",
+        lambda _packages, _version, _dry_run: True,
+    )
+
+    result = CliRunner().invoke(release_command, ["--publish", "--dry-run"])
+
+    assert result.exit_code == 1
+    assert "❌ ready" in result.output
+
+
+@pytest.mark.parametrize(
+    ("python_version", "typescript_version"),
+    [
+        ("2.0.0", "2.0.0"),
+        ("2.0.0a1", "2.0.0-alpha.1"),
+        ("2.0.0b2", "2.0.0-beta.2"),
+        ("2.0.0rc3", "2.0.0-rc.3"),
+    ],
+)
+def test_python_release_versions_map_to_npm_semver(
+    python_version: str, typescript_version: str
+) -> None:
+    assert metadata.python_version_to_semver(python_version) == typescript_version
+
+
+def test_typescript_release_metadata_uses_npm_semver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_json = tmp_path / "package.json"
+    package_json.write_text('{"name": "client", "version": "2.0.0"}\n', encoding="utf-8")
+    monkeypatch.setattr(metadata, "TYPESCRIPT_PACKAGE", package_json)
+
+    metadata.update_typescript_version("2.0.0a1")
+
+    assert '"version": "2.0.0-alpha.1"' in package_json.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
     "remote",
     [
         "https://github.com/cbtw-apac/HarborRAG.git",
@@ -152,6 +216,24 @@ def test_version_update_preserves_surrounding_toml(
     assert 'version = "1.1.0"' in source
     assert "# keep this comment" in source
     assert tomllib.loads(source)["tool"]["sample"]["enabled"] is True
+
+
+def test_version_update_preserves_crlf_line_endings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pyproject = tmp_path / "sample.toml"
+    with pyproject.open("w", encoding="utf-8", newline="") as stream:
+        stream.write('[project]\r\nname = "sample"\r\nversion = "1.0.0"\r\n')
+    monkeypatch.setitem(
+        versions.PACKAGES,
+        "sample",
+        {"path": ".", "pyproject": "sample.toml", "create_release": True},
+    )
+    monkeypatch.setattr(versions, "repository_path", lambda relative: tmp_path / relative)
+
+    versions.update_package_version("sample", "1.1.0")
+
+    assert pyproject.read_bytes() == (b'[project]\r\nname = "sample"\r\nversion = "1.1.0"\r\n')
 
 
 def test_internal_dependency_update_preserves_extras_and_markers(

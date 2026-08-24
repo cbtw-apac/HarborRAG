@@ -84,7 +84,7 @@ class PageBuildMixin:
             "base_url": _html_value(base_url),
             "canonical_url": _html_value(canonical_url),
             "author": _html_value(project_info.get("name", "HarborRAG")),
-            "version": _html_value(project_info.get("version", "2.0.0")),
+            "version": _html_value(project_info.get("version", "2.0.0a1")),
             "project_name": _html_value(project_info["name"]),
             "project_version": _html_value(project_info["version"]),
             "project_status": _html_value(project_info.get("status", "Alpha")),

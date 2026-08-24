@@ -1845,7 +1845,7 @@ wheels = [
 
 [[package]]
 name = "harborrag"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag" }
 dependencies = [
     { name = "harborrag-core" },
@@ -1925,7 +1925,7 @@ provides-extras = ["local", "chat", "cli", "memory", "server", "temporal", "mcp"
 
 [[package]]
 name = "harborrag-adapters"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-adapters" }
 dependencies = [
     { name = "aiosqlite" },
@@ -2185,7 +2185,7 @@ provides-extras = ["chunking", "control-plane", "redis", "s3", "qdrant", "falkor
 
 [[package]]
 name = "harborrag-app"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-app" }
 dependencies = [
     { name = "harborrag-core" },
@@ -2239,7 +2239,7 @@ provides-extras = ["api", "production"]
 
 [[package]]
 name = "harborrag-core"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-core" }
 dependencies = [
     { name = "pydantic" },
@@ -2250,7 +2250,7 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.13,<3" }]
 
 [[package]]
 name = "harborrag-engine"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-engine" }
 dependencies = [
     { name = "harborrag-core" },
@@ -2265,7 +2265,7 @@ requires-dist = [
 
 [[package]]
 name = "harborrag-mcp-server"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-mcp-server" }
 dependencies = [
     { name = "harborrag-core" },
@@ -2293,7 +2293,7 @@ provides-extras = ["mcp"]
 
 [[package]]
 name = "harborrag-memory"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-memory" }
 dependencies = [
     { name = "harborrag-core" },
@@ -2304,7 +2304,7 @@ requires-dist = [{ name = "harborrag-core", editable = "packages/harborrag-core"
 
 [[package]]
 name = "harborrag-runtime"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { editable = "packages/harborrag-runtime" }
 dependencies = [
     { name = "harborrag-adapters" },
@@ -2350,7 +2350,7 @@ provides-extras = ["temporal", "production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"
-version = "2.0.0"
+version = "2.0.0a1"
 source = { virtual = "." }
 
 [package.optional-dependencies]

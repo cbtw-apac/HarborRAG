@@ -9,34 +9,19 @@ This directory contains the static-site builder for HarborRAG. Repository conten
 
 The templates provide presentation only. Do not copy technical capability, installation, package, or navigation data into a template when it can be linked or generated from these sources.
 
-## Public launch story
+## Presentation boundary
 
-The public homepage is organized around the questions a new open-source user
-needs quick answers to:
-
-1. **What outcome does HarborRAG create?** Turn scattered engineering
-   knowledge into governed, grounded answers.
-2. **How does it work?** Connect, understand, orchestrate, and retrieve.
-3. **What can I use with it?** Sources, model families, storage backends, and
-   operator interfaces are presented as one integration surface.
-4. **Why trust the architecture?** The publication manifest, interactive
-   ingestion/retrieval explorer, and package diagram make authority, evidence,
-   projection, provider, and domain boundaries visible.
-5. **What works today?** HarborRAG 2.0.0 and its Alpha readiness boundary are
-   disclosed together, including infrastructure the operator must still own.
-6. **How do I start or contribute?** Every major section routes to a real guide,
-   command, repository page, or issue path.
+The existing Bootstrap-based website layout is intentionally retained while
+the frontend team builds its replacement. Changes in this branch should focus
+on the generated documentation, release metadata, link correctness, and
+publication safety. Do not introduce a parallel redesign or a new visual
+component system here.
 
 Capability statements must remain evidence-backed by the root README and
 `docs/getting-started/what-is-harborrag.md`. Do not publish customer logos,
 adoption numbers, performance claims, or production-readiness claims without a
 repository-owned source of truth.
 
-The presentation layer is intentionally modular: `foundation.css` owns shared
-tokens and shell styles, while landing, explorer, interface, content, and
-responsive concerns live in focused stylesheets under `website/assets/css/`.
-Keep new rules with the feature that owns them instead of rebuilding a single
-site-wide stylesheet.
 
 ## Build locally
 

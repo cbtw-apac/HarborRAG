@@ -7,15 +7,14 @@ Assets in this directory are copied into `site/assets/` during a documentation b
 - `logos/` — the existing navigation and social artwork.
 - `icons/` — the existing scalable marks and documentation icons.
 - `favicons/` — browser, Apple touch, and Android favicon variants.
-- `css/foundation.css` — tokens, reset, shared shell, navigation, and buttons.
-- `css/landing.css` — homepage hero, publication manifest, capability, and journey sections.
-- `css/explorer.css` — interactive architecture explorer and system diagram.
-- `css/interfaces.css` — developer examples, operator view, status, and documentation cards.
-- `css/content.css` — footer and secondary documentation-page presentation.
-- `css/responsive.css` — viewport, reduced-motion, and increased-contrast adaptations.
-- `js/site.js` — accessible navigation, tab interfaces, reveal behavior, and scroll state; no framework or generated artwork.
+- `css/docs.css` — documentation content and code-block styling.
+- `js/search.js` — client-side documentation search.
+- `js/codeux.js` — code-block interaction helpers.
+- `js/mermaid-init.js` — Mermaid diagram initialization.
 
-The existing visual assets are intentionally retained for the company frontend team to replace. This documentation refresh does not create new artwork.
+The existing layout and visual assets are intentionally retained for the
+company frontend team to replace. Documentation and release work should not add
+a parallel visual system.
 
 ## Regenerate favicons
 

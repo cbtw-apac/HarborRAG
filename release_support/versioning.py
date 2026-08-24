@@ -15,12 +15,34 @@ _CLASSIFIERS = {
     "stable": "Development Status :: 5 - Production/Stable",
 }
 _CUSTOM_VERSION = re.compile(r"^\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?$")
+_FRIENDLY_PRERELEASE = re.compile(
+    r"^(?P<release>\d+\.\d+\.\d+)-(?P<phase>alpha|beta|rc)(?:\.(?P<number>\d+))?$",
+    re.IGNORECASE,
+)
+_FRIENDLY_PHASES = {"alpha": "a", "beta": "b", "rc": "rc"}
+
+
+def _read_source(path: Path) -> str:
+    """Read metadata without normalizing its existing line endings."""
+
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        return stream.read()
 
 
 def _validated_custom_version(custom_version: str | None) -> str:
-    if custom_version is None or not _CUSTOM_VERSION.fullmatch(custom_version):
-        raise ValueError("Custom version must use X.Y.Z, X.Y.ZaN, X.Y.ZbN, or X.Y.ZrcN")
-    return custom_version
+    if custom_version is not None and _CUSTOM_VERSION.fullmatch(custom_version):
+        return custom_version
+
+    friendly = _FRIENDLY_PRERELEASE.fullmatch(custom_version or "")
+    if friendly is not None:
+        phase = _FRIENDLY_PHASES[friendly.group("phase").casefold()]
+        number = friendly.group("number") or "1"
+        return f"{friendly.group('release')}{phase}{number}"
+
+    raise ValueError(
+        "Custom version must use X.Y.Z, X.Y.ZaN, X.Y.ZbN, X.Y.ZrcN, "
+        "or a friendly X.Y.Z-alpha[.N], X.Y.Z-beta[.N], or X.Y.Z-rc[.N] alias"
+    )
 
 
 def _next_beta(parsed: Version, major: int, minor: int, patch: int) -> str:
@@ -119,7 +141,7 @@ def update_development_status_classifier(
     """
 
     path = _package_path(package_name)
-    source = path.read_text(encoding="utf-8")
+    source = _read_source(path)
     current = _existing_development_status(path)
     if current is None:
         if development_status is not None:
@@ -238,7 +260,7 @@ def update_internal_dependencies_for_package(
     """Pin direct and optional internal requirements for one package."""
 
     path = _package_path(package_name)
-    source = path.read_text(encoding="utf-8")
+    source = _read_source(path)
     project = tomllib.loads(source).get("project", {})
     current_project_name = str(project.get("name", package_name))
     changes: list[tuple[str, str]] = []

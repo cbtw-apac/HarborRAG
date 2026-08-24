@@ -209,11 +209,11 @@ def check_release_tags_absent(
 def get_github_token(dry_run: bool = False) -> str:
     """Return the GitHub token required for workflow and release API calls."""
 
-    token = os.getenv("GITHUB_TOKEN", "").strip()
+    token = os.getenv("GITHUB_TOKEN", "").strip() or os.getenv("GH_TOKEN", "").strip()
     if token:
         return token
     logging.getLogger("release").error(
-        "GITHUB_TOKEN is required for workflow checks and GitHub releases."
+        "GITHUB_TOKEN or GH_TOKEN is required for workflow checks and GitHub releases."
     )
     if not dry_run:
         raise SystemExit(1)

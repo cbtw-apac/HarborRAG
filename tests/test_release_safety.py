@@ -48,6 +48,15 @@ def test_release_diagnostics_redact_tokens_and_url_credentials() -> None:
     assert redacted.count("[REDACTED]") == 3
 
 
+def test_github_token_accepts_the_gh_cli_environment_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GH_TOKEN", "token-from-gh-cli-environment")
+
+    assert checks.get_github_token() == "token-from-gh-cli-environment"
+
+
 @pytest.mark.parametrize(
     ("current", "bump", "expected"),
     [("2", 3, "2.0.1"), ("2.4", 2, "2.5.0")],
@@ -169,6 +178,33 @@ def test_existing_matching_release_makes_retry_idempotent(
     releases.create_github_release("harborrag", "2.0.0", "token")
 
     assert calls == ["releases/tags/harborrag-v2.0.0"]
+
+
+def test_alpha_version_creates_a_github_prerelease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _prepare_release_test(monkeypatch)
+    payloads: list[dict[str, object]] = []
+
+    def request(_repository, endpoint, _token, **kwargs):
+        if endpoint.startswith("releases/tags/"):
+            return _release_response(404)
+        payloads.append(kwargs["payload"])
+        return _release_response(201)
+
+    monkeypatch.setattr(releases, "github_request", request)
+
+    releases.create_github_release("harborrag", "2.0.0a1", "token")
+
+    assert payloads == [
+        {
+            "tag_name": "harborrag-v2.0.0a1",
+            "name": "harborrag v2.0.0a1",
+            "body": "Notes",
+            "draft": False,
+            "prerelease": True,
+        }
+    ]
 
 
 def test_timeout_recovers_when_release_was_created(

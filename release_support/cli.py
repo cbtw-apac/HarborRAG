@@ -181,6 +181,8 @@ def _publish_release(*, dry_run: bool) -> None:
         click.echo("\nPackage tags to publish:")
         for package_name in packages:
             click.echo(f"  • {package_name}-v{current_version}")
+        if not all(checks.values()):
+            raise SystemExit(1)
         return
     if not all(checks.values()):
         logging.getLogger("release").error("One or more release gates failed.")
@@ -215,7 +217,13 @@ def _publish_release(*, dry_run: bool) -> None:
     type=click.Choice(tuple(_BUMP_TYPES), case_sensitive=False),
     help="Select a non-interactive version bump.",
 )
-@click.option("--version", help="Use an explicit non-interactive release version.")
+@click.option(
+    "--version",
+    help=(
+        "Use an explicit non-interactive release version. Friendly alpha/beta/rc aliases "
+        "such as 2.0.0-alpha normalize to PEP 440 (2.0.0a1)."
+    ),
+)
 @click.option(
     "--development-status",
     type=click.Choice(("alpha", "beta", "stable"), case_sensitive=False),

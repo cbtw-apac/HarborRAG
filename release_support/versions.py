@@ -43,6 +43,13 @@ def _pyproject_path(package_name: str) -> Path:
     return repository_path(relative_path)
 
 
+def _read_source(path: Path) -> str:
+    """Read metadata without normalizing its existing line endings."""
+
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        return stream.read()
+
+
 def get_package_version(package_name: str) -> str:
     """Return the PEP 621 version for one configured package."""
 
@@ -87,7 +94,7 @@ def _replace_project_version(source: str, new_version: str, path: Path) -> str:
     )
     section = source[project_match.end() : section_end]
     updated, replacements = re.subn(
-        r'(?m)^(version\s*=\s*)"[^"]+"\s*$',
+        r'(?m)^(version\s*=\s*)"[^"]+"[ \t]*(?=\r?$)',
         rf'\g<1>"{new_version}"',
         section,
         count=1,
@@ -113,7 +120,7 @@ def update_package_version(package_name: str, new_version: str, dry_run: bool = 
         )
         return
 
-    source = path.read_text(encoding="utf-8")
+    source = _read_source(path)
     updated = _replace_project_version(source, new_version, path)
     # Parse before writing so malformed output never replaces package metadata.
     tomllib.loads(updated)

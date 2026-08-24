@@ -76,7 +76,7 @@ class TestGenerateProjectInfo:
         info = builder.generate_project_info()
 
         assert info["name"] == "HarborRAG"
-        assert info["version"] == "2.0.0"
+        assert info["version"] == "2.0.0a1"
         assert info["status"] == "Alpha"
 
     def test_includes_git_metadata(self, tmp_path, project_root_dir, website_builder_cls):

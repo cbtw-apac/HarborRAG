@@ -5,6 +5,8 @@ import re
 import tomllib
 from pathlib import Path
 
+from release_support.metadata import python_version_to_semver
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -21,7 +23,7 @@ def test_workspace_and_public_clients_share_the_release_version() -> None:
     assert {_project(path)["version"] for path in package_projects} == {EXPECTED_VERSION}
 
     typescript = json.loads((ROOT / "clients/typescript/package.json").read_text(encoding="utf-8"))
-    assert typescript["version"] == EXPECTED_VERSION
+    assert typescript["version"] == python_version_to_semver(EXPECTED_VERSION)
 
 
 def test_internal_package_pins_match_the_release_version() -> None:

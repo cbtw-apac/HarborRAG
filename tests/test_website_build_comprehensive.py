@@ -5,7 +5,6 @@ Tests all aspects of the GitHub Actions docs workflow.
 """
 
 import importlib.util
-import os
 from pathlib import Path
 
 import pytest
@@ -51,18 +50,18 @@ class TestWebsiteBuilderCore:
         assert builder.templates_dir == Path("custom/templates")
         assert builder.output_dir == Path("custom/output")
 
-    def test_load_template_success(self, mock_project_structure):
+    def test_load_template_success(self, mock_project_structure, monkeypatch):
         """Test successful template loading."""
-        os.chdir(mock_project_structure)
+        monkeypatch.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
 
         content = builder.load_template("base.html")
         assert "{{ page_title }}" in content
         assert "{{ content }}" in content
 
-    def test_load_template_not_found(self, mock_project_structure):
+    def test_load_template_not_found(self, mock_project_structure, monkeypatch):
         """Test template loading with missing file."""
-        os.chdir(mock_project_structure)
+        monkeypatch.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
 
         with pytest.raises(FileNotFoundError):

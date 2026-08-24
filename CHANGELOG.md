@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0a1] - 2026-08-27
+
+This is the first public HarborRAG 2.0 alpha release. Python package metadata,
+distribution filenames, dependency pins, and release tags use the canonical
+PEP 440 version `2.0.0a1`; release tooling also accepts `2.0.0-alpha` as an
+operator-facing alias.
+
 ### Documentation
 
 - Rebuilt the public documentation website around HarborRAG 2.0.0 capabilities,
@@ -16,8 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing visual assets and splitting presentation code into focused modules.
 - Added public data-lifecycle, runtime-reliability, publication, and security
   guidance plus a CI guard against publishing private reference material.
-
-## [2.0.0] - 2026-07-07
 
 ### Changed
 
@@ -688,7 +693,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Change detection for incremental updates [#21]
 - Signal handling for graceful shutdown [#21]
 
-[2.0.0]: https://github.com/cbtw-apac/HarborRAG/compare/qdrant-loader-v1.0.3...harborrag-v2.0.0
+[2.0.0a1]: https://github.com/cbtw-apac/HarborRAG/compare/qdrant-loader-v1.0.3...harborrag-v2.0.0a1
 [1.0.3]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.2...qdrant-loader-v1.0.3
 [1.0.2]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.1...qdrant-loader-v1.0.2
 [1.0.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.0...qdrant-loader-v1.0.1

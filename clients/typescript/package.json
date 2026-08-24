@@ -1,6 +1,6 @@
 {
   "name": "@harborrag/api-client",
-  "version": "2.0.0",
+  "version": "2.0.0-alpha.1",
   "description": "Generated TypeScript client for the HarborRAG Control Plane API. The wire types in src/schema.d.ts are generated from openapi.json — the backend-owned contract.",
   "type": "module",
   "main": "dist/index.js",

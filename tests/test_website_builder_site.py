@@ -21,7 +21,7 @@ class TestSiteBuildMixin:
         )
         assert "No coverage artifacts available." in coverage_index
 
-    def test_renders_public_launch_homepage(
+    def test_renders_original_layout_with_current_release_content(
         self, tmp_path, project_root_dir, website_builder_cls, monkeypatch
     ):
         monkeypatch.chdir(project_root_dir)
@@ -32,33 +32,14 @@ class TestSiteBuildMixin:
         launch_builder.build_site()
         html = (launch_builder.output_dir / "index.html").read_text(encoding="utf-8")
 
-        assert "Build answers on" in html
-        assert f"HarborRAG {release_version} · Alpha · Open source" in html
-        assert "The engineering knowledge stack" in html
-        assert "continues the project lineage" in html
-        assert "publication / manifest-02" in html
-        assert "tenant-scoped MCP tools" not in html
-        assert "data-architecture-explorer" in html
-        assert "candidate.version == authority.active_version" in html
-        assert "data-interface-examples" in html
-        tabs = re.findall(r'data-interface-tab="([^"]+)"', html)
-        panels = re.findall(r'data-interface-panel="([^"]+)"', html)
-        assert tabs and set(tabs) == set(panels)
-        assert "data-nav-toggle" in html
-        for stylesheet in (
-            "docs.css",
-            "foundation.css",
-            "landing.css",
-            "explorer.css",
-            "interfaces.css",
-            "content.css",
-            "responsive.css",
-        ):
-            assert f"assets/css/{stylesheet}" in html
-            assert (launch_builder.output_dir / "assets" / "css" / stylesheet).exists()
-        assert "assets/js/site.js" in html
-        assert (launch_builder.output_dir / "assets" / "js" / "site.js").exists()
-        assert f'aria-hidden="true">RELEASE / {release_version}</span>' in html
+        assert '<nav class="navbar navbar-expand-lg' in html
+        assert '<section class="hero-section">' in html
+        assert "A modular, provider-agnostic RAG framework" in html
+        assert "Provider Agnostic" in html
+        assert f'"version": "{release_version}"' in html
+        assert "data-architecture-explorer" not in html
+        assert "assets/css/foundation.css" not in html
+        assert "assets/js/site.js" not in html
         assert "{{" not in html
 
     def test_escapes_html_metadata_and_serializes_json_ld(

@@ -13,7 +13,7 @@ class ProjectStructureMixin:
         """Generate project information for templates."""
         project_info = {
             "name": "HarborRAG",
-            "version": "2.0.0",
+            "version": "2.0.0a1",
             "status": "Alpha",
             "license": "Apache-2.0",
             "description": "A modular, provider-agnostic RAG framework for engineering knowledge",

@@ -2,9 +2,10 @@
 
 HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into independently testable Python packages.
 
-**Current release: 2.0.0.** HarborRAG 2.0 continues the project lineage of
-Qdrant Loader as a breaking rename and architectural expansion. See the
-[2.0.0 changelog](CHANGELOG.md#200---2026-07-07) for the migration boundary.
+**Upcoming release: HarborRAG 2.0.0 Alpha 1 (`2.0.0a1`) on August 27, 2026.**
+HarborRAG 2.0 continues the project lineage of Qdrant Loader as a breaking
+rename and architectural expansion. See the
+[2.0.0a1 changelog](CHANGELOG.md#200a1---2026-08-27) for the migration boundary.
 
 > **Project status:** alpha. Connectors, parsers, model clients, repositories,
 > a repository-backed Temporal ingestion pipeline, the operator CLI, and the
@@ -383,6 +384,12 @@ Prepare release metadata on a branch after adding the new version section to
 dependency pins, the TypeScript client version, classifiers when requested,
 and `uv.lock`; it never commits, pushes, tags, or publishes:
 
+Python distributions use PEP 440 prerelease versions. The release command
+accepts a friendly value such as `2.0.0-alpha` and normalizes it to canonical
+`2.0.0a1`; built Python distributions and package tags use the canonical form,
+while the synchronized TypeScript client uses the SemVer equivalent
+`2.0.0-alpha.1`.
+
 ```bash
 uv run python release.py --dry-run --bump patch --verbose
 uv run python release.py --bump patch --verbose
@@ -407,9 +414,25 @@ uv run python release.py --publish --verbose
 
 Publishing does not modify repository files. It requires synchronized package
 versions, an updated changelog, absent release tags, a clean `main`, no unpushed
-commits, passing workflows on the current commit, and a `GITHUB_TOKEN`
-authorized for this repository. See [Contributing](CONTRIBUTING.md) for the
-pull-request and release gates.
+commits, passing workflows on the current commit, and either `GITHUB_TOKEN` or
+`GH_TOKEN` authorized for this repository. See [Contributing](CONTRIBUTING.md)
+for the pull-request and release gates.
+
+For the first PyPI publication of a package name, register a pending Trusted
+Publisher before creating its GitHub release. HarborRAG requires one publisher
+for each public package (`harborrag-core`, `harborrag-adapters`,
+`harborrag-memory`, `harborrag-engine`, `harborrag-runtime`, `harborrag-app`,
+`harborrag-mcp-server`, and `harborrag`) with these claims:
+
+- owner: `cbtw-apac`
+- repository: `HarborRAG`
+- workflow: `publish.yml`
+- environment: `pypi-publish`, unless `PYPI_ENVIRONMENT` is configured to the
+  same alternate environment in GitHub and PyPI
+
+Pending publishers are external PyPI account configuration: they are not
+created by this repository and do not reserve package names until the first
+successful publication.
 
 ## Development commands
 
