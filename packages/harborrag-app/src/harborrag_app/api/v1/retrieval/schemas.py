@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from harborrag_app.api.schemas import ApiModel
-from harborrag_core.chunking import RelationType
+from harborrag_core.chunking import PROJECTED_RELATION_TYPES
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord
 from harborrag_core.retrieval import GraphDirection, GraphPath, GraphTriplet
 from harborrag_runtime.sdk import RetrievalLane
@@ -18,6 +18,11 @@ _MAX_FILTER_CONTAINER_ITEMS = 32
 _MAX_FILTER_DEPTH = 4
 _MAX_FILTER_KEY_LENGTH = 256
 _MAX_FILTER_STRING_LENGTH = 4_096
+
+# Only the predicates the projection actually emits. Offering the full RelationType enum
+# here would surface reserved-but-never-projected members in both the accepted values and
+# the validation error, promising filters that can only ever return an empty result.
+_ProjectedRelationType = Literal[tuple(item.value for item in PROJECTED_RELATION_TYPES)]
 
 
 def _validate_filter_value(value: JsonValue, *, depth: int = 0) -> None:
@@ -113,7 +118,7 @@ class VectorSearchResponse(ApiModel):
 
 class GraphTripletSearchRequest(TenantScopedRetrievalRequest):
     subject: str | None = Field(default=None, min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
-    predicate: RelationType | None = None
+    predicate: _ProjectedRelationType | None = None
     object: str | None = Field(default=None, min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
     limit: int = Field(default=10, ge=1, le=100)
 
@@ -127,7 +132,7 @@ class GraphTripletSearchRequest(TenantScopedRetrievalRequest):
 class GraphPathSearchRequest(TenantScopedRetrievalRequest):
     start_node: str = Field(min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
     end_node: str = Field(min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
-    relationship_types: list[RelationType] = Field(default_factory=list)
+    relationship_types: list[_ProjectedRelationType] = Field(default_factory=list)
     max_depth: int = Field(default=4, ge=1, le=8)
     max_paths: int = Field(default=10, ge=1, le=100)
     # Matches GraphPathQuery: the spine mixes edge directions, so a directed default
@@ -145,7 +150,7 @@ class GraphPathSearchRequest(TenantScopedRetrievalRequest):
 
 class GraphSubgraphSearchRequest(TenantScopedRetrievalRequest):
     start_node: str = Field(min_length=1, max_length=_MAX_GRAPH_NODE_LENGTH)
-    relationship_types: list[RelationType] = Field(default_factory=list)
+    relationship_types: list[_ProjectedRelationType] = Field(default_factory=list)
     max_depth: int = Field(default=2, ge=1, le=8)
     max_nodes: int = Field(default=20, ge=1, le=100)
     direction: GraphDirection = GraphDirection.BOTH
