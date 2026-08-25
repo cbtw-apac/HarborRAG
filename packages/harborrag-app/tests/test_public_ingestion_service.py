@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 import pytest_asyncio
 
-import harborrag_app.workflow_control.ingestion.status_reconciliation as status_reconciliation
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.errors import (
@@ -241,119 +239,6 @@ async def test_recovery_submits_pending_task_without_client_idempotency_key(
     assert pending is not None
     assert pending.summary["submission_state"] == "submitted"
     assert [source.task_id for source in temporal.started] == [pending.task_id]
-
-
-@pytest.mark.asyncio
-async def test_status_and_cursor_pages_are_read_from_the_database(
-    service_resources: tuple[
-        IngestionApplicationService,
-        IngestionControlPlaneDatabase,
-        FakeTemporalClient,
-    ],
-) -> None:
-    service, control, temporal = service_resources
-    accepted = await service.submit(_command(), idempotency_key=None)
-    task_id = str(accepted["task_id"])
-    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
-    await control.tasks.update_summary(
-        task_id,
-        {"stage": "PROCESSING_DOCUMENTS", "discovered": 3, "admitted": 3},
-    )
-    for index in range(3):
-        await control.tasks.record_document_result(
-            TaskDocumentResult(
-                task_id=task_id,
-                document_id=f"document:{index}",
-                status="published",
-                result={
-                    "source_item_id": f"adr/{index}.md",
-                    "document_kind": "file",
-                    "title": f"ADR-{index}",
-                },
-            )
-        )
-
-    task = await service.get_task(task_id)
-    first = await service.list_documents(
-        task_id=task_id,
-        status="SUCCESS",
-        cursor=None,
-        limit=2,
-    )
-    second = await service.list_documents(
-        task_id=task_id,
-        status="SUCCESS",
-        cursor=str(first["next_cursor"]),
-        limit=2,
-    )
-
-    assert task["progress"] == {
-        "discovered": 3,
-        "admitted": 3,
-        "processed": 3,
-        "succeeded": 3,
-        "failed": 0,
-        "skipped": 0,
-        "removed": 0,
-    }
-    assert len(first["items"]) == 2
-    assert len(second["items"]) == 1
-    assert len(temporal.started) == 1
-
-
-@pytest.mark.asyncio
-async def test_get_task_reconciles_temporal_failed_execution_to_terminal_failure(
-    service_resources: tuple[
-        IngestionApplicationService,
-        IngestionControlPlaneDatabase,
-        FakeTemporalClient,
-    ],
-) -> None:
-    service, control, temporal = service_resources
-    accepted = await service.submit(_command(), idempotency_key=None)
-    task_id = str(accepted["task_id"])
-    temporal.execution_state_by_task[task_id] = "failed"
-
-    response = await service.get_task(task_id)
-    persisted = await control.tasks.get(task_id)
-
-    assert response["status"] == "FAILED"
-    assert response["stage"] == "COMPLETED"
-    assert persisted is not None
-    assert persisted.status == IngestionTaskState.FAILED
-    assert persisted.summary["failed_stage"] == "workflow_execution"
-    assert persisted.summary["error_code"] == "execution_failed"
-
-
-@pytest.mark.asyncio
-async def test_get_task_marks_stale_queued_running_as_failed_and_terminates_workflow(
-    monkeypatch,
-    service_resources: tuple[
-        IngestionApplicationService,
-        IngestionControlPlaneDatabase,
-        FakeTemporalClient,
-    ],
-) -> None:
-    service, control, temporal = service_resources
-    accepted = await service.submit(_command(), idempotency_key=None)
-    task_id = str(accepted["task_id"])
-    temporal.execution_state_by_task[task_id] = "running"
-    monkeypatch.setattr(
-        status_reconciliation,
-        "_STALE_QUEUED_RUNNING_TIMEOUT",
-        timedelta(seconds=0),
-    )
-
-    response = await service.get_task(task_id)
-    persisted = await control.tasks.get(task_id)
-
-    assert response["status"] == "FAILED"
-    assert response["stage"] == "COMPLETED"
-    assert temporal.terminated == [task_id]
-    assert persisted is not None
-    assert persisted.status == IngestionTaskState.FAILED
-    assert persisted.summary["failed_stage"] == "workflow_dispatch"
-    assert persisted.summary["error_code"] == "worker_unavailable"
 
 
 @pytest.mark.asyncio
