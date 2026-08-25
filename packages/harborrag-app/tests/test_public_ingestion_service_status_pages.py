@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 
 
