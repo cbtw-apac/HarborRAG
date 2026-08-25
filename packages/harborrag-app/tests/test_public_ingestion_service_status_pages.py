@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 import pytest
-from test_public_ingestion_service import _command
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
+
+
+def _command(*, marker: str = "one") -> IngestionCreateCommand:
+    return IngestionCreateCommand(
+        tenant_id="ACME",
+        connection_id="harborrag-workspace",
+        force_reprocess=False,
+        public_request={
+            "connection_id": "harborrag-workspace",
+            "tenant": "ACME",
+            "marker": marker,
+        },
+    )
 
 
 @pytest.mark.asyncio
