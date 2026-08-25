@@ -6,20 +6,12 @@ from typing import cast
 
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ChildWorkflowError
-from temporalio.workflow import ParentClosePolicy
 
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
-from .maintenance_schemas import ProjectionCleanupResult
 from .policies import (
     temporal_retry_policy,
 )
-from .source_workflow_timeouts import (
-    CONTROL_ACTIVITY_TIMEOUT,
-    DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT,
-    FINALIZE_ACTIVITY_TIMEOUT,
-)
-from .source_workflow_support import SourceWorkflowSupportMixin
 from .schemas import (
     DocumentDispatchSummary,
     SourceContinuation,
@@ -28,6 +20,12 @@ from .schemas import (
     SourceIngestionInput,
     SourceIngestionResult,
     SourceIngestionStatus,
+)
+from .source_workflow_support import SourceWorkflowSupportMixin
+from .source_workflow_timeouts import (
+    CONTROL_ACTIVITY_TIMEOUT,
+    DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT,
+    FINALIZE_ACTIVITY_TIMEOUT,
 )
 
 

@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from test_public_ingestion_service import _command
 
 import harborrag_app.workflow_control.ingestion.status_reconciliation as status_reconciliation
 from harborrag_core.ingestion import IngestionTaskState
-
-from test_public_ingestion_service import _command, service_resources
 
 
 @pytest.mark.asyncio

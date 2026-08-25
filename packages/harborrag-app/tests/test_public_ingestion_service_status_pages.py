@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from test_public_ingestion_service import _command
 
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
-
-from test_public_ingestion_service import _command, service_resources
 
 
 @pytest.mark.asyncio
