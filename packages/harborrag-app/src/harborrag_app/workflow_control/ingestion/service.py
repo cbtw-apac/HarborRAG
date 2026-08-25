@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -48,16 +48,13 @@ from .presenters import (
     task_response,
 )
 from .recovery import retry_from_task, source_from_task
+from .status_reconciliation import TaskStatusReconciler
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
 _SUBMISSION_STATE_KEY = "submission_state"
 _SUBMITTED = "submitted"
 _RETRY_PAGE_SIZE = 200
-_FAILED_EXECUTION_STATUSES = frozenset({"failed", "terminated", "timed_out"})
-_STALE_QUEUED_RUNNING_TIMEOUT = timedelta(minutes=10)
-_STALE_QUEUED_FAILURE_CODE = "worker_unavailable"
-_STALE_QUEUED_FAILURE_STAGE = "workflow_dispatch"
 
 
 class IngestionApplicationService:
@@ -77,6 +74,7 @@ class IngestionApplicationService:
         self._task_store_provider = task_store_provider
         self._source_input_builder = source_input_builder
         self._task_id_factory = task_id_factory or task_id
+        self._status_reconciler = TaskStatusReconciler(client_provider=client_provider)
 
     async def submit(
         self,
@@ -151,7 +149,7 @@ class IngestionApplicationService:
     async def get_task(self, task_id: str) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
-        task = await self._reconcile_task_status(task, store)
+        task = await self._status_reconciler.reconcile(task, store)
         counts = await store.progress(task_id)
         return task_response(task, counts)
 
@@ -347,91 +345,3 @@ class IngestionApplicationService:
             after_document_id = str(last.document_id)
         return tuple(dict.fromkeys(selected))
 
-    async def _reconcile_task_status(
-        self,
-        task: IngestionTask,
-        store: PublicTaskStore,
-    ) -> IngestionTask:
-        if task.status in TERMINAL_STATES:
-            return task
-        client = await self._client_provider()
-        execution_status_reader = getattr(client, "execution_status", None)
-        if not callable(execution_status_reader):
-            return task
-        try:
-            execution_status = str(await execution_status_reader(task.task_id)).lower()
-        except WorkflowOperationError:
-            return task
-
-        if execution_status in _FAILED_EXECUTION_STATUSES:
-            await store.transition(
-                task.task_id,
-                IngestionTaskState.FAILED,
-                summary={
-                    **task.summary,
-                    "failed_stage": "workflow_execution",
-                    "error_code": f"execution_{execution_status}",
-                },
-            )
-            reconciled = await store.get(task.task_id)
-            if reconciled is not None:
-                return reconciled
-            return task
-
-        if execution_status == "canceled":
-            await store.transition(
-                task.task_id,
-                IngestionTaskState.CANCELLED,
-                summary={
-                    **task.summary,
-                    "stage": "COMPLETED",
-                },
-            )
-            reconciled = await store.get(task.task_id)
-            if reconciled is not None:
-                return reconciled
-
-        if execution_status == "running" and self._queued_running_is_stale(task):
-            terminator = getattr(client, "terminate", None)
-            if callable(terminator):
-                try:
-                    await terminator(
-                        task.task_id,
-                        reason=(
-                            "workflow remained queued without worker pickup "
-                            f"for {int(_STALE_QUEUED_RUNNING_TIMEOUT.total_seconds())} seconds"
-                        ),
-                    )
-                except WorkflowOperationError:
-                    # Reconciliation is best-effort; a concurrent terminal transition
-                    # should not block failing the stale task row.
-                    pass
-            await store.transition(
-                task.task_id,
-                IngestionTaskState.FAILED,
-                summary={
-                    **task.summary,
-                    "stage": "COMPLETED",
-                    "failed_stage": _STALE_QUEUED_FAILURE_STAGE,
-                    "error_code": _STALE_QUEUED_FAILURE_CODE,
-                },
-            )
-            reconciled = await store.get(task.task_id)
-            if reconciled is not None:
-                return reconciled
-        return task
-
-    @staticmethod
-    def _queued_running_is_stale(task: IngestionTask) -> bool:
-        if task.status != IngestionTaskState.PENDING:
-            return False
-        if task.started_at is not None:
-            return False
-        if str(task.summary.get("stage", "")).upper() not in {"", "QUEUED"}:
-            return False
-        submitted_at = task.submitted_at
-        if submitted_at is None:
-            return False
-        if submitted_at.tzinfo is None:
-            submitted_at = submitted_at.replace(tzinfo=UTC)
-        return datetime.now(UTC) - submitted_at >= _STALE_QUEUED_RUNNING_TIMEOUT

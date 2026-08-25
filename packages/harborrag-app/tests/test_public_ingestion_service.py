@@ -10,7 +10,7 @@ from uuid import UUID
 import pytest
 import pytest_asyncio
 
-import harborrag_app.workflow_control.ingestion.service as ingestion_service
+import harborrag_app.workflow_control.ingestion.status_reconciliation as status_reconciliation
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.errors import (
@@ -339,7 +339,7 @@ async def test_get_task_marks_stale_queued_running_as_failed_and_terminates_work
     task_id = str(accepted["task_id"])
     temporal.execution_state_by_task[task_id] = "running"
     monkeypatch.setattr(
-        ingestion_service,
+        status_reconciliation,
         "_STALE_QUEUED_RUNNING_TIMEOUT",
         timedelta(seconds=0),
     )
