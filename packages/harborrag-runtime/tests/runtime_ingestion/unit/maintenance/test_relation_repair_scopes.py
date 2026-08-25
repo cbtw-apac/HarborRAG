@@ -76,7 +76,10 @@ async def test_repair_resolves_a_target_published_under_a_sibling_scope(
         assert (linker, _key("archive", "docs/b.txt")) in endpoints
         # The first projection's stub, keyed under the linking document's own scope, is
         # still there: repair adds the resolved edge but has no way to retract the one it
-        # supersedes. Pinned so a future supersede pass has a failing assertion here.
+        # supersedes. `KnowledgeGraphRepositoryPort` writes relations by MERGE and deletes
+        # only whole versions, source items and scopes -- retracting one superseded edge
+        # needs a relation-scoped primitive that does not exist yet. Pinned so the future
+        # supersede pass that adds it has a failing assertion here.
         assert (linker, _key("docs", "docs/b.txt")) in endpoints
 
 

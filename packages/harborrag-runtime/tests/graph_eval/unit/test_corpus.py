@@ -137,9 +137,12 @@ def test_confluence_include_macro_projects_a_transclusion_edge(corpus: EvalCorpu
     }
     batch = corpus.batches["space-overview"]
 
-    assert corpus.source_item_key("team-handbook") in {
-        target for _, target in _edges(batch, "includes")
-    }
+    # The whole tuple: a transclusion that hung off the wrong host page would still put
+    # team-handbook on the target side of some edge.
+    assert (
+        corpus.source_item_key("space-overview"),
+        corpus.source_item_key("team-handbook"),
+    ) in _edges(batch, "includes")
     # The stub this batch writes for the far end carries the very node key that
     # team-handbook's own batch projects concretely, so the two MERGE rather than fork.
     concrete = {

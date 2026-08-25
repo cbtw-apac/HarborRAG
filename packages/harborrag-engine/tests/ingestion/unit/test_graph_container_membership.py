@@ -78,12 +78,22 @@ def _space_contains(graph) -> set[str]:
     }
 
 
-def _attachment_parents(graph) -> set[str]:
-    """Entity types that own an attachment by HAS_ATTACHMENT."""
+def _attachment_edges(graph) -> set[tuple[tuple[str, str], tuple[str, str]]]:
+    """Every HAS_ATTACHMENT edge as a whole (source, target) pair.
+
+    Asserting only the source entity type lets the edge land on the wrong page or the
+    wrong attachment and still pass, so both endpoints are identified here by their
+    entity type and the provider id the graph keys them by.
+    """
 
     types = {node.node_key: node for node in graph.nodes}
+
+    def endpoint(node_key: str) -> tuple[str, str]:
+        node = types[node_key]
+        return (node.entity_type.value, node.logical_id)
+
     return {
-        types[edge.source_node_key].entity_type.value
+        (endpoint(edge.source_node_key), endpoint(edge.target_node_key))
         for edge in graph.relations
         if edge.relation_type is RelationType.HAS_ATTACHMENT
     }
@@ -120,7 +130,9 @@ def test_an_attachment_reaches_its_space_through_its_page_not_beside_it() -> Non
 
     assert _space_contains(graph) == {"confluence_page"}
     assert _contained_by(graph, KnowledgeNodeKind.DATA_SOURCE) == {"confluence_space"}
-    assert _attachment_parents(graph) == {"confluence_page"}
+    assert _attachment_edges(graph) == {
+        (("confluence_page", "91980595"), ("confluence_attachment", "att91980616"))
+    }
 
 
 def test_an_attachment_without_space_metadata_still_anchors_somewhere() -> None:
@@ -139,7 +151,9 @@ def test_an_attachment_without_space_metadata_still_anchors_somewhere() -> None:
 
     assert _space_contains(graph) == set()
     assert _contained_by(graph, KnowledgeNodeKind.DATA_SOURCE) == {"confluence_page"}
-    assert _attachment_parents(graph) == {"confluence_page"}
+    assert _attachment_edges(graph) == {
+        (("confluence_page", "91980595"), ("confluence_attachment", "att91980616"))
+    }
 
 
 def test_page_and_attachment_resolve_to_the_very_same_space_node() -> None:

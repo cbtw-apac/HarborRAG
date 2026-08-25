@@ -64,6 +64,7 @@ from harborrag_engine.ingestion.representations import (
     RepresentationEncodingPolicy,
     RepresentationReuseService,
 )
+from harborrag_engine.ingestion.title_content import with_title_as_content
 
 __all__ = [
     "BaseChunker",
@@ -119,5 +120,6 @@ __all__ = [
     "VectorProjectionStore",
     "build_chunking_service",
     "produces_evidence",
+    "with_title_as_content",
     "source_version_from_document",
 ]

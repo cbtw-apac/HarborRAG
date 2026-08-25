@@ -22,6 +22,7 @@ from harborrag_engine.ingestion import (
     CanonicalVersionPlanner,
     SourceAdmissionPolicy,
     produces_evidence,
+    with_title_as_content,
 )
 
 from .dependencies import DocumentReleaseDependencies
@@ -29,7 +30,6 @@ from .lifecycle import DocumentVersionLifecycle
 from .materialization_helpers import enrich_raw_document
 from .models import DocumentReleaseRequest
 from .stage_models import PreparedDocumentStage, RawCaptureStageResult
-from .title_content import with_title_as_content
 
 logger = logging.getLogger("harborrag.runtime.ingestion.capture")
 

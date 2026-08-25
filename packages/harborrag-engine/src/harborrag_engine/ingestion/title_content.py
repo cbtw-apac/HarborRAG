@@ -7,7 +7,8 @@ from dataclasses import replace
 from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import BindingKind
-from harborrag_engine.ingestion import produces_evidence
+
+from .chunking import produces_evidence
 
 _SELF_STANDING = frozenset({BindingKind.ROOT})
 

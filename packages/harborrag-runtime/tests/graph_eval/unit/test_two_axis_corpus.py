@@ -75,18 +75,30 @@ def test_no_container_anywhere_holds_an_attachment(corpus: EvalCorpus) -> None:
 
 
 def test_every_attachment_is_owned_by_a_document(corpus: EvalCorpus) -> None:
-    """Taking attachments off the membership axis must not strand them."""
+    """Taking attachments off the membership axis must not strand them.
+
+    Both ends are checked, not just the target set: HAS_ATTACHMENT is the one edge that
+    reaches an attachment, so a source that is a space, a drive or another attachment
+    would put it back on a container -- the very thing the split removes -- while still
+    leaving every attachment "owned".
+    """
 
     nodes, _ = _merged(corpus)
-    owned = {
-        relation.target_node_key
+    edges = {
+        (relation.source_node_key, relation.target_node_key)
         for batch in corpus.batches.values()
         for relation in batch.relations
         if relation.relation_type.value == "has_attachment"
     }
+    documents = {corpus.source_item_key(document_id) for document_id in corpus.batches}
     attachments = {key for key, node in nodes.items() if _label(node).endswith(_ATTACHMENT_SUFFIX)}
     assert attachments, "corpus has no attachments to check"
-    assert attachments <= owned, attachments - owned
+    assert attachments <= {target for _, target in edges}, attachments - {
+        target for _, target in edges
+    }
+    assert {target for _, target in edges} <= attachments
+    holders = {source for source, _ in edges}
+    assert holders <= documents - attachments, holders - (documents - attachments)
 
 
 def test_counting_a_containers_documents_needs_no_type_filter(corpus: EvalCorpus) -> None:

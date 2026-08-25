@@ -108,9 +108,9 @@ def test_heading_only_document_produces_a_provenance_backed_route() -> None:
     """The chunker keeps this defense, but the release path no longer reaches it.
 
     A route is not evidence, so the vector projection rejects the batch this shape
-    produces. Admission therefore refuses a document with no evidence, and the runtime
-    gives a titled ROOT page a title paragraph so it has some -- see
-    ``produces_evidence`` below and ``runtime.ingestion.document.title_content``.
+    produces. Admission therefore refuses a document with no evidence, and a titled ROOT
+    page is given a title paragraph so it has some -- see ``produces_evidence`` below and
+    ``harborrag_engine.ingestion.title_content``.
     """
 
     document = make_document(

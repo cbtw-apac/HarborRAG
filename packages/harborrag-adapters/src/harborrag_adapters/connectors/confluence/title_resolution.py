@@ -22,7 +22,7 @@ class PageTitleResolver:
 
     One request per distinct title per connector instance, negatives cached too: a title
     that belongs to another space costs one lookup for the run rather than one per
-    occurrence.
+    occurrence. Only a *completed* search is cached -- see ``page_id_for_title``.
     """
 
     def __init__(self, content: ConfluenceContentAPI) -> None:
@@ -36,12 +36,26 @@ class PageTitleResolver:
         simply unresolved -- the same state every one of these links was in before titles
         were read at all -- so a rate limit or a revoked token degrades the graph rather
         than failing ingestion.
+
+        A failed request is not a completed search, so it is never cached. Caching it
+        would let one 429 or one dropped connection pin every later reference to that
+        title as unresolved for the lifetime of the connector; a completed search that
+        found nothing is a real answer and is cached as one.
         """
 
         cache_key = (space_key, title)
         if cache_key in self._page_ids:
             return self._page_ids[cache_key]
-        resolved = self._lookup(space_key, title)
+        try:
+            resolved = self._lookup(space_key, title)
+        except Exception as error:  # noqa: BLE001 - degrade to unresolved, never fail load
+            logger.warning(
+                "Confluence link title lookup failed space=%s title=%r error_type=%s",
+                space_key,
+                title,
+                type(error).__name__,
+            )
+            return None
         if resolved is None:
             logger.info(
                 "Confluence link title did not resolve to a page space=%s title=%r",
@@ -52,17 +66,13 @@ class PageTitleResolver:
         return resolved
 
     def _lookup(self, space_key: str, title: str) -> str | None:
-        cql = f"space = {quote_cql(space_key)} and title = {quote_cql(title)}"
-        try:
-            for content in self._content.search(cql):
-                candidate = str(content.get("id") or "")
-                if candidate.isdigit():
-                    return candidate
-        except Exception as error:  # noqa: BLE001 - degrade to unresolved, never fail load
-            logger.warning(
-                "Confluence link title lookup failed space=%s title=%r error_type=%s",
-                space_key,
-                title,
-                type(error).__name__,
-            )
+        # ``type = page`` keeps a same-titled attachment, comment or blog post out of the
+        # result set. An unconstrained CQL search returns every content type, the first
+        # numeric id wins here, and every one of those types carries a numeric id -- so
+        # without the constraint a relation can be keyed to the wrong source item.
+        cql = f"space = {quote_cql(space_key)} and title = {quote_cql(title)} and type = page"
+        for content in self._content.search(cql):
+            candidate = str(content.get("id") or "")
+            if candidate.isdigit():
+                return candidate
         return None

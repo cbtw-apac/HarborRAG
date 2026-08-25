@@ -161,9 +161,12 @@ def test_confluence_attachment_reaches_the_real_parent_page_node(corpus: EvalCor
     ):
         stubs = _entities(corpus, attachment)
         assert stubs[("confluence_page", parent)] == corpus.source_item_key(parent)
-        # Typed as a page, not as another attachment: one node, so one edge.
+        # Typed as a page, not as another attachment: one node, so one edge -- and that
+        # edge runs from the parent page to this attachment, which a count cannot say.
         assert ("confluence_attachment", parent) not in stubs
-        assert len(_edges(corpus, attachment, "has_attachment")) == 1
+        assert _edges(corpus, attachment, "has_attachment") == {
+            (corpus.source_item_key(parent), corpus.source_item_key(attachment))
+        }
 
 
 def test_sharepoint_folder_node_is_shared_by_same_folder_items(corpus: EvalCorpus) -> None:

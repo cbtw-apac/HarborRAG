@@ -107,14 +107,19 @@ def test_confluence_attachment_parent_converges_with_the_ingested_page() -> None
     # The far end of a reversed attached_to is the container, so nothing types it as a
     # second attachment, and the two paths collapse to a single has_attachment edge.
     assert set(_keys(attachment, GraphEntityType.CONFLUENCE_ATTACHMENT)) == {"att-9"}
-    assert (
-        sum(
-            1
-            for relation in attachment.relations
-            if relation.relation_type is RelationType.HAS_ATTACHMENT
+    # One edge, and it runs from the converged page node to this attachment. A count on
+    # its own passes just as well on a single edge between the wrong two nodes, which is
+    # the failure this test exists to catch.
+    assert {
+        (relation.source_node_key, relation.target_node_key)
+        for relation in attachment.relations
+        if relation.relation_type is RelationType.HAS_ATTACHMENT
+    } == {
+        (
+            _keys(page, GraphEntityType.CONFLUENCE_PAGE)["77"],
+            _keys(attachment, GraphEntityType.CONFLUENCE_ATTACHMENT)["att-9"],
         )
-        == 1
-    )
+    }
 
 
 def test_jira_attachment_is_typed_as_an_attachment_not_as_a_sibling_issue() -> None:

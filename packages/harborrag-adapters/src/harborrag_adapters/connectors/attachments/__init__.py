@@ -22,8 +22,9 @@ from .sources import (
 )
 
 __all__ = [
-    "AttachmentMetadata",
+    "CONTAINER_IDENTITY_KEYS",
     "AttachmentDocumentLoader",
+    "AttachmentMetadata",
     "AttachmentProcessor",
     "AttachmentSourceDescriptor",
     "AttachmentSourceGateway",
@@ -32,7 +33,6 @@ __all__ = [
     "FileType",
     "attachment_descriptor_from_record",
     "attachment_ids_from_filters",
-    "CONTAINER_IDENTITY_KEYS",
     "attachment_source_record",
     "is_attachment_record",
     "select_attachment_payloads",

@@ -114,6 +114,7 @@ async def _evaluate_cases(
         subgraph_result = await search.subgraph(
             GraphSubgraphQuery(
                 start_node=corpus.source_item_key(subgraph_case.seed_doc),
+                relationship_types=subgraph_case.relationship_types,
                 max_depth=subgraph_case.max_depth,
                 max_nodes=subgraph_case.max_nodes,
             ),

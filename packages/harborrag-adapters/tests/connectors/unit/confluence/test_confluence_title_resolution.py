@@ -27,12 +27,22 @@ class _Failing(_Content):
         yield  # pragma: no cover - generator marker
 
 
+class _FailsOnce(_Content):
+    """Rate-limit the first search, then behave like a healthy instance."""
+
+    def search(self, cql: str) -> Iterator[dict[str, Any]]:
+        self.queries.append(cql)
+        if len(self.queries) == 1:
+            raise RuntimeError("429 rate limited")
+        yield from self._results.get(cql, [])
+
+
 def _resolver(content: _Content) -> PageTitleResolver:
     return PageTitleResolver(content)  # type: ignore[arg-type]
 
 
 def test_a_title_resolves_to_the_page_id_the_graph_keys_pages_by() -> None:
-    cql = 'space = "ENG" and title = "Deploy Runbook"'
+    cql = 'space = "ENG" and title = "Deploy Runbook" and type = page'
     content = _Content({cql: [{"id": "8891", "title": "Deploy Runbook"}]})
 
     assert _resolver(content).page_id_for_title("ENG", "Deploy Runbook") == "8891"
@@ -40,7 +50,7 @@ def test_a_title_resolves_to_the_page_id_the_graph_keys_pages_by() -> None:
 
 
 def test_each_title_costs_one_lookup_however_often_it_appears() -> None:
-    cql = 'space = "ENG" and title = "Deploy Runbook"'
+    cql = 'space = "ENG" and title = "Deploy Runbook" and type = page'
     content = _Content({cql: [{"id": "8891"}]})
     resolver = _resolver(content)
 
@@ -73,7 +83,7 @@ def test_a_lookup_failure_degrades_instead_of_failing_the_document() -> None:
 
 
 def test_a_non_numeric_id_is_not_accepted_as_a_page_id() -> None:
-    cql = 'space = "ENG" and title = "Odd"'
+    cql = 'space = "ENG" and title = "Odd" and type = page'
     content = _Content({cql: [{"id": "not-a-page-id"}]})
 
     assert _resolver(content).page_id_for_title("ENG", "Odd") is None
@@ -88,3 +98,31 @@ def test_the_title_is_quoted_into_the_cql_rather_than_interpolated_raw() -> None
     assert '"' in content.queries[0]
     # The raw quote must not survive unescaped into the CQL expression.
     assert 'title = "Weird " title"' not in content.queries[0]
+
+
+def test_a_failed_lookup_is_not_cached_as_a_missing_title() -> None:
+    """A 429 on the first reference must not unresolve every later one.
+
+    Caching the failure would pin the title as unresolved for the lifetime of the
+    connector, so one transient rate limit would cost the graph every edge to that page
+    in the run rather than the single reference that hit it.
+    """
+
+    cql = 'space = "ENG" and title = "Deploy Runbook" and type = page'
+    content = _FailsOnce({cql: [{"id": "8891"}]})
+    resolver = _resolver(content)
+
+    assert resolver.page_id_for_title("ENG", "Deploy Runbook") is None
+    assert resolver.page_id_for_title("ENG", "Deploy Runbook") == "8891"
+    assert content.queries == [cql, cql]
+
+
+def test_the_lookup_is_constrained_to_pages() -> None:
+    """An unconstrained CQL search returns attachments, comments and blog posts too, and
+    each carries a numeric id -- so a same-titled one would be taken for the page."""
+
+    content = _Content()
+
+    _resolver(content).page_id_for_title("ENG", "Deploy Runbook")
+
+    assert content.queries == ['space = "ENG" and title = "Deploy Runbook" and type = page']
