@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from harborrag_app.workflow_control.errors import IngestionAlreadyCompletedError
+from harborrag_app.workflow_control.errors import (
+    IngestionAlreadyCompletedError,
+    IngestionCursorError,
+)
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.schemas import AppResponse
 
@@ -16,6 +19,7 @@ class IngestionServiceFixture:
 
     submissions: list[IngestionCreateCommand]
     idempotency: dict[str, str]
+    task_list_calls: list[dict[str, object]]
 
     def ingest_once(self) -> AppResponse:
         return AppResponse(
@@ -70,6 +74,32 @@ class IngestionServiceFixture:
             "started_at": datetime(2026, 8, 1, 9, 24, 2, tzinfo=UTC),
             "completed_at": None,
             "message": "Processing admitted documents",
+        }
+
+    async def list_tasks(
+        self,
+        *,
+        tenants: frozenset[str] | None,
+        statuses: Sequence[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> dict[str, object]:
+        if cursor == "not-base64":
+            raise IngestionCursorError("Task cursor is invalid.")
+        self.task_list_calls.append(
+            {"tenants": tenants, "statuses": statuses, "cursor": cursor, "limit": limit}
+        )
+        return {
+            "items": [await self.get_task("00000000-0000-4000-8000-000000000001")],
+            "next_cursor": "eyJzdWJtaXR0ZWRfYXQiOiIyMDI2LTA4LTAxVDA5OjI0OjAwKzAwOjAwIn0",
+        }
+
+    async def list_connections(self) -> dict[str, object]:
+        return {
+            "items": [
+                {"connection_id": "confluence-main", "source_type": "confluence"},
+                {"connection_id": "harborrag-workspace", "source_type": "local"},
+            ]
         }
 
     async def list_documents(

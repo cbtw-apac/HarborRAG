@@ -77,10 +77,12 @@ requests still go to the configured Temporal service.
 | `GET` | `/api/v1/readyz` | Public | Dependency-aware readiness; returns 503 when runtime composition is unavailable |
 | `GET` | `/api/v1/metrics` | Admin | Prometheus API, Python runtime, and process metrics |
 | `POST` | `/v1/ingestions` | `editor` | Submit a durable ingestion task |
+| `GET` | `/v1/ingestions` | `reader` | List tasks newest first, cursor-paginated |
 | `GET` | `/v1/ingestions/{task_id}` | `reader` | Read Postgres-authoritative task progress |
 | `GET` | `/v1/ingestions/{task_id}/documents` | `reader` | Read cursor-paginated document outcomes |
 | `POST` | `/v1/ingestions/{task_id}/cancel` | `editor` | Request graceful cancellation |
 | `POST` | `/v1/ingestions/{task_id}/retry-failures` | `editor` | Retry selected or all retryable failures |
+| `GET` | `/v1/connections` | `reader` | List enabled connections submittable by `connection_id` |
 | `POST` | `/v1/chat/sessions` | `reader` | Create a persisted chat session and greeting |
 | `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
 | `POST` | `/v1/agent/sessions` | `reader` | Create a persisted agent session and greeting |
@@ -229,6 +231,28 @@ but it does not delete data, force a new deterministic document version, or
 rebuild an already-active projection merely because its storage collection was
 renamed. See [Ingestion modes](../../../../../docs/users/ingestion-modes.md) for
 the complete behavior and reindex guidance.
+
+### List connections and tasks
+
+```bash
+curl --fail-with-body http://127.0.0.1:8000/v1/connections
+
+curl --fail-with-body   'http://127.0.0.1:8000/v1/ingestions?status=RUNNING&limit=25'
+```
+
+`/v1/connections` returns the `connection_id` and `source_type` of every
+connection enabled in `config/connectors.yaml`, which is the only place those
+names are defined. Nothing else about a connector is exposed: settings,
+environment references, and credential references stay server-side. A
+definition the catalog could not parse is omitted rather than failing the
+listing; submitting it still reports its own configuration error.
+
+`/v1/ingestions` lists tasks newest submission first and pages with an opaque
+`cursor`, exactly like `/v1/ingestions/{task_id}/documents`. Each item carries
+the same fields as the single-task response. `tenant` narrows the listing to
+one tenant the caller may read; omitting it reads every tenant in the caller's
+own scope, so a tenant-scoped token never sees another tenant's tasks and an
+out-of-scope `tenant` is rejected rather than answered with an empty page.
 
 ### Inspect and control a task
 

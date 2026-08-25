@@ -1,9 +1,12 @@
 # Developer Documentation
 
 - [Architecture](architecture/README.md) — package ownership, dependency direction, and implemented boundaries.
+  - [Data lifecycle](architecture/data-lifecycle.md) — authority, artifacts, projections, publication, and retrieval.
+  - [Runtime reliability](architecture/runtime-reliability.md) — Temporal boundaries, replay, retries, and safe failure behavior.
 - [Extending HarborRAG](extending/README.md) — connectors, parsers, models, repositories, engine stages, and public surfaces.
 - [Testing](testing/README.md) — test layout, markers, quality gates, and real-system smoke checks.
 - [Deployment](deployment/README.md) — local service stacks plus API, CLI, worker, and MCP images.
+- [Open-source publication guidelines](publication-guidelines.md) — what belongs in public docs and what must stay private.
 - [Contributing](../../CONTRIBUTING.md) — setup, review expectations, commits, and pull requests.
 
 ## Development principles

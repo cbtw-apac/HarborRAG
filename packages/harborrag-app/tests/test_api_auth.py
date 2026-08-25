@@ -184,6 +184,10 @@ def test_dev_env_disabled_auth_logs_a_loud_warning(caplog: pytest.LogCaptureFixt
     deployment that forgets HARBORRAG_ENV=prod boots wide open with no
     signal. The prod check can't catch that misconfiguration, so booting
     with auth disabled must never be silent."""
+    # The application intentionally disables propagation from the ``harborrag``
+    # namespace so uvicorn's root handlers do not duplicate every record. Attach
+    # pytest's capture handler to that namespace directly instead of relying on
+    # test order to leave propagation enabled.
     namespace_logger = logging.getLogger("harborrag")
     namespace_logger.addHandler(caplog.handler)
     try:

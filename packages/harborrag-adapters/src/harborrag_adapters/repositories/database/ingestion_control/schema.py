@@ -183,6 +183,15 @@ INGESTION_TASKS = Table(
         name="ck_ingestion_task_idempotency_pair",
     ),
 )
+# Serves the public task list: filter by tenant, then walk
+# (submitted_at, task_id) descending. Without it every page sorts the tenant's
+# whole task history instead of scanning the keyset.
+Index(
+    "ix_ingestion_tasks_tenant_submitted",
+    INGESTION_TASKS.c.tenant_id,
+    INGESTION_TASKS.c.submitted_at.desc(),
+    INGESTION_TASKS.c.task_id.desc(),
+)
 Index(
     "uq_ingestion_task_idempotency_key",
     INGESTION_TASKS.c.tenant_id,

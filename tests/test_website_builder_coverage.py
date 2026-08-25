@@ -35,7 +35,7 @@ class TestCoverageBuildMixin:
         builder.build_coverage_structure(str(sample_coverage_data))
 
         index = (builder.output_dir / "coverage" / "index.html").read_text(encoding="utf-8")
-        assert "QDrant Loader Core" in index
+        assert "HarborRAG" in index
         assert "MCP Server" in index
         assert "Website" in index
         assert "Core Library" in index

@@ -30,6 +30,7 @@ class MockAppService(
     def __init__(self) -> None:
         self.submissions: list[IngestionCreateCommand] = []
         self.idempotency: dict[str, str] = {}
+        self.task_list_calls: list[dict[str, object]] = []
         self.retrieval_calls: list[dict[str, object]] = []
         self.graph_retrieval_calls: list[dict[str, object]] = []
         self.chat_calls: list[dict[str, object]] = []

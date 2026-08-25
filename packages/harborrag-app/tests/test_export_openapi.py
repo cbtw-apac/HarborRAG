@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from harborrag_app import __version__
 from harborrag_app.api.export_openapi import export_openapi
 
 
@@ -16,7 +17,7 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     rendered = export_openapi()
     schema = json.loads(rendered)
     assert schema["info"]["title"] == "HarborRAG Control Plane API"
-    assert schema["info"]["version"] == "0.1.0"
+    assert schema["info"]["version"] == __version__
     paths = schema["paths"]
     assert {
         "/api/v1/metrics",
@@ -32,6 +33,7 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/ingestions/{task_id}/documents",
         "/v1/ingestions/{task_id}/cancel",
         "/v1/ingestions/{task_id}/retry-failures",
+        "/v1/connections",
         "/v1/chat/completions",
         "/v1/chat/sessions",
         "/v1/agent/completions",
@@ -42,6 +44,8 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/retrieval/graph/subgraphs",
         "/v1/admin/projections/{tenant}",
     } <= set(paths)
+    assert set(paths["/v1/ingestions"]) >= {"get", "post"}
+    assert set(paths["/v1/connections"]) == {"get"}
     assert set(paths["/v1/chat/completions"]) >= {"post"}
     assert "get" not in paths["/v1/chat/completions"]
     assert set(paths["/v1/agent/completions"]) >= {"post"}

@@ -45,6 +45,37 @@ class TaskDocumentResultsMixin:
                 for row in result.mappings().all()
             }
 
+    async def progress_for_tasks(
+        self,
+        task_ids: Sequence[str],
+    ) -> dict[str, dict[str, int]]:
+        """Status counts for several tasks at once, keyed by task ID.
+
+        The public task list renders progress for a whole page, so it groups
+        by task in one query rather than issuing one ``progress`` call per
+        row. Tasks with no recorded document outcome yet are simply absent
+        from the result; callers treat a missing key as empty counts.
+        """
+
+        unique = tuple(dict.fromkeys(task_ids))
+        if not unique:
+            return {}
+        async with self._client.sessions() as session:
+            result = await session.execute(
+                select(
+                    TASK_DOCUMENT_RESULTS.c.task_id,
+                    TASK_DOCUMENT_RESULTS.c.status,
+                    func.count().label("result_count"),
+                )
+                .where(TASK_DOCUMENT_RESULTS.c.task_id.in_(unique))
+                .group_by(TASK_DOCUMENT_RESULTS.c.task_id, TASK_DOCUMENT_RESULTS.c.status)
+            )
+            counts: dict[str, dict[str, int]] = {}
+            for row in result.mappings().all():
+                task_counts = counts.setdefault(str(row["task_id"]), {})
+                task_counts[str(row["status"]).lower()] = int(row["result_count"])
+            return counts
+
     async def record_document_result(self, result: TaskDocumentResult) -> None:
         reject_runtime_fields(result.result)
         async with self._client.sessions.begin() as session:

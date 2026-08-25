@@ -49,6 +49,7 @@ from .presenters import (
 )
 from .recovery import retry_from_task, source_from_task
 from .status_reconciliation import TaskStatusReconciler
+from .task_pages import TaskListingMixin
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
@@ -57,7 +58,7 @@ _SUBMITTED = "submitted"
 _RETRY_PAGE_SIZE = 200
 
 
-class IngestionApplicationService:
+class IngestionApplicationService(TaskListingMixin):
     """Coordinate API persistence and workflow submission, never ingestion work."""
 
     def __init__(
@@ -344,4 +345,3 @@ class IngestionApplicationService:
             )
             after_document_id = str(last.document_id)
         return tuple(dict.fromkeys(selected))
-

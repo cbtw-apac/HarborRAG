@@ -1,12 +1,12 @@
 [project]
 name = "harborrag-app"
-version = "0.1.0"
+version = "2.0.0a1"
 description = "CLI and API package boundary for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "harborrag-core==0.1.0",
-    "harborrag-runtime==0.1.0",
+    "harborrag-core==2.0.0a1",
+    "harborrag-runtime==2.0.0a1",
     "pydantic>=2.13,<3",
     "python-dotenv>=1,<2",
     "rich>=14,<16",
@@ -20,7 +20,7 @@ harborrag = "harborrag_app.cli.main:main"
 [project.optional-dependencies]
 api = [
     "fastapi>=0.115",
-    "harborrag-runtime[temporal]==0.1.0",
+    "harborrag-runtime[temporal]==2.0.0a1",
     "prometheus-client>=0.19,<1",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
@@ -30,8 +30,8 @@ api = [
     "websockets>=12",
 ]
 production = [
-    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==0.1.0",
-    "harborrag-runtime[temporal]==0.1.0",
+    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a1",
+    "harborrag-runtime[temporal]==2.0.0a1",
 ]
 
 [build-system]
