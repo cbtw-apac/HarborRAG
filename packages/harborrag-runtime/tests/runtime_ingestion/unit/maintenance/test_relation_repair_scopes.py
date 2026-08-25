@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_core.chunking import RelationType
+from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import DocumentIdentityBuilder, GraphEntityType
 from harborrag_runtime.ingestion import DocumentReleaseService, SourceIngestionService
 
@@ -31,6 +32,28 @@ class _OneDocumentConnector(LinkedDocumentsConnector):
 
     def discover(self, query):
         yield from (record for record in super().discover(query) if record.id == self._keep)
+
+
+class _SharedTargetConnector(LinkedDocumentsConnector):
+    """Two linking documents in one scope, both pointing at the same absent target."""
+
+    def discover(self, query):
+        for record in super().discover(query):
+            if record.id == "docs/b.txt":
+                continue
+            yield record
+            yield SourceRecord(
+                id="docs/c.txt",
+                source_type=record.source_type,
+                locator="file:///docs/c.txt",
+                metadata={"relative_path": "docs/c.txt"},
+            )
+
+    def describe(self, record):
+        record.metadata["relations"] = [
+            {"predicate": "links_to", "target_id": "docs/b.txt", "target_type": "document"}
+        ]
+        return super().describe(record)
 
 
 class _TwoLinkConnector(_OneDocumentConnector):
@@ -95,8 +118,18 @@ async def test_repair_resolves_a_target_published_under_a_sibling_scope(
         # points at a node no projection ever writes; left beside the resolved one, a
         # traversal returns the real target and a target that does not exist.
         assert (linker, _key("docs", "docs/b.txt")) not in endpoints
-        # The stub was the placeholder's only edge, so the node goes with it.
-        assert _key("docs", "docs/b.txt") not in resources.graph.nodes
+        # The stub node itself stays, deliberately. Deleting it would mean testing its
+        # degree in one write and deleting it in another, and another document linking to
+        # the same unresolved target may have staged that very node without its relation
+        # yet -- so the retraction takes the edge only, and the tenant-wide prune on
+        # version cleanup reaps the node. Nothing reads it meanwhile: every graph query
+        # starts from a node and walks at least one relationship.
+        assert _key("docs", "docs/b.txt") in resources.graph.nodes
+        assert not [
+            relation
+            for relation in resources.graph.relations.values()
+            if _key("docs", "docs/b.txt") in (relation.source_node_key, relation.target_node_key)
+        ]
 
 
 @pytest.mark.asyncio
@@ -166,3 +199,55 @@ def _links(resources: ReleaseResources):
         for relation in resources.graph.relations.values()
         if relation.relation_type == RelationType.LINKS_TO
     ]
+
+
+@pytest.mark.asyncio
+async def test_two_documents_sharing_one_unresolved_target_both_repair(
+    tmp_path: Path,
+) -> None:
+    """Two linking documents, one shared placeholder, repaired in the same batch.
+
+    This is the shape that makes a synchronous prune of the retracted far end unsafe:
+    the placeholder both documents link through is one node, so the first repair to
+    retract its edge sees it edgeless while the second is still writing. Repair retracts
+    the edge only, so both documents must come out with the resolved edge and neither may
+    fail verification.
+
+    The fan-out is real -- ``_repair`` gathers over its targets -- but the in-memory graph
+    writes nodes and relations inside one method, so this pins the observable contract
+    rather than a true interleaving. What forbids the unsafe write structurally is
+    ``test_relation_cleanup_deletes_relations_and_never_a_node``.
+    """
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        dependencies = build_dependencies(resources)
+        source_service = SourceIngestionService(
+            control=control,
+            documents=DocumentReleaseService(dependencies),
+            relations=build_relation_repair_service(resources, dependencies),
+        )
+
+        await source_service.ingest(
+            replace(source_request("task-target"), source_scope_id="archive"),
+            _OneDocumentConnector("docs/b.txt"),
+        )
+        outcome = await source_service.ingest(
+            source_request("task-linkers"),
+            _SharedTargetConnector(),
+        )
+
+        assert outcome.unresolved_relations == 0
+        endpoints = {
+            (relation.source_node_key, relation.target_node_key) for relation in _links(resources)
+        }
+        resolved = _key("archive", "docs/b.txt")
+        for linker in ("docs/a.txt", "docs/c.txt"):
+            assert (_key("docs", linker), resolved) in endpoints
+            assert (_key("docs", linker), _key("docs", "docs/b.txt")) not in endpoints
+        # Both retractions name the one shared stub, and it survives them.
+        assert {relation.target_node_key for relation in resources.graph.retracted_relations} == {
+            _key("docs", "docs/b.txt")
+        }
+        assert _key("docs", "docs/b.txt") in resources.graph.nodes

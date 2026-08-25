@@ -158,7 +158,7 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> None:
-        """Retract relations and the far-end stubs they leave with no edges."""
+        """Retract relations, leaving their now-edgeless far ends for cleanup to reap."""
 
         if not relations:
             return

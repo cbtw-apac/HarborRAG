@@ -214,15 +214,21 @@ async def test_provisioning_swallows_idempotent_ddl_but_reraises_real_failures(
 
 
 @pytest.mark.asyncio
-async def test_relation_cleanup_is_typed_tenant_scoped_and_prunes_the_stub() -> None:
-    """One statement per relationship type, then a prune of just those far ends.
+async def test_relation_cleanup_deletes_relations_and_never_a_node() -> None:
+    """One statement per relationship type, and not one of them deletes a node.
 
-    The only relation index provisioning creates is per-relationship-label, so naming the
-    label is what keeps the delete off a whole-graph relationship scan. The prune is what
-    stops a retracted placeholder from lingering as a zero-degree node that still counts
-    in `tenant_projection_counts` -- and it is keyed, not tenant-wide: repair fans out
-    concurrently and `write_projection` stages nodes before their relations, so a sweep
-    of every zero-degree node would delete another document's placeholders mid-write.
+    The label is named because the only relation index provisioning creates is
+    per-relationship-label, so an untyped match would scan every relationship in the
+    graph.
+
+    That no node is deleted is the load-bearing half. Removing a far end left edgeless
+    means testing its degree in one transaction and deleting it in another, while
+    `write_projection` stages nodes before their relations -- so a placeholder another
+    projection has just staged reads as edgeless, and deleting it makes that projection
+    write no relation and fail its own verification. Scoping the test to the keys just
+    retracted does not help: a placeholder shared by several linking documents is exactly
+    the node the other writer is staging. A deletion that does not exist cannot race, so
+    the stub is left for the tenant-wide prune that version and source-item cleanup run.
     """
 
     client = FakeFalkorDBClient()
@@ -236,19 +242,18 @@ async def test_relation_cleanup_is_typed_tenant_scoped_and_prunes_the_stub() -> 
     )
 
     statements = [statement for statement, _ in client.write_calls]
-    assert len(statements) == 3
+    assert len(statements) == 2
     assert "[relation:CONTAINS]" in statements[0]
     assert "[relation:LINKS_TO]" in statements[1]
-    for statement, parameters in client.write_calls[:2]:
+    for statement, parameters in client.write_calls:
         assert "relation.tenant_id = $tenant_id" in statement
         assert "relation.graph_schema_version = $graph_schema_version" in statement
         assert parameters["tenant_id"] == "tenant-1"
+        assert "DELETE relation" in statement
+        assert "DELETE node" not in statement
+        assert "DETACH DELETE" not in statement
     assert client.write_calls[0][1]["relation_ids"] == ["relation-1"]
     assert client.write_calls[1][1]["relation_ids"] == ["relation-2"]
-    assert "NOT (node)--()" in statements[2]
-    assert "node.node_key IN $node_keys" in statements[2]
-    assert client.write_calls[2][1]["node_keys"] == ["node-section"]
-    assert client.write_calls[2][1]["tenant_id"] == "tenant-1"
 
 
 @pytest.mark.asyncio

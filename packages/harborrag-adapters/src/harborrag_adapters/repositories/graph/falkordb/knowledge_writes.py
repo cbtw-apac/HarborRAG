@@ -137,6 +137,20 @@ async def delete_relations(
 
     ``relation_id`` is derived from type, endpoints and source relation version, so the
     caller can name an edge it wrote earlier without reading the graph back first.
+
+    Relations only: the far end a retraction leaves edgeless is deliberately not deleted
+    here. Deleting it means testing its degree in one transaction and deleting it in
+    another, and ``write_projection`` stages nodes before their relations -- so a
+    placeholder a concurrent projection has just staged reads as edgeless, and removing it
+    makes that projection's ``MATCH target`` find nothing, write no relation and fail its
+    own verification. Scoping the test to the keys just retracted does not help: a
+    placeholder shared by several linking documents is exactly the node another writer is
+    staging.
+
+    Nothing reads an edgeless node -- every graph query starts from a node and walks at
+    least one relationship -- so the stub is unreachable rather than wrong, and the
+    tenant-wide prune on version and source-item cleanup reaps it. A transient node count
+    is the right thing to trade against a failed ingestion.
     """
 
     grouped: defaultdict[str, list[str]] = defaultdict(list)
@@ -159,49 +173,6 @@ async def delete_relations(
                 "relation_ids": relation_ids,
             },
         )
-    await _prune_retracted_targets(database, relations, context=context)
-
-
-async def _prune_retracted_targets(
-    database: FalkorDBClient,
-    relations: Sequence[GraphEdgeRecord],
-    *,
-    context: StorageOperationContext,
-) -> None:
-    """Drop the far ends left with no edges, and only those.
-
-    A retracted relation is normally the last edge of a placeholder stub, and a
-    zero-degree stub is not merely untidy: it counts in ``tenant_projection_counts`` and
-    appears in the graph-eval health baseline, so leaving it turns one repaired document
-    into a permanent diff.
-
-    Scoped to the keys just retracted, not to the tenant. Relation repair fans out with
-    ``asyncio.gather``, and ``write_projection`` stages nodes before their relations, so
-    another document's freshly written placeholders are momentarily zero-degree. A
-    tenant-wide sweep firing in that window deletes them, and that document's own
-    ``MATCH source MATCH target MERGE`` then writes no relation at all and fails its
-    verification.
-
-    ``NOT (node)--()`` still guards each key, so a stub that some other projection has
-    since attached to a container survives.
-    """
-
-    await database.write(
-        """
-        MATCH (node:KnowledgeNode)
-        WHERE node.node_key IN $node_keys
-          AND node.tenant_id = $tenant_id
-          AND node.graph_schema_version = $graph_schema_version
-          AND node.ownership_scope = 'SOURCE_SCOPE'
-          AND NOT (node)--()
-        DELETE node
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "node_keys": sorted({relation.target_node_key for relation in relations}),
-        },
-    )
 
 
 async def verify_projection(

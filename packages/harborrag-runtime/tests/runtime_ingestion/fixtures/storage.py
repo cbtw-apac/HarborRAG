@@ -96,21 +96,9 @@ class InMemoryKnowledgeGraph:
         self.relations = {
             key: relation for key, relation in self.relations.items() if key not in retracted
         }
-        # Same prune the real repository does, scoped the same way: only the far ends of
-        # the retracted relations, and only where nothing else reaches them. A retracted
-        # relation is usually the last edge of a placeholder stub, and a zero-degree stub
-        # still counts in the node totals the health baseline pins.
-        attached = {
-            node_key
-            for relation in self.relations.values()
-            for node_key in (relation.source_node_key, relation.target_node_key)
-        }
-        orphans = {relation.target_node_key for relation in relations} - attached
-        self.nodes = {
-            key: node
-            for key, node in self.nodes.items()
-            if key not in orphans or node.ownership_scope.value != "SOURCE_SCOPE"
-        }
+        # Relations only, exactly like the real repository: the far end left edgeless is
+        # not deleted here, because testing its degree would race a concurrent projection
+        # that has staged the same placeholder but not yet written its relation.
 
     async def delete_version(
         self,
