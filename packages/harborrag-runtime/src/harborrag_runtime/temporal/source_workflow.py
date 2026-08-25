@@ -30,6 +30,14 @@ from .schemas import (
 )
 
 
+_DISCOVERY_ACTIVITY_TIMEOUT = timedelta(minutes=30)
+_DISCOVERY_ACTIVITY_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
+_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT = timedelta(minutes=2)
+_CONTROL_ACTIVITY_TIMEOUT = timedelta(minutes=2)
+_FINALIZE_ACTIVITY_TIMEOUT = timedelta(minutes=15)
+_CLEANUP_ACTIVITY_TIMEOUT = timedelta(minutes=30)
+
+
 @workflow.defn(name="harborrag.source_ingestion")
 class SourceIngestionWorkflow:
     def __init__(self) -> None:
@@ -103,7 +111,8 @@ class SourceIngestionWorkflow:
                     summary=self._summary,
                 ),
                 task_queue=request.workflow_options.task_queues.discovery,
-                start_to_close_timeout=timedelta(minutes=15),
+                start_to_close_timeout=_FINALIZE_ACTIVITY_TIMEOUT,
+                schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                 result_type=SourceIngestionResult,
             )
@@ -124,7 +133,8 @@ class SourceIngestionWorkflow:
                     error_code=error_code,
                 ),
                 task_queue=request.workflow_options.task_queues.discovery,
-                start_to_close_timeout=timedelta(minutes=2),
+                start_to_close_timeout=_CONTROL_ACTIVITY_TIMEOUT,
+                schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
@@ -222,7 +232,8 @@ class SourceIngestionWorkflow:
             "harborrag.cancel_source_ingestion",
             SourceCancellationInput(task_id=request.task_id),
             task_queue=request.workflow_options.task_queues.discovery,
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=_CONTROL_ACTIVITY_TIMEOUT,
+            schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
             retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
         )
         await asyncio.shield(cleanup)
@@ -238,8 +249,9 @@ class SourceIngestionWorkflow:
                     "harborrag.discover_source_items",
                     request,
                     task_queue=request.workflow_options.task_queues.discovery,
-                    start_to_close_timeout=timedelta(minutes=30),
-                    heartbeat_timeout=timedelta(minutes=2),
+                    start_to_close_timeout=_DISCOVERY_ACTIVITY_TIMEOUT,
+                    heartbeat_timeout=_DISCOVERY_ACTIVITY_HEARTBEAT_TIMEOUT,
+                    schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
                     retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                     result_type=SourceDiscoveryResult,
                 ),
@@ -253,7 +265,8 @@ class SourceIngestionWorkflow:
                     error_code=error_code,
                 ),
                 task_queue=request.workflow_options.task_queues.discovery,
-                start_to_close_timeout=timedelta(minutes=2),
+                start_to_close_timeout=_CONTROL_ACTIVITY_TIMEOUT,
+                schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
             )
             raise
@@ -265,7 +278,8 @@ class SourceIngestionWorkflow:
                 "harborrag.cleanup_source_projections",
                 request,
                 task_queue=request.workflow_options.task_queues.index,
-                start_to_close_timeout=timedelta(minutes=30),
+                start_to_close_timeout=_CLEANUP_ACTIVITY_TIMEOUT,
+                schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.document),
                 result_type=ProjectionCleanupResult,
             )
@@ -288,7 +302,8 @@ class SourceIngestionWorkflow:
             "harborrag.cancel_source_ingestion",
             SourceCancellationInput(task_id=request.task_id),
             task_queue=request.workflow_options.task_queues.discovery,
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=_CONTROL_ACTIVITY_TIMEOUT,
+            schedule_to_start_timeout=(_DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT),
             retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
         )
         await self._cleanup_source(request)

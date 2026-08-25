@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from harborrag_app.workflow_control.errors import (
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
+import harborrag_app.workflow_control.ingestion.service as ingestion_service
 from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -36,7 +38,9 @@ class FakeTemporalClient:
     def __init__(self) -> None:
         self.started: list[SourceIngestionInput] = []
         self.cancelled: list[str] = []
+        self.terminated: list[str] = []
         self.retries: list[RetryFailuresInput] = []
+        self.execution_state_by_task: dict[str, str] = {}
 
     async def start_ingestion(self, source: SourceIngestionInput) -> RuntimeWorkflowRef:
         self.started.append(source)
@@ -45,12 +49,19 @@ class FakeTemporalClient:
     async def cancel(self, task_id: str) -> None:
         self.cancelled.append(task_id)
 
+    async def terminate(self, task_id: str, *, reason: str) -> None:
+        self.terminated.append(task_id)
+        self.execution_state_by_task[task_id] = "terminated"
+
     async def start_retry_failures(
         self,
         request: RetryFailuresInput,
     ) -> RuntimeWorkflowRef:
         self.retries.append(request)
         return RuntimeWorkflowRef(request.retry_task_id, "internal", "internal-run")
+
+    async def execution_status(self, task_id: str) -> str:
+        return self.execution_state_by_task.get(task_id, "running")
 
 
 def _source_input(
@@ -288,6 +299,61 @@ async def test_status_and_cursor_pages_are_read_from_the_database(
     assert len(first["items"]) == 2
     assert len(second["items"]) == 1
     assert len(temporal.started) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_task_reconciles_temporal_failed_execution_to_terminal_failure(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    temporal.execution_state_by_task[task_id] = "failed"
+
+    response = await service.get_task(task_id)
+    persisted = await control.tasks.get(task_id)
+
+    assert response["status"] == "FAILED"
+    assert response["stage"] == "COMPLETED"
+    assert persisted is not None
+    assert persisted.status == IngestionTaskState.FAILED
+    assert persisted.summary["failed_stage"] == "workflow_execution"
+    assert persisted.summary["error_code"] == "execution_failed"
+
+
+@pytest.mark.asyncio
+async def test_get_task_marks_stale_queued_running_as_failed_and_terminates_workflow(
+    monkeypatch,
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    temporal.execution_state_by_task[task_id] = "running"
+    monkeypatch.setattr(
+        ingestion_service,
+        "_STALE_QUEUED_RUNNING_TIMEOUT",
+        timedelta(seconds=0),
+    )
+
+    response = await service.get_task(task_id)
+    persisted = await control.tasks.get(task_id)
+
+    assert response["status"] == "FAILED"
+    assert response["stage"] == "COMPLETED"
+    assert temporal.terminated == [task_id]
+    assert persisted is not None
+    assert persisted.status == IngestionTaskState.FAILED
+    assert persisted.summary["failed_stage"] == "workflow_dispatch"
+    assert persisted.summary["error_code"] == "worker_unavailable"
 
 
 @pytest.mark.asyncio
