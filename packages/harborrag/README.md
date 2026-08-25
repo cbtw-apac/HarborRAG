@@ -60,11 +60,14 @@ Additional bundles are intentionally explicit:
 
 - `harborrag[chat]` installs the model client used by chat completion.
 - `harborrag[cli]` installs the CLI.
+- `harborrag[memory]` installs conversation memory.
 - `harborrag[server]` installs API and production runtime dependencies.
 - `harborrag[mcp]` installs the MCP transport.
 - `harborrag[qdrant]`, `harborrag[falkordb]`, `harborrag[postgres]`,
   `harborrag[s3]`, and `harborrag[redis]` install individual providers.
-- `harborrag[all]` installs the server, Temporal, MCP, and all parser providers.
+- `harborrag[all]` installs everything: the server, Temporal, MCP, memory,
+  every parser provider, and every store and model client. It is a superset of
+  `harborrag[local]`.
 
 ## Development
 
