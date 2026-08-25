@@ -31,6 +31,13 @@ from .source_workflow_timeouts import (
 
 
 class SourceWorkflowSupportMixin:
+    # State is initialized by SourceIngestionWorkflow.__init__.
+    _summary: DocumentDispatchSummary
+    _batch_number: int
+    _status: str
+    _paused: bool
+    _cancel_requested: bool
+
     async def _initial_state(
         self, request: SourceIngestionInput
     ) -> tuple[SourceDiscoveryResult, int]:
