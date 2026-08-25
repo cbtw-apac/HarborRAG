@@ -225,7 +225,7 @@ class ProjectStructureMixin:
                 aria = ' aria-current="page"' if is_current else ""
                 items.append(
                     f'<li><a class="{classes}" href="{html.escape(href, quote=True)}"{aria}>'
-                    f'{html.escape(item["title"])}</a></li>'
+                    f"{html.escape(item['title'])}</a></li>"
                 )
             if items:
                 sections.append(
