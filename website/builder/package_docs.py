@@ -56,10 +56,9 @@ class PackageDocsMixin:
                 except Exception:
                     pass
 
-                # Build a Table of Contents and wrap with standard docs layout for consistent look
-                toc_html = self.render_toc(html_content)
-                if toc_html:
-                    toc_html = self.add_bootstrap_classes(toc_html)
+                # Wrap with the standard docs layout. The rail carries the canonical
+                # documentation navigation rather than a per-page heading outline.
+                nav_html = self.render_docs_sidebar_nav(f"docs/packages/{pkg_name}/README.html")
 
                 wrapped_content = f"""
 <section>
@@ -67,7 +66,7 @@ class PackageDocsMixin:
     <div class=\"row toc-layout\">
       <aside class=\"toc-sidebar d-none d-lg-block p-0\">
         <div class=\"position-sticky\">
-          {toc_html or '<div class="text-muted small">No sections</div>'}
+          {nav_html or '<div class="text-muted small">No sections</div>'}
         </div>
       </aside>
       <div class=\"container-content\">

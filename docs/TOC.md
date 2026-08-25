@@ -20,6 +20,7 @@
   - [Engine Configuration](users/configuration/config-file-reference.md)
   - [Tenant and Workspace Status](users/configuration/workspace-mode.md)
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
+  - [MCP Setup and Integration](users/detailed-guides/mcp-server/setup-and-integration.md)
 - [Troubleshooting](users/troubleshooting/README.md)
 
 ## Developer guides
@@ -28,6 +29,7 @@
 - [Architecture](developers/architecture/README.md)
   - [Data Lifecycle](developers/architecture/data-lifecycle.md)
   - [Runtime Reliability](developers/architecture/runtime-reliability.md)
+  - [Projection Rebuild](developers/architecture/projection-rebuild.md)
 - [Extending HarborRAG](developers/extending/README.md)
 - [Testing](developers/testing/README.md)
 - [Deployment](developers/deployment/README.md)
