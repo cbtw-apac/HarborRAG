@@ -196,11 +196,14 @@ therefore do not depend on SQLAlchemy or PostgreSQL.
 ## CLI
 
 ```bash
-uv run --package harborrag-app harborrag chat \
+harborrag chat \
   "Explain HarborRAG in one paragraph." \
   --tenant DEFAULT \
   --json
 ```
+
+From a source checkout, prefix the command with
+`uv run --package harborrag-app`.
 
 Use `--json` for the stable machine-readable command envelope, which includes
 the generated `session_id` and same `citations` field as the HTTP response.

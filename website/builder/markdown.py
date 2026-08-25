@@ -5,6 +5,8 @@ This module handles markdown processing, HTML conversion,
 and content formatting for the website builder.
 """
 
+import sys
+
 from .markdown_fallback import MarkdownFallbackMixin
 from .markdown_html import MarkdownHtmlMixin
 from .markdown_links import MarkdownLinksMixin
@@ -70,6 +72,12 @@ class MarkdownProcessor(
             return html
 
         except ImportError:
+            # The `markdown` package lives in the `docs` extra, so a plain
+            # `uv sync --extra dev` leaves it missing and every page silently
+            # renders through the degraded fallback: tables stay raw `|` pipes,
+            # syntax highlighting and heading anchors are lost, and the build
+            # still reports success. Say so loudly instead.
+            _warn_degraded_renderer()
             # Fallback to basic conversion
             html = self._basic_markdown_to_html_no_regex(markdown_content)
             # Apply Bootstrap classes to fallback HTML too
@@ -79,3 +87,27 @@ class MarkdownProcessor(
             # Ensure heading IDs
             html = self.ensure_heading_ids(html)
             return html
+
+
+_DEGRADED_RENDERER_WARNED = False
+
+
+def _warn_degraded_renderer() -> None:
+    """Warn once per process that pages are rendering without `markdown`."""
+
+    global _DEGRADED_RENDERER_WARNED
+    if _DEGRADED_RENDERER_WARNED:
+        return
+    _DEGRADED_RENDERER_WARNED = True
+    print(
+        "\n"
+        "WARNING: the `markdown` package is not importable, so the website is\n"
+        "         being built with the degraded fallback renderer. Markdown\n"
+        "         tables will render as raw `|` pipes and the build will still\n"
+        "         report success.\n"
+        "         Fix with one of:\n"
+        "           uv sync --all-packages --all-extras\n"
+        "           uv run --with markdown --with pygments --with pymdown-extensions \\\n"
+        "                  --with tomli python website/build.py --output site\n",
+        file=sys.stderr,
+    )

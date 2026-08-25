@@ -1,11 +1,14 @@
 # HarborRAG
 
-HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into independently testable Python packages.
+HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into eight independently testable Python packages.
+
+**What makes it different:** retrieval is resolved against the authoritative active
+document version in PostgreSQL and against immutable evidence in object storage, so a
+superseded version cannot be cited even while a reindex is in flight. Vector and graph
+stores are rebuildable projections, never the source of truth. See
+[How HarborRAG keeps evidence trustworthy](#how-harborrag-keeps-evidence-trustworthy).
 
 **Upcoming release: HarborRAG 2.0.0 Alpha 1 (`2.0.0a1`) on August 27, 2026.**
-HarborRAG 2.0 continues the project lineage of Qdrant Loader as a breaking
-rename and architectural expansion. See the
-[2.0.0a1 changelog](CHANGELOG.md#200a1---2026-08-27) for the migration boundary.
 
 > **Project status:** alpha. Connectors, parsers, model clients, repositories,
 > a repository-backed Temporal ingestion pipeline, the operator CLI, and the
@@ -13,6 +16,81 @@ rename and architectural expansion. See the
 > and Debian-based application images are suitable for local development.
 > Internet-facing identity policy, infrastructure hardening, backup/restore,
 > observability, and a complete public production topology remain operator work.
+
+## Run it without any services
+
+No credentials, no Docker, and no backing services are required for the commands in this
+section. The workspace sync resolves the full development dependency set and needs roughly
+520 MB of disk.
+
+```bash
+git clone https://github.com/cbtw-apac/HarborRAG.git
+cd HarborRAG
+uv sync --all-packages --extra dev
+```
+
+Inspect the operator CLI:
+
+```bash
+uv run --package harborrag-app harborrag --help
+```
+
+Parse a document through the real parser registry, which selects a parser family and
+routes to a concrete engine:
+
+```bash
+uv run python - <<'PY'
+import asyncio
+
+from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
+
+
+async def main() -> None:
+    registry = HarborParserFactory().create_registry()
+    result = await registry.parse_request(
+        ParseRequest(
+            source_uri="docs/getting-started/README.md",
+            filename="README.md",
+            mime_type="text/markdown",
+        )
+    )
+    print(result.parser_name, result.engine_name, len(result.text))
+
+
+asyncio.run(main())
+PY
+```
+
+Run it from the checkout root; `source_uri` is repository-relative. It prints the selected
+parser family, the engine that handled the document, and the extracted character count, for
+example `markup markdown 663`.
+
+That exercises parsing alone. The version-authority guarantee described above lives in the
+ingestion and retrieval path, which needs PostgreSQL, object storage, Qdrant, FalkorDB,
+Redis, and Temporal. Continue with [Quick start](#quick-start) for the full workspace
+workflow, then [Configure durable ingestion locally](#configure-durable-ingestion-locally)
+to bring that stack up.
+
+## Coming from Qdrant Loader?
+
+HarborRAG 2.0 is Qdrant Loader, renamed and restructured from a single Qdrant-coupled
+ingestion tool into a provider-agnostic framework. Qdrant is now one vector adapter among
+several rather than the hardwired store.
+
+This is a **breaking** change. Import paths, distribution names, CLI commands, and
+configuration keys from `qdrant-loader` do not carry over. The closest equivalents are:
+
+| Qdrant Loader | HarborRAG |
+| --- | --- |
+| `qdrant-loader` | `harborrag-app` for the CLI, or `harborrag` as the library facade |
+| `qdrant-loader-core` | `harborrag-core`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, and `harborrag-adapters` |
+| `qdrant-loader-mcp-server` | `harborrag-mcp-server` |
+
+There is no automated migration path from a 1.x deployment: reconfigure connectors,
+parsers, and models against the new catalogs in [`config/`](config/) and reingest. See the
+[2.0.0a1 changelog](CHANGELOG.md#200a1---2026-08-27) for the full migration boundary and
+[What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the current
+architecture.
 
 ## What is implemented
 
@@ -59,19 +137,81 @@ for workflow, retry, and failure behavior.
 - [`uv`](https://docs.astral.sh/uv/) for the recommended workspace workflow, or `pip` for editable installs
 - Docker Engine with Docker Compose v2 for the local data and Temporal stacks
 
-## Quick start
+## Install
 
-From a local checkout:
+`harborrag` is the only package you install. It pulls in the rest of the
+workspace, and extras add the providers you need:
 
 ```bash
-uv sync --all-packages --extra dev
-uv run --package harborrag-app harborrag --help
+pip install "harborrag[all]"          # everything
+pip install "harborrag[cli,qdrant]"   # or just what you use
+```
+
+> Published with the `2.0.0a1` release. Until then, use the checkout above.
+
+A bare `pip install harborrag` installs the contracts only and no provider
+clients, so add at least one extra. Available extras: `all`, `local`, `chat`,
+`cli`, `server`, `mcp`, `memory`, `temporal`, `qdrant`, `falkordb`, `postgres`,
+`s3`, `redis`. See [Installation](docs/getting-started/installation.md) and the
+[`harborrag` package README](packages/harborrag/README.md) for what each one
+adds.
+
+## Use it from Python
+
+HarborRAG is a library first. `HarborRAG` exposes four async service facades —
+`ingestion`, `retrieval`, `graph`, and `chat` — behind one async context
+manager:
+
+```python
+import asyncio
+
+from harborrag import AccessContext, HarborRAG, IngestionRequest, RetrievalRequest
+
+
+async def main() -> None:
+    access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
+
+    async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+        await harbor.ingestion.run(
+            IngestionRequest(access=access, connector_name="harborrag-workspace")
+        )
+        results = await harbor.retrieval.search(
+            RetrievalRequest(access=access, query="deployment requirements")
+        )
+        print(results)
+
+
+asyncio.run(main())
+```
+
+Connectors are declared once in [`config/connectors.yaml`](config/connectors.yaml)
+and selected by name, so credentials stay as environment references. Long runs
+can be driven durably instead of inline:
+
+```python
+task = await harbor.ingestion.submit(request)   # returns a task reference
+status = await harbor.ingestion.status(task.task_id)
+await harbor.ingestion.pause(task.task_id)
+await harbor.ingestion.resume(task.task_id)
+```
+
+`submit`, `pause`, `resume`, and `cancel` need `execution_mode: temporal` and
+the `harborrag[temporal]` extra; `run` executes directly. Ingestion and
+retrieval both need the backing services from
+[Configure durable ingestion locally](#configure-durable-ingestion-locally).
+
+## Quick start
+
+[Run it without any services](#run-it-without-any-services) covers the checkout and the
+`uv sync --all-packages --extra dev` workspace sync. From that synced checkout, run the
+package tests:
+
+```bash
 uv run pytest packages/harborrag-core/tests
 ```
 
-The CLI help command does not require external services. `harborrag doctor`
-checks a live Temporal frontend, so run it only after starting Temporal. See
-[the deployment guide](docs/developers/deployment/README.md).
+`harborrag doctor` checks a live Temporal frontend, so run it only after starting
+Temporal. See [the deployment guide](docs/developers/deployment/README.md).
 
 `--extra dev` is enough for the commands above, but not for the full test
 suite. Several packages gate optional adapters (Redis, Alembic/control-plane,
@@ -249,6 +389,8 @@ for the complete readiness boundary.
 ## Try the implemented adapters
 
 ### Load and parse local documents
+
+Run this from the checkout root; `source_uri` is repository-relative.
 
 ```python
 import asyncio
@@ -474,4 +616,6 @@ uv run make doctor
 
 ## License
 
-Licensed under the terms in [LICENSE](LICENSE).
+HarborRAG is licensed under the [Apache License 2.0](LICENSE). Every published
+package declares `Apache-2.0` and ships a copy of the license in its
+distribution.

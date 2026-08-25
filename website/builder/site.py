@@ -187,8 +187,8 @@ class SiteBuildMixin:
             "start_url": "../",
             "scope": "../",
             "display": "standalone",
-            "background_color": "#071b26",
-            "theme_color": "#071b26",
+            "background_color": "#1C1C1C",
+            "theme_color": "#EE4823",
             "icons": [
                 {
                     "src": "favicons/android-chrome-192x192.png",
@@ -201,8 +201,7 @@ class SiteBuildMixin:
                     "type": "image/png",
                 },
                 {
-                    # branding-compat: HarborRAG#31 exempts only this legacy SVG; remove after FE replaces it.
-                    "src": "icons/qdrant-loader-icon-static.svg",
+                    "src": "icons/HarborRAG-icon-static.svg",
                     "sizes": "any",
                     "type": "image/svg+xml",
                 },

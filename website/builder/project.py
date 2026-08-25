@@ -197,6 +197,52 @@ class ProjectStructureMixin:
                 )
         return '<div class="docs-nav-grid">' + "".join(sections) + "</div>"
 
+    def render_docs_sidebar_nav(self, canonical_path: str) -> str:
+        """Render canonical docs navigation for the docs page rail.
+
+        The design shows the same documentation navigation on every docs page
+        instead of a per-page heading outline, so this renders ``docs/TOC.md``
+        with hrefs made relative to ``canonical_path``.
+        """
+        nav = self.docs_nav_data or self.build_docs_nav()
+        if not nav or not nav.get("children"):
+            return ""
+
+        prefix = "../" * canonical_path.count("/")
+        current = canonical_path[len("docs/") :] if canonical_path.startswith("docs/") else ""
+
+        sections: list[str] = []
+        for section in nav["children"]:
+            items: list[str] = []
+            for item in section["children"]:
+                raw_url = item["url"]
+                if re.match(r"^[a-z][a-z0-9+.-]*:", raw_url, re.IGNORECASE):
+                    href, is_current = raw_url, False
+                else:
+                    href = f"{prefix}docs/{raw_url}"
+                    is_current = bool(current) and raw_url.partition("#")[0] == current
+                classes = "docs-nav-link active" if is_current else "docs-nav-link"
+                aria = ' aria-current="page"' if is_current else ""
+                items.append(
+                    f'<li><a class="{classes}" href="{html.escape(href, quote=True)}"{aria}>'
+                    f"{html.escape(item['title'])}</a></li>"
+                )
+            if items:
+                sections.append(
+                    '<li class="docs-nav-section">'
+                    f'<span class="docs-nav-heading">{html.escape(section["title"])}</span>'
+                    f'<ul class="docs-nav-sublist">{"".join(items)}</ul>'
+                    "</li>"
+                )
+
+        if not sections:
+            return ""
+        return (
+            '<nav class="docs-nav" aria-label="Documentation navigation">'
+            f'<ul class="docs-nav-list">{"".join(sections)}</ul>'
+            "</nav>"
+        )
+
     def build_docs_structure(self) -> dict:
         """Build documentation directory structure."""
         docs_dir = Path("docs")
