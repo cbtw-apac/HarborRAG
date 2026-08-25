@@ -51,6 +51,7 @@ class InMemoryKnowledgeGraph:
         self.nodes = {}
         self.relations = {}
         self.write_batches = []
+        self.retracted_relations = []
         self.fail_writes = False
 
     async def write_projection(self, nodes, relations, *, context) -> None:
@@ -84,6 +85,32 @@ class InMemoryKnowledgeGraph:
             missing_node_keys=missing_nodes,
             missing_relation_ids=missing_relations,
         )
+
+    async def delete_relations(self, relations, *, context) -> None:
+        del context
+        # Recorded, not just applied: repair writes the resolved projection immediately
+        # after, so an over-broad retraction of an edge it is about to rewrite leaves no
+        # trace in the final graph. What was asked for is the only place it shows.
+        self.retracted_relations.extend(relations)
+        retracted = {relation.relation_id for relation in relations}
+        self.relations = {
+            key: relation for key, relation in self.relations.items() if key not in retracted
+        }
+        # Same prune the real repository does, scoped the same way: only the far ends of
+        # the retracted relations, and only where nothing else reaches them. A retracted
+        # relation is usually the last edge of a placeholder stub, and a zero-degree stub
+        # still counts in the node totals the health baseline pins.
+        attached = {
+            node_key
+            for relation in self.relations.values()
+            for node_key in (relation.source_node_key, relation.target_node_key)
+        }
+        orphans = {relation.target_node_key for relation in relations} - attached
+        self.nodes = {
+            key: node
+            for key, node in self.nodes.items()
+            if key not in orphans or node.ownership_scope.value != "SOURCE_SCOPE"
+        }
 
     async def delete_version(
         self,

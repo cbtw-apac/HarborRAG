@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.confluence.title_resolution import PageTitleResolver
+import pytest
+
+from harborrag_adapters.connectors.confluence.title_resolution import (
+    PageTitleResolver,
+    _title_digest,
+)
+
+
+class _RateLimited(RuntimeError):
+    """The 429 the live token took mid-session, as a named condition."""
 
 
 class _Content:
@@ -23,7 +33,7 @@ class _Content:
 class _Failing(_Content):
     def search(self, cql: str) -> Iterator[dict[str, Any]]:
         self.queries.append(cql)
-        raise RuntimeError("429 rate limited")
+        raise _RateLimited
         yield  # pragma: no cover - generator marker
 
 
@@ -33,7 +43,7 @@ class _FailsOnce(_Content):
     def search(self, cql: str) -> Iterator[dict[str, Any]]:
         self.queries.append(cql)
         if len(self.queries) == 1:
-            raise RuntimeError("429 rate limited")
+            raise _RateLimited
         yield from self._results.get(cql, [])
 
 
@@ -126,3 +136,20 @@ def test_the_lookup_is_constrained_to_pages() -> None:
     _resolver(content).page_id_for_title("ENG", "Deploy Runbook")
 
     assert content.queries == ['space = "ENG" and title = "Deploy Runbook" and type = page']
+
+
+def test_a_title_never_reaches_the_log(caplog: pytest.LogCaptureFixture) -> None:
+    """Both unresolved paths log once per title, and a title is document content -- on a
+    customer space it carries customer names and unreleased product names. The digest is
+    stable enough to count occurrences by, and cannot be read back."""
+
+    title = "Acme Corp Q3 Incident Postmortem"
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.connectors.confluence"):
+        _resolver(_Content()).page_id_for_title("ENG", title)
+        _resolver(_Failing()).page_id_for_title("ENG", title)
+
+    assert len(caplog.records) == 2
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert title not in logged
+    assert "Acme" not in logged
+    assert logged.count(_title_digest(title)) == 2

@@ -152,6 +152,18 @@ class FalkorKnowledgeGraphRepository:
     ) -> KnowledgeGraphTraversal:
         return await knowledge_queries.expand_subgraph(self._database, query, context=context)
 
+    async def delete_relations(
+        self,
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        """Retract relations and the far-end stubs they leave with no edges."""
+
+        if not relations:
+            return
+        await knowledge_writes.delete_relations(self._database, relations, context=context)
+
     async def delete_version(
         self,
         document_version_id: str,

@@ -14,7 +14,7 @@ import pytest
 
 from harborrag_core.chunking import ConnectorType, DocumentKind, RelationType
 from harborrag_core.domain.element import DocumentElement
-from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
+from harborrag_core.ingestion import GraphEntityType, GraphNodeRecord, KnowledgeNodeKind
 from harborrag_engine.ingestion import GraphProjectionBuilder, GraphProjectionInput
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
@@ -164,7 +164,7 @@ def _contains_by_source(graph) -> dict[str, set[str]]:
     return grouped
 
 
-def _document_item(graph):
+def _document_item(graph) -> GraphNodeRecord:
     """The source entity this document *is* -- the one its version hangs off."""
 
     return next(

@@ -122,6 +122,88 @@ async def upsert_relations(
         )
 
 
+async def delete_relations(
+    database: FalkorDBClient,
+    relations: Sequence[GraphEdgeRecord],
+    *,
+    context: StorageOperationContext,
+) -> None:
+    """Retract named relations by relation_id, grouped so each type is one round trip.
+
+    Grouping is not only symmetry with ``upsert_relations``: the only relation index
+    provisioning creates is per-relationship-label on ``tenant_id``, so an untyped
+    ``MATCH ()-[r]->()`` would scan every relationship in the graph. Naming the label
+    keeps each statement inside the one set it can use that index on.
+
+    ``relation_id`` is derived from type, endpoints and source relation version, so the
+    caller can name an edge it wrote earlier without reading the graph back first.
+    """
+
+    grouped: defaultdict[str, list[str]] = defaultdict(list)
+    for relation in relations:
+        if str(relation.owner_id) != str(context.tenant_id):
+            raise ValueError("graph relationship owner does not match storage tenant context")
+        grouped[RELATION_IDENTIFIERS[relation.relation_type]].append(relation.relation_id)
+    for relationship_type, relation_ids in sorted(grouped.items()):
+        await database.write(
+            f"""
+            MATCH ()-[relation:{relationship_type}]->()
+            WHERE relation.tenant_id = $tenant_id
+              AND relation.graph_schema_version = $graph_schema_version
+              AND relation.relation_id IN $relation_ids
+            DELETE relation
+            """,
+            {
+                "tenant_id": str(context.tenant_id),
+                "graph_schema_version": GRAPH_SCHEMA_VERSION,
+                "relation_ids": relation_ids,
+            },
+        )
+    await _prune_retracted_targets(database, relations, context=context)
+
+
+async def _prune_retracted_targets(
+    database: FalkorDBClient,
+    relations: Sequence[GraphEdgeRecord],
+    *,
+    context: StorageOperationContext,
+) -> None:
+    """Drop the far ends left with no edges, and only those.
+
+    A retracted relation is normally the last edge of a placeholder stub, and a
+    zero-degree stub is not merely untidy: it counts in ``tenant_projection_counts`` and
+    appears in the graph-eval health baseline, so leaving it turns one repaired document
+    into a permanent diff.
+
+    Scoped to the keys just retracted, not to the tenant. Relation repair fans out with
+    ``asyncio.gather``, and ``write_projection`` stages nodes before their relations, so
+    another document's freshly written placeholders are momentarily zero-degree. A
+    tenant-wide sweep firing in that window deletes them, and that document's own
+    ``MATCH source MATCH target MERGE`` then writes no relation at all and fails its
+    verification.
+
+    ``NOT (node)--()`` still guards each key, so a stub that some other projection has
+    since attached to a container survives.
+    """
+
+    await database.write(
+        """
+        MATCH (node:KnowledgeNode)
+        WHERE node.node_key IN $node_keys
+          AND node.tenant_id = $tenant_id
+          AND node.graph_schema_version = $graph_schema_version
+          AND node.ownership_scope = 'SOURCE_SCOPE'
+          AND NOT (node)--()
+        DELETE node
+        """,
+        {
+            "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "node_keys": sorted({relation.target_node_key for relation in relations}),
+        },
+    )
+
+
 async def verify_projection(
     database: FalkorDBClient,
     nodes: Sequence[GraphNodeRecord],

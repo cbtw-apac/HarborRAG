@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -14,21 +14,23 @@ from harborrag_adapters.repositories.object_store import (
     CanonicalDocumentArtifactRepository,
     ChunkArtifactReader,
 )
+from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     ChangeFingerprintBuilder,
-    KnowledgeNodeKind,
     ProcessingProfile,
 )
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     GraphDocumentTarget,
+    GraphProjectionBatch,
     GraphProjectionBuilder,
     GraphProjectionInput,
 )
 
 from ..document.models import DocumentReleaseRequest
+from .relation_supersession import document_relations, superseded_relations
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 
@@ -203,35 +205,22 @@ class GraphRelationRepairService:
             connection_id=self._required_extra(document, "connection_id"),
             source_item_ids=source_ids,
         )
-        graph = self._builder.build(
-            GraphProjectionInput(
-                document=document,
-                chunks=chunks,
-                resolved_targets={
-                    source_id: GraphDocumentTarget(
-                        source_item_id=target.source_item_id,
-                        document_id=target.document_id,
-                        document_version_id=target.document_version_id,
-                        source_scope_id=target.source_scope_id,
-                        title=target.title,
-                    )
-                    for source_id, target in targets.items()
-                },
-                graph_projection_version=graph_projection_version,
-            )
+        graph = self._build(
+            document,
+            chunks,
+            resolved_targets={
+                source_id: GraphDocumentTarget(
+                    source_item_id=target.source_item_id,
+                    document_id=target.document_id,
+                    document_version_id=target.document_version_id,
+                    source_scope_id=target.source_scope_id,
+                    title=target.title,
+                )
+                for source_id, target in targets.items()
+            },
+            graph_projection_version=graph_projection_version,
         )
-        document_node_keys = {
-            node.node_key
-            for node in graph.nodes
-            if node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY
-        }
-        relations = tuple(
-            relation
-            for relation in graph.relations
-            if relation.source_explicit
-            and relation.source_node_key in document_node_keys
-            and relation.target_node_key in document_node_keys
-        )
+        relations = document_relations(graph)
         if not relations:
             return (0, 0, len(graph.unresolved_relations))
         endpoint_keys = {
@@ -240,6 +229,26 @@ class GraphRelationRepairService:
             for node_key in (relation.source_node_key, relation.target_node_key)
         }
         nodes = tuple(node for node in graph.nodes if node.node_key in endpoint_keys)
+        # Retract before writing. The first projection could only stamp this document's
+        # own scope on a target it could not resolve, so the edge it wrote points at a
+        # stub no projection ever fills in. Left in place beside the resolved edge, a
+        # traversal returns both the real target and a target that does not exist.
+        superseded = superseded_relations(
+            self._build(
+                document,
+                chunks,
+                resolved_targets={},
+                graph_projection_version=graph_projection_version,
+            ),
+            resolved=relations,
+        )
+        if superseded:
+            logger.info(
+                "Retracting superseded placeholder relations document_id=%s count=%d",
+                document_id,
+                len(superseded),
+            )
+            await self._graph.delete_relations(superseded, context=context)
         await self._graph.write_projection(
             nodes,
             relations,
@@ -256,6 +265,23 @@ class GraphRelationRepairService:
             1,
             len(relations),
             len(graph.unresolved_relations),
+        )
+
+    def _build(
+        self,
+        document: Document,
+        chunks: tuple[ChunkRecord, ...],
+        *,
+        resolved_targets: Mapping[str, GraphDocumentTarget],
+        graph_projection_version: str,
+    ) -> GraphProjectionBatch:
+        return self._builder.build(
+            GraphProjectionInput(
+                document=document,
+                chunks=chunks,
+                resolved_targets=resolved_targets,
+                graph_projection_version=graph_projection_version,
+            )
         )
 
     @staticmethod

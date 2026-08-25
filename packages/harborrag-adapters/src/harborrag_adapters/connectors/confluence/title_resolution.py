@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import logging
+from hashlib import sha256
 
 from .content import ConfluenceContentAPI
 from .query import quote_cql
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
+
+
+def _title_digest(title: str) -> str:
+    """Reduce a page title to a stable, non-reversible handle for logs.
+
+    A title is document content, not an identifier: on a customer space it carries
+    customer names, incident numbers and unreleased product names, and these two lines
+    fire once per unresolved title on every run. The digest is stable across runs, so an
+    operator can still count occurrences and correlate them with a CQL search of their
+    own, without the space's vocabulary being copied into log storage.
+    """
+
+    return sha256(title.encode("utf-8")).hexdigest()[:12]
 
 
 class PageTitleResolver:
@@ -50,17 +64,17 @@ class PageTitleResolver:
             resolved = self._lookup(space_key, title)
         except Exception as error:  # noqa: BLE001 - degrade to unresolved, never fail load
             logger.warning(
-                "Confluence link title lookup failed space=%s title=%r error_type=%s",
+                "Confluence link title lookup failed space=%s title_digest=%s error_type=%s",
                 space_key,
-                title,
+                _title_digest(title),
                 type(error).__name__,
             )
             return None
         if resolved is None:
             logger.info(
-                "Confluence link title did not resolve to a page space=%s title=%r",
+                "Confluence link title did not resolve to a page space=%s title_digest=%s",
                 space_key,
-                title,
+                _title_digest(title),
             )
         self._page_ids[cache_key] = resolved
         return resolved

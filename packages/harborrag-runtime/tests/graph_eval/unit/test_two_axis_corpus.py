@@ -74,13 +74,19 @@ def test_no_container_anywhere_holds_an_attachment(corpus: EvalCorpus) -> None:
     assert held == set(), held
 
 
-def test_every_attachment_is_owned_by_a_document(corpus: EvalCorpus) -> None:
+def test_every_attachment_is_owned_by_exactly_one_document(corpus: EvalCorpus) -> None:
     """Taking attachments off the membership axis must not strand them.
 
     Both ends are checked, not just the target set: HAS_ATTACHMENT is the one edge that
     reaches an attachment, so a source that is a space, a drive or another attachment
     would put it back on a container -- the very thing the split removes -- while still
     leaving every attachment "owned".
+
+    And exactly one owner, not at least one. Two paths build the parent stand-in for a
+    dispatched attachment -- the provider projector from ``parent_source_item_id`` and
+    ``SourceRelationProjector`` from the reversed ``attached_to`` -- so either one keying
+    the parent differently gives the attachment a second owner rather than no owner, and
+    a set-containment check cannot see that.
     """
 
     nodes, _ = _merged(corpus)
@@ -93,10 +99,17 @@ def test_every_attachment_is_owned_by_a_document(corpus: EvalCorpus) -> None:
     documents = {corpus.source_item_key(document_id) for document_id in corpus.batches}
     attachments = {key for key, node in nodes.items() if _label(node).endswith(_ATTACHMENT_SUFFIX)}
     assert attachments, "corpus has no attachments to check"
-    assert attachments <= {target for _, target in edges}, attachments - {
-        target for _, target in edges
+
+    owners: dict[str, set[str]] = {}
+    for source, target in edges:
+        owners.setdefault(target, set()).add(source)
+    assert set(owners) == attachments, attachments.symmetric_difference(owners)
+    shared = {
+        _label(nodes[attachment]): sorted(_label(nodes[owner]) for owner in held)
+        for attachment, held in owners.items()
+        if len(held) != 1
     }
-    assert {target for _, target in edges} <= attachments
+    assert not shared, shared
     holders = {source for source, _ in edges}
     assert holders <= documents - attachments, holders - (documents - attachments)
 
