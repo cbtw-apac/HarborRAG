@@ -6,6 +6,22 @@ The store-by-store ownership contract — what belongs in PostgreSQL, the object
 Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary are in the
 [projection rebuild runbook](projection-rebuild.md).
 
+For the end-to-end behavior, continue with the [data lifecycle](data-lifecycle.md). For
+durability, replay, and failure boundaries, see [runtime reliability](runtime-reliability.md).
+
+## Architecture invariants
+
+These rules are more important than any individual provider choice:
+
+- PostgreSQL is the authority for tenant, source, document, version, job, and publication state.
+- Immutable canonical artifacts in the object store are the evidence and replay boundary.
+- Qdrant and FalkorDB are version-addressed projections that can be rebuilt from canonical data.
+- A version becomes active only after its required projections have been written and verified.
+- Retrieval validates candidate versions against PostgreSQL before returning evidence.
+- Every data-plane operation carries tenant and principal context to the storage boundary.
+- Provider SDK types stop at adapters; core contracts and engine policy remain provider-neutral.
+- Temporal coordinates durable ingestion. Retrieval remains a direct, latency-sensitive path.
+
 ## Active package map
 
 | Package | Responsibility | Current maturity |
@@ -13,6 +29,7 @@ Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary 
 | `harborrag-core` | Bounded domain records, identifiers, errors, access context, and ports | Provider-independent language |
 | `harborrag-adapters` | Connectors, parsers, model clients, and repository implementations | External I/O boundary |
 | `harborrag-engine` | Provider-independent ingestion/retrieval policies and transformations | Business behavior and invariants |
+| `harborrag-memory` | Provider-neutral conversation state and memory policy | Required package; optional memory configuration |
 | `harborrag-runtime` | Composition, direct/Temporal executors, lifecycle, scheduling, and config loading | Execution boundary |
 | `harborrag-app` | HTTP, CLI, authentication, and presentation mapping | User transport |
 | `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy, and audit | Agent transport |
@@ -25,9 +42,9 @@ Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary 
 ```text
 harborrag_core      -> no HarborRAG package
 harborrag_adapters  -> core
-`harborrag_memory    -> core
-harborrag_engine    -> core
-`harborrag_runtime   -> core, adapters, engine, memory
+harborrag_memory    -> core
+harborrag_engine    -> core, memory
+harborrag_runtime   -> core, adapters, engine, memory
 harborrag_app       -> core, runtime
 harborrag_mcp_server -> core, runtime
 harborrag           -> any active package
@@ -46,12 +63,27 @@ may compose several packages and are not treated as production dependencies. Nei
 runtime call graphs, so review still needs to catch indirect boundary leaks, provider
 objects in public schemas, and service layers bypassed through callbacks.
 
+## Control plane and data plane
+
+The control plane owns identities, configuration, source admission, version state,
+publication, jobs, and operator intent. Its durable authority is PostgreSQL. Temporal
+records workflow progress and coordinates work, but it does not replace the authority
+record.
+
+The data plane moves content and serves retrieval. It includes connectors, parsers, model
+clients, the immutable object store, Qdrant, and FalkorDB. Access context crosses from the
+control plane into every storage operation; provider responses never become authority by
+themselves.
+
 ## Document flow
 
 The core domain types describe the intended ingestion lifecycle:
 
 ```text
 SourceRecord
+   │ connector.describe + admission
+   ▼
+source descriptor
    │ connector.load
    ▼
 RawDocument
@@ -61,16 +93,28 @@ ParsedDocument
    │ normalizer
    ▼
 Document + DocumentElement + DocumentProvenance
-   │ chunk/embed/index
+   │ source-aware chunk planning
    ▼
-storage schemas and RetrievalResult
+ChunkRecord + ChunkRepresentation
+   │ dense/sparse encoding + projection
+   ▼
+vector/graph projection records + manifests
+   │ verify + publish
+   ▼
+active version + RetrievalResult
 ```
 
 - `SourceRecord` is a lightweight discovered locator.
+- A source descriptor contains the stable identity and metadata needed for admission before
+  expensive content loading begins.
 - `RawDocument` holds loaded text/bytes and source metadata.
 - `ParseInput` safely coerces paths, bytes, text, or raw-document-like objects.
 - `ParsedDocument` holds canonical extracted content, optional structured elements, warnings, metadata, and bounded raw data.
 - `Document` is the normalized domain object with provenance and structural relations.
+- `ChunkRecord` preserves an addressable evidence range; `ChunkRepresentation` carries the
+  text or structured representation sent to an encoder.
+- Projection records are rebuildable index inputs. Manifests prove which version and vector
+  space were written before publication.
 
 ## Core contracts
 

@@ -33,6 +33,13 @@ cp env-example/.env.database.example env/.env.database
 scripts/deployment/dev.sh data
 ```
 
+When upgrading an existing checkout, add `POSTGRES_PASSWORD` and
+`MINIO_ROOT_PASSWORD` to the existing protected `env/.env.database` before the
+next start. Monitoring now uses a separate `env/.env.monitoring`; create it
+from `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`.
+Compose intentionally refuses to start an affected service when one of these
+required passwords is absent.
+
 The unified deployment helper accepts `DATABASE_ENV_FILE` overrides and passes
 the selected file to Docker Compose. Change the example password before using
 the stack outside an isolated developer machine.
@@ -67,6 +74,8 @@ docker compose --env-file env/.env.monitoring \
   --file deploy/compose/docker-compose.monitoring.yml up --detach
 ```
 
+Set `GRAFANA_ADMIN_PASSWORD` in the protected monitoring environment file
+before starting the stack; Compose has no checked-in password fallback.
 Monitoring remains separate from `scripts/deployment/dev.sh` bootstrap. Keep
 its environment file protected and monitoring bound to loopback unless an
 authenticated TLS reverse proxy and firewall protect it. The hardened stack
@@ -184,4 +193,6 @@ infrastructure-as-code.
 Before an internet-facing deployment can be considered production-ready,
 operators still need deployment-specific authorization policy, TLS/network
 policy, secret delivery, backup/restore, resource limits, alert thresholds, and
-end-to-end tests against their chosen source systems.
+end-to-end tests against their chosen source systems. Review the
+[runtime reliability boundary](../architecture/runtime-reliability.md) before
+choosing worker, retry, timeout, retention, and recovery policy.

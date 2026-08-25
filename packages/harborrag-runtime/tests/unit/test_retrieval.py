@@ -16,6 +16,7 @@ from retrieval_test_support import (
     resources as _resources,
 )
 
+from harborrag_core.ingestion import ActiveDocumentVersion
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.retrieval import (
     RetrievalOptions,
@@ -97,6 +98,39 @@ async def test_malformed_candidate_is_skipped_without_losing_valid_results() -> 
 
     assert [result.id for result in report.results] == ["chunk-1"]
     assert report.diagnostics.malformed_candidates == 1
+
+
+class AdvancingActiveVersions:
+    """Advance the authority pointer between search validation and final assembly."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def active_versions(self, document_ids):
+        del document_ids
+        self.calls += 1
+        version = "version-1" if self.calls == 1 else "version-2"
+        return {
+            "document-1": ActiveDocumentVersion(
+                document_id="document-1",
+                document_version_id=version,
+            )
+        }
+
+
+@pytest.mark.asyncio
+async def test_revalidates_candidates_after_evidence_loading() -> None:
+    authority = AdvancingActiveVersions()
+    service = RuntimeRetrievalService(
+        resources=_resources(active_versions=authority),
+        policy=_policy(),
+    )
+
+    report = await service.retrieve("release", tenant_id="tenant-1", top_k=1)
+
+    assert report.results == ()
+    assert report.diagnostics.stale_candidates == 1
+    assert authority.calls == 2
 
 
 @pytest.mark.asyncio

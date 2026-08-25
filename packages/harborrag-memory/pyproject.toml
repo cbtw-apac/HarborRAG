@@ -1,10 +1,10 @@
 [project]
 name = "harborrag-memory"
-version = "0.1.0"
+version = "2.0.0a1"
 description = "Scope-aware short-term, working, and long-term memory for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
-dependencies = ["harborrag-core==0.1.0"]
+dependencies = ["harborrag-core==2.0.0a1"]
 
 [build-system]
 requires = ["hatchling"]

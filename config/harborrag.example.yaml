@@ -1,4 +1,4 @@
-# Stable SDK/runtime facade configuration. Package versions remain 0.1.0.
+# SDK/runtime facade configuration for HarborRAG 2.0.0 Alpha 1 (2.0.0a1).
 execution_mode: direct
 discover_plugins: false
 

@@ -27,7 +27,7 @@ class WebsiteBuilder(
     CoverageBuildMixin,
     PackageDocsMixin,
 ):
-    """Builds the QDrant Loader documentation website from templates."""
+    """Builds the HarborRAG documentation website from repository sources."""
 
     def __init__(self, templates_dir: str = "website/templates", output_dir: str = "site"):
         """Initialize the website builder."""
@@ -40,6 +40,7 @@ class WebsiteBuilder(
         # Initialize component processors
         self.template_processor = TemplateProcessor(templates_dir)
         self.markdown_processor = MarkdownProcessor()
+        self.markdown_processor.repository_url = "https://github.com/cbtw-apac/HarborRAG"
         self.asset_manager = AssetManager(output_dir)
 
     # Delegate core operations to specialized processors

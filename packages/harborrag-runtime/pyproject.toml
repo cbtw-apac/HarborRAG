@@ -1,14 +1,14 @@
 [project]
 name = "harborrag-runtime"
-version = "0.1.0"
+version = "2.0.0a1"
 description = "Direct and durable production execution for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "harborrag-core==0.1.0",
-    "harborrag-engine==0.1.0",
-    "harborrag-memory==0.1.0",
-    "harborrag-adapters==0.1.0",
+    "harborrag-core==2.0.0a1",
+    "harborrag-engine==2.0.0a1",
+    "harborrag-memory==2.0.0a1",
+    "harborrag-adapters==2.0.0a1",
     "PyYAML>=6.0.0",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
@@ -22,7 +22,7 @@ temporal = [
     "cloudpickle>=3.1,<4",
 ]
 production = [
-    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]==0.1.0",
+    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]==2.0.0a1",
 ]
 dev = [
     "types-PyYAML>=6.0,<7",

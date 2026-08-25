@@ -244,6 +244,10 @@ Regular paragraph text.
         result = processor._process_link_path("CONTRIBUTING", "packages/test/README.md")
         assert result == "/docs/CONTRIBUTING.html"
 
+        assert processor._process_link_path("SECURITY.md") == "/docs/SECURITY.html"
+        assert processor._process_link_path("./CONTRIBUTING.md") == "/docs/CONTRIBUTING.html"
+        assert processor._process_link_path("/README.md") == "/docs/README.html"
+
 
 class TestAssetManagerCoverage:
     """Test asset manager to increase coverage."""

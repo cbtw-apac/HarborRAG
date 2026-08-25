@@ -1,12 +1,12 @@
 [project]
 name = "harborrag-mcp-server"
-version = "0.1.0"
+version = "2.0.0a1"
 description = "MCP facade and audited tools for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "harborrag-core==0.1.0",
-    "harborrag-runtime==0.1.0",
+    "harborrag-core==2.0.0a1",
+    "harborrag-runtime==2.0.0a1",
     "jsonschema>=4.26,<5",
     "pydantic>=2.12,<3",
     "pyyaml>=6.0.2,<7",

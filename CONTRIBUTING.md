@@ -32,7 +32,7 @@ For a `pip` editable installation:
 make bootstrap
 ```
 
-`make bootstrap` installs the seven active workspace packages in dependency
+`make bootstrap` installs the eight active workspace packages in dependency
 order and then installs the root `dev` extra.
 
 ## Before changing code
@@ -50,6 +50,7 @@ Keep changes focused. Do not combine generated files, broad formatting, or unrel
 | --- | --- |
 | `harborrag-core` | Provider-neutral domain objects, shared schemas, model contracts, errors, and security helpers |
 | `harborrag-adapters` | External connectors, parsers, model transports, repository providers, and provider validation |
+| `harborrag-memory` | Provider-neutral conversation-memory contracts and policies |
 | `harborrag-engine` | Pure ingestion transformations, representation/projection mapping, retrieval, and evidence orchestration |
 | `harborrag-runtime` | Configuration loading, composition, jobs, supervision, schedules, and durable-workflow boundaries |
 | `harborrag-app` | Application services, CLI commands, and HTTP controllers |
@@ -61,10 +62,11 @@ The allowed HarborRAG imports are:
 ```text
 harborrag_core      -> none
 harborrag_adapters  -> core
-harborrag_engine    -> core
-harborrag_runtime   -> core, adapters, engine
-harborrag_app       -> core, engine, runtime
-harborrag_mcp_server -> core, engine, runtime
+harborrag_memory    -> core
+harborrag_engine    -> core, memory
+harborrag_runtime   -> core, adapters, engine, memory
+harborrag_app       -> core, runtime
+harborrag_mcp_server -> core, runtime
 harborrag           -> any active HarborRAG package
 ```
 
@@ -226,11 +228,21 @@ Update documentation whenever behavior, public imports, commands, configuration,
 
 Use repository-relative Markdown links and runnable commands from the repository root. Be explicit about alpha or scaffolded surfaces; do not document a placeholder as operational.
 
+All documentation is publication material. Follow the
+[open-source publication guidelines](docs/developers/publication-guidelines.md):
+use synthetic data, distinguish implemented behavior from direction, and leave
+out credentials, customer or employee content, internal hosts and topology,
+incident material, confidential roadmaps, and unsupported claims. Do not add a
+private research artifact and attempt to redact it in place; rewrite only the
+stable, community-useful information in the appropriate public guide.
+
 Build and test the documentation site with:
 
 ```bash
 uv run python website/build.py --output site --templates website/templates
-uv run pytest tests/
+uv run pytest tests/test_website_*.py tests/test_link_checker*.py
+uv run python website/check_branding.py
+uv run python website/check_publication.py
 ```
 
 ## Configuration and secrets
@@ -278,4 +290,6 @@ A pull request should explain the behavior change, package boundaries affected, 
 - [ ] Replaced code is removed without compatibility aliases.
 - [ ] No unused files or duplicate implementations remain.
 - [ ] Relevant README and ADR records are updated.
+- [ ] Public text and fixtures pass the publication checklist and contain only synthetic data.
+- [ ] Security-sensitive reports follow [SECURITY.md](SECURITY.md) instead of a public issue.
 - [ ] Lint, complexity, type checking, compilation, tests, and coverage pass.

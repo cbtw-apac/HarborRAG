@@ -30,7 +30,7 @@ except ImportError:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Build QDrant Loader documentation website")
+    parser = argparse.ArgumentParser(description="Build the HarborRAG documentation website")
     parser.add_argument("--output", "-o", default="site", help="Output directory")
     parser.add_argument(
         "--templates", "-t", default="website/templates", help="Templates directory"

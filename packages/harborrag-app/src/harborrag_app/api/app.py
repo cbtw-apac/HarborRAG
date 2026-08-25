@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from starlette.routing import compile_path
 
+from harborrag_app import __version__
 from harborrag_app.api.auth.dependencies import build_token_verifier
 from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
@@ -138,7 +139,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     configure_logging()
     app = FastAPI(
         title="HarborRAG Control Plane API",
-        version="0.1.0",
+        version=__version__,
         openapi_url=(f"{OPERATIONAL_PREFIX}/openapi.json" if settings.docs_enabled else None),
         docs_url=f"{OPERATIONAL_PREFIX}/docs" if settings.docs_enabled else None,
         redoc_url=None,

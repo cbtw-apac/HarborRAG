@@ -10,6 +10,11 @@ def write_package_readme(name: str, body: str) -> None:
     readme = Path("packages") / name / "README.md"
     readme.parent.mkdir(parents=True, exist_ok=True)
     readme.write_text(body, encoding="utf-8")
+    (readme.parent / "pyproject.toml").write_text(
+        f'[project]\nname = "{name}"\nversion = "0.1.0"\n'
+        f'description = "Documentation for {name}"\n',
+        encoding="utf-8",
+    )
 
 
 class TestBuildPackageDocs:
@@ -21,23 +26,26 @@ class TestBuildPackageDocs:
         assert not (builder.output_dir / "docs" / "packages").exists()
 
     def test_renders_known_packages(self, builder):
-        write_package_readme("qdrant-loader", "# QDrant Loader\n\n## Usage\n\nInstall it.\n")
-        write_package_readme("qdrant-loader-mcp-server", "# MCP\n\n## Tools\n\nList.\n")
-        write_package_readme("qdrant-loader-core", "# Core\n\n## API\n\nStuff.\n")
+        write_package_readme("harborrag", "# HarborRAG\n\n## Usage\n\nInstall it.\n")
+        write_package_readme("harborrag-mcp-server", "# MCP\n\n## Tools\n\nList.\n")
+        write_package_readme("harborrag-core", "# Core\n\n## API\n\nStuff.\n")
 
         builder.build_package_docs()
 
         packages_dir = builder.output_dir / "docs" / "packages"
+        assert (packages_dir / "harborrag" / "README.html").exists()
+        assert (packages_dir / "harborrag-mcp-server" / "README.html").exists()
+        assert (packages_dir / "harborrag-core" / "README.html").exists()
+
+        html = (packages_dir / "harborrag" / "README.html").read_text(encoding="utf-8")
+        assert "toc-sidebar" in html
         assert (packages_dir / "qdrant-loader" / "README.html").exists()
         assert (packages_dir / "mcp-server" / "README.html").exists()
         assert (packages_dir / "core" / "README.html").exists()
 
-        html = (packages_dir / "qdrant-loader" / "README.html").read_text(encoding="utf-8")
-        assert "toc-sidebar" in html
-
     def test_rewrites_relative_repository_links(self, builder):
         write_package_readme(
-            "qdrant-loader",
+            "harborrag",
             "# Pkg\n\n"
             "[contributing](../../CONTRIBUTING.md)\n\n"
             "[license](../../LICENSE)\n\n"
@@ -47,9 +55,9 @@ class TestBuildPackageDocs:
 
         builder.build_package_docs()
 
-        html = (
-            builder.output_dir / "docs" / "packages" / "qdrant-loader" / "README.html"
-        ).read_text(encoding="utf-8")
+        html = (builder.output_dir / "docs" / "packages" / "harborrag" / "README.html").read_text(
+            encoding="utf-8"
+        )
         # LICENSE carries no extension for the link normalizer to rewrite, so the
         # package-README hardening pass is what absolutises it.
         assert 'href="/docs/LICENSE.html"' in html
@@ -61,17 +69,17 @@ class TestBuildPackageDocs:
         assert ".md" not in html
 
     def test_renders_readme_without_headings(self, builder):
-        write_package_readme("qdrant-loader-core", "Just prose, no headings.\n")
+        write_package_readme("harborrag-core", "Just prose, no headings.\n")
 
         builder.build_package_docs()
 
-        html = (builder.output_dir / "docs" / "packages" / "core" / "README.html").read_text(
-            encoding="utf-8"
-        )
+        html = (
+            builder.output_dir / "docs" / "packages" / "harborrag-core" / "README.html"
+        ).read_text(encoding="utf-8")
         assert "No sections" in html
 
     def test_reports_failures(self, builder, capsys, monkeypatch):
-        write_package_readme("qdrant-loader", "# Pkg\n")
+        write_package_readme("harborrag", "# Pkg\n")
 
         def exploding_build_page(*args, **kwargs):
             raise RuntimeError("render exploded")
@@ -80,7 +88,7 @@ class TestBuildPackageDocs:
 
         builder.build_package_docs()
 
-        assert "Failed to build docs for package qdrant-loader" in capsys.readouterr().out
+        assert "Failed to build docs for package harborrag" in capsys.readouterr().out
 
 
 class TestGenerateDirectoryIndexes:
