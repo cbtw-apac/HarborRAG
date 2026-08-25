@@ -27,6 +27,7 @@ PROJECTED_EDGE_SIGNATURES: frozenset[tuple[str, str, str]] = frozenset(
         ("SourceEntity", "has_attachment", "SourceEntity"),
         ("SourceEntity", "contains", "SourceEntity"),
         ("SourceEntity", "points_to", "SourceEntity"),
+        ("SourceEntity", "includes", "SourceEntity"),
         ("DocumentVersion", "resolved_at", "SourceEntity"),
     }
 )

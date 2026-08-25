@@ -122,6 +122,59 @@ async def upsert_relations(
         )
 
 
+async def delete_relations(
+    database: FalkorDBClient,
+    relations: Sequence[GraphEdgeRecord],
+    *,
+    context: StorageOperationContext,
+) -> None:
+    """Retract named relations by relation_id, grouped so each type is one round trip.
+
+    Grouping is not only symmetry with ``upsert_relations``: the only relation index
+    provisioning creates is per-relationship-label on ``tenant_id``, so an untyped
+    ``MATCH ()-[r]->()`` would scan every relationship in the graph. Naming the label
+    keeps each statement inside the one set it can use that index on.
+
+    ``relation_id`` is derived from type, endpoints and source relation version, so the
+    caller can name an edge it wrote earlier without reading the graph back first.
+
+    Relations only: the far end a retraction leaves edgeless is deliberately not deleted
+    here. Deleting it means testing its degree in one transaction and deleting it in
+    another, and ``write_projection`` stages nodes before their relations -- so a
+    placeholder a concurrent projection has just staged reads as edgeless, and removing it
+    makes that projection's ``MATCH target`` find nothing, write no relation and fail its
+    own verification. Scoping the test to the keys just retracted does not help: a
+    placeholder shared by several linking documents is exactly the node another writer is
+    staging.
+
+    Nothing reads an edgeless node -- every graph query starts from a node and walks at
+    least one relationship -- so the stub is unreachable rather than wrong, and the
+    tenant-wide prune on version and source-item cleanup reaps it. A transient node count
+    is the right thing to trade against a failed ingestion.
+    """
+
+    grouped: defaultdict[str, list[str]] = defaultdict(list)
+    for relation in relations:
+        if str(relation.owner_id) != str(context.tenant_id):
+            raise ValueError("graph relationship owner does not match storage tenant context")
+        grouped[RELATION_IDENTIFIERS[relation.relation_type]].append(relation.relation_id)
+    for relationship_type, relation_ids in sorted(grouped.items()):
+        await database.write(
+            f"""
+            MATCH ()-[relation:{relationship_type}]->()
+            WHERE relation.tenant_id = $tenant_id
+              AND relation.graph_schema_version = $graph_schema_version
+              AND relation.relation_id IN $relation_ids
+            DELETE relation
+            """,
+            {
+                "tenant_id": str(context.tenant_id),
+                "graph_schema_version": GRAPH_SCHEMA_VERSION,
+                "relation_ids": relation_ids,
+            },
+        )
+
+
 async def verify_projection(
     database: FalkorDBClient,
     nodes: Sequence[GraphNodeRecord],

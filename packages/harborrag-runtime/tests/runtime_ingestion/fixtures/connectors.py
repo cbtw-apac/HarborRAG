@@ -17,19 +17,24 @@ class SourceConnector:
         self.loads = 0
         self.body = "The worker timeout is 30 seconds."
         self.labels = ["operations"]
+        # Settable so a test can withhold it: DocumentNormalizer._title then falls back
+        # to the record id, which is the one case the title-as-content fallback rejects.
+        self.title: str | None = "Worker guide"
 
     def load(self, record: SourceRecord) -> RawDocument:
         self.loads += 1
+        metadata: dict[str, object] = {
+            "labels": list(self.labels),
+            "checksum": f"source-{self.loads}",
+        }
+        if self.title is not None:
+            metadata["title"] = self.title
         return RawDocument(
             id=record.id,
             source=record.locator,
             content=self.body,
             content_type="text/plain",
-            metadata={
-                "title": "Worker guide",
-                "labels": list(self.labels),
-                "checksum": f"source-{self.loads}",
-            },
+            metadata=metadata,
         )
 
 

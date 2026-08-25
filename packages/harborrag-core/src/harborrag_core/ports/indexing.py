@@ -99,6 +99,13 @@ class KnowledgeGraphRepositoryPort(Protocol):
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal: ...
 
+    async def delete_relations(
+        self,
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None: ...
+
     async def delete_version(
         self,
         document_version_id: str,

@@ -42,9 +42,11 @@ from .table.policy import (
     TableClassificationThresholds,
 )
 from .table.service import CanonicalTableChunker
+from .transforms.segmentation import produces_evidence
 
 __all__ = [
     "CanonicalTableChunker",
+    "produces_evidence",
     "ChunkCandidate",
     "ChunkManifest",
     "ChunkReference",

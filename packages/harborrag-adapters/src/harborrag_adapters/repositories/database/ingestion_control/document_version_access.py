@@ -89,27 +89,48 @@ class DocumentVersionReader:
     async def resolve_active_sources(
         self,
         *,
-        source_scope_id: str,
+        tenant_id: str,
+        connector_type: str,
+        connection_id: str,
         source_item_ids: Sequence[str],
     ) -> dict[str, ActiveSourceDocument]:
+        """Resolve relation targets across every scope of one connection.
+
+        Resolution is deliberately not limited to the projecting document's scope. A
+        relation target routinely lives in a sibling scope of the same connection -- one
+        space or project ingested by a separate scoped run -- and a scope-limited lookup
+        left those targets permanently unresolved, so the edge stayed pinned to a
+        placeholder built under the wrong scope and could never converge with the real
+        node. ``uq_document_source_identity`` makes (tenant, connector, connection,
+        source_item) single-valued, so widening to that identity stays unambiguous, and
+        ``DOCUMENTS.source_scope_id`` is the authoritative scope the target's own
+        projection used.
+        """
+
         if not source_item_ids:
             return {}
         async with self._client.sessions() as session:
             result = await session.execute(
                 select(
-                    SOURCE_ITEMS.c.source_item_id,
-                    SOURCE_ITEMS.c.source_scope_id,
+                    DOCUMENTS.c.source_item_id,
+                    DOCUMENTS.c.source_scope_id,
                     SOURCE_ITEMS.c.descriptor,
                     DOCUMENTS.c.document_id,
                     DOCUMENTS.c.active_document_version_id,
                 )
-                .join(DOCUMENTS, DOCUMENTS.c.document_id == SOURCE_ITEMS.c.document_id)
+                .join(SOURCE_ITEMS, SOURCE_ITEMS.c.document_id == DOCUMENTS.c.document_id)
                 .where(
-                    SOURCE_ITEMS.c.source_scope_id == source_scope_id,
-                    SOURCE_ITEMS.c.source_item_id.in_(tuple(source_item_ids)),
+                    DOCUMENTS.c.tenant_id == tenant_id,
+                    DOCUMENTS.c.connector_type == connector_type,
+                    DOCUMENTS.c.connection_id == connection_id,
+                    DOCUMENTS.c.source_item_id.in_(tuple(source_item_ids)),
                     SOURCE_ITEMS.c.is_active.is_(True),
                     DOCUMENTS.c.active_document_version_id.is_not(None),
                 )
+                # One document can carry a source_items row per scope that discovered it.
+                # They agree on identity and differ only in descriptor, so order the
+                # duplicates to keep the title this returns stable across repair runs.
+                .order_by(SOURCE_ITEMS.c.source_scope_id)
             )
             return {
                 row["source_item_id"]: _active_source_from_row(row)

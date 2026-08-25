@@ -62,6 +62,11 @@ class SubgraphCase:
     max_nodes: int
     expected_docs: frozenset[str]
     forbidden_docs: frozenset[str]
+    # Empty means every edge type, which is the neighborhood a caller sees by default. A
+    # case about one axis has to name it: since membership went flat, an unfiltered
+    # expansion reaches every document in the container within two hops, so "only the
+    # sibling file" is only true of the structure axis.
+    relationship_types: tuple[RelationType, ...] = ()
 
     def evaluate(self, result: AuthoritativeSubgraphResult, corpus: EvalCorpus) -> CaseResult:
         keys = {node.node_key for node in result.graph.nodes}

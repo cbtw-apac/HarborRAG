@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,8 +17,9 @@ class ConfluenceSourceRelationResolver:
         *,
         current_space: str,
         source_version: str,
+        resolve_title: Callable[[str, str], str | None] | None = None,
     ) -> list[dict[str, object]]:
-        parser = _ConfluenceReferenceParser(current_space)
+        parser = _ConfluenceReferenceParser(current_space, resolve_title=resolve_title)
         parser.feed(html)
         return [
             {
@@ -39,6 +40,7 @@ class ConfluenceSourceRelationResolver:
         html: str,
         current_space: str,
         source_version: str,
+        resolve_title: Callable[[str, str], str | None] | None = None,
     ) -> list[dict[str, object]]:
         values = [
             *(dict(value) for value in existing),
@@ -46,6 +48,7 @@ class ConfluenceSourceRelationResolver:
                 html,
                 current_space=current_space,
                 source_version=source_version,
+                resolve_title=resolve_title,
             ),
         ]
         unique = {
@@ -59,11 +62,18 @@ class ConfluenceSourceRelationResolver:
 
 
 class _ConfluenceReferenceParser(HTMLParser):
-    def __init__(self, current_space: str) -> None:
+    def __init__(
+        self,
+        current_space: str,
+        *,
+        resolve_title: Callable[[str, str], str | None] | None = None,
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self._space = current_space
+        self._resolve_title = resolve_title
         self._macro_stack: list[bool] = []
         self.relations: set[tuple[str, str]] = set()
+        self.unresolved_titles: set[tuple[str, str]] = set()
 
     def handle_starttag(
         self,
@@ -77,10 +87,25 @@ class _ConfluenceReferenceParser(HTMLParser):
             )
             return
         if tag.casefold() == "ri:page":
+            space = str(attributes.get("ri:space-key") or self._space)
             page_id = attributes.get("ri:content-id")
             if page_id and str(page_id).isdigit():
-                space = str(attributes.get("ri:space-key") or self._space)
                 self._add(space, str(page_id))
+                return
+            # Confluence writes ac:link targets by title far more often than by id --
+            # measured on a live space, 173 of 173 in-body page references carried
+            # ri:content-title and none carried ri:content-id, so reading only the id
+            # dropped every link a reader actually sees. A title is not an identity: the
+            # graph keys pages by page_id, so a title-keyed node could never converge
+            # with the real one. Resolve it to an id or record it as unresolved.
+            title = str(attributes.get("ri:content-title") or "").strip()
+            if not title:
+                return
+            resolved = self._resolve_title(space, title) if self._resolve_title else None
+            if resolved and str(resolved).isdigit():
+                self._add(space, str(resolved))
+            else:
+                self.unresolved_titles.add((space, title))
             return
         if tag.casefold() == "a":
             linked_id = attributes.get("data-linked-resource-id")

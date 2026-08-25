@@ -95,6 +95,10 @@ async def test_contentless_document_is_skipped_as_unsupported(tmp_path: Path) ->
     store = MemoryObjectStore()
     connector = SourceConnector()
     connector.body = ""
+    # No title either. A body-less page whose title is a real page name is now published
+    # with that title as its content; the document that has genuinely nothing is the one
+    # whose title is only the normalizer's fallback to the record id.
+    connector.title = None
     parser = TextParser()
     embed = DeterministicEmbedClient()
     vectors = InMemoryVectorRepository()

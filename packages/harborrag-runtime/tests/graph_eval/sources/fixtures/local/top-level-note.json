@@ -1,0 +1,23 @@
+{
+  "id": "top-level-note",
+  "title": "Policies Note",
+  "note": "Sits directly inside the same directory that nested-policy.json nests below, so `policies` holds a file and a subdirectory at once. Pairs with nested-policy.json to give the two-axis invariant something it can actually fail on.",
+  "extra": {
+    "relative_path": "policies/note.md"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Policies Note",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Retention rules live in the retention subfolder."
+    }
+  ]
+}

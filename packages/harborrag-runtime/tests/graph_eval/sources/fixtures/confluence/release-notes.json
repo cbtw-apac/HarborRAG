@@ -1,0 +1,31 @@
+{
+  "id": "release-notes",
+  "title": "Release Notes",
+  "note": "Only sample carrying ancestor_ids, so it is the one that exercises the Confluence ancestor chain. Its two ancestors are real corpus pages, which also pins that an ancestor placeholder converges onto the concrete node rather than forking. The space must contain this page directly, not only its topmost ancestor.",
+  "extra": {
+    "page_id": "release-notes",
+    "ancestor_ids": [
+      "space-overview",
+      "runbook-index"
+    ],
+    "ancestor_titles": [
+      "Space Overview",
+      "Runbook Index"
+    ]
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Release Notes",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "The deploy checklist changed in the March release."
+    }
+  ]
+}

@@ -51,6 +51,7 @@ class InMemoryKnowledgeGraph:
         self.nodes = {}
         self.relations = {}
         self.write_batches = []
+        self.retracted_relations = []
         self.fail_writes = False
 
     async def write_projection(self, nodes, relations, *, context) -> None:
@@ -84,6 +85,20 @@ class InMemoryKnowledgeGraph:
             missing_node_keys=missing_nodes,
             missing_relation_ids=missing_relations,
         )
+
+    async def delete_relations(self, relations, *, context) -> None:
+        del context
+        # Recorded, not just applied: repair writes the resolved projection immediately
+        # after, so an over-broad retraction of an edge it is about to rewrite leaves no
+        # trace in the final graph. What was asked for is the only place it shows.
+        self.retracted_relations.extend(relations)
+        retracted = {relation.relation_id for relation in relations}
+        self.relations = {
+            key: relation for key, relation in self.relations.items() if key not in retracted
+        }
+        # Relations only, exactly like the real repository: the far end left edgeless is
+        # not deleted here, because testing its degree would race a concurrent projection
+        # that has staged the same placeholder but not yet written its relation.
 
     async def delete_version(
         self,

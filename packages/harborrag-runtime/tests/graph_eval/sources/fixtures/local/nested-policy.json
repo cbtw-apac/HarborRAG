@@ -1,0 +1,23 @@
+{
+  "id": "nested-policy",
+  "title": "Retention Policy",
+  "note": "The only local sample with a nested relative_path, paired with top-level-note.json so one directory holds a file AND a subdirectory. That is the single shape that can expose a heterogeneous CONTAINS set, and without it the two-axis invariant cannot fail for local.",
+  "extra": {
+    "relative_path": "policies/retention/policy.md"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Retention Policy",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Evidence is retained for ninety days and then purged."
+    }
+  ]
+}
