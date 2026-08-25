@@ -30,7 +30,7 @@ class LinkChecker:
         self.dead_links = []
         self.broken_links = defaultdict(list)  # page -> [broken_links]
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "QDrant-Loader-Link-Checker/1.0"})
+        self.session.headers.update({"User-Agent": "HarborRAG-Link-Checker/1.0"})
 
         # Compute site path prefix (e.g., "/website/site") to keep crawling within built site
         parsed = urlparse(self.base_url_slash)
@@ -114,9 +114,15 @@ class LinkChecker:
                     return f"{self.base_scheme}://{self.base_netloc}{link}"
                 return f"{self.base_scheme}://{self.base_netloc}{self.site_root_prefix}{link}"
             # Relative link
-            base_dir = (
-                current_url if current_url.endswith("/") else current_url.rsplit("/", 1)[0] + "/"
-            )
+            current = urlparse(current_url)
+            if current.path in ("", "/"):
+                base_dir = f"{current.scheme}://{current.netloc}/"
+            else:
+                base_dir = (
+                    current_url
+                    if current_url.endswith("/")
+                    else current_url.rsplit("/", 1)[0] + "/"
+                )
             return urljoin(base_dir, link)
 
         # Find all href attributes

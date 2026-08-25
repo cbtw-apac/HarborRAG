@@ -6,6 +6,7 @@ import pytest
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
+from harborrag_app import __version__
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
@@ -91,7 +92,7 @@ def test_readiness_reports_an_unavailable_control_plane(
         response = client.get("/api/v1/readyz")
 
     assert response.status_code == 503
-    assert response.json() == {"status": "not_ready", "version": "0.1.0"}
+    assert response.json() == {"status": "not_ready", "version": __version__}
 
 
 @pytest.mark.blackbox

@@ -24,6 +24,7 @@ jobs:
         package:
           - harborrag-core
           - harborrag-adapters
+          - harborrag-memory
           - harborrag-engine
           - harborrag-runtime
           - harborrag-app

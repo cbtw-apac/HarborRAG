@@ -1,5 +1,6 @@
-"""PackageDocsMixin implementation for the website builder."""
+"""Package README discovery and rendering for the documentation website."""
 
+import html
 import re
 from pathlib import Path
 
@@ -8,23 +9,11 @@ class PackageDocsMixin:
     """Focused website-build operations composed by ``WebsiteBuilder``."""
 
     def build_package_docs(self) -> None:
-        """Build documentation pages from package README files into docs/packages.
-
-        Maps package README.md files to site docs under:
-          - packages/qdrant-loader -> docs/packages/qdrant-loader/README.html
-          - packages/qdrant-loader-mcp-server -> docs/packages/mcp-server/README.html
-          - packages/qdrant-loader-core -> docs/packages/core/README.html
-        """
-        package_mappings: list[tuple[str, str, str]] = [
-            ("qdrant-loader", "qdrant-loader", "QDrant Loader"),
-            ("qdrant-loader-mcp-server", "mcp-server", "MCP Server"),
-            ("qdrant-loader-core", "core", "Core Library"),
-        ]
-
-        for pkg_name, alias, display_name in package_mappings:
-            readme_path = Path("packages") / pkg_name / "README.md"
-            if not readme_path.exists():
-                continue
+        """Discover packages from their metadata and render every package README."""
+        for package in self.discover_package_docs():
+            pkg_name = package["directory"]
+            display_name = package["name"]
+            readme_path = package["readme"]
 
             try:
                 with open(readme_path, encoding="utf-8") as f:
@@ -38,11 +27,11 @@ class PackageDocsMixin:
                 html_content = self.markdown_to_html(
                     normalized_md,
                     str(readme_path),
-                    f"docs/packages/{alias}/README.html",
+                    f"docs/packages/{pkg_name}/README.html",
                 )
                 # Normalize any remaining HTML hrefs
                 html_content = self.markdown_processor.convert_markdown_links_to_html(
-                    html_content, str(readme_path), f"docs/packages/{alias}/README.html"
+                    html_content, str(readme_path), f"docs/packages/{pkg_name}/README.html"
                 )
 
                 # Final hardening for package README links: collapse relative ../../docs to /docs
@@ -89,7 +78,7 @@ class PackageDocsMixin:
 </section>
 """
 
-                output_path = f"docs/packages/{alias}/README.html"
+                output_path = f"docs/packages/{pkg_name}/README.html"
                 self.build_page(
                     "base.html",
                     output_path,
@@ -100,6 +89,66 @@ class PackageDocsMixin:
                 )
             except Exception as e:
                 print(f"⚠️  Failed to build docs for package {pkg_name}: {e}")
+
+        self.build_legacy_package_redirects()
+
+    def discover_package_docs(self) -> list[dict]:
+        """Return package README metadata in deterministic package-name order."""
+        packages: list[dict] = []
+        packages_dir = Path("packages")
+        if not packages_dir.exists():
+            return packages
+
+        for package_dir in packages_dir.iterdir():
+            pyproject_path = package_dir / "pyproject.toml"
+            readme_path = package_dir / "README.md"
+            if not package_dir.is_dir() or not pyproject_path.exists() or not readme_path.exists():
+                continue
+            try:
+                import tomllib
+
+                data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+                project = data.get("project", {})
+                package_name = project.get("name", package_dir.name)
+                description = project.get("description", "")
+            except (OSError, ValueError):
+                package_name = package_dir.name
+                description = ""
+            packages.append(
+                {
+                    "directory": package_dir.name,
+                    "name": package_name,
+                    "description": description,
+                    "readme": readme_path,
+                }
+            )
+        return sorted(packages, key=lambda package: package["name"])
+
+    def build_legacy_package_redirects(self) -> None:
+        """Preserve the published package URLs used by the predecessor site."""
+        redirects = {
+            "core": "harborrag-core",
+            "mcp-server": "harborrag-mcp-server",
+            "qdrant-loader": "harborrag",  # branding-compat: preserve the published URL
+        }
+        for legacy_slug, package_slug in redirects.items():
+            target_page = self.output_dir / "docs" / "packages" / package_slug / "README.html"
+            if not target_page.exists():
+                continue
+            target = f"../{package_slug}/README.html"
+            output_path = self.output_dir / "docs" / "packages" / legacy_slug / "README.html"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                '<!doctype html><html lang="en"><head>'
+                '<meta charset="utf-8">'
+                f'<meta http-equiv="refresh" content="0; url={html.escape(target, quote=True)}">'
+                f'<link rel="canonical" href="{html.escape(target, quote=True)}">'
+                f"<title>Moved to {html.escape(package_slug)}</title></head>"
+                f'<body><p>This page moved to <a href="{html.escape(target, quote=True)}">'
+                f"{html.escape(package_slug)}</a>.</p></body></html>",
+                encoding="utf-8",
+            )
+            print(f"↪️  Redirected docs/packages/{legacy_slug}/ to {package_slug}/")
 
     def generate_directory_indexes(self) -> None:
         """Generate index files for directories."""

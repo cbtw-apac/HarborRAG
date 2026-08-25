@@ -6,7 +6,7 @@
 - `uv` for the recommended workflow, or a recent `pip`
 - Native libraries required by any optional parser/provider you select
 
-HarborRAG is a workspace of seven active packages under `packages/`.
+HarborRAG is a workspace of eight active packages under `packages/`.
 
 ## uv workspace
 
@@ -42,6 +42,7 @@ The equivalent explicit sequence is:
 python -m pip install -e packages/harborrag-core
 python -m pip install -e packages/harborrag-adapters
 python -m pip install -e packages/harborrag-engine
+python -m pip install -e packages/harborrag-memory
 python -m pip install -e packages/harborrag-runtime
 python -m pip install -e packages/harborrag-app
 python -m pip install -e packages/harborrag-mcp-server

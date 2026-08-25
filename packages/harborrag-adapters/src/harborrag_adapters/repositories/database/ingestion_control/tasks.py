@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import and_, insert, or_, select
@@ -11,6 +12,7 @@ from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
     IngestionTask,
     IngestionTaskState,
+    TaskPage,
     TaskRegistration,
     reject_runtime_fields,
 )
@@ -29,6 +31,7 @@ __all__ = [
     "IngestionTaskRepository",
     "StoredTaskDocumentResult",
     "TaskDocumentPage",
+    "TaskPage",
     "TaskRegistration",
 ]
 
@@ -181,6 +184,61 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
                 .limit(limit)
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
+
+    async def list_tasks(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None = None,
+        statuses: Sequence[str] | None = None,
+        before_submitted_at: datetime | None = None,
+        before_task_id: str | None = None,
+        limit: int = 50,
+    ) -> TaskPage:
+        """Newest-first keyset page of durable tasks for the public list API.
+
+        Ordered by ``(submitted_at, task_id)`` descending so a page stays
+        stable while new tasks are being registered: a task submitted after
+        the caller read page one sorts ahead of the cursor rather than
+        shifting rows past it. ``tenant_ids`` is the caller's authorized
+        scope; None means unrestricted and is reserved for wildcard
+        principals and trusted system callers.
+        """
+
+        if not 1 <= limit <= 200:
+            raise ValueError("ingestion task limit must be between 1 and 200")
+        if (before_submitted_at is None) != (before_task_id is None):
+            raise ValueError("ingestion task cursor values must be supplied together")
+        if (tenant_ids is not None and not tenant_ids) or (statuses is not None and not statuses):
+            return TaskPage((), has_more=False)
+        statement = select(INGESTION_TASKS)
+        if tenant_ids is not None:
+            statement = statement.where(INGESTION_TASKS.c.tenant_id.in_(sorted(tenant_ids)))
+        if statuses is not None:
+            statement = statement.where(INGESTION_TASKS.c.status.in_(tuple(statuses)))
+        if before_submitted_at is not None:
+            if before_task_id is None:
+                raise HarborInvariantError("before_task_id must not be None here")
+            statement = statement.where(
+                or_(
+                    INGESTION_TASKS.c.submitted_at < before_submitted_at,
+                    and_(
+                        INGESTION_TASKS.c.submitted_at == before_submitted_at,
+                        INGESTION_TASKS.c.task_id < before_task_id,
+                    ),
+                )
+            )
+        async with self._client.sessions() as session:
+            result = await session.execute(
+                statement.order_by(
+                    INGESTION_TASKS.c.submitted_at.desc(),
+                    INGESTION_TASKS.c.task_id.desc(),
+                ).limit(limit + 1)
+            )
+            rows = result.mappings().all()
+        return TaskPage(
+            items=tuple(_task_from_row(row) for row in rows[:limit]),
+            has_more=len(rows) > limit,
+        )
 
     async def list_active(
         self,

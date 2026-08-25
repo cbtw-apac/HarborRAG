@@ -5,7 +5,6 @@ Tests all aspects of the GitHub Actions docs workflow.
 """
 
 import importlib.util
-import os
 from pathlib import Path
 
 import pytest
@@ -51,18 +50,18 @@ class TestWebsiteBuilderCore:
         assert builder.templates_dir == Path("custom/templates")
         assert builder.output_dir == Path("custom/output")
 
-    def test_load_template_success(self, mock_project_structure):
+    def test_load_template_success(self, mock_project_structure, monkeypatch):
         """Test successful template loading."""
-        os.chdir(mock_project_structure)
+        monkeypatch.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
 
         content = builder.load_template("base.html")
         assert "{{ page_title }}" in content
         assert "{{ content }}" in content
 
-    def test_load_template_not_found(self, mock_project_structure):
+    def test_load_template_not_found(self, mock_project_structure, monkeypatch):
         """Test template loading with missing file."""
-        os.chdir(mock_project_structure)
+        monkeypatch.chdir(mock_project_structure)
         builder = WebsiteBuilder("website/templates", "site")
 
         with pytest.raises(FileNotFoundError):
@@ -212,6 +211,16 @@ class TestWebsiteBuilderMarkdown:
         assert '<ol start="2" class="list-group list-group-numbered">' in result
         assert '<li class="list-group-item"><strong>Fork and Clone</strong></li>' in result
         assert '<li class="list-group-item"><strong>Install Dependencies</strong></li>' in result
+
+    def test_add_bootstrap_classes_wraps_tables_for_scrolling(self):
+        """Wide tables scroll through a wrapper without changing table semantics."""
+        builder = WebsiteBuilder()
+
+        result = builder.add_bootstrap_classes("<table><tr><td>Cell</td></tr></table>")
+
+        assert result.startswith('<div class="table-scroll"')
+        assert '<table class="table table-striped table-hover">' in result
+        assert result.endswith("</table></div>")
 
     def test_markdown_to_html_with_markdown_library(self):
         """Test markdown conversion with markdown library available."""

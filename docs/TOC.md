@@ -26,14 +26,29 @@
 
 - [Developer Documentation](developers/README.md)
 - [Architecture](developers/architecture/README.md)
+  - [Data Lifecycle](developers/architecture/data-lifecycle.md)
+  - [Runtime Reliability](developers/architecture/runtime-reliability.md)
 - [Extending HarborRAG](developers/extending/README.md)
 - [Testing](developers/testing/README.md)
 - [Deployment](developers/deployment/README.md)
+- [Open-Source Publication Guidelines](developers/publication-guidelines.md)
+
+## Package reference
+
+- [harborrag](../packages/harborrag/README.md)
+- [harborrag-core](../packages/harborrag-core/README.md)
+- [harborrag-adapters](../packages/harborrag-adapters/README.md)
+- [harborrag-engine](../packages/harborrag-engine/README.md)
+- [harborrag-memory](../packages/harborrag-memory/README.md)
+- [harborrag-runtime](../packages/harborrag-runtime/README.md)
+- [harborrag-app](../packages/harborrag-app/README.md)
+- [harborrag-mcp-server](../packages/harborrag-mcp-server/README.md)
 
 ## Project
 
 - [Contributing](../CONTRIBUTING.md)
+- [Security](../SECURITY.md)
 - [Changelog](../CHANGELOG.md)
 - [License](../LICENSE)
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-14

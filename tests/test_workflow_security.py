@@ -54,6 +54,13 @@ def test_docs_build_jobs_do_not_receive_deployment_credentials(name: str) -> Non
     }
 
 
+def test_automatic_docs_build_does_not_mask_failed_release_checks() -> None:
+    condition = _workflow("docs-auto.yml")["jobs"]["build-docs"]["if"]
+
+    assert "!cancelled()" in condition
+    assert "always()" not in condition
+
+
 def test_contract_client_build_is_locked_and_audited() -> None:
     workflow = (WORKFLOWS / "contract.yml").read_text(encoding="utf-8")
 
