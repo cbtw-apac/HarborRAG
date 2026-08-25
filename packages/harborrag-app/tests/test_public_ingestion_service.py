@@ -10,6 +10,7 @@ from uuid import UUID
 import pytest
 import pytest_asyncio
 
+import harborrag_app.workflow_control.ingestion.service as ingestion_service
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.errors import (
@@ -19,7 +20,6 @@ from harborrag_app.workflow_control.errors import (
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
-import harborrag_app.workflow_control.ingestion.service as ingestion_service
 from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_runtime.config.settings import RuntimeSettings

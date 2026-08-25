@@ -29,7 +29,6 @@ from .schemas import (
     SourceIngestionStatus,
 )
 
-
 _DISCOVERY_ACTIVITY_TIMEOUT = timedelta(minutes=30)
 _DISCOVERY_ACTIVITY_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
 _DISCOVERY_ACTIVITY_SCHEDULE_TO_START_TIMEOUT = timedelta(minutes=2)

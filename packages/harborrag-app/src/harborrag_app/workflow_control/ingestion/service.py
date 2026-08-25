@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -433,5 +433,5 @@ class IngestionApplicationService:
         if submitted_at is None:
             return False
         if submitted_at.tzinfo is None:
-            submitted_at = submitted_at.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) - submitted_at >= _STALE_QUEUED_RUNNING_TIMEOUT
+            submitted_at = submitted_at.replace(tzinfo=UTC)
+        return datetime.now(UTC) - submitted_at >= _STALE_QUEUED_RUNNING_TIMEOUT
