@@ -4,6 +4,8 @@ version = "2.0.0a1"
 description = "CLI and API package boundary for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = [
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",

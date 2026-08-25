@@ -62,6 +62,16 @@
         line-height: 24px;
     }
 
+    .hero-claim {
+        max-width: 44rem;
+        margin-bottom: 48px;
+        padding-left: 14px;
+        border-left: 2px solid var(--primary-color);
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 15px;
+        line-height: 24px;
+    }
+
     .hero-features {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
@@ -907,16 +917,14 @@
         margin-bottom: 40px;
     }
 
-    .install-card pre {
-        background: #181818;
-        color: #FFF8F5;
-        padding: 1.5rem;
-        border-radius: 0.55rem;
+    .install-card .install-term {
+        width: 100%;
         margin: 0;
-        font-size: 1rem;
-        line-height: 1.35;
-        text-align: left;
-        overflow-x: auto;
+    }
+
+    .install-card .hr-term__body {
+        font-size: 15px;
+        padding: 0.95rem 1.15rem;
     }
 
     .install-card a,
@@ -1391,6 +1399,273 @@
     }
 
 
+    /* ---------------------------------------------------------------
+       Terminal window component, shared by the run-it band and the
+       installation cards so every code surface reads the same way.
+       --------------------------------------------------------------- */
+    .hr-term {
+        background-color: #141414;
+        border: 1px solid #050505;
+        border-radius: 12px;
+        overflow: hidden;
+        text-align: left;
+        box-shadow:
+            0 1px 2px rgba(0, 0, 0, 0.32),
+            0 18px 40px -18px rgba(0, 0, 0, 0.6);
+    }
+
+    .hr-term__bar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.45rem 0.5rem 0.45rem 0.875rem;
+        background-color: #202020;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+
+    .hr-term__dots {
+        display: inline-flex;
+        gap: 6px;
+        flex: none;
+    }
+
+    .hr-term__dot {
+        display: block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+    }
+
+    .hr-term__dot--r { background-color: #b3574d; }
+    .hr-term__dot--y { background-color: #b28e4a; }
+    .hr-term__dot--g { background-color: #4f8a68; }
+
+    .hr-term__title {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-family: var(--third-family);
+        font-size: 11px;
+        letter-spacing: 0.02em;
+        color: rgba(255, 255, 255, 0.5);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .hr-term__copy {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex: none;
+        padding: 0.2rem 0.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 6px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.62);
+        font-family: var(--third-family);
+        font-size: 11px;
+        line-height: 1.4;
+        cursor: pointer;
+        transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .hr-term__copy:hover,
+    .hr-term__copy:focus-visible {
+        color: #ffffff;
+        border-color: rgba(255, 255, 255, 0.4);
+        background-color: rgba(255, 255, 255, 0.06);
+    }
+
+    .hr-term__copy svg {
+        width: 12px;
+        height: 12px;
+        flex: none;
+    }
+
+    .hr-term__body {
+        margin: 0;
+        padding: 1rem 1.15rem 1.15rem;
+        overflow-x: auto;
+        background: transparent;
+        color: #e6e6e6;
+        font-family: var(--third-family);
+        font-size: 13px;
+        line-height: 1.75;
+        white-space: pre;
+    }
+
+    /* Prompt sigil: excluded from selection so a drag-copy stays runnable. */
+    .hr-term__body .hr-p {
+        color: var(--primary-color);
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    .hr-term__body .hr-c { color: rgba(255, 255, 255, 0.38); }
+    .hr-term__body .hr-o { color: #7fd6a8; }
+
+    /* ---------------------------------------------------------------
+       "Run it without any services" band
+       --------------------------------------------------------------- */
+    .section-runit {
+        padding: 72px 24px;
+    }
+
+    .runit-head {
+        max-width: 760px;
+        margin-bottom: 32px;
+    }
+
+    .runit-head h2 {
+        font-family: var(--font-family);
+        font-weight: 700;
+        font-size: 40px;
+        color: var(--text-color-primary-text-black);
+        margin-bottom: 12px;
+    }
+
+    .runit-head p {
+        font-family: var(--second-family);
+        font-size: 18px;
+        line-height: 1.6;
+        color: #4a4a4a;
+        margin: 0;
+    }
+
+    .runit-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+        gap: 32px;
+        align-items: start;
+    }
+
+    .runit-notes {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        padding: 26px;
+        border: 1px solid #e4e4e4;
+        border-radius: 12px;
+        background-color: var(--background-color-color-background-tertiary);
+    }
+
+    .runit-note-title {
+        font-family: var(--font-family);
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--text-color-primary-text-black);
+        margin: 0 0 6px;
+    }
+
+    .runit-note-text {
+        font-family: var(--second-family);
+        font-size: 15px;
+        line-height: 1.6;
+        color: #3f3f3f;
+        margin: 0;
+    }
+
+    .runit-notes a {
+        color: var(--secondary-color);
+        font-weight: 600;
+    }
+
+    @media (max-width: 991.98px) {
+        .runit-grid { grid-template-columns: 1fr; }
+        .runit-head h2 { font-size: 32px; }
+        .section-runit { padding: 56px 24px; }
+    }
+
+    /* ---------------------------------------------------------------
+       Predecessor-migration band
+       --------------------------------------------------------------- */
+    .section-lineage {
+        padding: 0 24px 72px;
+    }
+
+    .lineage-card {
+        border: 1px solid #e4e4e4;
+        border-left: 4px solid var(--primary-color);
+        border-radius: 12px;
+        padding: 32px;
+        background-color: #fbfbfb;
+    }
+
+    .lineage-card h2 {
+        font-family: var(--font-family);
+        font-weight: 700;
+        font-size: 28px;
+        color: var(--text-color-primary-text-black);
+        margin-bottom: 12px;
+    }
+
+    .lineage-card p {
+        font-family: var(--second-family);
+        font-size: 16px;
+        line-height: 1.65;
+        color: #3f3f3f;
+        max-width: 900px;
+    }
+
+    .lineage-table-scroll {
+        overflow-x: auto;
+        margin: 22px 0 18px;
+    }
+
+    .lineage-table {
+        width: 100%;
+        min-width: 560px;
+        border-collapse: collapse;
+        font-family: var(--second-family);
+        font-size: 15px;
+    }
+
+    .lineage-table th,
+    .lineage-table td {
+        text-align: left;
+        padding: 12px 16px;
+        border-bottom: 1px solid #e8e8e8;
+        vertical-align: top;
+    }
+
+    .lineage-table th {
+        font-family: var(--font-family);
+        font-weight: 700;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #6b6b6b;
+        border-bottom: 1px solid #d8d8d8;
+    }
+
+    .lineage-table code {
+        font-family: var(--third-family);
+        font-size: 13px;
+        background-color: #f1f3f4;
+        color: #b1266b;
+        padding: 0.1rem 0.3rem;
+        border-radius: 4px;
+    }
+
+    .lineage-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        font-family: var(--second-family);
+        font-size: 15px;
+    }
+
+    .lineage-links a {
+        color: var(--secondary-color);
+        font-weight: 600;
+    }
+
+    @media (max-width: 767.98px) {
+        .lineage-card { padding: 24px 20px; }
+        .lineage-card h2 { font-size: 23px; }
+    }
+
 </style>
 <!-- Hero Section -->
 <section class="hero-section">
@@ -1398,6 +1673,8 @@
     <div class="container-custom hero-content">
         <h1>Harbor<span class="hero-title-accent">RAG</span></h1>
         <p class="hero-description">A modular, provider-agnostic RAG framework for engineering knowledge</p>
+        <p class="hero-claim">Every answer is resolved against the authoritative document version, so a
+            superseded version can never be cited &mdash; even mid-reindex.</p>
 
         <div class="hero-features">
             <p class="hero-feature">
@@ -1446,6 +1723,72 @@
                 View on GitHub
             </a>
         </div>
+    </div>
+</section>
+
+<!-- Run It Section -->
+<section class="container-custom section-runit" id="run-it">
+    <div class="runit-head">
+        <h2>Run it without any services</h2>
+        <p>No credentials, no Docker, and no databases. Clone the repository, sync the workspace,
+            and the operator CLI answers in three commands.</p>
+    </div>
+
+    <div class="runit-grid">
+        <div class="hr-term">
+            <div class="hr-term__bar">
+                <span class="hr-term__dots" aria-hidden="true">
+                    <i class="hr-term__dot hr-term__dot--r"></i>
+                    <i class="hr-term__dot hr-term__dot--y"></i>
+                    <i class="hr-term__dot hr-term__dot--g"></i>
+                </span>
+                <span class="hr-term__title">bash &mdash; harborrag</span>
+                <button class="hr-term__copy" type="button" aria-label="Copy these commands"
+                    data-copy="git clone https://github.com/cbtw-apac/HarborRAG.git&#10;cd HarborRAG&#10;uv sync --all-packages --extra dev&#10;uv run --package harborrag-app harborrag --help">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                    </svg>
+                    <span class="hr-term__copy-label">Copy</span>
+                </button>
+            </div>
+<pre class="hr-term__body"><span class="hr-c"># 1. get the repository</span>
+<span class="hr-p">$ </span>git clone https://github.com/cbtw-apac/HarborRAG.git
+<span class="hr-p">$ </span>cd HarborRAG
+
+<span class="hr-c"># 2. sync the workspace (Python 3.12+ and uv)</span>
+<span class="hr-p">$ </span>uv sync --all-packages --extra dev
+
+<span class="hr-c"># 3. the operator CLI is live</span>
+<span class="hr-p">$ </span>uv run --package harborrag-app harborrag --help
+<span class="hr-o">Usage: harborrag [OPTIONS] COMMAND [ARGS]...</span>
+<span class="hr-o">  doctor    Check Temporal runtime readiness.</span>
+<span class="hr-o">  chat      Generate a response with the configured chat model.</span>
+<span class="hr-o">  retrieve  Search active vectors with graph context expansion.</span>
+<span class="hr-o">  ingest    Submit, observe, and control ingestion runs.</span></pre>
+        </div>
+
+        <aside class="runit-notes">
+            <div>
+                <p class="runit-note-title">What you need</p>
+                <p class="runit-note-text">Python 3.12 or newer and
+                    <a href="https://docs.astral.sh/uv/" target="_blank" rel="noopener noreferrer">uv</a>.
+                    The sync resolves the full development dependency set and needs roughly 520&nbsp;MB of disk.</p>
+            </div>
+            <div>
+                <p class="runit-note-title">Parse a document next</p>
+                <p class="runit-note-text">A short Python snippet runs the real parser registry against a
+                    local file, still with nothing else running.
+                    <a href="docs/README.html#run-it-without-any-services">See the snippet</a>.</p>
+            </div>
+            <div>
+                <p class="runit-note-title">Then the full stack</p>
+                <p class="runit-note-text">Retrieval, chat, and durable ingestion need PostgreSQL, object
+                    storage, Qdrant, FalkorDB, Redis, and Temporal.
+                    <a href="docs/developers/deployment/README.html">Read the deployment guide</a>.</p>
+            </div>
+        </aside>
     </div>
 </section>
 
@@ -1696,7 +2039,26 @@
                 </svg>
                 <h3>HarborRAG</h3>
                 <p>Install the public meta-package and choose optional capabilities.</p>
-                <pre>pip install harborrag</pre>
+                <div class="hr-term install-term">
+                    <div class="hr-term__bar">
+                        <span class="hr-term__dots" aria-hidden="true">
+                            <i class="hr-term__dot hr-term__dot--r"></i>
+                            <i class="hr-term__dot hr-term__dot--y"></i>
+                            <i class="hr-term__dot hr-term__dot--g"></i>
+                        </span>
+                        <span class="hr-term__title">bash</span>
+                        <button class="hr-term__copy" type="button" aria-label="Copy the harborrag install command"
+                            data-copy="pip install harborrag">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                            </svg>
+                            <span class="hr-term__copy-label">Copy</span>
+                        </button>
+                    </div>
+<pre class="hr-term__body"><span class="hr-p">$ </span>pip install harborrag</pre>
+                </div>
                 <a href="https://pypi.org/project/harborrag/" target="_blank" rel="noopener noreferrer">
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M10 6.24995C9.25832 6.24995 8.5333 6.46989 7.91661 6.88194C7.29993 7.294 6.81928 7.87967 6.53545 8.56489C6.25162 9.25011 6.17736 10.0041 6.32206 10.7315C6.46675 11.459 6.8239 12.1272 7.34835 12.6516C7.8728 13.1761 8.54098 13.5332 9.26841 13.6779C9.99584 13.8226 10.7498 13.7483 11.4351 13.4645C12.1203 13.1807 12.706 12.7 13.118 12.0833C13.5301 11.4667 13.75 10.7416 13.75 9.99995C13.7488 9.00577 13.3533 8.05266 12.6503 7.34967C11.9473 6.64668 10.9942 6.25119 10 6.24995ZM10 12.5C9.50555 12.5 9.0222 12.3533 8.61107 12.0786C8.19995 11.8039 7.87952 11.4135 7.6903 10.9567C7.50108 10.4998 7.45157 9.99718 7.54804 9.51223C7.6445 9.02728 7.8826 8.58182 8.23223 8.23219C8.58186 7.88255 9.02732 7.64445 9.51227 7.54799C9.99723 7.45153 10.4999 7.50104 10.9567 7.69025C11.4135 7.87947 11.804 8.1999 12.0787 8.61103C12.3534 9.02215 12.5 9.5055 12.5 9.99995C12.5 10.663 12.2366 11.2989 11.7678 11.7677C11.2989 12.2366 10.663 12.5 10 12.5ZM17.475 5.16792L10.6 1.4062C10.4163 1.3047 10.2099 1.25146 10 1.25146C9.79013 1.25146 9.58369 1.3047 9.4 1.4062L2.525 5.16948C2.32866 5.27691 2.16477 5.43508 2.05043 5.62747C1.93609 5.81987 1.87551 6.03943 1.875 6.26323V13.7351C1.87551 13.9589 1.93609 14.1785 2.05043 14.3709C2.16477 14.5633 2.32866 14.7214 2.525 14.8289L9.4 18.5921C9.58369 18.6936 9.79013 18.7469 10 18.7469C10.2099 18.7469 10.4163 18.6936 10.6 18.5921L17.475 14.8289C17.6713 14.7214 17.8352 14.5633 17.9496 14.3709C18.0639 14.1785 18.1245 13.9589 18.125 13.7351V6.26402C18.1249 6.03981 18.0645 5.81976 17.9502 5.62692C17.8358 5.43407 17.6717 5.27554 17.475 5.16792ZM10 17.5L3.125 13.7359V6.26402L10 2.49995L16.875 6.26323V13.7351L10 17.5Z" fill="white" />
@@ -1711,7 +2073,26 @@
                 </svg>
                 <h3>MCP Server</h3>
                 <p>Expose governed retrieval tools through the Model Context Protocol.</p>
-                <pre>pip install harborrag-mcp-server</pre>
+                <div class="hr-term install-term">
+                    <div class="hr-term__bar">
+                        <span class="hr-term__dots" aria-hidden="true">
+                            <i class="hr-term__dot hr-term__dot--r"></i>
+                            <i class="hr-term__dot hr-term__dot--y"></i>
+                            <i class="hr-term__dot hr-term__dot--g"></i>
+                        </span>
+                        <span class="hr-term__title">bash</span>
+                        <button class="hr-term__copy" type="button" aria-label="Copy the harborrag-mcp-server install command"
+                            data-copy="pip install harborrag-mcp-server">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                                <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                            </svg>
+                            <span class="hr-term__copy-label">Copy</span>
+                        </button>
+                    </div>
+<pre class="hr-term__body"><span class="hr-p">$ </span>pip install harborrag-mcp-server</pre>
+                </div>
                 <a href="https://pypi.org/project/harborrag-mcp-server/" target="_blank" rel="noopener noreferrer">
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M10 6.24995C9.25832 6.24995 8.5333 6.46989 7.91661 6.88194C7.29993 7.294 6.81928 7.87967 6.53545 8.56489C6.25162 9.25011 6.17736 10.0041 6.32206 10.7315C6.46675 11.459 6.8239 12.1272 7.34835 12.6516C7.8728 13.1761 8.54098 13.5332 9.26841 13.6779C9.99584 13.8226 10.7498 13.7483 11.4351 13.4645C12.1203 13.1807 12.706 12.7 13.118 12.0833C13.5301 11.4667 13.75 10.7416 13.75 9.99995C13.7488 9.00577 13.3533 8.05266 12.6503 7.34967C11.9473 6.64668 10.9942 6.25119 10 6.24995ZM10 12.5C9.50555 12.5 9.0222 12.3533 8.61107 12.0786C8.19995 11.8039 7.87952 11.4135 7.6903 10.9567C7.50108 10.4998 7.45157 9.99718 7.54804 9.51223C7.6445 9.02728 7.8826 8.58182 8.23223 8.23219C8.58186 7.88255 9.02732 7.64445 9.51227 7.54799C9.99723 7.45153 10.4999 7.50104 10.9567 7.69025C11.4135 7.87947 11.804 8.1999 12.0787 8.61103C12.3534 9.02215 12.5 9.5055 12.5 9.99995C12.5 10.663 12.2366 11.2989 11.7678 11.7677C11.2989 12.2366 10.663 12.5 10 12.5ZM17.475 5.16792L10.6 1.4062C10.4163 1.3047 10.2099 1.25146 10 1.25146C9.79013 1.25146 9.58369 1.3047 9.4 1.4062L2.525 5.16948C2.32866 5.27691 2.16477 5.43508 2.05043 5.62747C1.93609 5.81987 1.87551 6.03943 1.875 6.26323V13.7351C1.87551 13.9589 1.93609 14.1785 2.05043 14.3709C2.16477 14.5633 2.32866 14.7214 2.525 14.8289L9.4 18.5921C9.58369 18.6936 9.79013 18.7469 10 18.7469C10.2099 18.7469 10.4163 18.6936 10.6 18.5921L17.475 14.8289C17.6713 14.7214 17.8352 14.5633 17.9496 14.3709C18.0639 14.1785 18.1245 13.9589 18.125 13.7351V6.26402C18.1249 6.03981 18.0645 5.81976 17.9502 5.62692C17.8358 5.43407 17.6717 5.27554 17.475 5.16792ZM10 17.5L3.125 13.7359V6.26402L10 2.49995L16.875 6.26323V13.7351L10 17.5Z" fill="white" />
@@ -1727,6 +2108,60 @@
             </svg>
             View Full Documentation
         </a>
+    </div>
+</section>
+
+<!-- Predecessor Migration Section -->
+<section class="container-custom section-lineage" id="migration">
+    <div class="lineage-card">
+        <!-- branding-compat: predecessor name retained for migrating 1.x users. -->
+        <h2>Coming from Qdrant Loader?</h2>
+        <!-- branding-compat: predecessor name retained for migrating 1.x users. -->
+        <p>HarborRAG 2.0 is Qdrant Loader, renamed and restructured from a single Qdrant-coupled
+            ingestion tool into a provider-agnostic framework. Qdrant is now one vector adapter among
+            several rather than the hardwired store.</p>
+        <!-- branding-compat: predecessor package name retained for migrating 1.x users. -->
+        <p>Import paths, distribution names, CLI commands, and configuration keys from <code>qdrant-loader</code>
+            do not carry over &mdash; this is a <strong>breaking</strong> change. The closest
+            equivalents are:</p>
+
+        <div class="lineage-table-scroll">
+            <table class="lineage-table">
+                <thead>
+                    <tr>
+                        <!-- branding-compat: predecessor name retained for migrating 1.x users. -->
+                        <th scope="col">Qdrant Loader</th>
+                        <th scope="col">HarborRAG</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <!-- branding-compat: predecessor package name retained for migrating 1.x users. -->
+                        <td><code>qdrant-loader</code></td>
+                        <td><code>harborrag-app</code> for the CLI, or <code>harborrag</code> as the library facade</td>
+                    </tr>
+                    <tr>
+                        <!-- branding-compat: predecessor package name retained for migrating 1.x users. -->
+                        <td><code>qdrant-loader-core</code></td>
+                        <td><code>harborrag-core</code>, <code>harborrag-engine</code>, <code>harborrag-memory</code>,
+                            <code>harborrag-runtime</code>, and <code>harborrag-adapters</code></td>
+                    </tr>
+                    <tr>
+                        <!-- branding-compat: predecessor package name retained for migrating 1.x users. -->
+                        <td><code>qdrant-loader-mcp-server</code></td>
+                        <td><code>harborrag-mcp-server</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p>There is no automated migration path from a 1.x deployment: reconfigure connectors, parsers,
+            and models against the new catalogs, then reingest.</p>
+
+        <div class="lineage-links">
+            <a href="docs/CHANGELOG.html">Read the 2.0.0a1 changelog</a>
+            <a href="docs/getting-started/what-is-harborrag.html">What is HarborRAG?</a>
+        </div>
     </div>
 </section>
 
@@ -1913,4 +2348,49 @@
 
     // Load coverage status when page loads
     document.addEventListener('DOMContentLoaded', loadCoverageStatus);
+
+    // Copy buttons on terminal windows. The command text lives in data-copy so
+    // the prompt sigil and sample output are never copied.
+    function initCopyButtons() {
+        const buttons = document.querySelectorAll('.hr-term__copy[data-copy]');
+        buttons.forEach((button) => {
+            const label = button.querySelector('.hr-term__copy-label');
+            const original = label ? label.textContent : '';
+            button.addEventListener('click', async () => {
+                const text = button.getAttribute('data-copy') || '';
+                let copied = false;
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(text);
+                        copied = true;
+                    }
+                } catch (error) {
+                    console.debug('Clipboard write failed:', error);
+                }
+                if (!copied) {
+                    const helper = document.createElement('textarea');
+                    helper.value = text;
+                    helper.setAttribute('readonly', '');
+                    helper.style.position = 'fixed';
+                    helper.style.opacity = '0';
+                    document.body.appendChild(helper);
+                    helper.select();
+                    try {
+                        copied = document.execCommand('copy');
+                    } catch (error) {
+                        console.debug('Fallback copy failed:', error);
+                    }
+                    document.body.removeChild(helper);
+                }
+                if (label) {
+                    label.textContent = copied ? 'Copied' : 'Press Ctrl+C';
+                    window.setTimeout(() => {
+                        label.textContent = original;
+                    }, 1600);
+                }
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', initCopyButtons);
 </script>

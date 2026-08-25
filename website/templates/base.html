@@ -435,17 +435,56 @@
             opacity: 0.9;
         }
 
-        /* Code block improvements - Clean and crisp */
+        /* Code blocks presented as a desktop terminal window */
         .code-block-wrapper {
-            background-color: #1e1e1e;
-            border-radius: 6px;
-            padding: 32px;
-            margin: 16px 0;
-            border: 1px solid #333333;
+            position: relative;
+            background-color: #141414;
+            border-radius: 12px;
+            padding: 46px 22px 20px;
+            margin: 20px 0;
+            border: 1px solid #050505;
+            overflow: hidden;
+            box-shadow:
+                0 1px 2px rgba(0, 0, 0, 0.32),
+                0 18px 40px -18px rgba(0, 0, 0, 0.6);
+        }
+
+        /* Window title bar */
+        .code-block-wrapper::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 34px;
+            background-color: #202020;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+
+        /* Three window controls, drawn as one dot plus two offset shadows */
+        .code-block-wrapper::after {
+            content: "";
+            position: absolute;
+            top: 12px;
+            left: 14px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #b3574d;
+            box-shadow:
+                16px 0 0 #b28e4a,
+                32px 0 0 #4f8a68;
+        }
+
+        @media (max-width: 575.98px) {
+            .code-block-wrapper {
+                padding: 44px 14px 16px;
+            }
         }
 
         .code-block, pre.code-block {
-            background-color: #1e1e1e !important;
+            background-color: transparent !important;
             color: #d4d4d4 !important;
             border: none !important;
             border-radius: 0 !important;
@@ -621,17 +660,27 @@
         }
 
         /* Wide tables and code blocks scroll inside themselves rather than
-           forcing the page to scroll horizontally. */
-        .container-content table {
-            display: block;
+           forcing the page to scroll horizontally. The scrolling belongs on the
+           builder-emitted .table-scroll wrapper, never on the <table>: a table
+           set to `display: block` loses table layout, so its rows size to their
+           own content and the header/stripe backgrounds stop short of the right
+           border instead of spanning the full width. */
+        .container-content .table-scroll {
             width: 100%;
             max-width: 100%;
-            border-radius: 12px;
             overflow-x: auto;
+            border-radius: 12px;
+            border: 1px solid var(--background-color-color-background-tertiary);
+            box-shadow: 0 4px 20px rgba(255, 255, 255, 0.3);
+            margin-bottom: 16px;
+        }
+
+        .container-content table {
+            width: 100%;
+            max-width: 100%;
+            margin-bottom: 0;
             border-collapse: separate;
             border-spacing: 0;
-            box-shadow: 0 4px 20px rgba(255, 255, 255, 0.3);
-            border: 1px solid var(--background-color-color-background-tertiary);
         }
 
         .container-content pre {
