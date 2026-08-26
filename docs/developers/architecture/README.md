@@ -1,318 +1,271 @@
-# 📝 Architecture Overview
+# Architecture
 
-This section provides a comprehensive overview of QDrant Loader's architecture, including system design principles, component interactions, and data flow patterns.
+HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow downward; SDK integrations and operator surfaces stay at the edges.
 
-## 🎯 Design Principles
+The store-by-store ownership contract — what belongs in PostgreSQL, the object store,
+Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary are in the
+[projection rebuild runbook](projection-rebuild.md).
 
-QDrant Loader is built on several key architectural principles:
+For the end-to-end behavior, continue with the [data lifecycle](data-lifecycle.md). For
+durability, replay, and failure boundaries, see [runtime reliability](runtime-reliability.md).
 
-### 1. **Modularity and Extensibility**
+## Architecture invariants
 
-- **Connector-based architecture** - Easy to add new data source connectors
-- **Clear interfaces** - Well-defined interfaces between components
-- **Separation of concerns** - Each component has a single responsibility
+These rules are more important than any individual provider choice:
 
-### 2. **Scalability and Performance**
+- PostgreSQL is the authority for tenant, source, document, version, job, and publication state.
+- Immutable canonical artifacts in the object store are the evidence and replay boundary.
+- Qdrant and FalkorDB are version-addressed projections that can be rebuilt from canonical data.
+- A version becomes active only after its required projections have been written and verified.
+- Retrieval validates candidate versions against PostgreSQL before returning evidence.
+- Every data-plane operation carries tenant and principal context to the storage boundary.
+- Provider SDK types stop at adapters; core contracts and engine policy remain provider-neutral.
+- Temporal coordinates durable ingestion. Retrieval remains a direct, latency-sensitive path.
 
-- **Asynchronous processing** - Non-blocking I/O for better throughput
-- **Batch processing** - Efficient handling of large datasets
-- **Configurable concurrency** - Adjustable parallelism based on resources
+## Active package map
 
-### 3. **Reliability and Robustness**
+| Package | Responsibility | Current maturity |
+| --- | --- | --- |
+| `harborrag-core` | Bounded domain records, identifiers, errors, access context, and ports | Provider-independent language |
+| `harborrag-adapters` | Connectors, parsers, model clients, and repository implementations | External I/O boundary |
+| `harborrag-engine` | Provider-independent ingestion/retrieval policies and transformations | Business behavior and invariants |
+| `harborrag-memory` | Provider-neutral conversation state and memory policy | Required package; optional memory configuration |
+| `harborrag-runtime` | Composition, direct/Temporal executors, lifecycle, scheduling, and config loading | Execution boundary |
+| `harborrag-app` | HTTP, CLI, authentication, and presentation mapping | User transport |
+| `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy, and audit | Agent transport |
+| `harborrag` | Stable SDK re-exports and optional installation bundle | `HarborRAG` public facade |
 
-- **Error handling** - Graceful degradation and retry mechanisms
-- **State management** - Persistent tracking of processing state
-- **Incremental updates** - Only process changed content
+## Dependency direction
 
-### 4. **Developer Experience**
-
-- **Clear CLI interface** - Intuitive command-line operations
-- **Comprehensive testing** - Unit, integration, and end-to-end tests
-- **Rich documentation** - Detailed guides and examples
-
-## 🏗️ System Architecture
-
-### High-Level Overview
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ QDrant Loader │
-├─────────────────────────────────────────────────────────────────┤
-│ │
-│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
-│ │ CLI │ │ MCP Server │ │ Config │ │
-│ │ Interface │ │ (Separate) │ │ Manager │ │
-│ └─────────────┘ └─────────────┘ └─────────────┘ │
-│ │ │ │ │
-│ └─────────────────┼─────────────────┘ │
-│ │ │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Async Ingestion Pipeline │ │
-│ │ │ │
-│ │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │ │
-│ │ │ Data │ │ File │ │ Content │ │ │
-│ │ │ Connectors │ │ Converters │ │ Processors │ │ │
-│ │ └─────────────┘ └─────────────┘ └─────────────┘ │ │
-│ │ │ │ │ │ │
-│ │ └─────────────────┼─────────────────┘ │ │
-│ │ │ │ │
-│ │ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │ │
-│ │ │ Embedding │ │ State │ │ QDrant │ │ │
-│ │ │ Service │ │ Manager │ │ Manager │ │ │
-│ │ └─────────────┘ └─────────────┘ └─────────────┘ │ │
-│ └─────────────────────────────────────────────────────────┘ │
-│ │ │
-└───────────────────────────┼────────────────────────────────────┘ │
-┌───────────────────────────┼────────────────────────────────────┐
-│ External Services │
-├───────────────────────────┼────────────────────────────────────┤
-│ │ │
-│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
-│ │ QDrant │ │ OpenAI │ │ Data │ │
-│ │ Database │ │ API │ │ Sources │ │
-│ └─────────────┘ └─────────────┘ └─────────────┘ │
-│ │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Component Layers
-
-#### 1. **Interface Layer**
-
-- **CLI Interface** - Command-line tool for data ingestion and management (`setup`, `init`, `ingest`, `config`, `project list|status|validate`)
-- **MCP Server** - Separate package (`qdrant-loader-mcp-server`) for AI tool integration
-- **Config Manager** - Multi-project configuration loading, validation, and environment variables
-
-#### 2. **Core Pipeline**
-
-- **Data Connectors** - Fetch content from various data sources using BaseConnector interface
-- **File Converters** - Convert files to text using MarkItDown library
-- **Content Processors** - Chunk text, extract metadata, and prepare for vectorization
-- **LLM Service** - Generate embeddings using configurable LLM providers (OpenAI, Azure OpenAI, Ollama)
-- **State Manager** - SQLite-based tracking of processing state and incremental updates
-- **QDrant Manager** - Manage vector storage and collection operations
-
-#### 3. **External Services**
-
-- **QDrant Database** - Vector storage and similarity search
-- **LLM APIs** - Embedding generation via provider-agnostic interface (OpenAI, Azure OpenAI, Ollama)
-- **Data Sources** - Git repositories, Confluence, Jira, local files, web content
-
-## 🔧 Core Components
-
-### Data Source Connectors
-
-**Purpose**: Fetch content from external systems via a common abstraction
-
-**Key Features**:
-
-- Unified `BaseConnector` interface for all sources
-- Per-source authentication and validation
-- Retry-aware HTTP and rate limiting (where relevant)
-- Shared HTTP utilities under `qdrant_loader.connectors.shared.http`:
-  - `RateLimiter` for per-interval throttling
-  - `request_with_policy` / `aiohttp_request_with_policy` for consistent retries + jitter + optional rate limiting
-- Incremental updates via state tracking
-- Rich metadata on every `Document`
-
-**Supported Sources**: Git, Confluence, Jira, Local Files, Public Docs
-
-Implementation notes:
-
-- Jira uses `request_with_policy` with project-configured `requests_per_minute`.
-- Confluence and PublicDocs expose `requests_per_minute` in config (defaults: Confluence 60 RPM, PublicDocs 120 RPM).
-
-**Interface (simplified)**:
-
-- Interface definition: [BaseConnector](../../../packages/qdrant-loader/src/qdrant_loader/connectors/base.py#L16)
-- Required connector method: [BaseConnector.get_documents](../../../packages/qdrant-loader/src/qdrant_loader/connectors/base.py#L47)
-
-### File Converters
-
-**Purpose**: Convert various file formats to text using MarkItDown
-
-**Key Features**:
-
-- 20+ file format support via MarkItDown library
-- Optional LLM-enhanced descriptions
-- Metadata preservation
-- Error handling for corrupted files
-- Configurable conversion options
-
-**Supported Formats**:
-
-- Documents: PDF, DOCX, PPTX, XLSX
-- Images: PNG, JPEG, GIF (with OCR)
-- Archives: ZIP, TAR, 7Z
-- Data: JSON, CSV, XML, YAML
-- Audio: MP3, WAV (transcription)
-
-### Content Processors
-
-**Purpose**: Process and prepare content for vectorization
-
-**Key Features**:
-
-- Text chunking with configurable sizes
-- Metadata extraction and enrichment
-- Content deduplication via hashing
-- Document ID generation
-- Async processing pipelines
-
-Refactoring highlights (Large Files):
-
-- Markdown strategy split into `splitters/{base,standard,excel,fallback}.py` with facade `section_splitter.py`.
-- Code strategy modularized (`parser/*`, `metadata/*`, `processor/*`); orchestrators remain thin.
-
-### LLM Service
-
-**Purpose**: Generate embeddings using configurable LLM providers
-
-**Key Features**:
-
-- Provider-agnostic interface (OpenAI, Azure OpenAI, Ollama)
-- Configurable embedding models (text-embedding-3-small, text-embedding-ada-002, etc.)
-- Batch processing for efficiency
-- Error handling and retries
-- Rate limiting compliance
-- Unified configuration via `global.llm.*`
-
-### State Manager
-
-**Purpose**: Track processing state and enable incremental updates
-
-**Key Features**:
-
-- SQLite + SQLAlchemy async engine
-- Content hashing for change detection
-- Ingestion history and per-document state
-- Project-aware queries and updates
-
-Implementation: `qdrant_loader/core/state/state_manager.py`
-
-### QDrant Manager
-
-**Purpose**: Manage vector storage and collection operations
-
-**Key Features**:
-
-- Collection creation and management
-- Vector upsert operations with batching
-- Search and filtering capabilities
-- Metadata handling
-- Connection management with retry logic
-
-## 🧪 Data Flow
-
-### Ingestion Pipeline
+`scripts/check_dependency_direction.py` enforces these imports:
 
 ```text
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ Data │───▶│ File │───▶│ Content │───▶│ Embedding │
-│ Connector │ │ Converter │ │ Processor │ │ Service │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ │ │ │ │ ▼ ▼ ▼ ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ Raw Data │ │ Text │ │ Chunks │ │ Vectors │
-│ + Metadata │ │ + Metadata │ │ + Metadata │ │ + Metadata │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ │ ▼ ┌─────────────┐ │ QDrant │ │ Manager │ └─────────────┘ │ ▼ ┌─────────────┐ │ QDrant │ │ Database │ └─────────────┘
+harborrag_core      -> no HarborRAG package
+harborrag_adapters  -> core
+harborrag_memory    -> core
+harborrag_engine    -> core, memory
+harborrag_runtime   -> core, adapters, engine, memory
+harborrag_app       -> core, runtime
+harborrag_mcp_server -> core, runtime
+harborrag           -> any active package
 ```
 
-### Search Pipeline (MCP Server)
+Run:
+
+```bash
+uv run make import-boundaries
+uv run make deps-check
+```
+
+Import-linter is the required CI boundary gate. The AST dependency checker provides
+additional source-tree coverage for dynamic imports. Cross-layer integration tests
+may compose several packages and are not treated as production dependencies. Neither scans
+runtime call graphs, so review still needs to catch indirect boundary leaks, provider
+objects in public schemas, and service layers bypassed through callbacks.
+
+## Control plane and data plane
+
+The control plane owns identities, configuration, source admission, version state,
+publication, jobs, and operator intent. Its durable authority is PostgreSQL. Temporal
+records workflow progress and coordinates work, but it does not replace the authority
+record.
+
+The data plane moves content and serves retrieval. It includes connectors, parsers, model
+clients, the immutable object store, Qdrant, and FalkorDB. Access context crosses from the
+control plane into every storage operation; provider responses never become authority by
+themselves.
+
+## Document flow
+
+The core domain types describe the intended ingestion lifecycle:
 
 ```text
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ Query │───▶│ Embedding │───▶│ QDrant │───▶│ Results │
-│ (Text) │ │ Service │ │ Search │ │ + Metadata │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ │ │ │ │ ▼ ▼ ▼ ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ User Query │ │ Query Vector│ │ Similarity │ │ Ranked │
-│ │ │ │ │ Scores │ │ Results │
-└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+SourceRecord
+   │ connector.describe + admission
+   ▼
+source descriptor
+   │ connector.load
+   ▼
+RawDocument
+   │ parser.parse
+   ▼
+ParsedDocument
+   │ normalizer
+   ▼
+Document + DocumentElement + DocumentProvenance
+   │ source-aware chunk planning
+   ▼
+ChunkRecord + ChunkRepresentation
+   │ dense/sparse encoding + projection
+   ▼
+vector/graph projection records + manifests
+   │ verify + publish
+   ▼
+active version + RetrievalResult
 ```
 
-## 🔌 Connector System
+- `SourceRecord` is a lightweight discovered locator.
+- A source descriptor contains the stable identity and metadata needed for admission before
+  expensive content loading begins.
+- `RawDocument` holds loaded text/bytes and source metadata.
+- `ParseInput` safely coerces paths, bytes, text, or raw-document-like objects.
+- `ParsedDocument` holds canonical extracted content, optional structured elements, warnings, metadata, and bounded raw data.
+- `Document` is the normalized domain object with provenance and structural relations.
+- `ChunkRecord` preserves an addressable evidence range; `ChunkRepresentation` carries the
+  text or structured representation sent to an encoder.
+- Projection records are rebuildable index inputs. Manifests prove which version and vector
+  space were written before publication.
 
-### Connector Architecture
+## Core contracts
 
-QDrant Loader uses a connector-based architecture for extensibility. Connectors are resolved through the connector factory in the pipeline orchestrator:
+`harborrag-core` has these groups:
 
-Implementation citation: [PipelineOrchestrator._collect_documents_from_sources](../../../packages/qdrant-loader/src/qdrant_loader/core/pipeline/orchestrator.py#L278)
+- `domain/` — document, source, parser, retrieval, provenance, element, job, member, project, provider,
+  and source-config values. `domain/__init__.py` retains the former chunk imports as compatibility
+  paths to the canonical Pydantic contracts in `chunking/`.
+- `chunking/` — canonical immutable chunk, hierarchy, security, relation, source-attribute, and table
+  schemas. Deterministic identity policy and chunk planning remain engine responsibilities.
+- `models/` — chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
+  Client-boundary protocols now live in `ports/`, not here.
+- `indexing/` and `storage/` — public bounded-context facades for vector/graph projection records,
+  capabilities, storage access context, and health. Legacy implementation modules under `schemas/`
+  are internal organization, not cross-package import paths.
+- `security/` — required `AccessContext`, secret redaction, URL policy, and `URLPolicyError`.
+- `contracts/` — the shared `HarborError` hierarchy, `HarborEvent`, and chunking-strategy protocols
+  (`TextRefiner`, `StructureSplitter`, `JsonStructureSplitter`, `TokenCounter`).
+- `ports/` — every boundary-facing `Protocol` in core: repository/infra ports (control plane, event bus,
+  job queue, secrets, runtime lifecycle, vector/graph indexing) and model-client protocols
+  (`HarborChatClientProtocol` and its embed/rerank/async counterparts).
 
-### Available Connectors
+Most storage schemas derive from strict Pydantic bases; several older/simple domain values are dataclasses. Add a shared concept to core only when more than one higher package needs a provider-neutral form.
 
-- **GitConnector** - Git repository processing with file filtering
-- **ConfluenceConnector** - Confluence space content and attachments
-- **JiraConnector** - Jira project issues and attachments
-- **LocalFileConnector** - Local file system processing
-- **PublicDocsConnector** - Web-based documentation crawling
+## Adapter layer
 
-## 🔄 State Management
+### Connectors
 
-### State Storage
+`BaseConnector` defines synchronous discovery and loading. Built-in providers register aliases at `harborrag_adapters.connectors` import time. `HarborConnector` constructs a provider by name.
 
-QDrant Loader uses SQLite with SQLAlchemy for state management:
+Connectors own authentication, provider pagination, filtering, retry hints,
+safe URL/path handling, source-specific caps, normalization to
+`SourceRecord`/`RawDocument`, and optional provider-specific transformation of
+generic canonical documents. Runtime discovers that transformation through the
+connector registry. Connectors do not own workflow scheduling or global
+ingestion concurrency.
 
-- State manager class: [StateManager](../../../packages/qdrant-loader/src/qdrant_loader/core/state/state_manager.py#L29)
-- Initialization flow: [StateManager.initialize](../../../packages/qdrant-loader/src/qdrant_loader/core/state/state_manager.py#L74)
+### Parsers
 
-### Incremental Updates
+`BaseParser` defines metadata-only routing and parsing. `HarborParser` combines the default parser stack and rejects ambiguous non-generic routes. PDF parsing uses ordered backends or named profiles.
 
-Implementation citation: [StateManager.update_document_state](../../../packages/qdrant-loader/src/qdrant_loader/core/state/state_manager.py#L314)
+Parsers own extraction and warnings. Runtime/engine code owns fan-out, backpressure, persistence, and retry across documents.
 
-## 🚀 Performance Considerations
+### Models
 
-### Asynchronous Processing
+Chat, embedding, and reranking have separate immutable configuration and public clients. Provider request translation stays in adapters; normalized requests, responses, errors, capabilities, and protocols stay in core.
 
-The entire pipeline is built on async/await patterns:
+The shared runtime implements explicit retry/failover stages, routing, caching, singleflight, budgets, health state, security allowlists, and injected telemetry. Configuration may choose direct SDK, LiteLLM Router, or LiteLLM proxy behavior where supported.
 
-- Pipeline entry point: [AsyncIngestionPipeline.process_documents](../../../packages/qdrant-loader/src/qdrant_loader/core/async_ingestion_pipeline.py#L182)
+### Repositories
 
-### Batch Processing
+Repository families are asynchronous and tenant-aware. `StorageOperationContext` is required on data operations.
 
-Implementation citation: [QdrantManager.upsert_points](../../../packages/qdrant-loader/src/qdrant_loader/core/qdrant_manager.py#L212)
+| Family | Providers |
+| --- | --- |
+| Vector | Qdrant |
+| Graph | FalkorDB |
+| Cache | Memory, Redis |
+| Object store | Memory, filesystem, S3 |
+| Database | SQLite, PostgreSQL |
+| Workflow state | SQLite, Redis |
 
-## 🔒 Security Architecture
+Family clients construct backends by provider name. Plugin/config modules isolate optional imports. Public methods return core schemas and sanitized health data rather than raw SDK responses.
 
-### Authentication Flow
+These repository implementations are the production persistence path. Runtime
+factories construct the PostgreSQL/SQLite, object-store, Qdrant, FalkorDB, cache,
+and state repositories and inject them behind core ports. Engine deliberately does
+not import `harborrag_adapters.repositories`: doing so would couple business policy
+to provider implementations and reverse the dependency direction.
 
-Each connector handles its own authentication:
+## Engine and runtime
 
-Implementation citation: [ConfluenceConnector._setup_authentication](../../../packages/qdrant-loader/src/qdrant_loader/connectors/confluence/connector.py#L114)
+`harborrag-engine` owns publication, projection-verification, document-version,
+cleanup, retrieval-candidate, ranking, graph-expansion, and failure-classification
+policy. External model and storage operations are called through core ports. It
+never imports adapters or a provider SDK.
 
-### Data Privacy
+`harborrag-runtime` owns:
 
-- **Credential management** - Environment variables and secure configuration
-- **State isolation** - Project-based data separation
-- **Access control** - Per-source authentication
-- **Local processing** - No data sent to external services except for LLM embedding generation
+- schema-validated connector and parser catalog loaders;
+- production control-plane composition and health diagnostics;
+- Temporal contracts, workflows, activities, clients, and worker lifecycle;
+- the runtime dependency graph that connects adapters and engine services.
+- `DirectIngestionExecutor` for local/library execution and
+  `TemporalIngestionExecutor` for durable distributed execution;
+- the stable async `HarborRAG` facade used by transports;
+- `harborrag_runtime.chat`, which lazily composes the asynchronous chat client,
+  owns its lifecycle, and resolves typed server-owned prompts;
+- explicit, opt-in Python entry-point plugin discovery.
 
-## 📚 Related Documentation
+Runtime schedules publication and cleanup and chooses retry/time-out/concurrency
+behavior. It does not independently decide whether a version is publishable or a
+projection is valid; those rules remain in engine so direct execution, Temporal,
+tests, and reindex use the same behavior.
 
-- **[CLI Reference](../../users/cli-reference/)** - Command-line interface
-- **[Configuration Guide](../../users/configuration/)** - Configuration options
-- **[Extending Guide](../extending/)** - How to extend functionality
-- **[Testing Guide](../testing/)** - Testing framework and patterns
+Framework-independent lifecycle/observer interfaces and job/repository ports live
+in `harborrag-core`. Provider-specific assembly belongs here or in application
+bootstrap code, not in provider adapters.
 
-## 🔄 Architecture Evolution
+## App and MCP boundaries
 
-### Current Capabilities
+The app CLI calls `BaseAppService` rather than adapters. Production ingestion
+commands and HTTP ingestion routes resolve a secret-free source contract,
+persist a pending task in Postgres, and delegate to
+`IngestionTemporalClient`. The deployed worker registers only the canonical
+source, batch, document, failed-document retry, and reindex workflows.
 
-- Multi-project workspace support
-- SQLite-based state management with async support
-- Asynchronous processing with async I/O
-- Separate MCP server package
-- MarkItDown-based file conversion
+Chat and agent are app-only surfaces; MCP does not expose them. Both follow
+one shared runtime path:
 
-### Roadmap Priorities
+```text
+HTTP route ──> ChatApplicationService ──┐
+CLI command ─> BaseAppService ──────────┼─> HarborRAG.chat
+                                        │       │
+                                        │       ├─> RuntimeChatService
+                                        │       ├─> PromptCatalog
+                                        │       └─> AsyncHarborChatClient
+```
 
-- **Enhanced connectors** - More data source integrations
-- **Improved performance** - Better parallel processing and caching
-- **Advanced search** - Enhanced MCP server capabilities
-- **Deployment options** - Container images and deployment scripts
-- **Monitoring and observability** - Enhanced metrics and logging
+HTTP and CLI map through the application service, which calls the
+`HarborRAG.chat` facade. Stored prompts and chat-client lifecycle stay
+in runtime, provider translation stays in adapters, and public schemas remain
+provider-neutral. None of these handlers construct a model client.
 
-For version-specific milestones and release status, see the project [CHANGELOG](../../../CHANGELOG.md).
+The MCP facade follows the same rule for retrieval. Vector retrieval calls
+`HarborRAG.retrieval.search()` and supplies a required `AccessContext` built
+from the authenticated MCP principal and tenant. It never calls app routes,
+repositories, or provider clients directly.
 
----
+## Authority and projections
 
-**Ready to dive deeper?** Explore the [CLI Reference](../../users/cli-reference/) for command-line usage or check out the [Extending Guide](../extending/) to learn about extending QDrant Loader.
+PostgreSQL is authoritative for document/version state and atomic publication.
+Immutable canonical artifacts are retained for connector-free reindex. Qdrant and
+FalkorDB are version-addressed, verified projections: failed cleanup is retried and
+is not treated as a distributed rollback.
+
+Vector, graph, and object-store operations require `StorageOperationContext`. Core
+defines the principal/tenant access requirement, engine decides filtering policy,
+and data-plane adapters enforce the tenant at the storage boundary. Temporal
+identifiers and worker retry metadata are deliberately excluded from canonical
+storage context.
+
+## Configuration boundaries
+
+- Runtime loads strict versioned connector/parser YAML catalogs.
+- Model clients load strict family sections from YAML, JSON, or mappings.
+- Runtime chat prompts are packaged Markdown resources selected by a typed
+  public name; credentials and provider routing never belong in prompt files.
+- MCP tool defaults, limits, enablement, and tenant overrides live in the
+  separate versioned `config/mcp.yaml` catalog.
+- Engine config/policy are constructed in Python.
+- There is no unified, auto-discovered application/workspace configuration.
+
+See [Configuration](../../users/configuration/README.md).

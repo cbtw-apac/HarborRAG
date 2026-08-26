@@ -1,0 +1,349 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import os
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+
+from harborrag_adapters.repositories.errors import (
+    HarborStorageError,
+    HarborStorageNotFoundError,
+    HarborStorageValidationError,
+)
+from harborrag_adapters.repositories.object_store.base import HarborObjectStore
+from harborrag_adapters.repositories.object_store.body import iter_body
+from harborrag_adapters.repositories.object_store.filesystem.access import (
+    FilesystemAccessMixin,
+)
+from harborrag_adapters.repositories.object_store.filesystem.config import (
+    FilesystemObjectStoreConfig,
+)
+from harborrag_adapters.repositories.telemetry import (
+    RepositoryTelemetry,
+    StorageTelemetryHook,
+    traced_repository_operation,
+)
+from harborrag_core.schemas.object_store import (
+    ObjectMetadata,
+    ObjectReference,
+    ObjectStoreCapabilities,
+    PutObjectRequest,
+)
+from harborrag_core.storage import (
+    HealthStatus,
+    RepositoryHealth,
+    StorageFamily,
+    StorageOperationContext,
+)
+
+_META_SUFFIX = ".harbor-meta.json"
+_LOCK_SUFFIX = ".harbor-lock"
+
+
+class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
+    """Stores objects beneath a trusted filesystem root with traversal protection."""
+
+    def __init__(
+        self,
+        config: FilesystemObjectStoreConfig | None = None,
+        telemetry: StorageTelemetryHook | None = None,
+        *,
+        root: Path | None = None,
+        instance_name: str = "default",
+    ) -> None:
+        if config is not None:
+            root = config.root
+            instance_name = config.instance_name
+        if root is None:
+            raise ValueError("filesystem object-store root is required")
+        self._root = root.expanduser().resolve()
+        self._instance_name = instance_name
+        self._telemetry = RepositoryTelemetry(
+            telemetry,
+            family=StorageFamily.OBJECT_STORE,
+            backend="filesystem",
+        )
+        self._connected = False
+
+    @property
+    def capabilities(self) -> ObjectStoreCapabilities:
+        return ObjectStoreCapabilities(
+            conditional_writes=True,
+            range_downloads=True,
+            streaming_upload=True,
+            streaming_download=True,
+        )
+
+    async def connect(self) -> None:
+        await asyncio.to_thread(self._ensure_private_directory, self._root)
+        self._connected = True
+
+    async def close(self) -> None:
+        self._connected = False
+
+    async def health(self) -> RepositoryHealth:
+        writable = self._root.exists() and os.access(self._root, os.W_OK)
+        return RepositoryHealth(
+            family=StorageFamily.OBJECT_STORE,
+            backend="filesystem",
+            instance_name=self._instance_name,
+            status=(
+                HealthStatus.HEALTHY if self._connected and writable else HealthStatus.UNHEALTHY
+            ),
+            details={"root": str(self._root), "writable": writable},
+        )
+
+    @traced_repository_operation("put")
+    async def put(
+        self,
+        request: PutObjectRequest,
+        *,
+        context: StorageOperationContext,
+    ) -> ObjectReference:
+        target = self._safe_path(request.bucket, request.key, context)
+        try:
+            await asyncio.to_thread(self._ensure_private_directory, target.parent)
+        except OSError as exc:
+            raise self._io_error("put", request.bucket, request.key, context, exc) from exc
+        lock_path = target.with_name(f".{target.name}{_LOCK_SUFFIX}")
+        lock_fd = await self._acquire_lock(lock_path, request.bucket, request.key, context)
+        try:
+            return await self._put_locked(request, target, context)
+        finally:
+            await self._release_lock(lock_fd, lock_path)
+
+    async def _put_locked(
+        self,
+        request: PutObjectRequest,
+        target: Path,
+        context: StorageOperationContext,
+    ) -> ObjectReference:
+        existing_meta_path = self._meta_path(target)
+        try:
+            if await asyncio.to_thread(existing_meta_path.is_file):
+                if request.if_none_match:
+                    raise self._already_exists(request, context)
+                existing = ObjectMetadata.model_validate_json(
+                    await asyncio.to_thread(self._read_regular_file, existing_meta_path)
+                )
+                if existing.metadata.get("tenant_id") != str(context.tenant_id):
+                    raise self._already_exists(request, context)
+        except HarborStorageError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise self._io_error("put", request.bucket, request.key, context, exc) from exc
+        temporary = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+        meta_temporary = target.with_name(f".{target.name}.{uuid4().hex}.meta.tmp")
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            file = await asyncio.to_thread(self._open_private_file, temporary)
+            try:
+                async for chunk in iter_body(request.body):
+                    digest.update(chunk)
+                    size += len(chunk)
+                    await asyncio.to_thread(file.write, chunk)
+                await asyncio.to_thread(file.flush)
+                await asyncio.to_thread(os.fsync, file.fileno())
+            finally:
+                await asyncio.to_thread(file.close)
+            checksum = digest.hexdigest()
+            if request.checksum_sha256 and checksum != request.checksum_sha256:
+                raise HarborStorageValidationError(
+                    "object checksum does not match request checksum",
+                    context=self._error_context("put", request.bucket, request.key, context),
+                )
+            reference = ObjectReference(
+                bucket=request.bucket,
+                key=request.key,
+                uri=target.as_uri(),
+                etag=checksum,
+                checksum_sha256=checksum,
+                size_bytes=size,
+                content_type=request.content_type,
+            )
+            metadata = ObjectMetadata(
+                reference=reference,
+                metadata={**request.metadata, "tenant_id": str(context.tenant_id)},
+                last_modified=datetime.now(UTC),
+            )
+            meta_file = await asyncio.to_thread(self._open_private_file, meta_temporary)
+            try:
+                await asyncio.to_thread(
+                    meta_file.write,
+                    metadata.model_dump_json(indent=2).encode("utf-8"),
+                )
+                await asyncio.to_thread(meta_file.flush)
+                await asyncio.to_thread(os.fsync, meta_file.fileno())
+            finally:
+                await asyncio.to_thread(meta_file.close)
+            # Revalidate before each replacement to close the practical parent-link swap
+            # gap left after exclusive temporary creation and no-follow opens.
+            self._safe_path(request.bucket, request.key, context)
+            await asyncio.to_thread(os.replace, temporary, target)
+            self._safe_path(request.bucket, request.key, context)
+            await asyncio.to_thread(os.replace, meta_temporary, existing_meta_path)
+            return reference
+        except HarborStorageError:
+            raise
+        except OSError as exc:
+            raise self._io_error("put", request.bucket, request.key, context, exc) from exc
+        finally:
+            await self._cleanup_path(temporary)
+            await self._cleanup_path(meta_temporary)
+
+    @traced_repository_operation("get_bytes")
+    async def get_bytes(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        byte_range: tuple[int, int] | None,
+        context: StorageOperationContext,
+    ) -> bytes:
+        target = await self._authorized_path(bucket, key, context)
+        try:
+            if byte_range is None:
+                return await asyncio.to_thread(self._read_regular_file, target)
+            start, end = byte_range
+            if start < 0 or end < start:
+                raise HarborStorageValidationError(
+                    "invalid byte range",
+                    context=self._error_context("get", bucket, key, context),
+                )
+            file = await asyncio.to_thread(self._open_regular_file, target)
+            try:
+                await asyncio.to_thread(file.seek, start)
+                return await asyncio.to_thread(file.read, end - start + 1)
+            finally:
+                await asyncio.to_thread(file.close)
+        except HarborStorageError:
+            raise
+        except FileNotFoundError as exc:
+            raise self._not_found(bucket, key, context) from exc
+        except OSError as exc:
+            raise self._io_error("get", bucket, key, context, exc) from exc
+
+    async def iter_bytes(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        chunk_size: int,
+        context: StorageOperationContext,
+    ) -> AsyncIterator[bytes]:
+        async with self._telemetry.operation("iter_bytes", context):
+            target = await self._authorized_path(bucket, key, context)
+            try:
+                file = await asyncio.to_thread(self._open_regular_file, target)
+                try:
+                    while chunk := await asyncio.to_thread(file.read, chunk_size):
+                        yield chunk
+                finally:
+                    await asyncio.to_thread(file.close)
+            except FileNotFoundError as exc:
+                raise self._not_found(bucket, key, context) from exc
+            except OSError as exc:
+                raise self._io_error("iter", bucket, key, context, exc) from exc
+
+    @traced_repository_operation("head")
+    async def head(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        context: StorageOperationContext,
+    ) -> ObjectMetadata:
+        target = await self._authorized_path(bucket, key, context)
+        try:
+            raw = await asyncio.to_thread(self._read_regular_file, self._meta_path(target))
+            return ObjectMetadata.model_validate_json(raw)
+        except FileNotFoundError as exc:
+            raise self._not_found(bucket, key, context) from exc
+        except (OSError, ValueError) as exc:
+            raise self._io_error("head", bucket, key, context, exc) from exc
+
+    @traced_repository_operation("exists")
+    async def exists(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        context: StorageOperationContext,
+    ) -> bool:
+        try:
+            await self._authorized_path(bucket, key, context)
+            return True
+        except HarborStorageNotFoundError:
+            return False
+
+    @traced_repository_operation("delete")
+    async def delete(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        context: StorageOperationContext,
+    ) -> bool:
+        target = self._safe_path(bucket, key, context)
+        if not await asyncio.to_thread(target.parent.exists):
+            return False
+        lock_path = target.with_name(f".{target.name}{_LOCK_SUFFIX}")
+        lock_fd = await self._acquire_lock(lock_path, bucket, key, context)
+        try:
+            try:
+                target = await self._authorized_path(bucket, key, context)
+                await asyncio.to_thread(target.unlink)
+                await asyncio.to_thread(self._meta_path(target).unlink, missing_ok=True)
+            except (FileNotFoundError, HarborStorageNotFoundError):
+                return False
+            except OSError as exc:
+                raise self._io_error("delete", bucket, key, context, exc) from exc
+            return True
+        finally:
+            await self._release_lock(lock_fd, lock_path)
+
+    @traced_repository_operation("list")
+    async def list(
+        self,
+        bucket: str,
+        prefix: str,
+        *,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> list[ObjectMetadata]:
+        bucket_root = self._tenant_root(bucket, context)
+        try:
+            if not bucket_root.exists():
+                return []
+            output: list[ObjectMetadata] = []
+            for meta_path in sorted(bucket_root.rglob(f"*{_META_SUFFIX}")):
+                target = Path(str(meta_path)[: -len(_META_SUFFIX)])
+                key = target.relative_to(bucket_root).as_posix()
+                if not key.startswith(prefix):
+                    continue
+                metadata = ObjectMetadata.model_validate_json(
+                    await asyncio.to_thread(self._read_regular_file, meta_path)
+                )
+                if metadata.metadata.get("tenant_id") == str(context.tenant_id):
+                    output.append(metadata)
+                    if len(output) >= limit:
+                        break
+            return output
+        except (OSError, ValueError) as exc:
+            raise self._io_error("list", bucket, prefix, context, exc) from exc
+
+    @traced_repository_operation("presign_download")
+    async def presign_download(
+        self,
+        bucket: str,
+        key: str,
+        *,
+        expires_seconds: int,
+        context: StorageOperationContext,
+    ) -> str:
+        del bucket, key, expires_seconds, context
+        raise NotImplementedError("filesystem object storage has no presigned URL surface")

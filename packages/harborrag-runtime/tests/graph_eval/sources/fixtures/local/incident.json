@@ -1,0 +1,40 @@
+{
+  "id": "incident",
+  "title": "Incident",
+  "note": "Pinned by the golden subgraph case: reaches architecture over blocks rather than links_to.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Incident Review",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "The stale projection caused misreads."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Actions",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Add a graph health gate to releases."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "blocks",
+      "target_id": "architecture",
+      "target_type": "document"
+    }
+  ]
+}

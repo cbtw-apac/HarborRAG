@@ -1,135 +1,52 @@
-# MCP Server Guide
+# MCP Tools
 
-The QDrant Loader MCP (Model Context Protocol) Server enables seamless integration with AI development tools like Cursor IDE, Windsurf, and Claude Desktop. This guide covers everything you need to know about setting up and using our **intelligent search system**.
+`harborrag-mcp-server` provides an audited, policy-bounded FastMCP transport.
 
-## 🎯 Overview
+## Available tools
 
-The MCP Server acts as a bridge between your AI tools and your QDrant Loader knowledge base, providing **intelligent search capabilities** that go beyond simple keyword matching. Our system includes semantic understanding, hierarchy navigation, attachment analysis, and cross-document intelligence.
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `vector_search` | Query, tenant, top-k, lane, filters, graph observation, threshold | Vector results and diagnostics |
+| `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
+| `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
+| `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
 
-**Model Context Protocol (MCP)** is an open standard that allows AI applications to securely connect to external data sources. It enables your AI tools to access and search your knowledge base in real-time.
+Chat and agent are not exposed as MCP tools. They are served only through the
+HarborRAG REST API's `/v1/chat` and `/v1/agent` endpoints; see
+[Chat](../../chat/README.md).
 
-### What MCP gives you
+### Choosing a graph tool
 
-- Semantic search in your ingested knowledge base
-- Hierarchy-aware retrieval for structured docs
-- Attachment-focused search
-- Integration with Cursor, Windsurf, Claude Desktop, and other MCP clients
+`graph_triplet_search`, `graph_path_search`, and `graph_subgraph_search` all need a node
+selector you already hold. Only three things resolve: a `node_key`, a `logical_id`, or an
+exact full `title` — titles are unset on chunk nodes and are never matched partially.
+The practical selector is a `chunk_id` from `vector_search`, because chunk IDs and
+`Chunk` node keys are the same value.
 
-### Key Capabilities
+```python
+from harborrag_mcp_server.server import McpServer, list_tools
+from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
-- **Enhanced Semantic Search** - AI-powered similarity search with context understanding
-- **Hierarchy-Aware Navigation** - Structure-aware search with document relationships
-- **Intelligent Attachment Search** - File and document search with content analysis
-- **Cross-Document Intelligence** - Relationship analysis, conflict detection, and clustering
-- **Real-Time Integration** - Live access from your AI development environment
-- **Multi-Source Support** - Works with Git, Confluence, JIRA, and local files
-
-## ⚙️ Client configuration links
-
-- Cursor, Windsurf, Claude Desktop setup: [Setup & Integration Guide](./setup-and-integration.md)
-- Search tool capabilities and parameters: [Search Capabilities & Examples](./search-capabilities.md)
-- Attachment-specific search details: [Attachment Search Guide](./attachment-search.md)
-- Hierarchy-specific search details: [Hierarchy Search Guide](./hierarchy-search.md)
-- Install and platform notes: [Installation Guide](../../../getting-started/installation.md)
-
-## 🎯 Prerequisites
-
-- Ingestion completed at least once with `qdrant-loader ingest`
-- QDrant reachable from your MCP runtime
-- LLM provider configured
-
-Configuration references:
-
-- **[LLM Provider Guide](../../configuration/llm-provider-guide.md)** - Provider-specific setup for embeddings/chat compatibility with MCP.
-- **[Environment Variables Reference](../../configuration/environment-variables.md)** - Required runtime variables for authentication, logging, and server behavior.
-
-## ⚡ Quick run
-
-```bash
-mcp-qdrant-loader
+print(list_tools())
+server = McpServer(runtime=HarborRAG(HarborRAGConfig()))
+result = await server.call_tool(
+    "vector_search",
+    {"query": "publication policy", "tenant_id": "default"},
+)
 ```
 
-For production transport and worker tuning, use [Setup & Integration Guide](./setup-and-integration.md).
+Unknown tool names raise `ValueError`.
 
-## 🔍 Multi-Tool Search Strategies
+## Policy and audit status
 
-### Complete feature investigation
+`McpServer` records every call attempt and outcome, validates each declared
+JSON schema, and enforces argument, result-count, and output-size budgets.
+Every tool call requires an explicit tenant. Retrieval propagates the caller's
+principal through the runtime access context. MCP audits store argument
+digests rather than raw query text.
 
-1. Start with **Semantic Search** to understand the topic.
-2. Use **Hierarchy Search** to explore document structure.
-3. Apply **Relationship Analysis** to map dependencies.
-4. Use **Conflict Detection** to identify inconsistencies.
+Network transports must provide a FastMCP authentication provider.
 
-### Documentation quality audit
-
-1. Use **Hierarchy Search** for structure and gap analysis.
-2. Use **Conflict Detection** for inconsistency checks.
-3. Use **Similarity Detection** to review duplication.
-4. Use **Complementary Content** to assess completeness.
-
-### Implementation planning
-
-1. Use **Semantic Search** for patterns and examples.
-2. Use **Complementary Content** for supporting references.
-3. Use **Relationship Analysis** for dependency understanding.
-4. Use **Clustering** to organize related materials.
-
-## 🚀 Performance Optimization
-
-### Search efficiency
-
-- Use specific queries instead of broad terms.
-- Apply source/type filters when appropriate.
-- Use practical limits for cross-document analysis.
-
-### Result quality
-
-- Provide context in your query.
-- Prefer natural language for semantic retrieval.
-- Combine tools to improve coverage and precision.
-
-## 🔍 Quick validation
-
-In Cursor/Claude/Windsurf, ask a simple query like:
-
-"Find setup notes for QDrant Loader in my ingested docs"
-
-If the tool returns results from your indexed content, MCP integration is working.
-
-## 🧪 Integration Checklist
-
-### Setup requirements
-
-- [ ] **QDrant Loader** installed and configured
-- [ ] **Documents ingested** into QDrant
-- [ ] **MCP server package** installed
-- [ ] **AI tool** with MCP support (Cursor/Windsurf/Claude)
-- [ ] **LLM API key** configured
-
-### Configuration
-
-- [ ] MCP server added to client config
-- [ ] Environment variables set correctly
-- [ ] Collection name matches ingested content
-- [ ] Connection verified from AI tool
-
-### Functionality testing
-
-- [ ] Basic semantic search works
-- [ ] Hierarchy search navigates structure
-- [ ] Attachment search returns expected files
-- [ ] Cross-document analysis returns relationships
-- [ ] Performance is acceptable for daily usage
-
-### Team deployment
-
-- [ ] Configuration standardized across team
-- [ ] Best practices documented and shared
-- [ ] Security considerations reviewed
-- [ ] Troubleshooting procedures documented
-
-## 🔧 Troubleshooting paths
-
-- MCP setup/runtime issues: [Setup & Integration Guide](./setup-and-integration.md)
-- Search behavior and tool semantics: [Search Capabilities & Examples](./search-capabilities.md)
-- General configuration issues: [Troubleshooting Guide](../../troubleshooting/)
+See [Setup and Integration](setup-and-integration.md) for clients, the local
+HTTP UI, bearer-token setup, tool configuration, and containers. See
+[Chat](../../chat/README.md) for the chat contract and model setup.

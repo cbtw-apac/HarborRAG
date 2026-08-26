@@ -1,0 +1,27 @@
+{
+  "id": "legacy-notes",
+  "title": "notes.md",
+  "note": "Negative branch twice over: a file at repository root (no directory nodes) with no ref or commit_sha, so points_to and resolved_at are not emitted.",
+  "extra": {
+    "owner": "acme",
+    "repository_id": "repo-1",
+    "repo": "harbor",
+    "default_branch": "main",
+    "path": "notes.md"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Legacy Notes",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Kept for provenance, not maintained."
+    }
+  ]
+}

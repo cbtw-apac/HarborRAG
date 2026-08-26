@@ -1,0 +1,278 @@
+"""Control-plane migration and schema integration tests on SQLite."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+import sqlalchemy as sa
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+
+from harborrag_adapters.repositories.database.control_plane.engine import (
+    create_control_plane_engine,
+)
+from harborrag_adapters.repositories.database.control_plane.migrations import (
+    _build_config,
+    run_migrations,
+)
+from harborrag_adapters.repositories.database.control_plane.schemas import Base
+from harborrag_adapters.repositories.database.ingestion_control.schema import (
+    METADATA as INGESTION_METADATA,
+)
+
+pytestmark = pytest.mark.integration
+
+EXPECTED_TABLES = {
+    "projects",
+    "sources",
+    "secrets",
+    "jobs",
+    "job_events",
+    "ingestion_failures",
+    "activity",
+    "pending_control_plane_effects",
+    "singleton_leases",
+    "providers",
+    "routing_rules",
+    "workspace_settings",
+    "members",
+    "mcp_query_log",
+    "conversation_memory",
+    "conversation_sessions",
+    "source_scopes",
+    "source_scans",
+    "source_items",
+    "documents",
+    "document_versions",
+    "ingestion_tasks",
+    "task_document_results",
+    "document_failures",
+    "projection_manifests",
+    "projection_cleanup_jobs",
+    "reindex_jobs",
+}
+
+
+@pytest.mark.whitebox
+def test_migration_config_preserves_percent_encoded_credentials() -> None:
+    dsn = "postgresql+asyncpg://harbor:p%40ss%25word@db:5432/harbor"
+
+    config = _build_config(dsn)
+
+    assert config.get_main_option("sqlalchemy.url") == dsn
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_in_memory_engine_keeps_data_alive_across_connections() -> None:
+    """In-memory SQLite must use a shared pool: each new connection off a
+    NullPool engine opens its own private, empty `:memory:` database, so a
+    session after the first would silently see no data at all."""
+    engine = create_control_plane_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(sa.text("CREATE TABLE t (id INTEGER)"))
+            await connection.execute(sa.text("INSERT INTO t VALUES (1)"))
+
+        async with engine.connect() as connection:
+            result = await connection.execute(sa.text("SELECT COUNT(*) FROM t"))
+            assert result.scalar() == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.whitebox
+def test_migrations_create_all_tables_and_are_idempotent(tmp_path: Path) -> None:
+    """Migrations create both control planes; a second run is a no-op."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    run_migrations(dsn)  # idempotent: upgrade head twice must not fail
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    tables = set(sa.inspect(sync_engine).get_table_names())
+    sync_engine.dispose()
+    assert EXPECTED_TABLES <= tables
+    assert "alembic_version" in tables
+
+
+@pytest.mark.whitebox
+def test_legacy_0009_conversation_schema_is_repaired_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    """Upgrade databases stamped by the superseded 0009 migration.
+
+    The legacy revision created ``conversation_memory`` with ``user_id`` but
+    no sessions table or foreign key. Revision 0010 must repair that shape
+    before creating its own session-backed agent table.
+    """
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    config = _build_config(dsn)
+    command.upgrade(config, "0008")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    created_at = datetime(2026, 8, 10, 5, 0, tzinfo=UTC)
+    try:
+        with sync_engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "CREATE TABLE conversation_memory ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "tenant_id VARCHAR(128) NOT NULL, "
+                    "principal_id VARCHAR(512) NOT NULL, "
+                    "user_id VARCHAR(256) NOT NULL, "
+                    "session_id VARCHAR(128) NOT NULL, "
+                    "user_content TEXT NOT NULL, "
+                    "assistant_content TEXT NOT NULL, "
+                    "created_at TIMESTAMP NOT NULL)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "CREATE INDEX ix_conversation_memory_identity_created "
+                    "ON conversation_memory "
+                    "(tenant_id, principal_id, user_id, session_id, created_at, id)"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO conversation_memory "
+                    "(tenant_id, principal_id, user_id, session_id, user_content, "
+                    "assistant_content, created_at) VALUES "
+                    "(:tenant_id, :principal_id, :user_id, :session_id, "
+                    ":user_content, :assistant_content, :created_at)"
+                ),
+                {
+                    "tenant_id": "tenant-a",
+                    "principal_id": "principal-a",
+                    "user_id": "legacy-user",
+                    "session_id": "session-a",
+                    "user_content": "hello",
+                    "assistant_content": "hi",
+                    "created_at": created_at,
+                },
+            )
+    finally:
+        sync_engine.dispose()
+
+    command.stamp(config, "0009")
+    command.upgrade(config, "head")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        inspector = sa.inspect(sync_engine)
+        columns = {column["name"] for column in inspector.get_columns("conversation_memory")}
+        assert "user_id" not in columns
+        assert any(
+            foreign_key["constrained_columns"] == ["session_id"]
+            and foreign_key["referred_table"] == "conversation_sessions"
+            for foreign_key in inspector.get_foreign_keys("conversation_memory")
+        )
+        index = next(
+            item
+            for item in inspector.get_indexes("conversation_memory")
+            if item["name"] == "ix_conversation_memory_identity_created"
+        )
+        assert index["column_names"] == [
+            "tenant_id",
+            "principal_id",
+            "session_id",
+            "created_at",
+            "id",
+        ]
+        with sync_engine.connect() as connection:
+            session = connection.execute(
+                sa.text(
+                    "SELECT tenant_id, principal_id FROM conversation_sessions "
+                    "WHERE session_id = 'session-a'"
+                )
+            ).one()
+            conversation = connection.execute(
+                sa.text(
+                    "SELECT user_content, assistant_content FROM conversation_memory "
+                    "WHERE session_id = 'session-a'"
+                )
+            ).one()
+        assert session == ("tenant-a", "principal-a")
+        assert conversation == ("hello", "hi")
+    finally:
+        sync_engine.dispose()
+
+
+@pytest.mark.whitebox
+def test_migration_baseline_matches_current_metadata(tmp_path: Path) -> None:
+    """The squashed baseline must not drift from either database metadata tree."""
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        with sync_engine.connect() as connection:
+            context = MigrationContext.configure(connection)
+            differences = compare_metadata(
+                context,
+                [Base.metadata, INGESTION_METADATA],
+            )
+    finally:
+        sync_engine.dispose()
+    assert differences == []
+
+
+@pytest.mark.whitebox
+def test_legacy_0007_database_upgrades_to_authoritative_tenancy(
+    tmp_path: Path,
+) -> None:
+    """The squashed baseline must retain a working upgrade path from 0007.
+
+    A database created from the consolidated baseline (0001) already has
+    ``tenant_id`` before 0008 ever runs, so downgrading to 0007 must not drop
+    it -- there is no schema-only signal to tell "the baseline always had
+    this column" apart from "0008's upgrade() just added it", and dropping
+    unconditionally would strip tenant scoping from a freshly bootstrapped
+    database (see 0008's downgrade() docstring). The column must survive a
+    downgrade-then-upgrade round trip intact.
+    """
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    config = _build_config(dsn)
+    command.downgrade(config, "0007")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        inspector = sa.inspect(sync_engine)
+        for table_name in ("source_scopes", "documents", "ingestion_tasks"):
+            assert "tenant_id" in {column["name"] for column in inspector.get_columns(table_name)}
+    finally:
+        sync_engine.dispose()
+
+    command.upgrade(config, "head")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        inspector = sa.inspect(sync_engine)
+        for table_name in ("source_scopes", "documents", "ingestion_tasks"):
+            tenant = next(
+                column
+                for column in inspector.get_columns(table_name)
+                if column["name"] == "tenant_id"
+            )
+            assert tenant["nullable"] is False
+    finally:
+        sync_engine.dispose()
+
+
+@pytest.mark.whitebox
+def test_consolidated_baseline_downgrades_cleanly(tmp_path: Path) -> None:
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+
+    command.downgrade(_build_config(dsn), "base")
+
+    sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    try:
+        assert set(sa.inspect(sync_engine).get_table_names()) <= {"alembic_version"}
+    finally:
+        sync_engine.dispose()

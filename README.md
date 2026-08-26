@@ -1,266 +1,621 @@
-# QDrant Loader
+# HarborRAG
 
-[![PyPI - qdrant-loader](https://img.shields.io/pypi/v/qdrant-loader?label=qdrant-loader)](https://pypi.org/project/qdrant-loader/)
-[![PyPI - mcp-server](https://img.shields.io/pypi/v/qdrant-loader-mcp-server?label=mcp-server)](https://pypi.org/project/qdrant-loader-mcp-server/)
-[![PyPI - qdrant-loader-core](https://img.shields.io/pypi/v/qdrant-loader-core?label=qdrant-loader-core)](https://pypi.org/project/qdrant-loader-core/)
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/martin-papy/qdrant-loader?labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
-[![Test Coverage](https://img.shields.io/badge/coverage-view%20reports-blue)](https://qdrant-loader.net/coverage/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+HarborRAG is a modular, provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It separates provider-neutral contracts, external-system adapters, RAG orchestration, runtime services, operator interfaces, and agent tools into eight independently testable Python packages.
 
-📝 **[Changelog v1.0.3](./CHANGELOG.md)** - Latest improvements and bug fixes
+**What makes it different:** retrieval is resolved against the authoritative active
+document version in PostgreSQL and against immutable evidence in object storage, so a
+superseded version cannot be cited even while a reindex is in flight. Vector and graph
+stores are rebuildable projections, never the source of truth. See
+[How HarborRAG keeps evidence trustworthy](#how-harborrag-keeps-evidence-trustworthy).
 
-<div align="left">
-A comprehensive toolkit for loading data into Qdrant vector database with advanced MCP server support for AI-powered development workflows.
-</div>
+**Upcoming release: HarborRAG 2.0.0 Alpha 1 (`2.0.0a1`) on August 27, 2026.**
 
-## 🎯 What is QDrant Loader?
+> **Project status:** alpha. Connectors, parsers, model clients, repositories,
+> a repository-backed Temporal ingestion pipeline, the operator CLI, and the
+> control-plane API are implemented. The checked-in data, Temporal Compose,
+> and Debian-based application images are suitable for local development.
+> Internet-facing identity policy, infrastructure hardening, backup/restore,
+> observability, and a complete public production topology remain operator work.
 
-QDrant Loader is a data ingestion and retrieval system that collects content from multiple sources, processes and vectorizes it, then provides intelligent search capabilities through a Model Context Protocol (MCP) server for AI development tools.
+## Run it without any services
 
-**Perfect for:**
-
-- 🤖 **AI-powered development** with Cursor, Windsurf, and other MCP-compatible tools
-- 📚 **Knowledge base creation** from technical documentation
-- 🔍 **Intelligent code assistance** with contextual information
-- 🏢 **Enterprise content integration** from multiple data sources
-
-## 📦 Packages
-
-This monorepo contains three complementary packages:
-
-### 🔄 [QDrant Loader](./packages/qdrant-loader/)
-
-Data ingestion and processing engine
-
-Collects and vectorizes content from multiple sources into QDrant vector database.
-
-**Key Features:**
-
-- **Multi-source connectors**: Git, Confluence (Cloud & Data Center), JIRA (Cloud & Data Center), Public Docs, Local Files
-- **File conversion**: PDF, Office docs (Word, Excel, PowerPoint), images, audio, EPUB, ZIP, and more using MarkItDown
-- **Smart chunking**: Modular chunking strategies with intelligent document processing and hierarchical context
-- **Incremental updates**: Change detection and efficient synchronization
-- **Multi-project support**: Organize sources into projects with shared collections
-- **Provider-agnostic LLM**: OpenAI, Azure OpenAI, Ollama, and custom endpoints with unified configuration
-
-### ⚙️ [QDrant Loader Core](./packages/qdrant-loader-core/)
-
-Core library and LLM abstraction layer
-
-Provides the foundational components and provider-agnostic LLM interface used by other packages.
-
-**Key Features:**
-
-- **LLM Provider Abstraction**: Unified interface for OpenAI, Azure OpenAI, Ollama, and custom endpoints
-- **Configuration Management**: Centralized settings and validation for LLM providers
-- **Rate Limiting**: Built-in rate limiting and request management
-- **Error Handling**: Robust error handling and retry mechanisms
-- **Logging**: Structured logging with configurable levels
-
-### 🔌 [QDrant Loader MCP Server](./packages/qdrant-loader-mcp-server/)
-
-AI development integration layer
-
-Model Context Protocol server providing search capabilities to AI development tools.
-
-**Key Features:**
-
-- **MCP Protocol 2025-06-18**: Latest protocol compliance with dual transport support (stdio + HTTP)
-- **Advanced search tools**: Semantic search, hierarchy-aware search, attachment discovery, and conflict detection
-- **Cross-document intelligence**: Document similarity, clustering, relationship analysis, and knowledge graphs
-- **Streaming capabilities**: Server-Sent Events (SSE) for real-time search results
-- **Production-ready**: HTTP transport with security, session management, and health checks
-
-## 🚀 Quick Start
-
-### Installation
+No credentials, no Docker, and no backing services are required for the commands in this
+section. The workspace sync resolves the full development dependency set and needs roughly
+520 MB of disk.
 
 ```bash
-# Install both packages
-pip install qdrant-loader qdrant-loader-mcp-server
-
-# Or install individually
-pip install qdrant-loader          # Data ingestion only
-pip install qdrant-loader-mcp-server  # MCP server only
+git clone https://github.com/cbtw-apac/HarborRAG.git
+cd HarborRAG
+uv sync --all-packages --extra dev
 ```
 
-### 5-Minute Setup
-
-1. **Create a workspace**
-
-   ```bash
-   mkdir my-workspace && cd my-workspace
-   ```
-
-2. **Initialize workspace with templates**
-
-   ```bash
-   qdrant-loader init --workspace .
-   ```
-
-3. **Configure your environment** (edit `.env`)
-
-   ```bash
-   # Qdrant connection
-   QDRANT_URL=http://localhost:6333
-   QDRANT_COLLECTION_NAME=my_docs
-
-   # LLM provider (new unified configuration)
-   OPENAI_API_KEY=your_openai_key
-   LLM_PROVIDER=openai
-   LLM_BASE_URL=https://api.openai.com/v1
-   LLM_EMBEDDING_MODEL=text-embedding-3-small
-   LLM_CHAT_MODEL=gpt-4o-mini
-   ```
-
-4. **Configure data sources** (edit `config.yaml`)
-
-   ```yaml
-   global:
-     qdrant:
-       url: "http://localhost:6333"
-       collection_name: "my_docs"
-     llm:
-       provider: "openai"
-       base_url: "https://api.openai.com/v1"
-       api_key: "${OPENAI_API_KEY}"
-       models:
-         embeddings: "text-embedding-3-small"
-         chat: "gpt-4o-mini"
-       embeddings:
-         vector_size: 1536
-
-   projects:
-     my-project:
-       project_id: "my-project"
-       sources:
-         git:
-           docs-repo:
-             base_url: "https://github.com/your-org/your-repo.git"
-             branch: "main"
-             file_types: ["*.md", "*.rst"]
-   ```
-
-5. **Load your data**
-
-   ```bash
-   qdrant-loader ingest --workspace .
-   ```
-
-6. **Start the MCP server**
-
-   ```bash
-   mcp-qdrant-loader --env /path/tp/your/.env
-   ```
-
-## 🔧 MCP-Compatible IDE Setup
-
-QDrant Loader works with any IDE/tool that supports MCP, including Cursor, Windsurf, and Claude Desktop.
-
-Minimal MCP server entry (adapt path/format to your tool):
-
-```json
-{
-  "mcpServers": {
-    "qdrant-loader": {
-      "command": "/path/to/venv/bin/mcp-qdrant-loader",
-      "env": {
-        "QDRANT_URL": "http://localhost:6333",
-        "QDRANT_COLLECTION_NAME": "my_docs",
-        "OPENAI_API_KEY": "your_key"
-      }
-    }
-  }
-}
-```
-
-**Alternative: Use configuration file** (recommended for complex setups):
-
-```json
-{
-  "mcpServers": {
-    "qdrant-loader": {
-      "command": "/path/to/venv/bin/mcp-qdrant-loader",
-      "args": [
-        "--config",
-        "/path/to/your/config.yaml",
-        "--env",
-        "/path/to/your/.env"
-      ]
-    }
-  }
-}
-```
-
-For tool-specific setup and exact config format:
-
-- **[MCP Setup and Integration](./docs/users/detailed-guides/mcp-server/setup-and-integration.md)** - Full guide
-- **[Cursor Setup](./docs/users/detailed-guides/mcp-server/setup-and-integration.md#-cursor-ide)**
-- **[Windsurf Setup](./docs/users/detailed-guides/mcp-server/setup-and-integration.md#-windsurf)**
-- **[Claude Desktop Setup](./docs/users/detailed-guides/mcp-server/setup-and-integration.md#-claude-desktop)**
-
-**Example queries in AI tools:**
-
-- _"Find documentation about authentication in our API"_
-- _"Show me examples of error handling patterns"_
-- _"What are the deployment requirements for this service?"_
-- _"Find all attachments related to database schema"_
-
-## 📚 Documentation
-
-### Getting Started
-
-- **[Getting Started](./docs/getting-started/)** - Quick start and core concepts
-- **[Installation Guide](./docs/getting-started/installation.md)** - Complete setup instructions
-- **[Quick Start](./docs/getting-started/quick-start.md)** - Step-by-step tutorial
-- **[Core Concepts](./docs/getting-started/README.md#-core-concepts)** - Understand the core architecture: workspace model, projects and sources, ingestion pipeline, and MCP search flow
-
-### User Guides
-
-- **[User Guides](./docs/users/)** - Detailed usage instructions
-- **[Configuration](./docs/users/configuration/)** - Complete configuration reference
-- **[Data Sources](./docs/users/detailed-guides/data-sources/)** - Git, Confluence, JIRA setup
-- **[File Conversion](./docs/users/detailed-guides/file-conversion/)** - File processing capabilities
-- **[MCP Server](./docs/users/detailed-guides/mcp-server/)** - AI tool integration
-
-## 🛠️ Developer Resources
-
-- **[Developer hub](./docs/developers)** - Developer guides for architecture, testing, deployment, and contribution workflows.
-- **[Architecture](./docs/developers/architecture/)** - System design overview
-- **[Testing](./docs/developers/testing/)** - Testing guide and best practices
-
-## 🆘 Support
-
-- **[Issues](https://github.com/martin-papy/qdrant-loader/issues)** - Bug reports and feature requests
-- **[Discussions](https://github.com/martin-papy/qdrant-loader/discussions)** - Community Q&A
-
-## 🤝 Contributing
-
-We welcome contributions! See our [Contributing Guide](./CONTRIBUTING.md) for:
-
-- Development environment setup
-- Code style and standards
-- Pull request process
-
-### Quick Development Setup
+Inspect the operator CLI:
 
 ```bash
-# Clone and setup
-git clone https://github.com/martin-papy/qdrant-loader.git
-cd qdrant-loader
+uv run --package harborrag-app harborrag --help
+```
 
-# Sync workspace environment (recommended)
+Parse a document through the real parser registry, which selects a parser family and
+routes to a concrete engine:
+
+```bash
+uv run python - <<'PY'
+import asyncio
+
+from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
+
+
+async def main() -> None:
+    registry = HarborParserFactory().create_registry()
+    result = await registry.parse_request(
+        ParseRequest(
+            source_uri="docs/getting-started/README.md",
+            filename="README.md",
+            mime_type="text/markdown",
+        )
+    )
+    print(result.parser_name, result.engine_name, len(result.text))
+
+
+asyncio.run(main())
+PY
+```
+
+Run it from the checkout root; `source_uri` is repository-relative. It prints the selected
+parser family, the engine that handled the document, and the extracted character count, for
+example `markup markdown 663`.
+
+That exercises parsing alone. The version-authority guarantee described above lives in the
+ingestion and retrieval path, which needs PostgreSQL, object storage, Qdrant, FalkorDB,
+Redis, and Temporal. Continue with [Quick start](#quick-start) for the full workspace
+workflow, then [Configure durable ingestion locally](#configure-durable-ingestion-locally)
+to bring that stack up.
+
+## Coming from Qdrant Loader?
+
+HarborRAG 2.0 is Qdrant Loader, renamed and restructured from a single Qdrant-coupled
+ingestion tool into a provider-agnostic framework. Qdrant is now one vector adapter among
+several rather than the hardwired store.
+
+This is a **breaking** change. Import paths, distribution names, CLI commands, and
+configuration keys from `qdrant-loader` do not carry over. The closest equivalents are:
+
+| Qdrant Loader | HarborRAG |
+| --- | --- |
+| `qdrant-loader` | `harborrag-app` for the CLI, or `harborrag` as the library facade |
+| `qdrant-loader-core` | `harborrag-core`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, and `harborrag-adapters` |
+| `qdrant-loader-mcp-server` | `harborrag-mcp-server` |
+
+There is no automated migration path from a 1.x deployment: reconfigure connectors,
+parsers, and models against the new catalogs in [`config/`](config/) and reingest. See the
+[2.0.0a1 changelog](CHANGELOG.md#200a1---2026-08-27) for the full migration boundary and
+[What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the current
+architecture.
+
+## What is implemented
+
+| Area | Current support |
+| --- | --- |
+| Connectors | Local files, GitHub, Confluence, Jira, and SharePoint |
+| Parsers | Text, Markdown, JSON, CSV/TSV, HTML, EPUB, DOCX, PPTX, Excel, images, and PDF |
+| PDF backends | PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR |
+| Model clients | Chat, embeddings, and reranking through validated provider-neutral clients and LiteLLM-backed transports |
+| Repositories | Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and in-memory implementations across vector, graph, cache, database, state, and object storage |
+| Runtime | PostgreSQL-backed local Temporal deployment, durable stage state, rolling artifact fan-out, graceful worker shutdown, activities, workers, and client controls |
+| Operator surfaces | FastAPI ingestion control, Temporal-backed CLI commands, hybrid graph/vector retrieval, and an authenticated MCP server boundary with a local stdio health tool |
+
+The runtime supplies a default dependency graph; deployments may override it
+with a custom provider. MCP exposes six audited, tenant-scoped retrieval tools;
+chat and agent operations are served through the REST API, and ingestion is
+controlled through the CLI or authenticated API rather than MCP. See
+[What is HarborRAG?](docs/getting-started/what-is-harborrag.md) for the boundary.
+
+## How HarborRAG keeps evidence trustworthy
+
+HarborRAG separates authority, evidence, and search acceleration instead of
+asking one database to play all three roles:
+
+| Boundary | Responsibility |
+| --- | --- |
+| PostgreSQL | Authoritative tenant, source, document, version, job, and active-publication state |
+| S3-compatible object store | Immutable raw, parsed, canonical, chunk, representation, and manifest artifacts |
+| Qdrant | Rebuildable dense and sparse vector projections |
+| FalkorDB | Rebuildable deterministic structure and source-declared relationship projections |
+
+A document version becomes active only after its required projections verify.
+Retrieval then rejects any candidate whose version is not the active version in
+PostgreSQL before resolving immutable evidence. Temporal coordinates durable
+ingestion and replay; it is not on the latency-sensitive retrieval path.
+
+Read the [data lifecycle](docs/developers/architecture/data-lifecycle.md) for
+the complete path and [runtime reliability](docs/developers/architecture/runtime-reliability.md)
+for workflow, retry, and failure behavior.
+
+## Requirements
+
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) for the recommended workspace workflow, or `pip` for editable installs
+- Docker Engine with Docker Compose v2 for the local data and Temporal stacks
+
+## Install
+
+`harborrag` is the only package you install. It pulls in the rest of the
+workspace, and extras add the providers you need:
+
+```bash
+pip install "harborrag[all]"          # everything
+pip install "harborrag[cli,qdrant]"   # or just what you use
+```
+
+> Published with the `2.0.0a1` release. Until then, use the checkout above.
+
+A bare `pip install harborrag` installs the contracts only and no provider
+clients, so add at least one extra. Available extras: `all`, `local`, `chat`,
+`cli`, `server`, `mcp`, `memory`, `temporal`, `qdrant`, `falkordb`, `postgres`,
+`s3`, `redis`. See [Installation](docs/getting-started/installation.md) and the
+[`harborrag` package README](packages/harborrag/README.md) for what each one
+adds.
+
+## Use it from Python
+
+HarborRAG is a library first. `HarborRAG` exposes four async service facades —
+`ingestion`, `retrieval`, `graph`, and `chat` — behind one async context
+manager:
+
+```python
+import asyncio
+
+from harborrag import AccessContext, HarborRAG, IngestionRequest, RetrievalRequest
+
+
+async def main() -> None:
+    access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
+
+    async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+        await harbor.ingestion.run(
+            IngestionRequest(access=access, connector_name="harborrag-workspace")
+        )
+        results = await harbor.retrieval.search(
+            RetrievalRequest(access=access, query="deployment requirements")
+        )
+        print(results)
+
+
+asyncio.run(main())
+```
+
+Connectors are declared once in [`config/connectors.yaml`](config/connectors.yaml)
+and selected by name, so credentials stay as environment references. Long runs
+can be driven durably instead of inline:
+
+```python
+task = await harbor.ingestion.submit(request)   # returns a task reference
+status = await harbor.ingestion.status(task.task_id)
+await harbor.ingestion.pause(task.task_id)
+await harbor.ingestion.resume(task.task_id)
+```
+
+`submit`, `pause`, `resume`, and `cancel` need `execution_mode: temporal` and
+the `harborrag[temporal]` extra; `run` executes directly. Ingestion and
+retrieval both need the backing services from
+[Configure durable ingestion locally](#configure-durable-ingestion-locally).
+
+## Quick start
+
+[Run it without any services](#run-it-without-any-services) covers the checkout and the
+`uv sync --all-packages --extra dev` workspace sync. From that synced checkout, run the
+package tests:
+
+```bash
+uv run pytest packages/harborrag-core/tests
+```
+
+`harborrag doctor` checks a live Temporal frontend, so run it only after starting
+Temporal. See [the deployment guide](docs/developers/deployment/README.md).
+
+`--extra dev` is enough for the commands above, but not for the full test
+suite. Several packages gate optional adapters (Redis, Alembic/control-plane,
+`pydantic-settings`, and the FastAPI/JWT API surface) behind their own extras.
+To run `uv run pytest` the way CI does, sync with every extra first:
+
+```bash
 uv sync --all-packages --all-extras
-
-# Add a new dependency during development
-uv add fastapi
-uv sync
+uv run pytest
 ```
 
-## 📄 License
+For `pip`, platform notes, and optional adapter extras, see [Installation](docs/getting-started/installation.md).
 
-This project is licensed under the GNU GPLv3 - see the [LICENSE](LICENSE) file for details.
+## Configure durable ingestion locally
 
----
+The intended local topology runs PostgreSQL-backed Temporal, Qdrant,
+FalkorDB, Redis, and HarborRAG ingestion workers. Workers share persistent
+ingestion and model-cache volumes. Concurrency, retry, and worker counts are
+deployment policy: tune them for source quotas, model latency, document size,
+and available resources instead of treating repository defaults as universal.
 
-**Ready to get started?** Check out our [Quick Start Guide](./docs/getting-started/quick-start.md) or browse the [complete documentation](./docs/).
+> **Container base image:** all four Dockerfiles use
+> `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`. It must stay a glibc (Debian)
+> image: the locked `temporalio`, PyTorch, TorchVision, and ONNX Runtime
+> releases publish manylinux wheels only, so the musl (alpine) variants cannot
+> be used. uv ships in the base image, so nothing pip-installs it.
+> `tests/test_release_images_use_lock.py` enforces the shared base and the
+> frozen-lock install path. The tag floats, so the uv and Python patch versions
+> can move between builds; the application dependencies themselves stay
+> reproducible via `uv export --frozen` against `uv.lock`. Note that the images
+> are not built in CI.
+
+### 1. Create protected environment files
+
+```bash
+install -m 700 -d env
+
+test -f env/.env.database || \
+  cp env-example/.env.database.example env/.env.database
+test -f env/.env.temporal || \
+  cp env-example/.env.temporal.example env/.env.temporal
+test -f env/.env.connector || \
+  cp env-example/.env.connector.example env/.env.connector
+test -f env/.env.parser || \
+  cp env-example/.env.parser.example env/.env.parser
+test -f env/.env.models || \
+  cp env-example/.env.models.example env/.env.models
+test -f env/.env.mcp || \
+  cp env-example/.env.mcp.example env/.env.mcp
+
+chmod 600 env/.env.*
+```
+
+Replace every placeholder credential. The enabled Jira connector in
+[`config/connectors.yaml`](config/connectors.yaml) requires these values in
+`env/.env.connector`:
+
+```dotenv
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_PROJECT_KEY=ENG
+JIRA_EMAIL=service-account@example.com
+JIRA_TOKEN=replace-with-a-least-privilege-token
+```
+
+The active model catalog in [`config/models.yaml`](config/models.yaml) requires
+the `HARBOR_CHAT_*` and `HARBOR_EMBED_*` values from `env/.env.models`. Set a
+strong `POSTGRES_PASSWORD` in `env/.env.database`, and configure the Temporal
+worker replica count in `env/.env.temporal`. Worker capacity, task queues,
+retry budgets, TLS, and timeouts live in `config/temporal.yaml`:
+
+```dotenv
+HARBORRAG_TEMPORAL_WORKER_REPLICAS=2
+```
+
+### 2. Start data services, Temporal, and workers
+
+Start the data stack first because it creates the external network used by the
+workers:
+
+```bash
+scripts/deployment/dev.sh data
+scripts/deployment/dev.sh temporal
+scripts/deployment/dev.sh worker
+```
+
+The first worker build installs the selected parser/model dependencies and can
+take several minutes. Downloaded Hugging Face assets persist in the shared
+`harborrag-model-cache` volume and are reused after container replacement.
+
+### 3. Verify the deployment
+
+```bash
+docker compose \
+  --env-file env/.env.database \
+  --file deploy/compose/docker-compose.database.yml \
+  ps
+
+docker compose \
+  --env-file env/.env.database \
+  --env-file env/.env.temporal \
+  --file deploy/compose/docker-compose.temporal.yml \
+  --profile worker \
+  ps -a
+
+HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
+  uv run python -m harborrag_app.cli.main doctor --json
+```
+
+`postgresql`, `temporal`, `temporal-ui`, and both `temporal-worker` replicas
+should be running. `temporal-schema` and `temporal-namespace` are successful
+one-shot jobs and should show `Exited (0)`. The Temporal UI is available at
+<http://localhost:8080> for local use.
+
+### 4. Submit and observe Jira ingestion
+
+```bash
+export HARBORRAG_TEMPORAL_TARGET=localhost:7233
+
+uv run --package harborrag-app harborrag ingest start \
+  --tenant tenant-1 \
+  --connector jira-main \
+  --wait
+```
+
+For automation, add `--json`. Save the returned run ID and use it with the
+operator commands:
+
+```bash
+uv run --package harborrag-app harborrag ingest status RUN_ID --json
+uv run --package harborrag-app harborrag ingest watch RUN_ID
+uv run --package harborrag-app harborrag ingest pause RUN_ID
+uv run --package harborrag-app harborrag ingest resume RUN_ID
+uv run --package harborrag-app harborrag ingest cancel RUN_ID
+```
+
+Cancellation is applied at a safe source-batch boundary. A later ingestion may
+report documents as `unchanged`; this is the expected admission fast path and
+does not invoke parsing, chunking, or encoding.
+
+Follow worker logs during a run:
+
+```bash
+docker compose \
+  --env-file env/.env.database \
+  --env-file env/.env.temporal \
+  --file deploy/compose/docker-compose.temporal.yml \
+  --profile worker \
+  logs --follow --tail=200 temporal-worker
+```
+
+See the [deployment guide](docs/developers/deployment/README.md) and
+[CLI reference](docs/users/cli-reference/README.md) for persistence, worker
+controls, and troubleshooting details.
+
+## Deployment boundary
+
+| Target | Status |
+| --- | --- |
+| Local development | Host-based uv workflow and the containerized ingestion worker are supported |
+| Integration testing | Supported |
+| Controlled single-host staging | Supported after the manual ingestion release gate passes against the deployed candidate |
+| Public or multi-tenant production | Not yet supplied as a complete topology |
+
+The ingestion release gate validates the Postgres control plane, immutable
+MinIO artifacts, Qdrant and FalkorDB projections, Redis-loss behavior, Temporal
+workflows, authoritative retrieval, and connector-free reindexing. See the
+[deployed ingestion smoke guide](packages/harborrag-runtime/tests/runtime_ingestion/smoke/README.md).
+
+Before a public production launch, use Temporal Cloud or a hardened self-hosted
+Temporal deployment, add TLS and network policies, integrate a secret manager,
+implement API authentication, authorization, ACL projection, and multi-tenancy,
+wire production observability, and test backup/restore. See [Deployment](docs/developers/deployment/README.md)
+for the complete readiness boundary.
+
+## Try the implemented adapters
+
+### Load and parse local documents
+
+Run this from the checkout root; `source_uri` is repository-relative.
+
+```python
+import asyncio
+
+from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
+
+
+async def main() -> None:
+    registry = HarborParserFactory().create_registry()
+    result = await registry.parse_request(
+        ParseRequest(
+            source_uri="docs/getting-started/README.md",
+            filename="README.md",
+            mime_type="text/markdown",
+        )
+    )
+    print(result.parser_name, result.engine_name, len(result.text))
+
+
+asyncio.run(main())
+```
+
+The active connector catalog is [`config/connectors.yaml`](config/connectors.yaml).
+The active parser catalog is [`config/parsers.yaml`](config/parsers.yaml), with
+unused parser alternatives retained as commented blocks. The root registry
+selects a parser family; each family owns its engine routing, quality checks,
+fallback behavior, and output normalization.
+
+### Configure model clients
+
+Install the model dependencies and provide the environment variables referenced by the selected file:
+
+```bash
+uv sync --all-packages --extra dev
+uv run --env-file env/.env.models \
+  python -m harborrag_adapters.models explain config/models.yaml --family chat
+```
+
+Model configuration resolves `${VARIABLE}` references during loading, so missing credentials fail early. The CLI can `validate`, `render`, or `explain` the chat, embedding, and reranking sections. See [Model Configuration](docs/users/configuration/model-config.md).
+
+### Run the local MCP stdio transport
+
+```bash
+scripts/deployment/mcp.sh --check
+```
+
+The check performs a protocol handshake and lists the advertised tools. For
+normal use, configure your MCP client to launch `scripts/deployment/mcp.sh`.
+The stdio server is not an interactive terminal or HTTP service, and it opens
+no network listener. Network transports require an authentication provider. See
+[MCP Tools](docs/users/detailed-guides/mcp-server/README.md).
+
+For a local authenticated HTTP endpoint and browser status page:
+
+```bash
+scripts/deployment/dev.sh bootstrap
+scripts/deployment/mcp.sh --http
+```
+
+Open `http://127.0.0.1:8010/`; MCP clients connect to
+`http://127.0.0.1:8010/mcp` with the bearer token stored in the protected
+`env/.env.mcp` file.
+The page provides an owner-only Tool Playground and an editor for the validated
+[`config/mcp.yaml`](config/mcp.yaml). Enter the bearer token, load the effective
+tools for a tenant, complete the generated argument form, and run retrieval
+without a separate MCP client. Playground calls use the same schema, policy,
+tenant configuration, and audit path as MCP calls.
+
+## Workspace packages
+
+```text
+packages/
+  harborrag-core/      domain objects, model contracts, schemas, security
+  harborrag-adapters/  connectors, parsers, model clients, repositories
+  harborrag-memory/    scope-aware short-term, working, and long-term memory facade
+  harborrag-engine/    ingestion, retrieval, indexing, graph boundaries
+  harborrag-runtime/   production composition and Temporal orchestration
+  harborrag-app/       application service, CLI, HTTP API boundary
+  harborrag-mcp-server/ MCP tools/server boundary, policy, audit
+  harborrag/           thin public facade / meta-package
+```
+
+Dependency direction is enforced by `scripts/check_dependency_direction.py`:
+
+```text
+core
+  ├─ adapters
+  └─ memory
+       └─ engine
+            └─ runtime
+                 ├─ app
+                 └─ mcp
+
+harborrag may re-export stable APIs from the implemented packages.
+```
+
+See [Architecture](docs/developers/architecture/README.md) for the exact allowed-import table and ownership rules.
+
+## Configuration files
+
+| File | Purpose |
+| --- | --- |
+| `config/temporal.yaml` | Temporal connection, TLS, task queues, retries, worker capacity, health, and workflow timeouts |
+| `config/temporal.example.yaml` | Annotated Temporal configuration reference with every supported non-secret setting |
+| `config/connectors.yaml` | Active named connector definitions and environment references |
+| `config/parsers.yaml` | Active parser definitions and commented backend alternatives |
+| `config/models.yaml` | Active chat and embedding model configuration |
+| `config/models.advance.example.yaml` | More advanced routing and provider examples |
+| `config/advance_chat/*.example.yaml` | Direct SDK, LiteLLM Router, proxy, and distributed chat examples |
+| `env-example/.env.connector.example` | Connector and connector-smoke environment template |
+| `env-example/.env.parser.example` | Optional parser/OCR environment template |
+| `env-example/.env.models.example` | Model and model-smoke environment template |
+| `env-example/.env.mcp.example` | Local MCP transport and bearer-token template |
+| `env-example/.env.database.example` | Local repository-stack template |
+| `env-example/.env.temporal.example` | Local PostgreSQL/Temporal-stack template |
+
+Catalog loaders do not automatically load environment files. Export variables
+in the shell, pass an environment file to `uv run`, or load them through your
+application or secret manager. The checked-in Compose worker explicitly loads
+`env/.env.connector`, `env/.env.parser`, and `env/.env.models`.
+
+## Release checklist
+
+Release only from a reviewed, clean commit. The full local gate mirrors the
+repository CI:
+
+```bash
+uv sync --all-packages --all-extras
+uv run make lint
+uv run make typecheck
+uv run make deps-check
+uv run make compile
+uv run make coverage
+```
+
+Prepare release metadata on a branch after adding the new version section to
+`CHANGELOG.md`. The preparation command changes package versions, internal
+dependency pins, the TypeScript client version, classifiers when requested,
+and `uv.lock`; it never commits, pushes, tags, or publishes:
+
+Python distributions use PEP 440 prerelease versions. The release command
+accepts a friendly value such as `2.0.0-alpha` and normalizes it to canonical
+`2.0.0a1`; built Python distributions and package tags use the canonical form,
+while the synchronized TypeScript client uses the SemVer equivalent
+`2.0.0-alpha.1`.
+
+```bash
+uv run python release.py --dry-run --bump patch --verbose
+uv run python release.py --bump patch --verbose
+uv run make lint
+uv run make typecheck
+uv run make deps-check
+uv run make compile
+uv run make coverage
+```
+
+Review those changes through a pull request. After the release commit is merged
+and all required workflows pass on that exact commit, publish the already
+reviewed version from a clean, up-to-date `main`:
+
+```bash
+git switch main
+git pull --ff-only
+git status --short
+uv run python release.py --publish --dry-run --verbose
+uv run python release.py --publish --verbose
+```
+
+Publishing does not modify repository files. It requires synchronized package
+versions, an updated changelog, absent release tags, a clean `main`, no unpushed
+commits, passing workflows on the current commit, and either `GITHUB_TOKEN` or
+`GH_TOKEN` authorized for this repository. See [Contributing](CONTRIBUTING.md)
+for the pull-request and release gates.
+
+For the first PyPI publication of a package name, register a pending Trusted
+Publisher before creating its GitHub release. HarborRAG requires one publisher
+for each public package (`harborrag-core`, `harborrag-adapters`,
+`harborrag-memory`, `harborrag-engine`, `harborrag-runtime`, `harborrag-app`,
+`harborrag-mcp-server`, and `harborrag`) with these claims:
+
+- owner: `cbtw-apac`
+- repository: `HarborRAG`
+- workflow: `publish.yml`
+- environment: `pypi-publish`, unless `PYPI_ENVIRONMENT` is configured to the
+  same alternate environment in GitHub and PyPI
+
+Pending publishers are external PyPI account configuration: they are not
+created by this repository and do not reserve package names until the first
+successful publication.
+
+## Development commands
+
+When using the uv environment without activating it, run Make targets through `uv run`:
+
+```bash
+uv run make help
+uv run make test
+uv run make test-package PACKAGE=harborrag-adapters
+uv run make coverage
+uv run make lint
+uv run make format
+uv run make typecheck
+uv run make compile
+uv run make deps-check
+uv run make doctor
+```
+
+`make coverage` enforces the repository's 90% coverage threshold. If your virtual environment is already active, the `uv run` prefix is optional. Default tests are hermetic; real connectors, model providers, parser engines, and repository services are exercised only through opt-in smoke scripts.
+
+## Documentation
+
+- [Documentation index](docs/TOC.md)
+- [Getting started](docs/getting-started/README.md)
+- [User guides](docs/users/README.md)
+- [Developer guides](docs/developers/README.md)
+- [Architecture and data lifecycle](docs/developers/architecture/data-lifecycle.md)
+- [Open-source publication guidelines](docs/developers/publication-guidelines.md)
+- [Security policy](SECURITY.md)
+- [Control Plane API](packages/harborrag-app/src/harborrag_app/api/README.md)
+- [Operator CLI](packages/harborrag-app/src/harborrag_app/cli/README.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+
+## License
+
+HarborRAG is licensed under the [Apache License 2.0](LICENSE). Every published
+package declares `Apache-2.0` and ships a copy of the license in its
+distribution.

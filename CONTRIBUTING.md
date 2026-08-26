@@ -1,448 +1,295 @@
-# Contributing to QDrant Loader
+# Contributing to HarborRAG
 
-Thank you for your interest in contributing to QDrant Loader! This guide will help you get started with contributing to our monorepo ecosystem.
+Thank you for contributing. HarborRAG is a multi-package Python workspace, so a good change preserves package boundaries, includes tests at the owning layer, and updates the relevant documentation and configuration examples.
 
-## 🎯 Ways to Contribute
+## Development setup
 
-- **🐛 Bug Reports**: Help us identify and fix issues
-- **✨ Feature Requests**: Suggest new features or improvements
-- **📝 Documentation**: Improve our guides and references
-- **🔧 Code Contributions**: Fix bugs, add features, or improve performance
-- **🧪 Testing**: Add tests or improve test coverage
-- **💬 Community Support**: Help other users in discussions
+Requirements:
 
-## 🚀 Getting Started
+- Python 3.12 or newer
+- `uv` (recommended) or `pip`
 
-### Prerequisites
-
-- **Python 3.12+** (latest stable version recommended)
-- **Git** for version control
-- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (replaces pip + venv)
-- **QDrant instance** (local or cloud) for testing
-
-Install uv if you don't have it:
+Set up the workspace with `uv`:
 
 ```bash
-# macOS / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+uv sync --all-packages --extra dev
+uv run python -m harborrag_app.cli.main doctor --json
+uv run pytest
 ```
 
-### Development Setup
+Then install the git hooks:
 
-1. **Fork and Clone**
+```bash
+uv run pre-commit install -t pre-commit -t pre-push
+```
 
-   ```bash
-   # Fork the repository on GitHub, then clone your fork
-   git clone https://github.com/YOUR_USERNAME/qdrant-loader.git
-   cd qdrant-loader
-   ```
+`make hooks` runs the same command where `make` is available. See
+[Git hooks](#git-hooks) for what each stage runs.
 
-2. **Install Dependencies**
+For a `pip` editable installation:
 
-   ```bash
-   # Install all workspace packages with development dependencies
-   # uv automatically creates and manages the virtual environment
-   uv sync --all-packages --all-extras
-   ```
+```bash
+make bootstrap
+```
 
-3. **Verify Installation**
+`make bootstrap` installs the eight active workspace packages in dependency
+order and then installs the root `dev` extra.
 
-   ```bash
-   # Test that everything is working
-   uv run qdrant-loader --help
-   uv run mcp-qdrant-loader --help
-   uv run pytest --version
-   ```
+## Before changing code
 
-### Project Structure
+1. Read the root [README](README.md) and the relevant package README.
+2. Check [Architecture](docs/developers/architecture/README.md) for ownership and import direction.
+3. Check `git status` and preserve unrelated local changes.
+4. Find the closest existing implementation and tests before adding a new pattern.
+
+Keep changes focused. Do not combine generated files, broad formatting, or unrelated refactors with a feature or fix.
+
+## Package ownership
+
+| Package | Owns |
+| --- | --- |
+| `harborrag-core` | Provider-neutral domain objects, shared schemas, model contracts, errors, and security helpers |
+| `harborrag-adapters` | External connectors, parsers, model transports, repository providers, and provider validation |
+| `harborrag-memory` | Provider-neutral conversation-memory contracts and policies |
+| `harborrag-engine` | Pure ingestion transformations, representation/projection mapping, retrieval, and evidence orchestration |
+| `harborrag-runtime` | Configuration loading, composition, jobs, supervision, schedules, and durable-workflow boundaries |
+| `harborrag-app` | Application services, CLI commands, and HTTP controllers |
+| `harborrag-mcp-server` | MCP tool/server interfaces, policy, and audit behavior |
+| `harborrag` | Stable public re-exports only |
+
+The allowed HarborRAG imports are:
 
 ```text
-qdrant-loader/
-├── packages/
-│   ├── qdrant-loader-core/      # Shared core library
-│   │   ├── src/qdrant_loader_core/
-│   │   ├── tests/
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   ├── qdrant-loader/           # Data ingestion package
-│   │   ├── src/qdrant_loader/   # Source code
-│   │   ├── tests/               # Package tests
-│   │   ├── pyproject.toml       # Package configuration
-│   │   └── README.md            # Package documentation
-│   └── qdrant-loader-mcp-server/ # MCP server package
-│       ├── src/qdrant_loader_mcp_server/
-│       ├── tests/
-│       ├── pyproject.toml
-│       └── README.md
-├── docs/                        # Documentation
-├── website/                     # Documentation website generator
-├── .github/workflows/           # CI/CD pipelines
-├── pyproject.toml              # uv workspace configuration
-├── uv.lock                     # Deterministic lockfile (committed to git)
-├── README.md                   # Main project README
-└── CONTRIBUTING.md             # This file
+harborrag_core      -> none
+harborrag_adapters  -> core
+harborrag_memory    -> core
+harborrag_engine    -> core, memory
+harborrag_runtime   -> core, adapters, engine, memory
+harborrag_app       -> core, runtime
+harborrag_mcp_server -> core, runtime
+harborrag           -> any active HarborRAG package
 ```
 
-## 🔧 Development Workflow
+Run `make deps-check` after changing cross-package imports.
 
-### 1. Create a Feature Branch
+## Developer map
 
-```bash
-# Create and switch to a new branch
-git checkout -b feature/your-feature-name
+| Goal | Location |
+| --- | --- |
+| Add a connector | `packages/harborrag-adapters/src/harborrag_adapters/connectors/<provider>/` |
+| Add a PDF parser backend | `packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf/engines/<backend>.py` |
+| Change Confluence canonical normalization | `packages/harborrag-adapters/src/harborrag_adapters/connectors/confluence/normalization/` |
+| Add a vector repository | `packages/harborrag-adapters/src/harborrag_adapters/repositories/vector/<backend>/` |
+| Add a chat/model provider | `packages/harborrag-adapters/src/harborrag_adapters/models/<family>/` |
+| Add a source chunking strategy | `packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/sources/` |
+| Change ingestion business behavior | `packages/harborrag-engine/src/harborrag_engine/ingestion/` |
+| Change retrieval ranking | `packages/harborrag-engine/src/harborrag_engine/retrieval/` |
+| Add an API endpoint | `packages/harborrag-app/src/harborrag_app/api/routes/` |
+| Add a CLI command | `packages/harborrag-app/src/harborrag_app/cli/commands/` |
+| Add an MCP tool | `packages/harborrag-mcp-server/src/harborrag_mcp_server/tools/` |
+| Add durable execution | `packages/harborrag-runtime/src/harborrag_runtime/temporal/` |
 
-# Or for bug fixes
-git checkout -b fix/issue-description
+A new backend should add its implementation folder, configuration example, and
+contract-test registration. It should not require changes to engine pipelines,
+transports, or unrelated providers. The one current exception is provider metadata
+behind the single LiteLLM chat path, which remains in
+`models/chat/registry.py`; a second execution provider path requires a feature design
+before introducing a plugin registry.
+
+## Adapter contributions
+
+Place provider code under the matching family in `packages/harborrag-adapters/src/harborrag_adapters/`:
+
+```text
+connectors/<provider>/
+parsers/ or parsers/pdf/engines/
+models/{chat,embed,rerank}/
+repositories/{vector,graph,cache,object_store,database,state}/<provider>/
 ```
 
-### 2. Make Your Changes
+An adapter change should normally include:
 
-- **Follow our coding standards** (see below)
-- **Add tests** for new functionality and bug fixes
-- **Ensure unit test coverage** for the code you changed
-- **Update documentation** for every new feature or behavior change
-- **Keep commits focused** and atomic
+- typed configuration with early validation;
+- public exports or registry/plugin registration;
+- deterministic unit, failure, and security tests using fake SDK clients;
+- an optional-dependency declaration when a new SDK is required;
+- a safe example configuration or environment key when operators need one;
+- normalized HarborRAG domain or schema outputs rather than raw provider responses.
 
-### 3. Test Your Changes
+Keep provider SDK imports inside adapters. Never require live credentials in default pytest collection, and never commit real provider payloads containing sensitive data.
 
-> **Note**: `make` commands are convenience shortcuts. Since `uv` is a required prerequisite, the `uv run` equivalents in the [Testing Guidelines](#-testing-guidelines) below work on all platforms (macOS, Linux, Windows) without additional setup.
-
-```bash
-# Run all tests
-make test
-
-# Run tests for specific package
-make test-loader
-make test-mcp
-make test-core
-
-# Run with coverage
-make test-coverage
-
-# Run linting and formatting
-make lint
-make format
-```
-
-### 4. Commit Your Changes
-
-```bash
-# Stage your changes
-git add .
-
-# Commit with a descriptive message
-git commit -m "feat: add support for new data source connector"
-
-# Or for bug fixes
-git commit -m "fix: resolve issue with file conversion timeout"
-```
-
-### 5. Push and Create Pull Request
-
-```bash
-# Push your branch
-git push origin feature/your-feature-name
-
-# Create a pull request on GitHub
-# Set the base branch to: develop
-# Do NOT set the base branch to: main
-# Include a clear description of your changes
-# Wait for team review and approval before merging
-```
-
-## 📝 Coding Standards
-
-> **📖 For comprehensive guidelines** including Pythonic patterns, AI/RAG best practices, and PR review checklists, see the [Best Practices Guide](./docs/developers/contributing/README.md).
-
-### Code Style
-
-We use the following tools to maintain code quality:
-
-- **[Black](https://black.readthedocs.io/)**: Code formatting
-- **[isort](https://pycqa.github.io/isort/)**: Import sorting
-- **[Ruff](https://docs.astral.sh/ruff/)**: Fast Python linter
-- **[MyPy](https://mypy.readthedocs.io/)**: Static type checking
-
-### Formatting Commands
-
-```bash
-# Format code (black + isort + ruff fix)
-make format
-
-# Lint only
-make lint
-
-# Or run tools directly via uv
-uv run black .
-uv run isort .
-uv run ruff check --fix .
-```
-
-### Code Guidelines
-
-Detailed implementation standards are maintained in one place:
-
-- **[Best Practices Guide](./docs/developers/contributing/README.md)** for Pythonic patterns, DI, architecture constraints, AI/RAG quality gates, and PR review checklist
-
-Minimum expectations for all contributions:
-
-- Keep code readable and typed
-- Add/maintain docstrings for public interfaces
-- Prefer explicit dependencies over implicit behavior
-- Handle errors with actionable messages and structured logs
-
-## 🧪 Testing Guidelines
-
-Testing standards and strategy are documented here:
-
-- **[Developer Testing Guide](./docs/developers/testing/README.md)** for test design, scope, fixtures, and integration patterns
-- **[Best Practices Guide](./docs/developers/contributing/README.md)** for AI/RAG-specific evaluation and review gates
-
-### Test Commands
-
-```bash
-# Run all tests
-make test
-
-# Run with verbose output
-uv run pytest -v
-
-# Run specific test file
-uv run pytest packages/qdrant-loader/tests/test_processors.py
-
-# Run tests matching a pattern
-uv run pytest -k "test_document"
-
-# Run with coverage
-make test-coverage
-
-# Run only fast tests (skip slow integration tests)
-uv run pytest -m "not slow"
-```
-
-## 📚 Documentation Guidelines
-
-### Documentation Types
-
-- **Code documentation**: Docstrings and inline comments
-- **User guides**: How-to guides for end users
-- **Developer documentation**: Architecture and API references
-- **README files**: Package and project overviews
-
-### Writing Documentation
-
-#### Principles
-
-- **Write for your audience**: Users vs. developers have different needs
-- **Be clear and concise**: Avoid jargon and unnecessary complexity
-- **Include examples**: Show, don't just tell
-- **Keep it current**: Update docs when code changes
-
-#### Markdown Guidelines
-
-````markdown
-# Use clear headings
-
-## Structure content logically
-
-### Include code examples
-
-```bash
-# Command examples should be copy-pastable
-qdrant-loader --workspace . init
-```
-````
-
-**Use formatting** for emphasis and `code` for technical terms.
-
-- Create clear lists
-- With actionable items
-- That users can follow
-
-### Building Documentation Website
-
-```bash
-# Build the documentation website
-make docs
-
-# Or run directly
-uv run python website/build.py --output site --templates website/templates --base-url "http://127.0.0.1:3000/site/"
-
-# Serve locally for testing
-cd site
-uv run python -m http.server 8000
-```
-
-## 🚀 Pull Request Process
-
-### Before Submitting
-
-- [ ] **Tests pass**: All existing and new tests pass
-- [ ] **Code is formatted**: Black, isort, and ruff checks pass
-- [ ] **Type checking passes**: MyPy reports no errors
-- [ ] **Documentation updated**: Relevant docs are updated
-
-### Pull Request Template
-
-When creating a pull request, include:
-
-```markdown
-## Description
-
-Brief description of the changes and why they're needed.
-
-## Type of Change
-
-- [ ] Bug fix (non-breaking change that fixes an issue)
-- [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
+Repository operations must accept `StorageOperationContext` and preserve tenant isolation. Use `repositories/`, not a new `stores/` top-level family.
 
 ## Testing
 
-- [ ] Unit tests added/updated
-- [ ] Integration tests added/updated
-- [ ] Manual testing performed
+Add tests in the package that owns the behavior:
 
-## Checklist
-
-- [ ] Code follows the project's style guidelines
-- [ ] Self-review of code completed
-- [ ] Code is commented, particularly in hard-to-understand areas
-- [ ] Corresponding changes to documentation made
-- [ ] Tests added that prove the fix is effective or feature works
-- [ ] New and existing unit tests pass locally
+```text
+packages/<package>/tests/   package behavior
+tests/                      cross-package and website behavior
 ```
 
-### Review Process
-
-1. **Automated checks**: CI/CD pipeline runs tests and quality checks
-2. **Code review**: Maintainers review code for quality and design
-3. **Feedback incorporation**: Address review comments
-4. **Approval and merge**: Once approved, changes are merged
-
-## 🐛 Bug Reports
-
-### Before Reporting
-
-- **Search existing issues** to avoid duplicates
-- **Try the latest version** to see if the issue is already fixed
-- **Gather information** about your environment and the issue
-
-### Bug Report Template
-
-```markdown
-## Bug Description
-
-A clear and concise description of what the bug is.
-
-## To Reproduce
-
-Steps to reproduce the behavior:
-
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
-
-## Expected Behavior
-
-A clear and concise description of what you expected to happen.
-
-## Environment
-
-- OS: [e.g. macOS 12.0, Ubuntu 20.04, Windows 10]
-- Python version: [e.g. 3.12.2]
-- QDrant Loader version: [e.g. 0.4.0b1]
-- QDrant version: [e.g. 1.7.0]
-
-## Additional Context
-
-Add any other context about the problem here.
-```
-
-## ✨ Feature Requests
-
-### Before Requesting
-
-- **Check existing issues** for similar requests
-- **Consider the scope**: Does it fit the project's goals?
-- **Think about implementation**: How might it work?
-
-### Feature Request Template
-
-```markdown
-## Feature Description
-
-A clear and concise description of what you want to happen.
-
-## Problem Statement
-
-What problem does this feature solve? What's the current limitation?
-
-## Proposed Solution
-
-Describe the solution you'd like to see implemented.
-
-## Alternatives Considered
-
-Describe any alternative solutions or features you've considered.
-
-## Additional Context
-
-Add any other context, mockups, or examples about the feature request here.
-```
-
-## 🏷️ Release Process
-
-### Version Management
-
-We use **unified versioning** - both packages always have the same version number.
-
-### Release Steps (for maintainers)
-
-1. **Update version numbers** in both packages
-2. **Create release branch** and test thoroughly
-3. **Create GitHub release** with changelog
-4. **Publish to PyPI** using the release script
+Useful commands:
 
 ```bash
-# Check release readiness
-uv run python release.py --dry-run
-
-# Create a new release
-uv run python release.py
+uv run make test
+uv run make test-package PACKAGE=harborrag-core
+uv run make coverage
+uv run pytest packages/harborrag-adapters/tests/connectors/unit/
+uv run pytest -m "not integration and not slow"
 ```
 
-## 🤝 Community Guidelines
+The default suite must be deterministic and work without Docker, network
+access, cloud accounts, or paid APIs. Tests needing those boundaries must be
+opt-in and marked `integration`, or implemented as a standalone script under
+the owning `packages/harborrag-adapters/tests/<module>/smoke/` directory.
 
-### Code of Conduct
+See [Testing](docs/developers/testing/README.md) for markers and real-system smoke commands.
 
-- **Be respectful** and inclusive in all interactions
-- **Be constructive** in feedback and discussions
-- **Be patient** with new contributors and users
-- **Be collaborative** and help others succeed
+## Quality gates
 
-### Communication Channels
+Run the checks relevant to your change. Before a pull request, the full local set is:
 
-- **GitHub Issues**: Bug reports and feature requests
-- **GitHub Discussions**: General questions and community discussions
-- **Pull Requests**: Code review and collaboration
+```bash
+uv run make lint
+uv run make complexity
+uv run make import-boundaries
+uv run make typecheck
+uv run make deps-check
+uv run make compile
+uv run make coverage
+```
 
-### Getting Help
+Formatting is explicit and may modify files:
 
-- **Documentation**: Check our comprehensive docs first
-- **Search Issues**: Look for existing solutions
-- **Ask Questions**: Use GitHub Discussions for help
-- **Be Specific**: Provide context and details when asking for help
+```bash
+uv run make format
+```
 
-## 📄 License
+Review the resulting diff after formatting. `make lint` requires zero
+non-complexity Ruff findings. `make complexity` enforces the committed per-file
+`C901`/`PLR0913` ratchet: violations may only decrease, and reductions must update
+`.ruff-complexity-baseline.json` with
+`uv run python scripts/check_ruff_complexity.py --write-baseline`.
 
-By contributing to QDrant Loader, you agree that your contributions will be licensed under the GNU GPLv3 license.
+The CI quality workflow runs Ruff lint, the complexity ratchet, import-linter, type
+checking, dependency direction, compilation, and the 90% coverage gate. A second
+workflow runs every active package suite plus the website tests. Configure branch
+protection to require the `Quality Gates / build-test` status.
 
----
+## Git hooks
 
-**Thank you for contributing to QDrant Loader!** Your contributions help make this project better for everyone. If you have questions about contributing, feel free to ask in [GitHub Discussions](https://github.com/martin-papy/qdrant-loader/discussions).
+`.pre-commit-config.yaml` runs the same gates locally, split by cost:
+
+| Stage | Gates |
+| --- | --- |
+| `pre-commit` | Ruff format, Ruff check, file length, complexity ratchet, and file hygiene (trailing whitespace, end-of-file newline, YAML/TOML/JSON validity, merge conflicts, large files, private keys) |
+| `pre-push` | import-linter contracts, dependency direction, compilation, then mypy |
+
+Ruff rewrites files and then fails the commit, so you review the diff and
+commit again. Nothing is staged on your behalf.
+
+Hooks invoke `uv run --all-packages --all-extras` rather than `make`, so tool
+versions resolve from `uv.lock` exactly as CI resolves them, and contributors
+without a bash shell get identical behavior.
+
+The push stage takes roughly ten seconds. The 90% coverage gate is not part
+of it: fifteen tests currently fail on Windows, five because creating a
+symlink needs Developer Mode and the rest because
+`harborrag-mcp-server` calls `os.fchmod`, which does not exist there. A local
+pytest gate would block every push from a Windows machine. Run
+`uv run make coverage` before opening a pull request, and restore the hook
+once those failures are fixed.
+
+To skip one gate by id, for example while bisecting a type error:
+
+```bash
+SKIP=typecheck git push
+```
+
+`git push --no-verify` skips every push gate and should stay reserved for
+emergencies. CI enforces all of them regardless.
+
+The hygiene hooks exclude `LICENSE`, whose text must stay byte-exact, and
+`website/assets/`, which is a vendored icon and script library. The
+private-key check excludes
+`packages/harborrag-core/tests/test_core_contracts_domain_security.py`, which
+asserts that redaction masks a private-key header and holds no key material.
+
+## Documentation changes
+
+Update documentation whenever behavior, public imports, commands, configuration, environment variables, dependencies, or deployment status changes.
+
+- Root overview and first run: `README.md`
+- User and developer guides: `docs/`
+- Package-specific API details: `packages/<package>/README.md` or the nearest module README
+- Release-visible behavior: `CHANGELOG.md`
+- Architecture decisions: `docs/adr/`
+
+Use repository-relative Markdown links and runnable commands from the repository root. Be explicit about alpha or scaffolded surfaces; do not document a placeholder as operational.
+
+All documentation is publication material. Follow the
+[open-source publication guidelines](docs/developers/publication-guidelines.md):
+use synthetic data, distinguish implemented behavior from direction, and leave
+out credentials, customer or employee content, internal hosts and topology,
+incident material, confidential roadmaps, and unsupported claims. Do not add a
+private research artifact and attempt to redact it in place; rewrite only the
+stable, community-useful information in the appropriate public guide.
+
+Build and test the documentation site with:
+
+```bash
+uv run python website/build.py --output site --templates website/templates
+uv run pytest tests/test_website_*.py tests/test_link_checker*.py
+uv run python website/check_branding.py
+uv run python website/check_publication.py
+```
+
+## Configuration and secrets
+
+- Keep secrets out of YAML, examples, logs, fixtures, and exception messages.
+- Use `${ENVIRONMENT_VARIABLE}` references for model configuration and the documented `*_env` mapping for connector/parser secrets.
+- Example credentials must be unmistakable placeholders.
+- Do not rely on ambient cloud credentials unless the configuration explicitly opts in.
+- Pass potentially sensitive diagnostic text through the established redaction helpers.
+
+## TODO comments
+
+A TODO should name its scope and define a concrete next action:
+
+```python
+# TODO(connectors/jira): Add incremental sync using the updated timestamp cursor.
+# TODO(parsers/pdf): Preserve table bounding boxes exposed by layout-aware backends.
+```
+
+Avoid vague notes such as `TODO: improve this`. `make provider-matrix` lists scoped TODOs across the packages.
+
+## Commits and pull requests
+
+Prefer small, imperative commits. The repository commonly uses a scoped prefix, for example:
+
+```text
+adapters: validate GitHub pagination cursors
+runtime: reject duplicate parser definitions
+docs: refresh local repository smoke instructions
+```
+
+A pull request should explain the behavior change, package boundaries affected, tests run, configuration or migration impact, and any intentionally unfinished follow-up. Complete `.github/PULL_REQUEST_TEMPLATE.md`, including its documentation-impact section.
+
+## Pull request checklist
+
+- [ ] The change is in the package that owns the behavior.
+- [ ] The public contract and non-goals are documented.
+- [ ] Cross-package imports pass `make import-boundaries` and `make deps-check`.
+- [ ] No logic is duplicated from another package.
+- [ ] Data shapes live in capability-local `schemas.py` files.
+- [ ] `__all__` appears only in `__init__.py`.
+- [ ] Configuration and failure-path examples are covered.
+- [ ] Unit and applicable contract/integration tests are present.
+- [ ] Observability is included where relevant.
+- [ ] Replaced code is removed without compatibility aliases.
+- [ ] No unused files or duplicate implementations remain.
+- [ ] Relevant README and ADR records are updated.
+- [ ] Public text and fixtures pass the publication checklist and contain only synthetic data.
+- [ ] Security-sensitive reports follow [SECURITY.md](SECURITY.md) instead of a public issue.
+- [ ] Lint, complexity, type checking, compilation, tests, and coverage pass.

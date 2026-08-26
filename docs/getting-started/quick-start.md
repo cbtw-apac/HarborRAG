@@ -1,173 +1,86 @@
-# Quick Start Guide
+# Quick Start
 
-Get up and running with QDrant Loader in 5 minutes! This guide walks you through your first document ingestion and AI tool integration.
-
-## 🎯 What You'll Accomplish
-
-In one flow, you will:
-
-- Install the packages
-- Start QDrant
-- Create a workspace
-- Ingest your first content
-- Connect AI tools through MCP
-
-Estimated time: 10 to 15 minutes.
-
-## 🔧 Prerequisites
-
-- Python 3.12+
-- Docker (or an existing QDrant instance)
-- One LLM provider key (OpenAI, Azure OpenAI, Ollama, or OpenAI-compatible)
-
-## 🚀 Step 1. Install packages
+## 1. Install
 
 ```bash
-pip install qdrant-loader qdrant-loader-mcp-server
+uv sync --all-packages --extra dev
 ```
 
-Verify:
+## 2. Inspect the application CLI
 
 ```bash
-qdrant-loader --version
-mcp-qdrant-loader --version
+uv run --package harborrag-app harborrag --help
 ```
 
-If you need OS-specific install help, see [Installation Guide](./installation.md).
+This confirms the console entry point without requiring Temporal or data
+services. `harborrag doctor` is a live Temporal health check, so run it after
+starting the services below.
 
-## 📄 Step 2. Start QDrant
+## 3. Load the catalogs
 
-Local Docker option:
+The checked-in YAML files can be inspected through the runtime loaders:
 
 ```bash
-docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+LOCAL_SOURCE_PATH=docs uv run python -c "from harborrag_runtime.config import load_connector_catalog; c = load_connector_catalog('config/connectors.example.yaml'); print(c.names(enabled_only=True)); print(list(c.build_enabled()))"
+uv run python -c "from harborrag_runtime.config import load_parser_catalog; c = load_parser_catalog('config/parsers.yaml'); print(c.names(enabled_only=True))"
 ```
 
-Or use QDrant Cloud and copy URL/API key.
-
-## 🤖 Step 3. Create workspace
-
-Recommended (wizard):
+## 4. Start the ingestion services and worker
 
 ```bash
-qdrant-loader setup --output-dir my-qdrant-workspace --mode default
-cd my-qdrant-workspace
+scripts/deployment/dev.sh data
+# Configure config/models.yaml and env/.env.models first.
+scripts/deployment/dev.sh temporal
+scripts/deployment/dev.sh worker
 ```
 
-Alternative (manual):
+This starts Qdrant, FalkorDB, PostgreSQL-backed Temporal, the `harborrag`
+namespace, UI, and the configured HarborRAG worker. Then submit a run:
 
 ```bash
-mkdir my-qdrant-workspace
-cd my-qdrant-workspace
-qdrant-loader init --workspace .
+HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
+  uv run --package harborrag-app harborrag doctor --json
+
+LOCAL_SOURCE_PATH=docs HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
+  uv run --package harborrag-app harborrag ingest start \
+  --tenant tenant-1 --connector harborrag-workspace --wait
 ```
 
-Need more control over prompts and templates? See [CLI setup command options](../users/cli-reference/commands.md).
+See [Deployment](../developers/deployment/README.md) for the complete local
+service and worker configuration sequence.
 
-## 🔧 Step 4. Configure environment
+## 5. Try chat (optional)
 
-Create or edit `.env`:
+Chat makes a real provider request and may incur provider charges. Configure
+the protected model environment before running it:
 
 ```bash
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION_NAME=quickstart
+cp env-example/.env.models.example env/.env.models
+# Replace the HARBOR_CHAT_* placeholders, then load the file.
+set -a
+source env/.env.models
+set +a
 
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=your-openai-key
-LLM_EMBEDDING_MODEL=text-embedding-3-small
-LLM_CHAT_MODEL=gpt-4o-mini
+uv run --package harborrag-app harborrag chat \
+  "Explain HarborRAG in one paragraph." --json
 ```
 
-Canonical configuration references:
+This is a non-streaming, retrieval-grounded completion. Its JSON response
+contains a generated session ID; pass that ID with `--session` on later calls
+to recall recent conversation turns. See the
+[Chat guide](../users/chat/README.md) for HTTP and CLI usage.
 
-- [LLM Provider Guide](../users/configuration/llm-provider-guide.md) - Pick the right provider profile and copy a known-good `.env` template.
-- [Environment Variables Reference](../users/configuration/environment-variables.md) - Validate required keys fast and avoid common startup/auth errors.
-
-## 📄 Step 5. Add a minimal config and ingest
-
-Create `config.yaml`:
-
-```yaml
-global:
-  qdrant:
-    url: "${QDRANT_URL}"
-    collection_name: "${QDRANT_COLLECTION_NAME}"
-  llm:
-    provider: "${LLM_PROVIDER}"
-    base_url: "${LLM_BASE_URL}"
-    api_key: "${LLM_API_KEY}"
-    models:
-      embeddings: "${LLM_EMBEDDING_MODEL}"
-      chat: "${LLM_CHAT_MODEL}"
-    embeddings:
-      vector_size: 1536
-
-projects:
-  quickstart:
-    project_id: "quickstart"
-    display_name: "Quick Start"
-    sources:
-      localfile:
-        docs:
-          base_url: "file://./docs"
-          include_paths: ["**/*.md"]
-```
-
-Create sample content and ingest:
+## 6. Run tests
 
 ```bash
-mkdir docs
-printf "# Hello QDrant Loader\n\nThis is my first document.\n" > docs/sample.md
-qdrant-loader ingest --workspace .
-# Expected output:
-# 📁 Scanning directory: my-project/
-# 📄 Processing: 2 files found
-# ✅ Ingested: 2 documents, multiple chunks
-# 🔍 Collection: quickstart
+uv run pytest
+uv run make coverage
 ```
 
-For Git/Confluence/Jira and advanced source filters, see [Data Sources Guide](../users/detailed-guides/data-sources/).
+## Continue
 
-## 📚 Step 6. Start MCP server
-
-```bash
-mcp-qdrant-loader
-# Expected output:
-# 🚀 QDrant Loader MCP Server starting...
-# 📡 Server running on stdio
-# 🔍 Available tools: search, hierarchy_search, attachment_search
-# ✅ Ready for connections
-```
-
-Detailed integration guides:
-
-- **[Setup and Integration Guide](../users/detailed-guides/mcp-server/setup-and-integration.md)** - Connect MCP in Cursor, Claude Desktop, and other clients step by step.
-- **[Search Capabilities Guide](../users/detailed-guides/mcp-server/search-capabilities.md)** - Learn each search tool, parameters, and practical query patterns.
-
-## 🔍 Step 7. Validate in your AI tool
-
-In Cursor/Claude/Windsurf, run a query like:
-
-"Search my docs for QDrant Loader quick start notes"
-
-If results are returned from ingested content, setup is complete.
-
-## 🎯 Next steps
-
-- [Configuration Reference](../users/configuration/config-file-reference.md) - Tune chunking, embeddings, and project-level behavior for production use.
-- [Data Sources Guide](../users/detailed-guides/data-sources/) - Expand beyond local files with Git, Confluence, Jira, and public docs.
-- [Troubleshooting Guide](../users/troubleshooting/) - Diagnose ingestion/search issues quickly with practical fix paths.
-
-## 🧪 Quick Success Checklist
-
-- [ ] `qdrant-loader --version` and `mcp-qdrant-loader --version` return successfully
-- [ ] `qdrant-loader ingest --workspace .` finishes without errors
-- [ ] MCP server starts with `mcp-qdrant-loader`
-- [ ] Your AI tool returns results from ingested documents
-
----
-
-**🎉 Quick Start Complete!**
-
-You're now ready to explore the full power of QDrant Loader. The next step is reviewing the Core Concepts summarized in Getting Started, or dive into the [User Guides](../users/) for specific features and workflows.
+- [Connector, parser, and model configuration](../users/configuration/README.md)
+- [Chat](../users/chat/README.md)
+- [CLI Reference](../users/cli-reference/README.md)
+- [Architecture](../developers/architecture/README.md)
+- [Testing](../developers/testing/README.md)

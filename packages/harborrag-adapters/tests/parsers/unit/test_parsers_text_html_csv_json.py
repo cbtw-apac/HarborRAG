@@ -1,0 +1,295 @@
+"""White-box unit tests for the text/markdown/html/csv/json parsers."""
+
+from __future__ import annotations
+
+import logging
+
+import pytest
+
+from harborrag_adapters.parsers.compat import (
+    CsvParser,
+    HtmlParser,
+    JsonParser,
+    MarkdownParser,
+    TextParser,
+)
+from harborrag_adapters.parsers.errors import ParseError, TextDecodingError
+from harborrag_core.domain.parser import ParseInput
+
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+# A handful of invalid UTF-8 bytes inside an otherwise-ASCII document. Before
+# the encoding-detection fix, `charset_normalizer` would report a "confident"
+# single-byte-codepage guess (commonly cp1251/Cyrillic) for this shape of
+# input and every engine below would silently ingest the mis-decoded text
+# instead of raising.
+_CORRUPTED_ASCII_BYTES = (
+    b"Hello world, this is a normal ASCII document with one bad byte: \x81 right there."
+)
+
+
+@pytest.mark.parametrize(
+    "parser_cls",
+    [TextParser, MarkdownParser, HtmlParser, CsvParser, JsonParser],
+)
+def test_parsers_raise_typed_error_on_undecodable_bytes(parser_cls):
+    with pytest.raises(TextDecodingError) as excinfo:
+        parser_cls().parse(ParseInput(content=_CORRUPTED_ASCII_BYTES, filename="bad"))
+    # TextDecodingError is a ParseError, so bulk ingestion callers that only
+    # know about the generic quarantine contract still catch it.
+    assert isinstance(excinfo.value, ParseError)
+
+
+def test_text_parser_compacts_and_emits_paragraph(caplog):
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.parsers.text"):
+        document = TextParser().parse(
+            ParseInput(content="  hello  \n\n\n  world  \n", filename="a.txt")
+        )
+    assert document.parser_name == "text"
+    assert document.content == "hello\n\nworld"
+    assert [element.type for element in document.elements] == ["paragraph"]
+    assert document.elements[0].content == "hello\n\nworld"
+    assert "Parsed text a.txt content_chars=12 elements=1" in caplog.text
+
+
+def test_text_parser_empty_input_has_no_elements():
+    document = TextParser().parse(ParseInput(content="   \n\n", filename="a.txt"))
+    assert document.content == ""
+    assert document.elements == []
+
+
+def test_markdown_parser_element_types_and_levels():
+    markdown = "# Title\n\nBody paragraph\n\n## Sub\n\n```\ncode line\n```\n"
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    types = [element.type for element in document.elements]
+    assert types == ["heading", "paragraph", "heading", "code"]
+
+    headings = [e for e in document.elements if e.type == "heading"]
+    assert headings[0].content == "Title"
+    assert headings[0].metadata["level"] == 1
+    assert headings[1].metadata["level"] == 2
+
+    code = next(e for e in document.elements if e.type == "code")
+    assert code.content == "code line"
+    # Body text is stripped of markdown markup in the flat content.
+    assert "Title" in document.content
+    assert "Body paragraph" in document.content
+    assert document.raw == {"markdown": markdown}
+
+
+def test_markdown_strips_links_and_emphasis_in_content():
+    document = MarkdownParser().parse(
+        ParseInput(content="See [Harbor](https://x) and *bold*", filename="d.md")
+    )
+    assert "https://x" not in document.content
+    assert "Harbor" in document.content
+    assert "bold" in document.content
+    assert "*" not in document.content
+
+
+def test_markdown_parser_preserves_gfm_table_as_structured_element():
+    markdown = (
+        "# Matrix\n\n"
+        "| Store | Required observation |\n"
+        "| :--- | ---: |\n"
+        "| Qdrant | dense \\| sparse |\n"
+        "| FalkorDB | endpoints resolve |\n\n"
+        "After the table."
+    )
+
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="matrix.md"))
+
+    table = next(element for element in document.elements if element.type == "table")
+    assert table.content == (
+        "Store\tRequired observation\nQdrant\tdense | sparse\nFalkorDB\tendpoints resolve"
+    )
+    assert table.metadata == {
+        "rows": 3,
+        "columns": 2,
+        "header_rows": 1,
+        "table_format": "markdown",
+        "start_line": 3,
+        "end_line": 6,
+    }
+    assert document.elements[-1].content == "After the table."
+
+
+def test_html_parser_extracts_visible_text_and_strips_script_style():
+    html = (
+        "<html><head><style>.a{color:red}</style>"
+        "<script>evil()</script></head>"
+        "<body><p>Visible One</p><p>Visible Two</p></body></html>"
+    )
+    document = HtmlParser().parse(ParseInput(content=html, filename="d.html"))
+
+    assert "Visible One" in document.content
+    assert "Visible Two" in document.content
+    assert "evil" not in document.content
+    assert "color:red" not in document.content
+    # Provenance of the extraction backend is recorded honestly.
+    assert document.metadata["text_engine"] == "beautifulsoup4/html.parser"
+    assert [element.type for element in document.elements] == ["paragraph"]
+    assert document.raw == {"html": html}
+
+
+_LINK_HTML = (
+    "<p>Visit "
+    '<a href="https://example.com/pricing" title="View pricing">our pricing page</a>'
+    " for details.</p>"
+)
+
+
+def test_html_parser_preserves_anchor_href_and_title_as_link_metadata():
+    document = HtmlParser().parse(ParseInput(content=_LINK_HTML, filename="pricing.html"))
+
+    assert "our pricing page" in document.content
+    [paragraph] = document.elements
+    assert paragraph.metadata["links"] == [
+        {
+            "href": "https://example.com/pricing",
+            "title": "View pricing",
+            "text": "our pricing page",
+        }
+    ]
+
+
+def test_html_parser_preserves_anchor_link_metadata_without_beautifulsoup(monkeypatch):
+    """The dependency-free stdlib fallback must preserve link metadata too,
+    not just the primary BeautifulSoup path."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "bs4":
+            raise ImportError
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    document = HtmlParser().parse(ParseInput(content=_LINK_HTML, filename="pricing.html"))
+
+    assert document.metadata["text_engine"] == "python/html.parser"
+    [paragraph] = document.elements
+    assert paragraph.metadata["links"] == [
+        {
+            "href": "https://example.com/pricing",
+            "title": "View pricing",
+            "text": "our pricing page",
+        }
+    ]
+
+
+def test_html_parser_omits_links_key_when_no_anchors_present():
+    document = HtmlParser().parse(ParseInput(content="<p>No links here.</p>", filename="d.html"))
+    [paragraph] = document.elements
+    assert "links" not in paragraph.metadata
+
+
+def test_csv_parser_renders_tab_separated_and_counts_rows():
+    document = CsvParser().parse(ParseInput(content="name,role\nAda,engineer", filename="t.csv"))
+    assert document.parser_name == "csv"
+    assert document.content == "name\trole\nAda\tengineer"
+    assert document.metadata["rows"] == 2
+    assert [element.type for element in document.elements] == ["table"]
+    assert document.elements[0].metadata["rows"] == 2
+
+
+def test_csv_parser_sniffs_semicolon_dialect():
+    document = CsvParser().parse(ParseInput(content="a;b;c\n1;2;3\n4;5;6", filename="t.csv"))
+    # Sniffer detects ';' delimiter and re-emits as tab-separated.
+    assert document.content == "a\tb\tc\n1\t2\t3\n4\t5\t6"
+
+
+def test_csv_parser_handles_tsv_suffix():
+    document = CsvParser().parse(ParseInput(content="a\tb\n1\t2", filename="t.tsv"))
+    assert document.content == "a\tb\n1\t2"
+
+
+def test_csv_parser_skips_only_row_with_invalid_utf8(caplog):
+    document = CsvParser().parse(
+        ParseInput(
+            content=b"name,role\nAda,engineer\n\xffbad,row\nGrace,scientist\n", filename="t.csv"
+        )
+    )
+
+    assert document.content == "name\trole\nAda\tengineer\nGrace\tscientist"
+    assert document.metadata["rows"] == 3
+    assert document.warnings and "invalid UTF-8" in document.warnings[0]
+    assert "invalid UTF-8" in caplog.text
+
+
+def test_csv_parser_skips_and_warns_on_field_count_mismatch(caplog):
+    document = CsvParser().parse(
+        ParseInput(content="name,role\nAda,engineer\nmalformed\nGrace,scientist", filename="t.csv")
+    )
+
+    assert document.content == "name\trole\nAda\tengineer\nGrace\tscientist"
+    assert document.warnings and "expected 2 fields, found 1" in document.warnings[0]
+    assert "expected 2 fields, found 1" in caplog.text
+
+
+def test_csv_parser_quarantines_single_bad_row_in_real_world_fixture():
+    """Row 9003 has an invalid UTF-8 continuation byte; the other four data
+    rows are well-formed. Before per-row decoding, whole-file encoding
+    detection would drop confidence on the one bad row and reject the
+    entire file with `TextDecodingError`, losing every well-formed row
+    with it.
+    """
+    content = (
+        b"OrderID,CustomerName,OrderDate,Amount\n"
+        b"9001,Nguyen Van A,2026-06-01,129.50\n"
+        b"9002,Tran Thi B,2026-06-02,89.00\n"
+        b"9003,Tr\xe1n Th\xe1 C,2026-06-03,245.75\n"
+        b"9004,Pham Thi D,2026-06-04,15.20\n"
+        b"9005,Hoang Van E,2026-06-05,310.00\n"
+    )
+    document = CsvParser().parse(ParseInput(content=content, filename="csv_bad_encoding_row.csv"))
+
+    assert document.content == (
+        "OrderID\tCustomerName\tOrderDate\tAmount\n"
+        "9001\tNguyen Van A\t2026-06-01\t129.50\n"
+        "9002\tTran Thi B\t2026-06-02\t89.00\n"
+        "9004\tPham Thi D\t2026-06-04\t15.20\n"
+        "9005\tHoang Van E\t2026-06-05\t310.00"
+    )
+    assert document.metadata["rows"] == 5
+    assert document.warnings and "line 4" in document.warnings[0]
+    assert "invalid UTF-8" in document.warnings[0]
+
+
+def test_json_parser_flattens_jsonpath_lines_and_keeps_raw_json_only():
+    document = JsonParser().parse(
+        ParseInput(content='{"name": "Ada", "nested": {"k": 1}}', filename="d.json")
+    )
+    assert "$.name: Ada" in document.content
+    assert "$.nested.k: 1" in document.content
+    assert document.metadata["root_type"] == "dict"
+    # raw exposes the decoded json but NOT a pretty-printed duplicate.
+    assert set(document.raw) == {"json"}
+    assert "pretty_json" not in document.raw
+    assert document.raw["json"] == {"name": "Ada", "nested": {"k": 1}}
+
+
+def test_json_parser_handles_ndjson():
+    document = JsonParser().parse(ParseInput(content='{"a": 1}\n\n{"b": 2}\n', filename="d.ndjson"))
+    assert document.metadata["root_type"] == "list"
+    assert "$[0].a: 1" in document.content
+    assert "$[1].b: 2" in document.content
+
+
+def test_json_flatten_caps_at_max_depth():
+    nested: dict = {}
+    cursor = nested
+    for _ in range(JsonParser.MAX_FLATTEN_DEPTH + 50):
+        cursor["a"] = {}
+        cursor = cursor["a"]
+
+    lines = JsonParser._flatten(nested)
+    assert any(f"<max-depth {JsonParser.MAX_FLATTEN_DEPTH} reached>" in line for line in lines)
+
+
+def test_json_flatten_renders_empty_containers():
+    assert JsonParser._flatten({}) == ["$: {}"]
+    assert JsonParser._flatten([]) == ["$: []"]

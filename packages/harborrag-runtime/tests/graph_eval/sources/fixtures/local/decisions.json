@@ -1,0 +1,33 @@
+{
+  "id": "decisions",
+  "title": "Decisions",
+  "note": "Pinned by the golden path cases: tail of the two-hop links_to chain.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Decisions",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "We chose deterministic node identity."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Consequences",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Rebuilds are idempotent by design."
+    }
+  ]
+}

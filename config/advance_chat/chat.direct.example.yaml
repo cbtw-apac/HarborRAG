@@ -1,0 +1,26 @@
+chat:
+  default_model: primary
+  backend:
+    type: direct_sdk
+  connections:
+    enabled: true
+    total_timeout_seconds: 90
+    connection_limit: 200
+    connection_limit_per_host: 75
+  structured_output:
+    strategy: auto
+    degradation: json_mode
+    max_repair_attempts: 1
+  models:
+    primary:
+      deployments:
+        - name: openai-direct
+          provider: openai
+          model: openai/REPLACE_WITH_CHAT_MODEL
+          api_key: ${OPENAI_API_KEY}
+          capabilities:
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+            reasoning: true

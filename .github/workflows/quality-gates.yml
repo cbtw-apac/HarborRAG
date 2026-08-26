@@ -2,9 +2,13 @@ name: Quality Gates
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev/* ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev/* ]
+
+concurrency:
+  group: quality-gates-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -14,10 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
         with:
           python-version: '3.12'
           enable-cache: true
@@ -31,8 +37,38 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --all-packages --all-extras
 
-      - name: Lint
-        run: make lint
+      - name: Audit locked Python dependencies
+        run: |
+          uv export --frozen --all-packages --all-extras --no-dev \
+            --no-emit-workspace --no-hashes --quiet \
+            --output-file /tmp/harborrag-audit-requirements.txt
+          uvx --from pip-audit==2.10.1 pip-audit \
+            --requirement /tmp/harborrag-audit-requirements.txt \
+            --disable-pip --no-deps
 
-      - name: Quality gates (qdrant-loader)
-        run: make quality
+      - name: Validate pre-commit config
+        run: uv run pre-commit validate-config .pre-commit-config.yaml
+
+      - name: Lint
+        run: uv run make lint
+
+      - name: Complexity ratchet
+        run: uv run make complexity
+
+      - name: File length
+        run: uv run make file-length
+
+      - name: Import boundaries
+        run: uv run make import-boundaries
+
+      - name: Type check
+        run: uv run make typecheck
+
+      - name: Dependency direction check
+        run: uv run make deps-check
+
+      - name: Compile check
+        run: uv run make compile
+
+      - name: Coverage gate
+        run: uv run make coverage

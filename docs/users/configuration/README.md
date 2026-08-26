@@ -1,82 +1,17 @@
-# Configuration Reference
+# Configuration
 
-This section provides comprehensive documentation for configuring QDrant Loader. Learn how to set up data sources, optimize performance, configure security, and customize behavior for your specific needs.
+HarborRAG currently has four independent configuration paths:
 
-## Start here
+1. [Connector Configuration](connector-config.md) — versioned YAML loaded by `harborrag-runtime`.
+2. [Parser Configuration](parser-config.md) — versioned YAML loaded by `harborrag-runtime`.
+3. [Model Configuration](model-config.md) — YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
+4. [Temporal Configuration](../../../deploy/temporal/README.md) — versioned YAML for connection policy, workers, queues, retries, and workflow timeouts.
 
-1. Environment variables: [Environment Variables Reference](./environment-variables.md)
-2. LLM providers and model mapping: [LLM Provider Guide](./llm-provider-guide.md)
-3. Full YAML schema: [Configuration File Reference](./config-file-reference.md)
-4. Security practices: [Security Considerations](./security-considerations.md)
-5. Runtime flags and setup modes: [CLI Commands](../cli-reference/commands.md)
-6. Workspace-vs-traditional config loading: [Workspace Mode](./workspace-mode.md)
+[Engine Configuration](config-file-reference.md) documents the small code-constructed engine dataclasses. [Tenant and Workspace Status](workspace-mode.md) explains tenant-aware repository context and what is not yet available as a workspace feature.
 
-## Choose your path
+For the composed chat surfaces and stored prompt catalog, see
+[Chat](../chat/README.md). For MCP tool defaults, limits, tenant overrides, and
+the authenticated configuration UI, see
+[MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
 
-- New workspace in minutes: use [Quick Start](../../getting-started/quick-start.md)
-- Minimal first config: use [Basic Configuration](../../getting-started/basic-configuration.md)
-- Team or production rollout: use [Configuration File Reference](./config-file-reference.md) and [Security Considerations](./security-considerations.md)
-- Troubleshoot config or env issues: use [Troubleshooting](../troubleshooting/)
-
-## 📁 Configuration Structure
-
-```text
-your-workspace/
-├── config.yaml # Main configuration file
-├── .env # Environment variables
-├── data/qdrant-loader.db # Processing state (auto-generated)
-└── logs/ # Log files (optional)
-```
-
-## 🚀 Quick Configuration
-
-Use this minimal pair as a baseline and then extend from references above.
-
-### .env
-
-```bash
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION_NAME=documents
-
-LLM_PROVIDER=openai
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=your-openai-key
-LLM_EMBEDDING_MODEL=text-embedding-3-small
-LLM_CHAT_MODEL=gpt-4o-mini
-```
-
-### config.yaml
-
-```yaml
-global:
-  qdrant:
-    url: "${QDRANT_URL}"
-    collection_name: "${QDRANT_COLLECTION_NAME}"
-  llm:
-    provider: "${LLM_PROVIDER}"
-    base_url: "${LLM_BASE_URL}"
-    api_key: "${LLM_API_KEY}"
-    models:
-      embeddings: "${LLM_EMBEDDING_MODEL}"
-      chat: "${LLM_CHAT_MODEL}"
-    embeddings:
-      vector_size: 1536
-
-projects:
-  default:
-    project_id: "default"
-    display_name: "Default"
-    sources:
-      localfile:
-        docs:
-          base_url: "file://./docs"
-          include_paths:
-            - "**/*.md"
-```
-
-## Quick validation checklist
-
-- [ ] `qdrant-loader config --workspace .` loads without errors
-- [ ] Required env vars are set for your chosen provider
-- [ ] At least one project and one source are configured
-- [ ] QDrant URL and collection name are valid
+The checked-in `*.example.yaml` and `.env.*.example` files are references, not automatically loaded runtime files. Copy them for an environment or pass their paths explicitly. HarborRAG does not automatically load dotenv files.

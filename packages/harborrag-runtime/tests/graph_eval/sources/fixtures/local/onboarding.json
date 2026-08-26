@@ -1,0 +1,40 @@
+{
+  "id": "onboarding",
+  "title": "Onboarding",
+  "note": "Body far past the 60-character hard maximum so one element splits across several chunks: the only sample where Chunk supports Structure is many-to-one.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Onboarding",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Provision the workspace, install the toolchain, and confirm the data tier answers before touching the graph. The eval corpus is rebuilt from scratch on every run, so a partially provisioned environment reads as a corpus defect rather than as the environment problem it is. Bring FalkorDB up first, then Postgres, then the worker, and only then seed the tenant you intend to evaluate against."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Checklist",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "Confirm each service before the next."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "links_to",
+      "target_id": "style-guide",
+      "target_type": "document"
+    }
+  ]
+}

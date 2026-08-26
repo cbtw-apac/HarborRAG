@@ -1,0 +1,152 @@
+"""ML1 read routes over a real (temp SQLite) control-plane DB.
+
+test_api_projects/sources/activity/settings/metrics.py exercise the development composition
+only; this file drives the same endpoints through AppService (production)
+so the SQL-backed code paths in workflow_control/client.py are actually
+covered, not just verified by hand.
+
+Seeding goes through CompositionRoot.production() (harborrag_runtime), never
+through harborrag_adapters directly — harborrag-app may depend on
+harborrag-runtime but not on harborrag-adapters (deps-check enforces this
+for tests too).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.dependencies import get_app_service
+from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.project import Project, ProjectStats
+from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.domain.source_config import SourceConfig
+from harborrag_runtime.composition import CompositionRoot
+from harborrag_runtime.config.settings import RuntimeSettings
+
+
+async def _seed(dsn: str) -> None:
+    composition = CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
+    control_plane = composition.control_plane
+    assert control_plane is not None
+    await control_plane.projects.create(
+        Project(
+            id="proj-1",
+            tenant_id="DEFAULT",
+            name="Demo",
+            collection="demo_collection",
+            stats=ProjectStats(documents=3, chunks=9),
+        )
+    )
+    await control_plane.sources.create(
+        SourceConfig(
+            id="src-1",
+            tenant_id="DEFAULT",
+            project_id="proj-1",
+            source_type="local_file",
+            name="Docs",
+            config={"path": "./docs"},
+        )
+    )
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    await control_plane.activity.append(
+        ActivityEntry(
+            id="a1",
+            tenant_id="DEFAULT",
+            actor="alice",
+            verb="created",
+            entity_type="source",
+            entity_id="src-1",
+            summary="alice created src-1",
+            created_at=base_time,
+        )
+    )
+    await control_plane.activity.append(
+        ActivityEntry(
+            id="a2",
+            tenant_id="DEFAULT",
+            actor="bob",
+            verb="updated",
+            entity_type="source",
+            entity_id="src-1",
+            summary="bob updated src-1",
+            created_at=base_time + timedelta(minutes=1),
+        )
+    )
+    await control_plane.settings.put(WorkspaceSettings(tenant_id="DEFAULT", data={"theme": "dark"}))
+
+
+@pytest.fixture
+def seeded_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    asyncio.run(_seed(dsn))
+    monkeypatch.setenv("HARBORRAG_ENV", "dev")
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", dsn)
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        yield client
+
+
+@pytest.mark.blackbox
+def test_projects_and_sources_read_from_real_db(seeded_client) -> None:
+    projects = seeded_client.get("/api/v1/projects").json()
+    assert [p["id"] for p in projects] == ["proj-1"]
+
+    project = seeded_client.get("/api/v1/projects/proj-1").json()
+    assert project["stats"]["documents"] == 3
+
+    assert seeded_client.get("/api/v1/projects/does-not-exist").status_code == 404
+
+    sources = seeded_client.get("/api/v1/sources", params={"project_id": "proj-1"}).json()
+    assert [s["id"] for s in sources] == ["src-1"]
+    assert seeded_client.get("/api/v1/sources/does-not-exist").status_code == 404
+
+
+@pytest.mark.blackbox
+def test_activity_settings_and_metrics_read_from_real_db(seeded_client) -> None:
+    activity = seeded_client.get("/api/v1/activity").json()
+    assert [entry["id"] for entry in activity] == ["a2", "a1"]
+
+    settings = seeded_client.get("/api/v1/settings").json()
+    assert settings == {"theme": "dark"}
+
+    metrics = seeded_client.get("/api/v1/metrics/ingestion").json()
+    assert metrics["projects_total"] == 1
+    assert metrics["sources_total"] == 1
+    assert metrics["documents_total"] == 3
+    assert metrics["chunks_total"] == 9
+    assert metrics["jobs_by_status"] == {
+        "queued": 0,
+        "running": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "cancelled": 0,
+    }
+
+
+@pytest.mark.blackbox
+def test_read_routes_return_enveloped_503_when_control_plane_unconfigured() -> None:
+    """AppService bound to a composition with no control plane (e.g. it
+    failed to wire up) must surface a 503, not a KeyError-turned-500 or a
+    misleading 404 (the previous per-route behavior for get_project/get_source)."""
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_app_service] = lambda: AppService(CompositionRoot(mode="test"))
+    with TestClient(app) as client:
+        for path in (
+            "/api/v1/projects",
+            "/api/v1/projects/any-id",
+            "/api/v1/sources",
+            "/api/v1/sources/any-id",
+            "/api/v1/activity",
+            "/api/v1/settings",
+            "/api/v1/metrics/ingestion",
+        ):
+            response = client.get(path)
+            assert response.status_code == 503, path
+            assert response.json()["error"]["code"] == "harbor_unavailable_error"

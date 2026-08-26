@@ -1,0 +1,57 @@
+"""Read-side project endpoints over the development app service."""
+
+from __future__ import annotations
+
+import pytest
+from app_test_control_plane import control_plane_app_service
+from fastapi.testclient import TestClient
+
+from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.dependencies import get_app_service
+from harborrag_app.api.settings import ApiSettings
+from harborrag_core.domain.project import Project
+
+
+@pytest.mark.blackbox
+def test_list_projects_empty_in_development_mode() -> None:
+    """Development composition has no persisted projects yet."""
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        response = client.get("/api/v1/projects")
+        assert response.status_code == 200
+        assert response.json() == []
+
+
+@pytest.mark.blackbox
+def test_list_projects_returns_seeded_project() -> None:
+    """Swap in a MockAppService pre-loaded with one project to test the
+    read routes end to end without a real control-plane database."""
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_app_service] = lambda: control_plane_app_service(
+        projects=[
+            Project(
+                id="demo-1",
+                tenant_id="DEFAULT",
+                name="Demo",
+                collection="demo_collection",
+            )
+        ]
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/v1/projects")
+        assert response.status_code == 200
+        assert [project["id"] for project in response.json()] == ["demo-1"]
+
+        response = client.get("/api/v1/projects/demo-1")
+        assert response.status_code == 200
+        assert response.json()["name"] == "Demo"
+
+
+@pytest.mark.blackbox
+def test_get_unknown_project_returns_enveloped_404() -> None:
+    """Missing project ids surface through the shared error envelope."""
+    with TestClient(create_fastapi_app(ApiSettings())) as client:
+        response = client.get("/api/v1/projects/does-not-exist")
+        assert response.status_code == 404
+        body = response.json()
+        assert body["error"]["code"] == "harbor_not_found_error"
+        assert "does-not-exist" in body["error"]["message"]

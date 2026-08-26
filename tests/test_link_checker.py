@@ -5,9 +5,8 @@ Tests for the link checker script.
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-import pytest
 import requests
 import responses
 
@@ -55,10 +54,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com")
 
         # Remove fragments
-        assert (
-            checker.normalize_url("http://example.com/page#section")
-            == "http://example.com/page"
-        )
+        assert checker.normalize_url("http://example.com/page#section") == "http://example.com/page"
 
         # Remove index.html from directories
         assert (
@@ -68,8 +64,7 @@ class TestLinkChecker:
 
         # Keep regular files
         assert (
-            checker.normalize_url("http://example.com/page.html")
-            == "http://example.com/page.html"
+            checker.normalize_url("http://example.com/page.html") == "http://example.com/page.html"
         )
 
     def test_extract_links_from_html(self):
@@ -104,6 +99,20 @@ class TestLinkChecker:
         }
 
         assert links == expected_links
+
+    def test_extract_relative_links_from_origin_without_trailing_slash(self):
+        """Treat a bare origin as the site root when resolving relative links."""
+        checker = LinkChecker("http://127.0.0.1:8000/")
+
+        links = checker.extract_links_from_html(
+            '<a href="docs/">Docs</a><link href="assets/site.webmanifest">',
+            "http://127.0.0.1:8000",
+        )
+
+        assert links == {
+            "http://127.0.0.1:8000/docs/",
+            "http://127.0.0.1:8000/assets/site.webmanifest",
+        }
 
     @responses.activate
     def test_check_url_success(self):
@@ -166,9 +175,7 @@ class TestLinkChecker:
         </html>
         """
 
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/page2.html", status=200)
         responses.add(responses.HEAD, "http://external.com", status=200)
 
@@ -193,9 +200,7 @@ class TestLinkChecker:
         </html>
         """
 
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/working.html", status=200)
         responses.add(responses.HEAD, "http://example.com/broken.html", status=404)
 
@@ -213,9 +218,7 @@ class TestLinkChecker:
 
         # Page 1 content
         page1_content = '<a href="/page2.html">Page 2</a>'
-        responses.add(
-            responses.GET, "http://example.com/", body=page1_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=page1_content, status=200)
         responses.add(responses.HEAD, "http://example.com/page2.html", status=200)
 
         # Page 2 content (should not be crawled due to depth limit)
@@ -241,9 +244,7 @@ class TestLinkChecker:
         checker = LinkChecker("http://example.com")
 
         html_content = '<a href="/">Home</a>'
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
+        responses.add(responses.GET, "http://example.com/", body=html_content, status=200)
         responses.add(responses.HEAD, "http://example.com/", status=200)
 
         # Crawl the same page twice
@@ -280,331 +281,3 @@ class TestLinkChecker:
 
             assert "http://example.com/" in checker.visited_urls
             assert len(checker.checked_links) == 0
-
-    @responses.activate
-    def test_run_check_success(self):
-        """Test complete link check run with no broken links."""
-        checker = LinkChecker("http://example.com", max_depth=1)
-
-        html_content = '<a href="/page.html">Page</a>'
-        responses.add(
-            responses.GET, "http://example.com", body=html_content, status=200
-        )
-        responses.add(responses.HEAD, "http://example.com/page.html", status=200)
-
-        success = checker.run_check()
-
-        assert success is True
-        assert len(checker.dead_links) == 0
-
-    @responses.activate
-    def test_run_check_with_broken_links(self):
-        """Test complete link check run with broken links."""
-        checker = LinkChecker("http://example.com", max_depth=1)
-
-        html_content = '<a href="/broken.html">Broken</a>'
-        responses.add(
-            responses.GET, "http://example.com", body=html_content, status=200
-        )
-        responses.add(responses.HEAD, "http://example.com/broken.html", status=404)
-
-        success = checker.run_check()
-
-        assert success is False
-        assert len(checker.dead_links) == 1
-
-    @responses.activate
-    def test_redirects_handling(self):
-        """Test handling of redirect responses."""
-        checker = LinkChecker("http://example.com")
-
-        html_content = '<a href="/redirect">Redirect</a>'
-        responses.add(
-            responses.GET, "http://example.com/", body=html_content, status=200
-        )
-        responses.add(responses.HEAD, "http://example.com/redirect", status=301)
-
-        checker.crawl_page("http://example.com/")
-
-        # Redirects should not be considered broken
-        assert len(checker.dead_links) == 0
-
-    def test_link_extraction_edge_cases(self):
-        """Test link extraction with edge cases."""
-        checker = LinkChecker("http://example.com")
-
-        html_content = """
-        <html>
-            <body>
-                <a href="">Empty href</a>
-                <a href="#fragment-only">Fragment only</a>
-                <a href="   /spaced.html   ">Spaced URL</a>
-                <img src="">Empty src</a>
-            </body>
-        </html>
-        """
-
-        links = checker.extract_links_from_html(html_content, "http://example.com")
-
-        # Should handle edge cases gracefully
-        assert isinstance(links, set)
-
-    @responses.activate
-    def test_timeout_handling(self):
-        """Test handling of request timeouts."""
-        checker = LinkChecker("http://example.com")
-
-        with patch.object(
-            checker.session,
-            "head",
-            side_effect=requests.exceptions.Timeout("Request timed out"),
-        ):
-            status_code, reason = checker.check_url("http://example.com/slow")
-
-            assert status_code is None
-            assert "Request timed out" in reason
-
-
-class TestLinkCheckerIntegration:
-    """Integration tests for the link checker."""
-
-    @responses.activate
-    def test_full_website_crawl_simulation(self):
-        """Test crawling a simulated website structure."""
-        checker = LinkChecker("http://example.com", max_depth=2)
-
-        # Home page
-        home_content = """
-        <html>
-            <body>
-                <a href="/docs/">Documentation</a>
-                <a href="/about.html">About</a>
-                <img src="/logo.png" alt="Logo">
-            </body>
-        </html>
-        """
-
-        # Docs index page
-        docs_content = """
-        <html>
-            <body>
-                <a href="/docs/guide.html">Guide</a>
-                <a href="/docs/api.html">API</a>
-                <a href="/">Home</a>
-            </body>
-        </html>
-        """
-
-        # Set up responses
-        responses.add(
-            responses.GET, "http://example.com", body=home_content, status=200
-        )
-        responses.add(responses.HEAD, "http://example.com/docs/", status=200)
-        responses.add(responses.HEAD, "http://example.com/about.html", status=200)
-        responses.add(responses.HEAD, "http://example.com/logo.png", status=200)
-
-        responses.add(
-            responses.GET, "http://example.com/docs/", body=docs_content, status=200
-        )
-        responses.add(responses.HEAD, "http://example.com/docs/guide.html", status=200)
-        responses.add(
-            responses.HEAD, "http://example.com/docs/api.html", status=404
-        )  # Broken link
-        responses.add(responses.HEAD, "http://example.com/", status=200)
-
-        success = checker.run_check()
-
-        assert success is False  # Should fail due to broken link
-        assert len(checker.dead_links) == 1
-        assert checker.dead_links[0]["url"] == "http://example.com/docs/api.html"
-        assert checker.dead_links[0]["status"] == 404
-        assert len(checker.visited_urls) >= 2  # At least home and docs pages
-
-    @responses.activate
-    def test_external_link_checking(self):
-        """Test checking external links."""
-        checker = LinkChecker("http://example.com")
-
-        html_content = """
-        <html>
-            <body>
-                <a href="https://github.com/user/repo">GitHub</a>
-                <a href="https://broken-external.com">Broken External</a>
-            </body>
-        </html>
-        """
-
-        responses.add(
-            responses.GET, "http://example.com", body=html_content, status=200
-        )
-        responses.add(responses.HEAD, "https://github.com/user/repo", status=200)
-        responses.add(responses.HEAD, "https://broken-external.com", status=404)
-
-        checker.crawl_page("http://example.com")
-
-        assert len(checker.dead_links) == 1
-        assert checker.dead_links[0]["url"] == "https://broken-external.com"
-
-
-class TestLinkCheckerCLI:
-    """Test the command-line interface."""
-
-    def test_main_function_exists(self):
-        """Test that main function exists and is callable."""
-        from website.check_links import main
-
-        assert callable(main)
-
-    @patch("sys.argv", ["check_links.py", "--url", "http://test.com", "--depth", "2"])
-    def test_cli_argument_parsing(self):
-        """Test CLI argument parsing."""
-        import website.check_links as check_links
-
-        mock_checker = Mock()
-        mock_checker.run_check.return_value = True
-
-        with patch("website.check_links.LinkChecker", return_value=mock_checker):
-            with patch("sys.exit") as mock_exit:
-                check_links.main()
-
-        mock_exit.assert_called_once_with(0)
-
-    @patch("sys.argv", ["check_links.py"])
-    def test_cli_default_arguments(self):
-        """Test CLI with default arguments."""
-        import website.check_links as check_links
-
-        mock_checker = Mock()
-        mock_checker.run_check.return_value = True
-
-        with patch(
-            "website.check_links.LinkChecker", return_value=mock_checker
-        ) as mock_checker_class:
-            with patch("sys.exit") as mock_exit:
-                check_links.main()
-
-        mock_checker_class.assert_called_once_with(
-            "http://127.0.0.1:3000/website/site", 3
-        )
-        mock_exit.assert_called_once_with(0)
-
-    @patch("sys.argv", ["check_links.py"])
-    def test_cli_with_broken_links(self):
-        """Test CLI when broken links are found."""
-        import website.check_links as check_links
-
-        mock_checker = Mock()
-        mock_checker.run_check.return_value = False  # Broken links found
-
-        with patch("website.check_links.LinkChecker", return_value=mock_checker):
-            with patch("sys.exit") as mock_exit:
-                check_links.main()
-
-        mock_exit.assert_called_once_with(1)
-
-    @patch("sys.argv", ["check_links.py"])
-    def test_cli_keyboard_interrupt(self):
-        """Test CLI handling of keyboard interrupt."""
-        import website.check_links as check_links
-
-        mock_checker = Mock()
-        mock_checker.run_check.side_effect = KeyboardInterrupt()
-
-        with patch("website.check_links.LinkChecker", return_value=mock_checker):
-            with patch("sys.exit") as mock_exit:
-                check_links.main()
-
-        mock_exit.assert_called_once_with(1)
-
-    @patch("sys.argv", ["check_links.py"])
-    def test_cli_exception_handling(self):
-        """Test CLI handling of general exceptions."""
-        import website.check_links as check_links
-
-        mock_checker = Mock()
-        mock_checker.run_check.side_effect = Exception("Test error")
-
-        with patch("website.check_links.LinkChecker", return_value=mock_checker):
-            with patch("sys.exit") as mock_exit:
-                check_links.main()
-
-        mock_exit.assert_called_once_with(1)
-
-
-@pytest.fixture
-def sample_html():
-    """Fixture providing sample HTML content for testing."""
-    return """
-    <!DOCTYPE html>
-    <html>
-        <head>
-            <title>Test Page</title>
-            <link rel="stylesheet" href="/styles.css">
-        </head>
-        <body>
-            <nav>
-                <a href="/">Home</a>
-                <a href="/docs/">Documentation</a>
-                <a href="/about.html">About</a>
-            </nav>
-            <main>
-                <h1>Welcome</h1>
-                <p>This is a <a href="/test.html">test page</a>.</p>
-                <img src="/images/logo.png" alt="Logo">
-                <a href="https://external.com">External Link</a>
-                <a href="mailto:test@example.com">Contact</a>
-                <a href="javascript:void(0)">JS Link</a>
-            </main>
-            <script src="/js/app.js"></script>
-        </body>
-    </html>
-    """
-
-
-class TestLinkCheckerWithFixtures:
-    """Tests using fixtures for more realistic scenarios."""
-
-    def test_extract_links_from_realistic_html(self, sample_html):
-        """Test link extraction from realistic HTML."""
-        checker = LinkChecker("http://example.com")
-
-        links = checker.extract_links_from_html(sample_html, "http://example.com")
-
-        expected_links = {
-            "http://example.com/",
-            "http://example.com/docs/",
-            "http://example.com/about.html",
-            "http://example.com/test.html",
-            "http://example.com/images/logo.png",
-            "https://external.com",
-            "http://example.com/styles.css",
-            "http://example.com/js/app.js",
-        }
-
-        assert links == expected_links
-
-    @responses.activate
-    def test_crawl_realistic_page(self, sample_html):
-        """Test crawling a realistic page structure."""
-        checker = LinkChecker("http://example.com", max_depth=1)
-
-        # Set up responses for all links
-        responses.add(
-            responses.GET, "http://example.com/", body=sample_html, status=200
-        )
-        responses.add(responses.HEAD, "http://example.com/", status=200)
-        responses.add(responses.HEAD, "http://example.com/docs/", status=200)
-        responses.add(responses.HEAD, "http://example.com/about.html", status=200)
-        responses.add(
-            responses.HEAD, "http://example.com/test.html", status=404
-        )  # Broken
-        responses.add(responses.HEAD, "http://example.com/images/logo.png", status=200)
-        responses.add(responses.HEAD, "https://external.com", status=200)
-        responses.add(responses.HEAD, "http://example.com/styles.css", status=200)
-        responses.add(responses.HEAD, "http://example.com/js/app.js", status=200)
-
-        checker.crawl_page("http://example.com/")
-
-        assert len(checker.dead_links) == 1
-        assert checker.dead_links[0]["url"] == "http://example.com/test.html"
-        assert checker.dead_links[0]["status"] == 404

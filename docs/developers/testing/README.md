@@ -1,242 +1,156 @@
-# Testing Guide
+# Testing
 
-This section provides comprehensive testing documentation for QDrant Loader, covering unit testing, integration testing, and quality assurance practices.
-
-## 🎯 Testing Overview
-
-QDrant Loader follows a comprehensive testing strategy to ensure reliability, performance, and maintainability:
-
-### 🧪 Testing Philosophy
-
-1. **Test-Driven Development** - Write tests before implementing features
-2. **Comprehensive Coverage** - Aim for 85%+ test coverage
-3. **Fast Feedback** - Quick unit tests for rapid development
-4. **Real-World Testing** - Integration tests with actual services
-5. **Performance Validation** - Regular performance benchmarking
-
-### 📚 Testing Categories
-
-- **Unit Testing** - Testing individual components in isolation
-- **Integration Testing** - Testing component interactions and end-to-end workflows
-- **Quality Assurance** - Code quality, review processes, and standards
-
-## 🚀 Quick Start
-
-### Test Environment Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/martin-papy/qdrant-loader.git
-cd qdrant-loader
-
-# Install all workspace packages with development dependencies
-# uv automatically creates and manages the virtual environment
-# All test tools (pytest, pytest-asyncio, pytest-cov, pytest-mock, etc.)
-# are declared as dev dependencies and installed automatically
-uv sync --all-packages --all-extras
-
-# Run all tests (verbose)
-uv run pytest -v
-
-# Run with coverage per package
-make test-loader    # qdrant-loader package
-make test-mcp       # qdrant-loader-mcp-server package
-make test-core      # qdrant-loader-core package
-make test-coverage  # all packages with HTML coverage report
-```
-
-### Running Specific Test Categories
-
-```bash
-# Unit tests only
-uv run pytest packages/qdrant-loader/tests/unit/
-# Integration tests only
-uv run pytest packages/qdrant-loader/tests/integration/
-# Specific test file
-uv run pytest packages/qdrant-loader/tests/unit/core/test_qdrant_manager.py
-# Specific test function
-uv run pytest packages/qdrant-loader/tests/unit/core/test_qdrant_manager.py::TestQdrantManager::test_initialization_default_settings
-```
-
-## 🧪 Testing Framework
-
-### Core Testing Tools
-
-| Tool               | Purpose                   | Usage                      |
-| ------------------ | ------------------------- | -------------------------- |
-| **pytest**         | Test runner and framework | Main testing framework     |
-| **pytest-asyncio** | Async test support        | Testing async functions    |
-| **pytest-cov**     | Coverage reporting        | Code coverage analysis     |
-| **pytest-mock**    | Mocking utilities         | Mock external dependencies |
-| **requests-mock**  | HTTP mocking              | Mock external HTTP calls   |
-| **pytest-timeout** | Test timeouts             | Prevent hanging tests      |
-
-### Test Configuration
-
-- Key settings live in [pyproject.toml](../../../pyproject.toml) under `[tool.pytest.ini_options]` and coverage settings under `[tool.coverage.*]`:
-
-### Test Structure
+## Test ownership
 
 ```text
-packages/qdrant-loader/tests/
-├── conftest.py
-├── fixtures/
-├── unit/
-│   ├── cli/
-│   ├── config/
-│   ├── connectors/
-│   ├── core/
-│   ├── quality/
-│   └── utils/
-└── integration/
+tests/                              website and repository-wide tests
+packages/harborrag-core/tests/      core contracts and schemas
+packages/harborrag-adapters/tests/  connectors, parsers, models, repositories
+packages/harborrag-engine/tests/    engine contracts and utilities
+packages/harborrag-runtime/tests/   config loaders and runtime boundaries
+packages/harborrag-app/tests/       CLI/app boundaries
+packages/harborrag-mcp-server/tests/       MCP boundaries
+packages/harborrag/tests/           meta-package exports
 ```
 
-## 🔧 Test Fixtures and Mock Utilities
-
-- Shared fixtures: [packages/qdrant-loader/tests/conftest.py](../../../packages/qdrant-loader/tests/conftest.py)
-- Loader test helpers: [packages/qdrant-loader/tests/utils.py](../../../packages/qdrant-loader/tests/utils.py)
-- Core package fixtures: [packages/qdrant-loader-core/tests/conftest.py](../../../packages/qdrant-loader-core/tests/conftest.py)
-- MCP server fixtures: [packages/qdrant-loader-mcp-server/tests/conftest.py](../../../packages/qdrant-loader-mcp-server/tests/conftest.py)
-
-## 🧪 Unit Testing Patterns
-
-Keep tests focused on behavior and run them by scope.
+## Common commands
 
 ```bash
-# All loader unit tests
-uv run pytest packages/qdrant-loader/tests/unit/ -v
-
-# Focused areas
-uv run pytest packages/qdrant-loader/tests/unit/cli/ -v
-uv run pytest packages/qdrant-loader/tests/unit/core/ -v
-uv run pytest packages/qdrant-loader/tests/unit/quality/ -v
+uv run pytest
+uv run make test
+uv run make test-package PACKAGE=harborrag-adapters
+uv run make coverage
+uv run make coverage-html
 ```
 
-Examples:
-
-- CLI unit tests: [packages/qdrant-loader/tests/unit/cli/](../../../packages/qdrant-loader/tests/unit/cli/)
-- Core unit tests: [packages/qdrant-loader/tests/unit/core/](../../../packages/qdrant-loader/tests/unit/core/)
-- Quality unit tests: [packages/qdrant-loader/tests/unit/quality/](../../../packages/qdrant-loader/tests/unit/quality/)
-
-## 🔗 Integration Testing
-
-Run integration tests separately because they may require external services or secrets.
+Run the narrowest relevant path while developing:
 
 ```bash
-uv run pytest packages/qdrant-loader/tests/integration/ -v
+uv run pytest packages/harborrag-adapters/tests/connectors/unit/
+uv run pytest packages/harborrag-runtime/tests/test_connector_config.py
+uv run pytest -m "not slow and not integration"
 ```
 
-Examples:
+Pytest settings, discovery paths, markers, warning filters, and the coverage source list are defined in the root `pyproject.toml`.
 
-- Loader integration tests: [packages/qdrant-loader/tests/integration/](../../../packages/qdrant-loader/tests/integration/)
-- MCP integration tests: [packages/qdrant-loader-mcp-server/tests/integration/](../../../packages/qdrant-loader-mcp-server/tests/integration/)
+## Coverage
 
-## 🧪 Performance Testing
+`make coverage` runs branch coverage over every active package `src/` directory and fails below 90%. Tests, virtual environments, generated caches, and reports are omitted.
 
-Performance tests are optional for most PRs and should be run for performance-sensitive changes.
+Do not add broad `pragma: no cover` exclusions for testable logic. Abstract methods, protocols, type-checking branches, and defensive impossible paths already have targeted policy exclusions.
 
-- Start from: [packages/qdrant-loader/tests/](../../../packages/qdrant-loader/tests/)
-- Use profiling targets and commands in: [Makefile](../../../Makefile)
+## Markers
 
-## 🔍 Quality Assurance
+The registered markers are:
 
-### Code Quality Checks
+| Marker | Use |
+| --- | --- |
+| `unit` | Focused unit behavior |
+| `integration` | Environment-dependent or composed external boundary |
+| `slow` | Locally slow test |
+| `smoke` | Fast wiring/import check |
+| `blackbox` | Public behavior only |
+| `graybox` | Public behavior plus observable internal signals |
+| `whitebox` | Internal architecture/contract behavior |
+| `requires_deps` | Requires an optional dependency |
+| `workflow` | GitHub Actions workflow validation |
+| `contract` | Reusable implementation contract |
+| `chaos` | Deterministic fault injection and recovery |
+| `performance` | Bounded local performance/concurrency |
+| `load` | Correctness-oriented micro-load |
+
+Default tests must not require network access, paid APIs, Docker, cloud accounts, ambient credentials, or model downloads.
+
+## Adapter test strategy
+
+The adapter suite is organized by production module first, then by unit,
+integration, contract, failure, security, chaos, performance, or smoke type.
+Test a provider implementation with a deterministic fake SDK/HTTP/database
+dependency:
+
+1. construct the real adapter with validated configuration;
+2. exercise its public contract and lifecycle;
+3. assert normalized Harbor outputs;
+4. assert the outbound provider request/query;
+5. cover tenant separation, redaction, retryability, limits, conflicts, and partial failures.
+
+Avoid asserting private implementation details when a public request/result or telemetry event captures the same invariant.
+
+## Real-system smoke checks
+
+Standalone scripts under each `packages/<package>/tests/<module>/smoke/`
+directory are manual and opt-in. They may access private content, paid providers, local services, or
+heavyweight models. They are intentionally outside normal pytest discovery.
+
+Connector examples:
 
 ```bash
-# Run all quality checks
-make test
-make lint
-make format
-# Individual checks via uv
-uv run ruff check .          # Linting
-uv run ruff format --check . # Code formatting check
-# Per-package test coverage
-make test-loader   # packages/qdrant-loader
-make test-mcp      # packages/qdrant-loader-mcp-server
-make test-core     # packages/qdrant-loader-core
-make test-coverage # all packages combined
+python packages/harborrag-adapters/tests/connectors/smoke/local.py
+python packages/harborrag-adapters/tests/connectors/smoke/jira.py
+python packages/harborrag-adapters/tests/connectors/smoke/run_all.py
 ```
 
-### Package-specific quality gates
+Model examples:
 
-- Import cycle and module size guards are under `packages/qdrant-loader/tests/unit/quality/` or `packages/qdrant-loader-mcp-server/tests/unit/quality/`.
-- Keep refactored modules within target sizes (<300–400 lines) unless explicitly exempted in tests.
-- Prefer thin entrypoints and shared helpers to avoid duplication.
-
-### Continuous Integration
-
-- CI workflows:
-  - Test workflow: [.github/workflows/test.yml](../../../.github/workflows/test.yml)
-  - Quality workflow: [.github/workflows/quality-gates.yml](../../../.github/workflows/quality-gates.yml)
-
-Notes:
-
-- CI uses uv for dependency management.
-- Integration tests in CI are conditionally executed based on branch/event and secret availability.
-
-## 📚 Testing Best Practices
-
-### Guidelines
-
-1. **Write tests first** - Follow TDD principles
-2. **Test behavior, not implementation** - Focus on what, not how
-3. **Use descriptive test names** - Make test purpose clear
-4. **Keep tests independent** - No test should depend on another
-5. **Mock external dependencies** - Isolate units under test
-6. **Test edge cases** - Include error conditions and boundary values
-
-### Testing Checklist
-
-- [ ] Unit tests for all new functionality
-- [ ] Integration tests for user workflows
-- [ ] Error handling and edge cases covered
-- [ ] Mocks for external dependencies
-- [ ] Test data cleanup
-- [ ] Documentation updated
-
-### Common Patterns
-
-```python
-# Async testing
-@pytest.mark.asyncio
-async def test_async_function():
-    result = await some_async_function()
-    assert result is not None
-
-# Exception testing
-def test_exception_handling():
-    with pytest.raises(ValueError, match="Expected error message"):
-        function_that_should_raise()
-
-# Parametrized testing
-@pytest.mark.parametrize("input,expected", [
-    ("test1", "result1"),
-    ("test2", "result2"),
-])
-def test_multiple_inputs(input, expected):
-    assert process_input(input) == expected
-
-# Mocking with patch
-@patch("module.external_function")
-def test_with_mock(mock_function):
-    mock_function.return_value = "mocked_result"
-    result = function_under_test()
-    assert result == "expected_result"
+```bash
+python packages/harborrag-adapters/tests/models/smoke/chat.py
+python packages/harborrag-adapters/tests/models/smoke/embed.py
+python packages/harborrag-adapters/tests/models/smoke/rerank.py
 ```
 
-## 🆘 Getting Help
+Parser example:
 
-### Testing Support
+```bash
+python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/report.pdf --pdf-profile fast
+```
 
-- **[GitHub Issues](https://github.com/martin-papy/qdrant-loader/issues)** - Report testing issues
-- **[GitHub Discussions](https://github.com/martin-papy/qdrant-loader/discussions)** - Ask testing questions
-- **[Test Examples](https://github.com/martin-papy/qdrant-loader/tree/main/packages/qdrant-loader/tests)** - Reference implementations
+The deployed ingestion smoke covers chunk content, Postgres publication,
+Qdrant retrieval, FalkorDB traversal, and Temporal runtime state:
 
-### Contributing Tests
+```bash
+python packages/harborrag-runtime/tests/runtime_ingestion/smoke/ingestion_flow.py
+```
 
-- **[Contributing Guide](../../../CONTRIBUTING.md)** - How to contribute tests
-- **[Development Setup](../)** - Development environment setup
+Repository stack and runner:
 
----
+```bash
+scripts/deployment/dev.sh data
 
-**Ready to write tests?** Start with unit tests for individual components or check out the existing test suite for patterns and examples.
+HARBOR_SMOKE_ENV_FILE=env/.env.database \
+  python packages/harborrag-adapters/tests/repositories/smoke/run_all.py
+```
+
+Copy `env-example/.env.database.example` to the protected path first and adjust
+ports/credentials. Connector/model templates are
+`env-example/.env.connector.example` and `env-example/.env.models.example`. Do
+not commit populated files.
+
+Smoke exit code 2 means prerequisites are unavailable or not configured; it is
+not a successful provider check. Start with the
+[`harborrag-adapters` test index](../../../packages/harborrag-adapters/tests/README.md),
+then follow the owning module's `smoke/README.md` for advanced setup, safety
+rules, and target-specific variables.
+
+Graph evaluation gates the FalkorDB knowledge graph (conformance census,
+structural health, build-to-build regression); see its
+[`README.md`](../../../packages/harborrag-runtime/tests/graph_eval/README.md).
+Its pure modules are
+covered by ordinary collected tests in `graph_eval/unit/`; only the live scripts
+below sit outside discovery:
+
+```bash
+python packages/harborrag-runtime/tests/graph_eval/smoke/graph_health.py
+```
+
+## Quality and documentation tests
+
+```bash
+uv run make lint
+uv run make typecheck
+uv run make deps-check
+uv run make compile
+uv run python website/build.py --output site --templates website/templates
+uv run pytest tests/
+```
+
+CI runs the full quality set and a package matrix. Website tests are part of the test workflow, so broken document discovery or rendering can fail a documentation-only change.

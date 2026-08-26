@@ -1,0 +1,32 @@
+{
+  "id": "HR-3",
+  "title": "HR-3 Backfill the projection",
+  "note": "Jira is_blocked_by: the inverted predicate that must normalise back to blocker -> blocked.",
+  "extra": {
+    "issue_key": "HR-3",
+    "issue_type": "Task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Backfill the projection",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Rebuild every tenant graph."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "is_blocked_by",
+      "target_id": "HR-1",
+      "target_type": "document"
+    }
+  ]
+}

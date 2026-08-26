@@ -1,457 +1,138 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-Welcome to the QDrant Loader troubleshooting guide! This section provides comprehensive solutions for common issues, performance problems, and error messages you might encounter. Whether you're a new user or an experienced developer, these guides will help you quickly identify and resolve problems.
+## Installation and imports
 
-## 🎯 Quick Problem Identification
+| Symptom | Likely cause | Resolution |
+| --- | --- | --- |
+| `ModuleNotFoundError: harborrag_*` | Wrong interpreter or unsynchronized editable workspace | Use `uv run ...`, activate `.venv`, or run `make bootstrap` |
+| `uv` cannot create a cache/lock file | Global uv cache is not writable | Point `UV_CACHE_DIR` to a writable project or temporary directory |
+| An optional parser/provider import fails | The family extra or native runtime is missing | Install the matching `harborrag-adapters[...]` extra and backend prerequisites |
+| Advanced PDF parsing downloads or runs slowly | Selected backend requires models/OCR | Start with the `fast` PDF profile; pre-download assets only for the chosen backend |
 
-### Symptom Checker
+## Configuration
 
-Use this quick reference to identify your issue and jump to the right solution:
+| Symptom | Likely cause | Resolution |
+| --- | --- | --- |
+| Connector example fails to load | Documentation path was copied without the `.example` suffix | Load or copy `config/connectors.example.yaml` |
+| Local connector build reports `LOCAL_SOURCE_PATH` missing | Example maps `source_path` to that variable | Export it, or pass a build override |
+| Model `validate` reports a missing environment variable | Model references are expanded eagerly | Export every `${VARIABLE}` used by the selected family/profile |
+| Parser reports two enabled definitions for one type | More than one enabled profile replaces the same parser | Enable only one definition per stable parser name |
+| Unknown fields are rejected | Configuration models use strict validation | Fix the spelling or move Python-only callbacks into code overrides |
 
-```text
-❌ Installation fails → [Common Issues](./common-issues.md#installation-issues)
-🔌 Can't connect to QDrant → [Connection Problems](./connection-problems.md#qdrant-connection-issues)
-🔑 Authentication errors → [Connection Problems](./connection-problems.md#authentication-problems)
-📊 Data won't load → [Common Issues](./common-issues.md#data-loading-issues)
-🔍 Search returns no results → [Common Issues](./common-issues.md#search-issues)
-🐌 Everything is slow → [Performance Issues](./performance-issues.md)
-💾 High memory usage → [Performance Issues](./performance-issues.md#memory-issues)
-🌐 Network timeouts → [Connection Problems](./connection-problems.md#network-issues)
-🛡️ Firewall blocking → [Connection Problems](./connection-problems.md#firewall-problems)
-📁 File permission errors → [Error Messages](./error-messages-reference.md#file-system-errors)
-⚙️ Configuration problems → [Error Messages](./error-messages-reference.md#configuration-errors)
-```
+Example files are not loaded automatically. HarborRAG reads the process environment; use your shell, application bootstrap, container runtime, or secret manager.
 
-### Error Message Lookup
+## CLI and Temporal runtime
 
-Got a specific error message? Look it up directly:
+- `doctor` reports `app_test_double` in an unconfigured development checkout:
+  expected; production composition requires a control database.
+- The Temporal worker exits at startup: verify the connector, parser, and model
+  config paths, model credentials, and Qdrant/FalkorDB endpoints. A custom
+  dependency provider is optional.
+- Temporal starts but no HarborRAG worker appears: run
+  `scripts/deployment/dev.sh worker`.
+- `harborrag` is not found: use `uv run --package harborrag-app harborrag` from the
+  workspace or reinstall `harborrag-app` so its console script is registered.
+- An ingestion command cannot connect: set `HARBORRAG_TEMPORAL_TARGET` to a
+  reachable Temporal frontend (normally `localhost:7233` from the host).
 
-```bash
-# Search for your error message in documentation
-grep -r "your error message" docs/users/troubleshooting/
+### An accepted ingestion appears to do nothing
 
-# Or check the comprehensive error reference
-# See: Error Messages Reference → [specific error category]
-```
-
-## 📚 Troubleshooting Guides
-
-### 🔧 [Common Issues](./common-issues.md)
-
-**Start here for most problems!** Covers the most frequently encountered issues with step-by-step solutions.
-
-**What's covered:**
-
-- Installation and setup problems
-- Data loading issues
-- Search and query problems
-- Configuration errors
-- Quick fixes and workarounds
-
-**Best for:** New users, general problems, first-time setup issues
-
----
-
-### 🚀 [Performance Issues](./performance-issues.md)
-
-Comprehensive guide for diagnosing and resolving performance problems.
-
-**What's covered:**
-
-- Slow data loading optimization
-- Search performance tuning
-- Memory usage optimization
-- CPU and resource management
-- Network performance issues
-- Advanced optimization strategies
-
-**Best for:** Large datasets, production environments, performance optimization
-
----
-
-### 🔌 [Connection Problems](./connection-problems.md)
-
-Detailed solutions for connectivity and network-related issues.
-
-**What's covered:**
-
-- QDrant instance connectivity
-- API authentication problems
-- Network configuration issues
-- Firewall and proxy problems
-- SSL/TLS certificate issues
-- Advanced connection troubleshooting
-
-**Best for:** Network issues, authentication problems, enterprise environments
-
----
-
-### 📖 [Error Messages Reference](./error-messages-reference.md)
-
-Comprehensive reference for all error messages with exact solutions.
-
-**What's covered:**
-
-- Complete error message catalog
-- Detailed explanations and causes
-- Step-by-step solutions
-- Error codes and exit codes
-- Prevention strategies
-
-**Best for:** Specific error messages, debugging, development
-
-## 🚨 Emergency Quick Fixes
-
-### When Everything Fails
+Read the task resource first. A `202 Accepted` response means the workflow was
+submitted; processing continues asynchronously:
 
 ```bash
-# 1. Check basic configuration
-qdrant-loader config --workspace .
-
-# 2. Validate project configuration
-qdrant-loader config --workspace .
-
-# 3. Check system resources
-free -h
-df -h
-ps aux | grep qdrant-loader
-
-# 4. Reinitialize collection (WARNING: This will delete existing data)
-qdrant-loader init --workspace . --force
+curl --fail-with-body \
+  http://127.0.0.1:8000/v1/ingestions/INGESTION_TASK_ID
 ```
 
-### Critical System Recovery
+`discovered > 0` with `processed = 0` can mean the first bounded document
+window is still running. It is not evidence that the worker is idle. Follow the
+worker logs and look for the same `task_id`, `workflow_id`, stage, and safe
+error code:
 
 ```bash
-# Test network connectivity
-ping 8.8.8.8
-curl -v https://api.openai.com/v1/models
-
-# Test QDrant connectivity
-curl -v "$QDRANT_URL/health"
-
-# Check environment variables
-env | grep -E "(QDRANT|OPENAI|CONFLUENCE|JIRA)"
-
-# Verify workspace structure
-ls -la config.yaml .env
+docker logs --follow harborrag-temporal-temporal-worker-1
 ```
 
-## 🔍 Diagnostic Tools
+At `HARBORRAG_LOG_LEVEL=INFO`, HarborRAG logs API submissions, source discovery,
+document outcomes, safe activity failures, and finalization. `DEBUG` also logs
+each activity start/completion and its duration. Every record includes the
+logger namespace, Python module, function, and source line. Logs intentionally
+exclude connector credentials, raw document content, prompts, and model output.
 
-### Built-in Diagnostics
+If the worker reports that previous chunk or representation artifacts are
+missing during a metadata-only update, current releases fall back to fresh
+encoding. This reuse path is an optimization and must not fail the ingestion.
+For a task created by an older worker, allow it to finish, deploy the corrected
+worker, and use `POST /v1/ingestions/{task_id}/retry-failures` for its retryable
+document failures.
 
-```bash
-# Check current configuration
-qdrant-loader config --workspace .
+## Chat, Agent, and MCP
 
-# List all projects
-qdrant-loader config --workspace .
+Chat and agent are HTTP/CLI-only; MCP exposes only retrieval tools.
 
-# Check project status
-qdrant-loader config --workspace .
+| Symptom | Likely cause | Resolution |
+| --- | --- | --- |
+| Chat validation reports a missing `HARBOR_CHAT_*` value | `config/models.yaml` expands provider settings before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
+| HTTP chat or agent returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
+| MCP appears to do nothing when started in a terminal | Stdio MCP waits for a client protocol over pipes and has no port or interactive prompt | Run `scripts/deployment/mcp.sh --check`, or use `--http` and open `http://127.0.0.1:8010/` |
+| The browser cannot load or run tools | Missing/wrong owner token or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the ignored `env/.env.mcp`; never paste model API keys into the UI |
+| A tool change is saved but clients still list the old schema | FastMCP snapshots globally advertised schemas at startup | Restart when the UI reports `restart_required=true` |
 
-# Validate configuration
-qdrant-loader config --workspace .
+The MCP configuration UI controls enablement, defaults, numeric limits, and
+tenant overrides in `config/mcp.yaml`. It intentionally cannot change provider
+credentials, provider endpoints, or stored prompt files. See
+[MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
 
-# Test with debug logging
-qdrant-loader config --workspace . --log-level DEBUG
+## Unexpected logs or oversized embedding input
+
+An error such as `Too many input tokens. Max input tokens: 8192` means the
+text sent to the embedding provider exceeded that model's context window. A
+large character limit or file-size limit does not guarantee a safe token count,
+especially for timestamps, stack traces, escaped JSON, ANSI sequences, and
+other dense log syntax.
+
+HarborRAG stores source content because the selected connector admitted it;
+the ingestion pipeline does not classify timestamped or error-like text as
+disposable system output. If logs are not knowledge sources, exclude them in
+the connector before reingestion:
+
+```yaml
+settings:
+  excluded_extensions: [log]
+  exclude_paths: [logs]
+  exclude_globs: ["*.log", "**/*.log", "**/logs/**", "**/*.jsonl"]
 ```
 
-### Manual Diagnostics
-
-```bash
-# Check system resources
-htop
-iostat -x 1
-free -h
-df -h
-
-# Network diagnostics
-ping your-qdrant-instance.com
-traceroute your-qdrant-instance.com
-nslookup your-qdrant-instance.com
-
-# Service status
-systemctl status qdrant  # If using systemd
-docker ps | grep qdrant  # If using Docker
-```
-
-## 📊 Problem Categories
-
-### By Frequency (Most Common First)
-
-1. **Configuration Issues** (40%)
-   - Environment variables not set
-   - Invalid YAML syntax
-   - Missing required fields
-   - → [Error Messages Reference](./error-messages-reference.md#configuration-errors)
-
-2. **Connection Problems** (25%)
-   - QDrant instance not accessible
-   - Authentication failures
-   - Network timeouts
-   - → [Connection Problems](./connection-problems.md)
-
-3. **Data Loading Issues** (20%)
-   - No documents found
-   - File processing errors
-   - Memory limitations
-   - → [Common Issues](./common-issues.md#data-loading-issues)
-
-4. **Performance Problems** (10%)
-   - Slow loading or search
-   - High resource usage
-   - Timeout errors
-   - → [Performance Issues](./performance-issues.md)
-
-5. **Other Issues** (5%)
-   - File permissions
-   - SSL/TLS problems
-   - Specific error messages
-   - → [Error Messages Reference](./error-messages-reference.md)
-
-### By User Type
-
-#### **New Users**
-
-- Start with [Common Issues](./common-issues.md)
-- Focus on installation and basic setup
-- Use quick fixes and simple solutions
-
-#### **Developers**
-
-- Check [Error Messages Reference](./error-messages-reference.md)
-- Use diagnostic tools and detailed logging
-- Implement error handling and monitoring
-
-#### **System Administrators**
-
-- Review [Performance Issues](./performance-issues.md)
-- Focus on [Connection Problems](./connection-problems.md)
-- Implement monitoring and alerting
-
-#### **Enterprise Users**
-
-- Emphasize [Connection Problems](./connection-problems.md) for proxy/firewall issues
-- Review [Performance Issues](./performance-issues.md) for optimization
-- Implement comprehensive monitoring
-
-## 🛠️ Troubleshooting Methodology
-
-### Step-by-Step Approach
-
-1. **Identify the Problem**
-   - What exactly is failing?
-   - When did it start failing?
-   - What changed recently?
-
-2. **Gather Information**
-   - Check error messages
-   - Review logs
-   - Test basic connectivity
-
-3. **Apply Solutions**
-   - Start with simple fixes
-   - Test after each change
-   - Document what works
-
-4. **Verify Resolution**
-   - Test the original use case
-   - Monitor for recurrence
-   - Update documentation
-
-### Diagnostic Commands
-
-```bash
-# Basic configuration check
-qdrant-loader config --workspace .
-
-# Project validation
-qdrant-loader config --workspace .
-
-# Project status check
-qdrant-loader config --workspace .
-
-# Debug mode for detailed logging
-qdrant-loader ingest --workspace . --log-level DEBUG
-```
-
-## 📈 Monitoring and Prevention
-
-### Proactive Monitoring
-
-```bash
-# Regular configuration validation
-qdrant-loader config --workspace .
-
-# Check project status regularly
-qdrant-loader config --workspace .
-
-# Monitor system resources
-watch -n 30 'free -h && df -h'
-```
-
-### Prevention Strategies
-
-1. **Regular Health Checks**
-
-   ```bash
-   # Daily configuration validation script
-   qdrant-loader config --workspace . >> daily-health.log 2>&1
-   ```
-
-2. **Configuration Validation**
-
-   ```bash
-   # Validate before deployment
-   qdrant-loader config --workspace .
-   ```
-
-3. **System Monitoring**
-
-   ```bash
-   # Monitor system resources
-   free -h
-   df -h
-   ps aux | grep qdrant-loader
-   ```
-
-4. **Backup Strategy**
-
-   ```bash
-   # Backup configuration files
-   cp config.yaml config.yaml.backup
-   cp .env .env.backup
-   ```
-
-## 🔗 Getting Additional Help
-
-### Community Resources
-
-- **GitHub Issues**: [Report bugs and get help](https://github.com/martin-papy/qdrant-loader/issues)
-- **Discussions**: [Community Q&A and tips](https://github.com/martin-papy/qdrant-loader/discussions)
-- **Documentation**: [Complete documentation](../../)
-
-### Professional Support
-
-- **Enterprise Support**: Contact your support representative
-- **Consulting Services**: Professional implementation assistance
-- **Training**: Workshops and training sessions
-
-### Before Asking for Help
-
-1. **Check this troubleshooting guide** - Most issues are covered here
-2. **Search existing issues** - Your problem might already be solved
-3. **Gather diagnostic information**:
-
-   ```bash
-   # Collect configuration and status information
-   qdrant-loader config --workspace . > diagnostics.txt
-   qdrant-loader config --workspace . >> diagnostics.txt
-   qdrant-loader config --workspace . >> diagnostics.txt
-   qdrant-loader config --workspace . >> diagnostics.txt 2>&1
-   ```
-
-4. **Provide clear details**:
-   - Exact error messages
-   - Steps to reproduce
-   - System information
-   - Configuration (sanitized)
-
-## 📋 Troubleshooting Checklist
-
-### Pre-Troubleshooting Checklist
-
-- [ ] Read the error message carefully
-- [ ] Check if QDrant instance is running
-- [ ] Verify environment variables are set
-- [ ] Test basic network connectivity
-- [ ] Check available system resources
-- [ ] Review recent configuration changes
-
-### Post-Solution Checklist
-
-- [ ] Verify the issue is completely resolved
-- [ ] Test related functionality
-- [ ] Document the solution for future reference
-- [ ] Update monitoring if needed
-- [ ] Share solution with team if applicable
-
-## 🎯 Quick Reference Cards
-
-### Connection Issues Quick Card
-
-```bash
-# Test QDrant connection
-curl -v "$QDRANT_URL/health"
-
-# Test LLM API
-curl -H "Authorization: Bearer $LLM_API_KEY" "https://api.openai.com/v1/models"
-
-# Check environment variables
-env | grep -E "(QDRANT|OPENAI|CONFLUENCE|JIRA)"
-
-# Test configuration
-qdrant-loader config --workspace .
-```
-
-### Performance Issues Quick Card
-
-```bash
-# Check system resources
-free -h
-df -h
-top
-
-# Monitor QDrant Loader process
-ps aux | grep qdrant-loader
-
-# Check project status
-qdrant-loader config --workspace .
-
-# Use debug logging for performance analysis
-qdrant-loader ingest --workspace . --log-level DEBUG --profile
-```
-
-### Data Loading Quick Card
-
-```bash
-# Check source accessibility
-ls -la /path/to/docs
-
-# Validate configuration
-qdrant-loader config --workspace .
-
-# Check project configuration
-qdrant-loader config --workspace .
-
-# Load with verbose output
-qdrant-loader ingest --workspace . --log-level DEBUG
-```
-
-### Configuration Issues Quick Card
-
-```bash
-# Display current configuration
-qdrant-loader config --workspace .
-
-# Validate all projects
-qdrant-loader config --workspace .
-
-# List configured projects
-qdrant-loader config --workspace .
-
-# Check specific project
-qdrant-loader config --workspace . --project-id PROJECT_ID
-```
-
----
-
-**Need immediate help?** Start with the [Common Issues Guide](./common-issues.md) for quick solutions to the most frequent problems.
-
-**Got a specific error?** Jump directly to the [Error Messages Reference](./error-messages-reference.md) for detailed explanations and solutions.
-
-**Performance problems?** Check the [Performance Issues Guide](./performance-issues.md) for optimization strategies.
-
-**Connection troubles?** See the [Connection Problems Guide](./connection-problems.md) for network and authentication solutions.
+If logs are intentional knowledge sources, use a tokenizer-aware chunking
+policy whose input allowance is below the embedding model's maximum, leaving
+room for provider-added formatting. Reingest after changing source filters or
+chunking; failed oversized chunks are not repaired by increasing
+`max_tokens`, which controls chat output rather than embedding input.
+
+## Connectors and real services
+
+- Remote connector tests need least-privilege credentials, source identifiers, and network access.
+- Repository smoke checks need the appropriate SDK extra and a reachable service. Use `docker-compose.database.yml` for the local database stack.
+- An unavailable smoke target exits with code 2 by design; this is distinct from a failed real operation.
+- Default pytest tests should never depend on these services.
+
+See the [smoke-test section](../../developers/testing/README.md#real-system-smoke-checks).
+
+## Quality gates
+
+| Failure | What to check |
+| --- | --- |
+| `make coverage` below 90% | Add package-local tests for new source branches |
+| `make deps-check` | Compare the import against the architecture allowed-import table |
+| `make typecheck` | Source functions require complete annotations under the root mypy policy |
+| `make lint` | Run `ruff check .`; use `make format` only when you intend to modify formatting |
+| Website build | Verify relative Markdown links and run the root website tests |
+
+## Deployment surprises
+
+The database and PostgreSQL-backed Temporal Compose stacks are usable for local
+development. The Temporal stack is not a production topology; use Temporal
+Cloud or the official Helm chart with managed persistence. See
+[Deployment](../../developers/deployment/README.md) before building an
+application image.

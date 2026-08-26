@@ -68,7 +68,7 @@ def generate_ico(png_files: list, ico_path: str):
 def main():
     # Paths
     script_dir = Path(__file__).parent
-    svg_path = script_dir / "icons" / "qdrant-loader-icon-static.svg"
+    svg_path = script_dir / "icons" / "HarborRAG-icon-static.svg"
     favicon_dir = script_dir / "favicons"
 
     # Create favicon directory

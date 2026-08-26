@@ -1,0 +1,114 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    restart: unless-stopped
+    ports:
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - harborrag-data-network
+
+  falkordb:
+    image: falkordb/falkordb:v4.20.1
+    restart: unless-stopped
+    environment:
+      # GRAPH.CONSTRAINT is asynchronous and cannot be replayed safely from
+      # AOF by this FalkorDB release. Persist snapshots in the named volume so
+      # constraints and graph data both survive container restarts.
+      REDIS_ARGS: "--appendonly no --save 60 1"
+    ports:
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_PORT:-6379}:6379"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_BROWSER_PORT:-3000}:3000"
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - harborrag-data-network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+    ports:
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - harborrag-data-network
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}
+      POSTGRES_DB: ${POSTGRES_DB:-harborrag}
+    ports:
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - harborrag-data-network
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command:
+      - server
+      - /data
+      - --console-address
+      - ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-harborrag}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the database environment file}
+    ports:
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - harborrag-data-network
+
+networks:
+  harborrag-data-network:
+    name: harborrag-data-network
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  falkordb_data:
+  redis_data:
+  pg_data:
+  minio_data:

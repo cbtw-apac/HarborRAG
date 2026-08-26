@@ -1,171 +1,226 @@
-# Installation Guide
+# Installation
 
-This guide walks you through installing QDrant Loader and its MCP server on your system. Choose the installation method that best fits your needs.
+HarborRAG supports two installation methods:
 
-Use this page only for platform-specific notes, dependency choices, and install troubleshooting.
+1. **[From the repository](#method-1-install-from-the-repository)** — clone and
+   install. Available now, and the method to use for contributing.
+2. **[From PyPI](#method-2-install-from-pypi)** — `pip install harborrag` with
+   the extras you need. Published with the `2.0.0a1` release.
 
-Primary onboarding path: [Quick Start](./quick-start.md)
+Both give the same packages. Pick the repository method if you want the example
+configuration, deployment scripts, and test suite; pick PyPI if you are adding
+HarborRAG to an existing project.
 
-## 📋 Overview
+## Requirements
 
-- **`qdrant-loader`** - Main data ingestion and processing tool
-- **`qdrant-loader-core`** - Shared core library with LLM abstraction (automatically installed as dependency)
-- **`qdrant-loader-mcp-server`** - Model Context Protocol server for AI tool integration
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) for the repository workflow, or a recent `pip`
+- Docker Engine with Compose v2 for the local data and Temporal stacks
+- Native libraries required by any optional parser/provider you select
 
-The core library is automatically installed as a dependency. Most users will want both the main package and MCP server for the complete experience.
-
-## 🚀 Package options
-
-- Main package only:
-
-```bash
-pip install qdrant-loader
-```
-
-- MCP server only:
+## Method 1: install from the repository
 
 ```bash
-pip install qdrant-loader-mcp-server
+git clone https://github.com/cbtw-apac/HarborRAG.git
+cd HarborRAG
+uv sync --all-packages --extra dev
 ```
 
-- Full experience (recommended):
+Run tools through the managed environment:
 
 ```bash
-pip install qdrant-loader qdrant-loader-mcp-server
+uv run --package harborrag-app harborrag --help
+uv run pytest
 ```
 
-## 🔧 Prerequisites
+This checkout also gives you `config/*.yaml` examples, the
+`scripts/deployment/dev.sh` service stack, and the test suite, which the PyPI
+packages do not ship. [Quick Start](quick-start.md) follows this path.
 
-### System Requirements
+CI syncs with `uv sync --all-packages --all-extras`, pulling every heavy and
+provider-specific extra. Prefer `--extra dev` unless you need every PDF engine,
+repository SDK, and telemetry integration.
 
-| Component   | Minimum                          | Recommended     |
-| ----------- | -------------------------------- | --------------- |
-| **Python**  | 3.12+                            | 3.12+           |
-| **Memory**  | 4GB RAM                          | 8GB+ RAM        |
-| **Storage** | 2GB free                         | 10GB+ free      |
-| **OS**      | Windows 10+, macOS 10.15+, Linux | Latest versions |
+### Editable pip install
 
-### Required Services
-
-#### QDrant Vector Database
-
-QDrant Loader requires a QDrant instance to store vectors and metadata.
-
-##### Option 1: Docker
-
-```bash
-docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
-```
-
-##### Option 2: QDrant Cloud
-
-Use QDrant Cloud and copy your cluster URL + API key into `.env`.
-
-##### Option 3: Local Installation
-
-Use the official QDrant installation guide for your platform.
-
-## 🤖 Optional LLM extras
-
-When installing from source or customizing environments, ensure provider dependencies are available.
-
-- OpenAI/Azure/OpenAI-compatible:
-
-```bash
-pip install "qdrant-loader-core[openai]"
-```
-
-- Ollama:
-
-```bash
-pip install "qdrant-loader-core[ollama]"
-```
-
-## 🔄 Development environment (recommended)
-
-Use this short workflow:
-
-- Dev adds a new library: `uv add <package>`
-- Pull latest code: `uv sync`
-- CI/Prod: `uv sync --frozen`
-
-Setup commands:
-
-```bash
-# Initial workspace setup
-uv sync --all-packages --all-extras
-
-# Verify installation
-uv run qdrant-loader --version
-uv run mcp-qdrant-loader --version
-```
-
-When you need a new dependency during development:
-
-```bash
-uv add fastapi
-uv sync
-```
-
-## 🧠 Virtual environment note
-
-With uv, you normally do not need to manually create or activate a virtual environment.
-`uv sync` manages the project environment automatically.
-
-Create and activate your own venv only if your team or tooling explicitly requires manual venv control.
-
-## 📖 Platform-specific notes
-
-- **Windows**: Use PowerShell and activate venv with `\.venv\Scripts\Activate.ps1`.
-- **macOS/Linux**: Activate venv with `source .venv/bin/activate`.
-- **Permissions**: If global pip install fails, prefer uv workflow or a project virtual environment.
-
-For command-level options (`--workspace`, `--config`, `--env`), see [CLI Commands](../users/cli-reference/commands.md).
-
-### Method 3: Virtual Environment (Isolated)
-
-For users who want to keep QDrant Loader isolated:
+The Makefile installs the packages in dependency order:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install qdrant-loader qdrant-loader-mcp-server
+python -m pip install --upgrade pip
+make bootstrap
 ```
 
-## 📝 Installation Checklist
+The equivalent explicit sequence:
 
-- [ ] **Python 3.12+** installed and accessible
-- [ ] **QDrant database** running (Docker, Cloud, or local)
-- [ ] **LLM API key** obtained and configured (OpenAI, Azure OpenAI, Ollama, or compatible)
-- [ ] **qdrant-loader** package installed
-- [ ] **qdrant-loader-mcp-server** package installed (if using MCP)
-- [ ] `qdrant-loader --version` works
-- [ ] `mcp-qdrant-loader --version` works (if MCP server installed)
-- [ ] **Basic configuration** created
-- [ ] **QDrant connection** tested
-- [ ] You can run `qdrant-loader init --workspace .` without configuration errors
-- [ ] **Ready for Quick Start** guide
+```bash
+python -m pip install -e packages/harborrag-core
+python -m pip install -e packages/harborrag-adapters
+python -m pip install -e packages/harborrag-engine
+python -m pip install -e packages/harborrag-memory
+python -m pip install -e packages/harborrag-runtime
+python -m pip install -e packages/harborrag-app
+python -m pip install -e packages/harborrag-mcp-server
+python -m pip install -e packages/harborrag
+python -m pip install -e ".[dev]"
+```
 
-## 📝 Verification checklist
+See [Contributing](../../CONTRIBUTING.md) for quality gates and the full
+development setup.
 
-- [ ] `qdrant-loader --version` works
-- [ ] `mcp-qdrant-loader --version` works
-- [ ] QDrant is reachable at configured URL
-- [ ] LLM API key is set
+## Method 2: install from PyPI
 
-Then continue with [Quick Start](./quick-start.md).
+> The packages below are published as part of the `2.0.0a1` alpha release and
+> are not yet on PyPI. Until then, use
+> [Method 1](#method-1-install-from-the-repository).
 
-## 🔧 Install troubleshooting
+HarborRAG ships eight packages. `harborrag` is the facade that pulls in the
+rest:
 
-- Python and dependency setup issues: [Troubleshooting](../users/troubleshooting)
-- Configuration and environment variable errors: [Error Messages Reference](../users/troubleshooting/error-messages-reference.md)
-- Complete configuration options: [Configuration File Reference](../users/configuration/config-file-reference.md)
+```bash
+pip install harborrag
+```
 
-## 🔗 Next Steps
+A bare install gives you the facade, the provider-neutral contracts, and the
+adapter code. It deliberately installs **no provider clients**, so there is no
+vector store, no graph store, and no model client until you add an extra.
 
-After successful installation:
+Everything at once:
 
-1. **[Quick Start Guide](./quick-start.md)** - Get up and running in 5 minutes
-2. **[Core Concepts](./README.md#-core-concepts)** - Key concepts explained
-3. **[Basic Configuration](./basic-configuration.md)** - Set up your first data sources
-4. **[User Guides](../users/)** - Explore detailed feature documentation
+```bash
+pip install "harborrag[all]"
+```
+
+### Which extra do I need?
+
+Each extra adds only the third-party clients its providers require.
+
+| Install | Adds | Use it when |
+| --- | --- | --- |
+| `harborrag` | contracts only, plus SQLAlchemy/SQLite | you supply your own adapters |
+| `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables | local end-to-end ingestion and retrieval |
+| `harborrag[chat]` | model client | chat completion, embeddings, reranking |
+| `harborrag[cli]` | `harborrag-app` | the `harborrag` command |
+| `harborrag[server]` | `harborrag-app[api]`, production and Temporal runtime | running the HTTP API |
+| `harborrag[mcp]` | `harborrag-mcp-server[mcp]` | exposing MCP tools to an IDE or agent |
+| `harborrag[memory]` | `harborrag-memory` | conversation memory |
+| `harborrag[temporal]` | Temporal client | durable orchestration, `submit`/`pause`/`resume`/`cancel` |
+| `harborrag[qdrant]` | `qdrant-client` | Qdrant vector storage |
+| `harborrag[falkordb]` | `falkordb` | FalkorDB graph storage |
+| `harborrag[postgres]` | `asyncpg` plus the control plane | PostgreSQL-backed control plane |
+| `harborrag[s3]` | `aioboto3` | S3 artifact storage |
+| `harborrag[redis]` | `redis` | Redis-backed features |
+| `harborrag[all]` | every extra above | you want the full surface |
+
+Extras combine, so install exactly the set you need:
+
+```bash
+pip install "harborrag[cli,qdrant,falkordb,chat]"
+```
+
+`harborrag[all]` is a superset of `harborrag[local]`.
+
+### Chat and embeddings need a model client
+
+Chat, embedding, and reranking all route through the model client in the `chat`
+extra. Without `harborrag[chat]` — or an extra that includes it, such as
+`local`, `server`, or `all` — those calls fail on a missing import even though
+the rest of HarborRAG works.
+
+### Installing individual packages
+
+The facade is a convenience. Any package can be installed on its own for a
+narrower dependency tree:
+
+| Package | Contains |
+| --- | --- |
+| `harborrag` | public facade and install bundle |
+| `harborrag-core` | provider-neutral contracts and domain |
+| `harborrag-adapters` | connectors, parsers, stores, model clients |
+| `harborrag-engine` | ingestion and retrieval engine |
+| `harborrag-memory` | conversation memory |
+| `harborrag-runtime` | runtime and Temporal orchestration |
+| `harborrag-app` | CLI and HTTP API |
+| `harborrag-mcp-server` | MCP transport |
+
+For example, an MCP-only deployment:
+
+```bash
+pip install "harborrag-mcp-server[mcp]"
+```
+
+Each package ships its own README with usage details, published under the
+package reference section of the documentation.
+
+## Commands
+
+| Command | Provided by | Available with |
+| --- | --- | --- |
+| `harborrag` | `harborrag-app` | `harborrag[cli]`, `harborrag[server]`, `harborrag[all]` |
+| `harborrag-mcp` | `harborrag-mcp-server` | `harborrag[mcp]`, `harborrag[all]` |
+
+A PyPI install puts these on your `PATH`, so `harborrag --help` works directly.
+In a repository checkout, prefix them with
+`uv run --package harborrag-app` (or `--package harborrag-mcp-server`) so they
+resolve inside the workspace environment.
+
+## Parser and PDF extras
+
+`harborrag-adapters` keeps document parsing optional. Install only the families
+your content needs:
+
+```bash
+pip install "harborrag-adapters[parsers]"        # common text, Office, image formats
+pip install "harborrag-adapters[pdf-docling]"    # Docling with RapidOCR
+pip install "harborrag-adapters[pdf]"            # every supported PDF backend
+pip install "harborrag-adapters[parsers-all]"    # parsers plus every PDF backend
+```
+
+Narrower extras exist for single backends: `pdf-pymupdf`, `pdf-liteparse`,
+`pdf-mineru`, `pdf-ocr`, `document`, `spreadsheet`, `presentation`, `markup`,
+`image`, `image-tesseract`, and `image-rapidocr`.
+
+In a checkout, use the editable form:
+
+```bash
+python -m pip install -e "packages/harborrag-adapters[parsers]"
+```
+
+Some PDF backends download models or need platform-specific runtimes. The `pdf`
+extra includes RapidOCR and the CPU `onnxruntime` package; Docling can
+independently use CUDA, MPS, or XPU through an accelerator-enabled PyTorch
+installation.
+
+## Verify the install
+
+```bash
+python -c "import harborrag; print(harborrag.__all__)"
+```
+
+In a checkout:
+
+```bash
+uv run python -m harborrag_app.cli.main doctor --json
+uv run python scripts/check_dependency_direction.py
+```
+
+`harborrag doctor` is a live Temporal health check, so run it after starting the
+services in [Quick Start](quick-start.md).
+
+## Common install issues
+
+- `ModuleNotFoundError` for a provider client: install the extra that supplies
+  it, for example `harborrag[qdrant]` or `harborrag[chat]`.
+- `ModuleNotFoundError: harborrag_*` in a checkout: run commands through
+  `uv run`, activate the expected virtual environment, or reinstall the editable
+  packages.
+- Optional parser import error: install the matching adapter extra plus any
+  native or model prerequisites that backend documents.
+- Model configuration fails while loading: referenced environment variables are
+  resolved eagerly and must be non-empty.
+- `uv` uses an unwritable global cache in a restricted environment: set
+  `UV_CACHE_DIR` to a writable project or temporary directory.
+
+See [Troubleshooting](../users/troubleshooting/README.md) for runtime and
+quality-gate issues.

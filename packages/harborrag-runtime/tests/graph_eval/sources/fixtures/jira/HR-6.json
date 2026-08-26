@@ -1,0 +1,32 @@
+{
+  "id": "HR-6",
+  "title": "HR-6 Add the completeness gate",
+  "note": "Jira subtask child_of, reversed to parent_of.",
+  "extra": {
+    "issue_key": "HR-6",
+    "issue_type": "Task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Add the completeness gate",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Subtask of the rotation work."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "HR-1",
+      "target_type": "document"
+    }
+  ]
+}

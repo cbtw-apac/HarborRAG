@@ -1,0 +1,75 @@
+{
+  "id": "incident-log",
+  "title": "Incident Log",
+  "note": "Three-deep comment reply chain (c1 <- c2 <- c3): reply_to is transitive here, where team-handbook only proves a single reply pair.",
+  "extra": {
+    "page_id": "incident-log"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Incident Log",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Graph rebuild stalled during the release window."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Timeline",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "The projection lagged by two builds."
+    },
+    {
+      "id": "confluence-comment:incident-c1",
+      "type": "paragraph",
+      "content": "Was the constraint in FAILED?",
+      "metadata": {
+        "role": "confluence.comment",
+        "comment_id": "incident-c1",
+        "comment_kind": "PAGE_COMMENT"
+      }
+    },
+    {
+      "id": "confluence-comment:incident-c2",
+      "type": "paragraph",
+      "content": "Yes, it never rebuilt.",
+      "metadata": {
+        "role": "confluence.comment",
+        "comment_id": "incident-c2",
+        "comment_kind": "PAGE_COMMENT",
+        "parent_comment_id": "incident-c1"
+      }
+    },
+    {
+      "id": "confluence-comment:incident-c3",
+      "type": "paragraph",
+      "content": "Health gate now catches it.",
+      "metadata": {
+        "role": "confluence.comment",
+        "comment_id": "incident-c3",
+        "comment_kind": "PAGE_COMMENT",
+        "parent_comment_id": "incident-c2"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "child_of",
+      "target_id": "space-overview",
+      "target_type": "document"
+    }
+  ]
+}

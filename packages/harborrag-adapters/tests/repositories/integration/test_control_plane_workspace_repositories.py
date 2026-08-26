@@ -1,0 +1,185 @@
+"""Workspace control-plane repositories round-trip against migrated SQLite."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import pytest
+import pytest_asyncio
+
+from harborrag_adapters.repositories.database.control_plane.engine import (
+    create_control_plane_engine,
+    create_session_factory,
+)
+from harborrag_adapters.repositories.database.control_plane.jobs import (
+    SqlActivityRepository,
+)
+from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
+from harborrag_adapters.repositories.database.control_plane.workspace import (
+    SqlMemberRepository,
+    SqlProviderRepository,
+    SqlSettingsRepository,
+)
+from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.member import Member
+from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.settings import WorkspaceSettings
+
+pytestmark = pytest.mark.integration
+
+
+@pytest_asyncio.fixture
+async def sessions(tmp_path: Path) -> AsyncIterator[SessionFactory]:
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    yield create_session_factory(engine)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_activity_settings_provider_member_roundtrips(
+    sessions: SessionFactory,
+) -> None:
+    """Audit, settings, provider, and member repositories preserve their contracts."""
+
+    activity = SqlActivityRepository(sessions)
+    await activity.append(
+        ActivityEntry(
+            id="a1",
+            tenant_id="tenant-a",
+            actor="nguyen.vu@cbtw.tech",
+            verb="created",
+            entity_type="project",
+            entity_id="p1",
+            summary="Created project Docs",
+        )
+    )
+    entries = await activity.list(tenant_ids=None)
+    assert [entry.id for entry in entries] == ["a1"]
+    assert entries[0].tenant_id == "tenant-a"
+
+    settings = SqlSettingsRepository(sessions)
+    assert (await settings.get()).data == {}
+    await settings.put(WorkspaceSettings(tenant_id="tenant-a", data={"theme": "dark"}))
+    stored_settings = await settings.get()
+    assert stored_settings.tenant_id == "tenant-a"
+    assert stored_settings.data == {"theme": "dark"}
+    await settings.put(WorkspaceSettings(tenant_id="tenant-a", data={"theme": "light"}))
+    assert (await settings.get()).data == {"theme": "light"}
+
+    providers = SqlProviderRepository(sessions)
+    provider = Provider(
+        id="pr1",
+        tenant_id="tenant-a",
+        name="OpenAI",
+        family="chat",
+        secret_ref="secret://key",
+    )
+    await providers.save(provider)
+    assert await providers.get("pr1", tenant_ids=None) == provider
+    provider.name = "OpenAI EU"
+    await providers.save(provider)
+    listed = await providers.list(tenant_ids=None)
+    assert listed[0].name == "OpenAI EU"
+    await providers.delete("pr1", tenant_ids=None)
+    assert await providers.get("pr1", tenant_ids=None) is None
+
+    members = SqlMemberRepository(sessions)
+    member = Member(id="m1", tenant_id="tenant-a", subject="user@cbtw.tech", role="editor")
+    await members.save(member)
+    assert await members.get_by_subject("user@cbtw.tech") == member
+    assert await members.get_by_subject("ghost@cbtw.tech") is None
+    assert [stored.id for stored in await members.list(tenant_ids=None)] == ["m1"]
+    await members.delete("m1", tenant_ids=None)
+    assert await members.list(tenant_ids=None) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_activity_append_is_idempotent_by_id(sessions: SessionFactory) -> None:
+    """A replayed pending effect (see effect_recovery.py) reuses the original
+    entry's id -- possibly raced by two concurrent recovery drains against
+    the same database -- so a second append of that id must not raise or
+    create a duplicate row; it's the table's primary key on id, treated as
+    an already-recorded no-op."""
+    activity = SqlActivityRepository(sessions)
+    entry = ActivityEntry(
+        id="a1",
+        tenant_id="tenant-a",
+        actor="nguyen.vu@cbtw.tech",
+        verb="created",
+        entity_type="project",
+        entity_id="p1",
+        summary="Created project Docs",
+    )
+
+    await activity.append(entry)
+    await activity.append(entry)
+
+    entries = await activity.list(tenant_ids=None)
+    assert [e.id for e in entries] == ["a1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_activity_provider_member_repositories_enforce_tenant_scope(
+    sessions: SessionFactory,
+) -> None:
+    """list/get/delete must not see or touch another tenant's rows."""
+    scope = frozenset({"tenant-a"})
+
+    activity = SqlActivityRepository(sessions)
+    await activity.append(
+        ActivityEntry(
+            id="mine",
+            tenant_id="tenant-a",
+            actor="me",
+            verb="created",
+            entity_type="project",
+            entity_id="p1",
+            summary="mine",
+        )
+    )
+    await activity.append(
+        ActivityEntry(
+            id="theirs",
+            tenant_id="tenant-b",
+            actor="them",
+            verb="created",
+            entity_type="project",
+            entity_id="p2",
+            summary="theirs",
+        )
+    )
+    assert [e.id for e in await activity.list(tenant_ids=scope)] == ["mine"]
+
+    providers = SqlProviderRepository(sessions)
+    await providers.save(
+        Provider(
+            id="mine", tenant_id="tenant-a", name="Mine", family="chat", secret_ref="secret://x"
+        )
+    )
+    await providers.save(
+        Provider(
+            id="theirs", tenant_id="tenant-b", name="Theirs", family="chat", secret_ref="secret://y"
+        )
+    )
+    assert [p.id for p in await providers.list(tenant_ids=scope)] == ["mine"]
+    assert await providers.get("theirs", tenant_ids=scope) is None
+    await providers.delete("theirs", tenant_ids=scope)
+    assert (await providers.get("theirs", tenant_ids=None)) is not None  # untouched
+
+    members = SqlMemberRepository(sessions)
+    await members.save(
+        Member(id="mine", tenant_id="tenant-a", subject="me@cbtw.tech", role="editor")
+    )
+    await members.save(
+        Member(id="theirs", tenant_id="tenant-b", subject="them@cbtw.tech", role="editor")
+    )
+    assert [m.id for m in await members.list(tenant_ids=scope)] == ["mine"]
+    await members.delete("theirs", tenant_ids=scope)
+    assert [m.id for m in await members.list(tenant_ids=None)] == ["mine", "theirs"]  # untouched

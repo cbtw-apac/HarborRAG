@@ -1,0 +1,177 @@
+"""Core port fakes used only by the test suite."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+
+from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.member import Member
+from harborrag_core.domain.parser import ParsedDocument
+from harborrag_core.domain.project import Project
+from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.domain.source_config import SourceConfig
+
+
+@dataclass(slots=True)
+class FakeConnector:
+    provider_name: str = "fake"
+    documents: list[RawDocument] = field(default_factory=list)
+
+    def discover(self) -> Iterable[SourceRecord]:
+        for raw in self.documents:
+            yield SourceRecord(id=raw.id, source_type=raw.content_type, locator=raw.source)
+
+    def load(self, record: SourceRecord) -> RawDocument:
+        for raw in self.documents:
+            if raw.id == record.id:
+                return raw
+        raise KeyError(record.id)
+
+
+@dataclass(slots=True)
+class FakeParser:
+    parser_name: str = "fake"
+
+    def parse(self, raw: RawDocument) -> ParsedDocument:
+        text = raw.text()
+        return ParsedDocument(
+            content=text,
+            parser_name=self.parser_name,
+            elements=[DocumentElement(id=f"{raw.id}:0", type="paragraph", content=text)],
+        )
+
+
+@dataclass(slots=True)
+class FakeProjectRepository:
+    """Dict-backed ProjectRepositoryPort for tests and local composition."""
+
+    projects: dict[str, Project] = field(default_factory=dict)
+
+    async def list(self) -> list[Project]:
+        """All projects in insertion order."""
+        return list(self.projects.values())
+
+    async def get(self, project_id: str) -> Project | None:
+        """Project by id, or None."""
+        return self.projects.get(project_id)
+
+    async def create(self, project: Project) -> Project:
+        """Store a new project."""
+        self.projects[project.id] = project
+        return project
+
+    async def update(self, project: Project) -> Project:
+        """Overwrite an existing project."""
+        self.projects[project.id] = project
+        return project
+
+    async def delete(self, project_id: str) -> None:
+        """Drop the project if present."""
+        self.projects.pop(project_id, None)
+
+
+@dataclass(slots=True)
+class FakeSourceRepository:
+    """Dict-backed SourceRepositoryPort."""
+
+    sources: dict[str, SourceConfig] = field(default_factory=dict)
+
+    async def list(self, project_id: str | None = None) -> list[SourceConfig]:
+        """Sources, optionally filtered by project."""
+        values = list(self.sources.values())
+        if project_id is None:
+            return values
+        return [source for source in values if source.project_id == project_id]
+
+    async def get(self, source_id: str) -> SourceConfig | None:
+        """Source by id, or None."""
+        return self.sources.get(source_id)
+
+    async def create(self, source: SourceConfig) -> SourceConfig:
+        """Store a new source."""
+        self.sources[source.id] = source
+        return source
+
+    async def update(self, source: SourceConfig) -> SourceConfig:
+        """Overwrite an existing source."""
+        self.sources[source.id] = source
+        return source
+
+    async def delete(self, source_id: str) -> None:
+        """Drop the source if present."""
+        self.sources.pop(source_id, None)
+
+
+# Use shared test fakes from harborrag_core.testing.fakes to avoid
+# duplication and drift when ports change.
+
+
+@dataclass(slots=True)
+class FakeSettingsRepository:
+    """Single-document SettingsRepositoryPort."""
+
+    settings: WorkspaceSettings = field(default_factory=WorkspaceSettings)
+
+    async def get(self) -> WorkspaceSettings:
+        """The current settings document."""
+        return self.settings
+
+    async def put(self, settings: WorkspaceSettings) -> WorkspaceSettings:
+        """Replace the settings document."""
+        self.settings = settings
+        return settings
+
+
+@dataclass(slots=True)
+class FakeProviderRepository:
+    """Dict-backed ProviderRepositoryPort."""
+
+    providers: dict[str, Provider] = field(default_factory=dict)
+
+    async def list(self) -> list[Provider]:
+        """All providers."""
+        return list(self.providers.values())
+
+    async def get(self, provider_id: str) -> Provider | None:
+        """Provider by id, or None."""
+        return self.providers.get(provider_id)
+
+    async def save(self, provider: Provider) -> Provider:
+        """Insert or overwrite a provider."""
+        self.providers[provider.id] = provider
+        return provider
+
+    async def delete(self, provider_id: str) -> None:
+        """Drop the provider if present."""
+        self.providers.pop(provider_id, None)
+
+
+@dataclass(slots=True)
+class FakeMemberRepository:
+    """Dict-backed MemberRepositoryPort."""
+
+    members: dict[str, Member] = field(default_factory=dict)
+
+    async def list(self) -> list[Member]:
+        """All members."""
+        return list(self.members.values())
+
+    async def get_by_subject(self, subject: str) -> Member | None:
+        """Member by auth subject, or None."""
+        for member in self.members.values():
+            if member.subject == subject:
+                return member
+        return None
+
+    async def save(self, member: Member) -> Member:
+        """Insert or overwrite a member."""
+        self.members[member.id] = member
+        return member
+
+    async def delete(self, member_id: str) -> None:
+        """Drop the member if present."""
+        self.members.pop(member_id, None)

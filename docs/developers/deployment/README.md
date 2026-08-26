@@ -1,609 +1,198 @@
-# Deployment Documentation
+# Deployment
 
-This section provides comprehensive deployment documentation for QDrant Loader, covering production deployment strategies, environment setup, monitoring, and performance optimization. Examples are aligned with the current CLI and configuration model.
+Deployment assets are at mixed maturity. The database Compose file supports
+local adapter smoke tests, the Temporal Compose file provides a runnable
+PostgreSQL-backed development server, and the development helper composes those
+services with the control-plane API. The checked-in API, CLI, worker, and MCP
+Dockerfiles are runnable local images. Production topology and remote MCP
+exposure still require operator-owned
+composition and security policy.
 
-## 🎯 Deployment Overview
+## Local repository services
 
-QDrant Loader can be deployed in various environments and configurations to meet different scale and reliability requirements:
+`deploy/compose/docker-compose.database.yml` defines:
 
-### 🚀 Deployment Options
+- Qdrant on ports 6333/6334;
+- FalkorDB on ports 6379/3000;
+- Redis on host port 6380 by default;
+- PostgreSQL on port 5432.
 
-QDrant Loader supports the following deployment patterns:
+The service image tags are pinned directly in the Compose file. The environment
+template only controls ports, credentials, and startup behavior.
 
-- **Local Installation** - Direct Python package installation for development and small-scale use
-- **PyPI Package Deployment** - Official package distribution via PyPI
-- **Workspace-Based Deployment** - Organized multi-project configurations
-- **MCP Server Deployment** - Optional server component for AI assistant integration
+FalkorDB persists RDB snapshots in its named volume. Do not enable AOF for this
+service: FalkorDB 4.20.1 can create and restore the knowledge-graph uniqueness
+constraint from a snapshot, but crashes when Redis replays the asynchronous
+`GRAPH.CONSTRAINT` command from AOF. The separate Redis service continues to use
+AOF persistence.
 
-### 🏗️ Architecture Patterns
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│ QDrant Loader Deployment │
-├─────────────────────────────────────────────────────────────┤
-│ CLI Tool │ MCP Server (Optional) │
-│ ┌───────────────┐ │ ┌─────────────────────────────────┐ │
-│ │ qdrant-loader │ │ │ mcp-qdrant-loader │ │
-│ │ │ │ │ (AI Assistant Integration) │ │
-│ │ - init │ │ │ │ │
-│ │ - ingest │ │ │ - semantic_search │ │
-│ │ - config │ │ │ - hierarchy_search │ │
-│ │ - project │ │ │ - attachment_search │ │
-│ └───────────────┘ │ └─────────────────────────────────┘ │
-├─────────────────────────────────────────────────────────────┤
-│ External Dependencies │
-│ ┌───────────────┐ │ ┌─────────────────────────────────┐ │
-│ │ QDrant │ │ │ OpenAI API │ │
-│ │ Vector DB │ │ │ (Embeddings) │ │
-│ └───────────────┘ │ └─────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 🚀 Quick Start Deployment
-
-### Single Server Setup
+Prepare a protected environment file:
 
 ```bash
-# Create deployment directory
-mkdir qdrant-loader-deployment
-cd qdrant-loader-deployment
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate # On Windows: venv\Scripts\activate
-# Install QDrant Loader (and optional MCP server)
-pip install qdrant-loader
-pip install qdrant-loader-mcp-server  # optional
-# Create workspace structure
-mkdir -p {data,logs}
-# Create configuration files
-cat > config.yaml << EOF
-global:
-  qdrant:
-    url: "http://localhost:6333"
-    collection_name: "documents"
-  llm:
-    provider: "openai"
-    base_url: "https://api.openai.com/v1"
-    api_key: "${LLM_API_KEY}"
-    models:
-      embeddings: "text-embedding-3-small"
-      chat: "gpt-4o-mini"
-  state_management:
-    database_path: "./data/state.db"
-
-projects:
-  docs:
-    display_name: "Documentation"
-    sources:
-      git:
-        main-docs:
-          base_url: "https://github.com/company/docs"
-          branch: "main"
-          token: "${REPO_TOKEN}"
-EOF
-# Create environment file
-cat > .env << EOF
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION_NAME=documents
-LLM_API_KEY=your-openai-key
-OPENAI_API_KEY=your-openai-key  # Legacy support
-REPO_TOKEN=your-github-token
-EOF
-# Initialize and start
-qdrant-loader init --workspace .
-qdrant-loader ingest --workspace .
+cp env-example/.env.database.example env/.env.database
+scripts/deployment/dev.sh data
 ```
 
-### Production Environment Setup
+When upgrading an existing checkout, add `POSTGRES_PASSWORD` and
+`MINIO_ROOT_PASSWORD` to the existing protected `env/.env.database` before the
+next start. Monitoring now uses a separate `env/.env.monitoring`; create it
+from `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`.
+Compose intentionally refuses to start an affected service when one of these
+required passwords is absent.
+
+The unified deployment helper accepts `DATABASE_ENV_FILE` overrides and passes
+the selected file to Docker Compose. Change the example password before using
+the stack outside an isolated developer machine.
+
+The stack owns the stable `harborrag-data-network`. Application containers and
+the Temporal worker may join this network, but Temporal control-plane services
+remain on their separate `harborrag-temporal-network`. Start the database stack
+before enabling the Temporal worker profile.
+
+Use the repository smoke runner in [Testing](../testing/README.md#real-system-smoke-checks) to verify adapters through their public APIs.
+
+## Monitoring stack
+
+`docker-compose.monitoring.yml` defines version-pinned Prometheus, Grafana, and
+Loki services using files under `deploy/prometheus`, `deploy/grafana`, and
+`deploy/loki`. Prometheus and Grafana publish loopback-only ports by default;
+Loki is reachable only inside the private monitoring network.
+Prometheus joins `harborrag-data-network`; API metrics at `/api/v1/metrics`
+require an admin bearer token, while the default configuration scrapes
+the ingestion worker on port `9464`. The API exports request count,
+latency, in-flight, Python runtime, and process metrics using bounded route
+template labels. The worker exports bounded stage, document, artifact,
+chunk, retry, cleanup, verification, stale-candidate, and connector
+rate-limiting metrics. Dashboard and alert policy remain
+deployment-specific.
 
 ```bash
-# Create production user
-sudo useradd -m -s /bin/bash qdrant-loader
-sudo su - qdrant-loader
-# Setup application directory
-mkdir -p /opt/qdrant-loader/{data,logs}
-cd /opt/qdrant-loader
-# Install Python and dependencies
-python -m venv venv
-source venv/bin/activate
-pip install qdrant-loader qdrant-loader-mcp-server
-# Setup configuration (see Configuration section below)
-# Edit config.yaml and .env with your settings
-# Initialize workspace
-qdrant-loader init --workspace /opt/qdrant-loader
+cp env-example/.env.monitoring.example env/.env.monitoring
+chmod 600 env/.env.monitoring
+# Set GRAFANA_ADMIN_PASSWORD in env/.env.monitoring, then run:
+docker compose --env-file env/.env.monitoring \
+  --file deploy/compose/docker-compose.monitoring.yml up --detach
 ```
 
-## 🖥️ Environment Setup
+Set `GRAFANA_ADMIN_PASSWORD` in the protected monitoring environment file
+before starting the stack; Compose has no checked-in password fallback.
+Monitoring remains separate from `scripts/deployment/dev.sh` bootstrap. Keep
+its environment file protected and monitoring bound to loopback unless an
+authenticated TLS reverse proxy and firewall protect it. The hardened stack
+initializes a new `grafana_secure_data` volume so an older Grafana volume
+created with the retired `admin/admin` default is never reused; the old volume
+remains available for manual recovery or removal.
 
-### System Requirements
+## Application Compose files
 
-#### Minimum Requirements
-
-- **CPU**: 2 cores
-- **RAM**: 4 GB
-- **Storage**: 10 GB available space
-- **Python**: 3.12 or higher
-- **Network**: Internet access for API calls
-
-#### Recommended Requirements
-
-- **CPU**: 4+ cores
-- **RAM**: 8+ GB
-- **Storage**: 50+ GB SSD
-- **Python**: 3.12+
-- **Network**: High-speed internet connection
-
-### Operating System Support
-
-| OS                | Support Level      | Notes                      |
-| ----------------- | ------------------ | -------------------------- |
-| **Ubuntu 20.04+** | ✅ Fully Supported | Recommended for production |
-| **CentOS 8+**     | ✅ Fully Supported | Enterprise environments    |
-| **macOS 12+**     | ✅ Fully Supported | Development and testing    |
-| **Windows 10+**   | ✅ Fully Supported | Development environments   |
-
-### Dependencies
-
-#### System Dependencies
+`scripts/deployment/dev.sh` is the only deployment entrypoint. Run `bootstrap`
+once to create protected environment files from `env-example/`, including the
+API-only `env/.env.api`, then review the placeholders. The `up` command starts
+data services, Temporal, a Temporal worker, and the API, returning only after
+the API process health check succeeds:
 
 ```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install -y python3.12 python3.12-venv python3.12-dev git curl
-# CentOS/RHEL
-sudo yum install -y python3.12 python3.12-venv python3.12-devel git curl
-# macOS (with Homebrew)
-brew install python@3.12 git curl
+scripts/deployment/dev.sh bootstrap
+scripts/deployment/dev.sh up
 ```
 
-#### Python Dependencies
+When the database and Temporal stacks are already running, start only the API
+with:
 
 ```bash
-# Core dependencies are automatically installed
-pip install qdrant-loader qdrant-loader-mcp-server
-# Optional development dependencies
-uv sync --all-packages --all-extras
+scripts/deployment/dev.sh api
 ```
 
-### QDrant Database Setup
+The API and worker commands reuse Compose's existing local
+`harborrag-api-api` and `harborrag-temporal-temporal-worker` images by default.
+A missing image is built on the first start. Use `api --build`, `worker
+--build`, or `up --build` after changing application source, dependency
+metadata, or worker configuration. Docker then reuses the dependency-install
+layer while `uv.lock` and package metadata are unchanged, so source-only
+rebuilds do not reinstall libraries.
 
-#### Local QDrant Installation
+The API binds to `127.0.0.1:8000` by default. Override
+`HARBORRAG_API_BIND_ADDRESS` or `HARBORRAG_API_PORT` when another local binding
+is required. The local container's internal wildcard listener is explicitly
+acknowledged by `HARBORRAG_ALLOW_INSECURE_DEV=true`; this is safe only while the
+published address remains loopback. Configure HMAC authentication before using
+a non-loopback published address. Authentication and CORS values belong in the ignored
+`env/.env.api`. The API receives chat and embedding credentials from
+`env/.env.models` for chat completions and synchronous vector retrieval, while
+connector credentials remain isolated in ingestion workers. Use
+`dev.sh up --no-worker` to omit the worker. Stop the
+development topology in reverse order with:
 
 ```bash
-# Using Docker (recommended)
-docker run -p 6333:6333 -p 6334:6334 \ -v $(pwd)/qdrant_storage:/qdrant/storage:z \ qdrant/qdrant
-# Using binary installation
-wget https://github.com/qdrant/qdrant/releases/latest/download/qdrant-x86_64-unknown-linux-gnu.tar.gz
-tar xzf qdrant-x86_64-unknown-linux-gnu.tar.gz
-./qdrant
+scripts/deployment/dev.sh down
 ```
 
-#### Cloud QDrant Setup
+Individual ownership is explicit: `temporal` never starts a worker, `worker`
+only starts the worker, and `api` starts the API with `--no-deps`.
+
+`deploy/compose/docker-compose.yml` is the single API composition. It joins the
+external data network created by `docker-compose.database.yml` and connects to
+the Temporal service created by `docker-compose.temporal.yml`. Environment
+policy, rather than duplicated development and production Compose files,
+controls the API mode. Production deployments must supply authentication and
+their own secret/TLS/network policy.
+
+## CLI and MCP images
+
+Build the standalone operator images from the repository root:
 
 ```bash
-# QDrant Cloud configuration
-export QDRANT_URL="https://your-cluster.qdrant.io"
-export QDRANT_API_KEY="your-api-key"
-export QDRANT_COLLECTION_NAME="documents"
+docker build -f deploy/docker/Dockerfile.cli -t harborrag-cli .
+docker build -f deploy/docker/Dockerfile.mcp -t harborrag-mcp .
+
+docker run --rm harborrag-cli --help
+docker run --rm harborrag-mcp --check
 ```
 
-## 🔧 Configuration Management
+Both images include the shared runtime, model and retrieval dependencies,
+checked-in configuration, and packaged chat prompts. They run as the non-root
+`harborrag` user. Configuration paths inside the images point to `/app/config`;
+mount a replacement directory there read-only when deploying a different
+catalog.
 
-### Environment Variables
+The CLI image uses `harborrag` as its entry point. Provide
+`env/.env.models` for chat and the relevant service settings for retrieval or
+ingestion commands:
 
 ```bash
-# Production environment variables
-cat > /opt/qdrant-loader/.env << EOF
-# QDrant Configuration
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION_NAME=documents
-QDRANT_API_KEY=your-api-key
-# LLM Configuration
-LLM_API_KEY=your-openai-api-key
-OPENAI_API_KEY=your-openai-api-key  # Legacy support
-# Data Source Credentials
-REPO_TOKEN=your-github-token
-CONFLUENCE_TOKEN=your-confluence-token
-CONFLUENCE_EMAIL=your-email@domain.com
-JIRA_TOKEN=your-jira-token
-JIRA_EMAIL=your-email@domain.com
-# Application Settings
-STATE_DB_PATH=./data/state.db
-EOF
+docker run --rm \
+  --env-file env/.env.models \
+  harborrag-cli chat "Explain HarborRAG." --json
 ```
 
-### Configuration File
+The MCP image uses `python -m harborrag_mcp_server` as its entry point and
+defaults to stdio. An MCP client must keep stdin attached with `-i`; real tool
+calls also require protected model/database settings and network-reachable data
+services. Its writable JSONL audit path is
+`/var/lib/harborrag/.harborrag/mcp-audit.jsonl`.
 
-```yaml
-# /opt/qdrant-loader/config.yaml
-global:
-  qdrant:
-    url: "${QDRANT_URL}"
-    api_key: "${QDRANT_API_KEY}"
-    collection_name: "${QDRANT_COLLECTION_NAME}"
-  llm:
-    provider: "openai"
-    base_url: "https://api.openai.com/v1"
-    api_key: "${LLM_API_KEY}"
-    models:
-      embeddings: "text-embedding-3-small"
-      chat: "gpt-4o-mini"
-  state_management:
-    database_path: "${STATE_DB_PATH}"
-  chunking:
-    chunk_size: 1200
-    chunk_overlap: 300
-  file_conversion:
-    max_file_size: "100MB"
-    conversion_timeout: 300
+Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP
+transport and local status/configuration UI. Remote MCP needs TLS and a
+production JWT/JWKS verifier and is intentionally not provided by the local
+container command.
 
-projects:
-  production:
-    project_id: "production"
-    display_name: "Production Documentation"
-    description: "Production documentation and knowledge base"
-    sources:
-      git:
-        docs-repo:
-          source_type: "git"
-          source: "docs-repo"
-          base_url: "https://github.com/company/docs"
-          branch: "main"
-          token: "${REPO_TOKEN}"
-          include_paths:
-            - "**/*.md"
-            - "**/*.rst"
-      confluence:
-        company-wiki:
-          source_type: "confluence"
-          source: "company-wiki"
-          base_url: "https://company.atlassian.net/wiki"
-          deployment_type: "cloud"
-          space_key: "DOCS"
-          token: "${CONFLUENCE_TOKEN}"
-          email: "${CONFLUENCE_EMAIL}"
-```
+## Model assets
 
-## 🔄 Service Management
+`scripts/models/` contains helpers for Docling/FastEmbed downloads, warmup, and local-model smoke checks. Inspect each script before use: provider/model downloads may require network access, substantial disk space, and platform-specific runtimes. Keep caches outside container layers when they need independent lifecycle management.
 
-### Systemd Service
+## Temporal and cloud directories
 
-```ini
-# /etc/systemd/system/qdrant-loader.service
-[Unit]
-Description=QDrant Loader Service
-After=network.target
-Wants=network.target
-[Service]
-Type=simple
-User=qdrant-loader
-Group=qdrant-loader
-WorkingDirectory=/opt/qdrant-loader
-Environment=PATH=/opt/qdrant-loader/venv/bin
-ExecStart=/opt/qdrant-loader/venv/bin/qdrant-loader ingest --workspace /opt/qdrant-loader
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-[Install]
-WantedBy=multi-user.target
-```
+`deploy/temporal/` contains PostgreSQL schema setup, dynamic configuration, and
+namespace initialization for local development. It is not a production
+topology; see its README for the Temporal Cloud/Helm boundary. `deploy/aws/`
+reserves cloud deployment directions and does not provide complete
+infrastructure-as-code.
 
-### MCP Server Service
+## Production readiness checklist
 
-```ini
-# /etc/systemd/system/mcp-qdrant-loader.service
-[Unit]
-Description=QDrant Loader MCP Server
-After=network.target
-Wants=network.target
-[Service]
-Type=simple
-User=qdrant-loader
-Group=qdrant-loader
-WorkingDirectory=/opt/qdrant-loader
-Environment=PATH=/opt/qdrant-loader/venv/bin
-ExecStart=/opt/qdrant-loader/venv/bin/mcp-qdrant-loader --workspace /opt/qdrant-loader/config
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-[Install]
-WantedBy=multi-user.target
-```
-
-### Service Management Commands
-
-```bash
-# Enable and start services
-sudo systemctl enable qdrant-loader
-sudo systemctl enable mcp-qdrant-loader
-sudo systemctl start qdrant-loader
-sudo systemctl start mcp-qdrant-loader
-# Check status
-sudo systemctl status qdrant-loader
-sudo systemctl status mcp-qdrant-loader
-# View logs
-sudo journalctl -u qdrant-loader -f
-sudo journalctl -u mcp-qdrant-loader -f
-# Restart services
-sudo systemctl restart qdrant-loader
-sudo systemctl restart mcp-qdrant-loader
-```
-
-## 📊 Monitoring and Observability
-
-### Log Management
-
-#### Log Configuration
-
-```yaml
-# logging.yaml
-version: 1
-formatters:
-  default:
-    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  json:
-    format: '{"timestamp": "%(asctime)s", "logger": "%(name)s", "level": "%(levelname)s", "message": "%(message)s"}'
-handlers:
-  console:
-    class: logging.StreamHandler
-    level: INFO
-    formatter: json
-    stream: ext://sys.stdout
-  file:
-    class: logging.handlers.RotatingFileHandler
-    level: DEBUG
-    formatter: default
-    filename: /opt/qdrant-loader/logs/app.log
-    maxBytes: 10485760 # 10MB
-    backupCount: 5
-loggers:
-  qdrant_loader:
-    level: DEBUG
-    handlers: [console, file]
-    propagate: false
-root:
-  level: INFO
-  handlers: [console]
-```
-
-#### Log Rotation
-
-```bash
-# /etc/logrotate.d/qdrant-loader
-/opt/qdrant-loader/logs/*.log {
-  daily
-  missingok
-  rotate 30
-  compress
-  delaycompress
-  notifempty
-  create 644 qdrant-loader qdrant-loader
-  postrotate
-    systemctl reload qdrant-loader
-  endscript
-}
-```
-
-### Health Monitoring
-
-#### Health Check Script
-
-```bash
-#!/bin/bash
-# /opt/qdrant-loader/bin/health-check.sh
-set -e
-WORKSPACE="/opt/qdrant-loader/config"
-LOG_FILE="/opt/qdrant-loader/logs/health-check.log"
-# Function to log with timestamp
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
-}
-# Check QDrant Loader configuration
-if qdrant-loader config --workspace "$WORKSPACE" >/dev/null 2>&1; then
-  log "QDrant Loader: HEALTHY - Configuration valid"
-  exit 0
-else
-  log "QDrant Loader: UNHEALTHY - Configuration invalid"
-  exit 1
-fi
-```
-
-#### Cron Job for Health Checks
-
-```bash
-# Add to crontab
-*/5 * * * * /opt/qdrant-loader/bin/health-check.sh
-```
-
-### Performance Monitoring
-
-#### System Metrics
-
-```bash
-# Monitor system resources
-htop
-iostat -x 1
-free -h
-df -h
-```
-
-#### Application Metrics
-
-```bash
-# Check project status
-qdrant-loader config --workspace /opt/qdrant-loader/config
-# Check configuration and project status
-qdrant-loader config --workspace /opt/qdrant-loader/config
-# Monitor system services
-systemctl status qdrant-loader
-systemctl status mcp-qdrant-loader
-```
-
-### Prometheus Metrics
-
-QDrant Loader includes built-in Prometheus metrics support:
-
-```python
-# Available metrics (from )
-INGESTED_DOCUMENTS = Counter("qdrant_ingested_documents_total", "Total number of documents ingested")
-CHUNKING_DURATION = Histogram("qdrant_chunking_duration_seconds", "Time spent chunking documents")
-EMBEDDING_DURATION = Histogram("qdrant_embedding_duration_seconds", "Time spent embedding chunks")
-UPSERT_DURATION = Histogram("qdrant_upsert_duration_seconds", "Time spent upserting to Qdrant")
-CHUNK_QUEUE_SIZE = Gauge("qdrant_chunk_queue_size", "Current size of the chunk queue")
-EMBED_QUEUE_SIZE = Gauge("qdrant_embed_queue_size", "Current size of the embedding queue")
-CPU_USAGE = Gauge("qdrant_cpu_usage_percent", "CPU usage percent")
-MEMORY_USAGE = Gauge("qdrant_memory_usage_percent", "Memory usage percent")
-```
-
-## 🔒 Security Configuration
-
-### File Permissions
-
-```bash
-# Set proper file permissions
-sudo chown -R qdrant-loader:qdrant-loader /opt/qdrant-loader
-sudo chmod 750 /opt/qdrant-loader
-sudo chmod 640 /opt/qdrant-loader/config/.env
-sudo chmod 644 /opt/qdrant-loader/config/config.yaml
-sudo chmod 755 /opt/qdrant-loader/bin/health-check.sh
-```
-
-### Firewall Configuration
-
-```bash
-# Ubuntu/Debian (ufw)
-sudo ufw allow ssh
-sudo ufw allow 6333/tcp # QDrant HTTP
-sudo ufw allow 6334/tcp # QDrant gRPC
-sudo ufw enable
-# CentOS/RHEL (firewalld)
-sudo firewall-cmd --permanent --add-service=ssh
-sudo firewall-cmd --permanent --add-port=6333/tcp
-sudo firewall-cmd --permanent --add-port=6334/tcp
-sudo firewall-cmd --reload
-```
-
-### SSL/TLS Configuration
-
-```bash
-# Generate SSL certificates for QDrant
-openssl req -x509 -newkey rsa:4096 -keyout qdrant-key.pem -out qdrant-cert.pem -days 365 -nodes
-# Configure QDrant with SSL
-# Add to QDrant configuration
-```
-
-## Scaling Strategies
-
-### Horizontal Scaling
-
-#### Multiple Worker Processes
-
-```bash
-# Run multiple ingestion processes for different projects
-qdrant-loader ingest --workspace /opt/qdrant-loader --project project1 &
-qdrant-loader ingest --workspace /opt/qdrant-loader --project project2 &
-qdrant-loader ingest --workspace /opt/qdrant-loader --project project3 &
-wait
-```
-
-#### Load Balancing
-
-```bash
-# Use nginx for load balancing MCP servers
-# /etc/nginx/sites-available/qdrant-loader
-upstream mcp_servers {
-  server 127.0.0.1:8001;
-  server 127.0.0.1:8002;
-  server 127.0.0.1:8003;
-}
-
-server {
-  listen 80;
-  server_name qdrant-loader.example.com;
-
-  location / {
-    proxy_pass http://mcp_servers;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-  }
-}
-```
-
-### Vertical Scaling
-
-#### Resource Optimization
-
-```bash
-# Optimize for high-memory systems
-# Configure larger chunk sizes in config.yaml:
-# global:
-# chunking:
-# chunk_size: 2000
-# chunk_overlap: 400
-# Run ingestion with specific project
-qdrant-loader ingest --workspace /opt/qdrant-loader/config --project high-priority
-```
-
-## 📚 Deployment Documentation
-
-### Detailed Deployment Guides
-
-- **[Environment Setup](#️-environment-setup)** - Complete environment setup guide
-- **[Monitoring and Observability](#-monitoring-and-observability)** - Comprehensive monitoring setup
-- **[Performance Optimization](#performance-optimization)** - Production optimization guide
-
-### Best Practices
-
-1. **Use virtual environments** - Isolate Python dependencies
-2. **Implement health checks** - Monitor application health
-3. **Monitor everything** - Comprehensive observability
-4. **Plan for scale** - Design for growth
-5. **Secure by default** - File permissions, firewall, SSL
-6. **Automate deployments** - Use scripts and configuration management
-
-### Deployment Checklist
-
-- [ ] System requirements met
-- [ ] Dependencies installed
-- [ ] Configuration files created and validated
-- [ ] Environment variables set
-- [ ] QDrant database accessible
-- [ ] Services configured and started
-- [ ] Health checks implemented
-- [ ] Monitoring and logging configured
-- [ ] Security measures applied
-- [ ] Backup and recovery tested
-- [ ] Documentation updated
-
-## 🆘 Getting Help
-
-### Deployment Support
-
-- **[GitHub Issues](https://github.com/martin-papy/qdrant-loader/issues)** - Report deployment issues
-- **[GitHub Discussions](https://github.com/martin-papy/qdrant-loader/discussions)** - Ask deployment questions
-- **[Configuration Templates](../../../packages/qdrant-loader/conf/)** - Reference workspace templates for config and environment setup
-
-### Community Resources
-
-- **[Configuration Reference](../../users/configuration/config-file-reference.md)** - Full configuration schema and options
-- **[MCP Server Setup](../../users/detailed-guides/mcp-server/setup-and-integration.md)** - Production MCP integration guidance
-
----
-
-**Ready to deploy?** Start with [Environment Setup](#️-environment-setup) for detailed setup instructions or jump to [Monitoring and Observability](#-monitoring-and-observability) for production monitoring. Don't forget to check [Performance Optimization](#performance-optimization) for optimization tips.
-
-### Performance Optimization
-
-Configure chunking and processing parameters in your workspace configuration:
-
-```yaml
-# config.yaml - Performance tuning
-global:
-  chunking:
-    chunk_size: 1200
-    chunk_overlap: 300
-  file_conversion:
-    max_file_size: "100MB"
-    conversion_timeout: 300
-```
+Before an internet-facing deployment can be considered production-ready,
+operators still need deployment-specific authorization policy, TLS/network
+policy, secret delivery, backup/restore, resource limits, alert thresholds, and
+end-to-end tests against their chosen source systems. Review the
+[runtime reliability boundary](../architecture/runtime-reliability.md) before
+choosing worker, retry, timeout, retention, and recovery policy.

@@ -1,0 +1,55 @@
+{
+  "id": "glossary",
+  "title": "Glossary",
+  "note": "Three heading levels plus a table on a local file: deeper section nesting than the pinned four, so Structure parent_of Structure runs two levels.",
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Glossary",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Terms used across the evaluation suite."
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "content": "Graph Terms",
+      "metadata": {
+        "level": 2
+      }
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "content": "A signature is a source-kind/relation/target-kind triple."
+    },
+    {
+      "id": "h3",
+      "type": "heading",
+      "content": "Placeholders",
+      "metadata": {
+        "level": 3
+      }
+    },
+    {
+      "id": "p3",
+      "type": "paragraph",
+      "content": "A stand-in node for a target this run never ingested."
+    },
+    {
+      "id": "t1",
+      "type": "table",
+      "content": "Term\tMeaning\nSignature\tEdge shape\n",
+      "metadata": {
+        "table_id": "glossary-terms",
+        "table_caption": "Term index"
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+[project]
+name = "harborrag"
+version = "2.0.0a1"
+description = "Meta-package public facade for HarborRAG."
+requires-python = ">=3.12"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "HarborRAG Contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = [
+    "harborrag-core==2.0.0a1",
+    "harborrag-runtime==2.0.0a1",
+]
+
+[project.urls]
+Homepage = "https://github.com/cbtw-apac/HarborRAG"
+Repository = "https://github.com/cbtw-apac/HarborRAG"
+Issues = "https://github.com/cbtw-apac/HarborRAG/issues"
+
+[project.optional-dependencies]
+local = [
+    "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant,s3,tables]==2.0.0a1",
+]
+chat = ["harborrag-adapters[llm]==2.0.0a1"]
+cli = ["harborrag-app==2.0.0a1"]
+memory = ["harborrag-memory==2.0.0a1"]
+server = [
+    "harborrag-app[api]==2.0.0a1",
+    "harborrag-runtime[production,temporal]==2.0.0a1",
+]
+temporal = ["harborrag-runtime[temporal]==2.0.0a1"]
+mcp = ["harborrag-mcp-server[mcp]==2.0.0a1"]
+qdrant = ["harborrag-adapters[qdrant]==2.0.0a1"]
+falkordb = ["harborrag-adapters[falkordb]==2.0.0a1"]
+postgres = ["harborrag-adapters[control-plane,postgres]==2.0.0a1"]
+s3 = ["harborrag-adapters[s3]==2.0.0a1"]
+redis = ["harborrag-adapters[redis]==2.0.0a1"]
+all = [
+    "harborrag-adapters[parsers-all]==2.0.0a1",
+    "harborrag-app[api]==2.0.0a1",
+    "harborrag-mcp-server[mcp]==2.0.0a1",
+    "harborrag-memory==2.0.0a1",
+    "harborrag-runtime[production,temporal]==2.0.0a1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harborrag"]

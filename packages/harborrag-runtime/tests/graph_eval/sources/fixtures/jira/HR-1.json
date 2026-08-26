@@ -1,0 +1,37 @@
+{
+  "id": "HR-1",
+  "title": "HR-1 Rotate graph credentials",
+  "note": "Jira blocks subject, the parent of the subtask chain, and the cross-source link that can never resolve.",
+  "extra": {
+    "issue_key": "HR-1",
+    "issue_type": "Task",
+    "status": "Open"
+  },
+  "elements": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "content": "Rotate graph credentials",
+      "metadata": {
+        "level": 1
+      }
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "content": "Rotate before the next release."
+    }
+  ],
+  "relations": [
+    {
+      "predicate": "blocks",
+      "target_id": "HR-2",
+      "target_type": "document"
+    },
+    {
+      "predicate": "links_to",
+      "target_id": "confluence://SPACE/team-handbook",
+      "target_type": "document"
+    }
+  ]
+}

@@ -1,0 +1,289 @@
+"""White-box unit tests for the docx/pptx/excel/epub/odt parsers."""
+
+from __future__ import annotations
+
+import logging
+
+import pytest
+from harbor_test_builders import (
+    build_epub_bytes,
+    build_odt_bytes,
+    build_pptx_bytes,
+    build_xlsx_bytes,
+)
+
+from harborrag_adapters.parsers.compat import (
+    DocxParser,
+    EpubParser,
+    ExcelParser,
+    OdtParser,
+    PptxParser,
+)
+from harborrag_adapters.parsers.errors import ParseError
+from harborrag_core.domain.parser import ParseInput
+
+pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+def test_docx_parser_extracts_text(docx_bytes):
+    document = DocxParser().parse(ParseInput(content=docx_bytes, filename="report.docx"))
+    assert document.parser_name == "docx"
+    assert "Hello Harbor" in document.content
+    assert document.metadata["filename"] == "report.docx"
+
+
+def test_odt_parser_extracts_text(odt_bytes):
+    document = OdtParser().parse(ParseInput(content=odt_bytes, filename="report.odt"))
+    assert document.parser_name == "odt"
+    assert "Hello Harbor" in document.content
+    assert document.metadata["filename"] == "report.odt"
+
+
+def test_odt_parser_preserves_heading_and_paragraph_order():
+    odt = build_odt_bytes(["First paragraph.", "Second paragraph."], heading="Title Heading")
+    document = OdtParser().parse(ParseInput(content=odt, filename="ordered.odt"))
+    assert document.content == "Title Heading\nFirst paragraph.\nSecond paragraph."
+    assert document.elements[0].type == "paragraph"
+
+
+def test_odt_parser_returns_empty_content_for_a_blank_document():
+    odt = build_odt_bytes([])
+    document = OdtParser().parse(ParseInput(content=odt, filename="empty.odt"))
+    assert document.content == ""
+    assert document.elements == []
+
+
+def test_odt_parser_advertises_its_route():
+    assert OdtParser().can_parse(ParseInput(content=b"x", filename="report.odt"))
+    assert OdtParser().can_parse(
+        ParseInput(content=b"x", content_type="application/vnd.oasis.opendocument.text")
+    )
+
+
+def test_pptx_parser_extracts_slide_text_and_count():
+    document = PptxParser().parse(
+        ParseInput(content=build_pptx_bytes("Kickoff slide"), filename="deck.pptx")
+    )
+    assert "Kickoff slide" in document.content
+    assert document.metadata["slide_count"] == 1
+    assert document.elements[0].metadata["slide"] == 1
+
+
+def test_excel_parser_extracts_sheet_text_and_names():
+    xlsx = build_xlsx_bytes([["header"], ["value-one"], ["value-two"]])
+    document = ExcelParser().parse(ParseInput(content=xlsx, filename="book.xlsx"))
+    assert document.parser_name == "excel"
+    assert "value-one" in document.content
+    assert "value-two" in document.content
+    assert document.metadata["sheets"] == ["Sheet1"]
+    assert document.elements[0].metadata["sheet"] == "Sheet1"
+
+
+def test_excel_parser_treats_zero_byte_file_as_empty_workbook():
+    document = ExcelParser().parse(ParseInput(content=b"", filename="empty.xlsx"))
+
+    assert document.content == ""
+    assert document.elements == []
+    assert document.metadata["sheets"] == []
+
+
+def test_fixture_builders_preserve_explicit_empty_collections():
+    import io
+    import zipfile
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(build_xlsx_bytes([])), read_only=True)
+    assert list(workbook.active.values) == []
+
+    epub = build_epub_bytes([])
+    with zipfile.ZipFile(io.BytesIO(epub)) as archive:
+        assert not any(name.endswith(".xhtml") for name in archive.namelist())
+        assert archive.getinfo("mimetype").compress_type == zipfile.ZIP_STORED
+
+
+def test_epub_fixture_builder_escapes_xhtml_section_text():
+    import io
+    import zipfile
+
+    epub = build_epub_bytes(["A & <B>"])
+    with zipfile.ZipFile(io.BytesIO(epub)) as archive:
+        chapter = archive.read("OEBPS/ch1.xhtml").decode("utf-8")
+
+    assert "A &amp; &lt;B&gt;" in chapter
+
+
+def test_excel_parser_advertises_legacy_xls_route():
+    assert ExcelParser().can_parse(ParseInput(content=b"x", filename="legacy.xls"))
+
+
+def test_epub_parser_preserves_spine_section_order(caplog):
+    epub = build_epub_bytes(["Alpha section", "Beta section", "Gamma section"])
+    with caplog.at_level(logging.INFO, logger="harborrag.adapters.parsers.epub"):
+        document = EpubParser().parse(ParseInput(content=epub, filename="b.epub"))
+
+    assert document.content == "Alpha section\n\nBeta section\n\nGamma section"
+    assert [element.metadata["order"] for element in document.elements] == [1, 2, 3]
+    assert document.metadata["sections"] == 3
+    assert document.warnings is None
+    assert "Parsed EPUB b.epub sections=3" in caplog.text
+
+
+def test_epub_parser_warns_on_missing_referenced_section():
+    import io
+    import zipfile
+
+    original = build_epub_bytes(["One text", "Two text"])
+    buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(original)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
+        for info in source.infolist():
+            if info.filename == "OEBPS/ch2.xhtml":
+                continue  # spine still references it -> should warn, not crash
+            sink.writestr(info, source.read(info.filename))
+
+    document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="b.epub"))
+    assert document.content == "One text"
+    assert document.warnings is not None
+    assert any("ch2.xhtml" in warning for warning in document.warnings)
+    assert [element.metadata["order"] for element in document.elements] == [1]
+
+
+def test_epub_parser_emits_package_title_once_when_xhtml_duplicates_it():
+    import io
+    import zipfile
+
+    original = build_epub_bytes(["Body text"])
+    buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(original)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename == "OEBPS/content.opf":
+                payload = payload.replace(
+                    b"<metadata/>",
+                    b'<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                    b"Harbor Book</dc:title></metadata>",
+                )
+            elif info.filename == "OEBPS/ch1.xhtml":
+                payload = (
+                    b"<html><head><title>Harbor Book</title></head>"
+                    b"<body><h1>Harbor Book</h1><p>Body text</p></body></html>"
+                )
+            sink.writestr(info, payload)
+
+    document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="book.epub"))
+
+    assert document.content == "Harbor Book\n\nBody text"
+    assert document.content.count("Harbor Book") == 1
+    assert document.metadata["title"] == "Harbor Book"
+    assert document.elements[0].type == "heading"
+
+
+def test_epub_parser_does_not_duplicate_title_when_head_title_differs_from_heading():
+    """A section whose <head><title> differs from its body <h1> must not leak
+    the <title> text into the extracted content ahead of the real heading --
+    that shift used to make `_remove_leading_title` miss the duplicate."""
+    import io
+    import zipfile
+
+    original = build_epub_bytes(["placeholder"])
+    buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(original)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename == "OEBPS/content.opf":
+                payload = payload.replace(
+                    b"<metadata/>",
+                    b'<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                    b"Q3 Compliance Review</dc:title></metadata>",
+                )
+            elif info.filename == "OEBPS/ch1.xhtml":
+                payload = (
+                    b"<html><head><title>Structured Content</title></head>"
+                    b"<body><h1>Q3 Compliance Review</h1><p>Body text</p></body></html>"
+                )
+            sink.writestr(info, payload)
+
+    document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="book.epub"))
+
+    assert document.content == "Q3 Compliance Review\n\nBody text"
+    assert document.content.count("Q3 Compliance Review") == 1
+    assert "Structured Content" not in document.content
+
+
+def test_epub_parser_excludes_nav_document_from_spine_content():
+    """An EPUB3 nav document (``properties="nav"``) may legally sit in the
+    spine so readers can open it as a page, but its link text duplicates the
+    chapter titles it points to -- it must not be extracted as a section."""
+    import io
+    import zipfile
+
+    original = build_epub_bytes(["Chapter body text"])
+    buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(original)) as source,
+        zipfile.ZipFile(buffer, "w") as sink,
+    ):
+        for info in source.infolist():
+            payload = source.read(info.filename)
+            if info.filename == "OEBPS/content.opf":
+                payload = (
+                    payload.replace(
+                        b"<metadata/>",
+                        b'<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                        b"Harbor Book</dc:title></metadata>",
+                    )
+                    .replace(
+                        b'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>',
+                        b'<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" '
+                        b'properties="nav"/>'
+                        b'<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/>',
+                    )
+                    .replace(
+                        b'<spine><itemref idref="c1"/></spine>',
+                        b'<spine><itemref idref="nav"/><itemref idref="c1"/></spine>',
+                    )
+                )
+            elif info.filename == "OEBPS/ch1.xhtml":
+                payload = (
+                    b"<html><head><title>Chapter One</title></head>"
+                    b"<body><h1>Chapter One</h1><p>Chapter body text</p></body></html>"
+                )
+            sink.writestr(info, payload)
+        sink.writestr(
+            "OEBPS/nav.xhtml",
+            "<html><head><title>Harbor Book</title></head>"
+            "<body><nav><h2>Harbor Book</h2>"
+            '<ol><li><a href="ch1.xhtml">Chapter One</a></li></ol></nav></body></html>',
+        )
+
+    document = EpubParser().parse(ParseInput(content=buffer.getvalue(), filename="book.epub"))
+
+    assert document.content == "Harbor Book\n\nChapter One\nChapter body text"
+    assert document.content.count("Chapter One") == 1
+    assert document.metadata["sections"] == 1
+
+
+def test_epub_parser_raises_typed_error_on_encrypted_archive(monkeypatch):
+    """`zipfile` raises a bare `RuntimeError` for password-protected members
+    while resolving container.xml/the OPF, before the per-section read loop's
+    own RuntimeError handling gets a chance to run. That must surface as a
+    typed, recoverable ParseError instead of crashing the caller."""
+    import zipfile
+
+    def _encrypted_read(self, name, *args, **kwargs):
+        raise RuntimeError(f"File {name!r} is encrypted, password required for extraction")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", _encrypted_read)
+
+    epub = build_epub_bytes(["Body text"])
+    with pytest.raises(ParseError, match="password-protected"):
+        EpubParser().parse(ParseInput(content=epub, filename="book.epub"))

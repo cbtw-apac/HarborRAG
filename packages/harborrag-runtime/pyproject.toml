@@ -1,0 +1,38 @@
+[project]
+name = "harborrag-runtime"
+version = "2.0.0a1"
+description = "Direct and durable production execution for HarborRAG."
+requires-python = ">=3.12"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "harborrag-core==2.0.0a1",
+    "harborrag-engine==2.0.0a1",
+    "harborrag-memory==2.0.0a1",
+    "harborrag-adapters==2.0.0a1",
+    "PyYAML>=6.0.0",
+    "pydantic>=2.13,<3",
+    "pydantic-settings>=2.2",
+    "opentelemetry-api>=1.43,<2",
+    "prometheus-client>=0.19,<1",
+]
+
+[project.optional-dependencies]
+temporal = [
+    "temporalio>=1.30,<2",
+    "cloudpickle>=3.1,<4",
+]
+production = [
+    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]==2.0.0a1",
+]
+dev = [
+    "types-PyYAML>=6.0,<7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harborrag_runtime"]

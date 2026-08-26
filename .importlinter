@@ -1,0 +1,132 @@
+[importlinter]
+root_packages =
+    harborrag
+    harborrag_core
+    harborrag_adapters
+    harborrag_engine
+    harborrag_memory
+    harborrag_runtime
+    harborrag_app
+    harborrag_mcp_server
+
+[importlinter:contract:1]
+name = Core has no outward dependencies
+type = forbidden
+source_modules =
+    harborrag_core
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_engine
+    harborrag_app
+    harborrag_mcp_server
+    harborrag_runtime
+
+[importlinter:contract:2]
+name = Adapters never depend on engine or transports
+type = forbidden
+source_modules =
+    harborrag_adapters
+forbidden_modules =
+    harborrag
+    harborrag_engine
+    harborrag_memory
+    harborrag_app
+    harborrag_mcp_server
+    harborrag_runtime
+
+[importlinter:contract:3]
+name = Engine depends only on core
+type = forbidden
+source_modules =
+    harborrag_engine
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_app
+    harborrag_mcp_server
+    harborrag_runtime
+
+[importlinter:contract:4]
+name = Runtime never depends on transports
+type = forbidden
+source_modules =
+    harborrag_runtime
+forbidden_modules =
+    harborrag
+    harborrag_app
+    harborrag_mcp_server
+
+[importlinter:contract:5]
+name = App never depends on adapters or MCP
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    harborrag_app
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_mcp_server
+
+[importlinter:contract:6]
+name = MCP never depends on adapters or app
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    harborrag_mcp_server
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_app
+
+[importlinter:contract:7]
+name = Memory depends only on core
+type = forbidden
+source_modules =
+    harborrag_memory
+forbidden_modules =
+    harborrag
+    harborrag_adapters
+    harborrag_engine
+    harborrag_app
+    harborrag_mcp_server
+    harborrag_runtime
+
+[importlinter:contract:8]
+name = Runtime config does not depend on runtime services
+type = forbidden
+source_modules =
+    harborrag_runtime.config
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.ingestion
+    harborrag_runtime.memory
+    harborrag_runtime.retrieval
+    harborrag_runtime.sdk
+    harborrag_runtime.temporal
+
+[importlinter:contract:9]
+name = Ingestion domain does not depend on orchestration or serving
+type = forbidden
+source_modules =
+    harborrag_runtime.ingestion.document
+    harborrag_runtime.ingestion.maintenance
+    harborrag_runtime.ingestion.source
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.retrieval
+    harborrag_runtime.sdk
+    harborrag_runtime.temporal
+
+[importlinter:contract:10]
+name = Retrieval does not depend on orchestration or serving
+type = forbidden
+source_modules =
+    harborrag_runtime.retrieval
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.sdk
+    harborrag_runtime.temporal

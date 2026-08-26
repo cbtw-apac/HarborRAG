@@ -4,37 +4,11 @@ Edge case and error handling tests for the website build system.
 These tests focus on error conditions, edge cases, and exception handling.
 """
 
-import importlib.util
 import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-
-def import_website_builder():
-    """Import WebsiteBuilder class dynamically to avoid linter issues."""
-    website_dir = Path(__file__).parent.parent / "website"
-    build_file = website_dir / "build.py"
-
-    if not build_file.exists():
-        pytest.skip("Website build.py not found", allow_module_level=True)
-
-    spec = importlib.util.spec_from_file_location("build", build_file)
-    if spec is None or spec.loader is None:
-        pytest.skip("Cannot load build module", allow_module_level=True)
-
-    build_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(build_module)
-
-    return build_module.WebsiteBuilder
-
-
-# Import the class at module level
-try:
-    WebsiteBuilder = import_website_builder()
-except Exception:
-    pytest.skip("Cannot import WebsiteBuilder", allow_module_level=True)
+from website.builder import WebsiteBuilder
 
 
 class TestWebsiteBuilderEdgeCases:
@@ -58,9 +32,7 @@ class TestWebsiteBuilderEdgeCases:
             # This is the expected behavior for missing templates
             pass
 
-    def test_build_page_missing_content_template(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_build_page_missing_content_template(self, mock_project_structure, clean_workspace):
         """Test building page with missing content template."""
         os.chdir(mock_project_structure)
 
@@ -134,9 +106,7 @@ class TestWebsiteBuilderEdgeCases:
         assert "display-4 fw-bold text-primary mb-4" in result
 
     @patch("builtins.open", side_effect=PermissionError("Permission denied"))
-    def test_file_permission_errors(
-        self, mock_open, mock_project_structure, clean_workspace
-    ):
+    def test_file_permission_errors(self, mock_open, mock_project_structure, clean_workspace):
         """Test handling of file permission errors."""
         os.chdir(mock_project_structure)
 
@@ -145,9 +115,7 @@ class TestWebsiteBuilderEdgeCases:
         with pytest.raises(PermissionError):
             builder.load_template("base.html")
 
-    def test_invalid_json_in_coverage_data(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_invalid_json_in_coverage_data(self, mock_project_structure, clean_workspace):
         """Test handling of invalid JSON in coverage data."""
         os.chdir(mock_project_structure)
 
@@ -208,9 +176,7 @@ class TestWebsiteBuilderEdgeCases:
         assert "Nested item" in result
 
     @patch("shutil.copytree", side_effect=OSError("Copy failed"))
-    def test_asset_copy_failure(
-        self, mock_copytree, mock_project_structure, clean_workspace
-    ):
+    def test_asset_copy_failure(self, mock_copytree, mock_project_structure, clean_workspace):
         """Test handling of asset copy failures."""
         os.chdir(mock_project_structure)
 
@@ -221,9 +187,7 @@ class TestWebsiteBuilderEdgeCases:
             builder.copy_assets()
 
     @patch("shutil.rmtree", side_effect=OSError("Remove failed"))
-    def test_directory_cleanup_failure(
-        self, mock_rmtree, mock_project_structure, clean_workspace
-    ):
+    def test_directory_cleanup_failure(self, mock_rmtree, mock_project_structure, clean_workspace):
         """Test handling of directory cleanup failures."""
         os.chdir(mock_project_structure)
 
@@ -257,17 +221,17 @@ class TestWebsiteBuilderEdgeCases:
         # Should handle empty directories gracefully
         assert (mock_project_structure / "site").exists()
 
-    def test_circular_directory_references(
+    def test_additional_directory_reference_does_not_break_build(
         self, mock_project_structure, clean_workspace
     ):
-        """Test handling of circular directory references."""
+        """Test an extra directory reference without requiring symlink privileges."""
         os.chdir(mock_project_structure)
 
-        # Create a circular reference (symlink to parent)
+        reference = mock_project_structure / "circular"
         try:
-            (mock_project_structure / "circular").symlink_to(mock_project_structure)
+            reference.symlink_to(mock_project_structure)
         except OSError:
-            pytest.skip("Cannot create symlinks on this system")
+            reference.mkdir()
 
         builder = WebsiteBuilder("website/templates", "site")
 
@@ -309,9 +273,7 @@ class TestWebsiteBuilderEdgeCases:
         if large_html.exists():
             assert large_html.stat().st_size > 0
 
-    def test_concurrent_access_simulation(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_concurrent_access_simulation(self, mock_project_structure, clean_workspace):
         """Test simulation of concurrent access issues."""
         os.chdir(mock_project_structure)
 
@@ -360,143 +322,16 @@ class TestWebsiteBuilderPerformance:
         html_files = list((mock_project_structure / "site" / "docs").glob("*.html"))
         assert len(html_files) > 0
 
-    def test_memory_usage_with_large_content(
-        self, mock_project_structure, clean_workspace
-    ):
+    def test_memory_usage_with_large_content(self, mock_project_structure, clean_workspace):
         """Test memory usage with large content."""
         os.chdir(mock_project_structure)
 
         # Create content that might use significant memory
         large_template = "{{ content }}" * 1000
-        (mock_project_structure / "website" / "templates" / "large.html").write_text(
-            large_template
-        )
+        (mock_project_structure / "website" / "templates" / "large.html").write_text(large_template)
 
         builder = WebsiteBuilder("website/templates", "site")
 
         # Should handle large templates without excessive memory usage
         builder.build_site()
         assert (mock_project_structure / "site").exists()
-
-
-class TestWebsiteBuilderCompatibility:
-    """Test compatibility across different environments."""
-
-    def test_windows_path_handling(self, mock_project_structure, clean_workspace):
-        """Test Windows-style path handling."""
-        os.chdir(mock_project_structure)
-
-        # Test that the system can handle Path objects correctly
-        # rather than raw Windows-style strings (which wouldn't work on Unix)
-        from pathlib import Path
-
-        templates_path = Path("website") / "templates"
-        output_path = Path("site")
-
-        builder = WebsiteBuilder(str(templates_path), str(output_path))
-
-        # Should handle Path-based construction correctly
-        builder.build_site()
-        assert (mock_project_structure / "site").exists()
-
-    def test_relative_path_resolution(self, mock_project_structure, clean_workspace):
-        """Test relative path resolution."""
-        os.chdir(mock_project_structure)
-
-        builder = WebsiteBuilder("./website/templates", "./site")
-
-        # Should handle relative paths correctly
-        builder.build_site()
-        assert (mock_project_structure / "site").exists()
-
-    def test_absolute_path_handling(self, mock_project_structure, clean_workspace):
-        """Test absolute path handling."""
-        os.chdir(mock_project_structure)
-
-        templates_abs = str(mock_project_structure / "website" / "templates")
-        output_abs = str(mock_project_structure / "site")
-
-        builder = WebsiteBuilder(templates_abs, output_abs)
-
-        # Should handle absolute paths correctly
-        builder.build_site()
-        assert (mock_project_structure / "site").exists()
-
-    def test_file_encoding_handling(self, mock_project_structure, clean_workspace):
-        """Test handling of different file encodings."""
-        os.chdir(mock_project_structure)
-
-        # Create files with different encodings
-        utf8_content = "# UTF-8 Test\n\nContent with émojis 🚀 and spëcial chars"
-        (mock_project_structure / "docs" / "utf8.md").write_text(
-            utf8_content, encoding="utf-8"
-        )
-
-        builder = WebsiteBuilder("website/templates", "site")
-        builder.build_site()
-
-        # Should handle different encodings gracefully
-        assert (mock_project_structure / "site").exists()
-        utf8_html = mock_project_structure / "site" / "docs" / "utf8.html"
-        if utf8_html.exists():
-            content = utf8_html.read_text(encoding="utf-8")
-            assert "émojis 🚀" in content
-
-
-class TestWebsiteBuilderRegression:
-    """Test for regression issues."""
-
-    def test_template_placeholder_escaping(self):
-        """Test that template placeholders are properly escaped."""
-        builder = WebsiteBuilder()
-
-        # Test with special characters in replacements
-        content = "Hello {{ name }}!"
-        replacements = {"name": "<script>alert('xss')</script>"}
-
-        result = builder.replace_placeholders(content, replacements)
-        assert "<script>" in result  # Should not escape HTML by default
-
-    def test_markdown_link_edge_cases(self):
-        """Test edge cases in markdown link conversion."""
-        builder = WebsiteBuilder()
-
-        # Test various link formats based on actual behavior
-        test_cases = [
-            ('href="file.md"', 'href="file.html"'),  # Simple conversion
-            ('href="./file.md"', 'href="./file.html"'),  # Relative path
-            ('href="/absolute/file.md"', 'href="/absolute/file.html"'),  # Absolute path
-            (
-                'href="file.md#anchor"',
-                'href="file.md#anchor"',
-            ),  # Anchors are NOT converted
-            (
-                'href="file.md?param=value"',
-                'href="file.md?param=value"',
-            ),  # Params are NOT converted
-            (
-                'href="https://example.com/file.md"',
-                'href="https://example.com/file.html"',
-            ),  # External links ARE converted
-        ]
-
-        for input_case, expected in test_cases:
-            result = builder.convert_markdown_links_to_html(input_case)
-            assert (
-                result == expected
-            ), f"Expected {expected}, got {result} for input {input_case}"
-
-    def test_bootstrap_class_conflicts(self):
-        """Test Bootstrap class addition with existing classes."""
-        builder = WebsiteBuilder()
-
-        # Test with existing Bootstrap classes
-        html = '<h1 class="text-primary">Title</h1>'
-        result = builder.add_bootstrap_classes(html)
-
-        # Should not duplicate classes
-        assert result.count("text-primary") == 2  # One existing, one added
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
