@@ -23,6 +23,20 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "website"))
 sys.path.insert(0, str(project_root / "website" / "assets"))
 
+# Artifacts a test may leave behind in the project root. "site" is deliberately
+# absent: it is the real website build output, and the documentation workflow
+# builds it before running these tests. Website tests build into their own
+# temporary workspace, so nothing here needs to reach the project-root site/.
+WORKSPACE_CLEANUP_PATTERNS = (
+    "test-site",
+    "test-artifacts",
+    "custom-site",
+    "custom-templates",
+    "temp_test_dir",
+    ".coverage.test",
+    "test.coverage",
+)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_test_artifacts():
@@ -85,18 +99,7 @@ def clean_workspace(project_root_dir):
         os.chdir(str(project_root_dir))
 
     # Clean up any test artifacts in the project root
-    cleanup_patterns = [
-        "test-site",
-        "test-artifacts",
-        "custom-site",
-        "custom-templates",
-        "site",
-        "temp_test_dir",
-        ".coverage.test",
-        "test.coverage",
-    ]
-
-    for pattern in cleanup_patterns:
+    for pattern in WORKSPACE_CLEANUP_PATTERNS:
         for path in glob.glob(str(project_root_dir / pattern)):
             path_obj = Path(path)
             if path_obj.exists():

@@ -53,6 +53,18 @@ def test_clean_workspace_fixture_restores_cwd(clean_workspace, project_root_dir)
     # This will be verified by pytest's fixture cleanup
 
 
+def test_clean_workspace_never_removes_the_real_site_build():
+    """The workspace cleanup must not delete the project-root website build.
+
+    The documentation workflow builds site/ and then runs these tests before
+    serving that directory for the link check, so listing "site" here silently
+    deletes the artifact the next step depends on.
+    """
+    from tests.conftest import WORKSPACE_CLEANUP_PATTERNS
+
+    assert "site" not in WORKSPACE_CLEANUP_PATTERNS
+
+
 def test_clean_workspace_prevents_artifact_pollution(clean_workspace, project_root_dir):
     """Test that clean_workspace prevents test artifact pollution."""
     # Create some artifacts during the test

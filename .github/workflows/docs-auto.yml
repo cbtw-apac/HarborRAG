@@ -178,6 +178,8 @@ jobs:
             --base-url ""
 
       - name: Verify website build
+        env:
+          COVERAGE_EXPECTED: ${{ github.event_name == 'workflow_run' || github.event_name == 'release' }}
         run: |
           echo "=== Website Build Verification ==="
           echo "📁 Site directory contents:"
@@ -209,6 +211,20 @@ jobs:
             exit 1
           fi
 
+          # A push to main has no completed test run to pull artifacts from, so
+          # the placeholder index is the expected result there. Events that do
+          # download coverage must end up with at least one package report.
+          if [ "$COVERAGE_EXPECTED" = "true" ]; then
+            if find site/coverage -mindepth 2 -name "index.html" | grep -q .; then
+              echo "✅ Coverage reports built successfully"
+            else
+              echo "❌ No coverage report was downloaded for this $GITHUB_EVENT_NAME run"
+              exit 1
+            fi
+          else
+            echo "⏭️  Coverage reports not expected for $GITHUB_EVENT_NAME events"
+          fi
+
       - name: Test website generator and branding
         run: |
           uv run pytest tests/test_website_*.py tests/test_link_checker.py
@@ -217,16 +233,25 @@ jobs:
 
       - name: Check generated internal links
         run: |
+          if [ ! -f "site/index.html" ]; then
+            echo "❌ site/index.html is gone before the link check; an earlier step removed the build"
+            exit 1
+          fi
           uv run python -m http.server 8000 --bind 127.0.0.1 --directory site >/tmp/harborrag-docs-server.log 2>&1 &
           SERVER_PID=$!
-          trap 'kill "$SERVER_PID"' EXIT
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           for attempt in {1..20}; do
             if curl --fail --silent http://127.0.0.1:8000/ >/dev/null; then
               break
             fi
             sleep 0.25
           done
-          curl --fail --silent http://127.0.0.1:8000/ >/dev/null
+          if ! curl --fail --silent http://127.0.0.1:8000/ >/dev/null; then
+            echo "❌ Documentation server did not serve site/ on 127.0.0.1:8000"
+            echo "--- server log ---"
+            cat /tmp/harborrag-docs-server.log || true
+            exit 1
+          fi
           uv run python website/check_links.py --url http://127.0.0.1:8000/ --depth 8
 
       - name: Upload site artifact
