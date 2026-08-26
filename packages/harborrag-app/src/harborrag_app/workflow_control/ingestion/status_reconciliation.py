@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
-from harborrag_runtime.errors import WorkflowOperationError
+from harborrag_runtime.errors import RuntimeConnectionError, WorkflowOperationError
 
 from .ports import ClientProvider, PublicTaskStore
 from .presenters import TERMINAL_STATES
@@ -27,7 +27,10 @@ class TaskStatusReconciler:
     ) -> IngestionTask:
         if task.status in TERMINAL_STATES:
             return task
-        client = await self._client_provider()
+        try:
+            client = await self._client_provider()
+        except RuntimeConnectionError:
+            return task
         execution_status = await self._execution_status(client, task.task_id)
         if execution_status is None:
             return task
@@ -96,7 +99,9 @@ class TaskStatusReconciler:
     ) -> IngestionTask | None:
         if execution_status != "running" or not self._queued_running_is_stale(task):
             return None
-        await self._terminate_if_supported(client, task.task_id)
+        terminated = await self._terminate_if_supported(client, task.task_id)
+        if not terminated:
+            return None
         return await self._transition_and_reload(
             store,
             task,
@@ -110,10 +115,10 @@ class TaskStatusReconciler:
         )
 
     @staticmethod
-    async def _terminate_if_supported(client: object, task_id: str) -> None:
+    async def _terminate_if_supported(client: object, task_id: str) -> bool:
         terminator = getattr(client, "terminate", None)
         if not callable(terminator):
-            return
+            return False
         try:
             await terminator(
                 task_id,
@@ -122,10 +127,9 @@ class TaskStatusReconciler:
                     f"for {int(_STALE_QUEUED_RUNNING_TIMEOUT.total_seconds())} seconds"
                 ),
             )
+            return True
         except WorkflowOperationError:
-            # Reconciliation is best-effort; a concurrent terminal transition
-            # should not block failing the stale task row.
-            return
+            return False
 
     @staticmethod
     async def _transition_and_reload(

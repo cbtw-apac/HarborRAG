@@ -116,3 +116,42 @@ async def test_backlog_done_event_is_yielded_and_ends_the_stream() -> None:
 
     assert received == [done_event]
     assert bus._subscribers == []
+
+
+@pytest.mark.asyncio
+async def test_reconciled_terminal_status_skips_live_subscription() -> None:
+    """If reconciliation marks a task terminal, stream must not open a live tail."""
+    bus = InProcessEventBus()
+    task = IngestionTask(
+        task_id="t1",
+        source_scope_id="scope-1",
+        status=IngestionTaskState.PENDING,
+        request={
+            "tenant_id": "DEFAULT",
+            "connector_type": "confluence",
+            "connection_id": "c1",
+        },
+    )
+    service = _build_service(bus, task)
+
+    async def _reconciled_terminal(_task_id: str) -> dict[str, object]:
+        return {
+            "task_id": "t1",
+            "tenant": "DEFAULT",
+            "status": "FAILED",
+            "stage": "COMPLETED",
+        }
+
+    service._public_ingestions.get_task = _reconciled_terminal
+
+    received = await asyncio.wait_for(
+        _collect(service.stream_ingestion_events("t1")),
+        timeout=0.25,
+    )
+
+    assert received == []
+    assert bus._subscribers == []
+
+
+async def _collect(events) -> list[HarborEvent]:
+    return [event async for event in events]

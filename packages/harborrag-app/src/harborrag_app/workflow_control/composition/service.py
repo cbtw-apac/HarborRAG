@@ -7,7 +7,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator, Mapping
 
-from harborrag_core.contracts.errors import HarborNotFoundError, HarborUnavailableError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -211,12 +211,10 @@ class AppService(
         registered until the event bus's GC finalizer happens to run.
         """
         store = await self._resources.public_task_store()
-        task = await store.get(task_id)
-        if task is None:
-            raise HarborNotFoundError("Ingestion task was not found")
+        task = await self.get_task(task_id)
         live = None
         terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
-        if STATUS_NAMES[task.status] not in terminal_names:
+        if task["status"] not in terminal_names:
             live = self._resources.event_bus().subscribe(f"task.{task_id}.")
         try:
             for event in await store.list_task_events(task_id, after_seq=after_seq):
