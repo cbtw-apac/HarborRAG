@@ -8,6 +8,32 @@ from pathlib import Path
 class SiteBuildMixin:
     """Focused website-build operations composed by ``WebsiteBuilder``."""
 
+    def _ensure_coverage_index(self, coverage_output_dir: Path) -> None:
+        """Guarantee that /coverage/ resolves even when no report was published.
+
+        The navigation always links to the coverage section, so a build that runs
+        before the test workflow publishes its artifacts — or one handed an
+        artifacts directory that does not exist yet — must still land a page
+        there instead of leaving a dead link behind.
+        """
+        if (coverage_output_dir / "index.html").exists():
+            return
+
+        placeholder_html = (
+            '<section class="py-5"><div class="container">'
+            '<h1 class="display-5 fw-bold text-primary"><i class="bi bi-graph-up me-2"></i>Coverage Reports</h1>'
+            '<div class="alert alert-info mt-4">No coverage artifacts available.</div>'
+            "</div></section>"
+        )
+        self.build_page(
+            "base.html",
+            "coverage/index.html",
+            "Coverage Reports",
+            "Test coverage analysis",
+            "coverage/index.html",
+            content=placeholder_html,
+        )
+
     def build_site(
         self,
         coverage_artifacts_dir: str | None = None,
@@ -138,22 +164,8 @@ class SiteBuildMixin:
                         shutil.copy2(item, coverage_output_dir / item.name)
                     elif item.is_dir():
                         shutil.copytree(item, coverage_output_dir / item.name, dirs_exist_ok=True)
-        else:
-            # Create styled placeholder coverage index if no artifacts provided
-            placeholder_html = (
-                '<section class="py-5"><div class="container">'
-                '<h1 class="display-5 fw-bold text-primary"><i class="bi bi-graph-up me-2"></i>Coverage Reports</h1>'
-                '<div class="alert alert-info mt-4">No coverage artifacts available.</div>'
-                "</div></section>"
-            )
-            self.build_page(
-                "base.html",
-                "coverage/index.html",
-                "Coverage Reports",
-                "Test coverage analysis",
-                "coverage/index.html",
-                content=placeholder_html,
-            )
+
+        self._ensure_coverage_index(coverage_output_dir)
 
         # Generate directory indexes
         self.generate_directory_indexes()
