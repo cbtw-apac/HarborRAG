@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Link checker script to scan the website for dead links (404 errors).
-"""
+"""Link checker script to scan the website for dead links (404 errors)."""
 
 import re
 import sys
@@ -12,6 +10,12 @@ from urllib.parse import urljoin, urlparse
 
 import requests
 
+# Trees whose contents are generated reports, not pages we wrote. The entry page
+# is still crawled — the build writes it — but nothing below it is parsed:
+# coverage.py renders the builder's own source, whose highlighted literals (the
+# `href="loader/"` cards, the link-rewriting regexes) read as unresolvable hrefs.
+DEFAULT_NO_CRAWL = ("coverage",)
+
 
 class LinkChecker:
     def __init__(
@@ -19,6 +23,7 @@ class LinkChecker:
         base_url="http://127.0.0.1:3000/website/site",
         max_depth=3,
         check_external=True,
+        no_crawl=DEFAULT_NO_CRAWL,
     ):
         # Preserve a slash-suffixed base for correct joining
         self.base_url = base_url.rstrip("/")
@@ -52,6 +57,11 @@ class LinkChecker:
         else:
             self.site_root_prefix = "/"
 
+        # Absolute path prefixes ("/coverage/", or "/site/coverage/" when the
+        # site is served under a subdirectory) that crawling stops at.
+        root = "" if self.site_root_prefix == "/" else self.site_root_prefix
+        self.no_crawl_prefixes = tuple(f"{root}/{name.strip('/')}/" for name in no_crawl)
+
     def is_internal_url(self, url):
         """Check if URL is internal to our site and within the site path prefix.
 
@@ -70,6 +80,14 @@ class LinkChecker:
             return False
         path = parsed.path or "/"
         return path.startswith(self.base_path_prefix)
+
+    def is_crawlable_url(self, url):
+        """Check whether a page may be descended into rather than merely checked."""
+        path = urlparse(url).path or "/"
+        return not any(
+            path.startswith(prefix) and path not in (prefix, prefix.rstrip("/"))
+            for prefix in self.no_crawl_prefixes
+        )
 
     def normalize_url(self, url):
         """Normalize URL for consistent checking."""
@@ -165,9 +183,24 @@ class LinkChecker:
             return None, str(e)
 
     def crawl_page(self, url, depth=0):
-        """Crawl a single page and extract links."""
+        """Crawl outward from one page, breadth-first, up to ``max_depth``.
+
+        Breadth-first is correctness, not speed: a page is reached at its
+        shortest link distance, so the depth budget is spent on genuinely deep
+        pages. Each level is walked sorted because str hashing is randomized per
+        process, and an unsorted walk changes what fits inside that budget.
+        """
+        frontier = [(url, depth)]
+        while frontier:
+            following = []
+            for page_url, page_depth in frontier:
+                following.extend(self.check_page_links(page_url, page_depth))
+            frontier = sorted(set(following))
+
+    def check_page_links(self, url, depth=0):
+        """Check every link on one page and return the pages worth crawling."""
         if depth > self.max_depth or url in self.visited_urls:
-            return
+            return []
 
         print(f"{'  ' * depth}Crawling: {url}")
         self.visited_urls.add(url)
@@ -176,55 +209,60 @@ class LinkChecker:
             response = self.session.get(url, timeout=10)
             if response.status_code != 200:
                 print(f"{'  ' * depth}⚠️  Page returned {response.status_code}: {url}")
-                return
+                return []
 
-            # Extract links from this page
             links = self.extract_links_from_html(response.text, url)
+            following = []
 
-            # Check each link
-            for link in links:
+            for link in sorted(links):
                 if link not in self.checked_links:
                     self.checked_links.add(link)
-                    # Skip external links unless explicitly enabled
-                    if not self.is_internal_url(link) and not self.check_external:
-                        continue
+                    self.report_link(link, url, depth)
 
-                    status_code, reason = self.check_url(link)
+                if self.should_crawl_link(link, depth):
+                    following.append((link, depth + 1))
 
-                    if status_code is None or status_code >= 400:
-                        self.dead_links.append(
-                            {
-                                "url": link,
-                                "status": status_code,
-                                "reason": reason,
-                                "found_on": url,
-                            }
-                        )
-                        self.broken_links[url].append(link)
-                        print(f"{'  ' * depth}❌ BROKEN: {link} ({status_code}: {reason})")
-                    elif status_code >= 300:
-                        print(f"{'  ' * depth}🔄 REDIRECT: {link} ({status_code})")
-                    else:
-                        print(f"{'  ' * depth}✅ OK: {link}")
-
-                    # Small delay to be nice to the server
-                    time.sleep(0.1)
-
-                # Recursively crawl internal HTML pages only within site prefix
-                if (
-                    self.is_internal_url(link)
-                    and depth < self.max_depth
-                    and link not in self.visited_urls
-                    and (
-                        link.endswith(".html")
-                        or link.endswith("/")
-                        or "." not in Path(urlparse(link).path).name
-                    )
-                ):
-                    self.crawl_page(link, depth + 1)
+            return following
 
         except requests.exceptions.RequestException as e:
             print(f"{'  ' * depth}❌ ERROR crawling {url}: {e}")
+            return []
+
+    def report_link(self, link, found_on, depth):
+        """Check one link and record it if it is dead."""
+        # Skip external links unless explicitly enabled
+        if not self.is_internal_url(link) and not self.check_external:
+            return
+
+        status_code, reason = self.check_url(link)
+
+        if status_code is None or status_code >= 400:
+            self.dead_links.append(
+                {
+                    "url": link,
+                    "status": status_code,
+                    "reason": reason,
+                    "found_on": found_on,
+                }
+            )
+            self.broken_links[found_on].append(link)
+            print(f"{'  ' * depth}❌ BROKEN: {link} ({status_code}: {reason})")
+        elif status_code >= 300:
+            print(f"{'  ' * depth}🔄 REDIRECT: {link} ({status_code})")
+        else:
+            print(f"{'  ' * depth}✅ OK: {link}")
+
+        # Small delay to be nice to the server
+        time.sleep(0.1)
+
+    def should_crawl_link(self, link, depth):
+        """Return whether a checked link is an internal page worth descending into."""
+        if not self.is_internal_url(link) or not self.is_crawlable_url(link):
+            return False
+        if depth >= self.max_depth or link in self.visited_urls:
+            return False
+        name = Path(urlparse(link).path).name
+        return link.endswith(".html") or link.endswith("/") or "." not in name
 
     def run_check(self):
         """Run the complete link check."""
@@ -274,15 +312,26 @@ def main():
     )
     parser.add_argument("--depth", type=int, default=3, help="Maximum crawl depth")
     parser.add_argument("--external", action="store_true", help="Also check external links")
+    parser.add_argument(
+        "--no-crawl",
+        action="append",
+        metavar="PATH",
+        help=(
+            "Site-relative directory to check but not crawl into (repeatable). "
+            f"Defaults to: {', '.join(DEFAULT_NO_CRAWL)}"
+        ),
+    )
 
     args = parser.parse_args()
 
+    no_crawl = tuple(args.no_crawl) if args.no_crawl is not None else DEFAULT_NO_CRAWL
+
     if args.external:
-        checker = LinkChecker(args.url, args.depth, check_external=True)
+        checker = LinkChecker(args.url, args.depth, check_external=True, no_crawl=no_crawl)
     else:
         # Instantiate without the keyword to preserve CLI test expectation,
         # then disable external link checking by default for CLI runs.
-        checker = LinkChecker(args.url, args.depth)
+        checker = LinkChecker(args.url, args.depth, no_crawl=no_crawl)
         checker.check_external = False
 
     try:

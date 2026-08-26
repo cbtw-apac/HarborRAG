@@ -101,6 +101,12 @@ flaky. CI always validates internal generated links, rejects unintended
 predecessor branding, and verifies that private reference inputs are ignored,
 untracked, unlinked, and absent from generated output.
 
+Generated report trees are entered but not descended: `coverage/index.html` is
+built here, so its links are validated, while the coverage.py output beneath it
+is left unparsed — that HTML renders this builder's own source, and the string
+literals in it read as links that were never meant to resolve. Pass `--no-crawl`
+to name a different tree, or `--depth` to widen the crawl.
+
 ## Publishing
 
 `.github/workflows/docs-auto.yml` rebuilds the documentation when guides, package READMEs, website sources, or relevant workflow files change. Release deployments publish the validated `site/` artifact to GitHub Pages. `.github/workflows/docs-manual.yml` provides the equivalent manual build/deploy path.
