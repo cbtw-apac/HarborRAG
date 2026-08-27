@@ -19,6 +19,7 @@ import argparse
 # Handle both relative import (when used as module) and absolute import (when run as script)
 try:
     from .builder.core import WebsiteBuilder
+    from .console_encoding import enable_utf8_output
 except ImportError:
     # Fallback for when script is run directly
     import sys
@@ -26,10 +27,13 @@ except ImportError:
 
     sys.path.insert(0, str(Path(__file__).parent))
     from builder.core import WebsiteBuilder
+    from console_encoding import enable_utf8_output
 
 
 def main():
     """Main entry point."""
+    enable_utf8_output()
+
     parser = argparse.ArgumentParser(description="Build the HarborRAG documentation website")
     parser.add_argument("--output", "-o", default="site", help="Output directory")
     parser.add_argument(

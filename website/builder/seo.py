@@ -78,9 +78,13 @@ Sitemap: {site_base}/sitemap.xml
             pages = []
             # Find HTML files in site directory
             if self.output_dir.exists():
-                for html_file in self.output_dir.rglob("*.html"):
-                    rel_path = html_file.relative_to(self.output_dir).as_posix()
-                    pages.append(rel_path)
+                # Sort the URL paths rather than the Path objects: rglob order is
+                # arbitrary, and WindowsPath compares case-insensitively, so either
+                # would let the generated sitemap vary by build platform.
+                pages = sorted(
+                    html_file.relative_to(self.output_dir).as_posix()
+                    for html_file in self.output_dir.rglob("*.html")
+                )
 
         # Use provided date or current date
         if date is None:

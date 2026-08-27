@@ -5,6 +5,17 @@ import json
 from pathlib import Path
 
 
+def _url_path(value: str) -> str:
+    """Normalize a site-relative path to URL form.
+
+    ``Path`` renders "\\" on Windows, and the caller-visible contract here is a
+    URL path: the "/"-counting depth math below and the canonical/Open Graph
+    URLs must not vary by build platform.
+    """
+
+    return value.replace("\\", "/")
+
+
 def _html_value(value: object) -> str:
     """Escape one scalar for text or attribute use in an HTML template."""
 
@@ -36,6 +47,8 @@ class PageBuildMixin:
         **extra_replacements,
     ) -> None:
         """Build a single page from template."""
+        output_filename = _url_path(output_filename)
+        canonical_path = _url_path(canonical_path)
         template_content = self.load_template(template_name)
 
         # Load a content template if available when no explicit content is given.
@@ -120,6 +133,7 @@ class PageBuildMixin:
         **kwargs,
     ) -> None:
         """Build a page from markdown file."""
+        output_path = _url_path(output_path)
         markdown_path = Path(markdown_file)
         if not markdown_path.exists():
             print(f"⚠️  Markdown file not found: {markdown_file}, skipping page generation")

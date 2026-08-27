@@ -28,7 +28,7 @@ def find_stale_branding() -> list[str]:
             match = FORBIDDEN.search(line)
             if match:
                 relative_path = path.relative_to(WEBSITE_ROOT.parent)
-                failures.append(f"{relative_path}:{line_number}: {match.group(0)}")
+                failures.append(f"{relative_path.as_posix()}:{line_number}: {match.group(0)}")
     return failures
 
 

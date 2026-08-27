@@ -25,7 +25,7 @@ def _matches_in_file(path: Path, root: Path) -> list[str]:
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         match = PRIVATE_REFERENCE.search(line)
         if match:
-            failures.append(f"{path.relative_to(root)}:{line_number}: {match.group(0)}")
+            failures.append(f"{path.relative_to(root).as_posix()}:{line_number}: {match.group(0)}")
     return failures
 
 
