@@ -192,7 +192,7 @@ class PackageDocsMixin:
                             else:
                                 # For source files, process through normal build pipeline
                                 relative_dir = directory.relative_to(docs_dir)
-                                output_path = f"docs/{relative_dir}/index.html"
+                                output_path = f"docs/{relative_dir.as_posix()}/index.html"
 
                                 if source_file.suffix == ".html":
                                     # Copy HTML file content directly

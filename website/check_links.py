@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Link checker script to scan the website for dead links (404 errors)."""
 
+import argparse
 import re
 import sys
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
+from console_encoding import enable_utf8_output
 
 # Trees whose contents are generated reports, not pages we wrote. The entry page
 # is still crawled — the build writes it — but nothing below it is parsed:
@@ -52,10 +54,7 @@ class LinkChecker:
         self.base_path_prefix = (path if path.startswith("/") else "/" + path).rstrip("/") or "/"
         # Derive site root prefix from the first path segment (e.g., "/site" from "/site/docs")
         segments = [seg for seg in self.base_path_prefix.split("/") if seg]
-        if segments:
-            self.site_root_prefix = "/" + segments[0]
-        else:
-            self.site_root_prefix = "/"
+        self.site_root_prefix = "/" + segments[0] if segments else "/"
 
         # Absolute path prefixes ("/coverage/", or "/site/coverage/" when the
         # site is served under a subdirectory) that crawling stops at.
@@ -304,7 +303,7 @@ class LinkChecker:
 
 def main():
     """Main entry point."""
-    import argparse
+    enable_utf8_output()
 
     parser = argparse.ArgumentParser(description="Check website for broken links")
     parser.add_argument(

@@ -257,7 +257,7 @@ class ProjectStructureMixin:
 
         # Process all markdown files in docs
         for item in sorted(docs_dir.rglob("*.md")):
-            relative_path = str(item.relative_to(docs_dir))
+            relative_path = item.relative_to(docs_dir).as_posix()
             output_path = relative_path.replace(".md", ".html")
 
             structure["children"].append(
