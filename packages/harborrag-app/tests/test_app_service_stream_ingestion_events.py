@@ -77,8 +77,8 @@ async def test_abandoning_the_stream_mid_backlog_deregisters_the_live_subscripti
 
     events = service.stream_ingestion_events("t1")
     consume = asyncio.ensure_future(events.__anext__())
-    await asyncio.sleep(0)  # let it run: empty backlog, then block awaiting a live event
-    assert len(bus._subscribers) == 1
+    # let it run: empty backlog, then block awaiting a live event
+    await _wait_for(lambda: len(bus._subscribers) == 1)
 
     consume.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -155,3 +155,11 @@ async def test_reconciled_terminal_status_skips_live_subscription() -> None:
 
 async def _collect(events) -> list[HarborEvent]:
     return [event async for event in events]
+
+
+async def _wait_for(predicate, *, timeout: float = 1.0) -> None:
+    async def _poll() -> None:
+        while not predicate():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_poll(), timeout=timeout)
