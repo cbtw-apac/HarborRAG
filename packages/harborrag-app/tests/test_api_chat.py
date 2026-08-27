@@ -28,7 +28,10 @@ def _session(client: TestClient, tenant: str = "DEFAULT") -> str:
     response = client.post("/v1/chat/sessions", json={"tenant": tenant})
     assert response.status_code == 201
     payload = response.json()
-    assert payload["greeting"]
+    assert payload["message"] == {
+        "role": "assistant",
+        "content": "Hello! How can I help you today?",
+    }
     assert payload["session_id"].startswith("session-")
     return payload["session_id"]
 

@@ -20,3 +20,13 @@ def _isolated_application_environment(
         "HARBORRAG_CONTROL_DB_URL",
         f"sqlite+aiosqlite:///{tmp_path}/control.db",
     )
+    # The API lifespan parses config/models.yaml at startup so a missing
+    # ${HARBOR_*} reference fails the boot instead of a request. Tests that
+    # bring up the real app therefore need the catalogue to resolve; these
+    # placeholders never leave the process because no provider call is made.
+    monkeypatch.setenv("HARBOR_CHAT_PROVIDER", "openai")
+    monkeypatch.setenv("HARBOR_CHAT_MODEL", "openai/test-chat-model")
+    monkeypatch.setenv("HARBOR_CHAT_API_KEY", "test-chat-key")
+    monkeypatch.setenv("HARBOR_EMBED_PROVIDER", "openai")
+    monkeypatch.setenv("HARBOR_EMBED_MODEL", "openai/test-embed-model")
+    monkeypatch.setenv("HARBOR_EMBED_API_KEY", "test-embed-key")

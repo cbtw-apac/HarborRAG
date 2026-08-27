@@ -8,3 +8,17 @@ runtime:
   connector_config_path: config/connectors.yaml
   parser_config_path: config/parsers.yaml
   model_config_path: config/models.yaml
+
+  # Chat serving path. Every key below is overridable from the environment
+  # with the HARBORRAG_ prefix (e.g. HARBORRAG_CHAT_RETRIEVAL_TOP_K=8).
+  chat_retrieval_top_k: 5
+  chat_retrieval_graph_search: false
+  # Prior turns replayed into the prompt on each completion.
+  chat_history_turns: 2
+  # Pool the session endpoint draws one greeting from at random. It must
+  # list at least one non-blank entry; an empty pool fails at startup rather
+  # than on the first request.
+  chat_greetings:
+    - "Hello! How can I help you today?"
+    - "Hi! What would you like to explore?"
+    - "Welcome! Ask me anything about your indexed knowledge."

@@ -113,6 +113,25 @@ class RuntimeSettings(BaseSettings):
     retrieval_dense_weight: float = Field(default=0.7, ge=0, le=1)
     chat_retrieval_top_k: int = Field(default=5, ge=1, le=50)
     chat_retrieval_graph_search: bool = False
+    chat_history_turns: int = Field(default=2, ge=1, le=50)
+    chat_greetings: tuple[str, ...] = (
+        "Hello! How can I help you today?",
+        "Hi! What would you like to explore?",
+        "Welcome! Ask me anything about your indexed knowledge.",
+    )
+
+    @model_validator(mode="after")
+    def validate_chat_greetings(self) -> RuntimeSettings:
+        """Reject a pool the session endpoint could not draw from, at startup.
+
+        ``secrets.choice`` raises on an empty sequence, which would otherwise
+        turn a configuration mistake into a per-request 500.
+        """
+        if not self.chat_greetings:
+            raise ValueError("HARBORRAG_CHAT_GREETINGS must list at least one greeting")
+        if any(not greeting.strip() for greeting in self.chat_greetings):
+            raise ValueError("HARBORRAG_CHAT_GREETINGS entries must not be blank")
+        return self
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:

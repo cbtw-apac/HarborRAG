@@ -76,7 +76,10 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         memory = conversation_memory(self._composition)
-        self._sessions = ConversationSessionService(memory)
+        self._sessions = ConversationSessionService(
+            memory,
+            greetings=self._settings.chat_greetings,
+        )
         self._chat = ChatApplicationService(
             self._resources.runtime_sdk,
             self._settings,

@@ -22,9 +22,21 @@ class ChatClientMixin:
         tenant_id: str,
         principal_id: str,
     ) -> AppResponse:
-        return await self._sessions.create(
+        response = await self._sessions.create(
             tenant_id=tenant_id,
             principal_id=principal_id,
+        )
+        if not response.ok:
+            return response
+        # Publish the greeting in the same envelope a completion uses, so a
+        # client renders the opening line through one code path. The agent
+        # surface keeps the bare `greeting` string it already published.
+        return AppResponse(
+            True,
+            {
+                "session_id": response.data["session_id"],
+                "message": {"role": "assistant", "content": response.data["greeting"]},
+            },
         )
 
     async def chat_session_exists(

@@ -44,7 +44,14 @@ class MockAppService(
         tenant_id: str,
         principal_id: str,
     ) -> AppResponse:
-        return self._create_session(tenant_id, principal_id)
+        response = self._create_session(tenant_id, principal_id)
+        return AppResponse(
+            True,
+            {
+                "session_id": response.data["session_id"],
+                "message": {"role": "assistant", "content": response.data["greeting"]},
+            },
+        )
 
     async def create_agent_session(
         self,

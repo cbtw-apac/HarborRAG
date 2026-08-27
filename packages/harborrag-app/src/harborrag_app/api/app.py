@@ -27,7 +27,10 @@ from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import RequestBodyLimitMiddleware, TraceIdMiddleware
 from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.composition.selection import select_app_service
+from harborrag_app.workflow_control.composition.selection import (
+    select_app_service,
+    validate_serving_model_config,
+)
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.observability.process_logging import configure_logging
 
@@ -100,6 +103,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     migrations and a DB probe, which drive their own event loops.
     """
     service, mode = await asyncio.to_thread(select_app_service)
+    if mode == "production":
+        # Only the real composition reads config/models.yaml; a substituted
+        # service reports another mode and has no catalogue to validate.
+        await asyncio.to_thread(validate_serving_model_config)
     app.state.app_service = service
     app.state.composition_mode = mode
     logger.info("Application service composed in %s mode", mode)

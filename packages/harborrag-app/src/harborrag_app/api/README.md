@@ -117,9 +117,11 @@ curl --fail-with-body --request POST \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
-The session response contains a generated `session_id` and greeting. The completion POST
+The chat session response contains a generated `session_id` and a `message` carrying one
+greeting drawn at random from the configured pool, shaped like a completion's assistant
+message; the agent session response keeps a bare `greeting` string. The completion POST
 requires that session ID and a prompt in its JSON body. `stream=true` changes the response to
-SSE. The two latest PostgreSQL-backed turns are recalled under the tenant,
+SSE. The latest PostgreSQL-backed turns (`chat_history_turns`) are recalled under the tenant,
 authenticated principal, and session identity. Requests are marked sensitive
 so model-response caching remains disabled. Completion endpoints accept POST
 only, keeping prompts and other sensitive content out of request URLs and access logs.

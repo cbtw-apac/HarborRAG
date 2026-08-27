@@ -5,6 +5,19 @@ from __future__ import annotations
 from ..ports import BaseAppService
 
 
+def validate_serving_model_config() -> None:
+    """Fail the process boot when the serving model catalogue cannot resolve.
+
+    Delegates to the runtime composition layer, which owns the adapter
+    configuration types; this wrapper only supplies process settings.
+    """
+
+    from harborrag_runtime.chat.composition import validate_serving_model_config as validate
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    validate(RuntimeSettings())
+
+
 def select_app_service() -> tuple[BaseAppService, str]:
     return runtime_app_service(), "production"
 

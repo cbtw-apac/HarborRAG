@@ -18,9 +18,14 @@ class ChatSessionCreateRequest(ApiModel):
     )
 
 
+class ChatMessageResponse(ApiModel):
+    role: Literal["assistant"]
+    content: str
+
+
 class ChatSessionResponse(ApiModel):
     session_id: str
-    greeting: str
+    message: ChatMessageResponse
 
 
 class ChatCompletionRequest(ChatSessionCreateRequest):
@@ -32,11 +37,6 @@ class ChatCompletionRequest(ChatSessionCreateRequest):
     prompt: str = Field(min_length=1, max_length=65_536)
     stream: bool = False
     graph_search: bool | None = None
-
-
-class ChatMessageResponse(ApiModel):
-    role: Literal["assistant"]
-    content: str
 
 
 class ChatCitation(ApiModel):

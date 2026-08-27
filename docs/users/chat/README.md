@@ -8,8 +8,8 @@ load the `chat` family from `config/models.yaml` and call
 
 | Surface | Entry point | Best for |
 | --- | --- | --- |
-| HTTP API | `POST /v1/chat/sessions`, then `GET /v1/chat/completions` | Applications and authenticated services |
-| HTTP API (streaming) | `GET /v1/chat/completions?stream=true` | Incremental rendering as the model responds |
+| HTTP API | `POST /v1/chat/sessions`, then `POST /v1/chat/completions` | Applications and authenticated services |
+| HTTP API (streaming) | `POST /v1/chat/completions` with `"stream": true` | Incremental rendering as the model responds |
 | HTTP API | `POST /v1/agent/sessions`, then `GET /v1/agent/completions` | Bounded multi-hop reasoning over retrieval tools |
 | CLI | `harborrag chat MESSAGE` | One-shot operator requests and scripts |
 
@@ -18,8 +18,8 @@ Chat and agent are not exposed as MCP tools; the retrieval tools (`vector_search
 
 Chat and agent HTTP clients first create a session, then identify every
 completion with only that `session_id`. Completed turns are stored in the
-configured PostgreSQL control database; the latest two turns are added to each
-prompt. Memory is not ingested into the RAG index.
+configured PostgreSQL control database; the latest `chat_history_turns` turns
+(two by default) are added to each prompt. Memory is not ingested into the RAG index.
 
 ## Configure the model
 
@@ -109,14 +109,18 @@ curl --fail-with-body \
   http://127.0.0.1:8000/v1/chat/sessions
 ```
 
-The `201` response contains `{"session_id":"session-...","greeting":"..."}`.
+The `201` response contains
+`{"session_id":"session-...","message":{"role":"assistant","content":"..."}}` --
+one greeting drawn at random from the configured `chat_greetings` pool, in the
+same envelope a completion uses for its answer. The greeting is presentation
+only; it is not stored as a conversation turn.
 Use that ID for a completion:
 
 ```bash
-curl --fail-with-body --get \
-  --data-urlencode 'tenant=DEFAULT' \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=Explain HarborRAG in one paragraph.' \
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"tenant":"DEFAULT","session_id":"session-...","prompt":"Explain HarborRAG in one paragraph."}' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
@@ -124,7 +128,7 @@ The route requires the `reader` role when API authentication is enabled. Add
 `Authorization: Bearer <token>` in that mode. The local development template
 uses `HARBORRAG_AUTH_MODE=none` and therefore needs no header.
 
-The GET query requires `session_id` and `prompt`; `tenant` defaults to
+The JSON body requires `session_id` and `prompt`; `tenant` defaults to
 `DEFAULT`, while `stream` and `graph_search` default to `false`. The HTTP
 service always uses its server-owned default system prompt. Unknown sessions,
 or sessions owned by another tenant or authenticated principal, return `404`.
@@ -159,14 +163,14 @@ retrieval finds nothing relevant.
 
 ### Streaming
 
-Set `stream=true` on `GET /v1/chat/completions` to receive Server-Sent Events
+Set `stream=true` on `POST /v1/chat/completions` to receive Server-Sent Events
 instead of one JSON object:
 
 ```bash
-curl --no-buffer --get \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=Explain HarborRAG in one paragraph.' \
-  --data-urlencode 'stream=true' \
+curl --no-buffer \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{"session_id":"session-...","prompt":"Explain HarborRAG in one paragraph.","stream":true}' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 

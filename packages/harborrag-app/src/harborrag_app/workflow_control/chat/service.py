@@ -62,8 +62,11 @@ class ChatApplicationService:
         options: ChatExecutionOptions,
     ) -> AppResponse:
         identity = ConversationIdentity(tenant_id, principal_id, options.session_id)
-        await self._require_session(identity)
         try:
+            # Inside the try so a memory-store outage becomes a 503 envelope
+            # rather than an unhandled 500, but re-raised below so an absent
+            # session still reaches the transport as 404.
+            await self._require_session(identity)
             chat_identity = _ChatIdentity(tenant_id, options.session_id)
             history = await self._history(identity)
             results = await self._retrieve(
@@ -91,8 +94,15 @@ class ChatApplicationService:
                     session_id=options.session_id,
                 ),
             )
+        except HarborNotFoundError:
+            raise
         except Exception as exc:  # noqa: BLE001 - stable application envelope
-            return failure_response(logger, exc, "generate chat completion")
+            return failure_response(
+                logger,
+                exc,
+                "generate chat completion session_id=%s",
+                options.session_id,
+            )
 
     async def stream(
         self,
@@ -123,7 +133,12 @@ class ChatApplicationService:
                 history=history,
             )
         except Exception as exc:  # noqa: BLE001 - stable application envelope
-            failure = failure_response(logger, exc, "prepare chat completion stream")
+            failure = failure_response(
+                logger,
+                exc,
+                "prepare chat completion stream session_id=%s",
+                options.session_id,
+            )
             yield {"kind": "error", "error": failure.error}
             return
         yield {
@@ -153,7 +168,12 @@ class ChatApplicationService:
             # Headers and the citations event are already on the wire, so a
             # failure here cannot become an HTTP error response -- it must
             # end the stream as a terminal in-band event instead.
-            failure = failure_response(logger, exc, "generate chat completion stream")
+            failure = failure_response(
+                logger,
+                exc,
+                "generate chat completion stream session_id=%s",
+                options.session_id,
+            )
             yield {"kind": "error", "error": failure.error}
 
     async def _retrieve(
@@ -209,7 +229,7 @@ class ChatApplicationService:
         self,
         identity: ConversationIdentity,
     ) -> tuple[HarborChatMessage, ...]:
-        turns = await self._memory.recent(identity, limit=2)
+        turns = await self._memory.recent(identity, limit=self._settings.chat_history_turns)
         return _turn_messages(turns)
 
     async def _remember(
