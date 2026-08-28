@@ -6,7 +6,7 @@
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `vector_search` | Query, tenant, top-k, lane, filters, graph observation, threshold | Vector results and diagnostics |
+| `vector_search` | Query, tenant, top-k, lane, filters, `observe_graph`, threshold | Vector results and diagnostics |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
@@ -42,6 +42,17 @@ result = await server.call_tool(
 ```
 
 Unknown tool names raise `ValueError`.
+
+### `observe_graph` is diagnostics, not evidence
+
+`vector_search(observe_graph=true)` adds a *shallow provenance observation*: it seeds up
+to ten of the returned `chunk_id`s, traverses two hops in both directions, and summarizes
+the counts, documents, and sections it touched under the response's `diagnostics` field.
+It never loads the content of any newly discovered chunk, never ranks neighboring
+evidence, and a graph failure silently degrades to an empty observation rather than
+failing the vector call. Treat it as provenance context for the results you already have
+— not as a way to retrieve additional evidence for a generator. Retrieving and ranking
+neighboring evidence is a separate, not-yet-available composed operation.
 
 ## Policy and audit status
 

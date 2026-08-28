@@ -26,6 +26,7 @@ _OUTPUT_SCHEMA: dict[str, object] = {
         "direction_semantics",
         "topologies",
         "workflows",
+        "defaults",
         "limits",
     ],
     "properties": {
@@ -39,6 +40,7 @@ _OUTPUT_SCHEMA: dict[str, object] = {
         "direction_semantics": {"type": "object"},
         "topologies": {"type": "array"},
         "workflows": {"type": "array"},
+        "defaults": {"type": "object"},
         "limits": {"type": "object"},
     },
 }

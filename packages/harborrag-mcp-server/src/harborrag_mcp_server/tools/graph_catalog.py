@@ -10,13 +10,59 @@ empty result indistinguishable from a genuine miss.
 
 from __future__ import annotations
 
+from typing import Any
+
 from harborrag_core.chunking import PROJECTED_RELATION_TYPES, RelationType
 from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
 from harborrag_core.ingestion.projection_contracts import GRAPH_SCHEMA_VERSION
 from harborrag_core.retrieval import GraphDirection
+from harborrag_mcp_server.policy import McpToolPolicy
 
-MAXIMUM_DEPTH = 8
-MAXIMUM_RESULTS = 20
+from .base import McpToolSpec
+from .graph_search import GraphPathSearchTool, GraphSubgraphSearchTool, GraphTripletSearchTool
+from .vector_search import VectorSearchTool
+
+
+def _tool_defaults(spec: McpToolSpec) -> dict[str, Any]:
+    """Pull each property's compiled-in ``default`` straight from the tool's own schema.
+
+    Reading the live spec (rather than restating literals here) means describe_graph can
+    never drift from what the tool actually advertises: a schema change is reflected the
+    next time this runs, with nothing to keep in sync by hand.
+    """
+    properties = spec.input_schema.get("properties", {})
+    if not isinstance(properties, dict):
+        return {}
+    return {
+        name: property_schema["default"]
+        for name, property_schema in properties.items()
+        if isinstance(property_schema, dict) and "default" in property_schema
+    }
+
+
+def _schema_maximum(spec: McpToolSpec, property_name: str) -> int:
+    properties = spec.input_schema["properties"]
+    value = properties[property_name]["maximum"]
+    assert isinstance(value, int)
+    return value
+
+
+TOOL_DEFAULTS: dict[str, dict[str, Any]] = {
+    "vector_search": _tool_defaults(VectorSearchTool.spec),
+    "graph_triplet_search": _tool_defaults(GraphTripletSearchTool.spec),
+    "graph_path_search": _tool_defaults(GraphPathSearchTool.spec),
+    "graph_subgraph_search": _tool_defaults(GraphSubgraphSearchTool.spec),
+}
+
+# Both graph_path_search and graph_subgraph_search cap max_depth at the same compiled-in
+# ceiling; MAXIMUM_DEPTH asserts that rather than restating either literal.
+_PATH_MAX_DEPTH = _schema_maximum(GraphPathSearchTool.spec, "max_depth")
+_SUBGRAPH_MAX_DEPTH = _schema_maximum(GraphSubgraphSearchTool.spec, "max_depth")
+assert _PATH_MAX_DEPTH == _SUBGRAPH_MAX_DEPTH, (
+    "graph_path_search and graph_subgraph_search must share one max_depth ceiling"
+)
+MAXIMUM_DEPTH = _PATH_MAX_DEPTH
+MAXIMUM_RESULTS = McpToolPolicy().max_results
 
 NODE_KIND_MEANINGS: dict[KnowledgeNodeKind, str] = {
     KnowledgeNodeKind.TENANT: "Tenant isolation root.",
@@ -191,6 +237,7 @@ def describe_graph_payload() -> dict[str, object]:
         },
         "topologies": CONNECTOR_TOPOLOGIES,
         "workflows": RECOMMENDED_WORKFLOWS,
+        "defaults": TOOL_DEFAULTS,
         "limits": {
             "maximum_depth": MAXIMUM_DEPTH,
             "maximum_results": MAXIMUM_RESULTS,

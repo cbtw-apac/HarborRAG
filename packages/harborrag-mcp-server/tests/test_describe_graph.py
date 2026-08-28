@@ -75,3 +75,70 @@ async def test_describe_graph_node_kinds_and_entity_types_come_from_canonical_en
     assert {item["name"] for item in result["entity_types"]} == {
         entity.value for entity in GraphEntityType
     }
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_defaults_are_read_from_the_live_tool_schemas() -> None:
+    from harborrag_mcp_server.tools.graph_search import (
+        GraphPathSearchTool,
+        GraphSubgraphSearchTool,
+        GraphTripletSearchTool,
+    )
+    from harborrag_mcp_server.tools.vector_search import VectorSearchTool
+
+    result = await DescribeGraphTool().call({}, principal_id="in-process")
+    defaults = result["defaults"]
+
+    assert defaults.keys() == {
+        "vector_search",
+        "graph_triplet_search",
+        "graph_path_search",
+        "graph_subgraph_search",
+    }
+    for tool_name, spec in (
+        ("vector_search", VectorSearchTool.spec),
+        ("graph_triplet_search", GraphTripletSearchTool.spec),
+        ("graph_path_search", GraphPathSearchTool.spec),
+        ("graph_subgraph_search", GraphSubgraphSearchTool.spec),
+    ):
+        for property_name, property_schema in spec.input_schema["properties"].items():
+            if isinstance(property_schema, dict) and "default" in property_schema:
+                assert defaults[tool_name][property_name] == property_schema["default"]
+
+
+def test_maximum_depth_and_results_are_derived_not_restated() -> None:
+    from harborrag_mcp_server.policy import McpToolPolicy
+    from harborrag_mcp_server.tools.graph_catalog import MAXIMUM_DEPTH, MAXIMUM_RESULTS
+    from harborrag_mcp_server.tools.graph_search import (
+        GraphPathSearchTool,
+        GraphSubgraphSearchTool,
+    )
+
+    path_properties = GraphPathSearchTool.spec.input_schema["properties"]
+    subgraph_properties = GraphSubgraphSearchTool.spec.input_schema["properties"]
+    assert MAXIMUM_DEPTH == path_properties["max_depth"]["maximum"]
+    assert MAXIMUM_DEPTH == subgraph_properties["max_depth"]["maximum"]
+    assert MAXIMUM_RESULTS == McpToolPolicy().max_results
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_can_be_disabled_through_configuration(tmp_path) -> None:
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.configuration import McpConfigurationStore
+    from harborrag_mcp_server.server.server import McpServer
+
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        "version: 1\ntools:\n  describe_graph:\n    enabled: false\n",
+        encoding="utf-8",
+    )
+    server = McpServer()
+    server.configuration = McpConfigurationStore.load(
+        path=config_path,
+        specs=server.list_tools(),
+        audit=McpAuditLog(),
+    )
+
+    assert "describe_graph" not in [tool.name for tool in server.list_tools()]
+    with pytest.raises(PermissionError, match="disabled"):
+        await server.call_tool("describe_graph")

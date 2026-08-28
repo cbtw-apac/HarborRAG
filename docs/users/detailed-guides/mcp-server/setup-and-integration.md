@@ -161,7 +161,9 @@ four require an explicit tenant scope; `describe_graph` is a static schema
 lookup and requires none. The three graph tools need a node
 identifier the caller already holds—in practice a `chunk_id` from
 `vector_search`, which is the same string as a `Chunk` node key. Advanced vector retrieval adds dense, sparse, or hybrid lanes, metadata
-filters, graph observation control, and a score threshold. Calls pass
+filters, an `observe_graph` diagnostics flag (shallow provenance only — it never loads
+or ranks additional evidence; see [MCP Tools](README.md#observe_graph-is-diagnostics-not-evidence)),
+and a score threshold. Calls pass
 pre-execution capability, declared JSON-schema validation, and argument
 budgets; post-execution result/output budgets; and an owner-only JSONL audit at
 `.harborrag/mcp-audit.jsonl` (override with `HARBORRAG_MCP_AUDIT_PATH`). Audit
