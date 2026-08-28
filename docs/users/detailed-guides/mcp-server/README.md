@@ -10,6 +10,12 @@
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
+| `describe_graph` | None (no tenant required) | Static graph schema: node kinds, entity types, projected relations, selector rules, connector topologies, recommended workflows |
+
+Call `describe_graph` first if graph selectors, relations, directions, or connector
+topology are unclear — it is a static schema lookup, not a query. The MCP server also
+advertises short cross-tool routing instructions (which tool to call for which intent)
+to any client that surfaces server-level `instructions`.
 
 Chat and agent are not exposed as MCP tools. They are served only through the
 HarborRAG REST API's `/v1/chat` and `/v1/agent` endpoints; see

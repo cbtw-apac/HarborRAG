@@ -28,6 +28,7 @@ def test_module_check_lists_all_tools(tmp_path, monkeypatch, capsys) -> None:
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "describe_graph",
     ]
 
 
@@ -103,8 +104,18 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "describe_graph",
     ]
     assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
+
+    describe = tools[-1]
+    assert describe.inputSchema == {"type": "object", "additionalProperties": False}
+    assert describe.annotations is not None
+    assert describe.annotations.readOnlyHint is True
+    assert describe.annotations.destructiveHint is False
+    assert describe.annotations.idempotentHint is True
+    assert describe.annotations.openWorldHint is False
+    assert describe.outputSchema is not None
 
 
 class BrokenTool(BaseMcpTool):
@@ -142,6 +153,7 @@ async def test_mcp_registry_exposes_retrieval_tools():
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "describe_graph",
     ]
     assert [tool.name for tool in server.list_tools()] == expected
     assert [item["name"] for item in list_tools()] == expected
@@ -151,6 +163,7 @@ async def test_mcp_registry_exposes_retrieval_tools():
             {"query": "harbor", "tenant_id": "demo"},
         )
     )["ok"] is False
+    assert (await server.call_tool("describe_graph"))["ok"] is True
     with pytest.raises(ValueError):
         await server.call_tool("missing")
     with pytest.raises(ValueError):
