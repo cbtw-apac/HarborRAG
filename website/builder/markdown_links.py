@@ -5,6 +5,12 @@ from pathlib import Path
 from urllib.parse import quote
 
 
+def _url_path(path: str) -> str:
+    """Normalize a filesystem-style output path to forward slashes."""
+
+    return str(path).replace("\\", "/")
+
+
 class MarkdownLinksMixin:
     """Focused Markdown operations composed by ``MarkdownProcessor``."""
 
@@ -34,6 +40,23 @@ class MarkdownLinksMixin:
     def basic_markdown_to_html(self, markdown_content: str) -> str:
         """Basic markdown to HTML conversion - alias for compatibility."""
         return self.markdown_to_html(markdown_content)
+
+    def rewrite_repository_asset_paths(self, content: str, output_path: str = "") -> str:
+        """Point repository-relative ``website/assets/`` references at the built site.
+
+        The root README and the other bridged root documents are rendered on GitHub as
+        well as on the site, so their image paths have to be repository-relative
+        (``website/assets/logos/x.png``). The builder copies ``website/assets`` to
+        ``site/assets``, so the same reference has to become site-relative here or the
+        image 404s on the generated page.
+        """
+        depth = len([segment for segment in _url_path(output_path).split("/") if segment]) - 1
+        prefix = "../" * depth if depth > 0 else ""
+        return re.sub(
+            r'((?:src|srcset|href)\s*=\s*")(?:\./)?website/assets/',
+            lambda match: f"{match.group(1)}{prefix}assets/",
+            content,
+        )
 
     def convert_markdown_links_to_html(
         self, content: str, source_file: str = "", target_dir: str = ""

@@ -2,9 +2,9 @@
 
 HarborRAG supports two installation methods:
 
-1. **[From the repository](#method-1-install-from-the-repository)** — clone and
+1. **[From the repository](#method-1-install-from-the-repository)** - clone and
    install. Available now, and the method to use for contributing.
-2. **[From PyPI](#method-2-install-from-pypi)** — `pip install harborrag` with
+2. **[From PyPI](#method-2-install-from-pypi)** - `pip install harborrag` with
    the extras you need. Published with the `2.0.0a1` release.
 
 Both give the same packages. Pick the repository method if you want the example
@@ -14,36 +14,54 @@ HarborRAG to an existing project.
 ## Requirements
 
 - Python 3.12 or newer
-- [`uv`](https://docs.astral.sh/uv/) for the repository workflow, or a recent `pip`
+- [`uv`](https://docs.astral.sh/uv/) for the repository workflow (Option A), or a
+  recent `pip` and `make` (Option B)
 - Docker Engine with Compose v2 for the local data and Temporal stacks
 - Native libraries required by any optional parser/provider you select
 
 ## Method 1: install from the repository
 
+Clone the repository first:
+
 ```bash
 git clone https://github.com/cbtw-apac/HarborRAG.git
 cd HarborRAG
+```
+
+Then set up the environment **one** of two ways. They are alternatives, not
+successive steps - running both installs the same packages twice into different
+environments.
+
+| | Option A: `uv` | Option B: `pip` + Makefile |
+| --- | --- | --- |
+| Requires | [`uv`](https://docs.astral.sh/uv/) | `python -m venv` and `make` |
+| Creates | `.venv/` managed by `uv` | `.venv/` you activate yourself |
+| Run commands with | `uv run <command>` | `<command>`, after activating |
+| Use when | You are contributing or following the guides - this is what CI and [Quick Start](quick-start.md) use | You need a plain editable install, or `uv` is unavailable |
+
+Pick Option A unless something rules it out.
+
+### Option A: uv (recommended)
+
+```bash
 uv sync --all-packages --extra dev
 ```
 
-Run tools through the managed environment:
+Run tools through the managed environment - no activation step:
 
 ```bash
-uv run --package harborrag-app harborrag --help
+uv run harborrag --help
 uv run pytest
 ```
-
-This checkout also gives you `config/*.yaml` examples, the
-`scripts/deployment/dev.sh` service stack, and the test suite, which the PyPI
-packages do not ship. [Quick Start](quick-start.md) follows this path.
 
 CI syncs with `uv sync --all-packages --all-extras`, pulling every heavy and
 provider-specific extra. Prefer `--extra dev` unless you need every PDF engine,
 repository SDK, and telemetry integration.
 
-### Editable pip install
+### Option B: editable pip install
 
-The Makefile installs the packages in dependency order:
+Create and activate a virtual environment, then let the Makefile install the
+packages in dependency order:
 
 ```bash
 python -m venv .venv
@@ -52,19 +70,36 @@ python -m pip install --upgrade pip
 make bootstrap
 ```
 
-The equivalent explicit sequence:
+Commands run directly once the environment is active:
+
+```bash
+harborrag --help
+pytest
+```
+
+What `make bootstrap` actually runs - note the extras, which a bare
+package-by-package install would silently omit:
 
 ```bash
 python -m pip install -e packages/harborrag-core
-python -m pip install -e packages/harborrag-adapters
+python -m pip install -e "packages/harborrag-adapters[control-plane]"
 python -m pip install -e packages/harborrag-engine
-python -m pip install -e packages/harborrag-memory
-python -m pip install -e packages/harborrag-runtime
-python -m pip install -e packages/harborrag-app
+python -m pip install -e "packages/harborrag-runtime[production]"
+python -m pip install -e "packages/harborrag-app[api]"
 python -m pip install -e packages/harborrag-mcp-server
 python -m pip install -e packages/harborrag
 python -m pip install -e ".[dev]"
 ```
+
+`harborrag-memory` has no explicit step because `harborrag-runtime` requires it. Dropping
+the `[control-plane]`, `[production]`, and `[api]` extras yields a checkout that imports
+fine and then fails at the first control-plane, provider, or API call.
+
+### What the checkout gives you
+
+Either option also gives you `config/*.yaml` examples, the
+`scripts/deployment/dev.sh` service stack, and the test suite, which the PyPI
+packages do not ship.
 
 See [Contributing](../../CONTRIBUTING.md) for quality gates and the full
 development setup.
@@ -82,9 +117,11 @@ rest:
 pip install harborrag
 ```
 
-A bare install gives you the facade, the provider-neutral contracts, and the
-adapter code. It deliberately installs **no provider clients**, so there is no
-vector store, no graph store, and no model client until you add an extra.
+A bare install gives you the whole first-party framework - the facade plus
+`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`, and
+`harborrag-runtime` - along with SQLAlchemy and SQLite for the local control plane. It
+deliberately installs **no third-party provider clients**, so there is no vector store, no
+graph store, and no model client until you add an extra.
 
 Everything at once:
 
@@ -94,18 +131,19 @@ pip install "harborrag[all]"
 
 ### Which extra do I need?
 
-Each extra adds only the third-party clients its providers require.
+Most extras add only the third-party clients their providers require. Four -
+`cli`, `server`, `mcp`, and `memory` - add first-party HarborRAG packages instead.
 
 | Install | Adds | Use it when |
 | --- | --- | --- |
-| `harborrag` | contracts only, plus SQLAlchemy/SQLite | you supply your own adapters |
+| `harborrag` | the full first-party framework, plus SQLAlchemy/SQLite - no provider clients | you supply your own provider adapters |
 | `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables | local end-to-end ingestion and retrieval |
 | `harborrag[chat]` | model client | chat completion, embeddings, reranking |
 | `harborrag[cli]` | `harborrag-app` | the `harborrag` command |
 | `harborrag[server]` | `harborrag-app[api]`, production and Temporal runtime | running the HTTP API |
 | `harborrag[mcp]` | `harborrag-mcp-server[mcp]` | exposing MCP tools to an IDE or agent |
-| `harborrag[memory]` | `harborrag-memory` | conversation memory |
-| `harborrag[temporal]` | Temporal client | durable orchestration, `submit`/`pause`/`resume`/`cancel` |
+| `harborrag[memory]` | nothing new - `harborrag-memory` is already required by `harborrag-runtime` | explicitness only |
+| `harborrag[temporal]` | Temporal client | durable orchestration: `submit`, `status`, `pause`, `resume`, `cancel` |
 | `harborrag[qdrant]` | `qdrant-client` | Qdrant vector storage |
 | `harborrag[falkordb]` | `falkordb` | FalkorDB graph storage |
 | `harborrag[postgres]` | `asyncpg` plus the control plane | PostgreSQL-backed control plane |
@@ -124,8 +162,8 @@ pip install "harborrag[cli,qdrant,falkordb,chat]"
 ### Chat and embeddings need a model client
 
 Chat, embedding, and reranking all route through the model client in the `chat`
-extra. Without `harborrag[chat]` — or an extra that includes it, such as
-`local`, `server`, or `all` — those calls fail on a missing import even though
+extra. Without `harborrag[chat]` - or an extra that includes it, such as
+`local`, `server`, or `all` - those calls fail on a missing import even though
 the rest of HarborRAG works.
 
 ### Installing individual packages
@@ -161,9 +199,18 @@ package reference section of the documentation.
 | `harborrag-mcp` | `harborrag-mcp-server` | `harborrag[mcp]`, `harborrag[all]` |
 
 A PyPI install puts these on your `PATH`, so `harborrag --help` works directly.
-In a repository checkout, prefix them with
-`uv run --package harborrag-app` (or `--package harborrag-mcp-server`) so they
-resolve inside the workspace environment.
+
+In a repository checkout, `uv sync --all-packages` installs both console scripts into the
+workspace environment, so prefix them with `uv run`:
+
+```bash
+uv run harborrag --help
+uv run harborrag-mcp --help
+```
+
+If you synced without `--all-packages`, the script may be missing from the environment; add
+the selector back (`uv run --package harborrag-app harborrag --help`) or re-sync with
+`--all-packages`.
 
 ## Parser and PDF extras
 
@@ -171,7 +218,7 @@ resolve inside the workspace environment.
 your content needs:
 
 ```bash
-pip install "harborrag-adapters[parsers]"        # common text, Office, image formats
+pip install "harborrag-adapters[parsers]"        # text, Office, image formats + PyMuPDF
 pip install "harborrag-adapters[pdf-docling]"    # Docling with RapidOCR
 pip install "harborrag-adapters[pdf]"            # every supported PDF backend
 pip install "harborrag-adapters[parsers-all]"    # parsers plus every PDF backend
@@ -201,7 +248,7 @@ python -c "import harborrag; print(harborrag.__all__)"
 In a checkout:
 
 ```bash
-uv run python -m harborrag_app.cli.main doctor --json
+uv run harborrag doctor --json
 uv run python scripts/check_dependency_direction.py
 ```
 

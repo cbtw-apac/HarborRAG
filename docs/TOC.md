@@ -34,6 +34,7 @@
 - [Extending HarborRAG](developers/extending/README.md)
 - [Testing](developers/testing/README.md)
 - [Deployment](developers/deployment/README.md)
+- [Release Process](developers/release-process.md)
 - [Open-Source Publication Guidelines](developers/publication-guidelines.md)
 
 ## Package reference
@@ -54,4 +55,4 @@
 - [Changelog](../CHANGELOG.md)
 - [License](../LICENSE)
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-27

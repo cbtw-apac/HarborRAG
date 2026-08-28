@@ -33,7 +33,7 @@ virtual environment is not activated.
 
 Each script (`chat.py`, `embed.py`, `rerank.py`) has a "Quick config" block
 near the top with plain constants, e.g. `EMBED_MODEL`, `EMBED_API_KEY`,
-`BATCH`. Set the ones you need directly in the file and run the script — no
+`BATCH`. Set the ones you need directly in the file and run the script - no
 `.env` file required. Leave a constant as `None` to fall back to the matching
 environment variable / dotenv value described below. Constants set in the
 file always take precedence over the environment.

@@ -18,6 +18,7 @@ import argparse
 # Re-export the main WebsiteBuilder class for backward compatibility
 # Handle both relative import (when used as module) and absolute import (when run as script)
 try:
+    from .builder.constants import DEFAULT_PUBLIC_ORIGIN
     from .builder.core import WebsiteBuilder
     from .console_encoding import enable_utf8_output
 except ImportError:
@@ -26,6 +27,7 @@ except ImportError:
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).parent))
+    from builder.constants import DEFAULT_PUBLIC_ORIGIN
     from builder.core import WebsiteBuilder
     from console_encoding import enable_utf8_output
 
@@ -41,12 +43,27 @@ def main():
     )
     parser.add_argument("--coverage-artifacts", help="Coverage artifacts directory")
     parser.add_argument("--test-results", help="Test results directory")
-    parser.add_argument("--base-url", default="", help="Base URL for the website")
+    parser.add_argument("--base-url", default="", help="Path prefix for asset and navigation links")
+    parser.add_argument(
+        "--site-url",
+        default=None,
+        help=(
+            "Absolute public origin (e.g. https://docs.example.com) used for "
+            "canonical, Open Graph, sitemap and robots URLs"
+        ),
+    )
 
     args = parser.parse_args()
 
     builder = WebsiteBuilder(args.templates, args.output)
     builder.base_url = args.base_url
+    builder.public_origin = args.site_url
+    if not args.site_url and not args.base_url:
+        print(
+            "⚠️  No --site-url given; canonical, Open Graph and sitemap URLs "
+            f"fall back to {DEFAULT_PUBLIC_ORIGIN}. Pass --site-url for any "
+            "deployment served from a different origin."
+        )
     # Mark that base_url came from CLI (even if empty string). Avoid auto-overrides.
     try:
         builder.base_url_user_set = True

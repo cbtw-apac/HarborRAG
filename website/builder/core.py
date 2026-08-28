@@ -34,6 +34,9 @@ class WebsiteBuilder(
         self.templates_dir = Path(templates_dir)
         self.output_dir = Path(output_dir)
         self.base_url = ""
+        # Absolute public origin for canonical/Open Graph/SEO URLs. Distinct
+        # from ``base_url``, which is only the asset/navigation path prefix.
+        self.public_origin: str | None = None
         # Cached docs navigation data (built once per run)
         self.docs_nav_data: dict | None = None
 

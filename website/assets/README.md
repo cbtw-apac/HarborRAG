@@ -4,13 +4,13 @@ Assets in this directory are copied into `site/assets/` during a documentation b
 
 ## Visual assets
 
-- `logos/` — the existing navigation and social artwork.
-- `icons/` — the existing scalable marks and documentation icons.
-- `favicons/` — browser, Apple touch, and Android favicon variants.
-- `css/docs.css` — documentation content and code-block styling.
-- `js/search.js` — client-side documentation search.
-- `js/codeux.js` — code-block interaction helpers.
-- `js/mermaid-init.js` — Mermaid diagram initialization.
+- `logos/` - the existing navigation and social artwork.
+- `icons/` - the existing scalable marks and documentation icons.
+- `favicons/` - browser, Apple touch, and Android favicon variants.
+- `css/docs.css` - documentation content and code-block styling.
+- `js/search.js` - client-side documentation search.
+- `js/codeux.js` - code-block interaction helpers.
+- `js/mermaid-init.js` - Mermaid diagram initialization.
 
 The existing layout and visual assets are intentionally retained for the
 company frontend team to replace. Documentation and release work should not add

@@ -13,7 +13,7 @@ by ingestion and hybrid retrieval:
 
 ```bash
 uv sync --package harborrag-app --extra production
-uv run --package harborrag-app harborrag --help
+uv run harborrag --help
 ```
 
 The base package is sufficient for help and presentation code. Live commands
@@ -89,10 +89,11 @@ PostgreSQL-backed turns.
 
 ## Ingestion
 
-`--connector` takes a **configured connector name** — a key under `connectors:`
-in `config/connectors.yaml` — not a provider type. The shipped configuration
-defines `harborrag-workspace` (provider `local`), `confluence-main`, and
-`jira-main`, so `--connector local` fails with
+`--connector-id` takes a **configured connector name** - a key under `connectors:`
+in `config/connectors.yaml` - not a provider type. (`--connector` is an accepted alias for
+the same option; prefer `--connector-id`, which says what the value is.) The shipped
+configuration defines `harborrag-workspace` (provider `local`), `confluence-main`, and
+`jira-main`, so `--connector-id local` fails with
 `Unknown configured connector: 'local'`. List the configured names with:
 
 ```bash
@@ -110,8 +111,8 @@ before the run is accepted:
 | `jira-main` | `JIRA_BASE_URL`, `JIRA_PROJECT_KEY`, `JIRA_TOKEN`, `JIRA_EMAIL` |
 
 **You do not need to set these on the command line.** The CLI loads
-`env/.env.connector`, `env/.env.parser`, and `env/.env.models` on startup — the
-same files compose hands to the worker — so credentials configured once are
+`env/.env.connector`, `env/.env.parser`, and `env/.env.models` on startup - the
+same files compose hands to the worker - so credentials configured once are
 picked up by every command. An exported or inline variable still wins over the
 file. `env/.env.api` and `env/.env.database` are deliberately not loaded: they
 point at in-cluster hostnames a host CLI cannot reach. `CONNECTOR_ENV_FILE`,
@@ -149,7 +150,7 @@ Atlassian API token, and on Cloud it is paired with `JIRA_EMAIL` for basic auth.
 > Credentials must also be present in the **worker**, which runs in its own
 > container and does the actual fetching. Compose supplies them from
 > `env/.env.connector` via `env_file:`, so editing that one file covers both the CLI
-> and the worker — but a worker started before the edit keeps the old values until
+> and the worker - but a worker started before the edit keeps the old values until
 > it is restarted.
 
 > **A zero exit from `ingest start` means the workflow was submitted, not that it
@@ -184,13 +185,17 @@ Commands that do real work refuse to start when the control-plane database is no
 usable, and say why:
 
 ```
-✗ Control plane is not ready: migrations failed: (sqlite3.OperationalError)
-  table projects already exists. Refusing to run against a database whose
-  schema may be stale; run 'harborrag doctor' for diagnostics.
+✗ Control plane is not ready. Refusing to run against a database whose schema
+  may be stale; run 'harborrag doctor' for diagnostics.
 ```
 
-`harborrag doctor` is exempt — it stays available precisely when the control plane
-is degraded. With `--json`, the full underlying error is in `data.detail`.
+`harborrag doctor` is exempt - it stays available precisely when the control plane
+is degraded.
+
+The message deliberately does not interpolate the underlying database error. With `--json`
+you get `{"error_type": "ControlPlaneUnavailable"}` and nothing more; the detail is
+**logged**, not returned, so read the process log (or run `harborrag doctor`) to find out
+which migration failed.
 
 If you reach a missing-column error instead (for example
 `no such column: source_scopes.tenant_id`), the migrations did not run. Boot only
@@ -327,33 +332,32 @@ Relevant `HARBORRAG_` variables include:
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Vector retrieval |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | Graph expansion |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | Graph expansion |
-| `HARBORRAG_INGESTION_OBJECT_ROOT` | `.harborrag/objects` | Canonical retrieved chunk content |
-| `HARBORRAG_VECTOR_COLLECTION` | `harborrag_chunks` | Vector collection |
-| `HARBORRAG_GRAPH_NAMESPACE` | `harborrag` | Graph projection namespace |
+| `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3/MinIO object store holding canonical chunk content |
+| `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` | unset | Object-store credential |
+| `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` | unset | Object-store credential |
+| `HARBORRAG_QDRANT_COLLECTION_PREFIX` | `""` | Vector collection name prefix |
+| `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph projection name |
 | `HARBORRAG_LOG_LEVEL` | `WARNING` for CLI | Diagnostic logging |
 
 Plaintext connections to non-loopback services fail closed unless their
 explicit `HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is
 enabled. Do not use those opt-outs on an untrusted network.
 
-### The object root must be shared with the Temporal worker
+### The CLI and the worker must share one object store
 
-Qdrant stores vectors and chunk *references*; the canonical chunk bodies live
-on the filesystem under `HARBORRAG_INGESTION_OBJECT_ROOT`. `retrieve` reads
-those bodies, so it must point at the same object root the worker wrote them
-to. The Compose worker sets `/var/lib/harborrag/objects` (Docker volume
-`harborrag-ingestion-data`), while a CLI run on the host defaults to
-`./.harborrag/objects`.
+Qdrant stores vectors and chunk *references*; the canonical chunk bodies live in the
+S3-compatible object store. `retrieve` reads those bodies, so it must point at the same
+store the worker wrote them to.
 
-When the two disagree, ingestion reports success and retrieval then fails with:
+The Compose worker uses `http://minio:9000` on the shared Docker network, while a CLI run
+on the host defaults to `http://localhost:9000` - the same MinIO container through its
+published port, so they agree by default. They diverge if you change `MINIO_API_PORT`, bind
+MinIO to a different address, or run the CLI against a different deployment.
 
-```text
-HarborStorageNotFoundError: object ingestion/chunks/<sha>.json does not exist
-```
-
-even though the vectors are present. Point the CLI at the worker's object root
-— the directory *containing* `ingestion/`, not `ingestion/` itself — or run
-`retrieve` inside the worker's environment.
+When they disagree, ingestion reports success and retrieval then fails on a missing object
+even though the vectors are present. Point the CLI at the worker's endpoint with
+`HARBORRAG_OBJECT_STORE_ENDPOINT_URL` (plus the matching credentials), or run `retrieve`
+inside the worker's environment.
 
 ## Package boundary
 

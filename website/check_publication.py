@@ -29,19 +29,47 @@ def _matches_in_file(path: Path, root: Path) -> list[str]:
     return failures
 
 
-def find_public_reference_leaks(root: Path = REPOSITORY_ROOT) -> list[str]:
-    """Find public source pages that reference a private input path or filename."""
+def public_candidate_files(root: Path = REPOSITORY_ROOT) -> list[Path]:
+    """Return the public source files the guard is expected to examine."""
     candidates = [root / name for name in PUBLIC_ROOT_FILES]
     docs_root = root / "docs"
     if docs_root.exists():
         candidates.extend(docs_root.rglob("*.md"))
     candidates.extend((root / "website" / "templates").rglob("*.html"))
     candidates.append(root / "website" / "README.md")
+    return [path for path in sorted(set(candidates)) if path.is_file()]
 
+
+def find_guard_scope_failures(root: Path = REPOSITORY_ROOT) -> list[str]:
+    """Fail when the guard cannot see the tree it is meant to protect.
+
+    Every path this module scans is resolved relative to the repository root.
+    Run it against a different layout - a documentation-only repository, a
+    synced subtree, an unexpected working directory - and each lookup misses,
+    the scan finds nothing, and the guard reports success without having
+    examined a single file. That silent pass is the failure mode worth
+    catching, so treat an empty scope as an error rather than a clean run.
+    """
     failures: list[str] = []
-    for path in sorted(set(candidates)):
-        if path.is_file():
-            failures.extend(_matches_in_file(path, root))
+    docs_root = root / "docs"
+    if not docs_root.is_dir():
+        failures.append(
+            f"guard scope: no documentation tree at {docs_root} - "
+            "the publication guard cannot protect what it cannot see"
+        )
+    templates_root = root / "website" / "templates"
+    if not templates_root.is_dir():
+        failures.append(f"guard scope: no website templates at {templates_root}")
+    if not public_candidate_files(root):
+        failures.append(f"guard scope: no public source files found under {root}")
+    return failures
+
+
+def find_public_reference_leaks(root: Path = REPOSITORY_ROOT) -> list[str]:
+    """Find public source pages that reference a private input path or filename."""
+    failures: list[str] = []
+    for path in public_candidate_files(root):
+        failures.extend(_matches_in_file(path, root))
     return failures
 
 
@@ -63,6 +91,7 @@ def find_generated_reference_leaks(
 def publication_failures(root: Path = REPOSITORY_ROOT) -> list[str]:
     """Collect all public-publication guard failures."""
     return [
+        *find_guard_scope_failures(root),
         *find_public_reference_leaks(root),
         *find_generated_reference_leaks(root),
     ]
@@ -76,7 +105,10 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("Public documentation contains no private reference material.")
+    examined = len(public_candidate_files())
+    print(
+        f"Public documentation contains no private reference material ({examined} files checked)."
+    )
     return 0
 
 

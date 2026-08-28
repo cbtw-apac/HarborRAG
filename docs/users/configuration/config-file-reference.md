@@ -35,7 +35,13 @@ engine settings alongside the control-plane repositories.
 ## Ingestion runtime environment
 
 The built-in worker composition loads the three catalogs and repository
-settings through `HARBORRAG_*` variables:
+settings through `HARBORRAG_*` variables.
+
+> Four rows below - `HARBORRAG_API_CAPACITY_REDIS_URL`,
+> `HARBORRAG_API_REQUESTS_PER_MINUTE`, `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL`, and
+> `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` - are API-process settings (`ApiSettings`), not
+> worker settings. They are read only by the API.
+
 
 | Variable | Default |
 | --- | --- |
@@ -74,8 +80,14 @@ HTTP and CLI chat share `HARBORRAG_MODEL_CONFIG_PATH`. The checked-in
 | Variable | Meaning |
 | --- | --- |
 | `HARBOR_CHAT_PROVIDER` | Provider identifier allowed by the chat security policy |
-| `HARBOR_CHAT_MODEL` | Provider model identifier for the `primary` deployment |
-| `HARBOR_CHAT_API_KEY` | Provider credential |
+| `HARBOR_CHAT_MODEL` | Provider model identifier for the `primary` chat deployment |
+| `HARBOR_CHAT_API_KEY` | Chat provider credential |
+| `HARBOR_EMBED_PROVIDER` | Provider identifier allowed by the embedding security policy |
+| `HARBOR_EMBED_MODEL` | Provider model identifier for the embedding deployment |
+| `HARBOR_EMBED_API_KEY` | Embedding provider credential |
+
+All six are required. References expand eagerly at load time, so a missing embedding
+variable fails exactly as hard as a missing chat one.
 
 Store populated values in the ignored `env/.env.models` file or an external
 secret manager. HarborRAG's configuration loader does not search `.env` files;

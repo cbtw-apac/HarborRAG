@@ -47,7 +47,7 @@ engine modules.
 exports for public application services and contracts; nested modules are for
 runtime and white-box test implementation details.
 
-Tests mirror the same boundaries under `tests/ingestion/`: shared fakes are in
+Tests mirror the same boundaries under `packages/harborrag-runtime/tests/runtime_ingestion/`: shared fakes are in
 `fixtures/`, fast behavior tests are grouped under `unit/document`,
 `unit/source`, `unit/maintenance`, and `unit/temporal`, while deterministic
 Temporal replay tests live in `workflows/`.
