@@ -1,7 +1,7 @@
 # CLI reference
 
 The installed command is `harborrag`. Run
-`uv run --package harborrag-app harborrag ...` from a source checkout or
+`uv run harborrag ...` from a source checkout or
 `harborrag ...` from an installed package.
 
 Typer provides grouped Rich help pages, validation, typo-friendly errors, and
@@ -65,16 +65,18 @@ harborrag doctor [--json]
 
 ```bash
 harborrag ingest start \
-  --tenant TENANT_ID \
-  --connector CONNECTOR_NAME \
+  --connector-id CONNECTOR_ID \
+  [--tenant TENANT_ID] \
   [--run-id RUN_ID] \
   [--connection-id CONNECTION_ID] \
   [--source-scope-id SOURCE_SCOPE_ID] \
   [--path PATH] [--pattern PATTERN] \
   [--recursive | --no-recursive] \
   [--attachments | --no-attachments] \
+  [--updated-after ISO8601] \
   [--filters-json JSON] [--force-reprocess] \
   [--limit COUNT] \
+  [--batch-size COUNT] [--document-concurrency COUNT] \
   [--wait] [--json]
 
 harborrag ingest status RUN_ID [--json]
@@ -84,6 +86,16 @@ harborrag ingest pause RUN_ID [--json]
 harborrag ingest resume RUN_ID [--json]
 harborrag ingest cancel RUN_ID [--json]
 ```
+
+`--connector-id` is the only required option; `--connector` is an accepted alias for it.
+The value is a connection name from `config/connectors.yaml`, not a source type, so
+`--connector-id local` fails with the list of valid IDs. `--tenant` defaults to `DEFAULT`.
+
+`--batch-size` (1–300) and `--document-concurrency` (1–100) override the
+`ingestion.batch_size` and `ingestion.document_concurrency` values in
+`config/temporal.yaml` for one run. `--updated-after` takes an ISO-8601 timestamp and
+limits discovery to sources changed since then. Note that `ingest watch` is the interactive
+dashboard and is the one subcommand with no `--json`.
 
 `start` generates an omitted run ID and deterministically derives omitted
 connection/scope identity. `--wait` submits the ingestion workflow and waits

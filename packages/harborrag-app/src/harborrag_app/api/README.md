@@ -24,8 +24,7 @@ uv sync --package harborrag-app --extra api
 Start the application factory directly:
 
 ```bash
-uv run --package harborrag-app \
-  uvicorn harborrag_app.api.app:create_fastapi_app \
+uv run uvicorn harborrag_app.api.app:create_fastapi_app \
   --factory \
   --host 127.0.0.1 \
   --port 8000
@@ -73,24 +72,72 @@ requests still go to the configured Temporal service.
 
 | Method | Path | Minimum role | Behavior |
 | --- | --- | --- | --- |
-| `GET` | `/api/v1/health` | Public | Process liveness; does not probe dependencies |
-| `GET` | `/api/v1/readyz` | Public | Dependency-aware readiness; returns 503 when runtime composition is unavailable |
-| `GET` | `/api/v1/metrics` | Admin | Prometheus API, Python runtime, and process metrics |
+The API serves two prefixes, and the distinction matters:
+
+- **`/v1/...` is the public contract** - ingestion, retrieval, chat, agent, admin. This is
+  what applications integrate against.
+- **`/api/v1/...` is the operational surface** - health, readiness, metrics, and the
+  console-facing project/source/activity/settings routes. Treat it as deployment
+  plumbing, not an application API.
+
+`/api/v1/docs` and `/api/v1/openapi.json` are served when `HARBORRAG_DOCS_ENABLED` is set;
+`GET /` and `GET /docs` redirect there (or to `/api/v1/health` when docs are disabled).
+The live schema is always authoritative - prefer it to this table.
+
+### Public contract (`/v1`)
+
+| Method | Path | Minimum role | Behavior |
+| --- | --- | --- | --- |
 | `POST` | `/v1/ingestions` | `editor` | Submit a durable ingestion task |
 | `GET` | `/v1/ingestions` | `reader` | List tasks newest first, cursor-paginated |
 | `GET` | `/v1/ingestions/{task_id}` | `reader` | Read Postgres-authoritative task progress |
 | `GET` | `/v1/ingestions/{task_id}/documents` | `reader` | Read cursor-paginated document outcomes |
+| `GET` | `/v1/ingestions/{task_id}/stream` | `reader` | Stream task progress as Server-Sent Events |
 | `POST` | `/v1/ingestions/{task_id}/cancel` | `editor` | Request graceful cancellation |
 | `POST` | `/v1/ingestions/{task_id}/retry-failures` | `editor` | Retry selected or all retryable failures |
 | `GET` | `/v1/connections` | `reader` | List enabled connections submittable by `connection_id` |
-| `POST` | `/v1/chat/sessions` | `reader` | Create a persisted chat session and greeting |
+| `POST` | `/v1/chat/sessions` | `reader` | Create a persisted chat session and greeting (`201`) |
 | `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
-| `POST` | `/v1/agent/sessions` | `reader` | Create a persisted agent session and greeting |
+| `POST` | `/v1/agent/sessions` | `reader` | Create a persisted agent session and greeting (`201`) |
 | `POST` | `/v1/agent/completions` | `reader` | Bounded multi-turn model/tool completion |
+| `POST` | `/v1/agent/runs/{run_id}/resume` | `reader` | Continue a run that stopped before finishing |
 | `POST` | `/v1/retrieval/vector` | `reader` | Dense, sparse, or hybrid vector search |
 | `POST` | `/v1/retrieval/graph/triplets` | `reader` | Match subject-predicate-object records |
 | `POST` | `/v1/retrieval/graph/paths` | `reader` | Find bounded paths between graph nodes |
 | `POST` | `/v1/retrieval/graph/subgraphs` | `reader` | Expand a bounded graph neighborhood |
+| `GET` | `/v1/admin/projections/{tenant}` | `admin` | Inspect projection state for a tenant |
+| `DELETE` | `/v1/admin/projections/{tenant}` | `admin` | Drop a tenant's rebuildable projections |
+
+### Operational surface (`/api/v1`)
+
+| Method | Path | Minimum role | Behavior |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/health` | Public | Process liveness; does not probe dependencies |
+| `GET` | `/api/v1/readyz` | Public | Dependency-aware readiness; `503` when runtime composition is unavailable |
+| `GET` | `/api/v1/metrics` | `admin` | Prometheus API, Python runtime, and process metrics |
+| `GET` | `/api/v1/metrics/ingestion` | `reader` | Ingestion-specific metrics |
+| `GET` | `/api/v1/projects` | `reader` | List projects |
+| `GET` | `/api/v1/projects/{project_id}` | `reader` | Read one project |
+| `GET` | `/api/v1/sources` | `reader` | List configured sources |
+| `POST` | `/api/v1/sources` | `editor` | Create a source |
+| `GET` | `/api/v1/sources/{source_id}` | `reader` | Read one source |
+| `PATCH` | `/api/v1/sources/{source_id}` | `editor` | Update a source |
+| `DELETE` | `/api/v1/sources/{source_id}` | `editor` | Delete a source |
+| `GET` | `/api/v1/activity` | `reader` | Recent activity feed |
+| `GET` | `/api/v1/settings` | `reader` | Effective non-secret settings |
+
+### Deprecated
+
+These predate the `/v1` contract, still appear in the generated schema, and will be
+removed. Use the `/v1/ingestions*` routes instead.
+
+| Method | Path | Minimum role |
+| --- | --- | --- |
+| `GET` | `/api/v1/diagnostics` | `admin` |
+| `POST` | `/api/v1/ingestions` | `editor` |
+| `GET` | `/api/v1/ingestions/{run_id}` | `reader` |
+| `GET` | `/api/v1/ingestions/{run_id}/result` | `reader` |
+| `POST` | `/api/v1/ingestions/{run_id}/actions` | `editor` |
 
 The API authenticates the principal and accepts tenant as one explicit,
 top-level request field. It defaults to `DEFAULT`; callers cannot bypass tenant
@@ -379,8 +426,7 @@ http://127.0.0.1:8000/api/v1/openapi.json
 Export the deterministic contract without starting a server:
 
 ```bash
-uv run --package harborrag-app \
-  python -m harborrag_app.api.export_openapi > openapi.json
+uv run python -m harborrag_app.api.export_openapi > openapi.json
 ```
 
 ## Package boundary
@@ -391,9 +437,14 @@ The package is organized by responsibility:
 api/
 ├── app.py, router.py, settings.py, middleware.py, metrics.py
 ├── auth/                 # authentication and role dependencies
-├── routes/               # health and Prometheus scrape endpoints
+├── routes/               # operational surface: health, metrics, projects,
+│                         #   sources, activity, settings, deprecated routes
 ├── schemas.py            # contracts shared by API features
-└── v1/
+└── v1/                   # the public /v1 contract
+    ├── admin/            # projection inspection and teardown
+    ├── agent/            # agent sessions, completions, run resume
+    ├── chat/             # chat sessions and completions
+    ├── connections/      # submittable connection listing
     ├── ingestion/        # ingestion routes, schemas, and command mapping
     └── retrieval/        # retrieval routes, schemas, and service dependency
 ```

@@ -63,8 +63,8 @@ multiple connections can be configured for the same provider.
 | JIRA | `JIRA_BASE_URL` and either `JIRA_TOKEN` or `JIRA_API_TOKEN` | `JIRA_EMAIL` for Cloud |
 | SharePoint | Environment variables referenced by the selected connection, normally Microsoft tenant/client credentials and `SHAREPOINT_SITE_URL` | Drive/root path stay in YAML |
 
-Everything else — content type filters, attachment limits, pagination, JIRA
-`project_keys` scoping, and so on — is a literal setting in
+Everything else - content type filters, attachment limits, pagination, JIRA
+`project_keys` scoping, and so on - is a literal setting in
 `config/connectors.yaml`. Edit that file directly instead of adding more
 environment variables. Relative `LOCAL_SOURCE_PATH` values are resolved from
 the repository root.
@@ -115,7 +115,7 @@ text. `md` saves a structured Markdown document instead: a `#` title, a
 short header list (source, content type), a `## Metadata` section with a
 curated set of provider-specific fields (Jira: issue key, status, assignee,
 priority, labels, ...; Confluence: space, version, author, labels, breadcrumb,
-...; Local: parser, page count, OCR settings, figures extracted, warnings —
+...; Local: parser, page count, OCR settings, figures extracted, warnings -
 whichever fields have a value), the body, and each parsed attachment under
 its own `###` heading.
 
@@ -128,18 +128,18 @@ its own `###` heading.
   embedded with a `file://` link to its original path.
 - Figures embedded *inside* a locally parsed PDF (via Docling) are copied into
   the same `<output-file-stem>.assets/` convention and listed under a
-  `## Figures` heading — this requires `pdf-docling.image_output_dir` to be
+  `## Figures` heading - this requires `pdf-docling.image_output_dir` to be
   set in `config/parsers.yaml` (see [Parser selection](#parser-selection));
   full-page renders and table crops Docling can also produce are intentionally
   skipped to keep output focused on actual figures.
 
-`txt` output has no such folder — it's OCR text only, since plain text can't
+`txt` output has no such folder - it's OCR text only, since plain text can't
 reference a file.
 
 For Confluence/JIRA this covers the page/issue body plus every parsed
 attachment's text. For Local it saves the real parsed content of the
 discovered file (not raw bytes). Use `--limit` to change how many records are
-discovered and processed — each gets its own output file (default: 3).
+discovered and processed - each gets its own output file (default: 3).
 
 ## What each check verifies
 
@@ -168,7 +168,7 @@ PDF and image parsing come from `config/parsers.yaml` (falling back to
 `config/parsers.example.yaml`), the same catalog the application uses. The
 shipped default enables `pdf-docling`, which parses PDFs with Docling and OCRs
 scanned pages with RapidOCR. Plain image attachments and local image files
-always OCR through RapidOCR — that routing isn't expressible in the
+always OCR through RapidOCR - that routing isn't expressible in the
 declarative parser catalog, so the smoke bootstrap wires it directly.
 
 ```bash
@@ -202,7 +202,7 @@ attachment status/count information. Full provider content is not printed
 unless `HARBOR_SMOKE_VERBOSE=1` is set (bounded, redacted previews; disabled
 in CI).
 
-- Exit `2`: check `config/connectors.yaml` and `env/.env.connector` — the
+- Exit `2`: check `config/connectors.yaml` and `env/.env.connector` - the
   printed message names the missing/undefined connector or variable.
 - No records: confirm the configured source contains readable documents and
   that repository/space/project/drive scoping is correct.

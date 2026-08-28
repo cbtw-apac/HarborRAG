@@ -4,6 +4,8 @@ import html
 import json
 from pathlib import Path
 
+from .constants import resolve_public_origin
+
 
 def _url_path(value: str) -> str:
     """Normalize a site-relative path to URL form.
@@ -82,11 +84,7 @@ class PageBuildMixin:
         extras.setdefault("additional_scripts", "")
 
         canonical_url = (
-            (
-                self.base_url.rstrip("/")
-                if self.base_url
-                else "https://cbtw-apac.github.io/HarborRAG"
-            )
+            resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
             + "/"
             + canonical_path
         )
@@ -160,6 +158,11 @@ class PageBuildMixin:
         # Normalize any remaining HTML hrefs
         html_content = self.markdown_processor.convert_markdown_links_to_html(
             html_content, str(markdown_path), output_path
+        )
+        # Root documents are rendered on GitHub too, so their asset references are
+        # repository-relative. Retarget them at the copied site assets.
+        html_content = self.markdown_processor.rewrite_repository_asset_paths(
+            html_content, output_path
         )
 
         # Wrap in the docs layout. The rail carries the canonical documentation

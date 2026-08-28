@@ -49,6 +49,11 @@ jobs:
       - name: Validate pre-commit config
         run: uv run pre-commit validate-config .pre-commit-config.yaml
 
+      - name: Documentation publication boundary
+        run: |
+          uv run python website/check_publication.py
+          uv run python website/check_docs_publish_path.py
+
       - name: Lint
         run: uv run make lint
 

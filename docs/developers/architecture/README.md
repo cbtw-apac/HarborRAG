@@ -2,8 +2,8 @@
 
 HarborRAG uses a ports-and-adapters layout. Provider-neutral contracts flow downward; SDK integrations and operator surfaces stay at the edges.
 
-The store-by-store ownership contract — what belongs in PostgreSQL, the object store,
-Qdrant, and FalkorDB — and operational guidance for the vector/graph boundary are in the
+The store-by-store ownership contract - what belongs in PostgreSQL, the object store,
+Qdrant, and FalkorDB - and operational guidance for the vector/graph boundary are in the
 [projection rebuild runbook](projection-rebuild.md).
 
 For the end-to-end behavior, continue with the [data lifecycle](data-lifecycle.md). For
@@ -120,20 +120,20 @@ active version + RetrievalResult
 
 `harborrag-core` has these groups:
 
-- `domain/` — document, source, parser, retrieval, provenance, element, job, member, project, provider,
+- `domain/` - document, source, parser, retrieval, provenance, element, job, member, project, provider,
   and source-config values. `domain/__init__.py` retains the former chunk imports as compatibility
   paths to the canonical Pydantic contracts in `chunking/`.
-- `chunking/` — canonical immutable chunk, hierarchy, security, relation, source-attribute, and table
+- `chunking/` - canonical immutable chunk, hierarchy, security, relation, source-attribute, and table
   schemas. Deterministic identity policy and chunk planning remain engine responsibilities.
-- `models/` — chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
+- `models/` - chat, embedding, reranking, capability, usage, request metadata, and safe error contracts.
   Client-boundary protocols now live in `ports/`, not here.
-- `indexing/` and `storage/` — public bounded-context facades for vector/graph projection records,
+- `indexing/` and `storage/` - public bounded-context facades for vector/graph projection records,
   capabilities, storage access context, and health. Legacy implementation modules under `schemas/`
   are internal organization, not cross-package import paths.
-- `security/` — required `AccessContext`, secret redaction, URL policy, and `URLPolicyError`.
-- `contracts/` — the shared `HarborError` hierarchy, `HarborEvent`, and chunking-strategy protocols
+- `security/` - required `AccessContext`, secret redaction, URL policy, and `URLPolicyError`.
+- `contracts/` - the shared `HarborError` hierarchy, `HarborEvent`, and chunking-strategy protocols
   (`TextRefiner`, `StructureSplitter`, `JsonStructureSplitter`, `TokenCounter`).
-- `ports/` — every boundary-facing `Protocol` in core: repository/infra ports (control plane, event bus,
+- `ports/` - every boundary-facing `Protocol` in core: repository/infra ports (control plane, event bus,
   job queue, secrets, runtime lifecycle, vector/graph indexing) and model-client protocols
   (`HarborChatClientProtocol` and its embed/rerank/async counterparts).
 
