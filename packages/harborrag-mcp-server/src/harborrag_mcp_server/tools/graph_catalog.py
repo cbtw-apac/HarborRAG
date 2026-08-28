@@ -64,6 +64,9 @@ assert _PATH_MAX_DEPTH == _SUBGRAPH_MAX_DEPTH, (
 MAXIMUM_DEPTH = _PATH_MAX_DEPTH
 MAXIMUM_RESULTS = McpToolPolicy().max_results
 
+DIRECTION_VALUES = [direction.value for direction in GraphDirection]
+VECTOR_SEARCH_LANE_VALUES = VectorSearchTool.spec.input_schema["properties"]["lane"]["enum"]
+
 NODE_KIND_MEANINGS: dict[KnowledgeNodeKind, str] = {
     KnowledgeNodeKind.TENANT: "Tenant isolation root.",
     KnowledgeNodeKind.DATA_SOURCE: "Configured connector/source scope.",
@@ -232,7 +235,7 @@ def describe_graph_payload() -> dict[str, object]:
                 "Every relation is stored once, from subject to object. Graph tools query "
                 "it with a direction filter rather than storing the reverse edge."
             ),
-            "accepted": [direction.value for direction in GraphDirection],
+            "accepted": DIRECTION_VALUES,
             "default": GraphDirection.BOTH.value,
         },
         "topologies": CONNECTOR_TOPOLOGIES,

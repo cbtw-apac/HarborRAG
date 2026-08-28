@@ -119,7 +119,7 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
 
 
 class BrokenTool(BaseMcpTool):
-    spec = McpToolSpec("broken", "broken")
+    spec = McpToolSpec("broken", "broken", output_schema={"type": "object"})
 
     async def call(self, arguments, *, principal_id):
         return await super().call(arguments, principal_id=principal_id)

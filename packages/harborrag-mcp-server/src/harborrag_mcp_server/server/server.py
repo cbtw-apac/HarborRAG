@@ -66,6 +66,14 @@ class McpServer(BaseMcpServer):
                 GraphSubgraphSearchTool(runtime=self.runtime),
                 DescribeGraphTool(),
             ]
+        missing_output_schema = [
+            tool.spec.name for tool in self.tools if tool.spec.output_schema is None
+        ]
+        if missing_output_schema:
+            raise HarborInvariantError(
+                "Every registered MCP tool must declare an output_schema; missing for: "
+                f"{', '.join(sorted(missing_output_schema))}"
+            )
 
     def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:
         if self.tools is None:

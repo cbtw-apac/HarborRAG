@@ -11,39 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .base import BaseMcpTool, McpToolSpec
+from .describe_graph_schema import OUTPUT_SCHEMA
 from .graph_catalog import describe_graph_payload
-
-_OUTPUT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": [
-        "ok",
-        "graph_schema_version",
-        "capabilities",
-        "selector_rules",
-        "node_kinds",
-        "entity_types",
-        "relation_types",
-        "direction_semantics",
-        "topologies",
-        "workflows",
-        "defaults",
-        "limits",
-    ],
-    "properties": {
-        "ok": {"type": "boolean"},
-        "graph_schema_version": {"type": "string"},
-        "capabilities": {"type": "object"},
-        "selector_rules": {"type": "object"},
-        "node_kinds": {"type": "array"},
-        "entity_types": {"type": "array"},
-        "relation_types": {"type": "array"},
-        "direction_semantics": {"type": "object"},
-        "topologies": {"type": "array"},
-        "workflows": {"type": "array"},
-        "defaults": {"type": "object"},
-        "limits": {"type": "object"},
-    },
-}
 
 _ANNOTATIONS: dict[str, object] = {
     "readOnlyHint": True,
@@ -67,7 +36,7 @@ class DescribeGraphTool(BaseMcpTool):
             "topology are unclear. This tool never executes a query and requires no tenant."
         ),
         {"type": "object", "additionalProperties": False},
-        output_schema=_OUTPUT_SCHEMA,
+        output_schema=OUTPUT_SCHEMA,
         annotations=_ANNOTATIONS,
     )
 

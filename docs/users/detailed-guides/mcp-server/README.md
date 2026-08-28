@@ -58,7 +58,7 @@ neighboring evidence is a separate, not-yet-available composed operation.
 
 `McpServer` records every call attempt and outcome, validates each declared
 JSON schema, and enforces argument, result-count, and output-size budgets.
-Every tool call requires an explicit tenant. Retrieval propagates the caller's
+Every tool call requires an explicit tenant (except `describe_graph` static tool). Retrieval propagates the caller's
 principal through the runtime access context. MCP audits store argument
 digests rather than raw query text.
 

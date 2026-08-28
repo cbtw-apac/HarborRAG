@@ -42,6 +42,7 @@ class ConfigurableTool(BaseMcpTool):
             },
             "additionalProperties": False,
         },
+        output_schema={"type": "object"},
     )
 
     async def call(self, arguments, *, principal_id):

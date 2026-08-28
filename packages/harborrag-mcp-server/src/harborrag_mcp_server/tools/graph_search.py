@@ -39,12 +39,20 @@ from harborrag_runtime.contracts import (
 )
 
 from .base import BaseMcpTool, McpToolSpec
+from .output_schemas import (
+    GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+    NODE_SCHEMA,
+    PATH_SCHEMA,
+    RELATION_SCHEMA,
+    TRIPLET_SCHEMA,
+)
 from .retrieval_inputs import (
     TENANT_PROPERTY,
     access,
     integer,
     optional_text,
     string_list,
+    success_or_failure_schema,
     text,
 )
 
@@ -62,6 +70,18 @@ class GraphTripletSearchTool(BaseMcpTool):
         "graph_triplet_search",
         GRAPH_TRIPLET_DESCRIPTION,
         graph_triplet_schema(max_results=_MAX_RESULTS, tenant=TENANT_PROPERTY),
+        output_schema=success_or_failure_schema(
+            {
+                "type": "object",
+                "required": ["ok", "triplets", "diagnostics"],
+                "properties": {
+                    "ok": {"const": True},
+                    "triplets": {"type": "array", "items": TRIPLET_SCHEMA},
+                    "diagnostics": GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+                },
+                "additionalProperties": False,
+            }
+        ),
     )
 
     async def call(
@@ -112,6 +132,18 @@ class GraphPathSearchTool(BaseMcpTool):
         "graph_path_search",
         GRAPH_PATH_DESCRIPTION,
         graph_path_schema(max_results=_MAX_RESULTS, tenant=TENANT_PROPERTY),
+        output_schema=success_or_failure_schema(
+            {
+                "type": "object",
+                "required": ["ok", "paths", "diagnostics"],
+                "properties": {
+                    "ok": {"const": True},
+                    "paths": {"type": "array", "items": PATH_SCHEMA},
+                    "diagnostics": GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+                },
+                "additionalProperties": False,
+            }
+        ),
     )
 
     async def call(
@@ -165,6 +197,19 @@ class GraphSubgraphSearchTool(BaseMcpTool):
         "graph_subgraph_search",
         GRAPH_SUBGRAPH_DESCRIPTION,
         graph_subgraph_schema(max_results=_MAX_RESULTS, tenant=TENANT_PROPERTY),
+        output_schema=success_or_failure_schema(
+            {
+                "type": "object",
+                "required": ["ok", "nodes", "relations", "diagnostics"],
+                "properties": {
+                    "ok": {"const": True},
+                    "nodes": {"type": "array", "items": NODE_SCHEMA},
+                    "relations": {"type": "array", "items": RELATION_SCHEMA},
+                    "diagnostics": GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+                },
+                "additionalProperties": False,
+            }
+        ),
     )
 
     async def call(
