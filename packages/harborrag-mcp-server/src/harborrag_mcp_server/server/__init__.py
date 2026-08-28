@@ -63,6 +63,7 @@ def create_mcp_server(
     try:
         from fastmcp import FastMCP
         from fastmcp.tools import FunctionTool
+        from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError(
             "FastMCP transport is not installed; install harborrag-mcp-server[mcp]"
@@ -92,7 +93,9 @@ def create_mcp_server(
                 description=spec.description,
                 parameters=spec.input_schema,
                 output_schema=spec.output_schema,
-                annotations=spec.annotations,
+                annotations=(
+                    ToolAnnotations(**spec.annotations) if spec.annotations is not None else None
+                ),
                 fn=_tool_handler(facade, spec.name),
                 return_type=dict,
                 run_in_thread=False,
