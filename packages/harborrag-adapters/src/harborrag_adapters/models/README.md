@@ -6,9 +6,9 @@ parameter translation, credentials, and provider metadata stay inside this adapt
 package.
 
 Install the optional runtime dependencies with `harborrag-adapters[llm]`. The
-repository root contains `models.example.yaml` for minimal setup and
-`models.advance.examples.yaml` for production-oriented profiles and provider
-examples. Copy `.env.llm.example` to an application-controlled environment file or
+repository's `config/` directory contains `models.example.yaml` for minimal setup and
+`models.advance.example.yaml` for production-oriented profiles and provider
+examples. Copy `env-example/.env.models.example` to an application-controlled environment file or
 export its variables; configuration loading expands environment references but does
 not implicitly load `.env` files.
 
@@ -32,9 +32,9 @@ from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_adapters.models.rerank import HarborRerankClientConfig
 
-chat_config = HarborChatClientConfig.from_file("models.example.yaml")
-embed_config = HarborEmbedClientConfig.from_file("models.example.yaml")
-rerank_config = HarborRerankClientConfig.from_file("models.example.yaml")
+chat_config = HarborChatClientConfig.from_file("config/models.example.yaml")
+embed_config = HarborEmbedClientConfig.from_file("config/models.example.yaml")
+rerank_config = HarborRerankClientConfig.from_file("config/models.example.yaml")
 ```
 
 Missing `${ENVIRONMENT_VARIABLE}` references fail during loading. The optional
@@ -44,13 +44,12 @@ configuration objects use the same Pydantic v2 schemas.
 
 ## Advanced setup and precedence
 
-The advanced example provides `production`, `harbor-round-robin`,
-`cloud-providers`, and `local` profiles. Select one profile and optionally supply a
-small application override:
+The advanced example provides two profiles, `development` and `production`. Select
+one and optionally supply a small application override:
 
 ```python
 chat_config = HarborChatClientConfig.from_file(
-    "models.advance.examples.yaml",
+    "config/models.advance.example.yaml",
     profile="production",
     overrides={"timeouts": {"request_seconds": 45}},
 )
@@ -69,9 +68,9 @@ objects remain immutable after validation.
 
 ## Logical models and profiles
 
-A profile is a named, partial override of the base configuration. For example,
-`profile="local"` selects Ollama chat and embedding models plus an Infinity reranker.
-Profiles avoid duplicating complete configuration for each environment.
+A profile is a named, partial override of the base configuration - for example,
+`profile="production"` in `config/models.advance.example.yaml`. Profiles avoid
+duplicating a complete configuration for each environment.
 
 Logical model names and aliases are stable application identifiers. The model
 argument may use either form:
@@ -116,18 +115,27 @@ deployments allow the next route to be considered.
 Caching is disabled by default. An eligible request must opt in with `cacheable=True`,
 must have a tenant identifier under the default policy, and must not be marked
 sensitive unless `cache_sensitive_requests` is explicitly enabled. Cache keys include
-a tenant partition and canonical request semantics. Set `cache.backend: custom` for
-the built-in bounded TTL cache or inject a cache implementing `ModelResponseCache`;
-`litellm` delegates storage while Harbor supplies the deterministic isolated key.
+a tenant partition and canonical request semantics.
+
+`cache.backend` accepts three values:
+
+| Value | Storage |
+| --- | --- |
+| `custom` | the built-in bounded in-memory TTL cache, or a `ModelResponseCache` you inject |
+| `redis` | Harbor's own Redis-backed cache, configured by the `redis:` block in the same YAML |
+| `litellm` | LiteLLM's cache; it owns storage while Harbor supplies the deterministic isolated key |
+
 The advanced `production` profile demonstrates enabling chat, embedding, and rerank
 caches with TTLs and family-specific namespaces. `cacheable=False` is the
 request-level bypass. Requests marked `sensitive=True` remain excluded unless the
 configuration explicitly permits sensitive caching.
 
-Redis connection and credential settings are intentionally not accepted by Harbor's
-model YAML. When `cache.backend: litellm` is selected, configure LiteLLM's Redis or
-hosted cache once at application startup. For `cache.backend: custom`, inject a
-`ModelResponseCache`; otherwise Harbor uses its bounded in-memory TTL implementation.
+Harbor's model YAML accepts a `redis:` block (`url`, `key_prefix`, `max_connections`,
+and timeouts) and *requires* it whenever a Redis-backed cache, Redis routing state, or
+Redis singleflight is selected. When `cache.backend: litellm` is selected instead,
+configure LiteLLM's Redis or hosted cache once at application startup. For
+`cache.backend: custom`, inject a `ModelResponseCache`; otherwise Harbor uses its
+bounded in-memory TTL implementation.
 
 ## Observability
 
@@ -212,7 +220,7 @@ logged content. Content logging must be deliberately enabled in each family.
 | Ollama | Yes | Yes | No | Local HTTP endpoint; capabilities are model-specific. |
 | OpenAI-compatible | Yes | Yes | No | Custom base required; declare capabilities conservatively. |
 | Cohere | No | Yes | Yes | The base advanced file uses Cohere reranking. |
-| Infinity | No | Yes | Yes | The local profile demonstrates reranking. |
+| Infinity | No | Yes | Yes | No checked-in example configures it; see `config/models.advance.example.yaml` for the profile shape. |
 
 These are adapter boundaries, not guarantees that every provider model supports every
 optional feature. Model identifiers, cloud entitlements, regions, and capability
@@ -223,7 +231,7 @@ flags must match the actual deployment. Reranking is never emulated through chat
 ```python
 from harborrag_adapters.models.chat import ChatClientFactory, HarborChatClientConfig
 
-config = HarborChatClientConfig.from_file("models.example.yaml")
+config = HarborChatClientConfig.from_file("config/models.example.yaml")
 with ChatClientFactory.create(config) as client:
     response = client.chat([{"role": "user", "content": "Summarize HarborRAG."}])
     print(response.text)
@@ -251,7 +259,7 @@ fallback references.
 ```python
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 
-config = HarborEmbedClientConfig.from_file("models.example.yaml")
+config = HarborEmbedClientConfig.from_file("config/models.example.yaml")
 with HarborEmbedClient.from_config(config) as client:
     response = client.embed(["first document", "second document"])
     vectors = response.vectors
@@ -268,7 +276,7 @@ deployment-failover, and logical-model-fallback policy.
 ```python
 from harborrag_adapters.models.rerank import HarborRerankClientConfig, HarborRerankingClient
 
-config = HarborRerankClientConfig.from_file("models.example.yaml")
+config = HarborRerankClientConfig.from_file("config/models.example.yaml")
 with HarborRerankingClient.from_config(config) as client:
     response = client.rerank("harbor search", ["candidate one", "candidate two"])
     print(response.results)

@@ -62,9 +62,11 @@ templates; see [Chat](../chat/README.md) for transport behavior and prompt
 selection.
 
 The repository's runnable `config/models.yaml` uses
-`HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and `HARBOR_CHAT_API_KEY` for its
-`primary` chat deployment. The more general example files above use provider
-variables such as `OPENAI_API_KEY` instead.
+`HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and `HARBOR_CHAT_API_KEY` for its `primary`
+chat deployment, **and** `HARBOR_EMBED_PROVIDER`, `HARBOR_EMBED_MODEL`, and
+`HARBOR_EMBED_API_KEY` for its embedding deployment. All six are required: references
+expand eagerly, so filling in only the chat three fails at load time. The more general
+example files above use provider variables such as `OPENAI_API_KEY` instead.
 
 ## Environment and secret references
 

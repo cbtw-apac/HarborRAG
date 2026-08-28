@@ -123,3 +123,53 @@ class TestPageBuildMixin:
         builder.build_license_page("LICENSE", "license.html")
 
         assert "Failed to build license page" in capsys.readouterr().out
+
+
+class TestRepositoryAssetPaths:
+    """The root README is rendered on GitHub and on the site, from one source."""
+
+    def test_nested_page_retargets_website_assets_at_copied_site_assets(self, markdown_processor):
+        html = '<img src="website/assets/logos/HarborRAG-logo-light.png" alt="HarborRAG">'
+
+        rewritten = markdown_processor.rewrite_repository_asset_paths(html, "docs/README.html")
+
+        assert 'src="../assets/logos/HarborRAG-logo-light.png"' in rewritten
+        assert "website/assets" not in rewritten
+
+    def test_site_root_page_needs_no_relative_prefix(self, markdown_processor):
+        html = '<img src="website/assets/logos/HarborRAG-logo-light.png">'
+
+        rewritten = markdown_processor.rewrite_repository_asset_paths(html, "index.html")
+
+        assert 'src="assets/logos/HarborRAG-logo-light.png"' in rewritten
+
+    def test_deeply_nested_page_walks_all_the_way_up(self, markdown_processor):
+        html = '<img src="website/assets/logos/HarborRAG-logo-light.png">'
+
+        rewritten = markdown_processor.rewrite_repository_asset_paths(
+            html, "docs/users/chat/README.html"
+        )
+
+        assert 'src="../../../assets/logos/HarborRAG-logo-light.png"' in rewritten
+
+    def test_rewrites_srcset_and_href_alongside_src(self, markdown_processor):
+        html = (
+            '<source srcset="website/assets/logos/HarborRAG-logo-dark.png">'
+            '<a href="./website/assets/logos/HarborRAG-logo.svg">logo</a>'
+        )
+
+        rewritten = markdown_processor.rewrite_repository_asset_paths(html, "docs/README.html")
+
+        assert 'srcset="../assets/logos/HarborRAG-logo-dark.png"' in rewritten
+        assert 'href="../assets/logos/HarborRAG-logo.svg"' in rewritten
+
+    def test_leaves_unrelated_paths_alone(self, markdown_processor):
+        html = (
+            '<img src="assets/logos/x.png">'
+            '<img src="https://example.test/website/assets/logos/x.png">'
+            '<a href="website/README.md">website docs</a>'
+        )
+
+        rewritten = markdown_processor.rewrite_repository_asset_paths(html, "docs/README.html")
+
+        assert rewritten == html

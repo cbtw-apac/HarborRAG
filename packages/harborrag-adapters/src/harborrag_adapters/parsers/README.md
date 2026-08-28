@@ -36,7 +36,8 @@ They remain internal to their family and do not import one another.
 
 ## Public API
 
-`HarborParser` is the global family contract. New integrations submit a
+`HarborParser` (in `harborrag_adapters.parsers.common.base`, deliberately not exported
+from `harborrag_adapters.parsers`) is the global family contract. New integrations submit a
 `ParseRequest` and receive the same `ParseResult` shape for every family.
 
 ```python

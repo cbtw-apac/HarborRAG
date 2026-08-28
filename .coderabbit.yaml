@@ -63,13 +63,43 @@ reviews:
     - "!**/*.jpeg"
     - "!**/*.gif"
     - "!**/*.pdf"
+    - "!**/*.svg"
+    # Vendored icon/JS/CSS library - pre-commit excludes it from formatting too.
+    - "!website/assets/**"
+    # Generated documentation site output.
+    - "!site/**"
 
   high_level_summary_instructions: >
     Summarize: (1) which HarborRAG package boundaries are touched,
-    (2) whether public contracts/base classes changed, (3) whether mocks and
-    package-local tests were updated, (4) whether coverage remains at least 90%,
+    (2) whether public contracts/base classes changed, (3) whether affected
+    tests and test doubles were updated, (4) whether coverage remains at least 90%,
     and (5) any security, async, resource-lifecycle, or dependency-direction risk.
     Keep it under 180 words.
+
+  auto_apply_labels: true
+  labeling_instructions:
+    - label: "pkg:core"
+      instructions: "Apply when packages/harborrag-core is changed."
+    - label: "pkg:adapters"
+      instructions: "Apply when packages/harborrag-adapters is changed."
+    - label: "pkg:engine"
+      instructions: "Apply when packages/harborrag-engine is changed."
+    - label: "pkg:runtime"
+      instructions: "Apply when packages/harborrag-runtime is changed."
+    - label: "pkg:memory"
+      instructions: "Apply when packages/harborrag-memory is changed."
+    - label: "pkg:app"
+      instructions: "Apply when packages/harborrag-app is changed."
+    - label: "pkg:mcp"
+      instructions: "Apply when packages/harborrag-mcp-server is changed."
+    - label: "area:docs"
+      instructions: >
+        Apply when docs/, website/, or any published README changes. See
+        website/README.md for which sources reach the documentation website.
+    - label: "area:ci"
+      instructions: "Apply when .github/workflows, Makefile, or pre-commit config changes."
+    - label: "area:deploy"
+      instructions: "Apply when deploy/ or scripts/deployment changes."
 
   auto_title_instructions: >
     Follow Conventional Commits: type(scope): description.
@@ -82,32 +112,26 @@ reviews:
       instructions: >
         Core is the pure contract/domain layer. Verify that it does not import
         harborrag_adapters, harborrag_engine, harborrag_runtime, harborrag_app,
-        harborrag_mcp_server, or the meta-package. New domain objects should be small,
-        deterministic, typed, and dependency-light. Flag provider SDK imports,
-        network calls, filesystem side effects, environment reads, or concrete
-        adapter references in core.
-
-    - path: "packages/harborrag-core/src/harborrag_core/ports/**"
-      instructions: >
-        Ports define Protocol or abstract boundaries only. Check that ports do
-        not contain provider-specific implementation logic, concrete registry
-        lookup, hardcoded SDK types, HTTP clients, database clients, or cloud
-        credentials. When a port changes, require corresponding mock/fake tests
-        under packages/harborrag-core/tests and affected adapter mock updates.
-
-    - path: "packages/harborrag-core/src/harborrag_core/security/**"
-      instructions: >
-        Security helpers are a trust boundary. Check that secret redaction covers
-        api_key, token, password, secret, credential, Authorization Bearer, and
-        common cloud/API key forms. URL policy must reject unsafe schemes and
-        make SSRF-prone host handling explicit. Do not allow secrets in repr,
-        logs, exception messages, or serialized diagnostics.
+        harborrag_mcp_server, or the meta-package. New domain objects should be
+        small, deterministic, typed, and dependency-light. Flag provider SDK
+        imports, network calls, filesystem side effects, environment reads, or
+        concrete adapter references.
+        Under ports/: Protocol or abstract boundaries only - no provider-specific
+        implementation logic, concrete registry lookup, hardcoded SDK types, HTTP
+        clients, database clients, or cloud credentials. When a port changes,
+        require corresponding fake-based tests under packages/harborrag-core/tests
+        and updates to any affected adapter test doubles.
+        Under security/: this is a trust boundary. Check that secret redaction
+        covers api_key, token, password, secret, credential, Authorization
+        Bearer, and common cloud/API key forms. URL policy must reject unsafe
+        schemes and make SSRF-prone host handling explicit. Do not allow secrets
+        in repr, logs, exception messages, or serialized diagnostics.
 
     - path: "packages/harborrag-adapters/src/harborrag_adapters/connectors/**"
       instructions: >
         Connectors must normalize external sources into core RawDocument or
-        SourceRecord shapes. Base and mock implementations must stay in this
-        folder. When adding real connectors, require explicit authentication
+        SourceRecord shapes. Base contracts stay in this folder; production
+        implementations belong in provider modules and their fakes under tests/. When adding real connectors, require explicit authentication
         handling, pagination termination, retry/rate-limit strategy, timeout,
         session cleanup, source metadata, stable IDs, and secret redaction. Flag
         raw requests without timeout, unbounded directory crawls, path traversal,
@@ -116,7 +140,8 @@ reviews:
     - path: "packages/harborrag-adapters/src/harborrag_adapters/parsers/**"
       instructions: >
         Parsers convert raw content into ParsedDocument without doing ingestion
-        orchestration. Base and mock implementations must stay in this folder.
+        orchestration. Base contracts stay in this folder; production
+        implementations belong in format modules and their fakes under tests/.
         Check file-size guards, temp-file cleanup, subprocess timeouts, parser
         fallback behavior, parse quality metadata, and preservation of structured
         elements. For PDF/Office engines, flag unbounded memory reads, unsafe
@@ -127,27 +152,21 @@ reviews:
       instructions: >
         Model adapters must implement chat, embedding, or reranker boundaries.
         Check provider-local capability profiles, optional dependency errors with
-        install hints, timeout/retry/rate-limit behavior, deterministic mock
-        outputs, and no provider SDK imports outside adapters. Raw provider
+        install hints, timeout/retry/rate-limit behavior, deterministic fake
+        outputs in tests, and no provider SDK imports outside adapters. Raw provider
         responses must not appear in default outputs except debug/raw diagnostic
         fields.
 
     - path: "packages/harborrag-adapters/src/harborrag_adapters/repositories/**"
       instructions: >
         This is the storage adapter layer. Use repositories/ naming, not stores/.
-        Base and mock implementations must live in each family folder: vector,
-        graph, cache, object_store, database, and state when added. Check
+        Each family folder - vector, graph, cache, object_store, database, and
+        state when added - exposes provider-neutral Harbor* contracts plus real
+        provider packages. Production repository packages do not ship mock
+        backends; deterministic fakes belong under tests/. Check
         connection lifecycle, transaction boundaries, parameterized SQL, object
         path traversal prevention, cache TTL semantics, vector namespace support,
         graph relationship normalization, and missing optional dependency errors.
-
-    - path: "packages/harborrag-adapters/src/harborrag_adapters/builder.py"
-      instructions: >
-        The adapter builder is a composition helper, not an engine pipeline.
-        Check that it validates provider names, returns objects compatible with
-        core ports/base classes, and does not import engine/runtime/app/MCP.
-        If a new adapter family is introduced, require a registry entry, mock,
-        package-local tests, and README update.
 
     - path: "packages/harborrag-engine/src/harborrag_engine/ingestion/**"
       instructions: >
@@ -165,22 +184,6 @@ reviews:
         combination, stable ordering for equal scores, top_k handling, no hidden
         provider dependencies, no mutation of input results unless documented,
         and tests for empty, duplicate, tie-score, and low-score cases.
-
-    - path: "packages/harborrag-engine/src/harborrag_engine/ingestion/indexing/**"
-      instructions: >
-        Indexing should coordinate embedding and repository writes through ports.
-        Check batch-size handling, partial-failure reporting, idempotency,
-        namespace/tenant propagation, and no direct vector DB client imports.
-        New indexers must include mock tests with empty, single-item, and batch
-        cases.
-
-    - path: "packages/harborrag-engine/src/harborrag_engine/graph/**"
-      instructions: >
-        Graph engine code should map GraphHint/domain relationships to graph
-        repository operations. Check relationship direction, stable node IDs,
-        duplicate edge behavior, confidence propagation, and no Cypher/AQL string
-        construction inside engine code unless explicitly delegated to a graph
-        repository adapter.
 
     - path: "packages/harborrag-runtime/src/harborrag_runtime/**"
       instructions: >
@@ -206,27 +209,22 @@ reviews:
         is set. Check that command implementations call app/runtime services, not
         raw adapters, and that new commands update README and tests.
 
-    - path: "packages/harborrag-app/src/harborrag_app/services/**"
-      instructions: >
-        App services adapt external API/CLI calls into runtime operations. They
-        should not embed connector/parser/model/repository logic. Check stable
-        response DTOs, structured diagnostics, and no raw provider response leak
-        in normal output.
-
     - path: "packages/harborrag-mcp-server/src/harborrag_mcp_server/**"
       instructions: >
         MCP exposes an audited service-only facade for agents. Tools must have
         explicit input/output schemas, capability budgets, sanitized errors, and
         audit entries. Do not expose raw vector DB, graph DB, cache, object store,
-        or SQL execution tools directly. Any new tool must include a mock server
-        test and must call app/runtime services through a safe boundary.
+        or SQL execution tools directly. Any new tool must include a
+        fake-backed server test and must call app/runtime services through a
+        safe boundary.
 
     - path: "packages/harborrag*/tests/**"
       instructions: >
         Every package owns its own tests. New base classes require abstract/base
-        behavior tests; new mocks require deterministic behavior tests; new
-        providers require fake-client tests and optional integration tests. Avoid
-        brittle sleep-based tests. Keep coverage at or above 90% for the repo.
+        behavior tests; new providers require fake-client tests and optional
+        integration tests. Test doubles live here, not in src/ - shared fakes go
+        in harborrag_core.testing. Avoid brittle sleep-based tests. Keep coverage
+        at or above 90% for the repo.
 
     - path: "tests/**"
       instructions: >
@@ -269,13 +267,14 @@ reviews:
         Root README should onboard open-source contributors. Check that package
         map, quickstart commands, current status, testing instructions, and
         architecture boundaries match the actual repository structure. Avoid
-        claiming implemented providers that are only TODO/mock placeholders.
+        claiming implemented providers that are only TODO or placeholders.
 
     - path: "packages/*/README.md"
       instructions: >
-        Package README files should explain ownership, public API, base/mock
-        files, teammate deliverables, and boundary rules for that package. Flag
-        outdated paths such as stores/ if the code uses repositories/.
+        Package README files should explain ownership, public API, base
+        contracts, teammate deliverables, and boundary rules for that package.
+        Each is also the package's PyPI project page, so links must be absolute.
+        See website/README.md for the expected structure.
 
   pre_merge_checks:
     title:
@@ -285,31 +284,19 @@ reviews:
         Valid types: feat, fix, refactor, perf, test, docs, ci, chore.
     description:
       mode: warning
-    docstrings:
-      mode: warning
-      threshold: 60
     custom_checks:
-      - name: "No core upward imports"
+      # Production packages no longer ship mock.py modules. Fakes and test
+      # doubles live under each package's tests/, or in harborrag_core.testing
+      # when shared. See "File ownership and test doubles" in
+      # packages/harborrag-adapters/README.md.
+      - name: "No production mock modules"
         mode: error
         instructions: >
-          Fail if any file under packages/harborrag-core/src imports
-          harborrag_adapters, harborrag_engine, harborrag_runtime,
-          harborrag_app, harborrag_mcp_server, or harborrag. Core must remain pure.
-
-      - name: "Mock and tests for new base"
-        mode: error
-        instructions: >
-          Fail if a new base.py or abstract class is added under any package
-          without a corresponding mock.py in the same feature folder and a
-          package-local test under that package's tests/ directory.
-
-      - name: "Repositories naming only"
-        mode: error
-        instructions: >
-          Fail if new adapter storage code uses a stores/ path or store module
-          naming for the adapter package. The project convention is
-          harborrag_adapters/repositories/ with vector, graph, cache,
-          object_store, database, and state families.
+          Fail if a mock.py module, or a mock/fake provider backend, is added
+          under a packages/<name>/src tree outside a testing/ package.
+          Deterministic fakes and test doubles belong under that package's
+          tests/ directory; shared fakes belong in an explicit testing/ package
+          such as harborrag_core.testing, which is a supported location.
 
       - name: "No hardcoded credentials"
         mode: error
@@ -318,50 +305,48 @@ reviews:
           Authorization header, GitHub token, OpenAI key, cloud key, database
           password, or bearer token appears in non-test source code.
 
-      - name: "Provider deps stay in adapters"
-        mode: error
-        instructions: >
-          Fail if provider SDK imports such as qdrant_client, neo4j, redis,
-          boto3, pymongo, openai, anthropic, docling, paddleocr, or requests
-          are added outside harborrag-adapters or clearly optional integration
-          test code.
-
-      - name: "Package-local tests required"
-        mode: error
-        instructions: >
-          Fail if production code changes under packages/<name>/src but no
-          package-local test changes appear under packages/<name>/tests, unless
-          the PR explicitly explains why tests are not needed.
-
+      # Dependency direction, provider-SDK placement, and the coverage gate are
+      # enforced deterministically by lint-imports, check_dependency_direction.py,
+      # and the pytest coverage gate. `github-checks` below reads those results,
+      # so restating them here as LLM-evaluated checks adds latency, not signal.
       - name: "Coverage gate preserved"
         mode: warning
         instructions: >
-          Warn if pyproject.toml or CI lowers the coverage fail_under value below
-          95 or stops running package-local tests.
+          Warn if a change lowers coverage fail_under in pyproject.toml below 90
+          (the repository-wide gate), lowers --cov-fail-under below 85 for the
+          website suite in .github/workflows/test.yml, or stops running
+          package-local tests.
+
+      - name: "Package-local test coverage"
+        mode: warning
+        instructions: >
+          When production code changes under packages/<name>/src without any
+          matching change under packages/<name>/tests, note it and say which
+          behaviour is now untested. Do not flag changes that cannot alter
+          behaviour - refactors with unchanged semantics, type-only edits,
+          docstrings, comments, logging text, renames covered by existing tests,
+          or changes already exercised by the repository coverage gate.
+
 
   tools:
+    # Every CodeRabbit tool except ast-grep is enabled by default, so only
+    # deviations from the default belong here.
+
+    # Disabled: these overlap tooling this repository already runs and would
+    # report the same findings twice. `github-checks` below reads the real
+    # results from the Quality Gates workflow.
     ruff:
-      enabled: true
-    semgrep:
-      enabled: true
-    trufflehog:
-      enabled: true
-    gitleaks:
-      enabled: true
-    yamllint:
-      enabled: true
-    actionlint:
-      enabled: true
-    zizmor:
-      enabled: true
-    hadolint:
-      enabled: true
-    shellcheck:
-      enabled: true
-    checkmake:
-      enabled: true
-    markdownlint:
-      enabled: true
+      enabled: false          # make lint (ruff format --check + ruff check)
+    pylint:
+      enabled: false          # ruff is the configured Python linter
+    flake8:
+      enabled: false          # ruff is the configured Python linter
+    osvScanner:
+      enabled: false          # pip-audit runs against the locked dependencies
+    languagetool:
+      enabled: false          # prose style is not gated in this repository
+
+    # Wait long enough for the Quality Gates and Test workflows to finish.
     github-checks:
       enabled: true
       timeout_ms: 900000
@@ -376,10 +361,12 @@ knowledge_base:
       - "README.md"
       - "CONTRIBUTING.md"
       - "SECURITY.md"
-      - "TEST_TUTORIAL.md"
       - "packages/*/README.md"
-      - "**/AGENTS.md"
-      - ".github/copilot-instructions.md"
+      # Package README structure, the documentation publication boundary, and
+      # the build/deploy contract for the documentation site.
+      - "website/README.md"
+      # Architecture, testing, release, and publication conventions.
+      - "docs/developers/**/*.md"
   learnings:
     scope: local
     approval_delay: 7
@@ -399,7 +386,7 @@ code_generation:
       - path: "packages/harborrag-adapters/src/harborrag_adapters/**"
         instructions: >
           Mention provider lifecycle expectations, optional dependency behavior,
-          and whether the class is a base, mock, or real adapter.
+          and whether the class is a base contract or a real adapter.
   unit_tests:
     path_instructions:
       - path: "packages/*/src/**"

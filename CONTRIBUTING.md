@@ -13,7 +13,7 @@ Set up the workspace with `uv`:
 
 ```bash
 uv sync --all-packages --extra dev
-uv run python -m harborrag_app.cli.main doctor --json
+uv run harborrag doctor --json
 uv run pytest
 ```
 
@@ -32,8 +32,13 @@ For a `pip` editable installation:
 make bootstrap
 ```
 
-`make bootstrap` installs the eight active workspace packages in dependency
-order and then installs the root `dev` extra.
+`make bootstrap` installs the eight active workspace packages in dependency order - with
+the `[control-plane]`, `[production]`, and `[api]` extras they need - and then installs the
+root `dev` extra. Installing the packages bare, without those extras, produces a checkout
+that imports fine and then fails at the first control-plane, provider, or API call.
+
+Publishing a release is a separate, maintainer-only flow:
+[Release process](docs/developers/release-process.md).
 
 ## Before changing code
 
@@ -224,7 +229,8 @@ Update documentation whenever behavior, public imports, commands, configuration,
 - User and developer guides: `docs/`
 - Package-specific API details: `packages/<package>/README.md` or the nearest module README
 - Release-visible behavior: `CHANGELOG.md`
-- Architecture decisions: `docs/adr/`
+- Architecture decisions and boundaries: `docs/developers/architecture/`
+- Publication sequence (maintainers): `docs/developers/release-process.md`
 
 Use repository-relative Markdown links and runnable commands from the repository root. Be explicit about alpha or scaffolded surfaces; do not document a placeholder as operational.
 
@@ -239,11 +245,20 @@ stable, community-useful information in the appropriate public guide.
 Build and test the documentation site with:
 
 ```bash
+uv sync --all-packages --extra dev --extra docs
 uv run python website/build.py --output site --templates website/templates
 uv run pytest tests/test_website_*.py tests/test_link_checker*.py
 uv run python website/check_branding.py
 uv run python website/check_publication.py
 ```
+
+The `docs` extra matters: without `markdown`, `pygments`, and `pymdown-extensions` the
+builder falls back to a degraded renderer - tables render as raw `|` pipes and heading
+anchors are lost - while still reporting success. It prints a warning, so read the build
+output rather than only its exit code.
+
+Collapsible sections in Markdown need `<details markdown="1">` (not a bare `<details>`) or
+the Markdown inside them will not be processed by the site builder.
 
 ## Configuration and secrets
 

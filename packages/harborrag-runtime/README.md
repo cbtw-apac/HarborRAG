@@ -13,6 +13,10 @@ src/harborrag_runtime/
   document_stage_catalog.py # sandbox-safe document stage metadata
   temporal_models.py        # replay-safe routing/retry payload models
   errors.py         # runtime failures
+  plugins.py        # entry-point plugin discovery and registration
+  rate_limiting.py  # shared connector/provider rate limiting
+  serialization.py  # replay-safe payload serialization
+  tokenization.py   # token counting shared by chat and chunking
   sdk/
     __init__.py     # stable SDK facade
     runtime.py      # SDK lifecycle and service orchestration
@@ -35,6 +39,13 @@ src/harborrag_runtime/
     __init__.py     # stable memory facade
     composition.py  # database resource assembly and migrations
     service.py      # database-backed conversation memory
+  chat/
+    __init__.py     # retrieval-grounded chat service
+    prompts/        # packaged system prompt templates
+  agent/
+    __init__.py     # bounded multi-step agent service
+    tool_specs.py   # shared tool schemas, also used by the MCP surface
+  events/           # runtime event contracts and publication
   config/
     settings.py     # HARBORRAG_* process settings
     temporal.py     # validated Temporal client/worker configuration
@@ -92,10 +103,10 @@ lightweight top-level modules. Temporal imports them inside its restricted
 workflow sandbox, so placing them below provider-owning packages would execute
 adapter initialization during workflow registration.
 
-Resource lifecycle and runtime observation stay with the runtime components that
-own them. The obsolete generic lifecycle port, local job queue, scheduler,
-supervisor, runtime-service facade, and runtime-owned test doubles were removed;
-the active core repository ports remain the authoritative persistence contracts.
+Resource lifecycle and runtime observation stay with the runtime components that own them.
+There is no generic lifecycle port, local job queue, scheduler, or supervisor: durable
+orchestration is Temporal's job, and the core repository ports in `harborrag-core` are the
+authoritative persistence contracts.
 
 ## Temporal ingestion
 
@@ -133,8 +144,8 @@ See `config/temporal.example.yaml` for every supported non-secret field; keep
 The normal operator path is the app CLI:
 
 ```bash
-harborrag ingest start --tenant tenant-1 --connector local --wait
-harborrag ingest start --tenant tenant-1 --connector jira --limit 3 --wait
+harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace --wait
+harborrag ingest start --tenant tenant-1 --connector-id jira-main --limit 3 --wait
 harborrag ingest status RUN_ID --json
 harborrag ingest pause RUN_ID
 harborrag ingest resume RUN_ID
@@ -160,8 +171,8 @@ from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import HarborRAG, IngestionRequest, RetrievalRequest
 
 access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
-async with HarborRAG.from_config("harborrag.yaml") as harbor:
-    await harbor.ingestion.run(IngestionRequest(access=access, connector_name="local"))
+async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+    await harbor.ingestion.run(IngestionRequest(access=access, connector_name="harborrag-workspace"))
     response = await harbor.retrieval.search(
         RetrievalRequest(access=access, query="deployment requirements")
     )
@@ -204,7 +215,7 @@ source = build_source_input(
     SourceSubmission(
         task_id="sync-2026-07-31",
         tenant_id="tenant-1",
-        connector_name="local",
+        connector_name="harborrag-workspace",
     ),
 )
 client = await IngestionTemporalClient.connect(TemporalRuntimeConfig.from_settings(settings))

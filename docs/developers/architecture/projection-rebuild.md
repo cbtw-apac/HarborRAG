@@ -31,7 +31,7 @@ SELECT count(*) FROM projection_manifests
 WHERE jsonb_array_length(COALESCE(manifest::jsonb->'route_point_ids', '[]'::jsonb)) > 0;
 ```
 
-A non-zero count is expected and is not a blocker — those entries are inert,
+A non-zero count is expected and is not a blocker - those entries are inert,
 because the only code that consumed them has been removed. Most belong to
 document versions that are still active and would never have been cleaned up
 anyway, which is why `ProjectionManifest.route_point_ids` survives as a
@@ -49,11 +49,11 @@ vector search, exact `chunk_id` graph seed, then bounded subgraph expansion.
 
 The graph stores identifiers and topology, not named entities, so it has no free-text
 entry point of its own. Selectors resolve on `node_key`, `logical_id`, or an exact
-lowercased `title` — nothing partial, and `title` is null on every `Chunk` node. The
+lowercased `title` - nothing partial, and `title` is null on every `Chunk` node. The
 bridge that makes the graph reachable is that a vector payload's `chunk_id` *is* the
 `Chunk` node key, so `vector_search` resolves selectors for the graph tools.
 
-Two traversal defaults follow from the spine not being uniformly directed —
+Two traversal defaults follow from the spine not being uniformly directed -
 `(:Chunk)-[:SUPPORTS]->(:Structure)` points *into* it while
 `(:DocumentVersion)-[:CONTAINS]->(:Structure)` points down it:
 
@@ -72,8 +72,8 @@ versions returns a short result that looks like a genuinely small one. `truncate
 
 | Store | Owns | Never holds | Rebuildable |
 | --- | --- | --- | --- |
-| PostgreSQL | Document/version state, atomic publication, projection manifests, cleanup and reindex jobs | Chunk text, vectors | No — source of truth |
-| Object store | Immutable replay artifacts: canonical document, canonical chunks (the full `ChunkRecord`, including `embedding_text`, `search_text`, and `security`), canonical relations, chunk representations, vector and graph projections | Runtime fields, rejected by `reject_runtime_fields` | No — enables connector-free reindex |
+| PostgreSQL | Document/version state, atomic publication, projection manifests, cleanup and reindex jobs | Chunk text, vectors | No - source of truth |
+| Object store | Immutable replay artifacts: canonical document, canonical chunks (the full `ChunkRecord`, including `embedding_text`, `search_text`, and `security`), canonical relations, chunk representations, vector and graph projections | Runtime fields, rejected by `reject_runtime_fields` | No - enables connector-free reindex |
 | Qdrant | The single owner of *serving* chunk text (`content`), the dense and sparse retrieval vectors, and the minimum identity, citation, and filter metadata needed to rank and cite | Anything not needed to rank, filter, or cite | Yes |
 | FalkorDB | Identifiers, topology, and provenance: the tenant spine and its structural edges | Any chunk text, preview, body, or credential | Yes |
 
@@ -104,7 +104,7 @@ Tenant isolation is enforced in two independent places, and both are required.
 Qdrant gives each tenant a physically separate collection, so `tenant_id` is
 deliberately not a payload field. FalkorDB shares one graph, so `tenant_id` is
 part of the node merge identity and of the uniqueness constraint, not merely a
-filter property — version-owned node keys (`DocumentVersion`, `Structure`,
+filter property - version-owned node keys (`DocumentVersion`, `Structure`,
 `Chunk`) do not hash the tenant, so without it two tenants that produced the same
 document version would share a node.
 
@@ -113,16 +113,16 @@ document version would share a node.
 `content` appears in both the `canonical-chunks` artifact and the Qdrant payload,
 and that is not redundancy to remove. They are different roles:
 
-- **Object store — the rebuild input.** `canonical-chunks` holds the complete
+- **Object store - the rebuild input.** `canonical-chunks` holds the complete
   `ChunkRecord`, which is what re-chunking, representation reuse, relation repair,
   and connector-free reindex all read. Qdrant is declared rebuildable *from* it.
-- **Qdrant — the serving copy.** Storing `content` beside the vector avoids an
+- **Qdrant - the serving copy.** Storing `content` beside the vector avoids an
   object-store fetch per search result.
 
 Qdrant cannot replace the artifact, because the text that is actually embedded is
 not `content`. With `contextualize_embeddings` enabled (the default), an evidence
-chunk's `embedding_text` equals its `search_text` — content prefixed with document
-and section context — and neither string is written to Qdrant. Reconstructing the
+chunk's `embedding_text` equals its `search_text` - content prefixed with document
+and section context - and neither string is written to Qdrant. Reconstructing the
 embedding input from the payload is therefore impossible, so a rebuild sourced from
 Qdrant would silently produce different vectors.
 

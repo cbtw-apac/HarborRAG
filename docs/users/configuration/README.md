@@ -2,10 +2,10 @@
 
 HarborRAG currently has four independent configuration paths:
 
-1. [Connector Configuration](connector-config.md) — versioned YAML loaded by `harborrag-runtime`.
-2. [Parser Configuration](parser-config.md) — versioned YAML loaded by `harborrag-runtime`.
-3. [Model Configuration](model-config.md) — YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
-4. [Temporal Configuration](../../../deploy/temporal/README.md) — versioned YAML for connection policy, workers, queues, retries, and workflow timeouts.
+1. [Connector Configuration](connector-config.md) - versioned YAML loaded by `harborrag-runtime`.
+2. [Parser Configuration](parser-config.md) - versioned YAML loaded by `harborrag-runtime`.
+3. [Model Configuration](model-config.md) - YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
+4. [Temporal Configuration](../../../deploy/temporal/README.md) - versioned YAML for connection policy, workers, queues, retries, and workflow timeouts.
 
 [Engine Configuration](config-file-reference.md) documents the small code-constructed engine dataclasses. [Tenant and Workspace Status](workspace-mode.md) explains tenant-aware repository context and what is not yet available as a workspace feature.
 

@@ -1,7 +1,7 @@
 # Python SDK
 
 HarborRAG is a library first. `HarborRAG` is an async context manager that
-exposes four service facades — `ingestion`, `retrieval`, `graph`, and `chat` —
+exposes four service facades - `ingestion`, `retrieval`, `graph`, and `chat` -
 over one configured runtime.
 
 ## Install
@@ -42,7 +42,7 @@ asyncio.run(main())
 `from_config` reads `execution_mode`, `discover_plugins`, and `runtime`
 settings. Entering the context starts the executor; leaving it closes the
 runtime. Every call carries an `AccessContext`, which is how tenancy and
-authorization are enforced — there is no ambient tenant.
+authorization are enforced - there is no ambient tenant.
 
 ## Ingestion
 
@@ -77,9 +77,21 @@ directly and needs neither.
 `include_attachments`, `filters`, `force_reprocess`, `discovery_page_size`,
 `discovery_concurrency`, and `document_concurrency`.
 
-To follow progress, poll `status(task_id)` — its payload carries the stage
-sequence and a `progress` mapping. The CLI's `harborrag ingest watch` renders
-exactly that payload on a refresh interval.
+`force_reprocess=True` is the same admission control as `mode: force` on
+`POST /v1/ingestions` and `--force-reprocess` on the CLI - see
+[Ingestion modes](../ingestion-modes.md).
+
+To follow progress, poll `status(task_id)`. It returns a small `IngestionStatus` value
+object - `task_id`, `status`, `paused`, `cancel_requested` - and nothing more. There is no
+stage sequence and no `progress` mapping on this surface.
+
+The CLI's `harborrag ingest watch` shows a richer view because it goes through the
+application service, which combines workflow status, per-stage progress, and execution
+status. That composite payload is not exposed through the SDK facade.
+
+> `IngestionStatus` names two different things in HarborRAG: this SDK value object, and the
+> HTTP lifecycle enum (`PENDING`, `RUNNING`, `SUCCESS`, `PARTIAL`, `FAILED`, `CANCELLED`)
+> in the API schemas. The annotation above refers to the SDK one.
 
 ## Retrieval
 
@@ -149,9 +161,11 @@ definition = ConnectorDefinition(
 resolved = definition.resolve_settings()
 ```
 
-`resolve_settings()` applies provider defaults, then literal settings, then
-referenced environment values, then explicit overrides, and fails if a
-referenced variable is missing or empty.
+`resolve_settings()` merges literal settings, then referenced environment values, then
+explicit overrides, and fails if a referenced variable is missing or empty. It does **not**
+apply provider defaults - those come from the provider's own config dataclass when
+`ConnectorDefinition.build()` constructs the connector, so the mapping this returns contains
+only the keys you supplied.
 
 Note that `IngestionRequest` selects a connector by **name** from the loaded
 catalog, so a definition built this way is not yet passed to `ingestion.run`
@@ -161,7 +175,7 @@ directly.
 
 Constructing `HarborRAG.from_config(...)` and building request objects need no
 services. Actually running ingestion, retrieval, graph, or chat calls needs the
-configured stores and model providers — see
+configured stores and model providers - see
 [Deployment](../../developers/deployment/README.md).
 
 ## Related
