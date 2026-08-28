@@ -281,3 +281,69 @@ class TestLinkChecker:
 
             assert "http://example.com/" in checker.visited_urls
             assert len(checker.checked_links) == 0
+
+    def test_no_crawl_trees_are_entered_but_never_descended(self):
+        """The build writes each tree's entry page; only what sits below is opaque."""
+        checker = LinkChecker("http://example.com")
+        assert checker.is_crawlable_url("http://example.com/docs/index.html")
+        assert checker.is_crawlable_url("http://example.com/coverage")
+        assert checker.is_crawlable_url("http://example.com/coverage/")
+        assert not checker.is_crawlable_url("http://example.com/coverage/website/z_a_py.html")
+        # Only whole path segments match, so a similarly named page still crawls.
+        assert checker.is_crawlable_url("http://example.com/coverage-policy.html")
+        # Prefixes resolve against the served site root, not the URL host.
+        nested = LinkChecker("http://example.com/site/docs")
+        assert not nested.is_crawlable_url("http://example.com/site/coverage/website/")
+        assert nested.is_crawlable_url("http://example.com/site/docs/index.html")
+        # Callers may name their own trees, or opt out of the behavior entirely.
+        named = LinkChecker("http://example.com", no_crawl=("reports",))
+        assert not named.is_crawlable_url("http://example.com/reports/website/")
+        assert named.is_crawlable_url("http://example.com/coverage/website/")
+        opted_out = LinkChecker("http://example.com", no_crawl=())
+        assert opted_out.is_crawlable_url("http://example.com/coverage/website/")
+
+    @responses.activate
+    def test_coverage_report_source_is_never_parsed_for_links(self):
+        """coverage.py renders the builder's own hrefs; they must not be followed."""
+        checker = LinkChecker("http://example.com", max_depth=5)
+
+        index = '<a href="/coverage/">Coverage</a>'
+        cards = '<a href="website/">View Detailed Report</a>'
+        # The literal href= text coverage.py emits when highlighting our source.
+        source = '<a href="loader/">View Detailed Report</a>'
+        responses.add(responses.GET, "http://example.com/", body=index, status=200)
+        responses.add(responses.HEAD, "http://example.com/coverage/", status=200)
+        responses.add(responses.GET, "http://example.com/coverage/", body=cards, status=200)
+        responses.add(responses.HEAD, "http://example.com/coverage/website/", status=200)
+        responses.add(
+            responses.GET, "http://example.com/coverage/website/", body=source, status=200
+        )
+
+        checker.crawl_page("http://example.com/")
+
+        # The index is crawled, so a dead card link would still be caught...
+        assert "http://example.com/coverage/" in checker.visited_urls
+        assert "http://example.com/coverage/website/" in checker.checked_links
+        # ...but the generated report below it is never opened.
+        assert "http://example.com/coverage/website/" not in checker.visited_urls
+        assert checker.dead_links == []
+
+    @responses.activate
+    def test_links_are_visited_in_sorted_order(self):
+        """Traversal must not depend on the order links come out of the set.
+
+        First discovery decides a page's depth, and str hashing is randomized
+        per process, so an unsorted walk makes the check flaky between runs.
+        """
+        checker = LinkChecker("http://example.com", max_depth=1)
+
+        responses.add(responses.GET, "http://example.com/", body="", status=200)
+        for name in ("a", "b", "c"):
+            responses.add(responses.HEAD, f"http://example.com/{name}.html", status=404)
+
+        # Hand the crawler its links in reverse order; it must still walk sorted.
+        reversed_links = [f"http://example.com/{name}.html" for name in ("c", "b", "a")]
+        with patch.object(checker, "extract_links_from_html", return_value=reversed_links):
+            checker.crawl_page("http://example.com/")
+
+        assert [link["url"] for link in checker.dead_links] == sorted(reversed_links)

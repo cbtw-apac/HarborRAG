@@ -12,6 +12,7 @@
 - [User Documentation](users/README.md)
 - [Chat](users/chat/README.md)
 - [Ingestion Modes](users/ingestion-modes.md)
+- [Python SDK](users/python-sdk/README.md)
 - [CLI Reference](users/cli-reference/README.md)
 - [Configuration](users/configuration/README.md)
   - [Connector Configuration](users/configuration/connector-config.md)
@@ -20,6 +21,7 @@
   - [Engine Configuration](users/configuration/config-file-reference.md)
   - [Tenant and Workspace Status](users/configuration/workspace-mode.md)
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
+  - [MCP Setup and Integration](users/detailed-guides/mcp-server/setup-and-integration.md)
 - [Troubleshooting](users/troubleshooting/README.md)
 
 ## Developer guides
@@ -28,9 +30,11 @@
 - [Architecture](developers/architecture/README.md)
   - [Data Lifecycle](developers/architecture/data-lifecycle.md)
   - [Runtime Reliability](developers/architecture/runtime-reliability.md)
+  - [Projection Rebuild](developers/architecture/projection-rebuild.md)
 - [Extending HarborRAG](developers/extending/README.md)
 - [Testing](developers/testing/README.md)
 - [Deployment](developers/deployment/README.md)
+- [Release Process](developers/release-process.md)
 - [Open-Source Publication Guidelines](developers/publication-guidelines.md)
 
 ## Package reference
@@ -51,4 +55,4 @@
 - [Changelog](../CHANGELOG.md)
 - [License](../LICENSE)
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-27

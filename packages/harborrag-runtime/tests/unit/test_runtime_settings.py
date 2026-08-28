@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import RuntimeConfigurationError
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_harborrag_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Decide these cases from their arguments, never from the ambient environment.
+
+    RuntimeSettings reads the whole HARBORRAG_ prefix, so an exported variable or a
+    dotenv file loaded by some other test module can satisfy a key these tests assert
+    is missing -- which is exactly how they came to pass alone and fail in the suite.
+    """
+
+    for name in [key for key in os.environ if key.startswith("HARBORRAG_")]:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_default_tenant_is_operator_readable() -> None:

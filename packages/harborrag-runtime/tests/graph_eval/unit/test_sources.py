@@ -123,29 +123,54 @@ def test_sharepoint_root_item_creates_no_folder_placeholders(corpus: EvalCorpus)
     assert not [key for key in _entities(corpus, "drive-readme") if key[0] == "sharepoint_folder"]
 
 
-def test_sharepoint_leaf_folder_and_intermediate_folder_disagree_on_identity(
+def test_sharepoint_leaf_folder_and_intermediate_folder_agree_on_identity(
     corpus: EvalCorpus,
 ) -> None:
-    """One real folder, two node keys -- pinned as behaviour, not endorsed as correct.
+    """One real folder, one node key, whichever depth reaches it.
 
-    ``SharePointSourceProjector`` keys only the *last* folder of a path by the item's
-    parent id and every earlier one by accumulated path. security-policy sits directly in
-    .../Policies/Security so that folder is `folder-2`; deep-audit sits two levels below
-    it so the same folder is `Policies/Security`. Nothing reconciles the two, which is why
-    the golden path case has them six hops apart rather than two.
+    security-policy sits directly in .../Policies/Security, so that folder is its item's
+    immediate parent; deep-audit sits two levels below it, so the same folder is only an
+    ancestor. Keying the immediate parent by the item's provider ``parent_id`` and every
+    ancestor by accumulated path made those two arrivals two different nodes and forked
+    the CONTAINS chain, so every folder is now keyed by its drive-relative path.
     """
 
     shallow = _entities(corpus, "security-policy")
     deep = _entities(corpus, "deep-audit")
-    assert ("sharepoint_folder", "folder-2") in shallow
-    assert ("sharepoint_folder", "Policies/Security") in deep
-    assert ("sharepoint_folder", "folder-2") not in deep
-    # They do agree on every folder above the split.
-    assert shallow[("sharepoint_folder", "Policies")] == deep[("sharepoint_folder", "Policies")]
+    assert ("sharepoint_folder", "folder-2") not in shallow
+    for path in ("Policies", "Policies/Security"):
+        assert shallow[("sharepoint_folder", path)] == deep[("sharepoint_folder", path)]
+    # Only the folders below the shared one belong to the deeper item alone.
+    assert ("sharepoint_folder", "Policies/Security/Audits") in deep
+    assert ("sharepoint_folder", "Policies/Security/Audits") not in shallow
+
+
+def test_confluence_attachment_reaches_the_real_parent_page_node(corpus: EvalCorpus) -> None:
+    """An attachment's stand-in for its parent must be the key that page really has.
+
+    Two independent paths build that stand-in -- the provider projector from
+    ``parent_source_item_id``/``parent_page_id``, and ``SourceRelationProjector`` from the
+    reversed ``attached_to`` predicate. Both feed ``source_entity_node_key``, which hashes
+    ``entity_type`` alongside the provider id, so either one getting the type or the id
+    wrong strands the attachment behind a stub the real page never claims.
+    """
+
+    for attachment, parent in (
+        ("handbook-pdf", "team-handbook"),
+        ("checklist-pdf", "deploy-checklist"),
+    ):
+        stubs = _entities(corpus, attachment)
+        assert stubs[("confluence_page", parent)] == corpus.source_item_key(parent)
+        # Typed as a page, not as another attachment: one node, so one edge -- and that
+        # edge runs from the parent page to this attachment, which a count cannot say.
+        assert ("confluence_attachment", parent) not in stubs
+        assert _edges(corpus, attachment, "has_attachment") == {
+            (corpus.source_item_key(parent), corpus.source_item_key(attachment))
+        }
 
 
 def test_sharepoint_folder_node_is_shared_by_same_folder_items(corpus: EvalCorpus) -> None:
-    leaf = ("sharepoint_folder", "folder-2")
+    leaf = ("sharepoint_folder", "Policies/Security")
     assert (
         _entities(corpus, "security-policy")[leaf] == _entities(corpus, "retention-schedule")[leaf]
     )

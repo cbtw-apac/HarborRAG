@@ -1,5 +1,7 @@
 """SeoBuildMixin implementation for the website builder."""
 
+from .constants import resolve_public_origin
+
 
 class SeoBuildMixin:
     """Focused website-build operations composed by ``WebsiteBuilder``."""
@@ -9,9 +11,7 @@ class SeoBuildMixin:
         from datetime import datetime
 
         # Determine base site URL
-        site_base = (
-            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
-        )
+        site_base = resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
 
         # Get current date for lastmod
         current_date = datetime.now().strftime("%Y-%m-%d")
@@ -52,9 +52,7 @@ Sitemap: {self.base_url.rstrip("/") if self.base_url else "https://example.com"}
 
     def generate_robots_file(self) -> None:
         """Generate only robots.txt referencing the sitemap URL."""
-        site_base = (
-            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
-        )
+        site_base = resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
         robots_content = f"""User-agent: *
 Allow: /
 
@@ -69,18 +67,20 @@ Sitemap: {site_base}/sitemap.xml
         """Generate dynamic sitemap with custom pages."""
         from datetime import datetime
 
-        base_url = (
-            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
-        )
+        base_url = resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
 
         # Auto-discover pages if not provided
         if pages is None:
             pages = []
             # Find HTML files in site directory
             if self.output_dir.exists():
-                for html_file in self.output_dir.rglob("*.html"):
-                    rel_path = html_file.relative_to(self.output_dir).as_posix()
-                    pages.append(rel_path)
+                # Sort the URL paths rather than the Path objects: rglob order is
+                # arbitrary, and WindowsPath compares case-insensitively, so either
+                # would let the generated sitemap vary by build platform.
+                pages = sorted(
+                    html_file.relative_to(self.output_dir).as_posix()
+                    for html_file in self.output_dir.rglob("*.html")
+                )
 
         # Use provided date or current date
         if date is None:

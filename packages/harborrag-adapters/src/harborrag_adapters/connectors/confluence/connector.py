@@ -40,6 +40,7 @@ from .mappers import (
 )
 from .policy import ConfluenceQueryPolicyMixin
 from .relations import ConfluenceSourceRelationResolver
+from .title_resolution import PageTitleResolver
 
 logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
@@ -107,6 +108,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             base_url=self.base_url,
         )
         self._relations = ConfluenceSourceRelationResolver()
+        self._titles = PageTitleResolver(self._content)
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
@@ -278,6 +280,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             html=body_html,
             current_space=metadata.space_key,
             source_version=str(metadata.version),
+            resolve_title=self._titles.page_id_for_title,
         )
         metadata_payload["attachment_names"] = list(record.metadata.get("attachment_names") or ())
         document = RawDocument(

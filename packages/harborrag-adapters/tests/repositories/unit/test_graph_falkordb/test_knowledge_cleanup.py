@@ -210,3 +210,73 @@ async def test_provisioning_swallows_idempotent_ddl_but_reraises_real_failures(
         return
     with pytest.raises(RuntimeError, match=message):
         await graph.provision()
+
+
+@pytest.mark.asyncio
+async def test_relation_cleanup_deletes_relations_and_never_a_node() -> None:
+    """One statement per relationship type, and not one of them deletes a node.
+
+    The label is named because the only relation index provisioning creates is
+    per-relationship-label, so an untyped match would scan every relationship in the
+    graph.
+
+    That no node is deleted is the load-bearing half. Removing a far end left edgeless
+    means testing its degree in one transaction and deleting it in another, while
+    `write_projection` stages nodes before their relations -- so a placeholder another
+    projection has just staged reads as edgeless, and deleting it makes that projection
+    write no relation and fail its own verification. Scoping the test to the keys just
+    retracted does not help: a placeholder shared by several linking documents is exactly
+    the node the other writer is staging. A deletion that does not exist cannot race, so
+    the stub is left for the tenant-wide prune that version and source-item cleanup run.
+    """
+
+    client = FakeFalkorDBClient()
+    links_to = relation().model_copy(
+        update={"relation_id": "relation-2", "relation_type": RelationType.LINKS_TO}
+    )
+
+    await repository(client).delete_relations(
+        (relation(), links_to),
+        context=StorageOperationContext.system("tenant-1"),
+    )
+
+    statements = [statement for statement, _ in client.write_calls]
+    assert len(statements) == 2
+    assert "[relation:CONTAINS]" in statements[0]
+    assert "[relation:LINKS_TO]" in statements[1]
+    for statement, parameters in client.write_calls:
+        assert "relation.tenant_id = $tenant_id" in statement
+        assert "relation.graph_schema_version = $graph_schema_version" in statement
+        assert parameters["tenant_id"] == "tenant-1"
+        assert "DELETE relation" in statement
+        assert "DELETE node" not in statement
+        assert "DETACH DELETE" not in statement
+    assert client.write_calls[0][1]["relation_ids"] == ["relation-1"]
+    assert client.write_calls[1][1]["relation_ids"] == ["relation-2"]
+
+
+@pytest.mark.asyncio
+async def test_relation_cleanup_rejects_another_tenants_relation() -> None:
+    client = FakeFalkorDBClient()
+
+    with pytest.raises(ValueError, match="owner does not match"):
+        await repository(client).delete_relations(
+            (relation(),),
+            context=StorageOperationContext.system("tenant-2"),
+        )
+
+    assert client.write_calls == []
+
+
+@pytest.mark.asyncio
+async def test_relation_cleanup_with_nothing_to_retract_does_not_touch_the_graph() -> None:
+    """Repair calls this on every document it repairs, most of which supersede nothing."""
+
+    client = FakeFalkorDBClient()
+
+    await repository(client).delete_relations(
+        (),
+        context=StorageOperationContext.system("tenant-1"),
+    )
+
+    assert client.write_calls == []

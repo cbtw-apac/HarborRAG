@@ -89,6 +89,12 @@ class RelationType(StrEnum):
     RELATES_TO = "relates_to"
     POINTS_TO = "points_to"
     RESOLVED_AT = "resolved_at"
+    # Confluence transclusion: an `include` macro renders another page's body inside this
+    # one, so the two are genuinely coupled -- a reader of the host sees the target's
+    # content. It is not LINKS_TO: a link is a reference the reader may follow, whereas a
+    # transclusion is content already on the page, and collapsing them would make
+    # "what does this page actually say" unanswerable.
+    INCLUDES = "includes"
 
     # Reserved: accepted on input but never projected. CHILD_OF and ATTACHED_TO are
     # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
@@ -97,7 +103,6 @@ class RelationType(StrEnum):
     HAS_TABLE = "has_table"
     HAS_COMMENT = "has_comment"
     CHILD_OF = "child_of"
-    INCLUDES = "includes"
     EMBEDS = "embeds"
     ATTACHED_TO = "attached_to"
     COMMENT_ON = "comment_on"
@@ -122,6 +127,7 @@ PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
     RelationType.RELATES_TO,
     RelationType.POINTS_TO,
     RelationType.RESOLVED_AT,
+    RelationType.INCLUDES,
 )
 
 

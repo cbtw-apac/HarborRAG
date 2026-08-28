@@ -48,17 +48,31 @@ def issue_url(base_url: str, issue_key: str) -> str:
     return urljoin(base, f"browse/{issue_key}")
 
 
+def project_identity(issue: dict[str, Any]) -> dict[str, str]:
+    """Resolve the project key an issue belongs to, in exactly one place.
+
+    The graph keys ``jira_project`` by this value, and a source-entity node key hashes the
+    provider id -- so a second copy of the issue-key-prefix fallback forks the project node
+    as soon as the two drift. ``build_source_record`` uses it for issues and the attachment
+    binding inherits it, which is what puts both under one project node.
+    """
+
+    fields = issue.get("fields", {})
+    issue_key = str(issue.get("key") or "")
+    project = fields.get("project") or {}
+    return {"project_key": str(project.get("key") or issue_key.split("-")[0])}
+
+
 def build_source_record(issue: dict[str, Any], *, base_url: str) -> SourceRecord:
     """Convert a JIRA search result into a lightweight source record."""
     fields = issue.get("fields", {})
     issue_key = str(issue.get("key") or "")
-    project = fields.get("project") or {}
-    project_key = str(project.get("key") or issue_key.split("-")[0])
+    identity = project_identity(issue)
 
     metadata: dict[str, Any] = {
         "issue_id": str(issue.get("id") or ""),
         "issue_key": issue_key,
-        "project_key": project_key,
+        **identity,
         "title": fields.get("summary"),
         "issue_type": _name(fields.get("issuetype")),
         "status": _name(fields.get("status")),
@@ -72,7 +86,7 @@ def build_source_record(issue: dict[str, Any], *, base_url: str) -> SourceRecord
             for subtask in subtasks
         ]
     return SourceRecord(
-        id=f"jira://{project_key}/{issue_key}",
+        id=f"jira://{identity['project_key']}/{issue_key}",
         source_type="application/vnd.atlassian.jira.issue+json",
         locator=issue_key,
         updated_at=parse_timestamp(fields.get("updated")),

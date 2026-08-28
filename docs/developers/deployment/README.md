@@ -14,11 +14,18 @@ composition and security policy.
 
 - Qdrant on ports 6333/6334;
 - FalkorDB on ports 6379/3000;
-- Redis on host port 6380 by default;
-- PostgreSQL on port 5432.
+- Redis on host port 6380 by default (container port 6379);
+- PostgreSQL on port 5432;
+- MinIO on ports 9000 (S3 API) and 9001 (console).
 
-The service image tags are pinned directly in the Compose file. The environment
-template only controls ports, credentials, and startup behavior.
+Note that host port 6379 is **FalkorDB**, not Redis - Redis is published on 6380 to avoid
+the collision. `HARBORRAG_REDIS_URL=redis://redis:6379/0` is still correct, because that
+URL is resolved inside the Docker network rather than on the host. FalkorDB's browser also
+defaults to host port 3000, which collides with Grafana in the monitoring stack.
+
+The service image tags are pinned directly in the Compose file. The environment template
+controls ports and credentials. Its `DATABASE_PULL`, `DATABASE_STARTUP_TIMEOUT`, and
+`DATABASE_COMPOSE_FILE` entries are vestigial and read by nothing.
 
 FalkorDB persists RDB snapshots in its named volume. Do not enable AOF for this
 service: FalkorDB 4.20.1 can create and restore the knowledge-graph uniqueness
@@ -29,13 +36,27 @@ AOF persistence.
 Prepare a protected environment file:
 
 ```bash
-cp env-example/.env.database.example env/.env.database
-scripts/deployment/dev.sh data
+scripts/deployment/dev.sh bootstrap     # creates all seven env/ files, mode 0600
 ```
 
-When upgrading an existing checkout, add `POSTGRES_PASSWORD` and
-`MINIO_ROOT_PASSWORD` to the existing protected `env/.env.database` before the
-next start. Monitoring now uses a separate `env/.env.monitoring`; create it
+`bootstrap` is preferred over copying templates by hand: it creates every file the
+entrypoints require - including `env/.env.api`, which `mcp.sh` hard-requires - and mints
+the MCP bearer token.
+
+**`HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty and blocks
+startup.** It encrypts stored connector credentials in the control database, and both the
+API and the Temporal worker must read the same value. Compose guards it, and treats an
+empty value as unset:
+
+```bash
+openssl rand -hex 32     # paste into HARBORRAG_SECRETS_ENCRYPTION_KEY
+```
+
+Rotating it after secrets have been stored requires re-encrypting or re-entering them.
+
+When upgrading an existing checkout, add `HARBORRAG_SECRETS_ENCRYPTION_KEY`,
+`POSTGRES_PASSWORD`, and `MINIO_ROOT_PASSWORD` to the existing protected
+`env/.env.database` before the next start. Monitoring now uses a separate `env/.env.monitoring`; create it
 from `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`.
 Compose intentionally refuses to start an affected service when one of these
 required passwords is absent.
@@ -44,10 +65,11 @@ The unified deployment helper accepts `DATABASE_ENV_FILE` overrides and passes
 the selected file to Docker Compose. Change the example password before using
 the stack outside an isolated developer machine.
 
-The stack owns the stable `harborrag-data-network`. Application containers and
-the Temporal worker may join this network, but Temporal control-plane services
-remain on their separate `harborrag-temporal-network`. Start the database stack
-before enabling the Temporal worker profile.
+The stack owns the stable `harborrag-data-network`, and it is the only compose file that
+creates it - every other stack declares it `external: true`. Application containers and the
+Temporal worker join it. Temporal control-plane services additionally sit on their own
+Compose project network (`harborrag-temporal_default`). Start the database stack before
+anything else, or the other stacks fail on a missing network.
 
 Use the repository smoke runner in [Testing](../testing/README.md#real-system-smoke-checks) to verify adapters through their public APIs.
 
@@ -66,10 +88,17 @@ chunk, retry, cleanup, verification, stale-candidate, and connector
 rate-limiting metrics. Dashboard and alert policy remain
 deployment-specific.
 
+`scripts/deployment/dev.sh bootstrap` does **not** create `env/.env.monitoring`, and this
+stack declares `harborrag-data-network` as external, so `dev.sh data` must have run first:
+
 ```bash
+scripts/deployment/dev.sh data          # creates harborrag-data-network
+
 cp env-example/.env.monitoring.example env/.env.monitoring
 chmod 600 env/.env.monitoring
-# Set GRAFANA_ADMIN_PASSWORD in env/.env.monitoring, then run:
+# GRAFANA_ADMIN_PASSWORD ships empty and is guarded, so Compose refuses to start
+# until you set it. Grafana also defaults to host port 3000, which the FalkorDB
+# browser already uses -- change GRAFANA_PORT or FALKORDB_BROWSER_PORT.
 docker compose --env-file env/.env.monitoring \
   --file deploy/compose/docker-compose.monitoring.yml up --detach
 ```

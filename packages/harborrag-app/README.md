@@ -8,9 +8,9 @@ The CLI submits and controls the canonical Temporal workflow through
 `AppService`; it does not construct connectors or repositories:
 
 ```bash
-harborrag ingest start --tenant tenant-1 --connector local
-harborrag ingest start --tenant tenant-1 --connector jira --limit 3 --wait
-harborrag ingest start --tenant tenant-1 --connector local --wait
+harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace
+harborrag ingest start --tenant tenant-1 --connector-id jira-main --limit 3 --wait
+harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace --wait
 harborrag ingest status RUN_ID --json
 harborrag ingest watch RUN_ID
 harborrag ingest wait RUN_ID

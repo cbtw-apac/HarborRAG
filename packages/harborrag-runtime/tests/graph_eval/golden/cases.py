@@ -45,13 +45,17 @@ PATH_CASES: tuple[PathCase, ...] = (
     ),
     # Two files under docs/guides. Their shared directory node is what joins them, so this
     # case only passes if source-entity identity deduplicates that directory across the two
-    # documents' batches -- the property every provider's contains spine depends on.
+    # documents' batches -- the property every provider's structure spine depends on.
+    # PARENT_OF, not CONTAINS: folder and directory chains moved to the structure axis, and
+    # membership is now flat, so over CONTAINS these two files meet at the repository in
+    # two hops whatever the directory nodes do -- the same verdict for a graph with the
+    # folder identity regression this case exists to catch.
     PathCase(
         name="github files join through their shared directory",
         start_doc="setup-guide",
         end_doc="deploy-guide",
         max_depth=2,
-        relationship_types=(RelationType.CONTAINS,),
+        relationship_types=(RelationType.PARENT_OF,),
         expect_found=True,
         hops=2,
     ),
@@ -60,7 +64,7 @@ PATH_CASES: tuple[PathCase, ...] = (
         start_doc="setup-guide",
         end_doc="deploy-guide",
         max_depth=1,
-        relationship_types=(RelationType.CONTAINS,),
+        relationship_types=(RelationType.PARENT_OF,),
         expect_found=False,
         hops=2,
     ),
@@ -69,23 +73,44 @@ PATH_CASES: tuple[PathCase, ...] = (
         start_doc="security-policy",
         end_doc="retention-schedule",
         max_depth=2,
+        relationship_types=(RelationType.PARENT_OF,),
+        expect_found=True,
+        hops=2,
+    ),
+    # security-policy sits directly in .../Policies/Security and deep-audit two folders
+    # below it. Every folder is keyed by its drive-relative path, so that shared folder is
+    # one node and the two items meet through it: file -> Security -> Audits -> 2026 ->
+    # file. Keying only the *last* folder of a path by the item's parent id made the same
+    # folder two nodes and forced this walk up to the drive and back down in six hops.
+    PathCase(
+        name="sharepoint same-folder subtree meets through one shared folder",
+        start_doc="security-policy",
+        end_doc="deep-audit",
+        max_depth=4,
+        relationship_types=(RelationType.PARENT_OF,),
+        expect_found=True,
+        hops=4,
+    ),
+    # The membership axis, kept as its own cases now that the folder ones left it: two
+    # files sharing no directory at all still meet in one hop each at the container that
+    # holds them, because CONTAINS is flat and holds nothing but documents.
+    PathCase(
+        name="github files with no shared directory still join at the repository",
+        start_doc="setup-guide",
+        end_doc="legacy-notes",
+        max_depth=2,
         relationship_types=(RelationType.CONTAINS,),
         expect_found=True,
         hops=2,
     ),
-    # security-policy and deep-audit both sit under .../Policies/Security, but SharePoint
-    # keys only the *last* folder of a path by the item's parent id and every earlier one by
-    # accumulated path -- so that one real folder is two nodes, and the two items are six
-    # hops apart through the drive rather than two hops through a shared folder. Pinned as
-    # the behaviour it is; see the folder identity note in README.md.
     PathCase(
-        name="sharepoint folder split keeps same-folder items far apart",
+        name="sharepoint items in different folders still join at the drive",
         start_doc="security-policy",
-        end_doc="deep-audit",
-        max_depth=3,
+        end_doc="drive-readme",
+        max_depth=2,
         relationship_types=(RelationType.CONTAINS,),
-        expect_found=False,
-        hops=6,
+        expect_found=True,
+        hops=2,
     ),
 )
 
@@ -110,6 +135,9 @@ SUBGRAPH_CASES: tuple[SubgraphCase, ...] = (
     ),
     # deep-config lives under src/, and legacy-notes hangs straight off the repository, so
     # both are further than the shared docs/guides directory that reaches deploy-guide.
+    # Restricted to the structure axis: membership is flat, so an unfiltered expansion
+    # reaches every file in the repository through the repository node itself and locality
+    # stops meaning anything.
     SubgraphCase(
         name="github 2-hop expansion reaches only the sibling file",
         seed_doc="setup-guide",
@@ -117,6 +145,7 @@ SUBGRAPH_CASES: tuple[SubgraphCase, ...] = (
         max_nodes=60,
         expected_docs=frozenset({"deploy-guide"}),
         forbidden_docs=frozenset({"deep-config", "legacy-notes"}),
+        relationship_types=(RelationType.PARENT_OF,),
     ),
     SubgraphCase(
         name="github 1-hop expansion stops at the directory",
@@ -125,6 +154,7 @@ SUBGRAPH_CASES: tuple[SubgraphCase, ...] = (
         max_nodes=60,
         expected_docs=frozenset(),
         forbidden_docs=frozenset({"deploy-guide"}),
+        relationship_types=(RelationType.PARENT_OF,),
     ),
     # drive-readme sits at the drive root and deep-audit four folders down a diverging
     # chain; only retention-schedule shares security-policy's leaf folder.
@@ -135,6 +165,18 @@ SUBGRAPH_CASES: tuple[SubgraphCase, ...] = (
         max_nodes=60,
         expected_docs=frozenset({"retention-schedule"}),
         forbidden_docs=frozenset({"drive-readme", "deep-audit"}),
+        relationship_types=(RelationType.PARENT_OF,),
+    ),
+    # The membership counterpart: one hop off the container is every document it holds and
+    # nothing else, which is the query the two-axis split exists to make answerable.
+    SubgraphCase(
+        name="sharepoint 2-hop membership expansion reaches every file in the drive",
+        seed_doc="security-policy",
+        max_depth=2,
+        max_nodes=60,
+        expected_docs=frozenset({"retention-schedule", "drive-readme", "deep-audit"}),
+        forbidden_docs=frozenset(),
+        relationship_types=(RelationType.CONTAINS,),
     ),
 )
 

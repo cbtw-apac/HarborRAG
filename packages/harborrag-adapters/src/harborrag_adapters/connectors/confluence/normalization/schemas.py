@@ -9,6 +9,25 @@ from .values import mapping as _mapping
 from .values import mapping_sequence as _mapping_sequence
 
 
+def space_identity(
+    space: Mapping[str, Any],
+    *,
+    default_space_key: str = "",
+) -> dict[str, str]:
+    """Resolve a space's two identity fields, in exactly one place.
+
+    ``space_id`` is what the graph keys ``confluence_space`` by, and a source-entity node
+    key hashes the provider id -- so a second copy of this fallback forks the space node
+    the moment the two drift. ``ConfluencePageInput`` uses it for pages and the attachment
+    binding inherits it, which is what lets both hang off the same space node.
+    """
+
+    return {
+        "space_id": str(space.get("id") or space.get("key") or default_space_key),
+        "space_key": str(space.get("key") or default_space_key),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ConfluencePageInput:
     """Safe page fields accepted by the canonical normalizer."""
@@ -69,11 +88,12 @@ class ConfluencePageInput:
             for item in _mapping_sequence(payload.get("ancestors"))
             if item.get("id") and item.get("title")
         )
+        identity = space_identity(space, default_space_key=default_space_key)
         return cls(
             page_id=str(payload.get("id") or ""),
             page_version=str(version.get("number") or version.get("when") or ""),
-            space_id=str(space.get("id") or space.get("key") or default_space_key),
-            space_key=str(space.get("key") or default_space_key),
+            space_id=identity["space_id"],
+            space_key=identity["space_key"],
             title=str(payload.get("title") or ""),
             source_url=source_url,
             ancestors=ancestors,

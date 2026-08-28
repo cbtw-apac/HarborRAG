@@ -5,17 +5,28 @@ Owns the FastMCP transport, pre-execution policy, and durable audit boundary.
 ## Folder ownership
 
 ```text
-tools/base.py + tools/retrieval_inputs.py
-tools/vector_search.py + tools/graph_search.py
-chat.py + agent.py (kept for reuse, not registered as MCP tools)
-server/base.py + server/server.py
+__main__.py                 stdio / HTTP launcher and flag parsing
+tools/base.py               McpToolSpec and the BaseMcpTool contract
+tools/retrieval_inputs.py   shared tenant and retrieval argument schemas
+tools/vector_search.py      vector_search
+tools/graph_search.py       graph_triplet_search, graph_path_search, graph_subgraph_search
+server/base.py              server protocol
+server/server.py            tool registry, policy enforcement, dispatch
+server/http.py              loopback Streamable HTTP transport and status UI
+server/http_auth.py         owner-only bearer and tenant authorization
+server/static/status.html   status page and Tool Playground
+configuration/              config/mcp.yaml loading, validation, env overrides
+policy.py                   compiled safety ceilings
+audit.py                    JSONL audit writer
+defaults/mcp.yaml           packaged fallback configuration
 ```
 
 ## Team deliverables
 
-- The shipped transport exposes six retrieval tools. Chat and agent are not
-  MCP tools; they are served only through the HarborRAG REST API's
-  `/v1/chat` and `/v1/agent` endpoints.
+- The shipped transport exposes four retrieval tools: `vector_search`,
+  `graph_triplet_search`, `graph_path_search`, and `graph_subgraph_search`.
+  Chat and agent are not MCP tools; they are served only through the HarborRAG
+  REST API's `/v1/chat/completions` and `/v1/agent/completions` endpoints.
 - Every attempt and outcome is durably audited with a principal identifier and
   arguments digest; raw arguments and tokens are never recorded.
 - Declared input schemas plus argument, result-count, and serialized-output
@@ -61,7 +72,7 @@ The launcher loads the protected database, model, API, and MCP environment files
 constructs the shared `HarborRAG` runtime, and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the six advertised tool names without connecting to
+MCP handshake and print the four advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:
@@ -87,7 +98,7 @@ and executes the selected tool with **Run tool**. Tenant-specific enablement,
 defaults and limits are applied before execution, and each attempt is audited.
 
 Chat and agent are not part of this catalog; use the HarborRAG REST API's
-`/v1/chat` and `/v1/agent` endpoints instead.
+`/v1/chat/completions` and `/v1/agent/completions` endpoints instead.
 
 The owner-only browser API is:
 

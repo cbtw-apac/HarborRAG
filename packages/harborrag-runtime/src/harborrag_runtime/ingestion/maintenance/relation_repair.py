@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -14,21 +14,23 @@ from harborrag_adapters.repositories.object_store import (
     CanonicalDocumentArtifactRepository,
     ChunkArtifactReader,
 )
+from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     ChangeFingerprintBuilder,
-    KnowledgeNodeKind,
     ProcessingProfile,
 )
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     GraphDocumentTarget,
+    GraphProjectionBatch,
     GraphProjectionBuilder,
     GraphProjectionInput,
 )
 
 from ..document.models import DocumentReleaseRequest
+from .relation_supersession import document_relations, superseded_relations
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 
@@ -55,7 +57,6 @@ class _RepairTarget:
     document_id: str
     processing_fingerprint: str
     graph_projection_version: str
-    source_scope_id: str | None
 
 
 class GraphRelationRepairService:
@@ -95,7 +96,6 @@ class GraphRelationRepairService:
                         profile=item.request.processing
                     ),
                     graph_projection_version=item.request.processing.graph_projection_version,
-                    source_scope_id=item.request.source_identity.source_scope_id,
                 )
                 for item in planned
             ),
@@ -126,7 +126,6 @@ class GraphRelationRepairService:
                     document_id=document_id,
                     processing_fingerprint=fingerprint,
                     graph_projection_version=processing.graph_projection_version,
-                    source_scope_id=None,
                 )
                 for document_id in document_ids
             ),
@@ -148,7 +147,6 @@ class GraphRelationRepairService:
                     target.document_id,
                     expected_processing_fingerprint=target.processing_fingerprint,
                     graph_projection_version=target.graph_projection_version,
-                    source_scope_id=target.source_scope_id,
                     context=context,
                 )
 
@@ -168,7 +166,6 @@ class GraphRelationRepairService:
         *,
         expected_processing_fingerprint: str,
         graph_projection_version: str,
-        source_scope_id: str | None,
         context: StorageOperationContext,
     ) -> tuple[int, int, int]:
         snapshot = await self._control.document_versions.active_snapshot(document_id)
@@ -201,41 +198,29 @@ class GraphRelationRepairService:
                 snapshot.document_version_id,
             )
             return (0, 0, 1)
-        resolved_scope_id = source_scope_id or self._source_scope_id(document)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))
         targets = await self._control.document_versions.resolve_active_sources(
-            source_scope_id=resolved_scope_id,
+            tenant_id=context.tenant_id,
+            connector_type=self._required_extra(document, "connector_type"),
+            connection_id=self._required_extra(document, "connection_id"),
             source_item_ids=source_ids,
         )
-        graph = self._builder.build(
-            GraphProjectionInput(
-                document=document,
-                chunks=chunks,
-                resolved_targets={
-                    source_id: GraphDocumentTarget(
-                        source_item_id=target.source_item_id,
-                        document_id=target.document_id,
-                        document_version_id=target.document_version_id,
-                        source_scope_id=target.source_scope_id,
-                        title=target.title,
-                    )
-                    for source_id, target in targets.items()
-                },
-                graph_projection_version=graph_projection_version,
-            )
+        graph = self._build(
+            document,
+            chunks,
+            resolved_targets={
+                source_id: GraphDocumentTarget(
+                    source_item_id=target.source_item_id,
+                    document_id=target.document_id,
+                    document_version_id=target.document_version_id,
+                    source_scope_id=target.source_scope_id,
+                    title=target.title,
+                )
+                for source_id, target in targets.items()
+            },
+            graph_projection_version=graph_projection_version,
         )
-        document_node_keys = {
-            node.node_key
-            for node in graph.nodes
-            if node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY
-        }
-        relations = tuple(
-            relation
-            for relation in graph.relations
-            if relation.source_explicit
-            and relation.source_node_key in document_node_keys
-            and relation.target_node_key in document_node_keys
-        )
+        relations = document_relations(graph)
         if not relations:
             return (0, 0, len(graph.unresolved_relations))
         endpoint_keys = {
@@ -244,6 +229,26 @@ class GraphRelationRepairService:
             for node_key in (relation.source_node_key, relation.target_node_key)
         }
         nodes = tuple(node for node in graph.nodes if node.node_key in endpoint_keys)
+        # Retract before writing. The first projection could only stamp this document's
+        # own scope on a target it could not resolve, so the edge it wrote points at a
+        # stub no projection ever fills in. Left in place beside the resolved edge, a
+        # traversal returns both the real target and a target that does not exist.
+        superseded = superseded_relations(
+            self._build(
+                document,
+                chunks,
+                resolved_targets={},
+                graph_projection_version=graph_projection_version,
+            ),
+            resolved=relations,
+        )
+        if superseded:
+            logger.info(
+                "Retracting superseded placeholder relations document_id=%s count=%d",
+                document_id,
+                len(superseded),
+            )
+            await self._graph.delete_relations(superseded, context=context)
         await self._graph.write_projection(
             nodes,
             relations,
@@ -262,10 +267,27 @@ class GraphRelationRepairService:
             len(graph.unresolved_relations),
         )
 
+    def _build(
+        self,
+        document: Document,
+        chunks: tuple[ChunkRecord, ...],
+        *,
+        resolved_targets: Mapping[str, GraphDocumentTarget],
+        graph_projection_version: str,
+    ) -> GraphProjectionBatch:
+        return self._builder.build(
+            GraphProjectionInput(
+                document=document,
+                chunks=chunks,
+                resolved_targets=resolved_targets,
+                graph_projection_version=graph_projection_version,
+            )
+        )
+
     @staticmethod
-    def _source_scope_id(document: Document) -> str:
-        value = document.provenance.extra.get("source_scope_id")
-        source_scope_id = str(value).strip() if value is not None else ""
-        if not source_scope_id:
-            raise ValueError("canonical document is missing its source scope")
-        return source_scope_id
+    def _required_extra(document: Document, key: str) -> str:
+        value = document.provenance.extra.get(key)
+        text = str(value).strip() if value is not None else ""
+        if not text:
+            raise ValueError(f"canonical document is missing its {key}")
+        return text

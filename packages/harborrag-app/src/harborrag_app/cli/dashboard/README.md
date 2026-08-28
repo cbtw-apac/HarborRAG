@@ -2,8 +2,9 @@
 
 ## Responsibility
 
-Renders workflow-control status and sends explicit pause, resume, retry, and
-cancel commands from the interactive CLI.
+Renders workflow-control status and sends explicit refresh, pause, resume, and
+cancel commands from the interactive CLI. Keys: `F` refresh, `P` pause, `R` resume,
+`X` cancel, `Q` quit.
 
 ## Inputs / Outputs
 

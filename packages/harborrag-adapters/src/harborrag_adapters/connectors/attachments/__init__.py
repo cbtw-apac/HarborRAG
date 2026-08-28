@@ -6,6 +6,7 @@ from .processing import (
     FileType,
 )
 from .records import (
+    CONTAINER_IDENTITY_KEYS,
     attachment_descriptor_from_record,
     attachment_source_record,
     is_attachment_record,
@@ -21,8 +22,9 @@ from .sources import (
 )
 
 __all__ = [
-    "AttachmentMetadata",
+    "CONTAINER_IDENTITY_KEYS",
     "AttachmentDocumentLoader",
+    "AttachmentMetadata",
     "AttachmentProcessor",
     "AttachmentSourceDescriptor",
     "AttachmentSourceGateway",

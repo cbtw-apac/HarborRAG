@@ -77,3 +77,16 @@ def test_python_lock_is_audited_in_quality_gates() -> None:
 
     assert "uv export --frozen --all-packages --all-extras --no-dev" in workflow
     assert "uvx --from pip-audit==2.10.1 pip-audit" in workflow
+
+
+def test_documentation_builds_pass_an_explicit_public_origin() -> None:
+    """Canonical, Open Graph and sitemap URLs must never rely on the fallback.
+
+    ``--base-url ""`` is correct for a root-served deployment, so the absolute
+    origin has to arrive separately. Without ``--site-url`` the builder emits
+    the hardcoded default and a host change silently ships wrong URLs.
+    """
+    for name in ("docs-auto.yml", "docs-manual.yml"):
+        content = (WORKFLOWS / name).read_text(encoding="utf-8")
+        assert "website/build.py" in content, name
+        assert "--site-url" in content, f"{name} builds the site without an explicit origin"

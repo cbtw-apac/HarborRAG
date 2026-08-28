@@ -5,6 +5,7 @@ import pytest
 from harborrag_core.chunking import ChunkKind, RecordKind
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import UnsupportedDocumentError
+from harborrag_engine.ingestion import produces_evidence
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 
@@ -104,6 +105,14 @@ def test_each_section_starts_with_a_typed_route_chunk() -> None:
 
 
 def test_heading_only_document_produces_a_provenance_backed_route() -> None:
+    """The chunker keeps this defense, but the release path no longer reaches it.
+
+    A route is not evidence, so the vector projection rejects the batch this shape
+    produces. Admission therefore refuses a document with no evidence, and a titled ROOT
+    page is given a title paragraph so it has some -- see ``produces_evidence`` below and
+    ``harborrag_engine.ingestion.title_content``.
+    """
+
     document = make_document(
         [DocumentElement("title", "heading", "Quality Reports", {"level": 1})],
         source="confluence",
@@ -132,3 +141,38 @@ def test_truly_empty_document_is_classified_as_unsupported() -> None:
             make_profile(name="confluence", strategy="confluence"),
             create_route_chunks=True,
         ).chunk(make_request(document))
+
+
+def test_produces_evidence_agrees_with_what_segmentation_emits() -> None:
+    """The predicate admission gates on must match the segmenter, element for element.
+
+    A route is not evidence: ``VectorProjectionBuilder`` keeps only ``RecordKind
+    .EVIDENCE``, so the heading-only document above reaches the vector projection with
+    an empty batch and the release fails at BuildProjections. Callers ask this before
+    committing, so it has to answer for the same element types the segmenter skips.
+    """
+
+    heading_only = make_document(
+        [DocumentElement("title", "heading", "Quality Reports", {"level": 1})],
+        source="confluence",
+        extra={"page_id": "95518771"},
+    )
+    with_prose = make_document(
+        [
+            DocumentElement("title", "heading", "Quality Reports", {"level": 1}),
+            DocumentElement("p1", "paragraph", "Reports ship weekly."),
+        ],
+        source="confluence",
+        extra={"page_id": "95518771"},
+    )
+
+    assert produces_evidence(heading_only) is False
+    assert produces_evidence(with_prose) is True
+
+    service = make_service(
+        make_profile(name="confluence", strategy="confluence"),
+        create_route_chunks=True,
+    )
+    for document, expected in ((heading_only, 0), (with_prose, 1)):
+        statistics = service.chunk(make_request(document)).statistics
+        assert statistics.evidence_chunk_count == expected

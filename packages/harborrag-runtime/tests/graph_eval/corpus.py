@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
@@ -43,9 +43,24 @@ from .sources import eval_documents
 # Overridable via env/.env.database (or exported variables). The defaults are
 # the committed-baseline identity: overriding HARBORRAG_EVAL_TENANT_ID also
 # moves the baseline filename unit/test_health_baseline.py diffs against.
-load_dotenv(Path(__file__).resolve().parents[4] / "env/.env.database", override=False)
-TENANT_ID = os.getenv("HARBORRAG_EVAL_TENANT_ID", "").strip() or "graph-eval"
-GRAPH_NAME = os.getenv("HARBORRAG_EVAL_GRAPH_NAME", "").strip() or "harborrag-graph-eval"
+#
+# Read into a dict rather than load_dotenv'd into os.environ: that file also carries
+# HARBORRAG_SECRETS_ENCRYPTION_KEY, and importing this module during collection used to
+# publish it process-wide, so three test_runtime_settings.py cases that assert what
+# happens when the key is *absent* failed whenever graph_eval was collected alongside
+# them -- passing on their own, failing in the suite.
+_ENV_FILE_VALUES = dotenv_values(Path(__file__).resolve().parents[4] / "env/.env.database")
+
+
+def _eval_setting(name: str, default: str) -> str:
+    """Resolve one eval override; exported variables win, as override=False did."""
+
+    value = os.getenv(name) or _ENV_FILE_VALUES.get(name) or ""
+    return value.strip() or default
+
+
+TENANT_ID = _eval_setting("HARBORRAG_EVAL_TENANT_ID", "graph-eval")
+GRAPH_NAME = _eval_setting("HARBORRAG_EVAL_GRAPH_NAME", "harborrag-graph-eval")
 
 # The reviewed vocabulary lives in harborrag_engine.testing; test_corpus.py
 # asserts this corpus exercises every edge shape set-for-set.

@@ -21,6 +21,8 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     CanonicalVersionPlanner,
     SourceAdmissionPolicy,
+    produces_evidence,
+    with_title_as_content,
 )
 
 from .dependencies import DocumentReleaseDependencies
@@ -129,6 +131,10 @@ class DocumentCaptureStages:
                 raw,
                 parsed,
             )
+            normalized = with_title_as_content(
+                normalized,
+                binding=request.source_identity.binding.kind,
+            )
             planned = self._planner.plan(
                 document=normalized,
                 source_identity=request.source_identity,
@@ -209,9 +215,15 @@ class DocumentCaptureStages:
 
     @staticmethod
     def _has_indexable_content(document: Document) -> bool:
-        return bool(document.table_artifacts) or any(
-            element.content is not None and element.content.strip() for element in document.content
-        )
+        """Admit only what the chunker will turn into evidence.
+
+        Counting any non-empty element let a heading-only document through, and the
+        vector projection then rejected the evidence-free batch -- turning a page that
+        should have been a clean UNSUPPORTED skip into a failed release. Segmentation
+        owns the rule.
+        """
+
+        return produces_evidence(document)
 
     async def prepare_canonical(
         self,

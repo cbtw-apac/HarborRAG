@@ -4,6 +4,19 @@ import html
 import json
 from pathlib import Path
 
+from .constants import resolve_public_origin
+
+
+def _url_path(value: str) -> str:
+    """Normalize a site-relative path to URL form.
+
+    ``Path`` renders "\\" on Windows, and the caller-visible contract here is a
+    URL path: the "/"-counting depth math below and the canonical/Open Graph
+    URLs must not vary by build platform.
+    """
+
+    return value.replace("\\", "/")
+
 
 def _html_value(value: object) -> str:
     """Escape one scalar for text or attribute use in an HTML template."""
@@ -36,6 +49,8 @@ class PageBuildMixin:
         **extra_replacements,
     ) -> None:
         """Build a single page from template."""
+        output_filename = _url_path(output_filename)
+        canonical_path = _url_path(canonical_path)
         template_content = self.load_template(template_name)
 
         # Load a content template if available when no explicit content is given.
@@ -69,11 +84,7 @@ class PageBuildMixin:
         extras.setdefault("additional_scripts", "")
 
         canonical_url = (
-            (
-                self.base_url.rstrip("/")
-                if self.base_url
-                else "https://cbtw-apac.github.io/HarborRAG"
-            )
+            resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
             + "/"
             + canonical_path
         )
@@ -120,6 +131,7 @@ class PageBuildMixin:
         **kwargs,
     ) -> None:
         """Build a page from markdown file."""
+        output_path = _url_path(output_path)
         markdown_path = Path(markdown_file)
         if not markdown_path.exists():
             print(f"⚠️  Markdown file not found: {markdown_file}, skipping page generation")
@@ -147,11 +159,15 @@ class PageBuildMixin:
         html_content = self.markdown_processor.convert_markdown_links_to_html(
             html_content, str(markdown_path), output_path
         )
+        # Root documents are rendered on GitHub too, so their asset references are
+        # repository-relative. Retarget them at the copied site assets.
+        html_content = self.markdown_processor.rewrite_repository_asset_paths(
+            html_content, output_path
+        )
 
-        # Build a Table of Contents and wrap in docs layout
-        toc_html = self.render_toc(html_content)
-        if toc_html:
-            toc_html = self.add_bootstrap_classes(toc_html)
+        # Wrap in the docs layout. The rail carries the canonical documentation
+        # navigation rather than a per-page heading outline.
+        nav_html = self.render_docs_sidebar_nav(output_path)
 
         wrapped_content = f"""
 <section>
@@ -159,7 +175,7 @@ class PageBuildMixin:
     <div class=\"row toc-layout\">
       <aside class=\"toc-sidebar d-none d-lg-block p-0\">
         <div class=\"position-sticky\">
-          {toc_html or '<div class="text-muted small">No sections</div>'}
+          {nav_html or '<div class="text-muted small">No sections</div>'}
         </div>
       </aside>
       <div class=\"container-content\">

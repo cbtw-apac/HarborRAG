@@ -6,7 +6,7 @@ from typing import Protocol
 
 from harborrag_core.chunking import RelationType
 from harborrag_core.domain.document import Document
-from harborrag_core.ingestion import GraphEntityType, GraphNodeRecord
+from harborrag_core.ingestion import GraphNodeRecord
 
 from .collaboration_source_projectors import ConfluenceSourceProjector, JiraSourceProjector
 from .file_source_projectors import (
@@ -15,7 +15,12 @@ from .file_source_projectors import (
     SharePointSourceProjector,
 )
 from .graph_state import GraphProjectionState
-from .source_projector_support import BaseSourceProjector
+from .source_projector_support import (
+    BaseSourceProjector,
+    relation_entity_type,
+    source_entity_type,
+    source_provider_id,
+)
 
 
 class GraphSourceProjector(Protocol):
@@ -73,44 +78,6 @@ class GenericSourceProjector(BaseSourceProjector):
         self.edge(state, RelationType.CONTAINS, data_source, item)
         self.version(state, item, document_version)
         return item
-
-
-def source_entity_type(connector_type: str) -> GraphEntityType:
-    return {
-        "confluence": GraphEntityType.CONFLUENCE_PAGE,
-        "jira": GraphEntityType.JIRA_ISSUE,
-        "github": GraphEntityType.GITHUB_FILE,
-        "sharepoint": GraphEntityType.SHAREPOINT_FILE,
-        "local": GraphEntityType.LOCAL_FILE,
-    }.get(connector_type.casefold(), GraphEntityType.GENERIC_SOURCE_ITEM)
-
-
-def relation_entity_type(
-    connector_type: str,
-    relation_type: RelationType,
-    target_type: str,
-) -> GraphEntityType:
-    if relation_type == RelationType.HAS_ATTACHMENT or "attachment" in target_type.casefold():
-        return {
-            "confluence": GraphEntityType.CONFLUENCE_ATTACHMENT,
-            "jira": GraphEntityType.JIRA_ATTACHMENT,
-        }.get(connector_type.casefold(), GraphEntityType.GENERIC_SOURCE_ITEM)
-    return source_entity_type(connector_type)
-
-
-def source_provider_id(connector_type: str, source_item_id: str) -> str:
-    """Recover the provider ID/path carried by a canonical source item identity."""
-
-    connector = connector_type.casefold()
-    value = source_item_id.strip()
-    if connector in {"confluence", "sharepoint"} and "/" in value:
-        return value.rstrip("/").rsplit("/", 1)[-1]
-    if connector == "jira" and value.casefold().startswith("jira://"):
-        return value.rstrip("/").rsplit("/", 1)[-1]
-    if connector == "github" and value.casefold().startswith("github://"):
-        parts = value.removeprefix("github://").split("/", 2)
-        return parts[2] if len(parts) == 3 else value
-    return value
 
 
 __all__ = [

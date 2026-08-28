@@ -51,7 +51,7 @@ canonical chunk content remains suitable for fingerprinting and source diffs.
 `ChunkingConfig` maps a normalized connector name to a profile; it never
 routes on raw media types. `ChunkingService` executes the profile's registered
 strategy, validates its output, assigns stable
-`logical_chunk_id` and content-specific `chunk_revision_id` values, and returns
+`logical_chunk_id` and content-specific `chunk_id` values, and returns
 a `ChunkingResult` containing canonical core `ChunkRecord` values plus a
 manifest of lightweight chunk references.
 
@@ -94,7 +94,7 @@ Tests for this package live in:
 
 ```text
 packages/harborrag-engine/tests/
-└── ingestion/
+├── ingestion/
     ├── unit/
     └── integration/
 ```
