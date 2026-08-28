@@ -178,7 +178,7 @@ def test_ingestion_metrics_settings_validate_the_listener_port() -> None:
 
 
 def test_default_sqlite_control_db_does_not_require_an_encryption_key() -> None:
-    settings = RuntimeSettings()
+    settings = RuntimeSettings(secrets_encryption_key=None)
 
     assert settings.secrets_encryption_key is None
 
@@ -187,7 +187,10 @@ def test_non_sqlite_control_db_requires_an_explicit_encryption_key_even_in_dev()
     """env=dev with a real Postgres DSN is legal but must not fall back to the
     publicly-known dev-default Fernet key for stored secrets."""
     with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
-        RuntimeSettings(control_db_url="postgresql+asyncpg://user:pass@database/control")
+        RuntimeSettings(
+            control_db_url="postgresql+asyncpg://user:pass@database/control",
+            secrets_encryption_key=None,
+        )
 
     settings = RuntimeSettings(
         control_db_url="postgresql+asyncpg://user:pass@database/control",
@@ -201,6 +204,7 @@ def test_prod_requires_an_explicit_encryption_key() -> None:
         RuntimeSettings(
             env="prod",
             control_db_url="postgresql+asyncpg://user:pass@database/control",
+            secrets_encryption_key=None,
         )
 
 

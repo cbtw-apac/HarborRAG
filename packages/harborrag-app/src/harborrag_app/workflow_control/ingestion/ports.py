@@ -10,6 +10,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     IngestionTask,
+    IngestionTaskState,
     TaskDocumentPage,
     TaskPage,
     TaskRegistration,
@@ -78,6 +79,14 @@ class PublicTaskStore(Protocol):
         self,
         task_id: str,
         values: Mapping[str, object],
+    ) -> None: ...
+
+    async def transition(
+        self,
+        task_id: str,
+        status: IngestionTaskState,
+        *,
+        summary: Mapping[str, object] | None = None,
     ) -> None: ...
 
     async def progress(self, task_id: str) -> dict[str, int]: ...

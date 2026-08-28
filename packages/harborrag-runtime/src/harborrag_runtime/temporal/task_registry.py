@@ -148,6 +148,15 @@ class IngestionTaskRegistry:
     ) -> None:
         await self._control.tasks.update_summary(task_id, values)
 
+    async def transition(
+        self,
+        task_id: str,
+        status: IngestionTaskState,
+        *,
+        summary: Mapping[str, object] | None = None,
+    ) -> None:
+        await self._control.tasks.transition(task_id, status, summary=summary)
+
     async def progress(self, task_id: str) -> dict[str, int]:
         return await self._control.tasks.progress(task_id)
 
