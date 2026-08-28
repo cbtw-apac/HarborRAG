@@ -38,6 +38,27 @@ def test_attachment_custom_parsers_routes_images_to_rapidocr() -> None:
     assert image_parser(b"image bytes", "png") == "first line\nsecond line"
 
 
+def test_smoke_rapidocr_converts_cmyk_to_rgb_before_ocr() -> None:
+    import io
+
+    from PIL import Image
+
+    scope = _bootstrap()
+    seen: dict[str, str] = {}
+
+    buffer = io.BytesIO()
+    Image.new("CMYK", (10, 10), color=(0, 0, 0, 0)).save(buffer, format="JPEG")
+
+    def _engine(content: bytes):
+        seen["mode"] = Image.open(io.BytesIO(content)).mode
+        return SimpleNamespace(txts=("cmyk text",))
+
+    scope["_rapidocr_engine"] = lambda: _engine
+
+    assert scope["_parse_image_with_rapidocr"](buffer.getvalue(), "jpg") == "cmyk text"
+    assert seen["mode"] == "RGB"
+
+
 def test_rapid_ocr_image_parser_returns_a_parsed_document() -> None:
     scope = _bootstrap()
 
