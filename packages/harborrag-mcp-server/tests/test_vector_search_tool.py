@@ -10,6 +10,41 @@ from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 from harborrag_runtime.sdk import RetrievalLane
 
 
+def _result(id_: str, text: str, score: float) -> RetrievalResult:
+    """A ``RetrievalResult`` with the exact metadata shape the real service produces."""
+    return RetrievalResult(
+        id=id_,
+        text=text,
+        score=score,
+        metadata={
+            "document_id": "document-1",
+            "document_version_id": "version-1",
+            "record_kind": "evidence",
+            "chunk_kind": "text",
+            "connector_type": "local",
+            "citation_locator": {},
+            "quality_score": None,
+            "retrieval_source": "qdrant-authoritative",
+        },
+    )
+
+
+def _diagnostics(candidate_hits: int) -> dict[str, object]:
+    """A full ``RetrievalDiagnostics``-shaped dict, matching what the real service emits."""
+    return {
+        "candidate_hits": candidate_hits,
+        "stale_candidates": 0,
+        "unpublished_candidates": 0,
+        "malformed_candidates": 0,
+        "search_window": candidate_hits,
+        "graph_nodes": 0,
+        "graph_relations": 0,
+        "graph_truncated": False,
+        "duration_ms": 0.0,
+        "graph_documents": [],
+    }
+
+
 class StaticRetrievalFacade:
     def __init__(self, results: list[RetrievalResult]) -> None:
         self.results = results
@@ -22,7 +57,7 @@ class StaticRetrievalFacade:
             request_id="retrieval-1",
             lane=request.lane,
             results=tuple(ordered[: request.top_k]),
-            diagnostics={"candidate_hits": len(ordered)},
+            diagnostics=_diagnostics(len(ordered)),
         )
 
 
@@ -33,7 +68,7 @@ def runtime(results: list[RetrievalResult]):
 
 @pytest.mark.asyncio
 async def test_vector_search_defaults_to_hybrid_without_graph_observation() -> None:
-    harbor, retrieval = runtime([RetrievalResult("vec-1", "one", 0.95)])
+    harbor, retrieval = runtime([_result("vec-1", "one", 0.95)])
 
     result = await VectorSearchTool(runtime=harbor).call(
         {"query": "HarborRAG vector", "tenant_id": "demo", "top_k": 1},
@@ -51,9 +86,7 @@ async def test_vector_search_defaults_to_hybrid_without_graph_observation() -> N
 
 @pytest.mark.asyncio
 async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
-    harbor, retrieval = runtime(
-        [RetrievalResult("high", "alpha", 0.9), RetrievalResult("low", "beta", 0.2)]
-    )
+    harbor, retrieval = runtime([_result("high", "alpha", 0.9), _result("low", "beta", 0.2)])
 
     result = await VectorSearchTool(runtime=harbor).call(
         {
@@ -129,11 +162,30 @@ async def test_backend_failure_returns_generic_error_but_logs_the_cause(caplog) 
 
 
 @pytest.mark.asyncio
+async def test_vector_search_success_and_failure_outputs_match_output_schema() -> None:
+    from jsonschema.validators import validator_for
+
+    validator_type = validator_for(VectorSearchTool.spec.output_schema)
+    validator_type.check_schema(VectorSearchTool.spec.output_schema)
+    validator = validator_type(VectorSearchTool.spec.output_schema)
+
+    harbor, _ = runtime([_result("vec-1", "one", 0.95)])
+    success = await VectorSearchTool(runtime=harbor).call(
+        {"query": "HarborRAG vector", "tenant_id": "demo"},
+        principal_id="subject-1",
+    )
+    validator.validate(success)
+
+    failure = await VectorSearchTool().call({}, principal_id="subject-1")
+    validator.validate(failure)
+
+
+@pytest.mark.asyncio
 async def test_server_enforces_vector_result_budget() -> None:
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.policy import McpToolPolicy
 
-    harbor, _ = runtime([RetrievalResult("vec-1", "one", 0.95)])
+    harbor, _ = runtime([_result("vec-1", "one", 0.95)])
     server = McpServer(
         tools=[VectorSearchTool(runtime=harbor)],
         policy=McpToolPolicy(max_results=0),

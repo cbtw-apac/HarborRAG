@@ -11,6 +11,7 @@ from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_runtime.contracts import RetrievalLane, RetrievalRequest
 
 from .base import BaseMcpTool, McpToolSpec
+from .output_schemas import RETRIEVAL_DIAGNOSTICS_SCHEMA, RETRIEVAL_RESULT_SCHEMA
 from .retrieval_inputs import (
     TENANT_PROPERTY,
     access,
@@ -18,6 +19,7 @@ from .retrieval_inputs import (
     integer,
     mapping,
     number,
+    success_or_failure_schema,
     text,
 )
 
@@ -75,6 +77,20 @@ class VectorSearchTool(BaseMcpTool):
             },
             "additionalProperties": False,
         },
+        output_schema=success_or_failure_schema(
+            {
+                "type": "object",
+                "required": ["ok", "request_id", "lane", "results", "diagnostics"],
+                "properties": {
+                    "ok": {"const": True},
+                    "request_id": {"type": "string", "minLength": 1},
+                    "lane": {"type": "string", "enum": [lane.value for lane in RetrievalLane]},
+                    "results": {"type": "array", "items": RETRIEVAL_RESULT_SCHEMA},
+                    "diagnostics": RETRIEVAL_DIAGNOSTICS_SCHEMA,
+                },
+                "additionalProperties": False,
+            }
+        ),
     )
 
     async def call(

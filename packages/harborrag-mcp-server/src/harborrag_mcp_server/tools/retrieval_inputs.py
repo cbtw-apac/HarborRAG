@@ -100,3 +100,24 @@ TENANT_PROPERTY: dict[str, object] = {
     "minLength": 1,
     "description": "Required tenant scope for retrieval.",
 }
+
+FAILURE_RESULT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["ok", "error"],
+    "properties": {
+        "ok": {"const": False},
+        "error": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+
+def success_or_failure_schema(success_schema: dict[str, object]) -> dict[str, object]:
+    """Wrap a tool's success-shape schema with the shared ``{"ok": False, "error"}`` shape.
+
+    Every retrieval tool's ``call()`` returns one of exactly two shapes: the declared
+    success payload, or the uniform failure payload used across the package. Modeling
+    both branches keeps the advertised output schema honest about what a caller can
+    actually receive, instead of only describing the happy path.
+    """
+    return {"type": "object", "oneOf": [success_schema, FAILURE_RESULT_SCHEMA]}

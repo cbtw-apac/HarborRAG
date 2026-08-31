@@ -18,6 +18,18 @@ if TYPE_CHECKING:
     from harborrag_runtime.sdk import HarborRAG
 
 
+_SERVER_INSTRUCTIONS = (
+    "Call describe_graph when graph selectors, relations, directions, or topology are "
+    "unclear. For natural-language discovery, call vector_search first and use its "
+    "returned chunk_id as a graph selector. Use graph_subgraph_search for nearby "
+    "context, graph_path_search when both endpoints are known, and "
+    "graph_triplet_search for exact graph filters. Graph tools do not provide "
+    "free-text or partial-title search. Tenant data tools require tenant_id. "
+    "observe_graph=true on vector_search adds shallow provenance diagnostics; it "
+    "does not retrieve additional evidence content."
+)
+
+
 def list_tools() -> list[dict[str, object]]:
     return [
         {"name": s.name, "description": s.description, "input_schema": s.input_schema}
@@ -51,6 +63,7 @@ def create_mcp_server(
     try:
         from fastmcp import FastMCP
         from fastmcp.tools import FunctionTool
+        from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError(
             "FastMCP transport is not installed; install harborrag-mcp-server[mcp]"
@@ -66,7 +79,12 @@ def create_mcp_server(
         if runtime is None:
             raise ValueError("runtime lifecycle management requires a runtime")
         lifespan = _runtime_lifespan(runtime, facade)
-    transport = FastMCP("HarborRAG", auth=auth, lifespan=lifespan)
+    transport = FastMCP(
+        "HarborRAG",
+        auth=auth,
+        lifespan=lifespan,
+        instructions=_SERVER_INSTRUCTIONS,
+    )
 
     for spec in facade.list_tools():
         transport.add_tool(
@@ -74,6 +92,10 @@ def create_mcp_server(
                 name=spec.name,
                 description=spec.description,
                 parameters=spec.input_schema,
+                output_schema=spec.output_schema,
+                annotations=(
+                    ToolAnnotations(**spec.annotations) if spec.annotations is not None else None
+                ),
                 fn=_tool_handler(facade, spec.name),
                 return_type=dict,
                 run_in_thread=False,
