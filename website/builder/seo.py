@@ -1,5 +1,7 @@
 """SeoBuildMixin implementation for the website builder."""
 
+from .constants import resolve_public_origin
+
 
 class SeoBuildMixin:
     """Focused website-build operations composed by ``WebsiteBuilder``."""
@@ -9,9 +11,7 @@ class SeoBuildMixin:
         from datetime import datetime
 
         # Determine base site URL
-        site_base = (
-            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
-        )
+        site_base = resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
 
         # Get current date for lastmod
         current_date = datetime.now().strftime("%Y-%m-%d")
@@ -52,9 +52,7 @@ Sitemap: {self.base_url.rstrip("/") if self.base_url else "https://example.com"}
 
     def generate_robots_file(self) -> None:
         """Generate only robots.txt referencing the sitemap URL."""
-        site_base = (
-            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
-        )
+        site_base = resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
         robots_content = f"""User-agent: *
 Allow: /
 
@@ -69,9 +67,7 @@ Sitemap: {site_base}/sitemap.xml
         """Generate dynamic sitemap with custom pages."""
         from datetime import datetime
 
-        base_url = (
-            self.base_url.rstrip("/") if self.base_url else "https://cbtw-apac.github.io/HarborRAG"
-        )
+        base_url = resolve_public_origin(self.base_url, getattr(self, "public_origin", None))
 
         # Auto-discover pages if not provided
         if pages is None:

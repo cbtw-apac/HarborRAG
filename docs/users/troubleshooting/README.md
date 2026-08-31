@@ -30,7 +30,7 @@ Example files are not loaded automatically. HarborRAG reads the process environm
   dependency provider is optional.
 - Temporal starts but no HarborRAG worker appears: run
   `scripts/deployment/dev.sh worker`.
-- `harborrag` is not found: use `uv run --package harborrag-app harborrag` from the
+- `harborrag` is not found: use `uv run harborrag` from the
   workspace or reinstall `harborrag-app` so its console script is registered.
 - An ingestion command cannot connect: set `HARBORRAG_TEMPORAL_TARGET` to a
   reachable Temporal frontend (normally `localhost:7233` from the host).

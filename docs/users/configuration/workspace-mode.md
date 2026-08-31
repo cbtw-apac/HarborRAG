@@ -130,7 +130,7 @@ runtime:
 ```python
 from harborrag_runtime.sdk import HarborRAG
 
-harbor = HarborRAG.from_config("harborrag.yaml")
+harbor = HarborRAG.from_config("config/harborrag.example.yaml")
 ```
 
 This is explicit file loading, not workspace discovery. HarborRAG does not walk

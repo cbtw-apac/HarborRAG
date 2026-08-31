@@ -3,7 +3,7 @@
 HarborRAG is a provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It uses ports and adapters so source systems, document formats, model providers, persistence backends, and operator surfaces can change independently.
 
 The first public alpha release is **HarborRAG 2.0.0 Alpha 1** (Python package
-version `2.0.0a1`), scheduled for August 27, 2026. It continues the project
+version `2.0.0a1`), dated August 27, 2026. It continues the project
 lineage of Qdrant Loader as a breaking rename and a provider-neutral
 architectural expansion; legacy import paths and package names do not carry
 over.
@@ -21,8 +21,8 @@ HarborRAG is under active alpha development. The distinction between implemented
 | Repository adapters | Implemented backends for Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and memory |
 | Engine and runtime | Postgres-authoritative ingestion, durable Temporal workflows, immutable artifacts, hybrid vector projection, graph projection, retrieval, chat orchestration, stored prompts, and production dependency composition are implemented |
 | CLI | `doctor`, one-shot chat, Temporal-backed ingestion control, and authoritative retrieval commands |
-| HTTP API | FastAPI factory with liveness, Prometheus metrics, authenticated ingestion control, authoritative retrieval, and chat completions |
-| MCP | Audited, policy-bounded FastMCP transport exposing six tenant-scoped retrieval tools over stdio or bearer-authenticated loopback HTTP with a local status/configuration UI |
+| HTTP API | FastAPI factory serving a public `/v1` contract (ingestion, retrieval, chat, agent, admin) plus an operational `/api/v1` surface (liveness, readiness, Prometheus metrics, console routes) |
+| MCP | Audited, policy-bounded FastMCP transport exposing four tenant-scoped retrieval tools (`vector_search`, `graph_triplet_search`, `graph_path_search`, `graph_subgraph_search`) over stdio or bearer-authenticated loopback HTTP with a local status/configuration UI |
 | Temporal deployment | PostgreSQL-backed local development stack; production deployment remains application/operator work |
 
 ## Why the package boundaries exist

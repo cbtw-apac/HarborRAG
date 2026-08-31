@@ -8,9 +8,10 @@ load the `chat` family from `config/models.yaml` and call
 
 | Surface | Entry point | Best for |
 | --- | --- | --- |
-| HTTP API | `POST /v1/chat/sessions`, then `GET /v1/chat/completions` | Applications and authenticated services |
-| HTTP API (streaming) | `GET /v1/chat/completions?stream=true` | Incremental rendering as the model responds |
-| HTTP API | `POST /v1/agent/sessions`, then `GET /v1/agent/completions` | Bounded multi-hop reasoning over retrieval tools |
+| HTTP API | `POST /v1/chat/sessions`, then `POST /v1/chat/completions` | Applications and authenticated services |
+| HTTP API (streaming) | `POST /v1/chat/completions` with `"stream": true` | Incremental rendering as the model responds |
+| HTTP API | `POST /v1/agent/sessions`, then `POST /v1/agent/completions` | Bounded multi-hop reasoning over retrieval tools |
+| HTTP API | `POST /v1/agent/runs/{run_id}/resume` | Continue a paused agent run |
 | CLI | `harborrag chat MESSAGE` | One-shot operator requests and scripts |
 
 Chat and agent are not exposed as MCP tools; the retrieval tools (`vector_search`,
@@ -67,7 +68,7 @@ for every HTTP and CLI call:
 
 **Current limitation:** the retrieval engine only surfaces `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH`'s
 graph traversal as diagnostics/telemetry (`RetrievalDiagnostics.graph_nodes` /
-`graph_relations`) — it does not yet add graph-discovered content to the
+`graph_relations`) - it does not yet add graph-discovered content to the
 chunks used to ground the answer. Enabling the flag runs the extra graph
 query (added latency, no functional effect on the answer's context yet).
 Making graph search actually expand the retrieved context is a retrieval-engine
@@ -113,10 +114,14 @@ The `201` response contains `{"session_id":"session-...","greeting":"..."}`.
 Use that ID for a completion:
 
 ```bash
-curl --fail-with-body --get \
-  --data-urlencode 'tenant=DEFAULT' \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=Explain HarborRAG in one paragraph.' \
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "tenant": "DEFAULT",
+    "session_id": "session-...",
+    "prompt": "Explain HarborRAG in one paragraph."
+  }' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
@@ -124,10 +129,12 @@ The route requires the `reader` role when API authentication is enabled. Add
 `Authorization: Bearer <token>` in that mode. The local development template
 uses `HARBORRAG_AUTH_MODE=none` and therefore needs no header.
 
-The GET query requires `session_id` and `prompt`; `tenant` defaults to
-`DEFAULT`, while `stream` and `graph_search` default to `false`. The HTTP
-service always uses its server-owned default system prompt. Unknown sessions,
-or sessions owned by another tenant or authenticated principal, return `404`.
+The JSON body requires `session_id` and `prompt`. `tenant` defaults to `DEFAULT` and
+`stream` defaults to `false`. `graph_search` defaults to `null`, **not** `false`: when it
+is omitted the server falls back to `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH`, so pass an
+explicit `true`/`false` if you need to override the deployment setting. The HTTP service
+always uses its server-owned default system prompt. Unknown sessions, or sessions owned by
+another tenant or authenticated principal, return `404`.
 
 A successful response has this stable shape:
 
@@ -159,14 +166,18 @@ retrieval finds nothing relevant.
 
 ### Streaming
 
-Set `stream=true` on `GET /v1/chat/completions` to receive Server-Sent Events
-instead of one JSON object:
+Set `"stream": true` in the `POST /v1/chat/completions` body to receive Server-Sent
+Events instead of one JSON object:
 
 ```bash
-curl --no-buffer --get \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=Explain HarborRAG in one paragraph.' \
-  --data-urlencode 'stream=true' \
+curl --no-buffer \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "session_id": "session-...",
+    "prompt": "Explain HarborRAG in one paragraph.",
+    "stream": true
+  }' \
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
@@ -176,8 +187,8 @@ mirroring the underlying provider stream), and ends either after `completed`
 or with a terminal `error` event. Each frame is `event: <name>\ndata: <json>\n\n`.
 
 The response status is always `200 text/event-stream`: once the stream
-starts, HTTP status can no longer change, so failures — including a
-prepare-time failure such as an unreachable retrieval or chat backend —
+starts, HTTP status can no longer change, so failures - including a
+prepare-time failure such as an unreachable retrieval or chat backend -
 surface as the in-band `error` event rather than a `503`.
 
 ### Conversation memory
@@ -202,8 +213,12 @@ harborrag chat \
   --json
 ```
 
-From a source checkout, prefix the command with
-`uv run --package harborrag-app`.
+From a source checkout, prefix the command with `uv run` — after
+`uv sync --all-packages` the `harborrag` script is in the workspace environment:
+
+```bash
+uv run harborrag chat "Explain HarborRAG in one paragraph." --json
+```
 
 Use `--json` for the stable machine-readable command envelope, which includes
 the generated `session_id` and same `citations` field as the HTTP response.
@@ -219,16 +234,20 @@ curl --fail-with-body \
   --data '{"tenant":"DEFAULT"}' \
   http://127.0.0.1:8000/v1/agent/sessions
 
-curl --fail-with-body --get \
-  --data-urlencode 'tenant=DEFAULT' \
-  --data-urlencode 'session_id=session-...' \
-  --data-urlencode 'prompt=Connect the release policy to its owning service.' \
-  --data-urlencode 'graph_search=true' \
-  --data-urlencode 'max_steps=4' \
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "tenant": "DEFAULT",
+    "session_id": "session-...",
+    "prompt": "Connect the release policy to its owning service.",
+    "graph_search": true,
+    "max_steps": 4
+  }' \
   http://127.0.0.1:8000/v1/agent/completions
 ```
 
-`session_id` and `prompt` are required; `tenant` defaults to `DEFAULT`,
+`session_id` and `prompt` are required in the JSON body; `tenant` defaults to `DEFAULT`,
 `graph_search` defaults to `false`, and `max_steps` defaults to `4` (1–8). The
 agent calls enabled read-only retrieval tools repeatedly, including parallel
 calls in a single step. When `graph_search` is false, graph tools are removed
@@ -241,11 +260,13 @@ A successful response has this stable shape:
 ```json
 {
   "id": "completion-id",
+  "run_id": "run-...",
   "model": "primary",
   "provider": "openai",
   "provider_model": "openai/model-name",
   "message": {"role": "assistant", "content": "..."},
   "finish_reason": "stop",
+  "stop_reason": "completed",
   "usage": {"prompt_tokens": 42, "completion_tokens": 18, "total_tokens": 60},
   "turns": 2,
   "tool_call_count": 1,
@@ -253,6 +274,27 @@ A successful response has this stable shape:
   "session_id": "session-..."
 }
 ```
+
+### Resuming a run
+
+Each agent completion returns a `run_id`. Continue a run that stopped before finishing with:
+
+```bash
+curl --fail-with-body \
+  --request POST \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "tenant": "DEFAULT",
+    "session_id": "session-...",
+    "graph_search": true,
+    "max_steps": 4
+  }' \
+  http://127.0.0.1:8000/v1/agent/runs/run-.../resume
+```
+
+`session_id` is required; `graph_search` and `max_steps` carry the same defaults as a fresh
+completion. There is no `prompt` - the run already has its own. The response is the same
+`AgentCompletionResponse` shape shown above.
 
 ## Data and error behavior
 

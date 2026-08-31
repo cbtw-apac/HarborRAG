@@ -4,6 +4,17 @@ The public ingestion API supports two admission modes: `incremental` and
 `force`. The mode controls how discovered source records are evaluated. It does
 not replace the connector configuration in `config/connectors.yaml`.
 
+Every mode below is reachable from three surfaces, and they set the same underlying knob:
+
+| Surface | How to force re-evaluation |
+| --- | --- |
+| HTTP | `"mode": "force"` in the `POST /v1/ingestions` body |
+| CLI | `harborrag ingest start --force-reprocess` |
+| Python SDK | `IngestionRequest(force_reprocess=True)` |
+
+Do not confuse this with `execution_mode`, which is set to `direct` or `temporal` and
+chooses *how* a run executes rather than *what* it admits.
+
 | Mode | Behavior | Recommended use |
 | --- | --- | --- |
 | `incremental` | Discovers the configured source scope and skips records whose source, processing profile, canonical content, and retrieval metadata are unchanged. | Normal scheduled and manual ingestion. This is the default. |

@@ -23,7 +23,7 @@ one provider must not require editing unrelated adapter families.
 
 ## File ownership and test doubles
 
-- `connectors/base.py` and `parsers/base.py` define contracts. Production
+- `connectors/base.py` and `parsers/common/base.py` define contracts. Production
   implementations belong in provider or format modules under those packages.
 - Connector-specific canonical transformation lives in the provider's
   `document_transform.py`; supporting representation logic may be split into a
@@ -87,10 +87,12 @@ pip install -e "packages/harborrag-adapters[pdf-docling]"
 ```
 
 SQLite database, state, filesystem, and memory repositories are included in the
-base install. Install only the extras needed by deployed services:
+base install. Install only the extras needed by deployed services - `control-plane`
+adds the Alembic-managed control plane and `tables` adds the pyarrow-backed canonical
+table artifacts:
 
 ```bash
-pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
+pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3,control-plane,tables]"
 ```
 
 ## Main Modules
@@ -99,37 +101,61 @@ pip install -e "packages/harborrag-adapters[redis,qdrant,falkordb,postgres,s3]"
 | --- | --- |
 | `harborrag_adapters.connectors` | Source connectors that discover/load source records and own provider-specific canonical normalization. |
 | `harborrag_adapters.parsers` | Parser factory and format parsers that produce `ParsedDocument`s. |
+| `harborrag_adapters.models` | Chat, embedding, and reranking clients behind provider-neutral contracts. |
 | `harborrag_adapters.repositories` | Tenant-isolated vector, graph, cache, object, database, and workflow-state repositories. |
+| `harborrag_adapters.chunking` | Chunking strategies used by the ingestion engine. |
 
 See the module READMEs for deeper notes:
 
 - `src/harborrag_adapters/connectors/README.md`
+- `src/harborrag_adapters/connectors/confluence/normalization/README.md`
 - `src/harborrag_adapters/parsers/README.md`
+- `src/harborrag_adapters/parsers/pdf/README.md`
+- `src/harborrag_adapters/models/README.md`
 
 ## Quick Start
 
 Load local files and parse them through the default parser registry:
 
+Run this from the repository root - `source_uri` is resolved relative to the process
+working directory.
+
 ```python
+import asyncio
+from pathlib import Path
+
 from harborrag_adapters.connectors import (
     ConnectorQuery,
     LocalFileConfig,
     LocalFileConnector,
 )
-from harborrag_adapters.parsers import HarborParser
+from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
 
-connector = LocalFileConnector(
-    LocalFileConfig(
-        source_path="docs",
-        allowed_extensions={".md", ".txt", ".pdf"},
+
+async def main() -> None:
+    connector = LocalFileConnector(
+        LocalFileConfig(source_path="docs", allowed_extensions={".md", ".txt"})
     )
-)
-parser = HarborParser()
+    registry = HarborParserFactory().create_registry()
 
-for raw_document in connector.load_raw_documents(ConnectorQuery(recursive=True)):
-    parsed = parser.parse(raw_document)
-    print(raw_document.source, parsed.parser_name, len(parsed.content))
+    for record in connector.discover(ConnectorQuery(recursive=True)):
+        result = await registry.parse_request(
+            ParseRequest(
+                source_uri=f"docs/{record.locator}",
+                filename=Path(record.locator).name,
+                mime_type=record.source_type,
+            )
+        )
+        print(record.locator, result.parser_name, result.engine_name, len(result.text))
+
+
+asyncio.run(main())
 ```
+
+Discovery is synchronous and yields `SourceRecord` objects (`id`, `source_type`,
+`locator`, `metadata`, `updated_at`, `checksum`). Parsing is asynchronous: the registry
+selects a parser *family* and the family routes to a concrete engine, so `parse_request`
+returns both names alongside the extracted text.
 
 Create a connector through the provider registry:
 
@@ -173,25 +199,28 @@ path handling, and structured logging.
 
 ## Parsers
 
-`HarborParser` is the parser factory and registry. It routes by filename suffix
-and MIME content type. Generic transport MIME types defer to a specific suffix;
+`HarborParserFactory().create_registry()` builds the registry. It routes by filename
+suffix and MIME content type. Generic transport MIME types defer to a specific suffix;
 other conflicting routes raise instead of choosing a parser silently.
 
-Default parser support includes:
+Routing happens in two levels. The registry picks a **family**; the family then owns
+engine selection, quality checks, fallback, and output normalization. The eight
+registered families and their extensions:
 
-| Parser | Formats |
+| Family | Extensions |
 | --- | --- |
-| `PptxParser` | `.pptx`, `.pptm` |
-| `DocxParser` | `.docx` |
-| `ExcelParser` | `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
-| `PdfParser` | `.pdf` with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR backends |
-| `CsvParser` | `.csv`, `.tsv` |
-| `ImageParser` | OCR for common raster image formats |
-| `HtmlParser` | `.html`, `.htm`, `.xhtml` |
-| `EpubParser` | `.epub` |
-| `JsonParser` | `.json`, `.jsonl`, `.ndjson` |
-| `MarkdownParser` | `.md`, `.markdown`, `.mdx` |
-| `TextParser` | Plain text and common source/config file extensions |
+| `text` | plain text plus common source and config suffixes - `.txt`, `.py`, `.ts`, `.yaml`, `.toml`, `.sql`, `.rst`, and ~30 more |
+| `markup` | `.md`, `.markdown`, `.mdx`, `.html`, `.htm`, `.xhtml` |
+| `structured` | `.json`, `.jsonl`, `.ndjson` |
+| `spreadsheet` | `.csv`, `.tsv`, `.xls`, `.xlsx`, `.xlsm`, `.xltx`, `.xltm` |
+| `document` | `.docx`, `.odt`, `.epub` |
+| `presentation` | `.pptx`, `.pptm` |
+| `image` | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tif`, `.tiff`, `.webp` - via OCR |
+| `pdf` | `.pdf`, with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR engines |
+
+List them at runtime with `registry.families()`. The `PptxParser`/`DocxParser`/
+`PdfParser`-style names are migration aliases in `parsers/compat.py`, kept out of the
+package `__all__`; write new code against the registry and family names above.
 
 ## Repositories
 
