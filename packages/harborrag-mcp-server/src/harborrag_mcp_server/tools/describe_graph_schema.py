@@ -11,6 +11,7 @@ from .graph_catalog import (
     CONNECTOR_TOPOLOGIES,
     DIRECTION_VALUES,
     ENTITY_TYPE_MEANINGS,
+    EXECUTABLE_TOOL_NAMES,
     NODE_KIND_MEANINGS,
     RELATION_MEANINGS,
     VECTOR_SEARCH_LANE_VALUES,
@@ -164,17 +165,41 @@ _GRAPH_SUBGRAPH_DEFAULTS_SCHEMA: dict[str, object] = {
 }
 _DEFAULTS_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": [
-        "vector_search",
-        "graph_triplet_search",
-        "graph_path_search",
-        "graph_subgraph_search",
-    ],
+    # No top-level `required` here: a `for_tool`-narrowed response includes only
+    # that one tool's defaults, not all four -- see OUTPUT_SCHEMA's own `required`
+    # for what every response (narrowed or not) is guaranteed to carry.
     "properties": {
         "vector_search": _VECTOR_SEARCH_DEFAULTS_SCHEMA,
         "graph_triplet_search": _GRAPH_TRIPLET_DEFAULTS_SCHEMA,
         "graph_path_search": _GRAPH_PATH_DEFAULTS_SCHEMA,
         "graph_subgraph_search": _GRAPH_SUBGRAPH_DEFAULTS_SCHEMA,
+    },
+    "additionalProperties": False,
+}
+
+_ARGUMENT_CONSTRAINT_ENTRY_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["required", "at_least_one_of"],
+    "properties": {
+        "required": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "at_least_one_of": {
+            "type": "array",
+            "items": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 1,
+            },
+        },
+    },
+    "additionalProperties": False,
+}
+_ARGUMENT_CONSTRAINTS_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "vector_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
+        "graph_triplet_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
+        "graph_path_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
+        "graph_subgraph_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
     },
     "additionalProperties": False,
 }
@@ -191,25 +216,18 @@ _LIMITS_SCHEMA: dict[str, object] = {
 
 OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": [
-        "ok",
-        "graph_schema_version",
-        "capabilities",
-        "selector_rules",
-        "node_kinds",
-        "entity_types",
-        "relation_types",
-        "direction_semantics",
-        "topologies",
-        "workflows",
-        "defaults",
-        "limits",
-    ],
+    # Only the sections every response -- narrowed by `for_tool` or not -- always
+    # carries are required. The orientation sections (node_kinds, entity_types,
+    # relation_types, direction_semantics, topologies, workflows) and defaults are
+    # present when relevant; see graph_catalog.describe_graph_payload for exactly
+    # which sections a `for_tool`-narrowed response keeps.
+    "required": ["ok", "graph_schema_version", "capabilities", "selector_rules", "limits"],
     "properties": {
         "ok": {"const": True},
         "graph_schema_version": {"type": "string", "minLength": 1},
         "capabilities": _CAPABILITIES_SCHEMA,
         "selector_rules": _SELECTOR_RULES_SCHEMA,
+        "requested_for_tool": {"type": "string", "enum": list(EXECUTABLE_TOOL_NAMES)},
         "node_kinds": {
             "type": "array",
             "items": _named_entry_schema([kind.value for kind in NODE_KIND_MEANINGS]),
@@ -226,6 +244,7 @@ OUTPUT_SCHEMA: dict[str, object] = {
         "topologies": {"type": "array", "items": _TOPOLOGY_ENTRY_SCHEMA},
         "workflows": {"type": "array", "items": _WORKFLOW_ENTRY_SCHEMA},
         "defaults": _DEFAULTS_SCHEMA,
+        "argument_constraints": _ARGUMENT_CONSTRAINTS_SCHEMA,
         "limits": _LIMITS_SCHEMA,
     },
     "additionalProperties": False,

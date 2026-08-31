@@ -40,6 +40,27 @@ def _tool_defaults(spec: McpToolSpec) -> dict[str, Any]:
     }
 
 
+def _argument_constraints(spec: McpToolSpec) -> dict[str, object]:
+    """Read a tool's own ``required``/``anyOf`` clauses rather than restating them.
+
+    ``graph_triplet_search`` accepts no ``required`` property of its own -- callers
+    must satisfy an ``anyOf`` of subject/predicate/object instead -- so a caller
+    reading only ``defaults`` would never learn that at least one of the three is
+    mandatory. Surfacing both clauses here means describe_graph can never drift
+    from what the tool actually enforces.
+    """
+    schema = spec.input_schema
+    at_least_one_of = [
+        list(clause["required"])
+        for clause in schema.get("anyOf", [])
+        if isinstance(clause, dict) and isinstance(clause.get("required"), list)
+    ]
+    return {
+        "required": list(schema.get("required", [])),
+        "at_least_one_of": at_least_one_of,
+    }
+
+
 def _schema_maximum(spec: McpToolSpec, property_name: str) -> int:
     properties = spec.input_schema["properties"]
     value = properties[property_name]["maximum"]
@@ -52,6 +73,27 @@ TOOL_DEFAULTS: dict[str, dict[str, Any]] = {
     "graph_triplet_search": _tool_defaults(GraphTripletSearchTool.spec),
     "graph_path_search": _tool_defaults(GraphPathSearchTool.spec),
     "graph_subgraph_search": _tool_defaults(GraphSubgraphSearchTool.spec),
+}
+
+TOOL_ARGUMENT_CONSTRAINTS: dict[str, dict[str, object]] = {
+    "vector_search": _argument_constraints(VectorSearchTool.spec),
+    "graph_triplet_search": _argument_constraints(GraphTripletSearchTool.spec),
+    "graph_path_search": _argument_constraints(GraphPathSearchTool.spec),
+    "graph_subgraph_search": _argument_constraints(GraphSubgraphSearchTool.spec),
+}
+
+# The set of executable tools `describe_graph(for_tool=...)` can narrow its response to.
+EXECUTABLE_TOOL_NAMES: tuple[str, ...] = tuple(TOOL_DEFAULTS)
+
+# Which non-core sections matter to a caller about to invoke a given tool. Sections
+# not listed here (node_kinds, topologies, workflows) are orientation-only: relevant
+# to "which tool should I use", not to "how do I call the tool I already picked" --
+# so a filtered response omits them regardless of which tool is named.
+_TOOL_SECTIONS: dict[str, tuple[str, ...]] = {
+    "vector_search": (),
+    "graph_triplet_search": ("entity_types", "relation_types"),
+    "graph_path_search": ("entity_types", "relation_types", "direction_semantics"),
+    "graph_subgraph_search": ("entity_types", "relation_types", "direction_semantics"),
 }
 
 # Both graph_path_search and graph_subgraph_search cap max_depth at the same compiled-in
@@ -202,7 +244,7 @@ def missing_projected_relation_docs() -> list[RelationType]:
     return [relation for relation in PROJECTED_RELATION_TYPES if relation not in RELATION_MEANINGS]
 
 
-def describe_graph_payload() -> dict[str, object]:
+def _build_full_payload() -> dict[str, object]:
     return {
         "ok": True,
         "graph_schema_version": GRAPH_SCHEMA_VERSION,
@@ -241,8 +283,35 @@ def describe_graph_payload() -> dict[str, object]:
         "topologies": CONNECTOR_TOPOLOGIES,
         "workflows": RECOMMENDED_WORKFLOWS,
         "defaults": TOOL_DEFAULTS,
+        "argument_constraints": TOOL_ARGUMENT_CONSTRAINTS,
         "limits": {
             "maximum_depth": MAXIMUM_DEPTH,
             "maximum_results": MAXIMUM_RESULTS,
         },
     }
+
+
+_CORE_KEYS = ("ok", "graph_schema_version", "capabilities", "selector_rules", "limits")
+
+
+def describe_graph_payload(for_tool: str | None = None) -> dict[str, object]:
+    """Build the ``describe_graph`` response.
+
+    With no ``for_tool``, returns the full catalog unchanged -- this is the
+    orientation call ("which tool should I use"). With ``for_tool``, narrows the
+    response to that tool's own argument contract (its defaults plus whichever
+    entity/relation/direction sections it actually consumes), dropping the
+    orientation-only sections (``node_kinds``, ``topologies``, ``workflows``) that
+    don't help a caller who has already picked a tool.
+    """
+    full = _build_full_payload()
+    if for_tool is None:
+        return full
+
+    payload: dict[str, object] = {key: full[key] for key in _CORE_KEYS}
+    payload["requested_for_tool"] = for_tool
+    for section in _TOOL_SECTIONS[for_tool]:
+        payload[section] = full[section]
+    payload["defaults"] = {for_tool: TOOL_DEFAULTS[for_tool]}
+    payload["argument_constraints"] = {for_tool: TOOL_ARGUMENT_CONSTRAINTS[for_tool]}
+    return payload

@@ -109,7 +109,8 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
     assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
 
     describe = tools[-1]
-    assert describe.inputSchema == {"type": "object", "additionalProperties": False}
+    assert describe.inputSchema["additionalProperties"] is False
+    assert set(describe.inputSchema["properties"]) == {"for_tool"}
     assert describe.annotations is not None
     assert describe.annotations.readOnlyHint is True
     assert describe.annotations.destructiveHint is False

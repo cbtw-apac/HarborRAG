@@ -18,7 +18,8 @@ from harborrag_mcp_server.tools.graph_catalog import (
 @pytest.mark.asyncio
 async def test_describe_graph_accepts_an_empty_object_and_needs_no_runtime() -> None:
     tool = DescribeGraphTool()
-    assert tool.spec.input_schema == {"type": "object", "additionalProperties": False}
+    assert tool.spec.input_schema["additionalProperties"] is False
+    assert set(tool.spec.input_schema["properties"]) == {"for_tool"}
 
     result = await tool.call({}, principal_id="in-process")
 
@@ -119,6 +120,74 @@ def test_maximum_depth_and_results_are_derived_not_restated() -> None:
     assert MAXIMUM_DEPTH == path_properties["max_depth"]["maximum"]
     assert MAXIMUM_DEPTH == subgraph_properties["max_depth"]["maximum"]
     assert MAXIMUM_RESULTS == McpToolPolicy().max_results
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_for_tool_narrows_the_response_and_still_validates() -> None:
+    tool = DescribeGraphTool()
+    full = await tool.call({}, principal_id="in-process")
+    narrowed = await tool.call({"for_tool": "graph_path_search"}, principal_id="in-process")
+
+    assert narrowed["requested_for_tool"] == "graph_path_search"
+    assert narrowed["defaults"] == {"graph_path_search": full["defaults"]["graph_path_search"]}
+    assert narrowed["argument_constraints"] == {
+        "graph_path_search": full["argument_constraints"]["graph_path_search"]
+    }
+    assert set(narrowed) == {
+        "ok",
+        "graph_schema_version",
+        "capabilities",
+        "selector_rules",
+        "limits",
+        "requested_for_tool",
+        "entity_types",
+        "relation_types",
+        "direction_semantics",
+        "defaults",
+        "argument_constraints",
+    }
+    for orientation_only in ("node_kinds", "topologies", "workflows"):
+        assert orientation_only not in narrowed
+
+    validator_type = validator_for(tool.spec.output_schema)
+    validator_type(tool.spec.output_schema).validate(narrowed)
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_for_tool_vector_search_drops_graph_only_sections() -> None:
+    tool = DescribeGraphTool()
+    narrowed = await tool.call({"for_tool": "vector_search"}, principal_id="in-process")
+
+    assert narrowed["defaults"] == {"vector_search": narrowed["defaults"]["vector_search"]}
+    assert narrowed["argument_constraints"] == {
+        "vector_search": narrowed["argument_constraints"]["vector_search"]
+    }
+    for graph_only in (
+        "entity_types",
+        "relation_types",
+        "direction_semantics",
+        "topologies",
+        "workflows",
+    ):
+        assert graph_only not in narrowed
+
+    validator_type = validator_for(tool.spec.output_schema)
+    validator_type(tool.spec.output_schema).validate(narrowed)
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_for_tool_graph_triplet_search_surfaces_the_anyof_requirement() -> (
+    None
+):
+    tool = DescribeGraphTool()
+    narrowed = await tool.call({"for_tool": "graph_triplet_search"}, principal_id="in-process")
+
+    constraints = narrowed["argument_constraints"]["graph_triplet_search"]
+    assert constraints["required"] == ["tenant_id"]
+    assert constraints["at_least_one_of"] == [["subject"], ["predicate"], ["object"]]
+
+    validator_type = validator_for(tool.spec.output_schema)
+    validator_type(tool.spec.output_schema).validate(narrowed)
 
 
 @pytest.mark.asyncio
