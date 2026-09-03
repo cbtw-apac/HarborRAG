@@ -13,8 +13,15 @@ from harborrag_core.chunking import (
     DocumentKind,
     RecordKind,
 )
+from harborrag_core.domain.document import Document
+from harborrag_core.domain.element import DocumentElement
+from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    ArtifactReference,
+    ChangeFingerprints,
+    DocumentVersionSnapshot,
+    DocumentVersionState,
     KnowledgeGraphTraversal,
     SparseEncoderProfile,
 )
@@ -121,6 +128,61 @@ class FakeChunkReader:
         )
 
 
+class FakeDocumentSnapshots:
+    def __init__(
+        self, snapshots: dict[tuple[str, str], DocumentVersionSnapshot] | None = None
+    ) -> None:
+        self.snapshots = snapshots or {
+            ("tenant-1", "document-1"): DocumentVersionSnapshot(
+                document_id="document-1",
+                document_version_id="version-1",
+                fingerprints=ChangeFingerprints(
+                    admission_change_key="change-1",
+                    canonical_content_hash="hash-1",
+                    retrieval_metadata_hash="hash-2",
+                    processing_fingerprint="hash-3",
+                ),
+                state=DocumentVersionState.ACTIVE,
+                canonical_artifact=ArtifactReference(
+                    bucket="harborrag-artifacts",
+                    key="canonical/document-1/version-1.json",
+                    sha256="0" * 64,
+                    byte_size=10,
+                    media_type="application/json",
+                ),
+            )
+        }
+
+    async def active_snapshot_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        document_id: str,
+    ) -> DocumentVersionSnapshot | None:
+        return self.snapshots.get((tenant_id, document_id))
+
+
+class FakeCanonicalDocuments:
+    def __init__(self, document: Document | None = None) -> None:
+        self.document = document or Document(
+            id="document-1",
+            title="Release guide",
+            content=[
+                DocumentElement(id="el-1", type="heading", content="Release guide"),
+                DocumentElement(
+                    id="el-2", type="paragraph", content="The activity timeout is 30 seconds."
+                ),
+            ],
+            content_type="page",
+            provenance=DocumentProvenance(source="confluence"),
+        )
+        self.requests = []
+
+    async def get(self, reference, *, context):
+        self.requests.append((reference, context))
+        return self.document
+
+
 class FakeGraphRepository:
     def __init__(self) -> None:
         self.queries = []
@@ -153,8 +215,15 @@ class MixedVectorRepository(FakeVectorRepository):
         return [*results, malformed]
 
 
-def resources(
-    *, embed=None, vectors=None, chunks=None, graph=None, active_versions=None
+def resources(  # noqa: PLR0913 - test helper covers every retrieval resource explicitly
+    *,
+    embed=None,
+    vectors=None,
+    chunks=None,
+    graph=None,
+    active_versions=None,
+    document_snapshots=None,
+    canonical_documents=None,
 ) -> RetrievalResources:
     return RetrievalResources(
         embed_client=embed or FakeEmbedClient(),  # type: ignore[arg-type]
@@ -163,6 +232,8 @@ def resources(
         chunk_reader=chunks or FakeChunkReader(),  # type: ignore[arg-type]
         sparse_encoder=BM25SparseEncoder(SparseEncoderProfile(profile_id="bm25-v1")),
         graph_repository=graph,
+        document_snapshots=document_snapshots,
+        canonical_documents=canonical_documents,
     )
 
 

@@ -86,6 +86,30 @@ class DocumentVersionReader:
             row = result.mappings().one_or_none()
             return snapshot_from_row(row) if row is not None else None
 
+    async def active_snapshot_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        document_id: str,
+    ) -> DocumentVersionSnapshot | None:
+        """Resolve the active version snapshot, scoped so one tenant cannot read another's."""
+
+        async with self._client.sessions() as session:
+            result = await session.execute(
+                select(DOCUMENT_VERSIONS)
+                .join(
+                    DOCUMENTS,
+                    DOCUMENTS.c.active_document_version_id
+                    == DOCUMENT_VERSIONS.c.document_version_id,
+                )
+                .where(
+                    DOCUMENTS.c.document_id == document_id,
+                    DOCUMENTS.c.tenant_id == tenant_id,
+                )
+            )
+            row = result.mappings().one_or_none()
+            return snapshot_from_row(row) if row is not None else None
+
     async def resolve_active_sources(
         self,
         *,

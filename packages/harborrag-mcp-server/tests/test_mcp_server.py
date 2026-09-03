@@ -28,6 +28,7 @@ def test_module_check_lists_all_tools(tmp_path, monkeypatch, capsys) -> None:
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "expand_document",
     ]
 
 
@@ -103,6 +104,7 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "expand_document",
     ]
     assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
 
@@ -142,6 +144,7 @@ async def test_mcp_registry_exposes_retrieval_tools():
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "expand_document",
     ]
     assert [tool.name for tool in server.list_tools()] == expected
     assert [item["name"] for item in list_tools()] == expected

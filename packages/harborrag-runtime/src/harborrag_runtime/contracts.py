@@ -107,6 +107,33 @@ class RetrievalResponse:
 
 
 @dataclass(frozen=True, slots=True)
+class ExpandDocumentRequest:
+    access: AccessContext
+    document_id: str
+
+    def __post_init__(self) -> None:
+        if not self.document_id.strip():
+            raise ValueError("expand_document requires a non-empty document_id")
+
+
+@dataclass(frozen=True, slots=True)
+class ExpandDocumentRelation:
+    predicate: str
+    target_id: str
+    target_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExpandDocumentResponse:
+    document_id: str
+    document_version_id: str
+    title: str
+    content_type: str
+    text: str
+    relations: tuple[ExpandDocumentRelation, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class GraphTripletRequest:
     access: AccessContext
     query: GraphTripletQuery

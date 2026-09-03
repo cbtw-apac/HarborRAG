@@ -7,11 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
-from harborrag_core.contracts import (
-    HarborConflictError,
-    HarborNotFoundError,
-    HarborValidationError,
-)
+from harborrag_core.contracts import HarborConflictError, HarborNotFoundError, HarborValidationError
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     ActiveSourceDocument,
@@ -313,6 +309,13 @@ class DocumentVersionRepository:
         document_id: str,
     ) -> DocumentVersionSnapshot | None:
         return await self._reader.active_snapshot(document_id)
+
+    async def active_snapshot_for_tenant(
+        self, *, tenant_id: str, document_id: str
+    ) -> DocumentVersionSnapshot | None:
+        return await self._reader.active_snapshot_for_tenant(
+            tenant_id=tenant_id, document_id=document_id
+        )
 
     async def resolve_active_sources(
         self,

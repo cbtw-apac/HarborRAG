@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 
 from ..contracts import (
+    ExpandDocumentRelation,
+    ExpandDocumentRequest,
+    ExpandDocumentResponse,
     GraphPathRequest,
     GraphPathResponse,
     GraphSubgraphRequest,
@@ -23,6 +26,8 @@ from ..contracts import (
 )
 
 if TYPE_CHECKING:
+    from harborrag_core.domain.document import Document
+
     from .runtime import HarborRAG
 
 
@@ -75,6 +80,30 @@ class RetrievalFacade:
             diagnostics=asdict(report.diagnostics),
         )
 
+    async def expand_document(self, request: ExpandDocumentRequest) -> ExpandDocumentResponse:
+        service = await self._owner._retrieval_service()
+        expansion = await service.expand_document(
+            request.document_id,
+            tenant_id=str(request.access.tenant_id),
+            access=request.access,
+        )
+        document = expansion.document
+        return ExpandDocumentResponse(
+            document_id=document.id,
+            document_version_id=expansion.document_version_id,
+            title=document.title,
+            content_type=document.content_type,
+            text=_document_text(document),
+            relations=tuple(
+                ExpandDocumentRelation(
+                    predicate=relation.predicate,
+                    target_id=relation.target_id,
+                    target_type=relation.target_type,
+                )
+                for relation in document.relations
+            ),
+        )
+
 
 class GraphFacade:
     def __init__(self, owner: HarborRAG) -> None:
@@ -110,6 +139,10 @@ class GraphFacade:
             relations=result.graph.relations,
             diagnostics=asdict(result.diagnostics),
         )
+
+
+def _document_text(document: Document) -> str:
+    return "\n\n".join(element.content for element in document.content if element.content)
 
 
 def _build_vector_filter(filters: dict[str, object]) -> VectorFilter | None:

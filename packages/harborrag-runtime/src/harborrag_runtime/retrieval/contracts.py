@@ -8,9 +8,15 @@ from typing import Protocol
 
 from harborrag_adapters.repositories.object_store import ChunkArtifactReader
 from harborrag_adapters.repositories.vector.base import HarborVectorRepository
+from harborrag_core.domain.document import Document
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorFilter
-from harborrag_core.ingestion import ActiveDocumentVersion, KnowledgeGraphTraversal
+from harborrag_core.ingestion import (
+    ActiveDocumentVersion,
+    ArtifactReference,
+    DocumentVersionSnapshot,
+    KnowledgeGraphTraversal,
+)
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 from harborrag_core.retrieval import (
     GraphPathQuery,
@@ -29,6 +35,28 @@ class ActiveVersionResolver(Protocol):
         self,
         document_ids: Sequence[str],
     ) -> Mapping[str, ActiveDocumentVersion]: ...
+
+
+class DocumentSnapshotResolver(Protocol):
+    """Resolve a tenant's active document-version snapshot, e.g. for expand_document."""
+
+    async def active_snapshot_for_tenant(
+        self,
+        *,
+        tenant_id: str,
+        document_id: str,
+    ) -> DocumentVersionSnapshot | None: ...
+
+
+class CanonicalDocumentReader(Protocol):
+    """Reload the full canonical document behind an artifact reference."""
+
+    async def get(
+        self,
+        reference: ArtifactReference,
+        *,
+        context: StorageOperationContext,
+    ) -> Document: ...
 
 
 class RetrievalTelemetry(Protocol):
@@ -119,6 +147,14 @@ class RuntimeRetrievalReport:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeDocumentExpansion:
+    """The full canonical document behind a matched chunk's document_id."""
+
+    document: Document
+    document_version_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class RetrievalResources:
     embed_client: AsyncHarborEmbedClientProtocol
     vector_repository: HarborVectorRepository
@@ -126,6 +162,8 @@ class RetrievalResources:
     chunk_reader: ChunkArtifactReader
     sparse_encoder: BM25SparseEncoder
     graph_repository: KnowledgeGraphReader | None = None
+    document_snapshots: DocumentSnapshotResolver | None = None
+    canonical_documents: CanonicalDocumentReader | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,14 +7,15 @@ policy-bounded FastMCP transport.
 **Want to get it running first?** Jump to
 [Setup and Integration](setup-and-integration.md). This page describes what the tools do.
 
-## The four tools
+## The five tools
 
-The catalog contains exactly four tools. All of them are read-only, and every one requires
+The catalog contains exactly five tools. All of them are read-only, and every one requires
 an explicit `tenant_id`.
 
 | Tool | Required arguments | Optional arguments | Returns |
 | --- | --- | --- | --- |
 | `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `filters`, `observe_graph`, `score_threshold` (0.0–1.0) | Vector results and retrieval diagnostics |
+| `expand_document` | `document_id`, `tenant_id` | none | The full canonical source document - title, content type, full text, and structural relations (e.g. attachments) - for the document a matched chunk belongs to |
 | `graph_triplet_search` | `tenant_id`, plus at least one of `subject`, `predicate`, `object` | `limit` (1–20, default 10) | Active canonical subject–predicate–object records |
 | `graph_path_search` | `tenant_id`, `start_node`, `end_node` | `relationship_types`, `max_depth` (1–8, default 4), `max_paths` (1–20, default 10), `direction` (`incoming`/`outgoing`/`both`, default `both`) | Active bounded paths between the two nodes |
 | `graph_subgraph_search` | `tenant_id`, `start_node` | `relationship_types`, `max_depth` (1–8, default 2), `max_nodes` (1–20, default 20), `direction` (default `both`) | Active bounded neighborhood of nodes and relations |
@@ -45,6 +46,38 @@ and `Chunk` node keys are the same value. So the usual sequence is *search, then
 `graph_triplet_search` is the one exception - it is satisfiable by `predicate` alone, which
 is a relation-type enum rather than a node selector, so you can enumerate relationships of
 a given type without holding a node.
+
+## Then `expand_document`, for the full source
+
+`expand_document` follows the same *search, then expand* pattern, but expands into the
+**source document** rather than the **graph**. Its selector is a `document_id`, not a
+`chunk_id` - and a `vector_search` result carries both: `metadata.document_id` names the
+document the matched chunk came from.
+
+```python
+result = await server.call_tool(
+    "vector_search",
+    {"query": "publication policy", "tenant_id": "default"},
+)
+document_id = result["results"][0]["metadata"]["document_id"]
+
+full_document = await server.call_tool(
+    "expand_document",
+    {"document_id": document_id, "tenant_id": "default"},
+)
+```
+
+`expand_document` resolves the document's **currently active version** for the caller's
+tenant - not necessarily the exact version the matched chunk was indexed from, if the
+document has since been re-ingested. It never leaks another tenant's document: a
+`document_id` outside the caller's tenant reports the same "document not found" result as
+one that does not exist at all.
+
+The tool returns the document body as `text`, plus `relations` - structural links such as
+`has_attachment` - so a caller can decide whether to chase a linked document (e.g. an
+attachment) with another `expand_document` call. It does not auto-follow those links: an
+attachment's content is returned only when you call `expand_document` on its own
+`document_id`.
 
 ## Calling the tools in Python
 
@@ -79,7 +112,7 @@ An unknown tool name raises `ValueError`.
 Every call passes the same boundary, whether it arrives over stdio, over HTTP, or from the
 browser Tool Playground:
 
-1. **Capability check** - all four tools declare `read`; nothing else is registered.
+1. **Capability check** - all five tools declare `read`; nothing else is registered.
 2. **Schema validation** - the declared JSON schema, with `additionalProperties: false`.
 3. **Argument budget** - a serialized-argument size ceiling.
 4. **Tenant scope** - `tenant_id` is required, and `filters` explicitly cannot carry a

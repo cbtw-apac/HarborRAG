@@ -10,8 +10,10 @@ from harborrag_adapters.models.runtime import ResourceOwnership
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     RAW_BUCKET,
+    CanonicalDocumentArtifactRepository,
     ChunkArtifactReader,
     ImmutableArtifactReader,
+    ImmutableArtifactWriter,
 )
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import BM25SparseEncoder
@@ -91,6 +93,11 @@ async def connect_retrieval_service(
                 )
             ),
             graph_repository=graph_repository,
+            document_snapshots=control.document_versions,
+            canonical_documents=CanonicalDocumentArtifactRepository(
+                ImmutableArtifactWriter(object_store),
+                ImmutableArtifactReader(object_store),
+            ),
         ),
         policy=RetrievalPolicy(
             embedding_model=model,

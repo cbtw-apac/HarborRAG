@@ -9,6 +9,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from harborrag_core.contracts.errors import HarborCapabilityError, HarborNotFoundError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.models.embed import EmbeddingPurpose, HarborEmbedRequest
@@ -29,6 +30,7 @@ from .contracts import (
     RetrievalPolicy,
     RetrievalResources,
     RetrievalTelemetry,
+    RuntimeDocumentExpansion,
     RuntimeRetrievalReport,
 )
 from .graph_observation import GraphObservation, GraphObserver
@@ -62,6 +64,8 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         self._embed = resources.embed_client
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
+        self._document_snapshots = resources.document_snapshots
+        self._canonical_documents = resources.canonical_documents
         self._policy = policy
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
         self._search = AuthoritativeProjectionSearch(
@@ -191,6 +195,36 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 duration_ms=duration_ms,
                 graph_documents=observation.documents,
             ),
+        )
+
+    async def expand_document(
+        self,
+        document_id: str,
+        *,
+        tenant_id: str,
+        access: AccessContext | None = None,
+    ) -> RuntimeDocumentExpansion:
+        """Load the full canonical source document behind a matched chunk's document_id."""
+
+        if not document_id.strip():
+            raise ValueError("expand_document requires a non-empty document_id")
+        if self._document_snapshots is None or self._canonical_documents is None:
+            raise HarborCapabilityError("document expansion is not configured")
+        snapshot = await self._document_snapshots.active_snapshot_for_tenant(
+            tenant_id=tenant_id,
+            document_id=document_id,
+        )
+        if snapshot is None or snapshot.canonical_artifact is None:
+            raise HarborNotFoundError(f"document not found: {document_id}")
+        context = self._retrieval_context(
+            request_id=f"expand-{uuid4().hex}",
+            tenant_id=tenant_id,
+            access=access,
+        )
+        document = await self._canonical_documents.get(snapshot.canonical_artifact, context=context)
+        return RuntimeDocumentExpansion(
+            document=document,
+            document_version_id=str(snapshot.document_version_id),
         )
 
     async def _load_candidates(
