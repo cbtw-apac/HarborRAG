@@ -13,8 +13,8 @@ do and what arguments they take, see [MCP Tools](README.md).
 | [In-process Python](#use-from-python) | `McpServer(...)` | Caller's own runtime | An application or test needs direct control |
 | [Container](#container-image) | `docker run harborrag-mcp` | None; stdio only | A client launches the server from an image |
 
-All transports expose the same four read-only retrieval tools -
-`vector_search`, `graph_triplet_search`, `graph_path_search`, and
+All transports expose the same five read-only retrieval tools -
+`vector_search`, `expand_document`, `graph_triplet_search`, `graph_path_search`, and
 `graph_subgraph_search` - and pass through the same policy and audit boundary.
 
 Chat and agent are **not** in the MCP catalog. They are served only through the
@@ -221,7 +221,7 @@ principal.
 
 > Effective defaults come from `config/mcp.yaml` and can differ from the
 > advertised schema defaults. Read `GET /api/tools?tenant_id=<tenant>` rather
-> than assuming - see [MCP Tools](README.md#the-four-tools).
+> than assuming - see [MCP Tools](README.md#the-five-tools).
 
 ## Management API
 
@@ -301,7 +301,7 @@ never the bearer token or raw arguments. See
 
 ## Next
 
-- [MCP Tools](README.md) - the four tools, their arguments, and what they return
+- [MCP Tools](README.md) - the five tools, their arguments, and what they return
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces) -
   keep service tools in `harborrag-mcp-server` and call runtime/service
   interfaces rather than provider clients

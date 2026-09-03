@@ -9,6 +9,7 @@ __main__.py                 stdio / HTTP launcher and flag parsing
 tools/base.py               McpToolSpec and the BaseMcpTool contract
 tools/retrieval_inputs.py   shared tenant and retrieval argument schemas
 tools/vector_search.py      vector_search
+tools/expand_document.py    expand_document
 tools/graph_search.py       graph_triplet_search, graph_path_search, graph_subgraph_search
 server/base.py              server protocol
 server/server.py            tool registry, policy enforcement, dispatch
@@ -23,10 +24,11 @@ defaults/mcp.yaml           packaged fallback configuration
 
 ## Team deliverables
 
-- The shipped transport exposes four retrieval tools: `vector_search`,
-  `graph_triplet_search`, `graph_path_search`, and `graph_subgraph_search`.
-  Chat and agent are not MCP tools; they are served only through the HarborRAG
-  REST API's `/v1/chat/completions` and `/v1/agent/completions` endpoints.
+- The shipped transport exposes five retrieval tools: `vector_search`,
+  `expand_document`, `graph_triplet_search`, `graph_path_search`, and
+  `graph_subgraph_search`. Chat and agent are not MCP tools; they are served
+  only through the HarborRAG REST API's `/v1/chat/completions` and
+  `/v1/agent/completions` endpoints.
 - Every attempt and outcome is durably audited with a principal identifier and
   arguments digest; raw arguments and tokens are never recorded.
 - Declared input schemas plus argument, result-count, and serialized-output
@@ -72,7 +74,7 @@ The launcher loads the protected database, model, API, and MCP environment files
 constructs the shared `HarborRAG` runtime, and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the four advertised tool names without connecting to
+MCP handshake and print the five advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:
