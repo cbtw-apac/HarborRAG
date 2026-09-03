@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_core.chunking import ConnectorType
 from harborrag_core.contracts import HarborConflictError
+from harborrag_core.ingestion import SourceIdentity
 
 from .ingestion_control_fixtures import (
     advance_to_verified,
@@ -71,3 +73,39 @@ async def test_unverified_candidate_never_replaces_active_version(
 
         current = await control_plane.document_versions.active_versions([str(active.document_id)])
         assert current[str(active.document_id)].document_version_id == active.document_version_id
+
+
+@pytest.mark.asyncio
+async def test_active_snapshot_for_tenant_hides_other_tenants_documents(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        owned = candidate(
+            "tenant a content",
+            source=SourceIdentity(
+                tenant_id="tenant-a",
+                connector_type=ConnectorType.CONFLUENCE,
+                connection_id="wiki.example",
+                source_item_id="page-1",
+                source_scope_id="scope-engineering",
+            ),
+        )
+        await advance_to_verified(control_plane, owned)
+        await control_plane.publisher.publish(
+            document_id=str(owned.document_id),
+            candidate_document_version_id=str(owned.document_version_id),
+        )
+
+        snapshot = await control_plane.document_versions.active_snapshot_for_tenant(
+            tenant_id="tenant-a",
+            document_id=str(owned.document_id),
+        )
+        assert snapshot is not None
+        assert snapshot.document_version_id == owned.document_version_id
+
+        leaked = await control_plane.document_versions.active_snapshot_for_tenant(
+            tenant_id="tenant-b",
+            document_id=str(owned.document_id),
+        )
+        assert leaked is None

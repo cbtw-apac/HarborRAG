@@ -4,6 +4,8 @@ from harborrag_engine.retrieval import RetrievalLane
 
 from ..contracts import (
     ExecutionMode,
+    ExpandDocumentRequest,
+    ExpandDocumentResponse,
     GraphPathRequest,
     GraphPathResponse,
     GraphSubgraphRequest,
@@ -22,6 +24,8 @@ from .runtime import HarborRAG
 
 __all__ = [
     "ExecutionMode",
+    "ExpandDocumentRequest",
+    "ExpandDocumentResponse",
     "GraphPathRequest",
     "GraphPathResponse",
     "GraphSubgraphRequest",
