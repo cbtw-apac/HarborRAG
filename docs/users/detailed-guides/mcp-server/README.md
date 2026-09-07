@@ -7,7 +7,18 @@ policy-bounded FastMCP transport.
 **Want to get it running first?** Jump to
 [Setup and Integration](setup-and-integration.md). This page describes what the tools do.
 
-## The four tools
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `vector_search` | Query, tenant, top-k, lane, filters, `observe_graph`, threshold | Vector results and diagnostics |
+| `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
+| `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
+| `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
+| `describe_graph` | None (no tenant required) | Static graph schema: node kinds, entity types, projected relations, selector rules, connector topologies, recommended workflows |
+
+Call `describe_graph` first if graph selectors, relations, directions, or connector
+topology are unclear — it is a static schema lookup, not a query. The MCP server also
+advertises short cross-tool routing instructions (which tool to call for which intent)
+to any client that surfaces server-level `instructions`.
 
 The catalog contains exactly four tools. All of them are read-only, and every one requires
 an explicit `tenant_id`.
@@ -74,10 +85,24 @@ result = await server.call_tool(
 
 An unknown tool name raises `ValueError`.
 
-## Policy and audit
+### `observe_graph` is diagnostics, not evidence
 
-Every call passes the same boundary, whether it arrives over stdio, over HTTP, or from the
-browser Tool Playground:
+`vector_search(observe_graph=true)` adds a *shallow provenance observation*: it seeds up
+to ten of the returned `chunk_id`s, traverses two hops in both directions, and summarizes
+the counts, documents, and sections it touched under the response's `diagnostics` field.
+It never loads the content of any newly discovered chunk, never ranks neighboring
+evidence, and a graph failure silently degrades to an empty observation rather than
+failing the vector call. Treat it as provenance context for the results you already have
+— not as a way to retrieve additional evidence for a generator. Retrieving and ranking
+neighboring evidence is a separate, not-yet-available composed operation.
+
+## Policy and audit status
+
+`McpServer` records every call attempt and outcome, validates each declared
+JSON schema, and enforces argument, result-count, and output-size budgets.
+Every tool call requires an explicit tenant (except `describe_graph` static tool). Retrieval propagates the caller's
+principal through the runtime access context. MCP audits store argument
+digests rather than raw query text.
 
 1. **Capability check** - all four tools declare `read`; nothing else is registered.
 2. **Schema validation** - the declared JSON schema, with `additionalProperties: false`.

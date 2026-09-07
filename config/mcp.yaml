@@ -46,5 +46,7 @@ tools:
     limits:
       max_depth: 8
       max_nodes: 20
+  describe_graph:
+    enabled: true
 
 tenants: {}
