@@ -14,7 +14,11 @@ from .graph_models import (
 )
 from .graph_state import GraphProjectionContext, GraphProjectionState, GraphRelationSpec
 from .graph_structure import StructuralGraphProjector
-from .source_projector_support import relation_entity_type, source_provider_id
+from .source_projector_support import (
+    relation_entity_type,
+    source_provider_id,
+    target_connector_type,
+)
 from .source_projectors import (
     GraphSourceProjectorRegistry,
     default_graph_source_projector_registry,
@@ -119,10 +123,15 @@ class SourceRelationProjector:
                     )
                 )
             raw_target_id = resolved.source_item_id if resolved is not None else relation.target_id
-            target_id = source_provider_id(
+            # The far end's own connector, not the declaring document's: both the
+            # entity type and the provider-id reduction below feed the target's
+            # node key, and keying a Confluence page as a Jira issue puts it
+            # somewhere its own projection will never look.
+            target_connector = target_connector_type(
                 self._state.context.connector_type.value,
                 raw_target_id,
             )
+            target_id = source_provider_id(target_connector, raw_target_id)
             target_scope = (
                 resolved.source_scope_id
                 if resolved is not None
@@ -134,7 +143,7 @@ class SourceRelationProjector:
             # ON CREATE SET only). A resolved target only supplies a better stub title.
             target = self._state.source_node(
                 relation_entity_type(
-                    self._state.context.connector_type.value,
+                    target_connector,
                     relation_type,
                     relation.target_type,
                     reverse=reverse,

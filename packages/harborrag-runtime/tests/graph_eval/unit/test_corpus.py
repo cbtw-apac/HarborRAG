@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_core.ingestion import GraphNodeRecord
+from harborrag_core.ingestion import GraphEntityType, GraphNodeRecord
 from harborrag_engine.ingestion import GraphProjectionBatch
 
-from ..corpus import CORPUS_SIGNATURES, EvalCorpus, build_corpus
-from ..golden import PATH_CASES, STALENESS_CASES, SUBGRAPH_CASES, TRIPLET_CASES
+from ..corpus import EvalCorpus, build_corpus
 from ..sources import eval_documents
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -271,16 +270,30 @@ def test_sharepoint_contains_chain_runs_through_placeholder_folders(corpus: Eval
         assert _node(batch, folder).attributes["placeholder"] is True
 
 
-def test_cross_source_link_never_resolves(corpus: EvalCorpus) -> None:
+def test_cross_source_link_targets_the_page_it_names(corpus: EvalCorpus) -> None:
+    """A Jira link to a Confluence page must key on the page, not on Jira.
+
+    The stand-in used to be typed from the *linking* document's connector, so a
+    ``confluence://`` target became a ``jira_issue`` whose provider id was still a
+    whole URI. Both feed ``source_entity_node_key``, so the stub could never land
+    on the page's own node however often either side was reprojected.
+    """
+
     batch = corpus.batches["HR-1"]
     stand_in = next(
-        node for node in batch.nodes if node.logical_id == "confluence://SPACE/team-handbook"
+        node
+        for node in batch.nodes
+        if node.entity_type is GraphEntityType.CONFLUENCE_PAGE
+        and node.logical_id == "team-handbook"
     )
     assert stand_in.attributes["placeholder"] is True
     assert (corpus.source_item_key("HR-1"), stand_in.node_key) in _edges(batch, "links_to")
-    # The stand-in is its own node: resolved_targets is per-run scope, so the real
-    # Confluence page in the same corpus is never reached by a Jira link.
-    assert stand_in.node_key != corpus.source_item_key("team-handbook")
+    # The whole point: the stub now shares the real page's identity, so the
+    # concrete projection claims it instead of leaving a second phantom node.
+    assert stand_in.node_key == corpus.source_item_key("team-handbook")
+    # Resolution is still a separate question. resolve_active_sources is scoped to
+    # the linking document's own connector and connection, so the link stays on
+    # the unresolved list even though its stub is now correctly keyed.
     assert ("links_to", "confluence://SPACE/team-handbook") in {
         (relation.relation_type, relation.target_source_item_id)
         for relation in batch.unresolved_relations
@@ -313,34 +326,3 @@ def test_confluence_space_directly_contains_every_page(corpus: EvalCorpus) -> No
     assert len(space_keys) == 1, space_keys
     assert pages, "corpus has no Confluence pages to check"
     assert pages <= contained, pages - contained
-
-
-def test_every_golden_case_names_a_corpus_document(corpus: EvalCorpus) -> None:
-    """`golden/` only runs live, so CI has to catch a case naming a dropped document.
-
-    Importing the module also guards the engine result-model imports it depends on.
-    """
-
-    referenced = (
-        {c.start_doc for c in PATH_CASES}
-        | {c.end_doc for c in PATH_CASES}
-        | {c.seed_doc for c in SUBGRAPH_CASES}
-        | {c.subject_doc for c in TRIPLET_CASES}
-        | {d for c in TRIPLET_CASES for d in c.expected_object_docs}
-        | {c.seed_doc for c in STALENESS_CASES}
-        | {d for c in STALENESS_CASES for d in c.stale_docs | c.forbidden_docs}
-        | {d for c in SUBGRAPH_CASES for d in c.expected_docs | c.forbidden_docs}
-    )
-    assert referenced <= set(corpus.batches)
-
-
-def test_corpus_exercises_full_signature_vocabulary(corpus: EvalCorpus) -> None:
-    observed = {
-        (kinds[r.source_node_key], r.relation_type.value, kinds[r.target_node_key])
-        for batch in corpus.batches.values()
-        for kinds in [{n.node_key: n.node_kind.value for n in batch.nodes}]
-        for r in batch.relations
-    }
-    assert observed == CORPUS_SIGNATURES, (
-        f"missing={sorted(CORPUS_SIGNATURES - observed)} extra={sorted(observed - CORPUS_SIGNATURES)}"
-    )

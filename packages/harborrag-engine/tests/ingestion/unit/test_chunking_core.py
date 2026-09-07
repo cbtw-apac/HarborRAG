@@ -120,18 +120,40 @@ def test_oversized_units_get_unique_parts_below_the_hard_maximum() -> None:
     assert result.diagnostics.forced_splits == 3
 
 
-def test_table_chunks_preserve_rows_and_header_metadata() -> None:
+def test_table_chunks_repeat_their_header_on_every_fragment() -> None:
+    """A fragment without the header row cannot be read on its own.
+
+    ``repeat_table_headers`` used to put the header in metadata only, so every
+    fragment after the first arrived at retrieval as unlabelled cells.
+    """
+
     profile = make_profile(target=8, maximum=10)
-    content = "A\tB\n11\t22\n33\t44\n"
+    header = "A\tB"
+    content = f"{header}\n11\t22\n33\t44\n"
     document = make_document([DocumentElement("table-1", "table", content)])
 
     result = make_service(profile).chunk(make_request(document))
 
-    assert "".join(record.content for record in result.chunks) == content
-    assert len(result.chunks) == 3
-    assert result.chunks[1].metadata["table_header"] == "A\tB"
-    assert not result.chunks[1].content.startswith("A\tB")
+    assert profile.repeat_table_headers
+    assert len(result.chunks) == 2
+    assert all(record.content.startswith(f"{header}\n") for record in result.chunks)
+    assert all(record.metadata["table_header"] == header for record in result.chunks)
     assert all(record.chunk_kind == ChunkKind.TABLE for record in result.chunks)
+    assert all((record.token_count or 0) <= profile.maximum_tokens for record in result.chunks)
+    bodies = "".join(record.content.removeprefix(f"{header}\n") for record in result.chunks)
+    assert bodies == content.removeprefix(f"{header}\n")
+
+
+def test_table_fragments_keep_row_ranges_relative_to_data_rows() -> None:
+    profile = make_profile(target=8, maximum=10)
+    document = make_document([DocumentElement("table-1", "table", "A\tB\n11\t22\n33\t44\n")])
+
+    result = make_service(profile).chunk(make_request(document))
+
+    locators = [record.table_locator for record in result.chunks]
+    assert all(locator is not None for locator in locators)
+    assert [(locator.row_start, locator.row_end) for locator in locators] == [(0, 0), (1, 1)]
+    assert all(locator.column_count == 2 for locator in locators)
 
 
 def test_canonical_identity_separates_logical_chunk_from_revision() -> None:

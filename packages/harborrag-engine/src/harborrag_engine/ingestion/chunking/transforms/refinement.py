@@ -32,15 +32,33 @@ class TableRowSplitter:
         if unit.token_count <= profile.maximum_tokens:
             return (unit,)
 
-        rows = unit.content.splitlines(keepends=True)
+        lines = unit.content.splitlines(keepends=True)
+        if not lines:
+            return (unit,)
+        # A rendered table declares how many leading lines are its preamble and
+        # column header; a legacy tab-separated body has exactly one header line.
+        # Either way those lines must reappear on every fragment, or every
+        # fragment after the first loses its column names entirely.
+        prefix_line_count = self._prefix_line_count(unit, len(lines))
+        prefix = "".join(lines[:prefix_line_count])
+        rows = lines[prefix_line_count:]
         if not rows:
             return (unit,)
-        header = rows[0].rstrip("\r\n")
-        row_units = self._row_units(unit, rows, profile)
-        groups = self._pack_rows(row_units, profile)
+        # If repeating the prefix leaves no room for the widest row, repeating it
+        # would make the table unsplittable. Dropping it keeps the split legal;
+        # the row range stays recoverable from the chunk's table locator.
+        widest_row = max(self._token_counter.count(row) for row in rows)
+        if self._token_counter.count(prefix) + widest_row > profile.maximum_tokens:
+            rows = lines
+            prefix = ""
+        header = prefix.rstrip("\r\n")
+        row_units = self._row_units(unit, rows, profile, prefix)
+        groups = self._pack_rows(row_units, profile, prefix)
         results: list[ChunkUnit] = []
         for index, group in enumerate(groups):
-            content = "".join(row.content for row in group)
+            body = "".join(row.content for row in group)
+            repeated = prefix if profile.repeat_table_headers else ""
+            content = f"{repeated}{body}" if index else f"{prefix}{body}"
             span = self._merge_same_element_spans(group)
             results.append(
                 ChunkUnit(
@@ -65,13 +83,28 @@ class TableRowSplitter:
             )
         return tuple(results)
 
+    @staticmethod
+    def _prefix_line_count(unit: ChunkUnit, line_count: int) -> int:
+        """Return how many leading lines describe the table rather than its rows."""
+
+        declared = unit.metadata.get("table_prefix_lines")
+        if isinstance(declared, int) and not isinstance(declared, bool) and declared >= 0:
+            return min(declared, line_count)
+        return 1 if line_count > 1 else 0
+
     def _row_units(
         self,
         unit: ChunkUnit,
         rows: list[str],
         profile: ChunkingProfile,
+        prefix: str = "",
     ) -> list[ChunkUnit]:
         results: list[ChunkUnit] = []
+        # Each fragment repeats the prefix, so a single row must fit in what is
+        # left of the hard limit, not in the whole of it.
+        budget = max(
+            profile.maximum_tokens - (self._token_counter.count(prefix) if prefix else 0), 1
+        )
         cursor = unit.source_span.start_offset or 0
         for row_index, row in enumerate(rows):
             count = self._token_counter.count(row)
@@ -93,7 +126,7 @@ class TableRowSplitter:
                 element_ids=unit.source_span.element_ids,
             )
             cursor += len(row)
-            if count <= profile.maximum_tokens:
+            if count <= budget:
                 if count > 0 and row.strip():
                     results.append(
                         replace(
@@ -110,7 +143,7 @@ class TableRowSplitter:
             splits = self._refiner.split(
                 TextRefinementRequest(
                     content=row,
-                    maximum_tokens=profile.maximum_tokens,
+                    maximum_tokens=budget,
                     overlap_tokens=0,
                     source_span=span,
                     boundary_kind=SplitBoundaryKind.TABLE_ROW,
@@ -139,13 +172,20 @@ class TableRowSplitter:
         self,
         rows: list[ChunkUnit],
         profile: ChunkingProfile,
+        prefix: str = "",
     ) -> list[tuple[ChunkUnit, ...]]:
+        # Every fragment carries the repeated preamble and header, so the row
+        # budget is what is left after them. Packing to the bare target would
+        # push the assembled fragment over the hard maximum.
+        overhead = self._token_counter.count(prefix) if prefix else 0
+        target = max(profile.target_tokens - overhead, 1)
+        maximum = max(profile.maximum_tokens - overhead, 1)
         groups: list[tuple[ChunkUnit, ...]] = []
         current: list[ChunkUnit] = []
         for row in rows:
             candidate = "".join(item.content for item in (*current, row))
             candidate_count = self._token_counter.count(candidate)
-            if current and candidate_count > profile.target_tokens:
+            if current and candidate_count > target:
                 groups.append(tuple(current))
                 current = [row]
             else:
@@ -159,7 +199,7 @@ class TableRowSplitter:
             if self._token_counter.count(last_text) < profile.minimum_tokens:
                 merged = (*groups[-2], *last)
                 merged_text = "".join(row.content for row in merged)
-                if self._token_counter.count(merged_text) <= profile.maximum_tokens:
+                if self._token_counter.count(merged_text) <= maximum:
                     groups[-2:] = [merged]
         return groups
 

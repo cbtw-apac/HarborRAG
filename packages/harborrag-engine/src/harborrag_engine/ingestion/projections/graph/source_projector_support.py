@@ -12,6 +12,32 @@ from harborrag_core.ingestion import GraphEntityType, GraphNodeRecord
 
 from .graph_state import GraphProjectionState, GraphRelationSpec
 
+_CONNECTOR_SCHEMES = frozenset({"confluence", "jira", "github", "sharepoint", "local"})
+
+
+def target_connector_type(connector_type: str, target_id: str) -> str:
+    """Name the connector that owns a relation's far end.
+
+    A relation target is not always hosted by the connector that declared it: a
+    Jira issue can link to a Confluence page. Typing and reducing that target as
+    though it belonged to the linking document produced a stub labelled
+    ``jira_issue`` whose provider id was still a whole ``confluence://`` URI --
+    two of the three inputs to ``source_entity_node_key``, so the stub could never
+    match the page's own projection.
+
+    Connectors already emit fully-schemed target identities for their own items
+    (``confluence://SPACE/page``, ``jira://PROJ/KEY``), so reading the scheme
+    returns the declaring connector unchanged for a same-connector target and
+    only diverges where the old behaviour was wrong. An unschemed target is a
+    bare provider id, which by construction belongs to the declaring connector.
+    """
+
+    scheme, separator, _ = target_id.strip().partition("://")
+    candidate = scheme.casefold()
+    if separator and candidate in _CONNECTOR_SCHEMES:
+        return candidate
+    return connector_type
+
 
 def source_entity_type(connector_type: str) -> GraphEntityType:
     return {

@@ -16,7 +16,7 @@ class CanonicalDocumentChunkingStrategy:
     """
 
     name = "canonical"
-    version = "1"
+    version = "2"
 
     def __init__(self, token_counter: TokenCounter) -> None:
         self._segmenter = DocumentStructureSegmenter(token_counter)
