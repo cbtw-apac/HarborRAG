@@ -316,10 +316,6 @@ package = false
 environments = [
     "python_version == '3.12'",
 ]
-override-dependencies = [
-    "pypdf>=6.16.1",
-    "transformers>=5.10.0",
-]
 
 [tool.uv.workspace]
 members = [
