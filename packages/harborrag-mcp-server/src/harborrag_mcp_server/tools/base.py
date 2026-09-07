@@ -11,6 +11,8 @@ class McpToolSpec:
     description: str
     input_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object"})
     capability: Literal["read", "ingestion", "admin"] = "read"
+    output_schema: dict[str, Any] | None = None
+    annotations: dict[str, Any] | None = None
 
 
 class BaseMcpTool(ABC):
