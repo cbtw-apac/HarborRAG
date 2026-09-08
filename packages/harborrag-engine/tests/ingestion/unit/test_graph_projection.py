@@ -33,6 +33,63 @@ def test_graph_projection_rejects_document_chunk_identity_mismatch() -> None:
         )
 
 
+def test_evidence_ordinals_remain_contiguous_in_canonical_sequence() -> None:
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "Alpha beta gamma delta."),
+            DocumentElement("p2", "paragraph", "Epsilon zeta eta theta."),
+            DocumentElement("p3", "paragraph", "Iota kappa lambda mu."),
+        ]
+    )
+    chunks = (
+        make_service(
+            make_profile(target=20, maximum=60),
+            configuration_version="3",
+            create_route_chunks=True,
+        )
+        .chunk(make_request(document))
+        .chunks
+    )
+
+    evidence = [chunk for chunk in chunks if chunk.record_kind.value == "evidence"]
+    ordinals = [chunk.ordinal for chunk in evidence]
+    assert ordinals == list(range(len(evidence)))
+    assert ordinals == sorted(ordinals)
+
+
+def test_chunk_nodes_expose_ordinal_from_document_order() -> None:
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "Alpha beta gamma delta."),
+            DocumentElement("p2", "paragraph", "Epsilon zeta eta theta."),
+            DocumentElement("p3", "paragraph", "Iota kappa lambda mu."),
+        ]
+    )
+    chunks = (
+        make_service(
+            make_profile(target=20, maximum=60),
+            configuration_version="3",
+            create_route_chunks=True,
+        )
+        .chunk(make_request(document))
+        .chunks
+    )
+
+    projection = GraphProjectionBuilder().build_structural(
+        document=document,
+        chunks=chunks,
+        graph_projection_version="graph-ordinal-order",
+    )
+
+    chunk_nodes = [node for node in projection.nodes if node.node_kind == KnowledgeNodeKind.CHUNK]
+    observed = {node.logical_id: node.attributes for node in chunk_nodes}
+    for chunk in chunks:
+        if chunk.record_kind != "evidence":
+            continue
+        attrs = observed[str(chunk.chunk_id)]
+        assert attrs["ordinal"] == chunk.ordinal
+
+
 def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     document = make_document(
         [
