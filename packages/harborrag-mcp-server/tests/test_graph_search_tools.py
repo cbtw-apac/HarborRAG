@@ -52,6 +52,17 @@ def edge(source: GraphNodeRecord, target: GraphNodeRecord) -> GraphEdgeRecord:
     )
 
 
+def _graph_diagnostics(accepted_count: int) -> dict[str, object]:
+    """A full ``GraphSearchDiagnostics``-shaped dict, matching what the real search emits."""
+    return {
+        "candidate_count": accepted_count,
+        "accepted_count": accepted_count,
+        "stale_count": 0,
+        "unpublished_count": 0,
+        "projection_truncated": False,
+    }
+
+
 class StaticGraphFacade:
     def __init__(self) -> None:
         self.source = node("node-a", "document-a")
@@ -69,14 +80,14 @@ class StaticGraphFacade:
                     object=self.target,
                 ),
             ),
-            diagnostics={"accepted_count": 1},
+            diagnostics=_graph_diagnostics(1),
         )
 
     async def find_paths(self, request):
         self.calls.append(request)
         return GraphPathResponse(
             paths=(GraphPath(nodes=(self.source, self.target), relations=(self.relation,)),),
-            diagnostics={"accepted_count": 1},
+            diagnostics=_graph_diagnostics(1),
         )
 
     async def expand_subgraph(self, request):
@@ -84,7 +95,7 @@ class StaticGraphFacade:
         return GraphSubgraphResponse(
             nodes=(self.source, self.target),
             relations=(self.relation,),
-            diagnostics={"accepted_count": 2},
+            diagnostics=_graph_diagnostics(2),
         )
 
 
@@ -256,6 +267,41 @@ def test_path_search_defaults_to_an_undirected_walk() -> None:
     # (:Chunk)-[:SUPPORTS]->(:Structure) points into the spine while CONTAINS points down
     # it, so an outgoing-only default cannot reach a chunk's own document.
     assert schema["properties"]["direction"]["default"] == "both"
+
+
+@pytest.mark.asyncio
+async def test_graph_tool_success_and_failure_outputs_match_output_schema() -> None:
+    from jsonschema.validators import validator_for
+
+    harbor, _ = runtime()
+    cases = [
+        (
+            GraphTripletSearchTool,
+            {"tenant_id": "demo", "subject": "document-a"},
+            {"tenant_id": "demo"},
+        ),
+        (
+            GraphPathSearchTool,
+            {"tenant_id": "demo", "start_node": "document-a", "end_node": "document-b"},
+            {"tenant_id": "demo", "start_node": "same", "end_node": "same"},
+        ),
+        (
+            GraphSubgraphSearchTool,
+            {"tenant_id": "demo", "start_node": "document-a"},
+            {"tenant_id": "demo", "start_node": "a", "max_nodes": 21},
+        ),
+    ]
+    for tool_cls, success_arguments, failure_arguments in cases:
+        output_schema = tool_cls.spec.output_schema
+        validator_type = validator_for(output_schema)
+        validator_type.check_schema(output_schema)
+        validator = validator_type(output_schema)
+
+        success = await tool_cls(runtime=harbor).call(success_arguments, principal_id="reader-1")
+        validator.validate(success)
+
+        failure = await tool_cls().call(failure_arguments, principal_id="reader-1")
+        validator.validate(failure)
 
 
 def test_mcp_and_agent_tool_schemas_are_the_same_definition() -> None:

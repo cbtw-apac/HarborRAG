@@ -124,11 +124,39 @@ def _rapidocr_engine():
     return _RAPID_OCR_ENGINE
 
 
-def _parse_image_with_rapidocr(content: bytes, extension: str) -> str:
-    """Extract ordered text lines from one image with RapidOCR."""
+def _prepare_rapidocr_bytes(content: bytes, extension: str) -> bytes:
+    """RapidOCR is sensitive to CMYK and similar non-RGB modes; convert them
+    to RGB before handing the payload to the ONNX detector so scans and print
+    images do not fail with an empty detection result."""
     _ = extension
     if not content:
+        return content
+
+    try:
+        from PIL import Image
+    except ImportError:
+        return content
+
+    try:
+        image = Image.open(__import__("io").BytesIO(content))
+        mode = getattr(image, "mode", "")
+        if mode.upper() in {"CMYK", "YCBCR", "YCbCr", "RGBA", "LA", "P"}:
+            rgb_image = image.convert("RGB")
+            buffer = __import__("io").BytesIO()
+            rgb_image.save(buffer, format="PNG")
+            return buffer.getvalue()
+    except (Image.DecompressionBombError, Image.UnidentifiedImageError, OSError, ValueError):
+        return content
+
+    return content
+
+
+def _parse_image_with_rapidocr(content: bytes, extension: str) -> str:
+    """Extract ordered text lines from one image with RapidOCR."""
+    if not content:
         return ""
+
+    content = _prepare_rapidocr_bytes(content, extension)
 
     try:
         result = _rapidocr_engine()(content)

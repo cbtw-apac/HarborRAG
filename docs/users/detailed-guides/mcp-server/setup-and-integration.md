@@ -254,8 +254,156 @@ result = await server.call_tool(
 )
 ```
 
-Or use the package-level convenience functions shown in
-[MCP Tools](README.md#calling-the-tools-in-python).
+Or use the package-level convenience functions shown in [MCP Tools](README.md).
+
+## External clients
+
+The package now provides a standard FastMCP stdio server. Configure a client to
+run:
+
+```bash
+scripts/deployment/dev.sh bootstrap
+scripts/deployment/mcp.sh
+```
+
+Bootstrap creates the ignored database, model, API, and MCP environment files.
+Review their placeholders before real tool calls. It also generates the local
+MCP bearer token and protects `env/.env.mcp` with mode `0600`.
+
+Use `scripts/deployment/mcp.sh --check` to validate configuration and list
+the registered tools without opening provider connections. The check opens an
+in-memory client session, performs the MCP initialization handshake, and asks
+the server for its tools.
+
+The normal catalog contains five retrieval tools. Chat and agent are not part
+of the MCP catalog; they are served only through the HarborRAG REST API's
+`/v1/chat` and `/v1/agent` endpoints.
+
+Do not run the stdio command as an interactive service. An MCP client must
+launch it with stdin and stdout connected to pipes. A direct terminal launch
+now exits with that guidance instead of appearing to hang. The command does not
+open a port; use `--check` for a manual readiness check.
+
+## Local Streamable HTTP and status UI
+
+Start the loopback-only HTTP transport after bootstrap:
+
+```bash
+scripts/deployment/mcp.sh --http
+```
+
+This exposes:
+
+- status UI: `http://127.0.0.1:8010/`
+- health: `http://127.0.0.1:8010/healthz`
+- authenticated MCP: `http://127.0.0.1:8010/mcp`
+
+Configure an HTTP-capable MCP client with that MCP URL and the value of
+`HARBORRAG_MCP_BEARER_TOKEN` as its bearer token. For example:
+
+```python
+from fastmcp import Client
+
+client = Client("http://127.0.0.1:8010/mcp", auth="<token>")
+```
+
+The built-in page never renders the bearer token. Its Tool Playground displays
+retrieved content only after an authenticated owner explicitly invokes a tool.
+Static tokens are for local development only. The launcher rejects non-loopback
+binding; remote or production exposure requires TLS and a production JWT/JWKS
+token verifier.
+
+### Run tools from the browser
+
+Open `http://127.0.0.1:8010/`, enter the bearer token from `env/.env.mcp`, enter
+a tenant ID, and select **Load tools**. The page loads that tenant's effective
+catalog and generates argument controls from each tool's JSON schema. Select
+**Run tool** to execute through the same configuration, policy, runtime access,
+and audit boundaries as the MCP transport. Results are rendered as formatted
+text, never injected as HTML.
+
+### Configure tools from the browser
+
+Open `http://127.0.0.1:8010/`, enter the same value used for
+`HARBORRAG_MCP_BEARER_TOKEN`, and select **Load**. The editor exposes the
+validated JSON representation of `config/mcp.yaml`; **Save** atomically writes
+it back as YAML, while **Reload YAML** discards in-memory changes and reloads
+the file.
+
+Each tool supports three controls:
+
+```yaml
+tools:
+  vector_search:
+    enabled: true
+    defaults:
+      top_k: 5
+    limits:
+      top_k: 10
+```
+
+These values control the public tool contract. Model provider, endpoint, and
+credential settings remain in `config/models.yaml` and the process
+environment; they cannot be configured through the MCP UI.
+
+Tenant overrides merge over global values:
+
+```yaml
+tenants:
+  engineering:
+    tools:
+      vector_search:
+        defaults:
+          top_k: 8
+  restricted:
+    tools:
+      graph_subgraph_search:
+        enabled: false
+```
+
+The API requires the owner bearer token:
+
+- `GET /api/config` returns source and effective settings, revision, active
+  environment overrides, and restart state.
+- `PUT /api/config` accepts `configuration` and `expected_revision`.
+- `POST /api/config/reload` reloads and validates the YAML file.
+- `GET /api/tools?tenant_id=<tenant>` returns the tenant-effective tool catalog.
+- `POST /api/tools/call` executes a named tool with an `arguments` object.
+
+Defaults, numeric limits, policy budgets, and tenant controls are enforced on
+new calls immediately. FastMCP snapshots globally advertised tools and schemas
+at process start, so global tool/schema changes report `restart_required=true`.
+Restart the process after saving to refresh what clients see in `tools/list`.
+
+The configuration fails closed: it rejects unknown tools or fields, invalid
+types, defaults for required or tenant identity fields, stale revisions, and
+limits above compiled safety ceilings. Change audits store only old/new
+revision hashes and the authenticated principal.
+
+Environment overrides are applied after the file and are not written back:
+
+```text
+HARBORRAG_MCP_MAX_RESULTS
+HARBORRAG_MCP_MAX_ARGUMENT_BYTES
+HARBORRAG_MCP_MAX_OUTPUT_BYTES
+HARBORRAG_MCP_DISABLED_TOOLS
+HARBORRAG_MCP_CONFIG_PATH
+```
+
+The server exposes five tools: `vector_search`, `graph_triplet_search`,
+`graph_path_search`, `graph_subgraph_search`, and `describe_graph`. The first
+four require an explicit tenant scope; `describe_graph` is a static schema
+lookup and requires none. The three graph tools need a node
+identifier the caller already holds—in practice a `chunk_id` from
+`vector_search`, which is the same string as a `Chunk` node key. Advanced vector retrieval adds dense, sparse, or hybrid lanes, metadata
+filters, an `observe_graph` diagnostics flag (shallow provenance only — it never loads
+or ranks additional evidence; see [MCP Tools](README.md#observe_graph-is-diagnostics-not-evidence)),
+and a score threshold. Calls pass
+pre-execution capability, declared JSON-schema validation, and argument
+budgets; post-execution result/output budgets; and an owner-only JSONL audit at
+`.harborrag/mcp-audit.jsonl` (override with `HARBORRAG_MCP_AUDIT_PATH`). Audit
+records contain a principal identifier, arguments digest, and outcome, never
+the bearer token or raw arguments.
 
 ## Container image
 
