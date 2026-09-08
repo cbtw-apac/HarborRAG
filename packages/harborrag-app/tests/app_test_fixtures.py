@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from app_test_agent import AgentServiceFixture
 from app_test_chat import ChatServiceFixture
 from app_test_graph_records import (
+    graph_conflict,
     graph_payload,
     projection_inventory_payload,
     retrieval_payload,
@@ -15,6 +16,8 @@ from app_test_ingestion import IngestionServiceFixture
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
+from harborrag_core.domain.graph_conflict import ConflictAction, GraphConflict
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import new_session_id
@@ -37,6 +40,9 @@ class MockAppService(
         self.agent_calls: list[dict[str, object]] = []
         self.agent_resume_calls: list[dict[str, object]] = []
         self.conversation_sessions: set[tuple[str, str, str]] = set()
+        default_conflict = graph_conflict()
+        self.graph_conflicts: dict[str, GraphConflict] = {default_conflict.id: default_conflict}
+        self.graph_conflict_resolve_calls: list[dict[str, object]] = []
 
     async def create_chat_session(
         self,
@@ -191,6 +197,39 @@ class MockAppService(
             "before": await self.projection_inventory(tenant),
             "reindex_required": True,
         }
+
+    async def list_graph_conflicts(
+        self,
+        *,
+        cursor: str | None,
+        limit: int,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
+        del cursor, tenant_ids
+        conflicts = list(self.graph_conflicts.values())[:limit]
+        return AppResponse(True, {"conflicts": conflicts, "next_cursor": None})
+
+    async def resolve_graph_conflict(
+        self,
+        conflict_id: str,
+        *,
+        action: ConflictAction,
+        actor: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
+        del tenant_ids
+        self.graph_conflict_resolve_calls.append(
+            {"conflict_id": conflict_id, "action": action, "actor": actor}
+        )
+        conflict = self.graph_conflicts.get(conflict_id)
+        if conflict is None:
+            raise HarborNotFoundError(f"graph conflict {conflict_id!r} not found")
+        if conflict.status == "resolved":
+            raise HarborConflictError(f"graph conflict {conflict_id!r} is already resolved")
+        conflict.status = "resolved"
+        conflict.action = action
+        conflict.resolved_by = actor
+        return AppResponse(True, {"conflict": conflict})
 
     async def list_projects(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
         del tenant_ids

@@ -266,6 +266,30 @@ class McpQueryLogRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
+class GraphConflictRow(Base):
+    """graph_conflicts: queued knowledge-graph disagreements awaiting resolution (M4 §5.5).
+
+    v1 is record-only -- ``action`` records the caller's choice but resolving
+    a conflict does not itself mutate FalkorDB.
+    """
+
+    __tablename__ = "graph_conflicts"
+
+    id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
+    conflict_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    subject_node_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    competing_node_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    description: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="open")
+    action: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
 # Conversation/agent-run/memory rows live in schemas_agent_memory.py (file-length
 # gate); imported here, after Base/JSONVariant exist, so every class in that
 # module still registers on Base.metadata whenever schemas.py is imported --

@@ -26,6 +26,7 @@ from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
+    FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
     FakeMemberRepository,
@@ -100,6 +101,7 @@ def _build_service(
         secrets=FakeSecrets(),
         pending_effects=FakePendingEffectRepository(),
         leases=lease_repository,
+        graph_conflicts=FakeGraphConflictRepository(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

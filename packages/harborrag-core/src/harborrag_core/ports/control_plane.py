@@ -11,6 +11,7 @@ from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.graph_conflict import ConflictAction, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
@@ -196,6 +197,51 @@ class LeaseRepositoryPort(Protocol):
         """
 
 
+class GraphConflictRepositoryPort(Protocol):
+    """Durable queue of graph disagreements awaiting human resolution (plan §5.5).
+
+    v1 is record-only: ``resolve`` persists the chosen action and closes the
+    conflict; it does not itself mutate FalkorDB (see ``GraphConflict``'s
+    docstring for why). ``report`` exists for future conflict-detection code
+    or manual seeding -- nothing calls it yet.
+    """
+
+    async def report(self, conflict: GraphConflict) -> GraphConflict:
+        """Durably record a newly detected conflict."""
+
+    async def list(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[GraphConflict], str | None]:
+        """Open-and-resolved conflicts within ``tenant_ids``, newest-detected first.
+
+        Returns ``(items, next_cursor)``; ``next_cursor`` is ``None`` once the
+        caller has walked the whole set.
+        """
+
+    async def get(
+        self, conflict_id: str, *, tenant_ids: frozenset[str] | None
+    ) -> GraphConflict | None:
+        """One conflict by id within ``tenant_ids``, or None."""
+
+    async def resolve(
+        self,
+        conflict_id: str,
+        *,
+        action: ConflictAction,
+        resolved_by: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> GraphConflict:
+        """Close a conflict with the chosen action.
+
+        Raises ``HarborNotFoundError`` if missing within ``tenant_ids``,
+        ``HarborConflictError`` if already resolved.
+        """
+
+
 TRepository_co = TypeVar("TRepository_co", covariant=True)
 
 
@@ -217,3 +263,4 @@ ActivityRepositoryProvider = TenantScopedRepositoryProvider[ActivityRepositoryPo
 SettingsRepositoryProvider = TenantScopedRepositoryProvider[SettingsRepositoryPort]
 ProviderRepositoryProvider = TenantScopedRepositoryProvider[ProviderRepositoryPort]
 MemberRepositoryProvider = TenantScopedRepositoryProvider[MemberRepositoryPort]
+GraphConflictRepositoryProvider = TenantScopedRepositoryProvider[GraphConflictRepositoryPort]
