@@ -6,6 +6,7 @@ the repo's file-length gate.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -87,6 +88,49 @@ async def test_graph_conflict_repository_roundtrip_and_resolve(sessions: Session
         await repo.resolve(
             "does-not-exist", action="skip", resolved_by="bob", tenant_ids=frozenset({"tenant-a"})
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_graph_conflict_repository_resolve_is_atomic_under_concurrent_requests(
+    sessions: SessionFactory,
+) -> None:
+    """Two concurrent resolves of the same conflict must not both succeed.
+
+    A read-then-write resolve (SELECT status, decide, UPDATE) lets two racing
+    requests both observe status="open" before either commits, so both would
+    return 200 and the second silently overwrites the first's action/actor --
+    exactly the bug the conditional UPDATE in SqlGraphConflictRepository.resolve
+    is meant to rule out. asyncio.gather fires both resolves as close to
+    simultaneously as this process can manage; the database (row-level locking
+    on Postgres, whole-file locking on SQLite) still serializes the two
+    UPDATEs, so exactly one must see status="open" and the other must lose.
+    """
+
+    repo = SqlGraphConflictRepository(sessions)
+    await repo.report(_conflict("gc_race", detected_at=datetime(2026, 8, 12, 0, 0, 0, tzinfo=UTC)))
+
+    results = await asyncio.gather(
+        repo.resolve(
+            "gc_race", action="merge", resolved_by="alice", tenant_ids=frozenset({"tenant-a"})
+        ),
+        repo.resolve(
+            "gc_race", action="skip", resolved_by="bob", tenant_ids=frozenset({"tenant-a"})
+        ),
+        return_exceptions=True,
+    )
+
+    successes = [r for r in results if isinstance(r, GraphConflict)]
+    failures = [r for r in results if isinstance(r, BaseException)]
+    assert len(successes) == 1, f"expected exactly one winner, got {results!r}"
+    assert len(failures) == 1
+    assert isinstance(failures[0], HarborConflictError)
+
+    final = await repo.get("gc_race", tenant_ids=frozenset({"tenant-a"}))
+    assert final is not None
+    assert final.status == "resolved"
+    assert final.action == successes[0].action
+    assert final.resolved_by == successes[0].resolved_by
 
 
 @pytest.mark.asyncio

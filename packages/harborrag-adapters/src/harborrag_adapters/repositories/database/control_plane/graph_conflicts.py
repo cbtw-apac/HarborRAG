@@ -6,9 +6,10 @@ import base64
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy.engine import CursorResult
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -16,6 +17,7 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
+from harborrag_core.invariants import HarborInvariantError
 
 from .mapping import utc_now
 from .schemas import GraphConflictRow
@@ -98,19 +100,40 @@ class SqlGraphConflictRepository:
         resolved_by: str,
         tenant_ids: frozenset[str] | None,
     ) -> GraphConflict:
-        """Close a conflict with the chosen action; record-only, no graph mutation."""
+        """Close a conflict with the chosen action; record-only, no graph mutation.
+
+        Not a read-then-write: the status flip is one conditional UPDATE (WHERE
+        status='open'), evaluated atomically by the database, so two requests
+        racing to resolve the same conflict can never both read "open" and both
+        commit -- exactly one UPDATE matches a row. The loser falls back to a
+        scoped read to tell 404 (missing or wrong tenant) apart from 409
+        (already resolved), mirroring SqlLeaseRepository.try_acquire.
+        """
         async with self.sessions.begin() as session:
+            statement = sa.update(GraphConflictRow).where(
+                GraphConflictRow.id == conflict_id, GraphConflictRow.status == "open"
+            )
+            if tenant_ids is not None:
+                statement = statement.where(GraphConflictRow.tenant_id.in_(tenant_ids))
+            statement = statement.values(
+                status="resolved",
+                action=action,
+                resolved_by=resolved_by,
+                resolved_at=utc_now(),
+            )
+            result = cast("CursorResult[Any]", await session.execute(statement))
+            if result.rowcount == 1:
+                row = await session.get(GraphConflictRow, conflict_id)
+                if row is None:
+                    raise HarborInvariantError(
+                        f"graph conflict {conflict_id!r} vanished mid-transaction"
+                    )
+                return self._to_domain(row)
+
             row = await session.get(GraphConflictRow, conflict_id)
             if row is None or (tenant_ids is not None and row.tenant_id not in tenant_ids):
                 raise HarborNotFoundError(f"graph conflict {conflict_id!r} not found")
-            if row.status == "resolved":
-                raise HarborConflictError(f"graph conflict {conflict_id!r} is already resolved")
-            row.status = "resolved"
-            row.action = action
-            row.resolved_by = resolved_by
-            row.resolved_at = utc_now()
-            resolved = self._to_domain(row)
-        return resolved
+            raise HarborConflictError(f"graph conflict {conflict_id!r} is already resolved")
 
     @staticmethod
     def _to_domain(row: GraphConflictRow) -> GraphConflict:
