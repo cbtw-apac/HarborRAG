@@ -110,7 +110,7 @@ class RelationType(StrEnum):
 
 
 # The predicates a caller can usefully filter on. Offering the full enum in a tool schema
-# advertises nine predicates the projection never emits, so a filter on one of them
+# advertises eight predicates the projection never emits, so a filter on one of them
 # returns an empty result that is indistinguishable from a genuine miss. Reserved members
 # stay decodable on read; they are simply not selectable.
 PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (

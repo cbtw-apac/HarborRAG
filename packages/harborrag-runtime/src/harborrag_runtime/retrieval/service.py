@@ -285,6 +285,12 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 "record_kind": required_text(payload, "record_kind"),
                 "chunk_kind": required_text(payload, "chunk_kind"),
                 "connector_type": required_text(payload, "connector_type"),
+                # Where the hit sits, not just what it says. The payload has
+                # carried both since the projection was written; without them a
+                # caller can cite a chunk by id but cannot name the page and
+                # heading it came from.
+                "document_title": payload.get("document_title"),
+                "section_path": payload.get("section_path", []),
                 "citation_locator": payload.get("citation_locator", {}),
                 "quality_score": payload.get("quality_score"),
                 "retrieval_source": "qdrant-authoritative",

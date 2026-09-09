@@ -15,7 +15,7 @@ class ConfluenceChunkingStrategy:
     """Enrich canonical page units with Confluence structural identity."""
 
     name = "confluence"
-    version = "2"
+    version = "3"
     record_validator = staticmethod(validate_confluence_chunk)
 
     def __init__(self, token_counter: TokenCounter) -> None:
