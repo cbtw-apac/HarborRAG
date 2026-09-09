@@ -7,6 +7,7 @@ verified together, and only the verification records need both.
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -169,9 +170,25 @@ class GraphNodeRecord(StrictModel):
         }:
             for key in ("path", "relative_path", "parent_path", "parent_relative_path"):
                 value = self.attributes.get(key)
-                if isinstance(value, str) and value.startswith(("/", "\\")):
+                if isinstance(value, str) and _is_host_specific_path(value):
                     raise ValueError("local graph paths must be portable relative paths")
         return self
+
+
+def _is_host_specific_path(value: str) -> bool:
+    """Detect a path that names a location on one host rather than a document.
+
+    A leading separator is only one of the host-specific forms. Every Windows
+    drive form is host-specific too: ``C:\\repo`` and ``C:/repo`` are rooted, and
+    ``C:repo`` is relative to that drive's own working directory, so none of the
+    three resolve to the same file anywhere else.
+    """
+
+    return (
+        PurePosixPath(value).is_absolute()
+        or PureWindowsPath(value).is_absolute()
+        or bool(PureWindowsPath(value).drive)
+    )
 
 
 def _validate_ownership(

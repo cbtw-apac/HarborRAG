@@ -156,6 +156,68 @@ def test_table_fragments_keep_row_ranges_relative_to_data_rows() -> None:
     assert all(locator.column_count == 2 for locator in locators)
 
 
+def test_unsplit_table_row_range_counts_data_rows_not_lines() -> None:
+    """A whole table must count its rows the way its fragments do.
+
+    Without artifact-stamped dimensions the range falls back to the chunk's own
+    lines, whose first line is the header -- so counting lines claimed one data
+    row more than the table has, and a two-row table addressed rows 0 to 2.
+    """
+
+    profile = make_profile(target=40, maximum=60)
+    document = make_document([DocumentElement("table-1", "table", "A\tB\n11\t22\n33\t44\n")])
+
+    result = make_service(profile).chunk(make_request(document))
+
+    assert len(result.chunks) == 1
+    locator = result.chunks[0].table_locator
+    assert locator is not None
+    assert (locator.row_start, locator.row_end) == (0, 1)
+    assert locator.column_count == 2
+
+
+def test_table_fragment_citations_start_after_a_multi_line_prefix() -> None:
+    """A fragment must be cited where its rows are, not where the preamble is.
+
+    Row spans were measured from the start of the whole table unit even though
+    the rows handed to the splitter begin after the repeated preamble and header,
+    so every citation on a rendered table pointed at its caption.
+    """
+
+    prefix = "Table: Deploy Targets\n\nEnv\tHost\n"
+    rows = "prod\thost-1\ndev\thost-2\n"
+    document = make_document(
+        [
+            DocumentElement(
+                "table-1",
+                "table",
+                f"{prefix}{rows}",
+                metadata={
+                    "start_offset": 100,
+                    "end_offset": 100 + len(prefix) + len(rows),
+                    "start_line": 10,
+                    "table_prefix_lines": 3,
+                },
+            )
+        ]
+    )
+
+    result = make_service(make_profile(target=45, maximum=50)).chunk(make_request(document))
+
+    assert len(result.chunks) == 2
+    assert all(record.content.startswith(prefix) for record in result.chunks)
+    citations = [record.citation_locator for record in result.chunks]
+    assert [(citation.start_offset, citation.end_offset) for citation in citations] == [
+        (100 + len(prefix), 100 + len(prefix) + len("prod\thost-1\n")),
+        (100 + len(prefix) + len("prod\thost-1\n"), 100 + len(prefix) + len(rows)),
+    ]
+    # Three prefix lines, so the first data row is the fourth line of the table.
+    assert [(citation.start_line, citation.end_line) for citation in citations] == [
+        (13, 13),
+        (14, 14),
+    ]
+
+
 def test_canonical_identity_separates_logical_chunk_from_revision() -> None:
     profile = make_profile(target=12, maximum=12)
     service = make_service(profile)

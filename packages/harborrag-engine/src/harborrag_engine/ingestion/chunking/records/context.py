@@ -94,7 +94,11 @@ class ChunkContextBuilder:
         # segmentation. Counting tabs in rendered text is only a fallback for a
         # table that never resolved to an artifact, and it is wrong for any cell
         # whose own text contains a tab.
-        fallback_row_end = max(len(lines) - 1, 0)
+        #
+        # A row range indexes data rows, not lines: the first line of an
+        # artifact-less table is its header, so two data rows end at index 1.
+        # Header-only and empty content both fall back to 0.
+        fallback_row_end = max(len(lines) - 2, 0)
         fallback_columns = max((len(line.split("\t")) for line in lines), default=1)
         return TableChunkLocator(
             table_id=table_id,

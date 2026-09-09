@@ -229,7 +229,12 @@ def text_sequence(value: object) -> tuple[str, ...]:
 
 
 def portable_path(value: str) -> str:
-    normalized = value.replace("\\", "/").lstrip("/")
+    # A Windows drive prefix is as host-specific as a leading separator, and the
+    # graph node contract rejects both. Strip it here, the way the leading
+    # separator is already stripped, so a connector running on Windows produces
+    # the same portable path its POSIX counterpart does.
+    drive = value[:2] if len(value) > 1 and value[1] == ":" and value[0].isalpha() else ""
+    normalized = value[len(drive) :].replace("\\", "/").lstrip("/")
     parts = tuple(part for part in PurePosixPath(normalized).parts if part not in {"", "."})
     if not parts or ".." in parts:
         raise ValueError("provider graph path must be a portable relative path")

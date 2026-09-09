@@ -105,22 +105,30 @@ class TableRowSplitter:
         budget = max(
             profile.maximum_tokens - (self._token_counter.count(prefix) if prefix else 0), 1
         )
-        cursor = unit.source_span.start_offset or 0
+        # The rows handed in start after the prefix, but the unit's span starts at
+        # the whole table. Without this offset the first data row of a table with a
+        # multi-line preamble is cited at the preamble's own position. The drop
+        # branch above empties the prefix along with the rows it removed, so a
+        # table whose prefix was dropped offsets by nothing.
+        #
+        # A table rendered from its canonical artifact keeps the source span of the
+        # element it replaced, so its offsets stay approximate whatever this adds;
+        # the legacy tab-separated body, whose text *is* the element, becomes exact.
+        offset_characters = len(prefix)
+        offset_lines = len(prefix.splitlines())
+        cursor = (unit.source_span.start_offset or 0) + offset_characters
         for row_index, row in enumerate(rows):
             count = self._token_counter.count(row)
+            row_line = (
+                unit.source_span.start_line + offset_lines + row_index
+                if unit.source_span.start_line is not None
+                else None
+            )
             span = SourceSpan(
                 start_offset=cursor,
                 end_offset=cursor + len(row),
-                start_line=(
-                    unit.source_span.start_line + row_index
-                    if unit.source_span.start_line is not None
-                    else None
-                ),
-                end_line=(
-                    unit.source_span.start_line + row_index
-                    if unit.source_span.start_line is not None
-                    else None
-                ),
+                start_line=row_line,
+                end_line=row_line,
                 page_start=unit.source_span.page_start,
                 page_end=unit.source_span.page_end,
                 element_ids=unit.source_span.element_ids,

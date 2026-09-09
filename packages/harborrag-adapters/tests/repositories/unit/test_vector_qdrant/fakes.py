@@ -93,6 +93,8 @@ class ExtendedModels(FakeModels):
     class PayloadSchemaType(StrEnum):
         BOOL = "bool"
         KEYWORD = "keyword"
+        INTEGER = "integer"
+        FLOAT = "float"
 
 
 class ExtendedRawQdrant(FakeRawQdrant):
