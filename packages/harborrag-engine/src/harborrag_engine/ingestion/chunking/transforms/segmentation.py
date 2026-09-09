@@ -10,6 +10,7 @@ from harborrag_core.domain.element import DocumentElement
 
 from ..config import ChunkingProfile
 from ..schemas import ChunkUnit
+from .table_text import TableRenderContext, render_table_view
 
 _STRUCTURE_ONLY_ELEMENT_TYPES = frozenset({"heading"})
 
@@ -80,6 +81,55 @@ def element_span(element_id: str, content: str, metadata: Mapping[str, Any]) -> 
     )
 
 
+def _table_artifacts_by_key(document: Document) -> Mapping[str, Any]:
+    """Index table artifacts by both keys an element can be matched on.
+
+    Confluence stamps ``table_id`` onto the element; the source-neutral
+    normalizer stamps it too, but ``source_block_id`` is the artifact's own back
+    reference to the element and is the reliable fallback.
+    """
+
+    index: dict[str, Any] = {}
+    for artifact in document.table_artifacts:
+        index[artifact.table_id] = artifact
+        index.setdefault(artifact.source_block_id, artifact)
+    return index
+
+
+def _rendered_table(
+    element: DocumentElement,
+    *,
+    document: Document,
+    tables: Mapping[str, Any],
+    context: TableRenderContext,
+) -> tuple[str | None, Mapping[str, Any]]:
+    """Render a table element from its artifact, or leave the element unchanged.
+
+    The returned metadata carries the authoritative grid dimensions so neither
+    the row splitter nor the chunk's table locator has to re-derive them by
+    counting tabs in rendered text.
+    """
+
+    if element.type != "table" or not tables:
+        return None, {}
+    table_id = element.metadata.get("table_id")
+    artifact = tables.get(str(table_id)) if table_id is not None else None
+    if artifact is None:
+        artifact = tables.get(element.id)
+    if artifact is None:
+        return None, {}
+    view = render_table_view(artifact, context)
+    return view.content, {
+        "table_id": artifact.table_id,
+        "table_version_id": artifact.table_version_id,
+        "table_prefix_lines": view.prefix_line_count,
+        "table_rendered_row_count": view.row_count,
+        "row_start": 0,
+        "row_end": max(view.row_count - 1, 0),
+        "column_count": artifact.column_count,
+    }
+
+
 class DocumentStructureSegmenter:
     """Convert canonical elements into provenance-rich structural units."""
 
@@ -97,6 +147,7 @@ class DocumentStructureSegmenter:
         heading_ids: list[str] = []
         units: list[ChunkUnit] = []
         heading_level_offset = 0
+        tables = _table_artifacts_by_key(document)
 
         for element in document.content:
             content = element.content or ""
@@ -124,6 +175,23 @@ class DocumentStructureSegmenter:
             role = self._role(element, boundary_kind)
             anchor = self._anchor(element, boundary_kind, structural_path)
             merge_group = self._merge_group(element, role, structural_path)
+            # A table is rendered from its canonical artifact rather than from the
+            # tab-separated element body, so the chunk keeps its column names,
+            # caption, and grid. The source span still describes the original
+            # element, whose offsets the rendered text does not share.
+            rendered, table_metadata = _rendered_table(
+                element,
+                document=document,
+                tables=tables,
+                context=TableRenderContext(
+                    document_title=document.title,
+                    section_path=structural_path,
+                    table_total=len(document.table_artifacts),
+                    maximum_tokens=profile.maximum_tokens,
+                    count_tokens=self._token_counter.count,
+                ),
+            )
+            content = rendered or content
             token_count = self._token_counter.count(content)
             if token_count < 1:
                 continue
@@ -138,7 +206,11 @@ class DocumentStructureSegmenter:
                     token_count=token_count,
                     role=role,
                     structural_path=structural_path,
-                    source_span=element_span(element.id, content, element.metadata),
+                    source_span=element_span(
+                        element.id,
+                        element.content or "",
+                        element.metadata,
+                    ),
                     merge_group=merge_group,
                     boundary_kind=boundary_kind,
                     hard_boundary_before=hard_boundary,
@@ -147,6 +219,7 @@ class DocumentStructureSegmenter:
                         "element_type": element.type,
                         "heading_element_ids": tuple(heading_ids),
                         **element.metadata,
+                        **table_metadata,
                     },
                 )
             )

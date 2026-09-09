@@ -90,8 +90,16 @@ class ChunkContextBuilder:
         )
         supplied_version_id = candidate.metadata.get("table_version_id")
         lines = candidate.content.splitlines()
-        row_start = candidate.metadata.get("row_start", 0)
-        row_end = candidate.metadata.get("row_end", max(len(lines) - 1, 0))
+        # The canonical artifact's own dimensions, stamped on the unit during
+        # segmentation. Counting tabs in rendered text is only a fallback for a
+        # table that never resolved to an artifact, and it is wrong for any cell
+        # whose own text contains a tab.
+        #
+        # A row range indexes data rows, not lines: the first line of an
+        # artifact-less table is its header, so two data rows end at index 1.
+        # Header-only and empty content both fall back to 0.
+        fallback_row_end = max(len(lines) - 2, 0)
+        fallback_columns = max((len(line.split("\t")) for line in lines), default=1)
         return TableChunkLocator(
             table_id=table_id,
             table_version_id=(
@@ -103,10 +111,19 @@ class ChunkContextBuilder:
                     content_hash=content_hash,
                 )
             ),
-            row_start=row_start if isinstance(row_start, int) else 0,
-            row_end=row_end if isinstance(row_end, int) else max(len(lines) - 1, 0),
-            column_count=max((len(line.split("\t")) for line in lines), default=1),
+            row_start=self._positive_int(candidate.metadata.get("row_start"), 0),
+            row_end=self._positive_int(candidate.metadata.get("row_end"), fallback_row_end),
+            column_count=max(
+                self._positive_int(candidate.metadata.get("column_count"), fallback_columns),
+                1,
+            ),
         )
+
+    @staticmethod
+    def _positive_int(value: object, fallback: int) -> int:
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return fallback
 
     def _section_ancestry(
         self,

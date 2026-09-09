@@ -176,7 +176,14 @@ class StructuralGraphProjector:
         tables: dict[str, GraphNodeRecord],
         comments: dict[str, GraphNodeRecord],
     ) -> None:
-        """Link vector evidence IDs to their nearest graph structure."""
+        """Link vector evidence IDs to their nearest graph structure.
+
+        Evidence only, deliberately: a CHUNK node exists so a vector hit can be
+        walked back into the structure, and only evidence chunks are projected
+        into the vector index (``VectorProjectionBuilder.build`` keeps
+        ``RecordKind.EVIDENCE``). Giving a route chunk a node would put a key in
+        the graph that no retrieval result can ever cite.
+        """
 
         for chunk in self._chunks:
             if chunk.record_kind != RecordKind.EVIDENCE:
