@@ -13,10 +13,10 @@
     "build": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.5.0",
-    "typescript": "^5.7.0"
+    "openapi-typescript": "^7.4.0",
+    "typescript": "^5.6.0"
   },
   "overrides": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.3.2"
   }
 }

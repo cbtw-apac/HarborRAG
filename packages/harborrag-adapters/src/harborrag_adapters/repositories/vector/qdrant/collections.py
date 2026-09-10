@@ -17,6 +17,11 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     qm = None  # type: ignore[assignment]
 
+# Named by field rather than resolved from the value, because a payload index is
+# created against an empty collection: there is no value to infer a type from.
+_INTEGER_PAYLOAD_FIELDS = frozenset({"token_count"})
+_FLOAT_PAYLOAD_FIELDS = frozenset({"quality_score"})
+
 
 class QdrantCollectionMixin:
     """Create and validate tenant-scoped Qdrant collections."""
@@ -139,7 +144,18 @@ class QdrantCollectionMixin:
 
     @staticmethod
     def _payload_schema(field: str) -> Any:
-        del field
+        """Choose the index kind a payload field can actually be filtered with.
+
+        A keyword index answers equality and set membership only. Giving one to a
+        numeric field would leave every range filter on it doing a full scan while
+        still reporting the field as indexed, so the numeric fields are named here
+        even before anything asks to index them.
+        """
+
+        if field in _INTEGER_PAYLOAD_FIELDS:
+            return qm.PayloadSchemaType.INTEGER
+        if field in _FLOAT_PAYLOAD_FIELDS:
+            return qm.PayloadSchemaType.FLOAT
         return qm.PayloadSchemaType.KEYWORD
 
     @classmethod

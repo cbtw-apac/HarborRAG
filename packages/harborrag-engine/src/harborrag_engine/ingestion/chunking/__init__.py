@@ -84,7 +84,10 @@ __all__ = [
     "TableClassificationThresholds",
     "TableShape",
     "TableShapeClassifier",
+    "TableRenderContext",
+    "TableView",
     "UnknownChunkingStrategyError",
     "build_chunking_service",
+    "render_table_view",
     "default_chunking_profiles",
 ]
