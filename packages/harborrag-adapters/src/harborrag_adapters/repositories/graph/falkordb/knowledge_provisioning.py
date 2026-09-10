@@ -18,6 +18,10 @@ _INDEXED_PROPERTIES = (
     "node_key",
     "graph_schema_version",
     "entity_type",
+    # node_kind was written on every node and filtered by nothing: the per-kind
+    # label served kind scans, so the property had no index and no reader. Health
+    # and admin queries that want one kind can now use either.
+    "node_kind",
     "ownership_scope",
     "source_scope_id",
     "document_id",
