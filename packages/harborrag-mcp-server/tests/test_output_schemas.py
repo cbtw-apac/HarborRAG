@@ -167,20 +167,6 @@ def test_describe_graph_output_schema_rejects_an_unknown_entity_type_or_extra_ke
         _validator(entity_types_schema).validate({**valid_entry, "extra": True})
 
 
-def test_describe_graph_output_schema_rejects_a_non_empty_relationship_types_default() -> None:
-    defaults_schema = OUTPUT_SCHEMA["properties"]["defaults"]
-    path_defaults_schema = defaults_schema["properties"]["graph_path_search"]
-    valid = {
-        "relationship_types": [],
-        "max_depth": 4,
-        "max_paths": 10,
-        "direction": "both",
-    }
-    _validator(path_defaults_schema).validate(valid)
-    with pytest.raises(ValidationError):
-        _validator(path_defaults_schema).validate({**valid, "relationship_types": ["links_to"]})
-
-
 def test_server_rejects_a_registered_tool_with_no_output_schema() -> None:
     class UndocumentedTool(BaseMcpTool):
         spec = McpToolSpec("undocumented", "undocumented")

@@ -1,20 +1,17 @@
 """Strict, fully-nested output JSON Schema for ``describe_graph``.
 
 Split out of ``graph_catalog.py`` (which owns the catalog *data*: the enum-keyed
-meanings, topologies, workflows, and defaults) so each module stays focused: one
-builds the payload's content, this one describes its exact shape.
+meanings, topologies, and workflows) so each module stays focused: one builds
+the payload's content, this one describes its exact shape.
 """
 
 from __future__ import annotations
 
 from .graph_catalog import (
     CONNECTOR_TOPOLOGIES,
-    DIRECTION_VALUES,
     ENTITY_TYPE_MEANINGS,
-    EXECUTABLE_TOOL_NAMES,
     NODE_KIND_MEANINGS,
     RELATION_MEANINGS,
-    VECTOR_SEARCH_LANE_VALUES,
 )
 
 
@@ -35,17 +32,6 @@ def _named_entry_schema(name_values: list[str]) -> dict[str, object]:
         "additionalProperties": False,
     }
 
-
-_EMPTY_ARRAY_SCHEMA: dict[str, object] = {
-    "type": "array",
-    "items": {"type": "string"},
-    "maxItems": 0,
-}
-_EMPTY_OBJECT_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {},
-    "additionalProperties": False,
-}
 
 _CAPABILITIES_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -84,17 +70,6 @@ _SELECTOR_RULES_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
-_DIRECTION_SEMANTICS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["description", "accepted", "default"],
-    "properties": {
-        "description": {"type": "string", "minLength": 1},
-        "accepted": {"type": "array", "items": {"type": "string", "enum": DIRECTION_VALUES}},
-        "default": {"type": "string", "enum": DIRECTION_VALUES},
-    },
-    "additionalProperties": False,
-}
-
 _TOPOLOGY_ENTRY_SCHEMA: dict[str, object] = {
     "type": "object",
     "required": ["connector", "entity_chain"],
@@ -123,87 +98,6 @@ _WORKFLOW_ENTRY_SCHEMA: dict[str, object] = {
     "additionalProperties": False,
 }
 
-_VECTOR_SEARCH_DEFAULTS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["top_k", "lane", "filters", "observe_graph", "score_threshold"],
-    "properties": {
-        "top_k": {"type": "integer"},
-        "lane": {"type": "string", "enum": VECTOR_SEARCH_LANE_VALUES},
-        "filters": _EMPTY_OBJECT_SCHEMA,
-        "observe_graph": {"type": "boolean"},
-        "score_threshold": {"type": "number"},
-    },
-    "additionalProperties": False,
-}
-_GRAPH_TRIPLET_DEFAULTS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["limit"],
-    "properties": {"limit": {"type": "integer"}},
-    "additionalProperties": False,
-}
-_GRAPH_PATH_DEFAULTS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["relationship_types", "max_depth", "max_paths", "direction"],
-    "properties": {
-        "relationship_types": _EMPTY_ARRAY_SCHEMA,
-        "max_depth": {"type": "integer"},
-        "max_paths": {"type": "integer"},
-        "direction": {"type": "string", "enum": DIRECTION_VALUES},
-    },
-    "additionalProperties": False,
-}
-_GRAPH_SUBGRAPH_DEFAULTS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["relationship_types", "max_depth", "max_nodes", "direction"],
-    "properties": {
-        "relationship_types": _EMPTY_ARRAY_SCHEMA,
-        "max_depth": {"type": "integer"},
-        "max_nodes": {"type": "integer"},
-        "direction": {"type": "string", "enum": DIRECTION_VALUES},
-    },
-    "additionalProperties": False,
-}
-_DEFAULTS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    # No top-level `required` here: a `for_tool`-narrowed response includes only
-    # that one tool's defaults, not all four -- see OUTPUT_SCHEMA's own `required`
-    # for what every response (narrowed or not) is guaranteed to carry.
-    "properties": {
-        "vector_search": _VECTOR_SEARCH_DEFAULTS_SCHEMA,
-        "graph_triplet_search": _GRAPH_TRIPLET_DEFAULTS_SCHEMA,
-        "graph_path_search": _GRAPH_PATH_DEFAULTS_SCHEMA,
-        "graph_subgraph_search": _GRAPH_SUBGRAPH_DEFAULTS_SCHEMA,
-    },
-    "additionalProperties": False,
-}
-
-_ARGUMENT_CONSTRAINT_ENTRY_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["required", "at_least_one_of"],
-    "properties": {
-        "required": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "at_least_one_of": {
-            "type": "array",
-            "items": {
-                "type": "array",
-                "items": {"type": "string", "minLength": 1},
-                "minItems": 1,
-            },
-        },
-    },
-    "additionalProperties": False,
-}
-_ARGUMENT_CONSTRAINTS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "vector_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
-        "graph_triplet_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
-        "graph_path_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
-        "graph_subgraph_search": _ARGUMENT_CONSTRAINT_ENTRY_SCHEMA,
-    },
-    "additionalProperties": False,
-}
-
 _LIMITS_SCHEMA: dict[str, object] = {
     "type": "object",
     "required": ["maximum_depth", "maximum_results"],
@@ -216,18 +110,25 @@ _LIMITS_SCHEMA: dict[str, object] = {
 
 OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
-    # Only the sections every response -- narrowed by `for_tool` or not -- always
-    # carries are required. The orientation sections (node_kinds, entity_types,
-    # relation_types, direction_semantics, topologies, workflows) and defaults are
-    # present when relevant; see graph_catalog.describe_graph_payload for exactly
-    # which sections a `for_tool`-narrowed response keeps.
-    "required": ["ok", "graph_schema_version", "capabilities", "selector_rules", "limits"],
+    # describe_graph always returns the full, unfiltered catalog, so every section is
+    # required.
+    "required": [
+        "ok",
+        "graph_schema_version",
+        "capabilities",
+        "selector_rules",
+        "node_kinds",
+        "entity_types",
+        "relation_types",
+        "topologies",
+        "workflows",
+        "limits",
+    ],
     "properties": {
         "ok": {"const": True},
         "graph_schema_version": {"type": "string", "minLength": 1},
         "capabilities": _CAPABILITIES_SCHEMA,
         "selector_rules": _SELECTOR_RULES_SCHEMA,
-        "requested_for_tool": {"type": "string", "enum": list(EXECUTABLE_TOOL_NAMES)},
         "node_kinds": {
             "type": "array",
             "items": _named_entry_schema([kind.value for kind in NODE_KIND_MEANINGS]),
@@ -240,11 +141,8 @@ OUTPUT_SCHEMA: dict[str, object] = {
             "type": "array",
             "items": _named_entry_schema([relation.value for relation in RELATION_MEANINGS]),
         },
-        "direction_semantics": _DIRECTION_SEMANTICS_SCHEMA,
         "topologies": {"type": "array", "items": _TOPOLOGY_ENTRY_SCHEMA},
         "workflows": {"type": "array", "items": _WORKFLOW_ENTRY_SCHEMA},
-        "defaults": _DEFAULTS_SCHEMA,
-        "argument_constraints": _ARGUMENT_CONSTRAINTS_SCHEMA,
         "limits": _LIMITS_SCHEMA,
     },
     "additionalProperties": False,
