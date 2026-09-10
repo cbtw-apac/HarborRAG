@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.models.chat import (
@@ -14,7 +15,12 @@ from harborrag_core.models.chat import (
     HarborToolCall,
     HarborToolCallFunction,
 )
-from harborrag_core.ports.agent_runs import AgentCheckpoint, AgentRunIdentity
+from harborrag_core.ports.agent_runs import AgentCheckpoint, AgentRunIdentity, AgentRunStatus
+from harborrag_core.ports.conversation import (
+    ConversationIdentity,
+    ConversationMessage,
+    ConversationTurn,
+)
 
 
 @dataclass(frozen=True)
@@ -58,18 +64,62 @@ class Tools:
         return {"ok": True, "results": [{"text": f"result from {name}"}]}
 
 
+class SlowTools(Tools):
+    """Every tool call sleeps past the run's deadline (drives the gather timeout)."""
+
+    def __init__(self, *, delay: float) -> None:
+        super().__init__()
+        self._delay = delay
+
+    async def call_tool(self, name, arguments=None, *, principal_id="in-process"):
+        await asyncio.sleep(self._delay)
+        return await super().call_tool(name, arguments, principal_id=principal_id)
+
+
+class RaisingChat:
+    """Every call raises ``error`` (drives the FAILED checkpoint path)."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    async def complete(self, request):
+        del request
+        raise self._error
+
+
 class Memory:
+    """Conversation-memory fake: per-message writes, turn-level reads."""
+
     def __init__(self) -> None:
-        self.turns = {}
+        self.messages: dict[ConversationIdentity, tuple[ConversationMessage, ...]] = {}
+
+    @property
+    def turns(self) -> dict[ConversationIdentity, tuple[ConversationTurn, ...]]:
+        return {identity: _pair_turns(messages) for identity, messages in self.messages.items()}
 
     async def recent(self, identity, *, limit=2):
-        return self.turns.get(identity, ())[-limit:]
+        return _pair_turns(self.messages.get(identity, ()))[-limit:]
 
-    async def append(self, identity, turn):
-        self.turns[identity] = (*self.turns.get(identity, ()), turn)
+    async def recent_messages(self, identity, *, limit):
+        return self.messages.get(identity, ())[-limit:]
+
+    async def append_messages(self, identity, messages):
+        self.messages[identity] = (*self.messages.get(identity, ()), *messages)
 
     async def clear(self, identity):
-        self.turns.pop(identity, None)
+        self.messages.pop(identity, None)
+
+
+def _pair_turns(messages: tuple[ConversationMessage, ...]) -> tuple[ConversationTurn, ...]:
+    turns: list[ConversationTurn] = []
+    pending_user: str | None = None
+    for message in messages:
+        if message.role == "user":
+            pending_user = message.content
+        elif message.role == "assistant" and pending_user is not None:
+            turns.append(ConversationTurn(pending_user, message.content))
+            pending_user = None
+    return tuple(turns)
 
 
 class Chat:
@@ -131,13 +181,44 @@ class Runs:
         if checkpoint is None:
             return None
         owner = checkpoint.identity
-        if (owner.tenant_id, owner.principal_id, owner.session_id) != (
+        # Mirrors the SQL predicate: user-scoped, principal ignored.
+        if (owner.tenant_id, owner.user_id, owner.session_id) != (
             identity.tenant_id,
-            identity.principal_id,
+            identity.user_id,
             identity.session_id,
         ):
             return None
         return checkpoint
+
+
+def checkpoint(  # noqa: PLR0913 - test builder exposes every field a scenario may pin
+    identity: AgentRunIdentity,
+    *,
+    status: AgentRunStatus = AgentRunStatus.RUNNING,
+    step: int = 1,
+    version: int = 2,
+    messages: tuple[HarborChatMessage, ...] = (HarborChatMessage.user("question"),),
+    failure_retryable: bool = False,
+    lease_owner: str | None = None,
+    lease_expires_at: datetime | None = None,
+) -> AgentCheckpoint:
+    now = datetime.now(UTC)
+    return AgentCheckpoint(
+        identity=identity,
+        status=status,
+        step=step,
+        version=version,
+        messages=messages,
+        executions=(),
+        usage=HarborChatUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        stop_reason=None,
+        response=None,
+        created_at=now,
+        updated_at=now,
+        failure_retryable=failure_retryable,
+        lease_owner=lease_owner,
+        lease_expires_at=lease_expires_at,
+    )
 
 
 def response(*, call: tuple[str, str, str] | None = None, text: str = "answer"):

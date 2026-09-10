@@ -90,6 +90,12 @@ class RetrievalRequest:
     filters: dict[str, object] = field(default_factory=dict)
     lane: RetrievalLane = RetrievalLane.HYBRID
     observe_graph: bool = False
+    # Graph nodes to *also* start observation from, beyond the ones the vector
+    # results sit on -- the entities a caller already knows are relevant, such
+    # as the ones this session's recalled memories reference. Kept last with a
+    # default so every existing caller is unaffected, and only read when
+    # ``observe_graph`` is on, since it is the graph walk it widens.
+    graph_seed_node_keys: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.query.strip():
@@ -141,3 +147,13 @@ class GraphSubgraphResponse:
     nodes: tuple[GraphNodeRecord, ...]
     relations: tuple[GraphEdgeRecord, ...]
     diagnostics: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryContextRequest:
+    tenant_id: str
+    principal_id: str
+    user_id: str
+    session_id: str
+    question: str
+    project_id: str | None = None

@@ -3,11 +3,14 @@
 ``search``'s scope filter is built from ``scope_owner_fields`` -- the same
 function ``harborrag_core.ports.memory.visible_to`` uses -- so the SQL
 predicate and the pure in-memory predicate can never silently drift apart.
+The validity filter likewise mirrors ``Memory.is_valid_at``.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -29,12 +32,24 @@ from harborrag_core.ports.memory import (
 _ALL_SCOPES = tuple(MemoryScope)
 
 
+def _ids_json(ids: tuple[str, ...]) -> str | None:
+    return json.dumps(list(ids)) if ids else None
+
+
+def _ids_from_json(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    loaded = json.loads(value)
+    return tuple(str(item) for item in loaded)
+
+
 def _row_values(memory: Memory) -> dict[str, Any]:
     return {
         "scope": memory.scope.value,
         "memory_type": memory.memory_type.value,
         "tenant_id": memory.owner.tenant_id,
         "project_id": memory.owner.project_id,
+        "user_id": memory.owner.user_id,
         "principal_id": memory.owner.principal_id,
         "session_id": memory.owner.session_id,
         "run_id": memory.owner.run_id,
@@ -44,6 +59,13 @@ def _row_values(memory: Memory) -> dict[str, Any]:
         "created_at": memory.created_at,
         "updated_at": memory.updated_at,
         "expires_at": memory.expires_at,
+        "valid_from": memory.valid_from,
+        "invalid_at": memory.invalid_at,
+        "superseded_by": memory.superseded_by,
+        "source_session_id": memory.source_session_id,
+        "source_message_ids_json": _ids_json(memory.source_message_ids),
+        "entity_ids_json": _ids_json(memory.entity_ids),
+        "content_hash": memory.content_hash,
     }
 
 
@@ -55,6 +77,7 @@ def _row_to_memory(row: MemoryRow) -> Memory:
         owner=MemoryOwner(
             tenant_id=row.tenant_id,
             project_id=row.project_id,
+            user_id=row.user_id,
             principal_id=row.principal_id,
             session_id=row.session_id,
             run_id=row.run_id,
@@ -65,6 +88,13 @@ def _row_to_memory(row: MemoryRow) -> Memory:
         created_at=row.created_at,
         updated_at=row.updated_at,
         expires_at=row.expires_at,
+        valid_from=row.valid_from,
+        invalid_at=row.invalid_at,
+        superseded_by=row.superseded_by,
+        source_session_id=row.source_session_id,
+        source_message_ids=_ids_from_json(row.source_message_ids_json),
+        entity_ids=_ids_from_json(row.entity_ids_json),
+        content_hash=row.content_hash,
     )
 
 
@@ -88,6 +118,18 @@ def _scope_condition(scope: MemoryScope, caller: MemoryOwner) -> sa.ColumnElemen
 def _visibility_filter(query: MemoryQuery) -> sa.ColumnElement[bool]:
     scopes = query.scopes or _ALL_SCOPES
     return sa.or_(*(_scope_condition(scope, query.owner) for scope in scopes))
+
+
+def _validity_filter(query: MemoryQuery, now: datetime) -> sa.ColumnElement[bool]:
+    """SQL twin of ``Memory.is_valid_at`` at ``as_of`` (default: now)."""
+
+    if query.include_invalid:
+        return sa.true()
+    instant = query.as_of or now
+    return sa.and_(
+        sa.or_(MemoryRow.valid_from.is_(None), MemoryRow.valid_from <= instant),
+        sa.or_(MemoryRow.invalid_at.is_(None), MemoryRow.invalid_at > instant),
+    )
 
 
 @dataclass(slots=True)
@@ -127,6 +169,7 @@ class SqlMemoryRepository:
         statement = sa.select(MemoryRow).where(
             _visibility_filter(query),
             sa.or_(MemoryRow.expires_at.is_(None), MemoryRow.expires_at > now),
+            _validity_filter(query, now),
         )
         if query.memory_types:
             statement = statement.where(
@@ -134,8 +177,12 @@ class SqlMemoryRepository:
             )
         if query.text:
             statement = statement.where(MemoryRow.content.icontains(query.text))
+        # Deterministic total order: memory_id breaks importance/created_at
+        # ties so a limited page never depends on storage order.
         statement = statement.order_by(
-            MemoryRow.importance.desc(), MemoryRow.created_at.desc()
+            MemoryRow.importance.desc(),
+            MemoryRow.created_at.desc(),
+            MemoryRow.memory_id.asc(),
         ).limit(query.limit)
         async with self.sessions() as session:
             rows = list(await session.scalars(statement))

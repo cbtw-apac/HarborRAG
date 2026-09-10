@@ -17,6 +17,7 @@ class AgentCompletionService(Protocol):
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> AppResponse: ...
 
     async def agent_session_exists(
@@ -25,7 +26,10 @@ class AgentCompletionService(Protocol):
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> bool: ...
+
+    async def validate_agent_model(self, model: str | None, *, tenant_id: str) -> None: ...
 
     async def agent_completion(
         self,

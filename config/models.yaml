@@ -22,6 +22,21 @@ chat:
             structured_output: true
             json_mode: true
             tools: true
+    # Optional: a cheaper model for the conversation-memory layer (query
+    # rewriting, fact extraction, session summaries). Uncomment together with
+    # the HARBOR_MEMORY_* variables in env/.env.models. While this is absent,
+    # HARBORRAG_MEMORY_MODEL_PROFILE falls back to the default chat model.
+    # memory:
+    #   deployments:
+    #     - name: openai-memory
+    #       provider: ${HARBOR_MEMORY_PROVIDER}
+    #       model: ${HARBOR_MEMORY_MODEL}
+    #       api_key: ${HARBOR_MEMORY_API_KEY}
+    #       capabilities:
+    #         streaming: false
+    #         structured_output: true
+    #         json_mode: true
+    #         tools: false
 
 embed:
   default_model: primary

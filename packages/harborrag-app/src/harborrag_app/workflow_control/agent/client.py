@@ -19,10 +19,15 @@ class AgentClientMixin:
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> AppResponse:
+        """``user_id`` owns the new conversation and defaults to the principal."""
+
         return await self._sessions.create(
             tenant_id=tenant_id,
             principal_id=principal_id,
+            kind="agent",
+            user_id=user_id,
         )
 
     async def agent_session_exists(
@@ -31,12 +36,20 @@ class AgentClientMixin:
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> bool:
         return await self._sessions.exists(
             session_id,
             tenant_id=tenant_id,
             principal_id=principal_id,
+            kind="agent",
+            user_id=user_id,
         )
+
+    async def validate_agent_model(self, model: str | None, *, tenant_id: str) -> None:
+        """Raise ``HarborValidationError`` unless this tenant may use ``model``."""
+
+        await self._agent.validate_model(model, tenant_id=tenant_id)
 
     async def agent_completion(
         self,

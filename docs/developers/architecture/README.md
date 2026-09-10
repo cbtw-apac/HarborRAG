@@ -20,6 +20,7 @@ These rules are more important than any individual provider choice:
 - Retrieval validates candidate versions against PostgreSQL before returning evidence.
 - Every data-plane operation carries tenant and principal context to the storage boundary.
 - Provider SDK types stop at adapters; core contracts and engine policy remain provider-neutral.
+- Provider-neutral means no LLM-provider SDK, not no framework: `harborrag-memory` depends on `langchain-core` and `langgraph` for message, store, and trimming primitives, and receives the chat model as an injected `BaseChatModel` whose LiteLLM-backed implementation lives in adapters.
 - Temporal coordinates durable ingestion. Retrieval remains a direct, latency-sensitive path.
 
 ## Active package map

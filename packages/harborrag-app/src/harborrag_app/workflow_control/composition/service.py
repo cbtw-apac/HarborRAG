@@ -27,7 +27,19 @@ from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
 from ..ingestion.temporal import TemporalIngestionOperations
-from ..memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
+from ..memory import (
+    ConversationDirectoryService,
+    ConversationSessionService,
+    MemoryAdminClientMixin,
+    MemoryAdministrationService,
+    MemoryExtractionQueue,
+    agent_run_checkpoints,
+    conversation_memory,
+    long_term_memories,
+    long_term_memory_index,
+    model_usage_records,
+    project_lookup,
+)
 from ..ports import BaseAppService
 from ..retrieval.client import RetrievalClientMixin
 from ..retrieval.graph import GraphRetrievalService
@@ -43,6 +55,7 @@ class AppService(
     ControlPlaneWritesMixin,
     AgentClientMixin,
     ChatClientMixin,
+    MemoryAdminClientMixin,
     PublicIngestionClientMixin,
     RetrievalClientMixin,
     BaseAppService,
@@ -68,6 +81,7 @@ class AppService(
             self._settings,
             runtime_config=self._runtime_config,
             factories=selected,
+            composition=composition,
         )
         self._public_ingestions = IngestionApplicationService(
             self._settings,
@@ -76,16 +90,43 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         memory = conversation_memory(self._composition)
+        memories = long_term_memories(self._composition)
+        index = long_term_memory_index(self._composition)
+        runs = agent_run_checkpoints(self._composition)
+        projects = project_lookup(self._composition)
+        usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
+        # Extraction costs a model call, so it runs off the request path; the
+        # API lifespan starts and drains the pool (the CLI never starts it).
+        self._extraction: MemoryExtractionQueue | None = MemoryExtractionQueue(
+            runtime_provider=self._resources.runtime_sdk,
+            memories=memories,
+            index=index,
+        )
+        self._memory_admin = MemoryAdministrationService(
+            conversations=memory, memories=memories, index=index, runs=runs
+        )
+        self._conversation_directory = ConversationDirectoryService(memory, self._memory_admin)
         self._chat = ChatApplicationService(
             self._resources.runtime_sdk,
             self._settings,
             memory=memory,
+            projects=projects,
+            memories=memories,
+            index=index,
+            extraction=self._extraction,
+            usage=usage,
         )
         self._agent = AgentApplicationService(
             self._resources.runtime_sdk,
             memory=memory,
-            runs=agent_run_checkpoints(self._composition),
+            runs=runs,
+            projects=projects,
+            memories=memories,
+            index=index,
+            extraction=self._extraction,
+            memory_tools=self._settings.memory_agent_tools,
+            usage=usage,
         )
         self._graph = GraphRetrievalService(self._resources.runtime_sdk)
         self._temporal = TemporalIngestionOperations(
@@ -298,6 +339,9 @@ class AppService(
 
     async def aclose(self) -> None:
         try:
-            await self._resources.aclose()
+            await self.drain_memory_extraction()
         finally:
-            await self._composition.aclose()
+            try:
+                await self._resources.aclose()
+            finally:
+                await self._composition.aclose()

@@ -256,7 +256,7 @@ class ChatStreamExecution:
         deployment: HarborChatProviderConfig,
         request: HarborChatRequest,
     ) -> dict[str, Any]:
-        validate_chat_request(request, self.config, deployment)
+        validate_chat_request(request, self.config, deployment, streaming=True)
         override = (
             router_model_name(logical, deployment.name)
             if self.config.routing.engine is RoutingEngine.LITELLM_ROUTER

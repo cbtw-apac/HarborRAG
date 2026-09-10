@@ -8,7 +8,14 @@ from .embed import EmbeddingPurpose
 
 
 class HarborChatCapabilities(StrictModel):
-    """Describe stable chat capabilities for one concrete deployment."""
+    """Describe stable chat capabilities for one concrete deployment.
+
+    ``reasoning`` and ``reasoning_content`` are distinct: ``reasoning`` declares
+    that the deployment accepts reasoning controls on the request
+    (``reasoning_effort`` / thinking parameters), while ``reasoning_content``
+    declares that the deployment returns reasoning text alongside the answer.
+    A model may support either one without the other.
+    """
 
     chat: bool = True
     streaming: bool = True
@@ -18,6 +25,7 @@ class HarborChatCapabilities(StrictModel):
     json_mode: bool = False
     multimodal: bool = False
     audio_input: bool = False
+    reasoning: bool = False
     reasoning_content: bool = False
 
 

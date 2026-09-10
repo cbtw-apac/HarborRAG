@@ -55,7 +55,7 @@ Keep changes focused. Do not combine generated files, broad formatting, or unrel
 | --- | --- |
 | `harborrag-core` | Provider-neutral domain objects, shared schemas, model contracts, errors, and security helpers |
 | `harborrag-adapters` | External connectors, parsers, model transports, repository providers, and provider validation |
-| `harborrag-memory` | Provider-neutral conversation-memory contracts and policies |
+| `harborrag-memory` | Conversation-memory policy on LangChain primitives; provider-neutral (no LLM-provider SDKs: the model arrives as a `BaseChatModel`) |
 | `harborrag-engine` | Pure ingestion transformations, representation/projection mapping, retrieval, and evidence orchestration |
 | `harborrag-runtime` | Configuration loading, composition, jobs, supervision, schedules, and durable-workflow boundaries |
 | `harborrag-app` | Application services, CLI commands, and HTTP controllers |

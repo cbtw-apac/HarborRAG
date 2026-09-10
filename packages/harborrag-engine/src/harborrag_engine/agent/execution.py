@@ -19,7 +19,11 @@ from harborrag_core.models.chat import (
     HarborToolCall,
 )
 from harborrag_core.ports.agent_runs import AgentToolExecution
-from harborrag_engine.conversation import ConversationIdentity, ConversationMemory, ConversationTurn
+from harborrag_engine.conversation import (
+    ConversationIdentity,
+    ConversationMemory,
+    run_exchange_messages,
+)
 
 from .guard import ExecutionGuard, digest_arguments
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
@@ -74,6 +78,7 @@ class ChatAndToolExecutor:
             max_completion_tokens=completion_token_limit,
             metadata=HarborChatMetadata(
                 tenant_id=options.tenant_id,
+                user_id=options.owner_id,
                 conversation_id=options.session_id,
             ),
             sensitive=True,
@@ -108,17 +113,26 @@ class ChatAndToolExecutor:
         self,
         identity: ConversationIdentity | None,
         current_user_message: HarborChatMessage | None,
-        response_text: str,
+        final_response: HarborChatResponse,
+        *,
+        run_id: str,
     ) -> None:
+        """Persist the run's question and final answer as two history messages."""
+
         if (
             self._memory is not None
             and identity is not None
             and current_user_message is not None
             and isinstance(current_user_message.content, str)
         ):
-            await self._memory.append(
+            await self._memory.append_messages(
                 identity,
-                ConversationTurn(current_user_message.content, response_text),
+                run_exchange_messages(
+                    current_user_message.content,
+                    final_response.text,
+                    run_id=run_id,
+                    completion_tokens=final_response.usage.completion_tokens,
+                ),
             )
 
     async def _execute(

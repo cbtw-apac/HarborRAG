@@ -76,7 +76,7 @@ class AsyncHarborChatClient(
     ) -> AsyncIterator[HarborChatStreamChunk]:
         """Yield normalized asynchronous stream events with pre-event failover."""
 
-        logical, prepared, alias = self._prepare(messages, request, model, kwargs)
+        logical, prepared, alias = self._prepare(messages, request, model, kwargs, streaming=True)
         return self._stream_execution.astream(
             logical,
             prepared,

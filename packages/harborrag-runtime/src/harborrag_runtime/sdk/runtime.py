@@ -12,7 +12,7 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse, HarborChatStreamChunk
 from harborrag_engine.retrieval import RetrievalLane
 
-from ..chat import ChatFacade, ChatPrompt, RuntimeChatService
+from ..chat import ChatFacade, ChatPrompt, RuntimeChatService, TenantModelSources
 from ..contracts import (
     ExecutionMode,
     GraphPathRequest,
@@ -30,6 +30,8 @@ from ..contracts import (
 )
 from ..execution import IngestionExecutor, build_ingestion_executor
 from ..execution.contracts import DurableIngestionExecutor
+from ..memory.context_service import RuntimeMemoryContextService
+from ..memory.facade import MemoryFacade
 from .configuration import HarborRAGConfig
 from .facades import GraphFacade, IngestionFacade, RetrievalFacade
 
@@ -46,9 +48,18 @@ class HarborRAG:
         self.ingestion = IngestionFacade(self)
         self.retrieval = RetrievalFacade(self)
         self.graph = GraphFacade(self)
+        self.memory = MemoryFacade(self)
         self._executor: IngestionExecutor | None = None
         self._retrieval: RuntimeRetrievalService | None = None
         self._chat_runtime = RuntimeChatService(config.runtime)
+        # The memory layer borrows retrieval lazily so entity anchoring can read
+        # the tenant's knowledge graph without opening a graph client for
+        # deployments that never resolve a mention.
+        self._memory_runtime = RuntimeMemoryContextService(
+            config.runtime,
+            retrieval_provider=self._retrieval_service,
+            index_provider=self._retrieval_service,
+        )
         self._retrieval_lock = asyncio.Lock()
 
     @classmethod
@@ -124,6 +135,20 @@ class HarborRAG:
                 self._retrieval = await connect_retrieval_service(self.config.runtime)
         return self._retrieval
 
+    def configure_tenant_models(self, sources: TenantModelSources) -> None:
+        """Let chat resolve each tenant's own models, once, at composition.
+
+        Optional by construction: the SDK is built from settings alone, so a
+        deployment that wires no control plane -- or has per-tenant catalogs
+        switched off -- never calls this and keeps the single process-wide
+        chat client it has always had.
+        """
+
+        self._chat_runtime.configure_tenant_models(sources)
+
+    async def _chat_validate_model(self, model: str | None, *, tenant_id: str | None) -> None:
+        await self._chat_runtime.validate_model(model, tenant_id=tenant_id)
+
     async def _chat_complete(
         self,
         request: HarborChatRequest,
@@ -131,6 +156,9 @@ class HarborRAG:
         prompt: ChatPrompt | None = None,
     ) -> HarborChatResponse:
         return await self._chat_runtime.complete(request, prompt=prompt)
+
+    def _memory_context_service(self) -> RuntimeMemoryContextService:
+        return self._memory_runtime
 
     def _chat_stream(
         self,
@@ -143,6 +171,7 @@ class HarborRAG:
     async def aclose(self) -> None:
         close_operations = []
         close_operations.append(self._chat_runtime.aclose())
+        close_operations.append(self._memory_runtime.aclose())
         if self._retrieval is not None:
             close_operations.append(self._retrieval.aclose())
             self._retrieval = None

@@ -40,6 +40,9 @@ def _checkpoint(  # noqa: PLR0913 - test helper covers every checkpoint field ex
     status: AgentRunStatus = AgentRunStatus.RUNNING,
     stop_reason: AgentStopReason | None = None,
     response: HarborChatResponse | None = None,
+    failure_retryable: bool = False,
+    lease_owner: str | None = None,
+    lease_expires_at: datetime | None = None,
 ) -> AgentCheckpoint:
     now = datetime.now(UTC)
     return AgentCheckpoint(
@@ -62,6 +65,9 @@ def _checkpoint(  # noqa: PLR0913 - test helper covers every checkpoint field ex
         response=response,
         created_at=now,
         updated_at=now,
+        failure_retryable=failure_retryable,
+        lease_owner=lease_owner,
+        lease_expires_at=lease_expires_at,
     )
 
 
@@ -74,10 +80,10 @@ async def test_agent_run_create_and_get_round_trip(tmp_path: Path) -> None:
     sessions = create_session_factory(engine)
     try:
         await SqlConversationMemoryRepository(sessions).create(
-            ConversationIdentity("ACME", "reader-1", "session-1")
+            ConversationIdentity("ACME", "reader-1", "session-1", "user-1")
         )
         repo = SqlAgentRunRepository(sessions)
-        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
         checkpoint = _checkpoint(identity, version=1, step=0)
 
         await repo.create(checkpoint)
@@ -92,6 +98,9 @@ async def test_agent_run_create_and_get_round_trip(tmp_path: Path) -> None:
         assert loaded.usage == checkpoint.usage
         assert loaded.stop_reason is None
         assert loaded.response is None
+        assert loaded.failure_retryable is False
+        assert loaded.lease_owner is None
+        assert loaded.lease_expires_at is None
     finally:
         await engine.dispose()
 
@@ -105,10 +114,10 @@ async def test_agent_run_save_step_advances_version_and_state(tmp_path: Path) ->
     sessions = create_session_factory(engine)
     try:
         await SqlConversationMemoryRepository(sessions).create(
-            ConversationIdentity("ACME", "reader-1", "session-1")
+            ConversationIdentity("ACME", "reader-1", "session-1", "user-1")
         )
         repo = SqlAgentRunRepository(sessions)
-        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
         await repo.create(_checkpoint(identity, version=1, step=0))
 
         response = HarborChatResponse(
@@ -153,10 +162,10 @@ async def test_agent_run_save_step_rejects_stale_version(tmp_path: Path) -> None
     sessions = create_session_factory(engine)
     try:
         await SqlConversationMemoryRepository(sessions).create(
-            ConversationIdentity("ACME", "reader-1", "session-1")
+            ConversationIdentity("ACME", "reader-1", "session-1", "user-1")
         )
         repo = SqlAgentRunRepository(sessions)
-        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
         await repo.create(_checkpoint(identity, version=1, step=0))
         await repo.save_step(_checkpoint(identity, version=2, step=1))
 
@@ -180,26 +189,29 @@ async def test_agent_run_save_step_rejects_mismatched_identity_even_with_correct
 ) -> None:
     """save_step used to filter only by run_id + version, unlike get()'s full
     identity scoping -- a caller that knew a run_id and the correct next
-    version, but got tenant/principal/session wrong, could still advance
+    version, but got tenant/user/session wrong, could still advance
     (or be blocked from advancing) someone else's run. Every mismatched
     field must behave exactly like a stale/unknown run: HarborConflictError,
-    with the original row left untouched."""
+    with the original row left untouched. ``principal_id`` is deliberately
+    absent from that list: it is audit only, so the same human acting through
+    a second credential still advances their own run (see
+    test_agent_run_user_ownership.py)."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
     engine = create_control_plane_engine(dsn)
     sessions = create_session_factory(engine)
     try:
         await SqlConversationMemoryRepository(sessions).create(
-            ConversationIdentity("ACME", "reader-1", "session-1")
+            ConversationIdentity("ACME", "reader-1", "session-1", "user-1")
         )
         repo = SqlAgentRunRepository(sessions)
-        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
         await repo.create(_checkpoint(identity, version=1, step=0))
 
         for mismatched in (
-            AgentRunIdentity("OTHER", "reader-1", "session-1", "run-1"),
-            AgentRunIdentity("ACME", "reader-2", "session-1", "run-1"),
-            AgentRunIdentity("ACME", "reader-1", "session-2", "run-1"),
+            AgentRunIdentity("OTHER", "reader-1", "session-1", "run-1", "user-1"),
+            AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-2"),
+            AgentRunIdentity("ACME", "reader-1", "session-2", "run-1", "user-1"),
         ):
             with pytest.raises(HarborConflictError):
                 await repo.save_step(_checkpoint(mismatched, version=2, step=1))
@@ -221,17 +233,82 @@ async def test_agent_run_get_is_scoped_to_full_identity(tmp_path: Path) -> None:
     sessions = create_session_factory(engine)
     try:
         await SqlConversationMemoryRepository(sessions).create(
-            ConversationIdentity("ACME", "reader-1", "session-1")
+            ConversationIdentity("ACME", "reader-1", "session-1", "user-1")
         )
         repo = SqlAgentRunRepository(sessions)
-        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
         await repo.create(_checkpoint(identity, version=1, step=0))
 
         assert (
-            await repo.get(AgentRunIdentity("ACME", "reader-1", "session-1", "run-1")) is not None
+            await repo.get(AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1"))
+            is not None
         )
-        assert await repo.get(AgentRunIdentity("OTHER", "reader-1", "session-1", "run-1")) is None
-        assert await repo.get(AgentRunIdentity("ACME", "reader-2", "session-1", "run-1")) is None
-        assert await repo.get(AgentRunIdentity("ACME", "reader-1", "session-1", "missing")) is None
+        assert (
+            await repo.get(AgentRunIdentity("OTHER", "reader-1", "session-1", "run-1", "user-1"))
+            is None
+        )
+        assert (
+            await repo.get(AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-2"))
+            is None
+        )
+        assert (
+            await repo.get(AgentRunIdentity("ACME", "reader-1", "session-1", "missing", "user-1"))
+            is None
+        )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_agent_run_lease_and_failure_class_round_trip(tmp_path: Path) -> None:
+    """Migration 0020 lease columns and the state_json failure flag must survive
+    a save/load cycle with tz-aware datetimes, and a terminal save must clear
+    the lease."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        await SqlConversationMemoryRepository(sessions).create(
+            ConversationIdentity("ACME", "reader-1", "session-1", "user-1")
+        )
+        repo = SqlAgentRunRepository(sessions)
+        identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
+        expires = datetime(2030, 1, 1, 12, 30, tzinfo=UTC)
+        await repo.create(
+            _checkpoint(
+                identity,
+                version=1,
+                step=0,
+                lease_owner="host-a:42:abc",
+                lease_expires_at=expires,
+            )
+        )
+
+        loaded = await repo.get(identity)
+        assert loaded is not None
+        assert loaded.lease_owner == "host-a:42:abc"
+        assert loaded.lease_expires_at == expires
+        assert loaded.lease_active(datetime(2029, 12, 31, tzinfo=UTC)) is True
+        assert loaded.lease_active(datetime(2030, 1, 2, tzinfo=UTC)) is False
+        assert loaded.resumable(datetime(2029, 12, 31, tzinfo=UTC)) is False
+        assert loaded.resumable(datetime(2030, 1, 2, tzinfo=UTC)) is True
+
+        await repo.save_step(
+            _checkpoint(
+                identity,
+                version=2,
+                status=AgentRunStatus.FAILED,
+                failure_retryable=True,
+            )
+        )
+        failed = await repo.get(identity)
+        assert failed is not None
+        assert failed.status is AgentRunStatus.FAILED
+        assert failed.failure_retryable is True
+        assert failed.lease_owner is None
+        assert failed.lease_expires_at is None
+        assert failed.resumable(datetime.now(UTC)) is True
     finally:
         await engine.dispose()

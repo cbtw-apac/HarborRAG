@@ -73,6 +73,7 @@ class HarborChatStreamChunk(ExtensibleModel):
     tool_call_delta: HarborToolCall | None = None
     tool_calls: tuple[HarborToolCall, ...] = ()
     usage: HarborChatUsage | None = None
+    estimated_cost_usd: float | None = None
     finish_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     error: dict[str, Any] | None = None

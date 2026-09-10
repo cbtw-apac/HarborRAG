@@ -103,6 +103,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.app_service = service
     app.state.composition_mode = mode
     logger.info("Application service composed in %s mode", mode)
+    # Long-term memory extraction runs on a bounded in-process worker pool
+    # owned by this process, so it starts with the app and is drained -- not
+    # cancelled -- on shutdown, letting queued exchanges finish.
+    await service.start_memory_extraction()
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(
@@ -121,6 +125,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             return_exceptions=True,
         )
         logger.info("Closing the application service")
+        await service.drain_memory_extraction()
         try:
             close = getattr(service, "aclose", None)
             if close is not None:
@@ -154,9 +159,13 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     )
     app.state.api_capacity_limiter = build_api_capacity_limiter(
         redis_url=redis_url,
-        requests_per_minute=settings.api_requests_per_minute,
-        max_inflight=settings.api_max_inflight_per_principal,
-        lease_seconds=settings.api_request_timeout_seconds + 5,
+        limits=settings.default_capacity_limits(),
+        tenant_overrides=settings.tenant_capacity_limits(),
+        # A lease spans the whole response, including streamed bodies, so it
+        # must outlive the longer of the two server-owned deadlines.
+        lease_seconds=(
+            max(settings.api_request_timeout_seconds, settings.api_stream_timeout_seconds) + 5
+        ),
     )
     app.state.api_metrics = ApiMetrics(version=app.version)
     app.add_middleware(

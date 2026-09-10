@@ -7,6 +7,9 @@ from typing import Any
 from harborrag_adapters.models.runtime.responses import (
     coerce_sdk_mapping as coerce_mapping,
 )
+from harborrag_adapters.models.runtime.responses import (
+    sdk_hidden_parameters,
+)
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatStreamChunk,
@@ -19,6 +22,7 @@ from .configs import HarborChatProviderConfig
 from .normalization import (
     normalize_chat_usage,
     normalize_finish_reason,
+    normalize_response_cost,
     normalize_tool_call_delta,
 )
 from .reasoning import normalize_reasoning_delta
@@ -44,6 +48,7 @@ class ChatStreamNormalizer:
         self.provider_model = deployment.model
         self.finish_reason = FinishReason.UNKNOWN
         self.usage: HarborChatUsage | None = None
+        self.estimated_cost_usd: float | None = None
         self._tool_calls = StreamingToolCallAssembler()
         self._metadata_emitted = False
         self._metadata: dict[str, Any] = {}
@@ -60,6 +65,11 @@ class ChatStreamNormalizer:
             self.response_id = str(data["id"])
         if data.get("model") is not None:
             self.provider_model = str(data["model"])
+        # LiteLLM attaches ``response_cost`` to the hidden params of the final
+        # chunk (when usage is streamed); keep the latest value for settlement.
+        cost = normalize_response_cost(sdk_hidden_parameters(raw, data))
+        if cost is not None:
+            self.estimated_cost_usd = cost
 
         events: list[HarborChatStreamChunk] = []
         events.extend(self._metadata_events(data))
@@ -121,6 +131,7 @@ class ChatStreamNormalizer:
         return self._event(
             StreamEventType.COMPLETED,
             usage=self.usage,
+            estimated_cost_usd=self.estimated_cost_usd,
             tool_calls=self._tool_calls.completed_calls(),
             finish_reason=self.finish_reason.value,
             metadata=metadata,

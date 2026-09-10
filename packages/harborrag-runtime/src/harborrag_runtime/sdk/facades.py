@@ -66,6 +66,7 @@ class RetrievalFacade:
                 lane=request.lane,
                 filters=_build_vector_filter(request.filters),
                 observe_graph=request.observe_graph,
+                graph_seeds=request.graph_seed_node_keys,
             ),
         )
         return RetrievalResponse(

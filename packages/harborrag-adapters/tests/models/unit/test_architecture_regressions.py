@@ -298,6 +298,11 @@ def test_example_yaml_loads_all_model_families(monkeypatch: pytest.MonkeyPatch) 
     assert embed.models["primary"].embedding_space == "harbor-production-v1"
     assert rerank.default_model == "primary"
     assert "openai-secret" not in repr(chat)
+    # The memory layer's own profile must load and be structured-output capable,
+    # since extraction and summarization depend on schema-constrained responses.
+    memory = chat.models["memory"]
+    assert memory.deployments[0].capabilities.structured_output is True
+    assert memory.deployments[0].capabilities.json_mode is True
 
 
 def test_advanced_example_yaml_loads_base_and_profiles(

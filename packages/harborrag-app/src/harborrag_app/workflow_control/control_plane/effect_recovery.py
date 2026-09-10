@@ -42,14 +42,28 @@ EFFECT_RECOVERY_LEASE_NAME = "control_plane_effect_recovery"
 EFFECT_RECOVERY_LEASE_TTL_SECONDS = 120.0
 
 
-async def retire_refs(control_plane: ControlPlaneRepositories, refs: list[str]) -> None:
-    """Delete each ref; a failed delete is queued for retry, never raised."""
+async def retire_refs(
+    control_plane: ControlPlaneRepositories,
+    refs: list[str],
+    *,
+    tenant_id: str,
+) -> None:
+    """Delete each of one tenant's refs; a failed delete is queued, never raised.
+
+    The tenant travels with the queued effect because secret refs are
+    tenant-scoped: a replay that presented the ref alone would address
+    nothing and silently leave the secret behind.
+    """
     for ref in refs:
         try:
-            await control_plane.secrets.delete(ref)
+            await control_plane.secrets.delete(ref, tenant_id=tenant_id)
         except Exception:
             logger.exception("secret retirement failed ref=%r; queued for retry", ref)
-            await _queue_effect(control_plane, _RETIRE_SECRET_KIND, {"ref": ref})
+            await _queue_effect(
+                control_plane,
+                _RETIRE_SECRET_KIND,
+                {"ref": ref, "tenant_id": tenant_id},
+            )
 
 
 async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityEntry) -> None:
@@ -126,7 +140,17 @@ async def _replay_effect(
     control_plane: ControlPlaneRepositories, effect: PendingControlPlaneEffect
 ) -> None:
     if effect.kind == _RETIRE_SECRET_KIND:
-        await control_plane.secrets.delete(effect.payload["ref"])
+        tenant_id = effect.payload.get("tenant_id")
+        if not isinstance(tenant_id, str) or not tenant_id:
+            # A retirement queued before refs became tenant-scoped. There is no
+            # tenant to present, so it can never be replayed; report it once
+            # and drop it rather than retrying forever.
+            logger.error(
+                "pending secret retirement carries no tenant; dropping ref=%r",
+                effect.payload.get("ref"),
+            )
+            return
+        await control_plane.secrets.delete(str(effect.payload["ref"]), tenant_id=tenant_id)
         return
     if effect.kind == _LOG_ACTIVITY_KIND:
         await control_plane.activity.append(_activity_from_payload(effect.payload))

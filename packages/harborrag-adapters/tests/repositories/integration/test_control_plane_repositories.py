@@ -40,7 +40,8 @@ EXPECTED_TABLES = {
     "workspace_settings",
     "members",
     "mcp_query_log",
-    "conversation_memory",
+    "conversation_memory_legacy",
+    "conversation_messages",
     "conversation_sessions",
     "source_scopes",
     "source_scans",
@@ -105,7 +106,9 @@ def test_legacy_0009_conversation_schema_is_repaired_without_data_loss(
 
     The legacy revision created ``conversation_memory`` with ``user_id`` but
     no sessions table or foreign key. Revision 0010 must repair that shape
-    before creating its own session-backed agent table.
+    before creating its own session-backed agent table, and 0022 must then
+    carry the repaired rows into ``conversation_messages`` before renaming
+    the table to ``conversation_memory_legacy``.
     """
 
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
@@ -161,18 +164,20 @@ def test_legacy_0009_conversation_schema_is_repaired_without_data_loss(
     command.upgrade(config, "head")
 
     sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
+    legacy = "conversation_memory_legacy"
     try:
         inspector = sa.inspect(sync_engine)
-        columns = {column["name"] for column in inspector.get_columns("conversation_memory")}
+        assert "conversation_memory" not in inspector.get_table_names()
+        columns = {column["name"] for column in inspector.get_columns(legacy)}
         assert "user_id" not in columns
         assert any(
             foreign_key["constrained_columns"] == ["session_id"]
             and foreign_key["referred_table"] == "conversation_sessions"
-            for foreign_key in inspector.get_foreign_keys("conversation_memory")
+            for foreign_key in inspector.get_foreign_keys(legacy)
         )
         index = next(
             item
-            for item in inspector.get_indexes("conversation_memory")
+            for item in inspector.get_indexes(legacy)
             if item["name"] == "ix_conversation_memory_identity_created"
         )
         assert index["column_names"] == [
@@ -191,12 +196,22 @@ def test_legacy_0009_conversation_schema_is_repaired_without_data_loss(
             ).one()
             conversation = connection.execute(
                 sa.text(
-                    "SELECT user_content, assistant_content FROM conversation_memory "
+                    f"SELECT user_content, assistant_content FROM {legacy} "
                     "WHERE session_id = 'session-a'"
                 )
             ).one()
+            messages = connection.execute(
+                sa.text(
+                    "SELECT message_id, role, content FROM conversation_messages "
+                    "WHERE session_id = 'session-a' ORDER BY seq"
+                )
+            ).all()
         assert session == ("tenant-a", "principal-a")
         assert conversation == ("hello", "hi")
+        assert [tuple(row) for row in messages] == [
+            ("legacy-1-user", "user", "hello"),
+            ("legacy-1-assistant", "assistant", "hi"),
+        ]
     finally:
         sync_engine.dispose()
 

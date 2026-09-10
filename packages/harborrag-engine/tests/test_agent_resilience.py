@@ -105,8 +105,12 @@ async def test_completed_run_ignores_advisory_memory_and_event_failures() -> Non
             del identity, limit
             return ()
 
-        async def append(self, identity, turn):
-            del identity, turn
+        async def recent_messages(self, identity, *, limit):
+            del identity, limit
+            return ()
+
+        async def append_messages(self, identity, messages):
+            del identity, messages
             raise RuntimeError("memory unavailable")
 
         async def clear(self, identity):

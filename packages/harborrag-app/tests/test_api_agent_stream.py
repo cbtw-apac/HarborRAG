@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -113,3 +114,57 @@ def test_agent_stream_rejects_empty_prompt(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_agent_stream_past_its_deadline_ends_with_a_terminal_error_frame(
+    monkeypatch,
+    service: MockAppService,
+) -> None:
+    async def stalled(query: str) -> AsyncIterator[dict[str, object]]:
+        del query
+        yield {
+            "kind": "event",
+            "event": {"name": "run.started", "run_id": "run-1", "data": {"step": 1}},
+        }
+        await asyncio.sleep(30)
+        yield {"kind": "result", "result": {}}
+
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    monkeypatch.setattr(service, "agent_stream", lambda query, **_: stalled(query))
+    settings = ApiSettings(api_request_timeout_seconds=1.0, api_stream_timeout_seconds=1.0)
+    with TestClient(create_fastapi_app(settings)) as client:
+        session_id = _session(client)
+        response = client.post(
+            "/v1/agent/completions",
+            json={"prompt": "Hello", "session_id": session_id, "stream": True},
+        )
+
+    assert response.status_code == 200
+    frames = _sse_frames(response.text)
+    assert [name for name, _ in frames] == ["run.started", "error"]
+    assert frames[-1][1]["code"] == "harbor_deadline_exceeded"
+
+
+def test_agent_stream_forwards_stream_deadline_and_token_budget(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client)
+    client.post(
+        "/v1/agent/completions",
+        json={"prompt": "Hello", "session_id": session_id, "stream": True},
+    )
+
+    call = service.agent_calls[0]
+    assert call["deadline_seconds"] == ApiSettings().api_stream_timeout_seconds
+    assert call["token_budget"] == ApiSettings().api_agent_token_budget
+
+
+def test_agent_stream_rejects_a_chat_session(client: TestClient) -> None:
+    created = client.post("/v1/chat/sessions", json={"tenant": "DEFAULT"})
+    response = client.post(
+        "/v1/agent/completions",
+        json={"prompt": "Hello", "session_id": created.json()["session_id"], "stream": True},
+    )
+
+    assert response.status_code == 404

@@ -22,6 +22,21 @@ chat:
             structured_output: true
             json_mode: true
             tools: true
+    # Small, cheap model used only by the conversation-memory layer for query
+    # rewriting, fact extraction, and session summaries. Point
+    # HARBORRAG_MEMORY_MODEL_PROFILE at it; without this entry the memory layer
+    # falls back to the default chat model.
+    memory:
+      deployments:
+        - name: openai-memory
+          provider: openai
+          model: openai/REPLACE_WITH_SMALL_CHAT_MODEL
+          api_key: ${OPENAI_API_KEY}
+          capabilities:
+            streaming: false
+            structured_output: true
+            json_mode: true
+            tools: false
 
 embed:
   default_model: primary

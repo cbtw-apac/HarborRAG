@@ -49,9 +49,11 @@ class InMemoryAgentRunRepository:
             if checkpoint is None:
                 return None
             owner = checkpoint.identity
-            if (owner.tenant_id, owner.principal_id, owner.session_id) != (
+            # The human owns the run, not the credential: one service
+            # principal may front many people (see AgentRunIdentity).
+            if (owner.tenant_id, owner.user_id, owner.session_id) != (
                 identity.tenant_id,
-                identity.principal_id,
+                identity.user_id,
                 identity.session_id,
             ):
                 return None

@@ -93,6 +93,9 @@ class SqlProviderRepository:
             row.family = provider.family
             row.config_json = dict(provider.config)
             row.secret_ref = provider.secret_ref
+            # The tenant model-catalog fingerprint is (count, max(updated_at));
+            # skipping this on an in-place edit would leave stale catalogs cached.
+            row.updated_at = utc_now()
         return provider
 
     async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:

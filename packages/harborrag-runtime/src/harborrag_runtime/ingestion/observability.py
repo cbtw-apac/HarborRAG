@@ -8,9 +8,9 @@ from typing import Any, Literal
 from opentelemetry import trace
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
 
-from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_adapters.models.runtime import (
     LangfuseTelemetry,
+    ModelClientConfig,
     OpenTelemetryTelemetry,
     TelemetryDispatcher,
 )
@@ -282,11 +282,16 @@ class IngestionTelemetry:
 
 
 def build_model_telemetry(
-    config: HarborEmbedClientConfig,
+    config: ModelClientConfig,
     *,
     langfuse_enabled: bool,
 ) -> TelemetryDispatcher:
-    """Compose sanitized model telemetry; Langfuse remains embedding-only here."""
+    """Compose sanitized model telemetry; Langfuse remains embedding-only here.
+
+    Annotated against the shared client-config base so every model family --
+    embed, chat -- composes its dispatcher the same way; only
+    ``config.observability`` is read.
+    """
 
     sinks: list[object] = [OpenTelemetryTelemetry()]
     if langfuse_enabled:

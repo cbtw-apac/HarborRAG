@@ -158,6 +158,12 @@ def test_usage_context_capability_and_error_contracts_are_shared() -> None:
     assert context.state == {"attempt": 1}
 
     assert HarborChatCapabilities().chat is True
+    # ``reasoning`` (accepts reasoning_effort) is independent from
+    # ``reasoning_content`` (returns reasoning text); both default off.
+    assert HarborChatCapabilities().reasoning is False
+    assert HarborChatCapabilities().reasoning_content is False
+    reasoning_only = HarborChatCapabilities(reasoning=True)
+    assert reasoning_only.reasoning is True and reasoning_only.reasoning_content is False
     assert HarborEmbedCapabilities().batch is True
     assert HarborRerankCapabilities().return_documents is True
 

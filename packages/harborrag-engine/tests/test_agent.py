@@ -163,7 +163,7 @@ async def test_agent_recalls_only_two_latest_turns_and_sets_user_metadata() -> N
         "third answer",
         "fourth question",
     ]
-    assert fourth.metadata.user_id is None
+    assert fourth.metadata.user_id == "principal-1"
     assert fourth.metadata.conversation_id == "session-1"
 
 

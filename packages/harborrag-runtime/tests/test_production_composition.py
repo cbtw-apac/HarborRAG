@@ -9,6 +9,7 @@ import pytest
 
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.project import Project
+from harborrag_core.ports.usage import ModelUsageRecord
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
@@ -33,10 +34,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0019"
+    assert control_db["migrations"] == "0028"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0019" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0028" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -54,6 +55,26 @@ async def test_production_repositories_hit_the_real_database(
         )
         fetched = await projects.get("p1", tenant_ids=None)
         assert fetched is not None and fetched.name == "Docs"
+        assert composition.control_plane.memories is not None
+        usage = composition.control_plane.model_usage
+        assert usage is not None
+        await usage.record(
+            ModelUsageRecord(
+                tenant_id="DEFAULT",
+                user_id="user-1",
+                principal_id="principal-1",
+                surface="chat",
+                logical_model="chat-default",
+                provider="openai",
+                provider_model="gpt-4.1-mini",
+                prompt_tokens=8,
+                completion_tokens=2,
+                total_tokens=10,
+            )
+        )
+        totals = await usage.totals(tenant_id="DEFAULT", user_id="user-1")
+        assert totals.requests == 1
+        assert totals.total_tokens == 10
     finally:
         await composition.aclose()
 

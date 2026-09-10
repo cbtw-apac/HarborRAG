@@ -1,4 +1,11 @@
-"""SQL agent-run checkpoint adapter for the control-plane database."""
+"""SQL agent-run checkpoint adapter for the control-plane database.
+
+Every predicate is scoped by ``(tenant_id, user_id, session_id)`` plus the
+``run_id`` primary key: the human owns the run, exactly as they own the
+``conversation_sessions`` parent it hangs off. ``principal_id`` is still
+written and returned, but never filtered on -- it is the credential that
+acted, and one service principal may front many people.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +47,7 @@ def _state_to_json(checkpoint: AgentCheckpoint) -> dict[str, Any]:
         "response": (
             checkpoint.response.model_dump(mode="json") if checkpoint.response is not None else None
         ),
+        "failure_retryable": checkpoint.failure_retryable,
     }
 
 
@@ -50,6 +58,7 @@ def _state_from_json(
     tuple[AgentToolExecution, ...],
     HarborChatUsage,
     HarborChatResponse | None,
+    bool,
 ]:
     messages = tuple(HarborChatMessage.model_validate(item) for item in data["messages"])
     executions = tuple(
@@ -68,7 +77,10 @@ def _state_from_json(
         if data["response"] is not None
         else None
     )
-    return messages, executions, usage, response
+    # Rows written before failure classification existed carry no key; a
+    # legacy FAILED run is treated as non-retryable, never the reverse.
+    failure_retryable = data.get("failure_retryable") is True
+    return messages, executions, usage, response, failure_retryable
 
 
 def _stop_reason_value(checkpoint: AgentCheckpoint) -> str | None:
@@ -85,17 +97,20 @@ def _row_values(checkpoint: AgentCheckpoint) -> dict[str, Any]:
         "version": checkpoint.version,
         "state_json": _state_to_json(checkpoint),
         "updated_at": checkpoint.updated_at,
+        "lease_owner": checkpoint.lease_owner,
+        "lease_expires_at": checkpoint.lease_expires_at,
     }
 
 
 def _row_to_checkpoint(row: AgentRunRow) -> AgentCheckpoint:
-    messages, executions, usage, response = _state_from_json(row.state_json)
+    messages, executions, usage, response, failure_retryable = _state_from_json(row.state_json)
     return AgentCheckpoint(
         identity=AgentRunIdentity(
             tenant_id=row.tenant_id,
             principal_id=row.principal_id,
             session_id=row.session_id,
             run_id=row.run_id,
+            user_id=row.user_id,
         ),
         status=AgentRunStatus(row.status),
         step=row.step,
@@ -107,6 +122,9 @@ def _row_to_checkpoint(row: AgentRunRow) -> AgentCheckpoint:
         response=response,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        failure_retryable=failure_retryable,
+        lease_owner=row.lease_owner,
+        lease_expires_at=row.lease_expires_at,
     )
 
 
@@ -119,6 +137,9 @@ class SqlAgentRunRepository:
     second resume racing the still-running original, or a resume racing a
     step the original run just persisted) is rejected with
     ``HarborConflictError`` rather than silently overwriting newer state.
+    ``lease_owner``/``lease_expires_at`` are written verbatim from every
+    checkpoint, so a RUNNING save from the executing worker refreshes its
+    lease and a terminal save releases it.
     """
 
     sessions: SessionFactory
@@ -130,6 +151,7 @@ class SqlAgentRunRepository:
                     run_id=checkpoint.identity.run_id,
                     tenant_id=checkpoint.identity.tenant_id,
                     principal_id=checkpoint.identity.principal_id,
+                    user_id=checkpoint.identity.user_id,
                     session_id=checkpoint.identity.session_id,
                     created_at=checkpoint.created_at,
                     **_row_values(checkpoint),
@@ -145,7 +167,7 @@ class SqlAgentRunRepository:
                     .where(
                         AgentRunRow.run_id == checkpoint.identity.run_id,
                         AgentRunRow.tenant_id == checkpoint.identity.tenant_id,
-                        AgentRunRow.principal_id == checkpoint.identity.principal_id,
+                        AgentRunRow.user_id == checkpoint.identity.user_id,
                         AgentRunRow.session_id == checkpoint.identity.session_id,
                         AgentRunRow.version == checkpoint.version - 1,
                     )
@@ -161,7 +183,7 @@ class SqlAgentRunRepository:
         statement = sa.select(AgentRunRow).where(
             AgentRunRow.run_id == identity.run_id,
             AgentRunRow.tenant_id == identity.tenant_id,
-            AgentRunRow.principal_id == identity.principal_id,
+            AgentRunRow.user_id == identity.user_id,
             AgentRunRow.session_id == identity.session_id,
         )
         async with self.sessions() as session:

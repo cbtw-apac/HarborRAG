@@ -17,6 +17,8 @@ from harborrag_runtime.ingestion.maintenance.projection_admin import (
 from harborrag_runtime.sdk import HarborRAG
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 
+from .tenant_models import tenant_model_sources
+
 if TYPE_CHECKING:
     from harborrag_core.ports.events import EventBusPort
 
@@ -33,10 +35,15 @@ class AppResources:
         *,
         runtime_config: TemporalRuntimeConfig,
         factories: AppServiceFactories,
+        composition: object | None = None,
     ) -> None:
         self._settings = settings
         self._runtime_config = runtime_config
         self._factories = factories
+        # Resolved once here rather than per SDK build: whether a tenant may
+        # bring its own chat models is a property of this process, not of a
+        # request. None keeps the single process-wide chat client.
+        self._tenant_models = tenant_model_sources(composition, settings)
         self._client: IngestionTemporalClient | None = None
         self._retrieval_runtime: HarborRAG | None = None
         self._task_registry: TaskRegistry | None = None
@@ -54,8 +61,17 @@ class AppResources:
         return self._client
 
     def runtime_sdk(self) -> HarborRAG:
+        """Build the SDK once, telling chat about tenant catalogs if any are wired.
+
+        The factory takes settings only -- the catalog and the secret store are
+        ports, not configuration -- so they are handed to the SDK right after
+        it is constructed and before any turn can reach it.
+        """
+
         if self._retrieval_runtime is None:
             self._retrieval_runtime = self._factories.retrieval_runtime(self._settings)
+            if self._tenant_models is not None:
+                self._retrieval_runtime.configure_tenant_models(self._tenant_models)
         return self._retrieval_runtime
 
     async def task_registry(self) -> TaskRegistry:

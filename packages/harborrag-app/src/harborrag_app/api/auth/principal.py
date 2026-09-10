@@ -21,6 +21,13 @@ class Principal:
     role: Role
     tenant_ids: frozenset[str]
     token_kind: str = "jwt"
+    # Stable end-user identity for user-scoped memory. Defaults to ``subject``;
+    # the JWT verifier overrides it from ``HARBORRAG_AUTH_USER_ID_CLAIM``.
+    user_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.user_id:
+            object.__setattr__(self, "user_id", self.subject)
 
     def can_access_tenant(self, tenant_id: str) -> bool:
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids

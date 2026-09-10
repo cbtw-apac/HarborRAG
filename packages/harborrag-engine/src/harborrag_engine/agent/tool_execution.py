@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from math import isfinite
 from typing import Any
 
@@ -57,6 +57,37 @@ def rejected_execution(
             arguments_digest=digest,
         ),
     )
+
+
+def turn_replies(
+    tool_calls: Sequence[HarborToolCall],
+    *,
+    step: int,
+    replies: Mapping[str, tuple[HarborChatMessage, AgentToolExecution]],
+    fallback_error: str,
+) -> Iterator[tuple[HarborChatMessage, AgentToolExecution]]:
+    """Yield exactly one reply per issued tool call, in the model's order.
+
+    Admitted calls use their prepared reply from ``replies``; one with no
+    prepared reply (execution aborted before producing results) is answered
+    with a rejection carrying ``fallback_error``. Calls past
+    ``MAX_TOOL_CALLS_PER_TURN`` are rejected for the turn budget. Providers
+    reject a conversation whose assistant tool calls lack matching tool-role
+    messages, so no ``tool_call_id`` may ever be left dangling.
+    """
+
+    for index, call in enumerate(tool_calls):
+        if index >= MAX_TOOL_CALLS_PER_TURN:
+            yield rejected_execution(
+                call, step=step, error="tool call budget exceeded for this turn"
+            )
+            continue
+        prepared = replies.get(call.id)
+        yield (
+            prepared
+            if prepared is not None
+            else rejected_execution(call, step=step, error=fallback_error)
+        )
 
 
 def bounded_tool_result_content(result: dict[str, object]) -> str:
@@ -196,4 +227,5 @@ __all__ = [
     "bounded_tool_result_content",
     "rejected_execution",
     "tool_definition",
+    "turn_replies",
 ]

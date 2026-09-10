@@ -30,29 +30,21 @@ from .loop_state import LoopState, RunContext, StepOutcome
 from .protocols import AgentChatModel, AgentToolProvider
 from .run_lifecycle import AgentRunLifecycle
 from .schemas import AgentRunOptions, AgentRunResult
-from .token_budget import TokenBudgetExhausted, completion_token_limit, exhausted_response
-from .tool_execution import MAX_TOOL_CALLS_PER_TURN, rejected_execution, tool_definition
-
-_SYNTHESIS_INSTRUCTIONS: dict[AgentStopReason, str] = {
-    AgentStopReason.MAX_STEPS: (
-        "The tool-call budget is exhausted. Answer now using only the evidence already "
-        "returned by tools. State clearly when the evidence is insufficient."
-    ),
-    AgentStopReason.TIMEOUT: (
-        "The time budget for tool use is exhausted. Answer now using only the evidence "
-        "already returned by tools. State clearly when the evidence is insufficient."
-    ),
-    AgentStopReason.REPEATED_TOOL_CALL: (
-        "The same tool call was repeated with identical arguments, so further tool use "
-        "is blocked. Answer now using only the evidence already returned by tools. State "
-        "clearly when the evidence is insufficient."
-    ),
-    AgentStopReason.TOKEN_BUDGET_EXCEEDED: (
-        "The total token budget for this run is exhausted. Answer now using only the "
-        "evidence already returned by tools. State clearly when the evidence is "
-        "insufficient."
-    ),
-}
+from .synthesis import synthesis_instruction
+from .token_budget import (
+    MIN_SYNTHESIS_COMPLETION_TOKENS,
+    SYNTHESIS_RESERVE_TOKENS,
+    TokenBudgetExhausted,
+    completion_token_limit,
+    exhausted_response,
+    over_token_budget,
+)
+from .tool_execution import (
+    MAX_TOOL_CALLS_PER_TURN,
+    rejected_execution,
+    tool_definition,
+    turn_replies,
+)
 
 
 class AgentLoopRunner:
@@ -70,6 +62,10 @@ class AgentLoopRunner:
         self._memory = memory
         self._lifecycle = AgentRunLifecycle(self._executor, runs)
 
+    @property
+    def lifecycle(self) -> AgentRunLifecycle:
+        return self._lifecycle
+
     def memory_identity(self, options: AgentRunOptions) -> ConversationIdentity | None:
         if self._memory is None:
             return None
@@ -77,6 +73,7 @@ class AgentLoopRunner:
             options.tenant_id,
             options.principal_id,
             options.session_id,
+            options.owner_id,
         )
 
     async def execute(self, context: RunContext, state: LoopState) -> AgentRunResult:
@@ -105,8 +102,8 @@ class AgentLoopRunner:
             with contextlib.suppress(BaseException):
                 await asyncio.shield(self._lifecycle.record_cancellation(context, state))
             raise
-        except Exception:
-            await self._lifecycle.record_failure(context, state)
+        except Exception as error:
+            await self._lifecycle.record_failure(context, state, error)
             raise
 
     async def _run_until_stop(
@@ -124,24 +121,10 @@ class AgentLoopRunner:
             calls_made += outcome.calls_made
             if outcome.stop_reason is not None:
                 return outcome.stop_reason, outcome.final_response, calls_made
-            if self._over_token_budget(context, state):
+            if over_token_budget(context, state):
                 return AgentStopReason.TOKEN_BUDGET_EXCEEDED, None, calls_made
             state.step += 1
         return AgentStopReason.MAX_STEPS, None, calls_made
-
-    @staticmethod
-    def _over_token_budget(context: RunContext, state: LoopState) -> bool:
-        """Cap the run's own accumulated usage, independent of per-call limits.
-
-        Per-call caps (``MAX_TOOL_CALLS_PER_TURN`` x ``MAX_TOOL_RESULT_CHARS``,
-        ``max_steps``) are each individually bounded, but nothing previously
-        checked their sum -- a full-width run could still accumulate several
-        million characters of resent conversation and tool output. This is
-        the backstop on the aggregate, checked once per completed step.
-        """
-
-        budget = context.options.max_total_tokens
-        return budget is not None and (state.usage.total_tokens or 0) >= budget
 
     async def _ensure_final_response(
         self,
@@ -155,17 +138,8 @@ class AgentLoopRunner:
 
         if stop_reason is AgentStopReason.FINAL_ANSWER:
             return require(final_response, "agent loop ended without a response"), calls_made
-        if stop_reason is AgentStopReason.TOKEN_BUDGET_EXCEEDED:
-            return (
-                exhausted_response(
-                    context.identity.run_id,
-                    "The agent token budget was exhausted before another model call could be "
-                    "made safely.",
-                ),
-                calls_made,
-            )
 
-        state.conversation.append(HarborChatMessage.developer(_SYNTHESIS_INSTRUCTIONS[stop_reason]))
+        state.conversation.append(HarborChatMessage.developer(synthesis_instruction(stop_reason)))
         # This call must carry its own bound: it runs precisely when the run's
         # own guard has already expired (timeout) or is otherwise stopping
         # early, so reusing `context.guard` here would either hang forever
@@ -173,16 +147,20 @@ class AgentLoopRunner:
         synthesis_guard = ExecutionGuard(timeout_seconds=context.options.synthesis_timeout_seconds)
         synthesis_guard.start()
         try:
-            completion_limit = completion_token_limit(context, state, ())
-        except TokenBudgetExhausted:
-            return (
-                exhausted_response(
-                    context.identity.run_id,
-                    "The agent stopped before final synthesis because the remaining token budget "
-                    "could not safely fit another model call.",
-                ),
-                calls_made,
+            # A budget stop still gets a real (tool-free) synthesis turn with
+            # whatever headroom the tool turns reserved for it; only when even
+            # the minimum synthesis cap cannot fit do we fall back to text.
+            completion_limit = completion_token_limit(
+                context, state, (), minimum=MIN_SYNTHESIS_COMPLETION_TOKENS
             )
+        except TokenBudgetExhausted:
+            response = exhausted_response(
+                context.identity.run_id,
+                "The agent token budget was exhausted before a final synthesis model call "
+                "could be made safely.",
+            )
+            state.conversation.append(response.message)
+            return response, calls_made
         response = await self._executor.complete(
             state.conversation,
             context.options,
@@ -191,6 +169,7 @@ class AgentLoopRunner:
             completion_token_limit=completion_limit,
         )
         state.usage = add_usage(state.usage, response.usage)
+        state.conversation.append(response.message)
         return response, calls_made + 1
 
     async def _run_step(
@@ -216,6 +195,9 @@ class AgentLoopRunner:
             return StepOutcome(calls_made=0, stop_reason=AgentStopReason.TIMEOUT)
 
         if not response.tool_calls:
+            # Keep the checkpointed transcript complete: it must end with the
+            # assistant's answer, not the last tool result.
+            state.conversation.append(response.message)
             return StepOutcome(
                 calls_made=1, stop_reason=AgentStopReason.FINAL_ANSWER, final_response=response
             )
@@ -231,7 +213,9 @@ class AgentLoopRunner:
         """Ask the model for one turn; ``None`` means the guard's deadline hit mid-call."""
 
         try:
-            completion_limit = completion_token_limit(context, state, tool_definitions)
+            completion_limit = completion_token_limit(
+                context, state, tool_definitions, reserve=SYNTHESIS_RESERVE_TOKENS
+            )
             response = await self._executor.complete(
                 state.conversation,
                 context.options,
@@ -291,21 +275,16 @@ class AgentLoopRunner:
                 guard=guard,
             )
         except TimeoutError:
-            return StepOutcome(calls_made=1, stop_reason=AgentStopReason.TIMEOUT)
-
-        result_iterator = iter(results)
-        for call in admitted:
-            if call.id in rejected:
-                message, execution = rejected[call.id]
-            else:
-                message, execution = next(result_iterator)
-            await self._record_tool_result(context, state, message, execution)
-
-        for call in overflow:
-            message, execution = rejected_execution(
-                call, step=step, error="tool call budget exceeded for this turn"
+            await self._record_turn_replies(
+                context, state, response, rejected, "tool call timed out"
             )
-            await self._record_tool_result(context, state, message, execution)
+            return StepOutcome(calls_made=1, stop_reason=AgentStopReason.TIMEOUT)
+        except Exception:
+            await self._record_turn_replies(context, state, response, rejected, "tool call failed")
+            raise
+
+        replies = rejected | dict(zip((call.id for call in accepted), results, strict=True))
+        await self._record_turn_replies(context, state, response, replies, "tool call failed")
 
         await emit(
             context.events,
@@ -320,6 +299,27 @@ class AgentLoopRunner:
         if repeated:
             return StepOutcome(calls_made=1, stop_reason=AgentStopReason.REPEATED_TOOL_CALL)
         return StepOutcome(calls_made=1)
+
+    async def _record_turn_replies(
+        self,
+        context: RunContext,
+        state: LoopState,
+        response: HarborChatResponse,
+        replies: dict[str, tuple[HarborChatMessage, AgentToolExecution]],
+        fallback_error: str,
+    ) -> None:
+        """Record one reply per tool call the model issued, dangling none.
+
+        ``fallback_error`` answers admitted calls with no prepared reply --
+        the case when execution aborted (gather timeout, tool-phase
+        exception) before results existed -- so the synthesis request and
+        any later resume still see a well-formed conversation.
+        """
+
+        for message, execution in turn_replies(
+            response.tool_calls, step=state.step, replies=replies, fallback_error=fallback_error
+        ):
+            await self._record_tool_result(context, state, message, execution)
 
     async def _record_tool_result(
         self,
