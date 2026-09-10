@@ -117,6 +117,9 @@ class VectorSearchResultResponse(ApiModel):
     rank: int = Field(ge=1)
     id: str
     score: float
+    # Null when the lane cannot measure similarity. Prefer this over ``score``
+    # for any relevance judgement: see the note on ``RetrievalResult``.
+    relevance: float | None = Field(default=None, ge=0, le=1)
     source: str
     content: str | None = None
     metadata: dict[str, JsonValue] | None = None

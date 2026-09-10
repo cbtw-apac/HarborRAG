@@ -31,6 +31,11 @@ def retrieval_response(
             "rank": rank,
             "id": item.id,
             "score": item.score,
+            # The number a caller may threshold on. ``score`` is whatever the
+            # lane produced, and on the hybrid lane that is rank arithmetic
+            # rescaled into a 0..1 shape, so its top hit reads near 1.0 even
+            # when nothing matched.
+            "relevance": item.relevance,
             "source": item.metadata.get("retrieval_source", "hybrid"),
         }
         if include_content:

@@ -157,6 +157,11 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
         "id": {"type": "string", "minLength": 1},
         "text": {"type": "string"},
         "score": {"type": "number"},
+        # Not required: a lane that cannot measure similarity reports null,
+        # and older payloads predate the field. Unlike "score", this is the
+        # number a client may threshold -- on the hybrid lane "score" is a
+        # rank-fusion value whose top hit is near 1.0 however poor the match.
+        "relevance": {"type": ["number", "null"]},
         "metadata": {
             "type": "object",
             "required": [
@@ -180,6 +185,10 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "citation_locator": {"type": "object"},
                 "quality_score": {"type": ["number", "null"]},
                 "retrieval_source": {"type": "string"},
+                # Not required: chunks ingested before these were surfaced
+                # project them empty rather than omitting them.
+                "document_title": {"type": "string"},
+                "section_path": {"type": "array", "items": {"type": "string"}},
             },
             "additionalProperties": False,
         },

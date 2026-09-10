@@ -27,6 +27,7 @@ from harborrag_core.contracts.errors import (
     HarborConnectionError,
     HarborDeadlineExceeded,
     HarborError,
+    HarborNoIndexedContentError,
     HarborNotFoundError,
     HarborRateLimitError,
     HarborSecretDecryptionError,
@@ -42,6 +43,9 @@ logger = logging.getLogger("harborrag.app.api.errors")
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborValidationError: 422,
     HarborNotFoundError: 404,
+    # 409, not 404: the tenant and project exist, their index just has no
+    # content yet. A 404 would say the thing they named is missing.
+    HarborNoIndexedContentError: 409,
     HarborConflictError: 409,
     HarborCapabilityError: 501,
     HarborSecurityError: 403,

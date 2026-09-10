@@ -42,6 +42,17 @@ class HarborNotFoundError(HarborError):
     """Request resource does not exist."""
 
 
+class HarborNoIndexedContentError(HarborError):
+    """Nothing has been ingested yet, so there is nothing to retrieve over.
+
+    Distinct from ``HarborNotFoundError`` (the caller named something that
+    does not exist) and from an unavailable backend: the service is healthy
+    and the request is well-formed, the index simply has no content. That is
+    a state the caller resolves by ingesting, so it must not be reported as a
+    fault they should retry.
+    """
+
+
 class HarborSecretDecryptionError(HarborError):
     """A stored secret exists but cannot be decrypted with the configured key.
 

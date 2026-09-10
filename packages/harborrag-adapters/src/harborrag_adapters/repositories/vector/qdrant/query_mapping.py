@@ -28,6 +28,7 @@ def search_result(
         id=logical_id,
         score=normalized,
         raw_score=float(point.score),
+        relevance=normalized,
         payload=payload if query.include_payload else {},
         vector=dense if query.include_vectors else None,
     )
@@ -46,6 +47,7 @@ def sparse_result(
         id=logical_id,
         score=raw_score / (1.0 + raw_score),
         raw_score=raw_score,
+        relevance=raw_score / (1.0 + raw_score),
         payload=payload if query.include_payload else {},
         vector=dense if query.include_vectors else None,
     )
@@ -84,23 +86,61 @@ def _add_ranked_scores(
         points.setdefault(identity, point)
 
 
-def fused_result(
-    point: Any,
+def lane_relevance(
+    dense_points: Sequence[Any],
+    sparse_points: Sequence[Any],
+    spec: VectorIndexSpec,
+) -> dict[str, float]:
+    """The best normalized per-lane score for each fused point.
+
+    ``weighted_rrf`` keeps only rank, so the similarity each lane actually
+    measured is otherwise lost at fusion. A point present in both lanes takes
+    the higher of the two: the lanes disagree about form, not about whether
+    the point is on topic, and the stronger signal is the honest one.
+    """
+
+    best: dict[str, float] = {}
+    for point in dense_points:
+        value = QdrantMapper.normalize_score(float(point.score), spec.distance)
+        identity = str(point.id)
+        best[identity] = max(best.get(identity, 0.0), value)
+    for point in sparse_points:
+        raw = max(0.0, float(point.score))
+        identity = str(point.id)
+        best[identity] = max(best.get(identity, 0.0), raw / (1.0 + raw))
+    return best
+
+
+def fused_results(
+    dense_points: Sequence[Any],
+    sparse_points: Sequence[Any],
     *,
-    score: float,
-    raw_score: float,
     query: HybridSearchQuery,
     spec: VectorIndexSpec,
-) -> VectorSearchResult:
-    payload, logical_id = _payload(point)
-    dense, _, _ = vectors(point.vector, spec)
-    return VectorSearchResult(
-        id=logical_id,
-        score=score,
-        raw_score=raw_score,
-        payload=payload if query.include_payload else {},
-        vector=dense if query.include_vectors else None,
-    )
+) -> list[VectorSearchResult]:
+    """Fuse both lanes by rank, keeping the relevance each lane measured."""
+
+    relevance = lane_relevance(dense_points, sparse_points, spec)
+    output: list[VectorSearchResult] = []
+    for raw_score, point in weighted_rrf(
+        dense_points, sparse_points, dense_weight=query.dense_weight
+    ):
+        score = min(1.0, raw_score * 61.0)
+        if query.score_threshold is not None and score < query.score_threshold:
+            continue
+        payload, logical_id = _payload(point)
+        dense, _, _ = vectors(point.vector, spec)
+        output.append(
+            VectorSearchResult(
+                id=logical_id,
+                score=score,
+                raw_score=raw_score,
+                relevance=relevance.get(str(point.id)),
+                payload=payload if query.include_payload else {},
+                vector=dense if query.include_vectors else None,
+            )
+        )
+    return output
 
 
 def point_record(
