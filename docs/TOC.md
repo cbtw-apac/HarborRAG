@@ -11,6 +11,10 @@
 
 - [User Documentation](users/README.md)
 - [Chat](users/chat/README.md)
+  - [Chat Models](users/chat/models.md)
+  - [Conversation Memory](users/chat/memory.md)
+  - [Agent](users/chat/agent.md)
+  - [Limits and Accounting](users/chat/limits.md)
 - [Ingestion Modes](users/ingestion-modes.md)
 - [Python SDK](users/python-sdk/README.md)
 - [CLI Reference](users/cli-reference/README.md)
