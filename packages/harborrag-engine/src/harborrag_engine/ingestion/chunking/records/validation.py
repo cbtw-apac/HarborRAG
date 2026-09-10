@@ -48,14 +48,12 @@ class ChunkValidator:
             }
         )
 
+        kind_counts: dict[RecordKind, int] = {}
+
         for expected_ordinal, record in enumerate(records):
             label = f"chunk[{expected_ordinal}]"
-            same_kind_index = sum(
-                1
-                for earlier in records[:expected_ordinal]
-                if earlier.record_kind == record.record_kind
-            )
-            if record.ordinal != same_kind_index:
+            current_kind_count = kind_counts.get(record.record_kind, 0)
+            if record.ordinal != current_kind_count:
                 errors.append(f"{label} ordinal is not contiguous for {record.record_kind.value}")
             self._validate_content(record, profile, errors, warnings, label)
             self._validate_provenance(record, request, errors, label)
@@ -64,6 +62,7 @@ class ChunkValidator:
             self._validate_neighbors(records, expected_ordinal, errors, label)
             if source_validator is not None:
                 source_validator(record, errors, label)
+            kind_counts[record.record_kind] = current_kind_count + 1
 
         return ChunkValidationResult(
             valid=not errors,
@@ -190,11 +189,6 @@ class ChunkValidator:
         label: str,
     ) -> None:
         record = records[ordinal]
-        same_kind_index = sum(
-            1 for earlier in records[:ordinal] if earlier.record_kind == record.record_kind
-        )
-        if record.ordinal != same_kind_index:
-            errors.append(f"{label} ordinal is not contiguous for {record.record_kind.value}")
         previous = str(records[ordinal - 1].logical_chunk_id) if ordinal else None
         next_ = str(records[ordinal + 1].logical_chunk_id) if ordinal + 1 < len(records) else None
         if cls._optional_id(record.hierarchy.previous_chunk_id) != previous:
