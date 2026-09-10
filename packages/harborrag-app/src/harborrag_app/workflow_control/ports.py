@@ -125,6 +125,32 @@ class BaseAppService(ABC):
     ) -> AppResponse:
         raise NotImplementedError
 
+    async def run_ingestion(  # noqa: PLR0913 - mirrors start_ingestion
+        self,
+        *,
+        tenant_id: str,
+        connector_name: str,
+        run_id: str,
+        connection_id: str | None = None,
+        source_scope_id: str | None = None,
+        path: str | None = None,
+        pattern: str | None = None,
+        recursive: bool = True,
+        updated_after: str | None = None,
+        max_artifacts: int | None = None,
+        include_attachments: bool = True,
+        filters: Mapping[str, object] | None = None,
+        force_reprocess: bool = False,
+    ) -> AppResponse:
+        """Execute one ingestion inline (direct mode) and return its final result."""
+
+        raise NotImplementedError
+
+    async def get_task(self, task_id: str) -> dict[str, object]:
+        """Public task document for ``task_id``; raises IngestionNotFoundError when absent."""
+
+        raise NotImplementedError
+
     async def ingestion_status(self, run_id: str) -> AppResponse:
         raise NotImplementedError
 

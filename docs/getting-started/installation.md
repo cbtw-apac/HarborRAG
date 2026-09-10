@@ -37,7 +37,7 @@ environments.
 | Requires | [`uv`](https://docs.astral.sh/uv/) | `python -m venv` and `make` |
 | Creates | `.venv/` managed by `uv` | `.venv/` you activate yourself |
 | Run commands with | `uv run <command>` | `<command>`, after activating |
-| Use when | You are contributing or following the guides - this is what CI and [Quick Start](quick-start.md) use | You need a plain editable install, or `uv` is unavailable |
+| Use when | You are contributing or following the guides - this is what CI and [Running HarborRAG from a checkout](../developers/checkout-quick-start.md) use | You need a plain editable install, or `uv` is unavailable |
 
 Pick Option A unless something rules it out.
 
@@ -118,10 +118,12 @@ pip install harborrag
 ```
 
 A bare install gives you the whole first-party framework - the facade plus
-`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`, and
-`harborrag-runtime` - along with SQLAlchemy and SQLite for the local control plane. It
-deliberately installs **no third-party provider clients**, so there is no vector store, no
-graph store, and no model client until you add an extra.
+`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`,
+`harborrag-runtime`, and the `harborrag` command from `harborrag-app` - along with
+SQLAlchemy and SQLite for the local control plane. It deliberately installs **no third-party
+provider clients**, so there is no vector store, no graph store, and no model client until
+you add an extra; `harborrag doctor` lists the missing ones and the extra that supplies
+them.
 
 Everything at once:
 
@@ -136,10 +138,10 @@ Most extras add only the third-party clients their providers require. Four -
 
 | Install | Adds | Use it when |
 | --- | --- | --- |
-| `harborrag` | the full first-party framework, plus SQLAlchemy/SQLite - no provider clients | you supply your own provider adapters |
-| `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables | local end-to-end ingestion and retrieval |
+| `harborrag` | the full first-party framework and the `harborrag` command, plus SQLAlchemy/SQLite - no provider clients | you supply your own provider adapters |
+| `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables, **and the `harborrag` command** | the recommended install: `harborrag init` + `ingest run` |
 | `harborrag[chat]` | model client | chat completion, embeddings, reranking |
-| `harborrag[cli]` | `harborrag-app` | the `harborrag` command |
+| `harborrag[cli]` | nothing new - `harborrag-app` is already required by `harborrag` | explicitness only |
 | `harborrag[server]` | `harborrag-app[api]`, production and Temporal runtime | running the HTTP API |
 | `harborrag[mcp]` | `harborrag-mcp-server[mcp]` | exposing MCP tools to an IDE or agent |
 | `harborrag[memory]` | nothing new - `harborrag-memory` is already required by `harborrag-runtime` | explicitness only |
@@ -195,7 +197,7 @@ package reference section of the documentation.
 
 | Command | Provided by | Available with |
 | --- | --- | --- |
-| `harborrag` | `harborrag-app` | `harborrag[cli]`, `harborrag[server]`, `harborrag[all]` |
+| `harborrag` | `harborrag-app` | every `harborrag` install, including the bare one |
 | `harborrag-mcp` | `harborrag-mcp-server` | `harborrag[mcp]`, `harborrag[all]` |
 
 A PyPI install puts these on your `PATH`, so `harborrag --help` works directly.
@@ -243,7 +245,11 @@ installation.
 
 ```bash
 python -c "import harborrag; print(harborrag.__all__)"
+harborrag init /tmp/harbor-check --yes && harborrag --project /tmp/harbor-check doctor
 ```
+
+`doctor` reports the project and its catalogs as ready and the services as not running
+until you `docker compose up -d` inside that directory.
 
 In a checkout:
 

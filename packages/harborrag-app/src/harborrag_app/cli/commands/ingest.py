@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Awaitable
 from typing import Annotated
 
 import typer
 
-from harborrag_app.cli.runner import invoke, invoke_dashboard
+from harborrag_app.cli.commands.ingest_run import JsonOption, parse_filters, register_run
+from harborrag_app.cli.following import invoke_start_and_follow, invoke_watch
+from harborrag_app.cli.runner import invoke
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+
+# Status polling cadence while `start --wait` follows a run inline.
+_FOLLOW_INTERVAL = 1.0
 
 app = typer.Typer(
     help="Start, inspect, and control durable Temporal ingestion workflows.",
@@ -17,13 +22,8 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"], "max_content_width": 120},
 )
 
-JsonOption = Annotated[
-    bool,
-    typer.Option(
-        "--json",
-        help="Emit the stable machine-readable response envelope.",
-    ),
-]
+# `run` lives in its own module (file-length gate); it registers itself on this group.
+register_run(app)
 
 
 @app.command(help="Start a new ingestion run.", rich_help_panel="Submit")
@@ -157,8 +157,8 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
 ) -> None:
     """Submit one canonical ingestion workflow to Temporal."""
 
-    invoke(
-        lambda service: service.start_ingestion(
+    def submit(service: BaseAppService, *, wait_inline: bool) -> Awaitable[AppResponse]:
+        return service.start_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,
             run_id=run_id,
@@ -170,12 +170,23 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             updated_after=updated_after,
             max_artifacts=max_artifacts,
             include_attachments=include_attachments,
-            filters=_filters(filters_json),
+            filters=parse_filters(filters_json),
             force_reprocess=force_reprocess,
             batch_size=batch_size,
             document_concurrency=document_concurrency,
-            wait=wait,
-        ),
+            wait=wait_inline,
+        )
+
+    if wait and not as_json:
+        # Human mode follows the run inline; --json keeps the single-envelope contract.
+        invoke_start_and_follow(
+            lambda service: submit(service, wait_inline=False),
+            context=context,
+            interval=_FOLLOW_INTERVAL,
+        )
+        return
+    invoke(
+        lambda service: submit(service, wait_inline=wait),
         context=context,
         command="ingest",
         action="start",
@@ -217,7 +228,7 @@ def wait(
     )
 
 
-@app.command(help="Open the live ingestion dashboard.", rich_help_panel="Observe")
+@app.command(help="Follow a running ingestion inline.", rich_help_panel="Observe")
 def watch(
     context: typer.Context,
     run_id: Annotated[str, typer.Argument(metavar="RUN_ID", help="Ingestion run ID.")],
@@ -231,14 +242,14 @@ def watch(
             help="Status polling interval.",
         ),
     ] = 1.0,
+    events: Annotated[
+        bool,
+        typer.Option("--events", help="Stream NDJSON progress events instead of the live view."),
+    ] = False,
 ) -> None:
-    """Launch a full-screen dashboard with live progress and run controls."""
+    """Poll the run and redraw progress in place until it settles."""
 
-    invoke_dashboard(
-        run_id,
-        context=context,
-        refresh_seconds=refresh_seconds,
-    )
+    invoke_watch(run_id, context=context, interval=refresh_seconds, events=events)
 
 
 @app.command(help="Pause an ingestion run.", rich_help_panel="Control")
@@ -300,10 +311,3 @@ async def _control_request(
     action: str,
 ) -> AppResponse:
     return await service.control_ingestion(run_id, action)
-
-
-def _filters(value: str) -> dict[str, object]:
-    parsed = json.loads(value)
-    if not isinstance(parsed, dict):
-        raise ValueError("--filters-json must encode a JSON object")
-    return {str(key): item for key, item in parsed.items()}

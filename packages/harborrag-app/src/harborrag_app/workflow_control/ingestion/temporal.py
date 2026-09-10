@@ -10,7 +10,6 @@ from uuid import uuid4
 from pydantic_core import to_jsonable_python
 
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.schemas import SourceIngestionInput, SourceQuery
 from harborrag_runtime.temporal.submission import SourceSubmission
 
@@ -18,6 +17,8 @@ from ..errors import failure_response
 from ..schemas import AppResponse
 
 if TYPE_CHECKING:
+    from harborrag_runtime.temporal.client import IngestionTemporalClient
+
     from ..composition.factories import TaskRegistry
 
 type RuntimeClientProvider = Callable[[], Awaitable[IngestionTemporalClient]]

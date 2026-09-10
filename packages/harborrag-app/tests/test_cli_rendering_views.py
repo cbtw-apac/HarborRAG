@@ -31,30 +31,56 @@ def make_renderer() -> tuple[CliRenderer, StringIO, StringIO]:
 # --------------------------------------------------------------------------
 
 
-def test_doctor_reports_a_ready_runtime() -> None:
+def test_doctor_reports_a_ready_project() -> None:
     renderer, output, _ = make_renderer()
     response = AppResponse(
         True,
-        {"runtime": {"ready": True, "provider": "temporal", "target": "localhost:7233"}},
+        {
+            "checks": [
+                {"name": "project", "status": "ok", "detail": "/work/harbor", "hint": ""},
+                {"name": "temporal", "status": "skip", "detail": "not checked", "hint": ""},
+            ],
+            "summary": {"ok": 1, "fail": 0, "warn": 0, "skip": 1},
+        },
     )
 
     renderer.render(response, command="doctor")
 
     text = output.getvalue()
-    assert "Runtime ready" in text
-    assert "temporal" in text
-    assert "localhost:7233" in text
+    assert "Ready" in text and "Not ready" not in text
+    assert "project" in text and "/work/harbor" in text
 
 
-def test_doctor_reports_an_unavailable_runtime() -> None:
+def test_doctor_reports_failed_checks_with_their_hints() -> None:
     renderer, output, _ = make_renderer()
+    response = AppResponse(
+        True,
+        {
+            "checks": [
+                {
+                    "name": "qdrant",
+                    "status": "fail",
+                    "detail": "refused",
+                    "hint": "docker compose up -d",
+                },
+                {
+                    "name": "falkordb",
+                    "status": "fail",
+                    "detail": "refused",
+                    "hint": "docker compose up -d",
+                },
+            ],
+            "summary": {"ok": 0, "fail": 2, "warn": 0, "skip": 0},
+        },
+    )
 
-    renderer.render(AppResponse(True, {"runtime": {"ready": False}}), command="doctor")
+    renderer.render(response, command="doctor")
 
     text = output.getvalue()
-    assert "Runtime unavailable" in text
-    # Absent fields fall back to placeholders rather than raising.
-    assert "unknown" in text
+    assert "Not ready" in text
+    assert "qdrant" in text and "falkordb" in text
+    # Identical hints are printed once.
+    assert text.count("docker compose up -d") == 1
 
 
 # --------------------------------------------------------------------------

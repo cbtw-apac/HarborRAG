@@ -14,6 +14,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "harborrag-app==2.0.0a1",
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
 ]
@@ -26,6 +27,7 @@ Issues = "https://github.com/cbtw-apac/HarborRAG/issues"
 [project.optional-dependencies]
 local = [
     "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant,s3,tables]==2.0.0a1",
+    "harborrag-app==2.0.0a1",
 ]
 chat = ["harborrag-adapters[llm]==2.0.0a1"]
 cli = ["harborrag-app==2.0.0a1"]

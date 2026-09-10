@@ -122,9 +122,9 @@ retry, and failure behavior.
 
 </details>
 
-## 5-minute tour
+## 5-minute tour of a checkout
 
-No credentials, no Docker, and no backing services. You need Python 3.12+ and
+For contributors. No credentials, no Docker, and no backing services. You need Python 3.12+ and
 [`uv`](https://docs.astral.sh/uv/). The workspace sync needs roughly 520 MB of disk.
 
 ```bash
@@ -174,22 +174,42 @@ That is parsing on its own. Ingestion and retrieval need backing services, which
 
 ## Install
 
+New to HarborRAG? Follow the [Quick Start](docs/getting-started/quick-start.md)
+- it shows the expected output of every step below. The short version, about ten minutes and
+no clone:
+
+```bash
+pip install "harborrag[local]"
+harborrag init my-harbor            # provider, models, key, folder to ingest
+cd my-harbor
+docker compose up -d                # Qdrant, FalkorDB, MinIO
+harborrag doctor
+harborrag ingest run workspace      # inline progress, then the run summary
+harborrag retrieve "what does this project do" --include-content
+harborrag chat "Summarise these documents."
+```
+
+`init` asks for your provider, API key, and data sources (a folder, GitHub, Confluence,
+Jira), then writes the project; `doctor` names anything that is still missing.
+
 `harborrag` is the only package you install. It pulls in the rest of the workspace, and
 extras add the providers you actually use:
 
 ```bash
+pip install "harborrag[local]"        # the CLI plus the local stack's clients
 pip install "harborrag[all]"          # everything
 pip install "harborrag[cli,qdrant]"   # or just what you need
 ```
 
-A bare `pip install harborrag` gives you the contracts and no provider clients - no vector
-store, no graph store, no model client - so add at least one extra.
+A bare `pip install harborrag` gives you the framework and the `harborrag` command but no
+provider clients - no vector store, no graph store, no model client - so add at least one
+extra; `harborrag doctor` names whatever is missing.
 
 | Extra | Install it when you want |
 | --- | --- |
-| `local` | local end-to-end ingestion and retrieval |
+| `local` | local end-to-end ingestion and retrieval, including the `harborrag` command |
 | `chat` | chat completion, embeddings, or reranking |
-| `cli` | the `harborrag` command |
+| `cli` | nothing new - the bare install already includes the `harborrag` command |
 | `server` | the HTTP control-plane API |
 | `mcp` | MCP retrieval tools in an IDE or agent |
 | `temporal` | durable ingestion (`submit`/`pause`/`resume`/`cancel`) |
@@ -498,7 +518,7 @@ operator commands:
 ```bash
 uv run harborrag ingest status RUN_ID --json
 uv run harborrag ingest wait RUN_ID --json
-uv run harborrag ingest watch RUN_ID      # live TUI dashboard
+uv run harborrag ingest watch RUN_ID      # inline progress until the run settles
 uv run harborrag ingest pause RUN_ID
 uv run harborrag ingest resume RUN_ID
 uv run harborrag ingest cancel RUN_ID
@@ -668,7 +688,7 @@ The same CLI can `validate` and `render` the chat, embedding, and reranking sect
 | --- | --- |
 | [What is HarborRAG?](docs/getting-started/what-is-harborrag.md) | Concepts and the implemented/scaffolded boundary |
 | [Installation](docs/getting-started/installation.md) | Every install path, extra, and platform note |
-| [Quick start](docs/getting-started/quick-start.md) | Checkout to first ingested document |
+| [Quick start](docs/getting-started/quick-start.md) | `pip install` to your first answer, in ten minutes |
 | [Documentation index](docs/TOC.md) | Everything, organized |
 
 | Using it | |

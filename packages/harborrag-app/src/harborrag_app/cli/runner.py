@@ -49,7 +49,7 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
     exit_code = asyncio.run(
         _invoke(
             call,
-            state=_state(context),
+            state=state(context),
             command=command,
             action=action,
             as_json=as_json,
@@ -58,26 +58,6 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
     )
     if exit_code:
         raise typer.Exit(exit_code)
-
-
-def invoke_dashboard(
-    run_id: str,
-    *,
-    context: typer.Context,
-    refresh_seconds: float,
-) -> None:
-    """Run the Textual dashboard inside the service's async lifecycle."""
-
-    try:
-        asyncio.run(_run_dashboard(run_id, refresh_seconds=refresh_seconds))
-    except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-        renderer = CliRenderer(no_color=_state(context).no_color)
-        renderer.render(
-            _failure(exc),
-            command="ingest",
-            action="watch",
-        )
-        raise typer.Exit(1) from None
 
 
 async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
@@ -90,23 +70,13 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
     requires_control_plane: bool = True,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
-    try:
-        logger.debug("Building the runtime application service")
-        service = await asyncio.to_thread(runtime_app_service)
-    except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-        logger.exception("Failed to build the runtime application service")
-        _emit(
-            _failure(exc),
-            renderer=renderer,
-            command=command,
-            action=action,
-            as_json=as_json,
-        )
+    service = await build_service(renderer, command=command, action=action, as_json=as_json)
+    if service is None:
         return 1
     try:
-        unavailable = _control_plane_failure(service) if requires_control_plane else None
+        unavailable = control_plane_failure(service) if requires_control_plane else None
         if unavailable is not None:
-            _emit(
+            emit(
                 unavailable,
                 renderer=renderer,
                 command=command,
@@ -121,8 +91,8 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
             ):
                 response = await call(service)
         except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-            response = _failure(exc)
-        _emit(
+            response = failure(exc)
+        emit(
             response,
             renderer=renderer,
             command=command,
@@ -131,26 +101,28 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
         )
         return 0 if response.ok else 1
     finally:
-        await _close(service)
+        await close(service)
 
 
-async def _run_dashboard(run_id: str, *, refresh_seconds: float) -> None:
-    from harborrag_app.cli.dashboard import IngestionDashboard
+async def build_service(
+    renderer: CliRenderer,
+    *,
+    command: str,
+    action: str | None,
+    as_json: bool,
+) -> BaseAppService | None:
+    """Build the runtime service, or emit the failure envelope and return ``None``."""
 
-    logger.debug("Building the runtime application service for the dashboard")
-    service = await asyncio.to_thread(runtime_app_service)
     try:
-        dashboard = IngestionDashboard(
-            run_id,
-            service,
-            refresh_seconds=refresh_seconds,
-        )
-        await dashboard.run_async()
-    finally:
-        await _close(service)
+        logger.debug("Building the runtime application service")
+        return await asyncio.to_thread(runtime_app_service)
+    except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
+        logger.exception("Failed to build the runtime application service")
+        emit(failure(exc), renderer=renderer, command=command, action=action, as_json=as_json)
+        return None
 
 
-def _emit(
+def emit(
     response: AppResponse,
     *,
     renderer: CliRenderer,
@@ -169,7 +141,7 @@ def _emit(
     renderer.render(response, command=command, action=action)
 
 
-async def _close(service: BaseAppService) -> None:
+async def close(service: BaseAppService) -> None:
     close = getattr(service, "aclose", None)
     if close is None:
         return
@@ -178,7 +150,7 @@ async def _close(service: BaseAppService) -> None:
         await result
 
 
-def _failure(exc: Exception) -> AppResponse:
+def failure(exc: Exception) -> AppResponse:
     return AppResponse(
         False,
         data={"error_type": type(exc).__name__},
@@ -186,7 +158,7 @@ def _failure(exc: Exception) -> AppResponse:
     )
 
 
-def _control_plane_failure(service: BaseAppService) -> AppResponse | None:
+def control_plane_failure(service: BaseAppService) -> AppResponse | None:
     """Return a failure response when the control plane is unusable, else ``None``."""
 
     try:
@@ -227,7 +199,7 @@ def _control_db_error(health: AppResponse) -> str:
     return health.error or "runtime not ready"
 
 
-def _state(context: typer.Context) -> CliState:
+def state(context: typer.Context) -> CliState:
     value = context.find_root().obj
     return value if isinstance(value, CliState) else CliState()
 

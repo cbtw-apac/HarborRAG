@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import chat, doctor, ingest, retrieve
+from harborrag_app.cli.commands import chat, doctor, ingest, init, retrieve
 from harborrag_app.cli.environment import load_project_environment
+from harborrag_app.cli.project import ProjectError, activate_from_argv
 from harborrag_app.cli.runner import CliState
 from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
 
 _HELP_FLAGS = ("-h", "--help")
+# Commands that work without a project: `init` creates one, `doctor` reports its absence.
+_PROJECT_OPTIONAL_COMMANDS = frozenset({"init", "doctor"})
+# A repository checkout has no harborrag.yaml but does have this file; it stays supported.
+_LEGACY_CONFIG_MARKER = Path("config/connectors.yaml")
+_NO_PROJECT_MESSAGE = (
+    "harborrag: no project found. Run `harborrag init DIR` to create one, cd into a "
+    "directory containing harborrag.yaml, or pass --project DIR."
+)
 
 # One-shot commands render their own result envelope, so diagnostic logs stay
 # off unless an operator asks for them. Logs go to stderr either way, which
@@ -42,15 +52,29 @@ def configure(
             help="Disable ANSI color in one-shot command output.",
         ),
     ] = False,
+    project: Annotated[
+        Path | None,
+        typer.Option(
+            "--project",
+            metavar="DIR",
+            help="Project directory holding harborrag.yaml (default: walk up from CWD).",
+        ),
+    ] = None,
 ) -> None:
     """Configure presentation shared by all HarborRAG commands."""
 
+    del project  # consumed before Click ran; see main()
     context.obj = CliState(no_color=no_color)
 
 
 app.command(
+    "init",
+    help="Scaffold a project directory: harborrag.yaml, .env, config/, docker-compose.yml.",
+    rich_help_panel="Setup",
+)(init.command)
+app.command(
     "doctor",
-    help="Check Temporal runtime readiness.",
+    help="Check project, configuration, environment, and local services.",
     rich_help_panel="Operations",
 )(doctor.command)
 app.add_typer(
@@ -74,12 +98,28 @@ app.command(
 def main(argv: list[str] | None = None) -> int:
     """Run the Typer application and expose a test-friendly integer exit code."""
 
-    # Before logging is configured and before any command builds a service: connector
-    # and model credentials live in the project's env files, and every command that
-    # resolves a connector needs them present in os.environ.
+    args = list(argv) if argv is not None else sys.argv[1:]
+    # Before logging is configured and before any command builds a service: a project's
+    # harborrag.yaml and .env, then the checkout's env files, must be in os.environ.
+    # `init` creates a project and resolves its DIR argument from the caller's CWD, so it
+    # is the one command that never activates an enclosing project.
+    if _activates_project(args):
+        origin = Path.cwd()
+        try:
+            project = activate_from_argv(args)
+        except ProjectError as exc:
+            print(f"harborrag: {exc}", file=sys.stderr)
+            return 1
+        if project is not None and project.root != origin.resolve():
+            # Never configure a run from a directory the user cannot see they are in.
+            print(f"harborrag: using project {project.root}", file=sys.stderr)
+        if project is None and _requires_project(args) and not _LEGACY_CONFIG_MARKER.is_file():
+            # Fail here with guidance instead of letting a catalog loader explain a missing
+            # file in Docker-image terms to someone who just ran `pip install harborrag`.
+            print(_NO_PROJECT_MESSAGE, file=sys.stderr)
+            return 1
     load_project_environment()
     configure_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
-    args = list(argv) if argv is not None else sys.argv[1:]
     if not args or args[0] in _HELP_FLAGS:
         # Click resolves --help and no_args_is_help before the group callback
         # runs, so the banner can't live in configure(); print it here instead.
@@ -89,6 +129,32 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return _exit_code(exc.code)
     return 0
+
+
+def _command_name(args: list[str]) -> str | None:
+    """The sub-command being invoked, ignoring global options and their values."""
+
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        option = rest.pop(0)
+        if option == "--project" and rest:
+            rest.pop(0)  # its value
+    return rest[0] if rest else None
+
+
+def _activates_project(args: list[str]) -> bool:
+    """Everything except `init` and pure help output runs inside the enclosing project."""
+
+    if any(arg in _HELP_FLAGS for arg in args):
+        return False
+    return _command_name(args) != "init"
+
+
+def _requires_project(args: list[str]) -> bool:
+    """True for a real command invocation that needs catalogs (not help, init, or doctor)."""
+
+    command = _command_name(args)
+    return command is not None and command not in _PROJECT_OPTIONAL_COMMANDS
 
 
 def _exit_code(value: Any) -> int:
