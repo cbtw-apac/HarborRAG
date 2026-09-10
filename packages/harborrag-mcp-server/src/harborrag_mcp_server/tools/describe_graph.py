@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from .base import BaseMcpTool, McpToolSpec
 from .describe_graph_schema import OUTPUT_SCHEMA
-from .graph_catalog import EXECUTABLE_TOOL_NAMES, describe_graph_payload
+from .graph_catalog import describe_graph_payload
 
 _ANNOTATIONS: dict[str, object] = {
     "readOnlyHint": True,
@@ -23,18 +23,7 @@ _ANNOTATIONS: dict[str, object] = {
 
 _INPUT_SCHEMA: dict[str, object] = {
     "type": "object",
-    "properties": {
-        "for_tool": {
-            "type": "string",
-            "enum": list(EXECUTABLE_TOOL_NAMES),
-            "description": (
-                "Omit on your first call in a session -- you need the full graph "
-                "contract to decide which search tool applies. Pass this only once "
-                "you've already picked a tool, to get just its argument contract "
-                "(defaults and the entity/relation/direction values it accepts)."
-            ),
-        }
-    },
+    "properties": {},
     "additionalProperties": False,
 }
 
@@ -50,9 +39,8 @@ class DescribeGraphTool(BaseMcpTool):
             "Statically describe HarborRAG's graph contract: node kinds, entity types, "
             "projected relations, selector rules, connector topologies, and recommended "
             "workflows. Call this first, with no arguments, when graph selectors, "
-            "relations, directions, or topology are unclear. Once you've already picked "
-            "a search tool, call again with for_tool set to just that tool's argument "
-            "contract. This tool never executes a query and requires no tenant."
+            "relations, directions, or topology are unclear. This tool never executes a "
+            "query and requires no tenant."
         ),
         _INPUT_SCHEMA,
         output_schema=OUTPUT_SCHEMA,
@@ -65,6 +53,5 @@ class DescribeGraphTool(BaseMcpTool):
         *,
         principal_id: str,
     ) -> dict[str, object]:
-        del principal_id
-        for_tool = arguments.get("for_tool")
-        return describe_graph_payload(for_tool if isinstance(for_tool, str) else None)
+        del principal_id, arguments
+        return describe_graph_payload()
