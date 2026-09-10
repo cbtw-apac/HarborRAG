@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -23,6 +24,16 @@ def service() -> MockAppService:
 def client(monkeypatch, service: MockAppService) -> TestClient:
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     with TestClient(create_fastapi_app(ApiSettings())) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def short_deadline_client(monkeypatch, service: MockAppService) -> TestClient:
+    """1s handler deadline, 3s stream deadline: streams outlive the request timeout."""
+
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    settings = ApiSettings(api_request_timeout_seconds=1.0, api_stream_timeout_seconds=3.0)
+    with TestClient(create_fastapi_app(settings)) as test_client:
         yield test_client
 
 
@@ -109,3 +120,91 @@ def test_chat_stream_rejects_empty_prompt(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_chat_stream_outlives_the_request_deadline(
+    short_deadline_client: TestClient,
+    service: MockAppService,
+    monkeypatch,
+) -> None:
+    """The request timeout covers the handler only; a slow body is not cancelled."""
+
+    async def slow(query: str) -> AsyncIterator[dict[str, object]]:
+        del query
+        for index in range(3):
+            await asyncio.sleep(0.5)
+            yield {
+                "kind": "chunk",
+                "chunk": {"event": "text_delta", "content": f"part-{index}"},
+            }
+
+    monkeypatch.setattr(service, "chat_stream", lambda query, **_: slow(query))
+    session_id = _session(short_deadline_client)
+    response = short_deadline_client.post(
+        "/v1/chat/completions",
+        json={"prompt": "Hello", "session_id": session_id, "stream": True},
+    )
+
+    assert response.status_code == 200
+    frames = _sse_frames(response.text)
+    assert [name for name, _ in frames] == ["text_delta"] * 3
+
+
+def test_chat_stream_past_its_deadline_ends_with_a_terminal_error_frame(
+    short_deadline_client: TestClient,
+    service: MockAppService,
+    monkeypatch,
+) -> None:
+    async def stalled(query: str) -> AsyncIterator[dict[str, object]]:
+        del query
+        yield {"kind": "citations", "citations": (), "session_id": "session"}
+        await asyncio.sleep(30)
+        yield {"kind": "chunk", "chunk": {"event": "text_delta", "content": "never"}}
+
+    monkeypatch.setattr(service, "chat_stream", lambda query, **_: stalled(query))
+    session_id = _session(short_deadline_client)
+    response = short_deadline_client.post(
+        "/v1/chat/completions",
+        json={"prompt": "Hello", "session_id": session_id, "stream": True},
+    )
+
+    assert response.status_code == 200
+    frames = _sse_frames(response.text)
+    assert [name for name, _ in frames] == ["citations", "error"]
+    assert frames[-1][1] == {
+        "code": "harbor_deadline_exceeded",
+        "message": "Chat stream exceeded its server deadline",
+    }
+    assert response.text.endswith("\n\n")
+
+
+def test_chat_stream_projects_memory_warning_as_non_terminal_frame(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch,
+) -> None:
+    async def events(query: str) -> AsyncIterator[dict[str, object]]:
+        del query
+        yield {"kind": "chunk", "chunk": {"event": "completed", "finish_reason": "stop"}}
+        yield {"kind": "warning", "warning": "conversation_memory_unavailable"}
+
+    monkeypatch.setattr(service, "chat_stream", lambda query, **_: events(query))
+    session_id = _session(client)
+    response = client.post(
+        "/v1/chat/completions",
+        json={"prompt": "Hello", "session_id": session_id, "stream": True},
+    )
+
+    frames = _sse_frames(response.text)
+    assert [name for name, _ in frames] == ["completed", "warning"]
+    assert frames[1][1]["code"] == "conversation_memory_unavailable"
+
+
+def test_chat_stream_rejects_an_agent_session(client: TestClient) -> None:
+    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
+    response = client.post(
+        "/v1/chat/completions",
+        json={"prompt": "Hello", "session_id": created.json()["session_id"], "stream": True},
+    )
+
+    assert response.status_code == 404

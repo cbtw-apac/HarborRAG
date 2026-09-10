@@ -144,6 +144,7 @@ async def test_app_retrieval_omits_content_by_default_and_closes_resources() -> 
             "rank": 1,
             "id": "revision-hash",
             "score": 0.75,
+            "relevance": None,
             "source": "qdrant",
         }
     ]

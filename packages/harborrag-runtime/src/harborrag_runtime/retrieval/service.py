@@ -9,6 +9,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.models.embed import EmbeddingPurpose, HarborEmbedRequest
@@ -31,8 +32,10 @@ from .contracts import (
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
+from .errors import no_indexed_content
 from .graph_observation import GraphObservation, GraphObserver
 from .graph_service import RuntimeGraphRetrievalMixin
+from .payload import optional_text, section_path
 from .validation import required_text, validate_retrieval_request
 
 _CHUNK_LOAD_CONCURRENCY = 8
@@ -40,6 +43,8 @@ _CHUNK_LOAD_CONCURRENCY = 8
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
 if TYPE_CHECKING:
+    from harborrag_adapters.repositories.vector.base import HarborVectorRepository
+
     from ..config.settings import RuntimeSettings
 
 
@@ -64,6 +69,10 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         self._graph = resources.graph_repository
         self._policy = policy
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
+        # Retained so the conversation-memory index can share this one connected
+        # Qdrant client instead of opening a second one; memory lives in its own
+        # logical collection, never the document/evidence one.
+        self._vector_repository = resources.vector_repository
         self._search = AuthoritativeProjectionSearch(
             resources.vector_repository,
             self._candidate_validator,
@@ -81,6 +90,18 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             else None
         )
         self._closed = False
+
+    @property
+    def vector_repository(self) -> HarborVectorRepository:
+        """The connected vector client, for sharing with the memory index."""
+
+        return self._vector_repository
+
+    @property
+    def embedding_dimensions(self) -> int:
+        """Dense vector width, so a second index matches this deployment."""
+
+        return self._policy.embedding_dimensions
 
     @classmethod
     async def connect(cls, settings: RuntimeSettings) -> RuntimeRetrievalService:
@@ -118,17 +139,24 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
             else None
         )
-        search = await self._search.search(
-            AuthoritativeSearchRequest(
-                lane=selected.lane,
-                top_k=top_k,
-                dense_vector=dense_vector,
-                sparse_vector=sparse_vector,
-                filters=selected.filters,
-                dense_weight=self._policy.dense_weight,
-            ),
-            context=context,
-        )
+        try:
+            search = await self._search.search(
+                AuthoritativeSearchRequest(
+                    lane=selected.lane,
+                    top_k=top_k,
+                    dense_vector=dense_vector,
+                    sparse_vector=sparse_vector,
+                    filters=selected.filters,
+                    dense_weight=self._policy.dense_weight,
+                ),
+                context=context,
+            )
+        except HarborStorageNotFoundError as exc:
+            logger.info(
+                "Retrieval found no index for the tenant",
+                extra={"request_id": request_id, "tenant_id": tenant_id},
+            )
+            raise no_indexed_content() from exc
         loaded, load_failures = await self._load_candidates(
             search.candidates,
             context=context,
@@ -139,6 +167,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 search.candidates,
                 context=context,
                 request_id=request_id,
+                memory_seeds=selected.graph_seeds,
             )
             if selected.observe_graph and self._observer is not None
             else GraphObservation()
@@ -279,12 +308,18 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             id=chunk_id,
             text=required_text(payload, "content"),
             score=candidate.score,
+            relevance=candidate.relevance,
             metadata={
                 "document_id": required_text(payload, "document_id"),
                 "document_version_id": required_text(payload, "document_version_id"),
                 "record_kind": required_text(payload, "record_kind"),
                 "chunk_kind": required_text(payload, "chunk_kind"),
                 "connector_type": required_text(payload, "connector_type"),
+                # Already stored by ingestion. Without them a caller can only
+                # identify a source by an opaque hash, so two near-identical
+                # pages read as one. Never required -- see ``payload``.
+                "document_title": optional_text(payload, "document_title"),
+                "section_path": section_path(payload),
                 "citation_locator": payload.get("citation_locator", {}),
                 "quality_score": payload.get("quality_score"),
                 "retrieval_source": "qdrant-authoritative",

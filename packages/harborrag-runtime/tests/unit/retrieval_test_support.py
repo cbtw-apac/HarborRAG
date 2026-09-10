@@ -53,15 +53,25 @@ class FakeVectorRepository:
         self.hybrid_queries.append((query, context))
         return self._results(query.index_name)
 
-    @staticmethod
-    def _results(collection: str) -> list[VectorSearchResult]:
+    drop_provenance: bool = False
+
+    def _results(self, collection: str) -> list[VectorSearchResult]:
         if "evidence" not in collection:
             return []
+        provenance = (
+            {}
+            if self.drop_provenance
+            else {
+                "document_title": "FE Onboarding Checklist",
+                "section_path": ["Onboarding", "Accounts"],
+            }
+        )
         return [
             VectorSearchResult(
                 id="point-1",
                 score=0.9,
                 raw_score=0.9,
+                relevance=0.9,
                 payload={
                     "chunk_id": "chunk-1",
                     "document_id": "document-1",
@@ -70,6 +80,7 @@ class FakeVectorRepository:
                     "chunk_kind": "text",
                     "connector_type": "local",
                     "content": "The activity timeout is 30 seconds.",
+                    **provenance,
                 },
             )
         ]
@@ -137,9 +148,8 @@ class FailingGraphRepository(FakeGraphRepository):
 
 
 class MixedVectorRepository(FakeVectorRepository):
-    @staticmethod
-    def _results(collection: str) -> list[VectorSearchResult]:
-        results = FakeVectorRepository._results(collection)
+    def _results(self, collection: str) -> list[VectorSearchResult]:
+        results = super()._results(collection)
         if not results:
             return []
         malformed = results[0].model_copy(

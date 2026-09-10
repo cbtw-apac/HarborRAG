@@ -30,10 +30,12 @@ from harborrag_memory import (
 class ConversationRepositoryFake:
     values: dict[ConversationIdentity, tuple[ConversationTurn, ...]] = field(default_factory=dict)
 
-    async def create(self, identity: ConversationIdentity) -> None:
+    async def create(self, identity: ConversationIdentity, *, kind: str = "chat") -> None:
+        del kind
         self.values.setdefault(identity, ())
 
-    async def exists(self, identity: ConversationIdentity) -> bool:
+    async def exists(self, identity: ConversationIdentity, *, kind: str | None = None) -> bool:
+        del kind
         return identity in self.values
 
     async def recent(
@@ -77,6 +79,7 @@ class MemoryRepositoryFake:
 def owner() -> MemoryOwner:
     return MemoryOwner(
         tenant_id="tenant-a",
+        user_id="user-1",
         principal_id="user-1",
         session_id="session-1",
         run_id="run-1",
@@ -131,6 +134,7 @@ async def test_in_memory_working_store_is_scoped_and_does_not_alias_state(
 
     other_run = MemoryOwner(
         tenant_id=owner.tenant_id,
+        user_id=owner.user_id,
         principal_id=owner.principal_id,
         session_id=owner.session_id,
         run_id="run-2",
@@ -162,6 +166,7 @@ async def test_long_term_rejects_forged_and_global_writes(owner: MemoryOwner) ->
     memory = make_memory(owner)
     attacker = MemoryOwner(
         tenant_id="tenant-b",
+        user_id=owner.user_id,
         principal_id=owner.principal_id,
         session_id=owner.session_id,
         run_id=owner.run_id,

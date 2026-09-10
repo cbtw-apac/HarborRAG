@@ -16,6 +16,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
 
+from .memory_settings import MemorySettingsMixin
+
 _REDIS_TRANSPORT = RemoteTransportPolicy(
     service="Redis",
     allowed_schemes=frozenset({"redis", "rediss"}),
@@ -38,7 +40,7 @@ def is_blank_secret(value: SecretStr | None) -> bool:
     return value is None or not value.get_secret_value().strip()
 
 
-class RuntimeSettings(BaseSettings):
+class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     """Environment-driven settings for runtime composition."""
 
     model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
@@ -113,6 +115,26 @@ class RuntimeSettings(BaseSettings):
     retrieval_dense_weight: float = Field(default=0.7, ge=0, le=1)
     chat_retrieval_top_k: int = Field(default=5, ge=1, le=50)
     chat_retrieval_graph_search: bool = False
+    # Lowest ``RetrievalResult.relevance`` a chunk may have and still be shown
+    # to the chat model or reported as a citation. Retrieval returns its top-k
+    # whatever the quality, so without a floor an off-topic question is
+    # answered beside five unrelated documents and cites all of them.
+    #
+    # Zero -- the default -- keeps every result, so no existing deployment
+    # changes behaviour on upgrade. The useful range depends on the embedding
+    # model: scores are normalized cosines, ``(cos + 1) / 2``, so unrelated
+    # text lands near 0.5 and a floor is worth setting only after measuring
+    # the corpus. Never threshold ``score`` instead; on the hybrid lane it is
+    # rank arithmetic and its top hit is near 1.0 however poor the match.
+    chat_retrieval_min_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Off by default: a tenant catalog moves chat credentials out of the
+    # process environment and into the control database, and gives every
+    # configured tenant its own client (its own connection pool). Existing
+    # deployments keep the single process-wide client until they opt in.
+    chat_tenant_catalogs_enabled: bool = False
+    # Upper bound on cached per-tenant chat clients; each holds a connection
+    # pool, so the least recently used one is disposed rather than kept.
+    chat_tenant_client_cache_size: int = Field(default=32, ge=1, le=1_024)
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:

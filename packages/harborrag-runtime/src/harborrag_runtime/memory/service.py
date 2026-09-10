@@ -1,13 +1,25 @@
-"""Conversation-history contracts and runtime memory implementations."""
+"""Database-backed conversation history plugin owned by the runtime.
+
+The in-memory implementation lives in ``in_memory.py``; it is re-exported here
+for callers that imported it from this module before the split.
+"""
 
 from __future__ import annotations
 
-import asyncio
-from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from harborrag_memory import ConversationIdentity, ConversationRepository, ConversationTurn
+from harborrag_core.ports.conversation import (
+    ConversationHistoryRepository,
+    ConversationIdentity,
+    ConversationKind,
+    ConversationMessage,
+    ConversationPage,
+    ConversationTurn,
+)
+
+from .in_memory import InMemoryConversationMemory
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -15,70 +27,11 @@ if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
 
 
-class InMemoryConversationMemory:
-    """Bounded process-local implementation for unit tests and local checks."""
-
-    def __init__(self, *, max_sessions: int = 10_000, max_turns: int = 20) -> None:
-        if max_sessions < 1 or max_turns < 1:
-            raise ValueError("conversation memory bounds must be positive")
-        self._max_sessions = max_sessions
-        self._max_turns = max_turns
-        self._sessions: OrderedDict[
-            ConversationIdentity,
-            tuple[ConversationTurn, ...],
-        ] = OrderedDict()
-        self._lock = asyncio.Lock()
-
-    async def create(self, identity: ConversationIdentity) -> None:
-        async with self._lock:
-            self._sessions.setdefault(identity, ())
-            self._sessions.move_to_end(identity)
-            while len(self._sessions) > self._max_sessions:
-                self._sessions.popitem(last=False)
-
-    async def exists(self, identity: ConversationIdentity) -> bool:
-        async with self._lock:
-            return identity in self._sessions
-
-    async def recent(
-        self,
-        identity: ConversationIdentity,
-        *,
-        limit: int = 2,
-    ) -> tuple[ConversationTurn, ...]:
-        if limit < 1:
-            raise ValueError("conversation memory limit must be positive")
-        async with self._lock:
-            turns = self._sessions.get(identity, ())
-            if turns:
-                self._sessions.move_to_end(identity)
-            return turns[-limit:]
-
-    async def append(
-        self,
-        identity: ConversationIdentity,
-        turn: ConversationTurn,
-    ) -> None:
-        async with self._lock:
-            if identity not in self._sessions:
-                raise ValueError("conversation session does not exist")
-            existing = self._sessions.get(identity, ())
-            self._sessions[identity] = (*existing, turn)[-self._max_turns :]
-            self._sessions.move_to_end(identity)
-            while len(self._sessions) > self._max_sessions:
-                self._sessions.popitem(last=False)
-
-    async def clear(self, identity: ConversationIdentity) -> None:
-        async with self._lock:
-            if identity in self._sessions:
-                self._sessions[identity] = ()
-
-
 @dataclass(slots=True)
 class DatabaseConversationMemory:
     """Runtime-owned SQL memory plugin; production DSNs use PostgreSQL/asyncpg."""
 
-    repository: ConversationRepository
+    repository: ConversationHistoryRepository
     engine: AsyncEngine
 
     @classmethod
@@ -100,11 +53,22 @@ class DatabaseConversationMemory:
     ) -> tuple[ConversationTurn, ...]:
         return await self.repository.recent(identity, limit=limit)
 
-    async def create(self, identity: ConversationIdentity) -> None:
-        await self.repository.create(identity)
+    async def create(
+        self,
+        identity: ConversationIdentity,
+        *,
+        kind: ConversationKind = "chat",
+        title: str | None = None,
+    ) -> None:
+        await self.repository.create(identity, kind=kind, title=title)
 
-    async def exists(self, identity: ConversationIdentity) -> bool:
-        return await self.repository.exists(identity)
+    async def exists(
+        self,
+        identity: ConversationIdentity,
+        *,
+        kind: ConversationKind | None = None,
+    ) -> bool:
+        return await self.repository.exists(identity, kind=kind)
 
     async def append(
         self,
@@ -113,8 +77,68 @@ class DatabaseConversationMemory:
     ) -> None:
         await self.repository.append(identity, turn)
 
+    async def delete(self, identity: ConversationIdentity) -> bool:
+        return await self.repository.delete(identity)
+
     async def clear(self, identity: ConversationIdentity) -> None:
         await self.repository.clear(identity)
 
+    async def append_messages(
+        self,
+        identity: ConversationIdentity,
+        messages: Sequence[ConversationMessage],
+    ) -> None:
+        await self.repository.append_messages(identity, messages)
+
+    async def recent_messages(
+        self,
+        identity: ConversationIdentity,
+        *,
+        limit: int,
+    ) -> tuple[ConversationMessage, ...]:
+        return await self.repository.recent_messages(identity, limit=limit)
+
+    async def messages_after(
+        self,
+        identity: ConversationIdentity,
+        *,
+        after_message_id: str | None,
+        limit: int,
+    ) -> tuple[ConversationMessage, ...]:
+        return await self.repository.messages_after(
+            identity, after_message_id=after_message_id, limit=limit
+        )
+
+    async def clear_messages(self, identity: ConversationIdentity) -> None:
+        await self.repository.clear_messages(identity)
+
+    async def list_conversations(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        kind: ConversationKind | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> ConversationPage:
+        return await self.repository.list_conversations(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            kind=kind,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    async def rename_conversation(
+        self,
+        identity: ConversationIdentity,
+        *,
+        title: str,
+    ) -> bool:
+        return await self.repository.rename_conversation(identity, title=title)
+
     async def aclose(self) -> None:
         await self.engine.dispose()
+
+
+__all__ = ["DatabaseConversationMemory", "InMemoryConversationMemory"]

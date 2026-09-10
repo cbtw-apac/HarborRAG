@@ -6,11 +6,45 @@ from collections.abc import AsyncIterator
 
 from harborrag_app.workflow_control import AppResponse
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborNotFoundError, HarborValidationError
+
+
+def require_allowed_model(
+    model: str | None,
+    *,
+    tenant_id: str,
+    allowed: set[str],
+    tenant_models: dict[str, set[str]],
+) -> None:
+    """Reject a model this tenant may not use, exactly as the runtime does."""
+
+    if model is None:
+        return
+    if model not in tenant_models.get(tenant_id, allowed):
+        raise HarborValidationError(f"model {model!r} is not available", {"field": "model"})
 
 
 class ChatServiceFixture:
     chat_calls: list[dict[str, object]]
+    allowed_models: set[str]
+    tenant_models: dict[str, set[str]]
+    # The projects this double's control plane knows about. A ``project_id``
+    # outside it is a 404 on the JSON and the streaming path alike, exactly as
+    # ``require_project`` makes it in production.
+    known_projects: set[str]
+
+    async def validate_chat_project(self, project_id: str | None, *, tenant_id: str) -> None:
+        del tenant_id
+        if project_id is not None and project_id not in self.known_projects:
+            raise HarborNotFoundError("Project was not found")
+
+    async def validate_chat_model(self, model: str | None, *, tenant_id: str) -> None:
+        require_allowed_model(
+            model,
+            tenant_id=tenant_id,
+            allowed=self.allowed_models,
+            tenant_models=self.tenant_models,
+        )
 
     async def chat_completion(
         self,
@@ -27,8 +61,9 @@ class ChatServiceFixture:
         )
         if not exists:
             raise HarborNotFoundError("Conversation session was not found")
+        await self.validate_chat_project(options.project_id, tenant_id=tenant_id)
         self.chat_calls.append(self._chat_call(query, tenant_id, principal_id, options))
-        return AppResponse(True, self._chat_payload(options.session_id))
+        return AppResponse(True, self._chat_payload(options.session_id, options.project_id))
 
     def chat_stream(
         self,
@@ -55,6 +90,9 @@ class ChatServiceFixture:
             "system": options.system,
             "graph_search": options.graph_search,
             "session_id": options.session_id,
+            "project_id": options.project_id,
+            "user_id": options.user_id,
+            "model": options.model,
         }
 
     async def _chat_stream_events(
@@ -94,7 +132,7 @@ class ChatServiceFixture:
         }
 
     @staticmethod
-    def _chat_payload(session_id: str) -> dict[str, object]:
+    def _chat_payload(session_id: str, project_id: str | None = None) -> dict[str, object]:
         return {
             "id": "chat-1",
             "created": 1_785_600_000,
@@ -109,6 +147,7 @@ class ChatServiceFixture:
             "fallback_count": 0,
             "citations": [{"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}],
             "session_id": session_id,
+            "project_id": project_id,
         }
 
 

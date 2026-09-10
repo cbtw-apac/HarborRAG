@@ -111,3 +111,68 @@ def test_chat_completion_rejects_provider_specific_query_parameters(client: Test
     )
 
     assert response.status_code == 422
+
+
+def test_chat_completion_rejects_an_agent_session(client: TestClient) -> None:
+    """Sessions are bound to the surface that created them."""
+
+    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
+    assert created.status_code == 201
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"session_id": created.json()["session_id"], "prompt": "Hello"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_chat_completion_exposes_memory_persisted_flag(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"session_id": session_id, "prompt": "Hello"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["memory_persisted"] is True
+    del service
+
+
+def test_chat_completion_forwards_project_and_user_identity(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client, "ACME")
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "tenant": "ACME",
+            "session_id": session_id,
+            "prompt": "Explain HarborRAG",
+            "project_id": "proj-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["project_id"] == "proj-1"
+    call = service.chat_calls[0]
+    assert call["project_id"] == "proj-1"
+    # auth_mode=none: the implicit dev principal is also the end user.
+    assert call["user_id"] == "dev"
+
+
+def test_chat_completion_rejects_a_malformed_project_id(client: TestClient) -> None:
+    session_id = _session(client)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"session_id": session_id, "prompt": "Hi", "project_id": "../etc"},
+    )
+
+    assert response.status_code == 422

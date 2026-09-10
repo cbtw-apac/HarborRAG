@@ -34,3 +34,14 @@ class ChatFacade:
         prompt: ChatPrompt | None = None,
     ) -> AsyncIterator[HarborChatStreamChunk]:
         return self._owner._chat_stream(request, prompt=prompt)
+
+    async def validate_model(self, model: str | None, *, tenant_id: str | None) -> None:
+        """Raise ``HarborValidationError`` unless this tenant may use ``model``.
+
+        The one authority on model selection: a tenant with its own catalog is
+        bounded by it, everyone else by the process-wide catalog. Callers ask
+        before they build a turn so a rejected name is a validation failure
+        rather than a provider error mid-stream.
+        """
+
+        await self._owner._chat_validate_model(model, tenant_id=tenant_id)

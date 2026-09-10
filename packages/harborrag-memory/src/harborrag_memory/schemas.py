@@ -9,11 +9,16 @@ from __future__ import annotations
 
 from harborrag_core.ports.memory import (
     Memory,
+    MemoryEmbedder,
+    MemoryEntityResolver,
+    MemoryIndex,
+    MemoryMatch,
     MemoryOwner,
     MemoryQuery,
     MemoryRepository,
     MemoryScope,
     MemoryType,
+    ResolvedEntity,
     new_memory_id,
     scope_owner_fields,
     visible_to,
@@ -21,11 +26,16 @@ from harborrag_core.ports.memory import (
 
 __all__ = [
     "Memory",
+    "MemoryEmbedder",
+    "MemoryEntityResolver",
+    "MemoryIndex",
+    "MemoryMatch",
     "MemoryOwner",
     "MemoryQuery",
     "MemoryRepository",
     "MemoryScope",
     "MemoryType",
+    "ResolvedEntity",
     "new_memory_id",
     "scope_owner_fields",
     "visible_to",

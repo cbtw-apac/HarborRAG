@@ -42,4 +42,8 @@ def _conversation_identity(owner: MemoryOwner) -> ConversationIdentity:
         tenant_id=owner.tenant_id,
         principal_id=owner.principal_id,
         session_id=owner.session_id,
+        # Conversation history is owned by the human; fall back to the
+        # credential only for owners predating user-scoped ownership, which
+        # is exactly what migration 0024 backfilled.
+        user_id=owner.user_id or owner.principal_id,
     )

@@ -149,6 +149,8 @@ class RetrievalOptions:
     lane: RetrievalLane = RetrievalLane.HYBRID
     filters: VectorFilter | None = None
     observe_graph: bool = False
+    # Extra graph observation seeds; see ``RetrievalRequest.graph_seed_node_keys``.
+    graph_seeds: tuple[str, ...] = ()
 
 
 CloseOperation = Callable[[], Awaitable[None]]

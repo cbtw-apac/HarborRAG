@@ -55,6 +55,7 @@ async def test_vector_tool_enforces_access_identity_and_returns_evidence() -> No
             "text": "evidence",
             "score": 0.91,
             "metadata": {"source": "doc"},
+            "relevance": None,
         }
     ]
     assert runtime.retrieval.request.access.principal_id == "reader-1"

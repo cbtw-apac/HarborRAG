@@ -25,6 +25,17 @@ class RuntimeGraphRetrievalMixin:
 
     _graph_search: AuthoritativeGraphSearch | None
 
+    @property
+    def graph_retrieval_available(self) -> bool:
+        """Whether this deployment configured a knowledge graph to read.
+
+        Public because callers that *degrade* without the graph -- memory
+        entity resolution, for one -- must be able to ask before calling
+        rather than catch ``HarborCapabilityError`` as control flow.
+        """
+
+        return self._graph_search is not None
+
     async def search_graph_triplets(
         self,
         query: GraphTripletQuery,

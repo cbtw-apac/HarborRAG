@@ -45,3 +45,16 @@ def test_chat_cli_renders_the_assistant_message(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "HarborChat" in output
     assert "Harbor response" in output
+
+
+def test_chat_cli_forwards_the_project_scope(monkeypatch, capsys) -> None:
+    service = MockAppService()
+    monkeypatch.setattr(cli_runner, "runtime_app_service", lambda: service)
+
+    exit_code = cli.main(["chat", "Hello", "--project", "proj-1", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["data"]["project_id"] == "proj-1"
+    assert service.chat_calls[0]["project_id"] == "proj-1"
+    assert service.chat_calls[0]["user_id"] is None
