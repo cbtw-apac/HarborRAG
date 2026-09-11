@@ -27,6 +27,8 @@ logger = logging.getLogger("harborrag.app.cli.project")
 _ACTIVE: Project | None = None
 
 PROJECT_FILE = "harborrag.yaml"
+# A repository checkout carries no harborrag.yaml but does ship catalogs under config/.
+LEGACY_CONFIG_MARKER = Path("config") / "connectors.yaml"
 PROJECT_ENV_VAR = "HARBORRAG_PROJECT"
 ENV_FILE = ".env"
 _SETTINGS_PREFIX = "HARBORRAG_"
@@ -54,6 +56,14 @@ class ProjectConfigurationError(ProjectError):
 
 class UnsafeProjectError(ProjectError):
     """A walked-to marker lives in a directory another user could have written."""
+
+
+@dataclass(frozen=True, slots=True)
+class Remedy:
+    """The advice appended when a walked-to directory is refused."""
+
+    unowned: str
+    permissions: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +138,36 @@ def activate_from_argv(args: Sequence[str]) -> Project | None:
     return project
 
 
+def find_legacy_checkout(start: Path | None = None) -> Path | None:
+    """Return the enclosing repository checkout whose ``config/`` supplies catalogs.
+
+    Resolved by the same upward walk as :data:`PROJECT_FILE`, and subject to the same
+    ownership rule. Checking ``config/connectors.yaml`` against the raw CWD instead would
+    make the CLI work at a checkout's root and fail one directory below it.
+    """
+
+    here = (start or Path.cwd()).resolve()
+    for directory in (here, *here.parents):
+        if (directory / LEGACY_CONFIG_MARKER).is_file():
+            _ensure_safe(directory, str(LEGACY_CONFIG_MARKER), _CHECKOUT_REMEDY)
+            return directory
+    return None
+
+
+def activate_legacy_checkout(start: Path | None = None) -> Path | None:
+    """chdir into the enclosing checkout so CWD-relative catalog defaults resolve.
+
+    Catalog paths are CWD-relative (see :func:`activate_project`), so locating a checkout
+    in an ancestor is only useful if the process also moves there.
+    """
+
+    root = find_legacy_checkout(start)
+    if root is not None:
+        os.chdir(root)
+        logger.debug("Activated repository checkout %s", root)
+    return root
+
+
 def project_option_from_argv(args: Sequence[str]) -> str | None:
     """Read ``--project PATH`` or ``--project=PATH`` before Click parses the command line."""
 
@@ -139,7 +179,21 @@ def project_option_from_argv(args: Sequence[str]) -> str | None:
     return None
 
 
-def _ensure_safe(directory: Path) -> None:
+# How to accept a rejected directory deliberately. A marker can be named with --project;
+# a checkout cannot, because --project insists on a harborrag.yaml, so cd is the only way in.
+_MARKER_REMEDY = Remedy(
+    unowned="cd into it or pass --project to use it deliberately",
+    permissions="fix its permissions or pass --project to use it deliberately",
+)
+_CHECKOUT_REMEDY = Remedy(
+    unowned="cd into it to use it deliberately",
+    permissions="fix its permissions or cd into it to use it deliberately",
+)
+
+
+def _ensure_safe(
+    directory: Path, marker: str = PROJECT_FILE, remedy: Remedy = _MARKER_REMEDY
+) -> None:
     """Refuse a walked-to marker unless the current user controls its directory.
 
     The walk climbs to ``/``, so without this a co-tenant who can write ``/tmp`` (or any
@@ -155,13 +209,11 @@ def _ensure_safe(directory: Path) -> None:
     info = directory.stat()
     if info.st_uid != geteuid():
         raise UnsafeProjectError(
-            f"found {PROJECT_FILE} in {directory}, which is not owned by you; cd into it or "
-            "pass --project to use it deliberately"
+            f"found {marker} in {directory}, which is not owned by you; {remedy.unowned}"
         )
     if info.st_mode & stat.S_IWOTH:
         raise UnsafeProjectError(
-            f"found {PROJECT_FILE} in {directory}, which is world-writable; fix its permissions "
-            "or pass --project to use it deliberately"
+            f"found {marker} in {directory}, which is world-writable; {remedy.permissions}"
         )
 
 
@@ -184,6 +236,7 @@ def _env_value(value: Any) -> str:
 
 __all__ = [
     "ENV_FILE",
+    "LEGACY_CONFIG_MARKER",
     "PROJECT_ENV_VAR",
     "PROJECT_FILE",
     "Project",
@@ -192,8 +245,10 @@ __all__ = [
     "ProjectNotFoundError",
     "UnsafeProjectError",
     "activate_from_argv",
+    "activate_legacy_checkout",
     "active_project",
     "activate_project",
+    "find_legacy_checkout",
     "find_project",
     "project_option_from_argv",
 ]

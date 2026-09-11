@@ -12,15 +12,13 @@ import typer
 from harborrag_app.cli.banner import print_banner
 from harborrag_app.cli.commands import chat, doctor, ingest, init, retrieve
 from harborrag_app.cli.environment import load_project_environment
-from harborrag_app.cli.project import ProjectError, activate_from_argv
+from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.runner import CliState
 from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
 
 _HELP_FLAGS = ("-h", "--help")
 # Commands that work without a project: `init` creates one, `doctor` reports its absence.
 _PROJECT_OPTIONAL_COMMANDS = frozenset({"init", "doctor"})
-# A repository checkout has no harborrag.yaml but does have this file; it stays supported.
-_LEGACY_CONFIG_MARKER = Path("config/connectors.yaml")
 _NO_PROJECT_MESSAGE = (
     "harborrag: no project found. Run `harborrag init DIR` to create one, cd into a "
     "directory containing harborrag.yaml, or pass --project DIR."
@@ -107,13 +105,23 @@ def main(argv: list[str] | None = None) -> int:
         origin = Path.cwd()
         try:
             project = activate_from_argv(args)
+            # A checkout supplies catalogs without a marker file, so it is only consulted
+            # once marker discovery has come up empty -- and only for a command that needs
+            # catalogs, so `doctor` keeps reporting on the directory the user is in.
+            checkout = (
+                activate_legacy_checkout() if project is None and _requires_project(args) else None
+            )
         except ProjectError as exc:
             print(f"harborrag: {exc}", file=sys.stderr)
             return 1
-        if project is not None and project.root != origin.resolve():
-            # Never configure a run from a directory the user cannot see they are in.
-            print(f"harborrag: using project {project.root}", file=sys.stderr)
-        if project is None and _requires_project(args) and not _LEGACY_CONFIG_MARKER.is_file():
+        # Never configure a run from a directory the user cannot see they are in.
+        if project is not None:
+            if project.root != origin.resolve():
+                print(f"harborrag: using project {project.root}", file=sys.stderr)
+        elif checkout is not None:
+            if checkout != origin.resolve():
+                print(f"harborrag: using repository checkout {checkout}", file=sys.stderr)
+        elif _requires_project(args):
             # Fail here with guidance instead of letting a catalog loader explain a missing
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
             print(_NO_PROJECT_MESSAGE, file=sys.stderr)

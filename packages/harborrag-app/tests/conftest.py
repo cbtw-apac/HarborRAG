@@ -40,6 +40,38 @@ def _restore_process_environment() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _restore_working_directory() -> Iterator[None]:
+    """Undo the process-wide chdir that project (and checkout) activation performs.
+
+    ``activate_project`` calls ``os.chdir`` directly, which monkeypatch cannot see, so a
+    test that activates a project would otherwise leave every later test running from that
+    directory.
+    """
+
+    saved = os.getcwd()
+    yield
+    os.chdir(saved)
+
+
+@pytest.fixture
+def cli_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Run `cli.main` inside a project of this test's own.
+
+    Without this the CLI's project gate rejects the command, and the tests only passed
+    because a repository checkout supplies catalogs from the CWD -- which made them pass
+    from the repository root and fail from ``packages/harborrag-app`` (how CI runs them).
+    ``HARBORRAG_PROJECT`` selects the project explicitly, so discovery neither walks up out
+    of ``tmp_path`` nor depends on where pytest was started.
+    """
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "harborrag.yaml").write_text("runtime: {}\n", encoding="utf-8")
+    monkeypatch.setenv("HARBORRAG_PROJECT", str(root))
+    return root
+
+
+@pytest.fixture(autouse=True)
 def _reset_active_project() -> Iterator[None]:
     """Each test starts without a project activated by a previous `cli.main` call."""
 

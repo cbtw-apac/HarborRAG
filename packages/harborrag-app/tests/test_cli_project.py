@@ -166,6 +166,57 @@ def test_main_keeps_working_in_a_legacy_checkout_layout(
     assert cli.main(["retrieve", "anything", "--json"]) == 0
 
 
+def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Catalog paths are CWD-relative, so a checkout must be found *and* moved into.
+
+    Matching config/connectors.yaml against the raw CWD made the CLI work at a checkout's
+    root and fail one directory below it -- which is how CI runs the package's own tests.
+    """
+
+    from app_test_fixtures import MockAppService
+
+    from harborrag_app.cli import main as cli
+    from harborrag_app.cli import runner as cli_runner
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    nested = tmp_path / "packages" / "harborrag-app"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    assert cli.main(["retrieve", "anything", "--json"]) == 0
+    assert Path.cwd() == tmp_path.resolve()
+    assert "using repository checkout" in capsys.readouterr().err
+
+
+def test_doctor_stays_in_its_directory_inside_a_legacy_checkout(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """`doctor` reports on where the user stands, so checkout activation must skip it.
+
+    Moving it would make doctor pass catalog checks for a directory the user is not in
+    while its own JSON still says no project was found.
+    """
+
+    from harborrag_app.cli import main as cli
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    nested = tmp_path / "packages" / "harborrag-app"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+
+    cli.main(["doctor", "--json"])
+
+    assert Path.cwd() == nested.resolve()
+    assert "using repository checkout" not in capsys.readouterr().err
+
+
 def test_walk_up_rejects_a_marker_in_a_directory_owned_by_someone_else(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from app_test_fixtures import MockAppService
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control import AppResponse
+
+# Every command below goes through the CLI's project gate; give each test its own
+# project instead of inheriting whatever directory pytest was started from.
+pytestmark = pytest.mark.usefixtures("cli_project")
 
 
 class FollowService(MockAppService):

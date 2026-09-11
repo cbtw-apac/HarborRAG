@@ -1867,7 +1867,6 @@ falkordb = [
 ]
 local = [
     { name = "harborrag-adapters", extra = ["chunking", "control-plane", "falkordb", "llm", "parsers", "pdf-docling", "qdrant", "s3", "tables"] },
-    { name = "harborrag-app" },
 ]
 mcp = [
     { name = "harborrag-mcp-server", extra = ["mcp"] },
@@ -1907,7 +1906,6 @@ requires-dist = [
     { name = "harborrag-adapters", extras = ["s3"], marker = "extra == 's3'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-app", editable = "packages/harborrag-app" },
     { name = "harborrag-app", marker = "extra == 'cli'", editable = "packages/harborrag-app" },
-    { name = "harborrag-app", marker = "extra == 'local'", editable = "packages/harborrag-app" },
     { name = "harborrag-app", extras = ["api"], marker = "extra == 'all'", editable = "packages/harborrag-app" },
     { name = "harborrag-app", extras = ["api"], marker = "extra == 'server'", editable = "packages/harborrag-app" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },

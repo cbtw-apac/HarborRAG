@@ -13,6 +13,10 @@ from harborrag_app.cli.doctor import probes
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_app.workflow_control.schemas import AppResponse
 
+# Every command below goes through the CLI's project gate; give each test its own
+# project instead of inheriting whatever directory pytest was started from.
+pytestmark = pytest.mark.usefixtures("cli_project")
+
 
 class BrokenService(BaseAppService):
     """Call abstract method bodies to verify their defensive behavior."""
