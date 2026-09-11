@@ -142,10 +142,10 @@ def emit(
 
 
 async def close(service: BaseAppService) -> None:
-    close = getattr(service, "aclose", None)
-    if close is None:
+    aclose = getattr(service, "aclose", None)
+    if aclose is None:
         return
-    result = close()
+    result = aclose()
     if inspect.isawaitable(result):
         await result
 

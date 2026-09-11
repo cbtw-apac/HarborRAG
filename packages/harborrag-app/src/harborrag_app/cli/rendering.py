@@ -144,7 +144,8 @@ class CliRenderer:
             hint = str(check.get("hint") or "")
             if status == "fail" and hint and hint not in hints:
                 hints.append(hint)
-        ok = integer(mapping(data.get("summary")).get("fail")) == 0
+        # `ready` is the exit-code decision; the fail count would contradict it.
+        ok = bool(data.get("ready"))
         title = Text("✓ Ready" if ok else "✗ Not ready", style="bold green" if ok else "bold red")
         self.console.print(Panel(table, title=title, border_style="green" if ok else "red"))
         for hint in hints:

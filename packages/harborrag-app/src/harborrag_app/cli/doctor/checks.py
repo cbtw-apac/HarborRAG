@@ -44,6 +44,9 @@ class DoctorReport:
         counts: Counter[str] = Counter(str(check.status) for check in self.checks)
         payload: dict[str, object] = {
             "checks": [check.as_dict() for check in self.checks],
+            # `summary` counts every status; `ready` is the exit-code decision, which
+            # ignores failures of non-required checks. Renderers must use `ready`.
+            "ready": self.ok,
             "summary": {status: counts.get(status, 0) for status in _STATUSES},
         }
         if self.diagnostics is not None:

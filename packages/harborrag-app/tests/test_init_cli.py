@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 from harborrag_app.cli import main as cli
@@ -202,3 +203,46 @@ def test_init_declining_the_overwrite_leaves_everything_untouched(
     assert (tmp_path / "config" / "models.yaml").read_text() == "stale: true\n"
     assert not (tmp_path / ".env.new").exists()
     assert "untouched" in capsys.readouterr().err
+
+
+def test_init_takes_the_key_from_the_providers_own_variable(tmp_path: Path, monkeypatch) -> None:
+    """Non-interactive setup should not have to put the key in the process table."""
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+
+    assert cli.main(["init", str(tmp_path), "--yes"]) == 0
+
+    assert "OPENAI_API_KEY=sk-from-env" in (tmp_path / ".env").read_text()
+
+
+def test_init_reads_the_key_from_stdin_when_asked(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("sys.stdin", io.StringIO("sk-from-stdin\n"))
+
+    assert cli.main(["init", str(tmp_path), "--yes", "--api-key", "-"]) == 0
+
+    assert "OPENAI_API_KEY=sk-from-stdin" in (tmp_path / ".env").read_text()
+
+
+def test_init_leaves_the_key_blank_when_nothing_supplies_one(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    assert cli.main(["init", str(tmp_path), "--yes"]) == 0
+
+    assert "OPENAI_API_KEY=\n" in (tmp_path / ".env").read_text()
+
+
+def test_init_reports_a_sample_folder_outside_the_project_root(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """`--source` may name an absolute path; the completion report must still print."""
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    root = tmp_path / "project"
+    outside = tmp_path / "elsewhere" / "corpus"
+
+    assert cli.main(["init", str(root), "--yes", "--source", str(outside)]) == 0
+
+    out = capsys.readouterr().out
+    assert "Created HarborRAG project" in out
+    assert (outside / "README.md").is_file()

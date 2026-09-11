@@ -40,6 +40,7 @@ def test_doctor_reports_a_ready_project() -> None:
                 {"name": "project", "status": "ok", "detail": "/work/harbor", "hint": ""},
                 {"name": "temporal", "status": "skip", "detail": "not checked", "hint": ""},
             ],
+            "ready": True,
             "summary": {"ok": 1, "fail": 0, "warn": 0, "skip": 1},
         },
     )
@@ -70,6 +71,7 @@ def test_doctor_reports_failed_checks_with_their_hints() -> None:
                     "hint": "docker compose up -d",
                 },
             ],
+            "ready": False,
             "summary": {"ok": 0, "fail": 2, "warn": 0, "skip": 0},
         },
     )
@@ -257,3 +259,42 @@ def test_status_without_discovery_shows_a_waiting_bar() -> None:
     renderer.render(response, command="status")
 
     assert "Waiting for discovery" in output.getvalue()
+
+
+def test_doctor_panel_title_follows_readiness_not_the_fail_count() -> None:
+    """An optional failure exits 0, so the panel must not announce "Not ready"."""
+
+    renderer, output, _ = make_renderer()
+    data = {
+        "checks": [
+            {"name": "qdrant", "group": "services", "status": "ok", "detail": "up"},
+            {
+                "name": "temporal",
+                "group": "durable",
+                "status": "fail",
+                "detail": "unreachable",
+                "required": False,
+            },
+        ],
+        "ready": True,
+        "summary": {"ok": 1, "fail": 1, "warn": 0, "skip": 0},
+    }
+
+    renderer.render(AppResponse(True, data), command="doctor")
+
+    text = output.getvalue()
+    assert "Ready" in text and "Not ready" not in text
+    assert "unreachable" in text  # the optional failure stays visible
+
+
+def test_doctor_panel_says_not_ready_when_a_required_check_fails() -> None:
+    renderer, output, _ = make_renderer()
+    data = {
+        "checks": [{"name": "qdrant", "group": "services", "status": "fail", "detail": "down"}],
+        "ready": False,
+        "summary": {"ok": 0, "fail": 1, "warn": 0, "skip": 0},
+    }
+
+    renderer.render(AppResponse(True, data), command="doctor")
+
+    assert "Not ready" in output.getvalue()

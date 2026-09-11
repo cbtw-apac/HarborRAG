@@ -90,7 +90,13 @@ def report(
 ) -> None:
     console.print(f"[bold green]✓[/] Created HarborRAG project in [cyan]{root}[/]")
     for path in (*written, *([sample] if sample else [])):
-        console.print(f"  [dim]{path.relative_to(root)}[/]")
+        # `--source` may name an absolute or `../` folder, which is not under root. The
+        # scaffold is already written by now, so this must not raise over a display path.
+        try:
+            shown = path.relative_to(root)
+        except ValueError:
+            shown = path
+        console.print(f"  [dim]{shown}[/]")
     steps: list[str] = []
     if any(path.name == ENV_FALLBACK for path in written):
         steps.append(f"Merge {ENV_FALLBACK} into your existing .env (it was left untouched)")

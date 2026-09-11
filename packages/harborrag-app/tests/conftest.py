@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_app.cli import project as project_module
+
 
 @pytest.fixture(autouse=True)
 def _isolated_application_environment(
@@ -72,11 +74,12 @@ def cli_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def _reset_active_project() -> Iterator[None]:
-    """Each test starts without a project activated by a previous `cli.main` call."""
+def _reset_active_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test starts without a project activated by a previous `cli.main` call.
 
-    from harborrag_app.cli import project as project_module
+    `monkeypatch.setattr` rather than a plain assignment: if `_ACTIVE` is ever renamed,
+    this raises instead of quietly creating a new attribute and letting every test share
+    process-level activation state again.
+    """
 
-    project_module._ACTIVE = None  # noqa: SLF001 - test isolation of process-level state
-    yield
-    project_module._ACTIVE = None
+    monkeypatch.setattr(project_module, "_ACTIVE", None)

@@ -97,6 +97,13 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
     """Execute the ingestion in this process with live inline progress."""
 
     resolved_run_id = run_id or new_run_id()
+    # Parsed here, not in the lambda: the lambda only runs after the runtime service is
+    # built and the control plane probed, so a typo would cost that work and then escape
+    # the awaited task as a traceback.
+    try:
+        filters = parse_filters(filters_json)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--filters-json") from None
     invoke_run(
         lambda service: service.run_ingestion(
             tenant_id=tenant_id,
@@ -110,7 +117,7 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
             updated_after=updated_after,
             max_artifacts=max_artifacts,
             include_attachments=include_attachments,
-            filters=parse_filters(filters_json),
+            filters=filters,
             force_reprocess=force_reprocess,
         ),
         context=context,
@@ -122,7 +129,12 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
 
 
 def parse_filters(value: str) -> dict[str, object]:
-    parsed = json.loads(value)
+    """Decode ``--filters-json``, reporting failures in the option's own terms."""
+
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--filters-json is not valid JSON: {exc.msg}") from None
     if not isinstance(parsed, dict):
         raise ValueError("--filters-json must encode a JSON object")
     return {str(key): item for key, item in parsed.items()}

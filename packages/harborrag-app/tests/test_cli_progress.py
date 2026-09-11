@@ -99,10 +99,21 @@ def test_render_snapshot_includes_counts_and_failures() -> None:
 
 
 class _Scripted:
-    def __init__(self, snapshots):
+    """Replays scripted snapshots, repeating the last one, under a poll budget.
+
+    `follow` runs with `interval=0`, so a regression in the terminal check or the
+    `until.done()` branch would spin forever and hang CI instead of failing.
+    """
+
+    def __init__(self, snapshots, *, max_polls=20):
         self.snapshots = list(snapshots)
+        self.polls = 0
+        self.max_polls = max_polls
 
     async def snapshot(self):
+        self.polls += 1
+        if self.polls > self.max_polls:
+            raise AssertionError("follow() did not settle within the scripted poll budget")
         return self.snapshots.pop(0) if len(self.snapshots) > 1 else self.snapshots[0]
 
 
@@ -120,6 +131,20 @@ def test_follow_stops_at_a_terminal_snapshot_and_prints_plain_lines() -> None:
 
     assert final is not None and final.status == "completed"
     assert "COMPLETED" in output.getvalue()
+
+
+def test_follow_renders_live_on_a_terminal() -> None:
+    """The Live branch and `live.update` path only run when the console is a terminal."""
+
+    output = StringIO()
+    console = Console(file=output, force_terminal=True, width=100)
+    source = _Scripted([_snap("running", 1), _snap("completed", 2)])
+    live = LiveProgress(console, source, label="ws", interval=0)
+
+    final = asyncio.run(live.follow())
+
+    assert final is not None and final.status == "completed"
+    assert "ws" in output.getvalue()
 
 
 def test_follow_emits_ndjson_events_when_requested(capsys) -> None:

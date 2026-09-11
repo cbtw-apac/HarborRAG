@@ -184,8 +184,11 @@ value`**, go back to step 5 - Compose treats an empty value as unset.
 
 ```bash
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-  uv run harborrag doctor --json
+  uv run harborrag doctor --json --temporal
 ```
+
+`doctor` only contacts Temporal when `--temporal` is passed; without the flag the target
+above is read but never used, and the `temporal` check reports `skip`.
 
 The Temporal UI is at <http://localhost:8080>, and `dev.sh api` prints the API health URL
 (`http://127.0.0.1:8000/api/v1/health` by default).

@@ -118,6 +118,11 @@ def activate_project(project: Project) -> None:
         name = f"{_SETTINGS_PREFIX}{str(key).upper()}"
         if name in os.environ:
             continue
+        if value is None:
+            # `connector_config_path:` with no value parses as None; exporting the string
+            # "None" (or <root>/None for a path key) suppresses the real default and fails
+            # later in a loader that cannot name the cause.
+            continue
         if key in _PATH_KEYS:
             value = str((project.root / str(value)).resolve())
         os.environ[name] = _env_value(value)
@@ -219,7 +224,12 @@ def _ensure_safe(
 
 def _load(root: Path) -> Project:
     marker = root / PROJECT_FILE
-    raw = yaml.safe_load(marker.read_text(encoding="utf-8")) or {}
+    try:
+        raw = yaml.safe_load(marker.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        # main() converts ProjectError into a one-line message; anything else reaches the
+        # interpreter as a traceback, which a typo in harborrag.yaml does not warrant.
+        raise ProjectConfigurationError(f"{marker} could not be read: {exc}") from exc
     if not isinstance(raw, dict):
         raise ProjectConfigurationError(f"{marker} must contain a mapping")
     runtime = raw.get("runtime") or {}

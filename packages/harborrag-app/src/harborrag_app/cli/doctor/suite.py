@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 from collections.abc import Callable
 
 from harborrag_app.cli.project import PROJECT_FILE, ProjectError, active_project, find_project
@@ -18,12 +19,15 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from . import probes
 from .checks import Check, DoctorReport
 from .environment import (
+    check_error_detail,
     credentials_check,
     models_check,
     packages_check,
     settings_error_detail,
     source_path_checks,
 )
+
+logger = logging.getLogger("harborrag.app.cli.doctor.suite")
 
 _COMPOSE_HINT = "Start the local services: docker compose up -d"
 _INIT_HINT = "Run `harborrag init` to scaffold a project, or cd into one."
@@ -126,7 +130,7 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
     checks = [
         _service_check(
             "qdrant",
-            settings.qdrant_url,
+            probes.safe_url(settings.qdrant_url),
             probes.http_ok(settings.qdrant_url.rstrip("/") + "/readyz"),
         ),
         _service_check(
@@ -146,11 +150,13 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
         # Not every S3-compatible store serves MinIO's health route; fall back to the port.
         host, port = probes.host_port(endpoint, default_port=9000)
         error = probes.tcp_reachable(host, port)
-    checks.append(_service_check("object store", endpoint, error))
+    checks.append(_service_check("object store", probes.safe_url(endpoint), error))
     return checks
 
 
 def _service_check(name: str, target: str, error: str | None) -> Check:
+    """``target`` is shown verbatim on success, so callers pass an already-safe string."""
+
     if error is None:
         return Check(name, "services", "ok", target)
     return Check(name, "services", "fail", error, hint=_COMPOSE_HINT)
@@ -166,7 +172,10 @@ async def _control_plane_checks(
     try:
         service = await asyncio.to_thread(service_factory)
     except Exception as exc:  # noqa: BLE001
-        detail = f"{type(exc).__name__}: {exc}"
+        # Never interpolate the raw exception: a composition failure routinely carries
+        # HARBORRAG_CONTROL_DB_URL, password included. The logs keep the full detail.
+        logger.debug("Control-plane service could not be built", exc_info=True)
+        detail = check_error_detail(exc)
         hint = "Check HARBORRAG_CONTROL_DB_URL in .env."
         failed = [
             Check("control plane", "services", "fail", detail, hint=hint),
@@ -188,18 +197,11 @@ async def _control_plane_checks(
         if not temporal:
             checks.append(_temporal_skipped())
             return checks, diagnostics
+        # `--temporal` is an explicit request to check it, so its failure is blocking.
+        # Only the unrequested `_temporal_skipped()` case stays non-required.
         if importlib.util.find_spec("temporalio") is None:
             detail = "temporalio is not installed"
-            checks.append(
-                Check(
-                    "temporal",
-                    "durable",
-                    "fail",
-                    detail,
-                    hint=_TEMPORAL_CLIENT_HINT,
-                    required=False,
-                )
-            )
+            checks.append(Check("temporal", "durable", "fail", detail, hint=_TEMPORAL_CLIENT_HINT))
             return checks, diagnostics
         runtime = await service.runtime_health()
         checks.append(
@@ -209,7 +211,6 @@ async def _control_plane_checks(
                 "ok" if runtime.ok else "fail",
                 runtime.error or "ready",
                 hint=_TEMPORAL_HINT,
-                required=False,
             )
         )
         return checks, diagnostics

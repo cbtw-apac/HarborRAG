@@ -20,15 +20,8 @@ class IngestionServiceFixture:
     submissions: list[IngestionCreateCommand]
     idempotency: dict[str, str]
     task_list_calls: list[dict[str, object]]
+    direct_runs: list[dict[str, object]]
     direct_final_status: str = "completed"
-
-    @property
-    def direct_runs(self) -> list[dict[str, object]]:
-        runs = getattr(self, "_direct_runs", None)
-        if runs is None:
-            runs = []
-            self._direct_runs = runs
-        return runs
 
     async def run_ingestion(  # noqa: PLR0913 - mirrors the service port
         self,
@@ -47,14 +40,22 @@ class IngestionServiceFixture:
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
     ) -> AppResponse:
+        # Every option `ingest run` forwards, so a test can assert the request it made.
         self.direct_runs.append(
             {
                 "tenant_id": tenant_id,
                 "connector_name": connector_name,
                 "run_id": run_id,
-                "max_artifacts": max_artifacts,
-                "force_reprocess": force_reprocess,
+                "connection_id": connection_id,
+                "source_scope_id": source_scope_id,
                 "path": path,
+                "pattern": pattern,
+                "recursive": recursive,
+                "updated_after": updated_after,
+                "max_artifacts": max_artifacts,
+                "include_attachments": include_attachments,
+                "filters": dict(filters or {}),
+                "force_reprocess": force_reprocess,
             }
         )
         return AppResponse(

@@ -17,6 +17,11 @@ from harborrag_app.cli.runner import CliState
 from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
 
 _HELP_FLAGS = ("-h", "--help")
+# Global options declared by `configure()` that consume the following argv item. main()
+# scans argv before Click parses it, so `_command_name` has to skip those values itself;
+# a value-taking option missing from this set would be read as the sub-command name.
+# `test_global_value_options_are_all_declared` asserts this matches `configure()`.
+_VALUE_TAKING_GLOBAL_OPTIONS = frozenset({"--project"})
 # Commands that work without a project: `init` creates one, `doctor` reports its absence.
 _PROJECT_OPTIONAL_COMMANDS = frozenset({"init", "doctor"})
 _NO_PROJECT_MESSAGE = (
@@ -145,7 +150,7 @@ def _command_name(args: list[str]) -> str | None:
     rest = list(args)
     while rest and rest[0].startswith("-"):
         option = rest.pop(0)
-        if option == "--project" and rest:
+        if option in _VALUE_TAKING_GLOBAL_OPTIONS and rest:
             rest.pop(0)  # its value
     return rest[0] if rest else None
 

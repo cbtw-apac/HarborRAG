@@ -95,3 +95,95 @@ def test_run_prints_a_summary_when_not_json(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "Ingestion completed" in out
     assert "Discovered" in out
+
+
+def test_parse_filters_accepts_a_json_object() -> None:
+    from harborrag_app.cli.commands.ingest_run import parse_filters
+
+    assert parse_filters('{"space": "ENG"}') == {"space": "ENG"}
+    assert parse_filters("{}") == {}
+
+
+def test_parse_filters_rejects_a_non_object() -> None:
+    from harborrag_app.cli.commands.ingest_run import parse_filters
+
+    with pytest.raises(ValueError, match="must encode a JSON object"):
+        parse_filters("[1, 2]")
+
+
+def test_parse_filters_reports_bad_json_in_the_options_own_terms() -> None:
+    from harborrag_app.cli.commands.ingest_run import parse_filters
+
+    with pytest.raises(ValueError, match="--filters-json is not valid JSON"):
+        parse_filters("{oops")
+
+
+def test_run_rejects_malformed_filters_before_building_a_service(monkeypatch, capsys) -> None:
+    """A usage error must cost nothing and print no traceback.
+
+    Exit 2 is Click's usage-error code, the same one `--provider nope` returns.
+    """
+
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(MockAppService())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    assert cli.main(["ingest", "run", "workspace", "--filters-json", "{oops"]) == 2
+
+    assert instances == []  # never built the service
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_run_forwards_every_option_it_accepts(monkeypatch) -> None:
+    service_type = _service()
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(service_type())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    cli.main(
+        [
+            "ingest",
+            "run",
+            "workspace",
+            "--connection-id",
+            "conn-1",
+            "--source-scope-id",
+            "scope-1",
+            "--pattern",
+            "*.md",
+            "--no-recursive",
+            "--updated-after",
+            "2026-01-01T00:00:00Z",
+            "--no-attachments",
+            "--filters-json",
+            '{"space": "ENG"}',
+            "--json",
+        ]
+    )
+
+    call = instances[0].direct_runs[0]
+    assert call["connection_id"] == "conn-1"
+    assert call["source_scope_id"] == "scope-1"
+    assert call["pattern"] == "*.md"
+    assert call["recursive"] is False
+    assert call["updated_after"] == "2026-01-01T00:00:00Z"
+    assert call["include_attachments"] is False
+    assert call["filters"] == {"space": "ENG"}
+
+
+@pytest.mark.parametrize("status", ["partial", "cancelled"])
+def test_run_exits_one_when_the_run_did_not_complete(status, monkeypatch, capsys) -> None:
+    """IngestionTaskState also carries PARTIAL and CANCELLED; neither is a success."""
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", _service(status))
+
+    assert cli.main(["ingest", "run", "workspace", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["data"]["result"]["status"] == status

@@ -248,8 +248,12 @@ python -c "import harborrag; print(harborrag.__all__)"
 harborrag init /tmp/harbor-check --yes && harborrag --project /tmp/harbor-check doctor
 ```
 
-`doctor` reports the project and its catalogs as ready and the services as not running
-until you `docker compose up -d` inside that directory.
+`doctor` reports the project, the connector catalog and the parser catalog as found. Two
+checks fail on a fresh project until you finish configuring it, and `doctor` exits `1`
+while they do: the `models catalog` check, because `init` left the provider key blank, and
+the service checks, because nothing is running until you `docker compose up -d` inside that
+directory. Export the provider variable before `init` (for example `OPENAI_API_KEY`) to
+have the key written into `.env` for you.
 
 In a checkout:
 

@@ -20,10 +20,10 @@ chat:
           api_key: ${TEST_OPENAI_KEY}
           capabilities: {streaming: true, structured_output: true, json_mode: true, tools: true}
 embed:
-  default_model: primary
+  default_model: embedding
   security: {allowed_providers: [openai]}
   models:
-    primary:
+    embedding:
       embedding_space: test-v1
       deployments:
         - name: openai-embedding
@@ -42,7 +42,10 @@ def test_describes_chat_and_embed_sections(tmp_path: Path, monkeypatch) -> None:
 
     summary = describe_model_catalog(path)
 
+    # Distinct chat/embed default names: with both called "primary" a regression that
+    # read embed_default off the chat section would still pass.
     assert summary.chat_default == "primary"
+    assert summary.embed_default == "embedding"
     assert summary.chat_deployments == ("openai-chat",)
     assert summary.embed_deployments == ("openai-embedding",)
 

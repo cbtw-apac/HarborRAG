@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
+from project_test_support import scaffold as _scaffold
 
 from harborrag_app.cli.project import (
     ProjectNotFoundError,
@@ -13,18 +14,6 @@ from harborrag_app.cli.project import (
     find_project,
     project_option_from_argv,
 )
-
-
-def _scaffold(root: Path) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "harborrag.yaml").write_text(
-        "execution_mode: direct\nruntime:\n  env: dev\n"
-        "  connector_config_path: config/connectors.yaml\n"
-        "  qdrant_prefer_grpc: false\n",
-        encoding="utf-8",
-    )
-    (root / ".env").write_text("OPENAI_API_KEY=from-dotenv\nHARBORRAG_ENV=prod\n")
-    return root
 
 
 def test_walks_up_from_a_nested_directory(tmp_path: Path) -> None:
@@ -133,6 +122,46 @@ def test_main_rejects_a_project_option_without_a_marker(tmp_path: Path, capsys) 
     assert "does not contain harborrag.yaml" in capsys.readouterr().err
 
 
+def test_project_value_is_not_mistaken_for_the_command(tmp_path: Path) -> None:
+    """`--project DIR retrieve` must resolve the command to `retrieve`, not to DIR.
+
+    If the value-skip regressed, `_requires_project` would be asked about the path and the
+    failure would surface as an unrelated missing-project error.
+    """
+
+    from harborrag_app.cli import main as cli
+
+    root = _scaffold(tmp_path)
+
+    assert cli._command_name(["--project", str(root), "retrieve", "q"]) == "retrieve"
+    assert cli._command_name([f"--project={root}", "retrieve", "q"]) == "retrieve"
+    assert cli._command_name(["--no-color", "--project", str(root), "doctor"]) == "doctor"
+    assert cli._requires_project(["--project", str(root), "doctor"]) is False
+    assert cli._requires_project(["--project", str(root), "retrieve", "q"]) is True
+
+
+def test_global_value_options_are_all_declared() -> None:
+    """`_command_name` hand-parses argv, so its list of value-taking options must be whole.
+
+    Adding a value-taking option to `configure()` without listing it there would make that
+    option's value read as the sub-command name. Derive the truth from Click and compare.
+    """
+
+    import typer.main
+
+    from harborrag_app.cli import main as cli
+
+    declared = {
+        option
+        for parameter in typer.main.get_command(cli.app).params
+        if not getattr(parameter, "is_flag", False)
+        for option in parameter.opts
+        if option.startswith("--")
+    }
+
+    assert declared == set(cli._VALUE_TAKING_GLOBAL_OPTIONS)
+
+
 def test_main_explains_how_to_start_when_no_project_exists(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -145,76 +174,6 @@ def test_main_explains_how_to_start_when_no_project_exists(
     assert cli.main(["retrieve", "anything", "--json"]) == 1
     err = capsys.readouterr().err
     assert "harborrag init" in err and "--project" in err
-
-
-def test_main_keeps_working_in_a_legacy_checkout_layout(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    """A checkout has config/connectors.yaml but no harborrag.yaml; that stays supported."""
-
-    from app_test_fixtures import MockAppService
-
-    from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
-
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
-    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
-
-    assert cli.main(["retrieve", "anything", "--json"]) == 0
-
-
-def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    """Catalog paths are CWD-relative, so a checkout must be found *and* moved into.
-
-    Matching config/connectors.yaml against the raw CWD made the CLI work at a checkout's
-    root and fail one directory below it -- which is how CI runs the package's own tests.
-    """
-
-    from app_test_fixtures import MockAppService
-
-    from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
-
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
-    nested = tmp_path / "packages" / "harborrag-app"
-    nested.mkdir(parents=True)
-    monkeypatch.chdir(nested)
-    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
-    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
-
-    assert cli.main(["retrieve", "anything", "--json"]) == 0
-    assert Path.cwd() == tmp_path.resolve()
-    assert "using repository checkout" in capsys.readouterr().err
-
-
-def test_doctor_stays_in_its_directory_inside_a_legacy_checkout(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    """`doctor` reports on where the user stands, so checkout activation must skip it.
-
-    Moving it would make doctor pass catalog checks for a directory the user is not in
-    while its own JSON still says no project was found.
-    """
-
-    from harborrag_app.cli import main as cli
-
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
-    nested = tmp_path / "packages" / "harborrag-app"
-    nested.mkdir(parents=True)
-    monkeypatch.chdir(nested)
-    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
-
-    cli.main(["doctor", "--json"])
-
-    assert Path.cwd() == nested.resolve()
-    assert "using repository checkout" not in capsys.readouterr().err
 
 
 def test_walk_up_rejects_a_marker_in_a_directory_owned_by_someone_else(
@@ -240,11 +199,13 @@ def test_walk_up_rejects_a_world_writable_marker_directory(tmp_path: Path, monke
     from harborrag_app.cli.project import UnsafeProjectError
 
     root = _scaffold(tmp_path)
+    nested = root / "docs"
+    nested.mkdir()
     root.chmod(0o777)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
 
     with pytest.raises(UnsafeProjectError, match="world-writable"):
-        find_project(root / "docs")
+        find_project(nested)
 
 
 def test_explicit_project_selection_is_an_opt_in_and_skips_the_safety_check(

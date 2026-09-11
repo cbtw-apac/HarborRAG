@@ -125,3 +125,81 @@ def test_the_textual_dashboard_is_gone() -> None:
     import importlib.util
 
     assert importlib.util.find_spec("harborrag_app.cli.dashboard") is None
+
+
+def test_watch_refuses_an_unusable_control_plane(monkeypatch, capsys) -> None:
+    """`watch` polls run state, so it needs the same gate as `ingest status` and `wait`."""
+
+    class DegradedControlPlane(FollowService):
+        def health(self):
+            return AppResponse(False, {}, "control-plane migrations failed")
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", DegradedControlPlane)
+
+    assert cli.main(["ingest", "watch", "run-42", "--refresh", "0.25", "--events"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["data"]["error_type"] == "ControlPlaneUnavailable"
+
+
+def test_run_reports_an_escaping_service_error_as_the_envelope(monkeypatch, capsys) -> None:
+    """`ingest run` bypasses runner._invoke, so it owns the error boundary itself."""
+
+    class Exploding(MockAppService):
+        async def run_ingestion(self, **kwargs):  # type: ignore[override]
+            raise RuntimeError("postgres://harbor:hunter2@db/harborrag went away")
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Exploding)
+
+    assert cli.main(["ingest", "run", "workspace", "--json"]) == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["data"]["error_type"] == "RuntimeError"
+    assert "hunter2" not in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_run_does_not_orphan_the_ingestion_when_progress_explodes(monkeypatch, capsys) -> None:
+    """A non-ProgressUnavailable escape from follow() must cancel the scheduled run.
+
+    Otherwise the service closes underneath a pending coroutine and Python reports
+    `Task exception was never retrieved` after the CLI has already printed.
+    """
+
+    import asyncio
+
+    started = asyncio.Event()
+
+    class SlowRun(MockAppService):
+        async def run_ingestion(self, **kwargs):  # type: ignore[override]
+            started.set()
+            await asyncio.sleep(30)
+            raise AssertionError("the run should have been cancelled")
+
+    def exploding_follow(self, until=None):
+        raise RuntimeError("the renderer blew up")
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", SlowRun)
+    monkeypatch.setattr("harborrag_app.cli.progress_view.LiveProgress.follow", exploding_follow)
+
+    assert cli.main(["ingest", "run", "workspace"]) == 1
+    assert "Traceback" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status", ["partial", "cancelled"])
+def test_watch_exits_one_when_the_durable_run_did_not_complete(status, monkeypatch, capsys) -> None:
+    """`watch` and `start --wait` share `ingest run`'s rule: only completed is success."""
+
+    class Unfinished(FollowService):
+        async def ingestion_result(self, run_id):
+            return AppResponse(True, {"result": {"task_id": run_id, "status": status}})
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Unfinished)
+
+    assert cli.main(["ingest", "watch", "run-42", "--refresh", "0.25", "--events"]) == 1
+    assert (
+        json.loads(capsys.readouterr().out.splitlines()[-1])["data"]["result"]["status"] == status
+    )

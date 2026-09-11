@@ -23,18 +23,36 @@ def tcp_reachable(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> 
         return f"{host}:{port} unreachable ({exc.strerror or exc})"
 
 
+def safe_url(url: str) -> str:
+    """Scheme, host, port and path only.
+
+    A configured endpoint may embed userinfo or a token query parameter, and every error
+    string below reaches ``Check.detail`` and the JSON doctor output.
+    """
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "the configured URL"
+    if not parsed.scheme or not parsed.hostname:
+        return "the configured URL"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{parsed.hostname}{port}{parsed.path}"
+
+
 def http_ok(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
     request = urllib.request.Request(url, method="GET")  # noqa: S310 - health URL from settings
+    shown = safe_url(url)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
             status = int(response.status)
     except urllib.error.HTTPError as exc:
-        return f"{url} returned HTTP {exc.code}"
+        return f"{shown} returned HTTP {exc.code}"
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return f"{url} unreachable ({getattr(exc, 'reason', exc)})"
+        return f"{shown} unreachable ({getattr(exc, 'reason', exc)})"
     if status < _HTTP_OK_UPPER_BOUND:
         return None
-    return f"{url} returned HTTP {status}"
+    return f"{shown} returned HTTP {status}"
 
 
 def redis_ping(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
@@ -56,4 +74,4 @@ def host_port(url: str, *, default_port: int) -> tuple[str, int]:
     return parsed.hostname or "localhost", parsed.port or default_port
 
 
-__all__ = ["DEFAULT_TIMEOUT", "host_port", "http_ok", "redis_ping", "tcp_reachable"]
+__all__ = ["DEFAULT_TIMEOUT", "host_port", "http_ok", "redis_ping", "safe_url", "tcp_reachable"]

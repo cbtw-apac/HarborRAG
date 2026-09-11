@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from harborrag_app.scaffold import (
     PRESETS,
     SOURCES,
     InitOptions,
+    ProviderPreset,
     ScaffoldExistsError,
     SourceVariable,
     build_scaffold,
@@ -52,7 +54,14 @@ def command(  # noqa: PLR0913 - Typer requires one parameter per public option
     ] = None,
     api_key: Annotated[
         str | None,
-        typer.Option("--api-key", help="Provider API key; may be filled in later."),
+        typer.Option(
+            "--api-key",
+            help=(
+                "Provider API key; may be filled in later. Prefer exporting the provider's"
+                " own variable, or '-' to read the key from stdin: an argument is visible"
+                " to other processes and lands in shell history."
+            ),
+        ),
     ] = None,
     api_base: Annotated[
         str | None,
@@ -158,15 +167,7 @@ def _collect(  # noqa: PLR0913 - one parameter per prompt
     preset = PRESETS[chosen_provider]
     chat_model = chat_model or _ask(interactive, "Chat model", preset.default_chat_model)
     embed_model = embed_model or _ask(interactive, "Embedding model", preset.default_embed_model)
-    resolved_key: str = api_key if api_key is not None else ""
-    if api_key is None and interactive:
-        resolved_key = str(
-            Prompt.ask(
-                f"{preset.credential_variable} (blank to fill in later)",
-                password=True,
-                default="",
-            )
-        )
+    resolved_key = _resolve_api_key(api_key, preset=preset, interactive=interactive)
     if preset.requires_api_base and api_base is None and interactive:
         api_base = Prompt.ask("Endpoint URL (--api-base)")
     # Always default to a sub-folder: ingesting the project root itself would index
@@ -186,6 +187,29 @@ def _collect(  # noqa: PLR0913 - one parameter per prompt
         sources=sources,
         source_values=source_values,
     )
+
+
+def _resolve_api_key(api_key: str | None, *, preset: ProviderPreset, interactive: bool) -> str:
+    """Resolve the provider key, preferring sources that do not reach the process table.
+
+    Precedence: ``--api-key -`` (one line of stdin), an explicit ``--api-key VALUE``, the
+    preset's own credential variable already exported, an interactive prompt, then blank.
+    A key passed as an argument is readable by any local process through ``ps`` and is
+    kept in shell history (CWE-214), so the stdin and environment paths exist to give
+    non-interactive setup a way that avoids both.
+    """
+
+    variable = preset.credential_variable
+    if api_key == "-":
+        return sys.stdin.readline().strip()
+    if api_key is not None:
+        return api_key
+    exported = os.environ.get(variable, "").strip()
+    if exported:
+        return exported
+    if interactive:
+        return str(Prompt.ask(f"{variable} (blank to fill in later)", password=True, default=""))
+    return ""
 
 
 def _confirm_overwrite(root: Path, *, force: bool, interactive: bool, errors: Console) -> bool:

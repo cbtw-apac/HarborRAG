@@ -6,8 +6,8 @@ import json
 import socket
 from pathlib import Path
 
-import pytest
 from app_test_fixtures import MockAppService
+from doctor_test_support import project, unreachable
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
@@ -39,31 +39,11 @@ def test_probes_report_unreachable_ports() -> None:
     assert probes.http_ok(f"http://127.0.0.1:{free_port}/readyz", timeout=0.2) is not None
 
 
-def _project(tmp_path: Path, monkeypatch, capsys, *, api_key: str | None) -> None:
-    assert cli.main(["init", str(tmp_path), "--yes", "--api-key", api_key or ""]) == 0
-    capsys.readouterr()  # drop init's output so the doctor payload is all that remains
-    (tmp_path / "docs").mkdir(exist_ok=True)
-    monkeypatch.chdir(tmp_path)
-    for name in (
-        "OPENAI_API_KEY",
-        "LOCAL_SOURCE_PATH",
-        "HARBORRAG_QDRANT_URL",
-        "HARBORRAG_PROJECT",
-    ):
-        monkeypatch.delenv(name, raising=False)
-
-
-def _unreachable(monkeypatch) -> None:
-    monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: "connection refused")
-    monkeypatch.setattr(probes, "http_ok", lambda *a, **k: "connection refused")
-    monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: "connection refused")
-
-
 def test_doctor_json_lists_checks_and_fails_on_missing_services(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     code = cli.main(["doctor", "--json"])
@@ -81,8 +61,8 @@ def test_doctor_json_lists_checks_and_fails_on_missing_services(
 
 
 def test_doctor_flags_a_blank_provider_key(tmp_path: Path, monkeypatch, capsys) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key=None)
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key=None)
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["doctor", "--json"])
@@ -95,8 +75,8 @@ def test_doctor_flags_a_blank_provider_key(tmp_path: Path, monkeypatch, capsys) 
 def test_doctor_temporal_flag_runs_the_runtime_health_check(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["doctor", "--json", "--temporal"])
@@ -110,7 +90,7 @@ def test_doctor_without_a_project_still_runs_legacy_checks(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
-    _unreachable(monkeypatch)
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["doctor", "--json"])
@@ -121,8 +101,8 @@ def test_doctor_without_a_project_still_runs_legacy_checks(
 
 
 def test_doctor_human_output_lists_every_check(tmp_path: Path, monkeypatch, capsys) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["--no-color", "doctor"])
@@ -138,8 +118,8 @@ def test_doctor_reports_missing_optional_clients_with_the_extra_to_install(
 
     from harborrag_app.cli.doctor import environment as suite
 
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
     real_find_spec = importlib.util.find_spec
     monkeypatch.setattr(
@@ -157,8 +137,8 @@ def test_doctor_reports_missing_optional_clients_with_the_extra_to_install(
 
 
 def test_doctor_reports_installed_clients_as_ok(tmp_path: Path, monkeypatch, capsys) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["doctor", "--json"])
@@ -176,7 +156,7 @@ def test_doctor_flags_blank_connector_credentials(tmp_path: Path, monkeypatch, c
     monkeypatch.chdir(tmp_path)
     for name in ("GITHUB_TOKEN", "GITHUB_REPOSITORY_URL", "HARBORRAG_PROJECT"):
         monkeypatch.delenv(name, raising=False)
-    _unreachable(monkeypatch)
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["doctor", "--json"])
@@ -187,42 +167,92 @@ def test_doctor_flags_blank_connector_credentials(tmp_path: Path, monkeypatch, c
     assert "source path" not in checks
 
 
-def test_doctor_never_prints_the_value_of_a_bad_source_path(
+def test_report_separates_readiness_from_the_raw_fail_count() -> None:
+    """`ready` is the exit-code decision; `summary.fail` counts optional failures too."""
+
+    report = DoctorReport(
+        (
+            Check("a", "config", "ok", "fine"),
+            Check("temporal", "durable", "fail", "unreachable", required=False),
+        )
+    )
+
+    payload = report.as_payload()
+    assert report.ok is True
+    assert payload["ready"] is True
+    assert payload["summary"]["fail"] == 1
+
+
+def test_doctor_converts_an_escaping_exception_into_the_envelope(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    """`service.health()` is called outside any except block inside run_doctor.
+
+    A factory failure is already reported as a check; a raising `health()` is not, so
+    without the boundary in the command it reaches the interpreter as a traceback and
+    `--json` consumers get no envelope at all.
+    """
+
+    class UnreportableHealth(MockAppService):
+        def health(self):
+            raise RuntimeError("postgresql://harbor:hunter2@db:5432/harborrag is unreachable")
+
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", UnreportableHealth)
+
+    assert cli.main(["doctor", "--json"]) == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["data"]["error_type"] == "RuntimeError"
+    assert "hunter2" not in captured.out
+    assert "Traceback" not in captured.err
+
+
+def test_requested_temporal_failure_blocks_readiness(tmp_path: Path, monkeypatch, capsys) -> None:
+    """`--temporal` is an explicit request, so its failure has to fail the report."""
+
+    class UnhealthyTemporal(MockAppService):
+        async def runtime_health(self):
+            from harborrag_app.workflow_control import AppResponse
+
+            return AppResponse(False, {}, "temporal is unreachable")
+
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", UnhealthyTemporal)
+
+    assert cli.main(["doctor", "--json", "--temporal"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)["data"]
+    temporal = {c["name"]: c for c in payload["checks"]}["temporal"]
+    assert temporal["status"] == "fail"
+    assert temporal["required"] is True
+    assert payload["ready"] is False
+
+
+def test_unrequested_temporal_stays_non_blocking(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Without `--temporal` the skipped check must never decide the exit code."""
+
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
-    monkeypatch.setenv("LOCAL_SOURCE_PATH", "sk-live-secret-looking-value")
+    monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: None)
+    monkeypatch.setenv("LOCAL_SOURCE_PATH", str(tmp_path / "docs"))
 
-    cli.main(["doctor", "--json"])
+    assert cli.main(["doctor", "--json"]) == 0
 
-    out = capsys.readouterr().out
-    checks = {c["name"]: c for c in json.loads(out)["data"]["checks"]}
-    assert checks["source path"]["status"] == "fail"
-    assert "sk-live-secret-looking-value" not in out
-
-
-def test_settings_errors_are_reported_without_input_values() -> None:
-    from pydantic import ValidationError
-
-    from harborrag_app.cli.doctor.environment import settings_error_detail
-    from harborrag_runtime.config.settings import RuntimeSettings
-
-    with pytest.raises(ValidationError) as caught:
-        RuntimeSettings(
-            control_db_url="postgresql+asyncpg://u:hunter2@db/x", secrets_encryption_key=None
-        )
-
-    detail = settings_error_detail(caught.value)
-
-    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY" in detail
-    assert "hunter2" not in detail and "input_value" not in detail
+    payload = json.loads(capsys.readouterr().out)["data"]
+    assert {c["name"]: c for c in payload["checks"]}["temporal"]["required"] is False
+    assert payload["ready"] is True
 
 
 def test_doctor_builds_the_application_service_once(tmp_path: Path, monkeypatch, capsys) -> None:
-    _project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    _unreachable(monkeypatch)
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    unreachable(monkeypatch)
     calls: list[int] = []
 
     def factory() -> MockAppService:
@@ -247,7 +277,7 @@ def test_doctor_reports_the_project_main_activated_even_when_it_is_world_writabl
     tmp_path.chmod(0o777)
     monkeypatch.chdir(tmp_path.parent)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
-    _unreachable(monkeypatch)
+    unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
     cli.main(["--project", str(tmp_path), "doctor", "--json"])
