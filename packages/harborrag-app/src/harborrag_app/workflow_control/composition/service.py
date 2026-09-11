@@ -210,8 +210,8 @@ class AppService(
         deterministically unsubscribes instead of leaving the subscription
         registered until the event bus's GC finalizer happens to run.
         """
-        task = await self._public_ingestions.get_task(task_id)
         store = await self._resources.public_task_store()
+        task = await self.get_task(task_id)
         live = None
         terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
         if task["status"] not in terminal_names:

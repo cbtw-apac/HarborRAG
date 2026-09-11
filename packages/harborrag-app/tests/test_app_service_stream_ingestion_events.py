@@ -77,8 +77,8 @@ async def test_abandoning_the_stream_mid_backlog_deregisters_the_live_subscripti
 
     events = service.stream_ingestion_events("t1")
     consume = asyncio.ensure_future(events.__anext__())
-    await asyncio.sleep(0)  # let it run: empty backlog, then block awaiting a live event
-    assert len(bus._subscribers) == 1
+    # let it run: empty backlog, then block awaiting a live event
+    await _wait_for(lambda: len(bus._subscribers) == 1)
 
     consume.cancel()
     with contextlib.suppress(asyncio.CancelledError):
@@ -116,3 +116,50 @@ async def test_backlog_done_event_is_yielded_and_ends_the_stream() -> None:
 
     assert received == [done_event]
     assert bus._subscribers == []
+
+
+@pytest.mark.asyncio
+async def test_reconciled_terminal_status_skips_live_subscription() -> None:
+    """If reconciliation marks a task terminal, stream must not open a live tail."""
+    bus = InProcessEventBus()
+    task = IngestionTask(
+        task_id="t1",
+        source_scope_id="scope-1",
+        status=IngestionTaskState.PENDING,
+        request={
+            "tenant_id": "DEFAULT",
+            "connector_type": "confluence",
+            "connection_id": "c1",
+        },
+    )
+    service = _build_service(bus, task)
+
+    async def _reconciled_terminal(_task_id: str) -> dict[str, object]:
+        return {
+            "task_id": "t1",
+            "tenant": "DEFAULT",
+            "status": "FAILED",
+            "stage": "COMPLETED",
+        }
+
+    service._public_ingestions.get_task = _reconciled_terminal
+
+    received = await asyncio.wait_for(
+        _collect(service.stream_ingestion_events("t1")),
+        timeout=0.25,
+    )
+
+    assert received == []
+    assert bus._subscribers == []
+
+
+async def _collect(events) -> list[HarborEvent]:
+    return [event async for event in events]
+
+
+async def _wait_for(predicate, *, timeout: float = 1.0) -> None:
+    async def _poll() -> None:
+        while not predicate():
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(_poll(), timeout=timeout)

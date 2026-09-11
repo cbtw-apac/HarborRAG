@@ -14,6 +14,7 @@ import weakref
 from collections.abc import AsyncGenerator
 
 from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.ports.events import EventSubscription
 
 logger = logging.getLogger("harborrag.runtime.events.in_process")
 
@@ -61,7 +62,7 @@ class InProcessEventBus:
                         event.name,
                     )
 
-    def subscribe(self, name_prefix: str) -> AsyncGenerator[HarborEvent, None]:
+    def subscribe(self, name_prefix: str) -> EventSubscription:
         """Stream events whose name starts with name_prefix, indefinitely.
 
         Registration happens synchronously, here, before returning -- not
@@ -78,14 +79,16 @@ class InProcessEventBus:
         runs and closing/GC'ing it would leave the subscription registered
         forever. A weakref.finalize tied to the generator object itself
         (not to its execution reaching the finally) closes that gap: it
-        fires on GC regardless of whether the generator ever started.
+        fires on GC regardless of whether the generator ever started, and
+        _Subscriber.aclose() closes it deterministically for callers that
+        unsubscribe explicitly.
         """
         queue: asyncio.Queue[HarborEvent] = asyncio.Queue(maxsize=self._max_queue_size)
         subscription = (name_prefix, queue)
         self._subscribers.append(subscription)
         agen = self._consume(subscription)
         weakref.finalize(agen, self._discard, subscription)
-        return agen
+        return _Subscriber(self, subscription, agen)
 
     def _discard(self, subscription: _Subscription) -> None:
         try:
@@ -100,3 +103,32 @@ class InProcessEventBus:
                 yield await queue.get()
         finally:
             self._discard(subscription)
+
+
+class _Subscriber:
+    """One subscription's stream, closeable even if never iterated.
+
+    Iteration delegates to the bus's async generator; aclose() deregisters
+    up front because closing a generator that never started skips the
+    try/finally that would otherwise do it.
+    """
+
+    def __init__(
+        self,
+        bus: InProcessEventBus,
+        subscription: _Subscription,
+        stream: AsyncGenerator[HarborEvent, None],
+    ) -> None:
+        self._bus = bus
+        self._subscription = subscription
+        self._stream = stream
+
+    def __aiter__(self) -> _Subscriber:
+        return self
+
+    async def __anext__(self) -> HarborEvent:
+        return await self._stream.__anext__()
+
+    async def aclose(self) -> None:
+        self._bus._discard(self._subscription)
+        await self._stream.aclose()

@@ -167,6 +167,13 @@ class IngestionTemporalClient:
             self._source_handle(task_id).signal("request_graceful_cancel"),
         )
 
+    async def terminate(self, task_id: str, *, reason: str) -> None:
+        await self._control(
+            task_id,
+            f"terminate ingestion task {task_id!r}",
+            self._source_handle(task_id).terminate(reason=reason),
+        )
+
     async def start_reindex(
         self,
         request: ReindexInput,

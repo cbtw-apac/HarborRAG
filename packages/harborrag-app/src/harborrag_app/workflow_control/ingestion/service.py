@@ -48,6 +48,7 @@ from .presenters import (
     task_response,
 )
 from .recovery import retry_from_task, source_from_task
+from .status_reconciliation import TaskStatusReconciler
 from .task_pages import TaskListingMixin
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
@@ -74,6 +75,7 @@ class IngestionApplicationService(TaskListingMixin):
         self._task_store_provider = task_store_provider
         self._source_input_builder = source_input_builder
         self._task_id_factory = task_id_factory or task_id
+        self._status_reconciler = TaskStatusReconciler(client_provider=client_provider)
 
     async def submit(
         self,
@@ -148,6 +150,7 @@ class IngestionApplicationService(TaskListingMixin):
     async def get_task(self, task_id: str) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
+        task = await self._status_reconciler.reconcile(task, store)
         counts = await store.progress(task_id)
         return task_response(task, counts)
 

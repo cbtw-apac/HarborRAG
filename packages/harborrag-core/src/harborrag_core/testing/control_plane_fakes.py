@@ -174,9 +174,15 @@ class FakeActivityRepository:
     ) -> list[ActivityEntry]:
         """Newest entries within ``tenant_ids`` first."""
         # Order by created_at timestamp to match SQL-backed repos and
-        # avoid surprises when tests seed out-of-order timestamps.
-        scoped = [e for e in self.entries if _in_scope(e.tenant_id, tenant_ids)]
-        return sorted(scoped, key=lambda e: e.created_at, reverse=True)[:limit]
+        # avoid surprises when tests seed out-of-order timestamps; entries
+        # sharing a timestamp (coarse clocks) fall back to insertion order.
+        scoped = [
+            (index, entry)
+            for index, entry in enumerate(self.entries)
+            if _in_scope(entry.tenant_id, tenant_ids)
+        ]
+        scoped.sort(key=lambda item: (item[1].created_at, item[0]), reverse=True)
+        return [entry for _, entry in scoped[:limit]]
 
 
 @dataclass(slots=True)

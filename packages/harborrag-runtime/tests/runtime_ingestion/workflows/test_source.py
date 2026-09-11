@@ -285,3 +285,51 @@ def test_source_workflow_pause_and_resume_status_are_explicit() -> None:
 
     assert paused.paused is True
     assert resumed.paused is False
+
+
+@pytest.mark.asyncio
+async def test_source_workflow_sets_schedule_to_start_timeout_for_discovery(
+    monkeypatch,
+) -> None:
+    captured_options: dict[str, object] = {}
+
+    async def execute_activity(name, request, **options):
+        if name == "harborrag.discover_source_items":
+            captured_options.update(options)
+            return SourceDiscoveryResult(
+                scan_id="scan-1",
+                plan_reference=_plan_reference(),
+                document_count=0,
+            )
+        if name == "harborrag.cleanup_source_projections":
+            return ProjectionCleanupResult(
+                claimed=0,
+                completed=0,
+                cancelled=0,
+                failed=0,
+            )
+        return SourceIngestionResult(
+            task_id="task-1",
+            scan_id="scan-1",
+            discovered=0,
+            published=0,
+            unchanged=0,
+            failed=0,
+            removal_candidates=(),
+            unresolved_relations=0,
+        )
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.start_child_workflow",
+        _start_child(lambda _n, _r, **_o: DocumentDispatchSummary()),
+    )
+
+    await SourceIngestionWorkflow().run(_source())
+
+    timeout = captured_options.get("schedule_to_start_timeout")
+    assert timeout is not None
+    assert timeout.total_seconds() == 120
