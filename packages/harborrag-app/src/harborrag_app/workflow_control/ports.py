@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping
 
+from harborrag_core.domain.graph_conflict import ConflictAction
 from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphSubgraphQuery,
@@ -191,6 +192,25 @@ class BaseAppService(ABC):
         confirmation: str,
         stores: frozenset[str],
     ) -> dict[str, object]:
+        raise NotImplementedError
+
+    async def list_graph_conflicts(
+        self,
+        *,
+        cursor: str | None,
+        limit: int,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
+        raise NotImplementedError
+
+    async def resolve_graph_conflict(
+        self,
+        conflict_id: str,
+        *,
+        action: ConflictAction,
+        actor: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
         raise NotImplementedError
 
     @abstractmethod
