@@ -14,6 +14,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "harborrag-app==2.0.0a1",
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
 ]

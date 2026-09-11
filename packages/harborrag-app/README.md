@@ -4,10 +4,12 @@ Owns operator-facing API and CLI boundaries.
 
 ## Ingestion CLI
 
-The CLI submits and controls the canonical Temporal workflow through
-`AppService`; it does not construct connectors or repositories:
+The CLI drives ingestion through `AppService`; it does not construct connectors or
+repositories. `run` executes inline through the SDK's direct executor and follows the
+control-plane task store for progress; the other commands drive the Temporal workflow:
 
 ```bash
+harborrag ingest run workspace --limit 3
 harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace
 harborrag ingest start --tenant tenant-1 --connector-id jira-main --limit 3 --wait
 harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace --wait
@@ -30,9 +32,9 @@ Typer supplies grouped Rich help and shell completion. Rich renders one-shot
 progress summaries, status colors, artifact lists, and the ingestion stage
 sequence; concurrent artifact stages are shown as `in flight`.
 
-`harborrag ingest watch RUN_ID` opens a Textual dashboard with live polling,
-progress and stage panels, an attention queue, pause/resume controls, and
-confirmed graceful cancellation. Use `harborrag --no-color ...` or the standard
+`harborrag ingest watch RUN_ID` and `ingest start --wait` follow a run with an inline
+Rich progress block (stage strip, document bar, counters, failed artifacts); `--events`
+streams NDJSON. Use `harborrag --no-color ...` or the standard
 `NO_COLOR` environment variable when one-shot terminal colors are undesirable;
 `--json` never emits Rich formatting or spinner output.
 

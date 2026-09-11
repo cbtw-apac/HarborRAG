@@ -1,0 +1,50 @@
+# Local services for HarborRAG direct-mode ingestion. Start: docker compose up -d
+# Compose reads ${...} values from the .env file next to this file.
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:@{qdrant_http_port}:6333"
+      - "127.0.0.1:@{qdrant_grpc_port}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  falkordb:
+    image: falkordb/falkordb:v4.20.1
+    restart: unless-stopped
+    environment:
+      # GRAPH.CONSTRAINT cannot be replayed from AOF by this release; snapshot instead.
+      REDIS_ARGS: "--appendonly no --save 60 1"
+    ports:
+      - "127.0.0.1:@{falkordb_port}:6379"
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID:-harborrag}
+      MINIO_ROOT_PASSWORD: ${HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY:?set in .env}
+    ports:
+      - "127.0.0.1:@{minio_api_port}:9000"
+      - "127.0.0.1:@{minio_console_port}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  qdrant_data:
+  falkordb_data:
+  minio_data:

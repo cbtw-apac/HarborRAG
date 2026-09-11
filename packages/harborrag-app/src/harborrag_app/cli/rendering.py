@@ -32,6 +32,13 @@ from harborrag_app.workflow_control import AppResponse
 _METRIC_COLUMNS = 3
 _PROGRESS_BAR_WIDTH = 40
 
+_CHECK_GLYPHS = {
+    "ok": ("✓", "green"),
+    "fail": ("✗", "red"),
+    "warn": ("!", "yellow"),
+    "skip": ("–", "dim"),
+}
+
 _METRICS = (
     ("Discovered", "discovered", "cyan"),
     ("Processed", "processed", "blue"),
@@ -104,6 +111,7 @@ class CliRenderer:
             "status": self._status,
             "start": self._started,
             "wait": self._result,
+            "run": self._result,
             "pause": self._control,
             "resume": self._control,
             "cancel": self._control,
@@ -119,15 +127,29 @@ class CliRenderer:
         self.console.print(Panel(content, title=title, border_style="cyan"))
 
     def _doctor(self, data: Mapping[str, Any]) -> None:
-        runtime = mapping(data.get("runtime"))
-        ready = bool(runtime.get("ready"))
-        table = details_table()
-        table.add_row("Provider", text(runtime.get("provider", "unknown")))
-        table.add_row("Target", text(runtime.get("target", "—")))
-        table.add_row("Namespace", text(runtime.get("namespace", "—")))
-        title = Text("✓ Runtime ready" if ready else "Runtime unavailable")
-        title.stylize("bold green" if ready else "bold red")
-        self.console.print(Panel(table, title=title, border_style="green" if ready else "red"))
+        table = Table(box=box.SIMPLE, expand=True, show_header=True, pad_edge=False)
+        table.add_column("", width=2, justify="center")
+        table.add_column("Check", style="bold", no_wrap=True)
+        table.add_column("Detail", ratio=1)
+        hints: list[str] = []
+        for value in sequence(data.get("checks")):
+            check = mapping(value)
+            status = str(check.get("status", "skip"))
+            glyph, style = _CHECK_GLYPHS.get(status, ("?", "dim"))
+            table.add_row(
+                Text(glyph, style=style),
+                text(check.get("name")),
+                text(check.get("detail"), style=None if status == "ok" else style),
+            )
+            hint = str(check.get("hint") or "")
+            if status == "fail" and hint and hint not in hints:
+                hints.append(hint)
+        # `ready` is the exit-code decision; the fail count would contradict it.
+        ok = bool(data.get("ready"))
+        title = Text("✓ Ready" if ok else "✗ Not ready", style="bold green" if ok else "bold red")
+        self.console.print(Panel(table, title=title, border_style="green" if ok else "red"))
+        for hint in hints:
+            self.console.print(Text(f"→ {hint}", style="yellow"))
 
     def _started(self, data: Mapping[str, Any]) -> None:
         run = mapping(data.get("run"))
