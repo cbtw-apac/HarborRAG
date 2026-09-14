@@ -11,7 +11,7 @@ from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
-from harborrag_core.domain.graph_conflict import ConflictAction, GraphConflict
+from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
@@ -213,13 +213,15 @@ class GraphConflictRepositoryPort(Protocol):
         self,
         *,
         tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
         cursor: str | None,
         limit: int,
     ) -> tuple[list[GraphConflict], str | None]:
-        """Open-and-resolved conflicts within ``tenant_ids``, newest-detected first.
+        """Conflicts within ``tenant_ids``, newest-detected first.
 
-        Returns ``(items, next_cursor)``; ``next_cursor`` is ``None`` once the
-        caller has walked the whole set.
+        ``status`` narrows to only-open or only-resolved; omitted, both are
+        returned. Returns ``(items, next_cursor)``; ``next_cursor`` is
+        ``None`` once the caller has walked the whole set.
         """
 
     async def get(

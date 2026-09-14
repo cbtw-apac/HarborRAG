@@ -10,8 +10,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from harborrag_core.base import utc_now
-from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
-from harborrag_core.domain.graph_conflict import ConflictAction, GraphConflict
+from harborrag_core.contracts.errors import (
+    HarborConflictError,
+    HarborNotFoundError,
+    HarborValidationError,
+)
+from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 
 
 def _in_scope(tenant_id: str, tenant_ids: frozenset[str] | None) -> bool:
@@ -34,11 +38,16 @@ class FakeGraphConflictRepository:
         self,
         *,
         tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
         cursor: str | None,
         limit: int,
     ) -> tuple[list[GraphConflict], str | None]:
         """Newest-detected first within ``tenant_ids``, walked via an opaque keyset cursor."""
-        scoped = [c for c in self.conflicts.values() if _in_scope(c.tenant_id, tenant_ids)]
+        scoped = [
+            c
+            for c in self.conflicts.values()
+            if _in_scope(c.tenant_id, tenant_ids) and (status is None or c.status == status)
+        ]
         ordered = sorted(scoped, key=lambda c: (c.detected_at, c.id), reverse=True)
         if cursor is not None:
             position = _decode_conflict_cursor(cursor)
@@ -92,5 +101,8 @@ def _encode_conflict_cursor(detected_at: datetime, conflict_id: str) -> str:
 
 def _decode_conflict_cursor(value: str) -> tuple[datetime, str]:
     padding = "=" * (-len(value) % 4)
-    payload = json.loads(base64.urlsafe_b64decode(value + padding))
-    return datetime.fromisoformat(payload["detected_at"]), str(payload["id"])
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(value + padding))
+        return datetime.fromisoformat(payload["detected_at"]), str(payload["id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise HarborValidationError("graph conflict cursor is invalid") from error

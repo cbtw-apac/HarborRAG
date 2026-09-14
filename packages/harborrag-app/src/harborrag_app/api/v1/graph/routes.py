@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 
@@ -114,13 +114,17 @@ async def graph_traverse(
 async def list_graph_conflicts(
     service: GraphServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
+    status: Annotated[
+        Literal["open", "resolved"] | None,
+        Query(description="Restrict to only-open or only-resolved conflicts."),
+    ] = None,
     cursor: Annotated[
         str | None, Query(description="Opaque page cursor from a prior page.")
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> GraphConflictListResponse:
     response = await service.list_graph_conflicts(
-        cursor=cursor, limit=limit, tenant_ids=principal.tenant_scope
+        cursor=cursor, limit=limit, tenant_ids=principal.tenant_scope, status=status
     )
     return GraphConflictListResponse(
         conflicts=[GraphConflictResponse.from_domain(c) for c in response.data["conflicts"]],

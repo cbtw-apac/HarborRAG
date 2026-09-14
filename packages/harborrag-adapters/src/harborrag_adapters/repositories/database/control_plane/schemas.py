@@ -276,9 +276,7 @@ class GraphConflictRow(Base):
     __tablename__ = "graph_conflicts"
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        sa.String(128), server_default="DEFAULT", nullable=False, index=True
-    )
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), server_default="DEFAULT", nullable=False)
     conflict_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     subject_node_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
     competing_node_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)

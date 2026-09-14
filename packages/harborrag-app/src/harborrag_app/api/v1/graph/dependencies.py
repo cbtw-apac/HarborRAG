@@ -7,7 +7,7 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.schemas import AppResponse
-from harborrag_core.domain.graph_conflict import ConflictAction
+from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus
 from harborrag_core.retrieval import GraphSubgraphQuery
 
 
@@ -28,6 +28,7 @@ class GraphService(Protocol):
         cursor: str | None,
         limit: int,
         tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
     ) -> AppResponse: ...
 
     async def resolve_graph_conflict(

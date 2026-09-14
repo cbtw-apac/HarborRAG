@@ -37,11 +37,6 @@ def upgrade() -> None:
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index(
-        "ix_graph_conflicts_tenant_id",
-        "graph_conflicts",
-        ["tenant_id"],
-    )
-    op.create_index(
         _INDEX_NAME,
         "graph_conflicts",
         ["tenant_id", "detected_at", "id"],
@@ -50,5 +45,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(_INDEX_NAME, table_name="graph_conflicts")
-    op.drop_index("ix_graph_conflicts_tenant_id", table_name="graph_conflicts")
     op.drop_table("graph_conflicts")

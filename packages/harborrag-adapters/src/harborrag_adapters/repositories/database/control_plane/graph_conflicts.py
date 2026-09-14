@@ -16,7 +16,11 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
     HarborValidationError,
 )
-from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
+from harborrag_core.domain.graph_conflict import (
+    ConflictAction,
+    ConflictStatus,
+    GraphConflict,
+)
 from harborrag_core.invariants import HarborInvariantError
 
 from .mapping import utc_now
@@ -54,6 +58,7 @@ class SqlGraphConflictRepository:
         self,
         *,
         tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
         cursor: str | None,
         limit: int,
     ) -> tuple[list[GraphConflict], str | None]:
@@ -63,6 +68,8 @@ class SqlGraphConflictRepository:
         )
         if tenant_ids is not None:
             statement = statement.where(GraphConflictRow.tenant_id.in_(tenant_ids))
+        if status is not None:
+            statement = statement.where(GraphConflictRow.status == status)
         if cursor is not None:
             detected_at, conflict_id = _decode_cursor(cursor)
             statement = statement.where(

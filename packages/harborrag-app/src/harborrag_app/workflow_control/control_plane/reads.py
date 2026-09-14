@@ -7,6 +7,7 @@ mixed into AppService, which supplies the concrete _control_plane().
 from __future__ import annotations
 
 from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.domain.graph_conflict import ConflictStatus
 from harborrag_runtime.composition import ControlPlaneRepositories
 
 from ..schemas import AppResponse
@@ -77,9 +78,14 @@ class ControlPlaneReadsMixin:
         cursor: str | None,
         limit: int,
         tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
     ) -> AppResponse:
-        """Open-and-resolved graph conflicts within ``tenant_ids``, newest-detected first."""
+        """Graph conflicts within ``tenant_ids``, newest-detected first.
+
+        ``status`` narrows to only-open or only-resolved; omitted, both are
+        returned.
+        """
         conflicts, next_cursor = await self._control_plane().graph_conflicts.list(
-            tenant_ids=tenant_ids, cursor=cursor, limit=limit
+            tenant_ids=tenant_ids, status=status, cursor=cursor, limit=limit
         )
         return AppResponse(True, {"conflicts": conflicts, "next_cursor": next_cursor})

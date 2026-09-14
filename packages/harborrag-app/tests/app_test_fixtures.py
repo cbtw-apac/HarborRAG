@@ -17,7 +17,7 @@ from app_test_ingestion import IngestionServiceFixture
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
-from harborrag_core.domain.graph_conflict import ConflictAction, GraphConflict
+from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import new_session_id
@@ -205,9 +205,15 @@ class MockAppService(
         cursor: str | None,
         limit: int,
         tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
     ) -> AppResponse:
-        del cursor, tenant_ids
-        conflicts = list(self.graph_conflicts.values())[:limit]
+        del cursor
+        conflicts = [
+            c
+            for c in self.graph_conflicts.values()
+            if (tenant_ids is None or c.tenant_id in tenant_ids)
+            and (status is None or c.status == status)
+        ][:limit]
         return AppResponse(True, {"conflicts": conflicts, "next_cursor": None})
 
     async def resolve_graph_conflict(
@@ -218,15 +224,14 @@ class MockAppService(
         actor: str,
         tenant_ids: frozenset[str] | None,
     ) -> AppResponse:
-        del tenant_ids
-        self.graph_conflict_resolve_calls.append(
-            {"conflict_id": conflict_id, "action": action, "actor": actor}
-        )
         conflict = self.graph_conflicts.get(conflict_id)
-        if conflict is None:
+        if conflict is None or (tenant_ids is not None and conflict.tenant_id not in tenant_ids):
             raise HarborNotFoundError(f"graph conflict {conflict_id!r} not found")
         if conflict.status == "resolved":
             raise HarborConflictError(f"graph conflict {conflict_id!r} is already resolved")
+        self.graph_conflict_resolve_calls.append(
+            {"conflict_id": conflict_id, "action": action, "actor": actor}
+        )
         conflict.status = "resolved"
         conflict.action = action
         conflict.resolved_by = actor
