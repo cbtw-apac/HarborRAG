@@ -22,6 +22,10 @@ from harborrag_runtime.temporal.schemas import (
 )
 from harborrag_runtime.temporal.submission import SourceSubmission
 
+# Every command below goes through the CLI's project gate; give each test its own
+# project instead of inheriting whatever directory pytest was started from.
+pytestmark = pytest.mark.usefixtures("cli_project")
+
 
 class FakeTemporalClient:
     def __init__(self) -> None:

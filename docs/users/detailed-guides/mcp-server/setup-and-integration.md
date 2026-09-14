@@ -34,7 +34,7 @@ local MCP bearer token.
 
 > **Review the placeholders before making real tool calls.**
 > `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty. See
-> [Quick Start step 5](../../../getting-started/quick-start.md#5-create-the-env-folder).
+> [Running from a checkout, step 5](../../../developers/checkout-quick-start.md#5-create-the-env-folder).
 
 ## stdio for external clients
 

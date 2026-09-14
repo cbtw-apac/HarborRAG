@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from app_test_fixtures import MockAppService
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_runtime.chat import ChatPrompt
+
+# Every command below goes through the CLI's project gate; give each test its own
+# project instead of inheriting whatever directory pytest was started from.
+pytestmark = pytest.mark.usefixtures("cli_project")
 
 
 def test_chat_cli_creates_session_and_uses_default_prompt(monkeypatch, capsys) -> None:

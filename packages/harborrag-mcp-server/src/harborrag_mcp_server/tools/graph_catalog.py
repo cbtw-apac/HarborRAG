@@ -10,55 +10,13 @@ empty result indistinguishable from a genuine miss.
 
 from __future__ import annotations
 
-from typing import Any
-
 from harborrag_core.chunking import PROJECTED_RELATION_TYPES, RelationType
 from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
 from harborrag_core.ingestion.projection_contracts import GRAPH_SCHEMA_VERSION
-from harborrag_core.retrieval import GraphDirection
 from harborrag_mcp_server.policy import McpToolPolicy
 
 from .base import McpToolSpec
-from .graph_search import GraphPathSearchTool, GraphSubgraphSearchTool, GraphTripletSearchTool
-from .vector_search import VectorSearchTool
-
-
-def _tool_defaults(spec: McpToolSpec) -> dict[str, Any]:
-    """Pull each property's compiled-in ``default`` straight from the tool's own schema.
-
-    Reading the live spec (rather than restating literals here) means describe_graph can
-    never drift from what the tool actually advertises: a schema change is reflected the
-    next time this runs, with nothing to keep in sync by hand.
-    """
-    properties = spec.input_schema.get("properties", {})
-    if not isinstance(properties, dict):
-        return {}
-    return {
-        name: property_schema["default"]
-        for name, property_schema in properties.items()
-        if isinstance(property_schema, dict) and "default" in property_schema
-    }
-
-
-def _argument_constraints(spec: McpToolSpec) -> dict[str, object]:
-    """Read a tool's own ``required``/``anyOf`` clauses rather than restating them.
-
-    ``graph_triplet_search`` accepts no ``required`` property of its own -- callers
-    must satisfy an ``anyOf`` of subject/predicate/object instead -- so a caller
-    reading only ``defaults`` would never learn that at least one of the three is
-    mandatory. Surfacing both clauses here means describe_graph can never drift
-    from what the tool actually enforces.
-    """
-    schema = spec.input_schema
-    at_least_one_of = [
-        list(clause["required"])
-        for clause in schema.get("anyOf", [])
-        if isinstance(clause, dict) and isinstance(clause.get("required"), list)
-    ]
-    return {
-        "required": list(schema.get("required", [])),
-        "at_least_one_of": at_least_one_of,
-    }
+from .graph_search import GraphPathSearchTool, GraphSubgraphSearchTool
 
 
 def _schema_maximum(spec: McpToolSpec, property_name: str) -> int:
@@ -67,34 +25,6 @@ def _schema_maximum(spec: McpToolSpec, property_name: str) -> int:
     assert isinstance(value, int)
     return value
 
-
-TOOL_DEFAULTS: dict[str, dict[str, Any]] = {
-    "vector_search": _tool_defaults(VectorSearchTool.spec),
-    "graph_triplet_search": _tool_defaults(GraphTripletSearchTool.spec),
-    "graph_path_search": _tool_defaults(GraphPathSearchTool.spec),
-    "graph_subgraph_search": _tool_defaults(GraphSubgraphSearchTool.spec),
-}
-
-TOOL_ARGUMENT_CONSTRAINTS: dict[str, dict[str, object]] = {
-    "vector_search": _argument_constraints(VectorSearchTool.spec),
-    "graph_triplet_search": _argument_constraints(GraphTripletSearchTool.spec),
-    "graph_path_search": _argument_constraints(GraphPathSearchTool.spec),
-    "graph_subgraph_search": _argument_constraints(GraphSubgraphSearchTool.spec),
-}
-
-# The set of executable tools `describe_graph(for_tool=...)` can narrow its response to.
-EXECUTABLE_TOOL_NAMES: tuple[str, ...] = tuple(TOOL_DEFAULTS)
-
-# Which non-core sections matter to a caller about to invoke a given tool. Sections
-# not listed here (node_kinds, topologies, workflows) are orientation-only: relevant
-# to "which tool should I use", not to "how do I call the tool I already picked" --
-# so a filtered response omits them regardless of which tool is named.
-_TOOL_SECTIONS: dict[str, tuple[str, ...]] = {
-    "vector_search": (),
-    "graph_triplet_search": ("entity_types", "relation_types"),
-    "graph_path_search": ("entity_types", "relation_types", "direction_semantics"),
-    "graph_subgraph_search": ("entity_types", "relation_types", "direction_semantics"),
-}
 
 # Both graph_path_search and graph_subgraph_search cap max_depth at the same compiled-in
 # ceiling; MAXIMUM_DEPTH asserts that rather than restating either literal.
@@ -105,9 +35,6 @@ assert _PATH_MAX_DEPTH == _SUBGRAPH_MAX_DEPTH, (
 )
 MAXIMUM_DEPTH = _PATH_MAX_DEPTH
 MAXIMUM_RESULTS = McpToolPolicy().max_results
-
-DIRECTION_VALUES = [direction.value for direction in GraphDirection]
-VECTOR_SEARCH_LANE_VALUES = VectorSearchTool.spec.input_schema["properties"]["lane"]["enum"]
 
 NODE_KIND_MEANINGS: dict[KnowledgeNodeKind, str] = {
     KnowledgeNodeKind.TENANT: "Tenant isolation root.",
@@ -127,22 +54,22 @@ ENTITY_TYPE_MEANINGS: dict[GraphEntityType, str] = {
     GraphEntityType.TABLE: "Structural table within a document version.",
     GraphEntityType.COMMENT: "Structural comment attached to a document version.",
     GraphEntityType.CHUNK: "Citation-ready indexed evidence.",
-    GraphEntityType.CONFLUENCE_SPACE: "Confluence space.",
-    GraphEntityType.CONFLUENCE_PAGE: "Confluence page.",
-    GraphEntityType.CONFLUENCE_ATTACHMENT: "Confluence attachment.",
-    GraphEntityType.JIRA_PROJECT: "Jira project.",
-    GraphEntityType.JIRA_ISSUE: "Jira issue or subissue.",
-    GraphEntityType.JIRA_ATTACHMENT: "Jira attachment.",
+    GraphEntityType.CONFLUENCE_SPACE: "Confluence's top-level scope: a workspace grouping related pages.",
+    GraphEntityType.CONFLUENCE_PAGE: "Source entity for one Confluence page.",
+    GraphEntityType.CONFLUENCE_ATTACHMENT: "File attached to a Confluence page.",
+    GraphEntityType.JIRA_PROJECT: "Jira's top-level scope: a project grouping related issues.",
+    GraphEntityType.JIRA_ISSUE: "Source entity for one Jira issue or subissue.",
+    GraphEntityType.JIRA_ATTACHMENT: "File attached to a Jira issue.",
     GraphEntityType.GITHUB_OWNER: "GitHub owner (user or organization).",
     GraphEntityType.GITHUB_REPOSITORY: "GitHub repository.",
     GraphEntityType.GITHUB_DIRECTORY: "GitHub repository directory.",
     GraphEntityType.GITHUB_FILE: "GitHub repository file.",
     GraphEntityType.GITHUB_REF: "GitHub ref (branch or tag).",
-    GraphEntityType.GITHUB_COMMIT: "GitHub commit.",
-    GraphEntityType.SHAREPOINT_SITE: "SharePoint site.",
-    GraphEntityType.SHAREPOINT_DRIVE: "SharePoint drive.",
-    GraphEntityType.SHAREPOINT_FOLDER: "SharePoint folder.",
-    GraphEntityType.SHAREPOINT_FILE: "SharePoint file.",
+    GraphEntityType.GITHUB_COMMIT: "Commit that a ref points to, or that a file's version resolved at.",
+    GraphEntityType.SHAREPOINT_SITE: "SharePoint's top-level scope: a site grouping related drives.",
+    GraphEntityType.SHAREPOINT_DRIVE: "Document library within a SharePoint site, grouping its folders and files.",
+    GraphEntityType.SHAREPOINT_FOLDER: "Structural folder within a SharePoint drive.",
+    GraphEntityType.SHAREPOINT_FILE: "Source entity for one file in a SharePoint drive.",
     GraphEntityType.LOCAL_ROOT: "Local filesystem ingestion root.",
     GraphEntityType.LOCAL_DIRECTORY: "Local filesystem directory.",
     GraphEntityType.LOCAL_FILE: "Local filesystem file.",
@@ -182,26 +109,6 @@ CONNECTOR_TOPOLOGIES: list[dict[str, object]] = [
             GraphEntityType.JIRA_PROJECT.value,
             GraphEntityType.JIRA_ISSUE.value,
             GraphEntityType.JIRA_ATTACHMENT.value,
-        ],
-    },
-    {
-        "connector": "github",
-        "entity_chain": [
-            GraphEntityType.GITHUB_OWNER.value,
-            GraphEntityType.GITHUB_REPOSITORY.value,
-            GraphEntityType.GITHUB_DIRECTORY.value,
-            GraphEntityType.GITHUB_FILE.value,
-            GraphEntityType.GITHUB_REF.value,
-            GraphEntityType.GITHUB_COMMIT.value,
-        ],
-    },
-    {
-        "connector": "sharepoint",
-        "entity_chain": [
-            GraphEntityType.SHAREPOINT_SITE.value,
-            GraphEntityType.SHAREPOINT_DRIVE.value,
-            GraphEntityType.SHAREPOINT_FOLDER.value,
-            GraphEntityType.SHAREPOINT_FILE.value,
         ],
     },
     {
@@ -272,18 +179,8 @@ def _build_full_payload() -> dict[str, object]:
             {"name": relation.value, "meaning": meaning}
             for relation, meaning in RELATION_MEANINGS.items()
         ],
-        "direction_semantics": {
-            "description": (
-                "Every relation is stored once, from subject to object. Graph tools query "
-                "it with a direction filter rather than storing the reverse edge."
-            ),
-            "accepted": DIRECTION_VALUES,
-            "default": GraphDirection.BOTH.value,
-        },
         "topologies": CONNECTOR_TOPOLOGIES,
         "workflows": RECOMMENDED_WORKFLOWS,
-        "defaults": TOOL_DEFAULTS,
-        "argument_constraints": TOOL_ARGUMENT_CONSTRAINTS,
         "limits": {
             "maximum_depth": MAXIMUM_DEPTH,
             "maximum_results": MAXIMUM_RESULTS,
@@ -291,27 +188,6 @@ def _build_full_payload() -> dict[str, object]:
     }
 
 
-_CORE_KEYS = ("ok", "graph_schema_version", "capabilities", "selector_rules", "limits")
-
-
-def describe_graph_payload(for_tool: str | None = None) -> dict[str, object]:
-    """Build the ``describe_graph`` response.
-
-    With no ``for_tool``, returns the full catalog unchanged -- this is the
-    orientation call ("which tool should I use"). With ``for_tool``, narrows the
-    response to that tool's own argument contract (its defaults plus whichever
-    entity/relation/direction sections it actually consumes), dropping the
-    orientation-only sections (``node_kinds``, ``topologies``, ``workflows``) that
-    don't help a caller who has already picked a tool.
-    """
-    full = _build_full_payload()
-    if for_tool is None:
-        return full
-
-    payload: dict[str, object] = {key: full[key] for key in _CORE_KEYS}
-    payload["requested_for_tool"] = for_tool
-    for section in _TOOL_SECTIONS[for_tool]:
-        payload[section] = full[section]
-    payload["defaults"] = {for_tool: TOOL_DEFAULTS[for_tool]}
-    payload["argument_constraints"] = {for_tool: TOOL_ARGUMENT_CONSTRAINTS[for_tool]}
-    return payload
+def describe_graph_payload() -> dict[str, object]:
+    """Build the ``describe_graph`` response."""
+    return _build_full_payload()

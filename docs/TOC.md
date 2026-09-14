@@ -27,6 +27,7 @@
 ## Developer guides
 
 - [Developer Documentation](developers/README.md)
+  - [Running HarborRAG from a checkout](developers/checkout-quick-start.md)
 - [Architecture](developers/architecture/README.md)
   - [Data Lifecycle](developers/architecture/data-lifecycle.md)
   - [Runtime Reliability](developers/architecture/runtime-reliability.md)

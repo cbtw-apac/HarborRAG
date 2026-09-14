@@ -1,7 +1,7 @@
 # User Documentation
 
-New here? Start with the [Quick Start](../getting-started/quick-start.md) - Path A takes
-five minutes and needs no Docker or credentials.
+New here? Start with the [Quick Start](../getting-started/quick-start.md) -
+`pip install`, `harborrag init`, and your first answer in about ten minutes.
 
 ## By task
 
@@ -27,7 +27,7 @@ five minutes and needs no Docker or credentials.
 
 | Surface | What it does |
 | --- | --- |
-| CLI | `doctor`, `chat`, `retrieve`, and the `ingest` subgroup, all Temporal-backed |
+| CLI | `init`, `doctor`, `chat`, `retrieve`, and the `ingest` subgroup: `ingest run` executes in-process, the other `ingest` commands drive Temporal |
 | HTTP API | `/v1/...` public contract - ingestion, retrieval, chat, agent, admin; `/api/v1/...` operational routes |
 | MCP | four read-only retrieval tools over stdio or bearer-authenticated loopback HTTP, plus a browser playground |
 

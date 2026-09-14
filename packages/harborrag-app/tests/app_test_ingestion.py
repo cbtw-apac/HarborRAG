@@ -20,6 +20,57 @@ class IngestionServiceFixture:
     submissions: list[IngestionCreateCommand]
     idempotency: dict[str, str]
     task_list_calls: list[dict[str, object]]
+    direct_runs: list[dict[str, object]]
+    direct_final_status: str = "completed"
+
+    async def run_ingestion(  # noqa: PLR0913 - mirrors the service port
+        self,
+        *,
+        tenant_id: str,
+        connector_name: str,
+        run_id: str,
+        connection_id: str | None = None,
+        source_scope_id: str | None = None,
+        path: str | None = None,
+        pattern: str | None = None,
+        recursive: bool = True,
+        updated_after: str | None = None,
+        max_artifacts: int | None = None,
+        include_attachments: bool = True,
+        filters: Mapping[str, object] | None = None,
+        force_reprocess: bool = False,
+    ) -> AppResponse:
+        # Every option `ingest run` forwards, so a test can assert the request it made.
+        self.direct_runs.append(
+            {
+                "tenant_id": tenant_id,
+                "connector_name": connector_name,
+                "run_id": run_id,
+                "connection_id": connection_id,
+                "source_scope_id": source_scope_id,
+                "path": path,
+                "pattern": pattern,
+                "recursive": recursive,
+                "updated_after": updated_after,
+                "max_artifacts": max_artifacts,
+                "include_attachments": include_attachments,
+                "filters": dict(filters or {}),
+                "force_reprocess": force_reprocess,
+            }
+        )
+        return AppResponse(
+            True,
+            {
+                "result": {
+                    "task_id": run_id,
+                    "status": self.direct_final_status,
+                    "discovered": 2,
+                    "published": 2,
+                    "unchanged": 0,
+                    "failed": 0,
+                }
+            },
+        )
 
     def ingest_once(self) -> AppResponse:
         return AppResponse(
