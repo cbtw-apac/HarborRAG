@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from harborrag_core.models.chat import HarborChatRequest
@@ -22,8 +22,10 @@ from harborrag_runtime.sdk import HarborRAG
 
 from ..memory.context import empty_memory_context, memory_context_request
 from ..memory.identity import MemoryIdentity
+from .evidence import ChatEvidence
+from .memory_block import memory_block
 from .options import ChatExecutionOptions
-from .prompting import build_chat_request
+from .prompting import build_chat_request, history_messages
 from .retrieval import graph_anchor_ids, relevant_results, search_documents
 
 if TYPE_CHECKING:
@@ -105,14 +107,32 @@ async def prepare_turn(
         response.results,
         minimum=resources.settings.chat_retrieval_min_relevance,
     )
+    graph_enabled = (
+        resources.settings.chat_retrieval_graph_search
+        if options.graph_search is None
+        else options.graph_search
+    )
+    evidence = (
+        ChatEvidence.prepare(
+            replace(response, results=results),
+            query=query,
+            history=history_messages(context.messages),
+            max_bytes=resources.settings.topology_retrieval_policy.max_context_tokens,
+            overlay=graph_enabled,
+            prefix=memory_block(context.summary, context.recalled),
+        )
+        if results
+        else None
+    )
     request = build_chat_request(
         query,
         identity=identity,
         results=results,
         context=context,
         model=options.model,
+        evidence=evidence,
     )
-    return PreparedTurn(request, results, context)
+    return PreparedTurn(request, evidence.passages if evidence is not None else results, context)
 
 
 async def _anchored(  # noqa: PLR0913 - one bundle plus the anchoring inputs

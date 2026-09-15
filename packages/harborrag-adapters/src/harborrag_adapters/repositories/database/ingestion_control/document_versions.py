@@ -128,6 +128,7 @@ class DocumentVersionRepository:
             await session.execute(
                 insert(DOCUMENT_VERSIONS).values(
                     document_version_id=str(candidate.document_version_id),
+                    source_scope_id=candidate.source_identity.source_scope_id,
                     document_id=str(candidate.document_id),
                     canonical_content_hash=candidate.fingerprints.canonical_content_hash,
                     retrieval_metadata_hash=candidate.fingerprints.retrieval_metadata_hash,
@@ -326,6 +327,19 @@ class DocumentVersionRepository:
             tenant_id=tenant_id,
             connector_type=connector_type,
             connection_id=connection_id,
+            source_item_ids=source_item_ids,
+        )
+
+    async def resolve_unambiguous_active_sources(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        source_item_ids: Sequence[str],
+    ) -> dict[str, ActiveSourceDocument]:
+        return await self._reader.resolve_unambiguous_active_sources(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
             source_item_ids=source_item_ids,
         )
 

@@ -7,15 +7,70 @@ builds the payload's content, this one describes its exact shape.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from harborrag_core.topology.search import RetrievalMode
+
 from .graph_catalog import (
+    CHUNK_PROPERTIES,
+    COMMON_NODE_PROPERTIES,
     CONNECTOR_TOPOLOGIES,
     DIRECTION_VALUES,
+    DOCUMENT_OWNED_PROPERTIES,
+    ENTITY_PROPERTIES,
     ENTITY_TYPE_MEANINGS,
     EXECUTABLE_TOOL_NAMES,
+    GRAPH_NODE_KINDS,
+    GRAPH_RELATION_TYPES,
     NODE_KIND_MEANINGS,
+    RELATES_PROPERTIES,
     RELATION_MEANINGS,
     VECTOR_SEARCH_LANE_VALUES,
 )
+
+
+def _closed_string_list_schema(values: Sequence[str]) -> dict[str, object]:
+    """Return a schema for a list drawn from one closed catalog."""
+
+    return {
+        "type": "array",
+        "items": {"type": "string", "enum": list(values)},
+    }
+
+
+_VERSIONS_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["structural", "semantic", "ontology"],
+    "properties": {
+        "structural": {"type": "string", "minLength": 1},
+        "semantic": {"type": "string", "minLength": 1},
+        "ontology": {"type": "string", "minLength": 1},
+    },
+    "additionalProperties": False,
+}
+
+_LAYERS_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["nodes", "relations"],
+    "properties": {
+        "nodes": _closed_string_list_schema(GRAPH_NODE_KINDS),
+        "relations": _closed_string_list_schema(GRAPH_RELATION_TYPES),
+    },
+    "additionalProperties": False,
+}
+
+_PROPERTIES_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["common_node", "document_owned", "Chunk", "Entity", "RELATES"],
+    "properties": {
+        "common_node": _closed_string_list_schema(COMMON_NODE_PROPERTIES),
+        "document_owned": _closed_string_list_schema(DOCUMENT_OWNED_PROPERTIES),
+        "Chunk": _closed_string_list_schema(CHUNK_PROPERTIES),
+        "Entity": _closed_string_list_schema(ENTITY_PROPERTIES),
+        "RELATES": _closed_string_list_schema(RELATES_PROPERTIES),
+    },
+    "additionalProperties": False,
+}
 
 
 def _named_entry_schema(name_values: list[str]) -> dict[str, object]:
@@ -125,10 +180,11 @@ _WORKFLOW_ENTRY_SCHEMA: dict[str, object] = {
 
 _VECTOR_SEARCH_DEFAULTS_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": ["top_k", "lane", "filters", "observe_graph", "score_threshold"],
+    "required": ["top_k", "lane", "mode", "filters", "observe_graph", "score_threshold"],
     "properties": {
         "top_k": {"type": "integer"},
         "lane": {"type": "string", "enum": VECTOR_SEARCH_LANE_VALUES},
+        "mode": {"type": "string", "enum": [mode.value for mode in RetrievalMode]},
         "filters": _EMPTY_OBJECT_SCHEMA,
         "observe_graph": {"type": "boolean"},
         "score_threshold": {"type": "number"},
@@ -221,10 +277,22 @@ OUTPUT_SCHEMA: dict[str, object] = {
     # relation_types, direction_semantics, topologies, workflows) and defaults are
     # present when relevant; see graph_catalog.describe_graph_payload for exactly
     # which sections a `for_tool`-narrowed response keeps.
-    "required": ["ok", "graph_schema_version", "capabilities", "selector_rules", "limits"],
+    "required": [
+        "ok",
+        "graph_schema_version",
+        "versions",
+        "layers",
+        "properties",
+        "capabilities",
+        "selector_rules",
+        "limits",
+    ],
     "properties": {
         "ok": {"const": True},
         "graph_schema_version": {"type": "string", "minLength": 1},
+        "versions": _VERSIONS_SCHEMA,
+        "layers": _LAYERS_SCHEMA,
+        "properties": _PROPERTIES_SCHEMA,
         "capabilities": _CAPABILITIES_SCHEMA,
         "selector_rules": _SELECTOR_RULES_SCHEMA,
         "requested_for_tool": {"type": "string", "enum": list(EXECUTABLE_TOOL_NAMES)},

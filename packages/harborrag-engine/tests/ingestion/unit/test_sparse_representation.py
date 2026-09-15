@@ -25,6 +25,16 @@ def test_sparse_encoding_is_deterministic_and_sorted() -> None:
     assert first.token_count == 4
 
 
+def test_query_weights_use_raw_frequency_independent_of_document_length_parameters() -> None:
+    first = BM25SparseEncoder(profile()).encode_query("timeout timeout worker")
+    other = BM25SparseEncoder(
+        profile().model_copy(update={"b": 0.0, "fixed_avg_len": 5})
+    ).encode_query("timeout timeout worker")
+    assert first.vector == other.vector
+    assert sorted(first.vector.values) == [1.0, 2.0]
+    assert first.token_count == 3
+
+
 def test_ingestion_and_query_use_the_same_profile_and_token_policy() -> None:
     ingestion_encoder = BM25SparseEncoder(profile())
     query_encoder = BM25SparseEncoder(profile())

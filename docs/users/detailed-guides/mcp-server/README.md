@@ -10,25 +10,35 @@ policy-bounded FastMCP transport.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `vector_search` | Query, tenant, top-k, lane, filters, `observe_graph`, threshold | Vector results and diagnostics |
+| `fetch_evidence` | Tenant and up to 10 chunk IDs with optional expected document/version | Reauthorized immutable artifact text and per-item availability |
+| `get_document_context` | Tenant, document, optional anchor/version/cursor, limit | Ordered version-bound chunks, bounded outline, continuation cursor |
+| `list_sources` | Tenant, optional source/type filters, cursor, limit | Readable corpus scopes and safe freshness metadata |
+| `describe_graph` | Empty object | Static schema versions, property catalogs, selectors, topologies, and workflows |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
-| `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
-| `describe_graph` | None (no tenant required) | Static graph schema: node kinds, entity types, projected relations, selector rules, connector topologies, recommended workflows |
+| `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
+| `resolve_graph_nodes` | Tenant, exact typed selector, optional source/type scope | Authorized candidates with explicit ambiguity |
 
-Call `describe_graph` first if graph selectors, relations, directions, or connector
-topology are unclear — it is a static schema lookup, not a query. The MCP server also
-advertises short cross-tool routing instructions (which tool to call for which intent)
-to any client that surfaces server-level `instructions`.
+Call `describe_graph` first — before any other graph tool — if you are not yet
+familiar with the graph model, or if graph selectors, relations, or directions are
+unclear. It is a static schema lookup, not a query. The MCP server also advertises
+short cross-tool routing instructions (which tool to call for which intent) to any
+client that surfaces server-level `instructions`.
 
-The catalog contains exactly four tools. All of them are read-only, and every one requires
-an explicit `tenant_id`.
+The catalog contains exactly nine read-only tools. Eight require an explicit `tenant_id`;
+`describe_graph` accepts `{}` because it returns only the static supported model.
 
 | Tool | Required arguments | Optional arguments | Returns |
 | --- | --- | --- | --- |
 | `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `filters`, `observe_graph`, `score_threshold` (0.0–1.0) | Vector results and retrieval diagnostics |
+| `fetch_evidence` | `tenant_id`, `items[].chunk_id` | Expected document/version IDs | Canonical text, citation locator, and `available`/`unavailable`/`output_limit` per item |
+| `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor, cursor, limit (1–10), outline | Ordered chunks and a tenant/principal/version-bound cursor |
+| `list_sources` | `tenant_id` | Source IDs, connector types, cursor, limit (1–20) | Only readable source scopes; never connection configuration |
+| `describe_graph` | None | None | Static full graph catalog |
 | `graph_triplet_search` | `tenant_id`, plus at least one of `subject`, `predicate`, `object` | `limit` (1–20, default 10) | Active canonical subject–predicate–object records |
-| `graph_path_search` | `tenant_id`, `start_node`, `end_node` | `relationship_types`, `max_depth` (1–8, default 4), `max_paths` (1–20, default 10), `direction` (`incoming`/`outgoing`/`both`, default `both`) | Active bounded paths between the two nodes |
-| `graph_subgraph_search` | `tenant_id`, `start_node` | `relationship_types`, `max_depth` (1–8, default 2), `max_nodes` (1–20, default 20), `direction` (default `both`) | Active bounded neighborhood of nodes and relations |
+| `graph_subgraph_search` | `tenant_id`, `start_node` | Relation types, depth (1–4), nodes (1–20), direction | ACL-filtered connected neighborhood, at most 40 edges, with completion reasons |
+| `graph_path_search` | `tenant_id`, `start_node`, `end_node` | Relation types, depth (1–4), paths (1–5), direction | ACL-filtered bounded paths with stable relation provenance |
+| `resolve_graph_nodes` | `tenant_id`, selector kind/value | Source IDs, entity types, limit (1–10) | Unique, ambiguous, or no-match candidates |
 
 Chat and agent are **not** MCP tools. They are served only through the HarborRAG REST API
 at `/v1/chat/completions` and `/v1/agent/completions` - see [Chat](../../chat/README.md).
@@ -40,18 +50,22 @@ Ingestion is controlled through the CLI or the authenticated API, never through 
 > so confirm the effective value with `GET /api/tools?tenant_id=<tenant>` rather than
 > assuming the schema default applies.
 
-## Start with `vector_search`
+## Evidence and graph workflow
 
-`vector_search` is the entry point, because the three graph tools need a node selector you
-must already hold. Only three things resolve to a node:
+Use `list_sources` when the corpus is unclear, `vector_search` to discover evidence, and
+`fetch_evidence` before citing selected chunk IDs. Use `get_document_context` when ordered
+surrounding text is needed. The graph tools navigate; they do not replace source evidence.
+
+Graph selectors support three exact forms:
 
 - a `node_key`
 - a `logical_id`
 - an exact, complete `title` - matched case-insensitively, never partially, and unset on
   chunk nodes
 
-In practice the selector you use is a `chunk_id` from a `vector_search` result: chunk IDs
-and `Chunk` node keys are the same value. So the usual sequence is *search, then expand*.
+In practice use a `chunk_id` from `vector_search` (also its Chunk node key), or call
+`resolve_graph_nodes` and pass a returned stable `node_key`. Duplicate titles remain
+explicitly ambiguous.
 
 `graph_triplet_search` is the one exception - it is satisfiable by `predicate` alone, which
 is a relation-type enum rather than a node selector, so you can enumerate relationships of
@@ -104,7 +118,7 @@ Every tool call requires an explicit tenant (except `describe_graph` static tool
 principal through the runtime access context. MCP audits store argument
 digests rather than raw query text.
 
-1. **Capability check** - all four tools declare `read`; nothing else is registered.
+1. **Capability check** - all nine tools declare `read`; nothing else is registered.
 2. **Schema validation** - the declared JSON schema, with `additionalProperties: false`.
 3. **Argument budget** - a serialized-argument size ceiling.
 4. **Tenant scope** - `tenant_id` is required, and `filters` explicitly cannot carry a

@@ -107,8 +107,67 @@ class DocumentVersionReader:
         projection used.
         """
 
+        rows = await self._active_source_rows(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=connection_id,
+            source_item_ids=source_item_ids,
+        )
+        return {row["source_item_id"]: _active_source_from_row(row) for row in rows}
+
+    async def resolve_unambiguous_active_sources(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        source_item_ids: Sequence[str],
+    ) -> dict[str, ActiveSourceDocument]:
+        """Resolve connector-owned targets only when their connection is unique.
+
+        Cross-connector relation URIs identify their connector but do not identify a
+        configured connection. The documents table is authoritative for that mapping.
+        A target present under more than one connection in the tenant is deliberately
+        omitted rather than allowing repair to cross a connection boundary by guessing.
+        """
+
+        rows = await self._active_source_rows(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=None,
+            source_item_ids=source_item_ids,
+        )
+        by_source: dict[str, list[RowMapping]] = {}
+        for row in rows:
+            by_source.setdefault(required_text(row, "source_item_id"), []).append(row)
+        resolved: dict[str, ActiveSourceDocument] = {}
+        for source_item_id, candidates in by_source.items():
+            identities = {
+                (required_text(row, "connection_id"), required_text(row, "document_id"))
+                for row in candidates
+            }
+            if len(identities) == 1:
+                resolved[source_item_id] = _active_source_from_row(candidates[-1])
+        return resolved
+
+    async def _active_source_rows(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        connection_id: str | None,
+        source_item_ids: Sequence[str],
+    ) -> tuple[RowMapping, ...]:
         if not source_item_ids:
-            return {}
+            return ()
+        filters = [
+            DOCUMENTS.c.tenant_id == tenant_id,
+            DOCUMENTS.c.connector_type == connector_type,
+            DOCUMENTS.c.source_item_id.in_(tuple(source_item_ids)),
+            SOURCE_ITEMS.c.is_active.is_(True),
+            DOCUMENTS.c.active_document_version_id.is_not(None),
+        ]
+        if connection_id is not None:
+            filters.append(DOCUMENTS.c.connection_id == connection_id)
         async with self._client.sessions() as session:
             result = await session.execute(
                 select(
@@ -117,25 +176,16 @@ class DocumentVersionReader:
                     SOURCE_ITEMS.c.descriptor,
                     DOCUMENTS.c.document_id,
                     DOCUMENTS.c.active_document_version_id,
+                    DOCUMENTS.c.connection_id,
                 )
                 .join(SOURCE_ITEMS, SOURCE_ITEMS.c.document_id == DOCUMENTS.c.document_id)
-                .where(
-                    DOCUMENTS.c.tenant_id == tenant_id,
-                    DOCUMENTS.c.connector_type == connector_type,
-                    DOCUMENTS.c.connection_id == connection_id,
-                    DOCUMENTS.c.source_item_id.in_(tuple(source_item_ids)),
-                    SOURCE_ITEMS.c.is_active.is_(True),
-                    DOCUMENTS.c.active_document_version_id.is_not(None),
-                )
+                .where(*filters)
                 # One document can carry a source_items row per scope that discovered it.
                 # They agree on identity and differ only in descriptor, so order the
                 # duplicates to keep the title this returns stable across repair runs.
-                .order_by(SOURCE_ITEMS.c.source_scope_id)
+                .order_by(DOCUMENTS.c.connection_id, SOURCE_ITEMS.c.source_scope_id)
             )
-            return {
-                row["source_item_id"]: _active_source_from_row(row)
-                for row in result.mappings().all()
-            }
+            return tuple(result.mappings().all())
 
     async def active_relation_document_ids(
         self,

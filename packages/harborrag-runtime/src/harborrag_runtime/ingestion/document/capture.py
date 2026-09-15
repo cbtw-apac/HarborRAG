@@ -25,6 +25,7 @@ from harborrag_engine.ingestion import (
     with_title_as_content,
 )
 
+from .capture_decisions import active_candidate
 from .dependencies import DocumentReleaseDependencies
 from .lifecycle import DocumentVersionLifecycle
 from .materialization_helpers import enrich_raw_document
@@ -174,9 +175,11 @@ class DocumentCaptureStages:
                 planned.candidate
             )
             if current == DocumentVersionState.ACTIVE:
-                return PreparedDocumentStage(
-                    document_id=capture.document_id,
-                    document_version_id=candidate_id,
+                return active_candidate(
+                    request=request,
+                    capture=capture,
+                    active=active,
+                    candidate_id=candidate_id,
                     decision=decision,
                 )
             document, snapshot = await self._lifecycle.materialize_document(

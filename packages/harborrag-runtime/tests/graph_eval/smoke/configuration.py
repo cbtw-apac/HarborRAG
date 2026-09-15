@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from dotenv import load_dotenv
+from pydantic import SecretStr
 
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
@@ -30,7 +31,9 @@ def build_config(graph_name: str = "harborrag") -> FalkorDBGraphConfig:
         host=os.getenv("FALKORDB_HOST", "127.0.0.1").strip() or "127.0.0.1",
         port=int(os.getenv("FALKORDB_PORT", "6379").strip() or "6379"),
         username=os.getenv("FALKORDB_USERNAME", "").strip() or None,
-        password=os.getenv("FALKORDB_PASSWORD", "").strip() or None,
+        password=(
+            SecretStr(value) if (value := os.getenv("FALKORDB_PASSWORD", "").strip()) else None
+        ),
         graph_name=graph_name,
         ssl=_env_flag("FALKORDB_SSL"),
         allow_insecure_remote=_env_flag("FALKORDB_ALLOW_INSECURE_REMOTE"),

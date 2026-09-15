@@ -20,6 +20,9 @@ from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
+from harborrag_core.testing.control_plane_fakes_graph_conflicts import (
+    FakeGraphConflictRepository as FakeGraphConflictRepository,
+)
 
 
 def _in_scope(tenant_id: str, tenant_ids: frozenset[str] | None) -> bool:

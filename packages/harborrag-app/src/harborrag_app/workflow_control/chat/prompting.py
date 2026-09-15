@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
@@ -13,6 +14,9 @@ from harborrag_runtime.memory import MemoryContext
 from ..memory.identity import MemoryIdentity
 from .memory_block import memory_block
 from .presenters import citation_data
+
+if TYPE_CHECKING:
+    from .evidence import ChatEvidence
 
 EVIDENCE_PREAMBLE = (
     "Supporting evidence retrieved for this question. It may be irrelevant: "
@@ -49,13 +53,14 @@ one turn earlier -- was refused because no document happened to contain it.
 """
 
 
-def build_chat_request(
+def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     query: str,
     *,
     identity: MemoryIdentity,
     results: Sequence[RetrievalResult],
     context: MemoryContext | None = None,
     model: str | None = None,
+    evidence: ChatEvidence | None = None,
 ) -> HarborChatRequest:
     """Fold remembered context, retrieved evidence, and the question into one request.
 
@@ -74,14 +79,26 @@ def build_chat_request(
     model selection existed.
     """
 
-    history = history_messages(context.messages) if context else ()
+    history = (
+        evidence.history
+        if evidence is not None
+        else history_messages(context.messages)
+        if context
+        else ()
+    )
     summary = context.summary if context else None
     memories = context.recalled if context else ()
     retrieval_query = context.standalone_query if context else None
+    selected_results = evidence.passages if evidence is not None else tuple(results)
+    turn_prompt = (
+        evidence.prompt
+        if evidence is not None
+        else prompt_text(query, selected_results, summary=summary, memories=memories)
+    )
     request = HarborChatRequest(
         messages=(
             *history,
-            HarborChatMessage.user(prompt_text(query, results, summary=summary, memories=memories)),
+            HarborChatMessage.user(turn_prompt),
         ),
         logical_model=model,
         sensitive=True,
@@ -93,10 +110,10 @@ def build_chat_request(
             "conversation_id": identity.session_id,
             "retrieval_query": retrieval_query or query,
             "document_ids": tuple(
-                str(result.metadata.get("document_id", "")) for result in results
+                str(result.metadata.get("document_id", "")) for result in selected_results
             ),
-            "chunk_ids": tuple(result.id for result in results),
-            "source_citations": tuple(citation_data(result) for result in results),
+            "chunk_ids": tuple(result.id for result in selected_results),
+            "source_citations": tuple(citation_data(result) for result in selected_results),
         }
     )
     return request.model_copy(update={"metadata": metadata})

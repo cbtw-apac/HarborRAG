@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `harborrag init` scaffolds a self-contained project directory (`harborrag.yaml`, `.env`,
+  `config/` catalogs, `docker-compose.yml`) with provider presets for OpenAI, Azure OpenAI,
+  Gemini, and OpenAI-compatible gateways. The CLI discovers the project by walking up from
+  the current directory (`--project` / `HARBORRAG_PROJECT` override). When the default
+  service ports are taken, `init` moves the stack to a free offset (`--ports-offset N` to force).
+  `init` asks which data sources to ingest (local folder, GitHub, Confluence, Jira; or
+  `--connectors LIST`) and scaffolds a connector plus `.env` variables for each.
+- `harborrag ingest run CONNECTOR` executes an ingestion in-process (direct mode) with
+  inline progress; no Temporal or worker required.
+- `harborrag doctor` now checks the project, catalogs, environment, Qdrant, FalkorDB, the
+  object store and the control database, and checks Temporal only with `--temporal`.
+- The `harborrag` command ships with every install of `harborrag`, including the bare one;
+  `harborrag[local]` adds the clients the local stack needs.
+
+### Changed
+
+- `ingest start --wait` and `ingest watch` render an inline progress block instead of a
+  full-screen dashboard; `watch --events` streams NDJSON.
+- Direct-mode commands (`ingest run`, `retrieve`, `chat`, `doctor`) no longer import the
+  Temporal client, so they work on a bare or `[local]` install; durable commands explain
+  that `harborrag[temporal]` is required instead of failing with an import error.
+
+### Removed
+
+- The Textual ingestion dashboard and the `textual` dependency of `harborrag-app`.
+
+### Security
+
+- Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
+  user and not world-writable; `--project` opts in explicitly. The CLI announces the project
+  it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
+
 ### Fixed
 
 - Revalidate retrieval candidates against the authoritative active document

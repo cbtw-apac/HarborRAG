@@ -23,6 +23,7 @@ from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
+from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
@@ -57,6 +58,7 @@ class AppService(
     ChatClientMixin,
     MemoryAdminClientMixin,
     PublicIngestionClientMixin,
+    DirectIngestionClientMixin,
     RetrievalClientMixin,
     BaseAppService,
 ):
@@ -135,6 +137,7 @@ class AppService(
             task_registry=self._resources.task_registry,
             source_input_builder=self._source_input_builder,
         )
+        self._direct = DirectIngestionOperations(self._resources.runtime_sdk)
 
     def _control_plane(self) -> ControlPlaneRepositories:
         control_plane = self._composition.control_plane

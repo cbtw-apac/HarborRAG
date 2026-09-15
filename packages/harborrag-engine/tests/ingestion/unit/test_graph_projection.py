@@ -33,6 +33,63 @@ def test_graph_projection_rejects_document_chunk_identity_mismatch() -> None:
         )
 
 
+def test_evidence_ordinals_remain_contiguous_in_canonical_sequence() -> None:
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "Alpha beta gamma delta."),
+            DocumentElement("p2", "paragraph", "Epsilon zeta eta theta."),
+            DocumentElement("p3", "paragraph", "Iota kappa lambda mu."),
+        ]
+    )
+    chunks = (
+        make_service(
+            make_profile(target=20, maximum=60),
+            configuration_version="3",
+            create_route_chunks=True,
+        )
+        .chunk(make_request(document))
+        .chunks
+    )
+
+    evidence = [chunk for chunk in chunks if chunk.record_kind.value == "evidence"]
+    ordinals = [chunk.ordinal for chunk in evidence]
+    assert ordinals == list(range(len(evidence)))
+    assert ordinals == sorted(ordinals)
+
+
+def test_chunk_nodes_expose_ordinal_from_document_order() -> None:
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "Alpha beta gamma delta."),
+            DocumentElement("p2", "paragraph", "Epsilon zeta eta theta."),
+            DocumentElement("p3", "paragraph", "Iota kappa lambda mu."),
+        ]
+    )
+    chunks = (
+        make_service(
+            make_profile(target=20, maximum=60),
+            configuration_version="3",
+            create_route_chunks=True,
+        )
+        .chunk(make_request(document))
+        .chunks
+    )
+
+    projection = GraphProjectionBuilder().build_structural(
+        document=document,
+        chunks=chunks,
+        graph_projection_version="graph-ordinal-order",
+    )
+
+    chunk_nodes = [node for node in projection.nodes if node.node_kind == KnowledgeNodeKind.CHUNK]
+    observed = {node.logical_id: node.attributes for node in chunk_nodes}
+    for chunk in chunks:
+        if chunk.record_kind != "evidence":
+            continue
+        attrs = observed[str(chunk.chunk_id)]
+        assert attrs["ordinal"] == chunk.ordinal
+
+
 def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     document = make_document(
         [
@@ -113,7 +170,7 @@ def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     assert "has_data_source" in relation_types
     assert "has_version" in relation_types
     assert "contains" in relation_types
-    assert "supports" in relation_types
+    assert "has_chunk" in relation_types
     assert "links_to" in relation_types
     assert "parent_of" in relation_types
     assert projection.unresolved_relations[0].target_source_item_id == "not-published"
@@ -131,6 +188,38 @@ def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
         relation.relation_id for relation in projection.relations
     )
     assert len(projection.manifest.payload_sha256) == 64
+
+
+def test_repeated_heading_labels_keep_distinct_stable_section_nodes() -> None:
+    document = make_document(
+        [
+            DocumentElement("heading-a", "heading", "Status", {"level": 1}),
+            DocumentElement("paragraph-a", "paragraph", "First system status."),
+            DocumentElement("heading-b", "heading", "Status", {"level": 1}),
+            DocumentElement("paragraph-b", "paragraph", "Second system status."),
+        ]
+    )
+    chunking = make_service(make_profile(target=40, maximum=60)).chunk(make_request(document))
+    evidence = [chunk for chunk in chunking.chunks if chunk.record_kind.value == "evidence"]
+
+    assert len(evidence) == 2
+    assert {chunk.hierarchy.section_path for chunk in evidence} == {("Status",)}
+    assert len({chunk.hierarchy.section_id for chunk in evidence}) == 2
+
+    projection = GraphProjectionBuilder().build_structural(
+        document=document,
+        chunks=chunking.chunks,
+        graph_projection_version="graph-stable-sections",
+    )
+    sections = [node for node in projection.nodes if node.entity_type == GraphEntityType.SECTION]
+    assert len(sections) == 2
+    assert {node.title for node in sections} == {"Status"}
+    holders = {
+        relation.source_node_key
+        for relation in projection.relations
+        if relation.relation_type.value == "has_chunk"
+    }
+    assert {node.node_key for node in sections} <= holders
 
 
 def test_structural_projection_defers_active_target_resolution() -> None:
@@ -166,11 +255,12 @@ def test_structural_projection_defers_active_target_resolution() -> None:
         chunks=chunks,
         graph_projection_version="graph-stable-links",
     )
-    assert any(
+    assert not any(
         relation.source_explicit and relation.relation_type.value == "links_to"
         for relation in projection.relations
     )
     assert projection.unresolved_relations[0].target_source_item_id == "target-page"
+    assert not any(node.logical_id == "target-page" for node in projection.nodes)
 
 
 def test_graph_projection_models_comments_replies_and_section_targets() -> None:

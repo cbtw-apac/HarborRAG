@@ -18,7 +18,7 @@ from .schemas import Base
 
 
 class ModelUsageRow(Base):
-    """One model call's token and cost footprint (migration 0025).
+    """One model call's token and cost footprint (migration 0029).
 
     ``tenant_id``/``user_id``/``created_at`` are indexed because every
     aggregation is "this tenant, optionally this human, optionally since

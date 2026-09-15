@@ -57,6 +57,7 @@ from harborrag_engine.ingestion.projections import (
     VectorProjectionInput,
     VectorProjectionPolicy,
     VectorProjectionStore,
+    target_connector_type,
 )
 from harborrag_engine.ingestion.representations import (
     BM25SparseEncoder,
@@ -121,5 +122,6 @@ __all__ = [
     "build_chunking_service",
     "produces_evidence",
     "source_version_from_document",
+    "target_connector_type",
     "with_title_as_content",
 ]

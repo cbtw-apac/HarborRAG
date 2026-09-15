@@ -6,6 +6,8 @@ from typing import Protocol
 
 from harborrag_core.ingestion import KnowledgeGraphTraversal
 from harborrag_core.retrieval import (
+    GraphNodeResolutionQuery,
+    GraphNodeResolutionResult,
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
@@ -16,6 +18,13 @@ from harborrag_core.storage import StorageOperationContext
 
 
 class GraphRetrievalRepositoryPort(Protocol):
+    async def resolve_nodes(
+        self,
+        query: GraphNodeResolutionQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> GraphNodeResolutionResult: ...
+
     async def search_triplets(
         self,
         query: GraphTripletQuery,

@@ -27,6 +27,7 @@ class HarborChatCapabilities(StrictModel):
     audio_input: bool = False
     reasoning: bool = False
     reasoning_content: bool = False
+    reasoning_effort: bool = False
 
 
 class HarborEmbedCapabilities(StrictModel):

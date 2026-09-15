@@ -286,7 +286,7 @@ def build_model_telemetry(
     *,
     langfuse_enabled: bool,
 ) -> TelemetryDispatcher:
-    """Compose sanitized model telemetry; Langfuse remains embedding-only here.
+    """Compose sanitized model telemetry for embedding or chat clients.
 
     Annotated against the shared client-config base so every model family --
     embed, chat -- composes its dispatcher the same way; only

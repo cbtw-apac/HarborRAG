@@ -144,8 +144,53 @@ class FakeKnowledgeGraphRepository:
             if str(node.document_version_id) == document_version_id
         }
         self.nodes = {key: node for key, node in self.nodes.items() if key not in removed}
+        self.relations = {
+            key: relation
+            for key, relation in self.relations.items()
+            if str(relation.document_version_id) != document_version_id
+        }
         self._drop_relations_touching(removed)
-        self._prune_orphans()
+
+    async def replace_source_relations(
+        self,
+        document_version_id: str,
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await self.write_projection(nodes, relations, context=context)
+        retained = {relation.relation_id for relation in relations}
+        obsolete = tuple(
+            relation
+            for relation in self.relations.values()
+            if relation.owner_id == context.tenant_id
+            and str(relation.document_version_id) == document_version_id
+            and relation.attributes.get("source_relation") is True
+            and relation.relation_id not in retained
+        )
+        await self.delete_relations(obsolete, context=context)
+
+    async def retire_legacy_source_relations(
+        self,
+        source_scope_id: str,
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        verification = await self.verify_projection(nodes, relations, context=context)
+        if not verification.valid:
+            raise ValueError("rebuilt source manifests failed verification")
+        obsolete = tuple(
+            relation
+            for relation in self.relations.values()
+            if relation.owner_id == context.tenant_id
+            and relation.source_scope_id == source_scope_id
+            and relation.ownership_scope == GraphOwnershipScope.SOURCE_SCOPE
+            and relation.relation_type.value != "has_data_source"
+        )
+        await self.delete_relations(obsolete, context=context)
 
     async def delete_source_item(
         self,
@@ -153,10 +198,17 @@ class FakeKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> None:
-        del context
+        versions = {
+            str(relation.document_version_id)
+            for relation in self.relations.values()
+            if relation.source_node_key == source_item_node_key
+            and relation.relation_type.value == "has_version"
+            and relation.owner_id == context.tenant_id
+        }
+        for version_id in versions:
+            await self.delete_version(version_id, context=context)
         self.nodes.pop(source_item_node_key, None)
         self._drop_relations_touching({source_item_node_key})
-        self._prune_orphans()
 
     async def delete_source_scope(
         self,
@@ -221,20 +273,6 @@ class FakeKnowledgeGraphRepository:
             for key, relation in self.relations.items()
             if relation.source_node_key not in node_keys
             and relation.target_node_key not in node_keys
-        }
-
-    def _prune_orphans(self) -> None:
-        """The tenant-wide sweep the cleanup paths run, and only they run it."""
-
-        attached = {
-            node_key
-            for relation in self.relations.values()
-            for node_key in (relation.source_node_key, relation.target_node_key)
-        }
-        self.nodes = {
-            key: node
-            for key, node in self.nodes.items()
-            if key in attached or node.ownership_scope is not GraphOwnershipScope.SOURCE_SCOPE
         }
 
     @staticmethod

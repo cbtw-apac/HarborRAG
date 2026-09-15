@@ -28,6 +28,7 @@ class ChunkContextBuilder:
         next_: ChunkIdentity | None,
     ) -> ChunkHierarchy:
         parent_path = candidate.structural_path[:-1]
+        section_anchors = self._section_anchors(candidate)
         return ChunkHierarchy(
             document_title=request.document.title.strip() or None,
             section_path=candidate.structural_path,
@@ -36,13 +37,14 @@ class ChunkContextBuilder:
                 self._identity.section_id(
                     document_id=request.document.id,
                     section_path=parent_path,
+                    stable_source_anchors=section_anchors[:-1],
                 )
                 if parent_path
                 else None
             ),
             ancestry=self._section_ancestry(
                 request.document.id,
-                candidate.structural_path,
+                candidate,
             ),
             parent_title=self.parent_title(candidate.metadata),
             previous_chunk_id=(
@@ -90,8 +92,16 @@ class ChunkContextBuilder:
         )
         supplied_version_id = candidate.metadata.get("table_version_id")
         lines = candidate.content.splitlines()
-        row_start = candidate.metadata.get("row_start", 0)
-        row_end = candidate.metadata.get("row_end", max(len(lines) - 1, 0))
+        # The canonical artifact's own dimensions, stamped on the unit during
+        # segmentation. Counting tabs in rendered text is only a fallback for a
+        # table that never resolved to an artifact, and it is wrong for any cell
+        # whose own text contains a tab.
+        #
+        # A row range indexes data rows, not lines: the first line of an
+        # artifact-less table is its header, so two data rows end at index 1.
+        # Header-only and empty content both fall back to 0.
+        fallback_row_end = max(len(lines) - 2, 0)
+        fallback_columns = max((len(line.split("\t")) for line in lines), default=1)
         return TableChunkLocator(
             table_id=table_id,
             table_version_id=(
@@ -103,23 +113,44 @@ class ChunkContextBuilder:
                     content_hash=content_hash,
                 )
             ),
-            row_start=row_start if isinstance(row_start, int) else 0,
-            row_end=row_end if isinstance(row_end, int) else max(len(lines) - 1, 0),
-            column_count=max((len(line.split("\t")) for line in lines), default=1),
+            row_start=self._positive_int(candidate.metadata.get("row_start"), 0),
+            row_end=self._positive_int(candidate.metadata.get("row_end"), fallback_row_end),
+            column_count=max(
+                self._positive_int(candidate.metadata.get("column_count"), fallback_columns),
+                1,
+            ),
         )
+
+    @staticmethod
+    def _positive_int(value: object, fallback: int) -> int:
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return fallback
 
     def _section_ancestry(
         self,
         document_id: str,
-        section_path: tuple[str, ...],
+        candidate: ChunkCandidate,
     ) -> tuple[str, ...]:
+        section_path = candidate.structural_path
+        anchors = self._section_anchors(candidate)
         return tuple(
             self._identity.section_id(
                 document_id=document_id,
                 section_path=section_path[:depth],
+                stable_source_anchors=anchors[:depth],
             )
             for depth in range(1, len(section_path))
         )
+
+    @staticmethod
+    def _section_anchors(candidate: ChunkCandidate) -> tuple[str, ...]:
+        values = candidate.metadata.get("heading_element_ids")
+        if not isinstance(values, (list, tuple)):
+            return ()
+        anchors = tuple(str(value).strip() for value in values)
+        # Connector-supplied tab paths can add labels without source heading IDs.
+        return anchors if len(anchors) == len(candidate.structural_path) and all(anchors) else ()
 
     @staticmethod
     def parent_title(metadata: Mapping[str, object]) -> str | None:

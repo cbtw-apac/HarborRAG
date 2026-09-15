@@ -161,11 +161,21 @@ async def test_triplet_tool_forwards_access_and_predicate() -> None:
     )
 
     assert result["ok"] is True
+    assert result["outcome"] == "matched"
+    assert result["completion"] == {"complete": True, "reasons": []}
     request = graph.calls[0]
     assert request.access.principal_id == "reader-1"
     assert request.access.tenant_id == "demo"
     assert request.query.predicate == RelationType.LINKS_TO
     assert result["triplets"][0]["predicate"] == "links_to"
+    assert result["triplets"][0]["relation"] == {
+        "relation_id": "relation-1",
+        "relation_type": "links_to",
+        "source_node_key": "node-a",
+        "target_node_key": "node-b",
+        "origin": "source_declared",
+        "source_scope_id": "scope-1",
+    }
     assert result["triplets"][0]["subject"]["node_key"] == "node-a"
     # Write-side bookkeeping must not reach an LLM caller.
     assert "owner_id" not in result["triplets"][0]["subject"]
@@ -190,6 +200,7 @@ async def test_path_tool_forwards_bounds_direction_and_relationships() -> None:
     )
 
     assert result["ok"] is True
+    assert result["outcome"] == "matched"
     query = graph.calls[0].query
     assert query.max_depth == 3
     assert query.max_paths == 4
@@ -211,6 +222,7 @@ async def test_subgraph_tool_returns_canonical_nodes_and_relations() -> None:
     )
 
     assert result["ok"] is True
+    assert result["completion"] == {"complete": True, "reasons": []}
     assert len(result["nodes"]) == 2
     assert len(result["relations"]) == 1
     assert graph.calls[0].query.max_nodes == 2

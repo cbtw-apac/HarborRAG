@@ -4,6 +4,7 @@ import json
 from io import StringIO
 
 import pytest
+from catalog_support import EXPECTED_READER_TOOLS
 
 from harborrag_mcp_server.server import call_tool, create_mcp_server, list_tools
 from harborrag_mcp_server.server.base import BaseMcpServer
@@ -23,13 +24,7 @@ def test_module_check_lists_all_tools(tmp_path, monkeypatch, capsys) -> None:
 
     monkeypatch.chdir(tmp_path)
     assert main(["--check"]) == 0
-    assert json.loads(capsys.readouterr().out) == [
-        "vector_search",
-        "graph_triplet_search",
-        "graph_path_search",
-        "graph_subgraph_search",
-        "describe_graph",
-    ]
+    assert json.loads(capsys.readouterr().out) == EXPECTED_READER_TOOLS
 
 
 def test_module_rejects_interactive_stdio_with_guidance(monkeypatch, capsys) -> None:
@@ -99,18 +94,30 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
         tools = await client.list_tools()
 
     assert type(transport).__module__.startswith("fastmcp.")
-    assert [tool.name for tool in tools] == [
-        "vector_search",
-        "graph_triplet_search",
-        "graph_path_search",
-        "graph_subgraph_search",
-        "describe_graph",
-    ]
+    assert [tool.name for tool in tools] == EXPECTED_READER_TOOLS
     assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
 
-    describe = tools[-1]
+    path = next(tool for tool in tools if tool.name == "graph_path_search")
+    assert path.inputSchema["additionalProperties"] is False
+    assert set(path.inputSchema["properties"]) == {
+        "start_node",
+        "end_node",
+        "relationship_types",
+        "direction",
+        "max_depth",
+        "max_paths",
+        "tenant_id",
+    }
+    assert path.annotations is not None
+    assert path.annotations.readOnlyHint is True
+    assert path.annotations.destructiveHint is False
+    assert path.annotations.idempotentHint is True
+    assert path.annotations.openWorldHint is False
+    assert path.outputSchema is not None
+
+    describe = next(tool for tool in tools if tool.name == "describe_graph")
     assert describe.inputSchema["additionalProperties"] is False
-    assert set(describe.inputSchema["properties"]) == {"for_tool"}
+    assert set(describe.inputSchema["properties"]) == set()
     assert describe.annotations is not None
     assert describe.annotations.readOnlyHint is True
     assert describe.annotations.destructiveHint is False
@@ -134,6 +141,23 @@ class BrokenServer(BaseMcpServer):
         return await super().call_tool(name, arguments, principal_id=principal_id)
 
 
+class InvalidOutputTool(BaseMcpTool):
+    spec = McpToolSpec(
+        "invalid_output",
+        "Return an invalid result.",
+        output_schema={
+            "type": "object",
+            "required": ["ok"],
+            "properties": {"ok": {"const": True}},
+            "additionalProperties": False,
+        },
+    )
+
+    async def call(self, arguments, *, principal_id):
+        del arguments, principal_id
+        return {"ok": False}
+
+
 @pytest.mark.asyncio
 async def test_mcp_base_methods_raise():
     with pytest.raises(NotImplementedError):
@@ -145,26 +169,25 @@ async def test_mcp_base_methods_raise():
 
 
 @pytest.mark.asyncio
+async def test_server_rejects_tool_output_that_breaks_its_advertised_schema() -> None:
+    server = McpServer(tools=[InvalidOutputTool()])
+
+    with pytest.raises(RuntimeError, match="invalid output"):
+        await server.call_tool("invalid_output")
+
+
+@pytest.mark.asyncio
 async def test_mcp_registry_exposes_retrieval_tools():
     spec = McpToolSpec("tool", "description")
     assert spec.input_schema == {"type": "object"}
     server = McpServer()
-    expected = [
+    assert [tool.name for tool in server.list_tools()] == EXPECTED_READER_TOOLS
+    assert [item["name"] for item in list_tools()] == EXPECTED_READER_TOOLS
+    result = await server.call_tool(
         "vector_search",
-        "graph_triplet_search",
-        "graph_path_search",
-        "graph_subgraph_search",
-        "describe_graph",
-    ]
-    assert [tool.name for tool in server.list_tools()] == expected
-    assert [item["name"] for item in list_tools()] == expected
-    assert (
-        await server.call_tool(
-            "vector_search",
-            {"query": "harbor", "tenant_id": "demo"},
-        )
-    )["ok"] is False
-    assert (await server.call_tool("describe_graph"))["ok"] is True
+        {"query": "harbor", "tenant_id": "demo"},
+    )
+    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
     with pytest.raises(ValueError):
         await server.call_tool("missing")
     with pytest.raises(ValueError):
@@ -235,9 +258,6 @@ def test_tool_policy_enforces_declared_input_schema():
 async def test_call_tool_facade_records_an_audit_entry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The real call_tool facade (not McpAuditLog called in isolation) must
-    leave an audit trail: McpServer.call_tool wires McpAuditLog.record
-    into the actual call path exercised by the module-level facade."""
     import harborrag_mcp_server.server.server as server_module
     from harborrag_mcp_server.audit import McpAuditLog
 
@@ -260,8 +280,6 @@ async def test_call_tool_facade_records_an_audit_entry(
 
 @pytest.mark.asyncio
 async def test_call_tool_records_audit_entry_even_when_tool_raises() -> None:
-    """A tool that raises mid-call must still leave an audit trail: the audit
-    record happens before tool.call(), not after a successful result."""
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.policy import McpToolPolicy
 
@@ -282,10 +300,6 @@ async def test_call_tool_records_audit_entry_even_when_tool_raises() -> None:
 async def test_call_tool_facade_rejects_policy_violation_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A policy configured to reject any non-empty result must actually
-    reject a call made through call_tool (server.call_tool -> policy check),
-    not just when McpToolPolicy.check_results is invoked directly -- and the
-    rejected call must still be audited."""
     import harborrag_mcp_server.server.server as server_module
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.policy import McpToolPolicy

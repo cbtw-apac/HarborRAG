@@ -262,7 +262,7 @@ async def test_agent_run_get_is_scoped_to_full_identity(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 @pytest.mark.whitebox
 async def test_agent_run_lease_and_failure_class_round_trip(tmp_path: Path) -> None:
-    """Migration 0020 lease columns and the state_json failure flag must survive
+    """Migration 0024 lease columns and the state_json failure flag must survive
     a save/load cycle with tz-aware datetimes, and a terminal save must clear
     the lease."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"

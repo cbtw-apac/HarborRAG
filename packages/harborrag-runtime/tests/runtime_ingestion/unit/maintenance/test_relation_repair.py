@@ -233,8 +233,9 @@ async def test_sequential_reindex_repairs_links_after_target_cleanup(
                 document_ids=(document_id,),
             )
 
-        # Schema-v2 source links are source-scope owned and survive version cleanup.
-        assert len(_links(resources)) == 1
+        # The old source assertion retires with its document; the new version's
+        # unknown-scope link remains unresolved until the repair pass below.
+        assert not _links(resources)
 
         result = await repair.repair_reindexed(
             tenant_id="default",

@@ -10,11 +10,24 @@ empty result indistinguishable from a genuine miss.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
-from harborrag_core.chunking import PROJECTED_RELATION_TYPES, RelationType
+from harborrag_core.chunking import (
+    CHUNK_PROPERTIES,
+    COMMON_NODE_PROPERTIES,
+    DOCUMENT_OWNED_PROPERTIES,
+    ENTITY_PROPERTIES,
+    PROJECTED_RELATION_TYPES,
+    RELATES_PROPERTIES,
+    RelationType,
+)
 from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
-from harborrag_core.ingestion.projection_contracts import GRAPH_SCHEMA_VERSION
+from harborrag_core.ingestion.projection_contracts import (
+    GRAPH_SCHEMA_VERSION,
+    ONTOLOGY_SCHEMA_VERSION,
+    SEMANTIC_SCHEMA_VERSION,
+)
 from harborrag_core.retrieval import GraphDirection
 from harborrag_mcp_server.policy import McpToolPolicy
 
@@ -105,6 +118,12 @@ assert _PATH_MAX_DEPTH == _SUBGRAPH_MAX_DEPTH, (
 )
 MAXIMUM_DEPTH = _PATH_MAX_DEPTH
 MAXIMUM_RESULTS = McpToolPolicy().max_results
+STRUCTURAL_SCHEMA_VERSION: str = GRAPH_SCHEMA_VERSION
+
+GRAPH_NODE_KINDS: tuple[str, ...] = tuple(kind.value for kind in KnowledgeNodeKind)
+GRAPH_RELATION_TYPES: tuple[str, ...] = tuple(
+    relation.value for relation in PROJECTED_RELATION_TYPES
+)
 
 DIRECTION_VALUES = [direction.value for direction in GraphDirection]
 VECTOR_SEARCH_LANE_VALUES = VectorSearchTool.spec.input_schema["properties"]["lane"]["enum"]
@@ -154,7 +173,7 @@ RELATION_MEANINGS: dict[RelationType, str] = {
         "Structural containment (source scope to entity, or entity to substructure)."
     ),
     RelationType.HAS_VERSION: "Source entity to its indexed document version.",
-    RelationType.SUPPORTS: "Chunk to the structure or document version it evidences.",
+    RelationType.HAS_CHUNK: "Structure or document version to the evidence chunks it holds.",
     RelationType.PARENT_OF: "Normalized parent-child relation between source entities.",
     RelationType.LINKS_TO: "One source entity references another by link.",
     RelationType.HAS_ATTACHMENT: "Normalized relation from an entity to its attachment.",
@@ -248,6 +267,22 @@ def _build_full_payload() -> dict[str, object]:
     return {
         "ok": True,
         "graph_schema_version": GRAPH_SCHEMA_VERSION,
+        "versions": {
+            "structural": STRUCTURAL_SCHEMA_VERSION,
+            "semantic": SEMANTIC_SCHEMA_VERSION,
+            "ontology": ONTOLOGY_SCHEMA_VERSION,
+        },
+        "layers": {
+            "nodes": list(GRAPH_NODE_KINDS),
+            "relations": list(GRAPH_RELATION_TYPES),
+        },
+        "properties": {
+            "common_node": list(COMMON_NODE_PROPERTIES),
+            "document_owned": list(DOCUMENT_OWNED_PROPERTIES),
+            "Chunk": list(CHUNK_PROPERTIES),
+            "Entity": list(ENTITY_PROPERTIES),
+            "RELATES": list(RELATES_PROPERTIES),
+        },
         "capabilities": {
             "free_text_search": False,
             "partial_title_matching": False,
@@ -291,7 +326,16 @@ def _build_full_payload() -> dict[str, object]:
     }
 
 
-_CORE_KEYS = ("ok", "graph_schema_version", "capabilities", "selector_rules", "limits")
+_CORE_KEYS = (
+    "ok",
+    "graph_schema_version",
+    "versions",
+    "layers",
+    "properties",
+    "capabilities",
+    "selector_rules",
+    "limits",
+)
 
 
 def describe_graph_payload(for_tool: str | None = None) -> dict[str, object]:
@@ -306,7 +350,7 @@ def describe_graph_payload(for_tool: str | None = None) -> dict[str, object]:
     """
     full = _build_full_payload()
     if for_tool is None:
-        return full
+        return deepcopy(full)
 
     payload: dict[str, object] = {key: full[key] for key in _CORE_KEYS}
     payload["requested_for_tool"] = for_tool

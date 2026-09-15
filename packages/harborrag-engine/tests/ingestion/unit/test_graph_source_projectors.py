@@ -75,7 +75,7 @@ def test_confluence_topology_includes_ancestry_and_attachments() -> None:
     }
 
 
-def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
+def test_jira_topology_preserves_parent_and_defers_unresolved_native_issue_links() -> None:
     graph = _project(
         "jira",
         {
@@ -97,7 +97,8 @@ def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
     assert {GraphEntityType.JIRA_PROJECT, GraphEntityType.JIRA_ISSUE} <= {
         node.entity_type for node in graph.nodes
     }
-    assert {"parent_of", "blocks"} <= {relation.relation_type.value for relation in graph.relations}
+    assert "parent_of" in {relation.relation_type.value for relation in graph.relations}
+    assert "blocks" not in {relation.relation_type.value for relation in graph.relations}
     assert graph.unresolved_relations[0].target_source_item_id == "ENG-3"
 
 
@@ -170,6 +171,26 @@ def test_local_topology_uses_only_portable_relative_paths() -> None:
         not str(node.attributes.get("relative_path", "")).startswith("/") for node in local_nodes
     )
     assert all("path" not in node.attributes for node in graph.nodes)
+
+
+def test_local_paths_from_a_windows_host_are_normalized_not_rejected() -> None:
+    """A drive-qualified path must reduce to the same node its POSIX twin does.
+
+    ``GraphNodeRecord`` rejects every host-specific path form, drive-qualified
+    ones included, so leaving the drive on would turn ingestion from a Windows
+    host into a hard validation failure instead of the portable path the
+    contract asks for.
+    """
+
+    graph = _project(
+        "local",
+        {"relative_path": "C:\\repo\\docs\\guide.md"},
+        source_item_id="C:\\repo\\docs\\guide.md",
+    )
+
+    files = [node for node in graph.nodes if node.entity_type is GraphEntityType.LOCAL_FILE]
+    assert [node.attributes["relative_path"] for node in files] == ["repo/docs/guide.md"]
+    assert [node.logical_id for node in files] == ["repo/docs/guide.md"]
 
 
 def test_custom_connector_uses_generic_source_item_fallback() -> None:

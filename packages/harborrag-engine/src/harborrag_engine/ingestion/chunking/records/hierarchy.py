@@ -18,13 +18,13 @@ class ChunkHierarchyValidator:
             for record in records
             for identifier in (str(record.chunk_id), str(record.logical_chunk_id))
         }
-        seen_ordinals: set[tuple[str, int]] = set()
+        seen_ordinals: set[tuple[str, str, int]] = set()
         for index, record in enumerate(records):
             parent = self._parent_identity(record)
-            ordinal_key = (parent, record.ordinal)
+            ordinal_key = (parent, record.record_kind.value, record.ordinal)
             if ordinal_key in seen_ordinals:
                 raise ChunkHierarchyError(
-                    f"duplicate ordinal {record.ordinal} within parent {parent!r}"
+                    f"duplicate ordinal {record.ordinal} within parent {parent!r} and kind {record.record_kind.value!r}"
                 )
             seen_ordinals.add(ordinal_key)
             self._validate_reference(

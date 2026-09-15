@@ -22,7 +22,7 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.errors import HarborChatProviderError
 
 from .configs import HarborChatProviderConfig
-from .reasoning import normalize_reasoning_content, reasoning_metadata
+from .reasoning import normalize_reasoning_content, reasoning_metadata, split_leading_think_block
 
 _FINISH_REASON_ALIASES = {
     "stop": FinishReason.STOP,
@@ -73,6 +73,8 @@ def normalize_chat_response(
         )
     hidden = sdk_hidden_parameters(raw, data)
     reasoning_content = normalize_reasoning_content(choice, message_data)
+    if deployment.reasoning.parse_think_tags:
+        content, reasoning_content = split_leading_think_block(content, reasoning_content)
     provider_model = str(data.get("model") or deployment.model)
     tool_calls = normalize_tool_calls(
         message_data.get("tool_calls"),

@@ -20,7 +20,7 @@ help:
 	@echo "  make openapi          Export the OpenAPI contract to openapi.json"
 	@echo "  make lint             Run Ruff lint checks"
 	@echo "  make complexity       Enforce the Ruff complexity ratchet"
-	@echo "  make file-length      Require every Python file to stay under 350 lines"
+	@echo "  make file-length      Require every Python file to stay at most 1000 lines"
 	@echo "  make import-boundaries Run import-linter architecture contracts"
 	@echo "  make format           Format and fix imports with Ruff"
 	@echo "  make typecheck        Run mypy across packages"

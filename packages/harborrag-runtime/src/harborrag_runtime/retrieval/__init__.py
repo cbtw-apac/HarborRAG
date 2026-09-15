@@ -1,5 +1,7 @@
 """Authoritative dense, sparse, hybrid, and graph retrieval."""
 
+from harborrag_core.topology.search import RetrievalMode
+
 from .contracts import (
     ActiveVersionResolver,
     KnowledgeGraphReader,
@@ -17,6 +19,7 @@ __all__ = [
     "KnowledgeGraphReader",
     "RetrievalDiagnostics",
     "RetrievalOptions",
+    "RetrievalMode",
     "RetrievalPolicy",
     "RetrievalResources",
     "RetrievalTelemetry",

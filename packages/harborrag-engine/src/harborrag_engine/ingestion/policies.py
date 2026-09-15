@@ -117,6 +117,8 @@ class DocumentVersionTransitionPolicy:
     ) -> bool:
         """Return whether an idempotent replay has passed the requested stage."""
 
+        if current == DocumentVersionState.ACTIVE and target in _STAGE_RANK:
+            return True
         current_rank = _STAGE_RANK.get(current)
         target_rank = _STAGE_RANK.get(target)
         return current_rank is not None and target_rank is not None and current_rank > target_rank
@@ -150,11 +152,12 @@ class PublicationPolicy:
             raise PublicationConflictError(
                 f"admission decision {decision.value} cannot publish a document version"
             )
-        required = (
-            {DocumentVersionState.VERIFIED}
-            if requires_processing
-            else {DocumentVersionState.PENDING, DocumentVersionState.VERIFIED}
-        )
+        if requires_processing:
+            required = {DocumentVersionState.VERIFIED}
+            if decision == SourceAdmissionDecision.FORCE_REPROCESS:
+                required.add(DocumentVersionState.ACTIVE)
+        else:
+            required = {DocumentVersionState.PENDING, DocumentVersionState.VERIFIED}
         if state not in required:
             expected = ", ".join(sorted(item.value for item in required))
             raise PublicationConflictError(

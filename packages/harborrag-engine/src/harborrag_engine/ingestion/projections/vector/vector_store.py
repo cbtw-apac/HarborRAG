@@ -24,16 +24,24 @@ from .vector import (
     EVIDENCE_INDEX,
 )
 
+# Every payload field a caller can usefully narrow on. The connector-specific
+# identifiers come in pairs -- a space and its pages, a project and its issues,
+# a document and its attachments -- so indexing the container without the item
+# left the more precise filter as the unindexed scan.
 _PAYLOAD_INDEXES = [
     "document_id",
     "document_version_id",
     "record_kind",
     "chunk_kind",
     "connector_type",
+    "document_kind",
     "source_scope_id",
     "space_id",
+    "page_id",
     "project_id",
     "issue_key",
+    "attachment_id",
+    "relative_path",
     "language",
 ]
 _MAXIMUM_FILTERED_SCAN_PAGES = 10_000

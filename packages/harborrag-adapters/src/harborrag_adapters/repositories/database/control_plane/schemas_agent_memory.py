@@ -25,7 +25,7 @@ from .schemas import Base, JSONVariant
 class ConversationSessionRow(Base):
     """Persisted authenticated chat/agent session resource.
 
-    ``user_id`` (migration 0024) is the human who owns the conversation and
+    ``user_id`` (migration 0028) is the human who owns the conversation and
     is load-bearing in every predicate; ``principal_id`` is retained purely
     as the credential that created the session. ``updated_at`` tracks the
     last append so a conversation listing can sort by recency.
@@ -58,13 +58,13 @@ class ConversationMessageRow(Base):
 
     ``seq`` is a per-session sequence assigned by the repository at append
     time; it is the ordering key, with ``created_at``/``message_id`` only as
-    tie-breakers. Migration 0022 backfilled pairs from the legacy turn table
+    tie-breakers. Migration 0026 backfilled pairs from the legacy turn table
     with ``seq`` derived from the legacy row id.
     """
 
     __tablename__ = "conversation_messages"
     __table_args__ = (
-        # Migration 0024 replaced the principal-led identity index with these
+        # Migration 0028 replaced the principal-led identity index with these
         # two: reads are always scoped by (tenant, user, session), and the
         # session-led index keeps the cascade/lookup-by-session path cheap.
         sa.Index(
@@ -145,7 +145,7 @@ class AgentRunRow(Base):
     columns would not make any query cheaper, since a checkpoint write always
     replaces the entire run state at once.
 
-    ``user_id`` (migration 0027) is the human who owns the run, matching the
+    ``user_id`` (migration 0031) is the human who owns the run, matching the
     ``conversation_sessions`` parent: every predicate is scoped by
     ``(tenant_id, user_id, session_id)`` and ``principal_id`` is retained
     only as the credential that acted. ``run_id`` stays the primary key, so
@@ -154,7 +154,7 @@ class AgentRunRow(Base):
 
     __tablename__ = "agent_runs"
     __table_args__ = (
-        # Migration 0027 replaced the redundant tenant-only index with this
+        # Migration 0031 replaced the redundant tenant-only index with this
         # one: every read is scoped by (tenant, user, session), and that is
         # a covering prefix for a tenant-led scan.
         sa.Index(
@@ -181,7 +181,7 @@ class AgentRunRow(Base):
     state_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-    # Executor lease (migration 0020): set while RUNNING, refreshed on every
+    # Executor lease (migration 0024): set while RUNNING, refreshed on every
     # save_step, cleared by terminal statuses. A RUNNING row whose lease has
     # lapsed is a crashed worker and may be claimed by ``resume``.
     lease_owner: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
@@ -227,7 +227,7 @@ class MemoryRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-    # Provenance and bitemporal validity (migration 0023).
+    # Provenance and bitemporal validity (migration 0027).
     valid_from: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     invalid_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     superseded_by: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)

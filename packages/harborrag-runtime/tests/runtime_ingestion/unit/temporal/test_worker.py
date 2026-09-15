@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
@@ -83,6 +84,28 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
     runtime.close.assert_awaited_once()
     wait.assert_awaited_once()
     assert lifecycle[:2] == ["temporal-connect", "runtime-start"]
+
+
+@pytest.mark.asyncio
+async def test_deployed_worker_attaches_enabled_summary_queue(monkeypatch, tmp_path) -> None:
+    policy = tmp_path / "graph-build.yaml"
+    policy.write_text(
+        "summarization:\n  enabled: true\ntenants:\n"
+        "  - tenant_id: DEFAULT\n    sources:\n      - source_scope_id: docs\n",
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(graph_build_config_path=policy)
+    runtime = SimpleNamespace(control=object(), object_store=object())
+    serve = AsyncMock()
+    monkeypatch.setattr(worker_module, "serve_summaries", serve)
+    stop = asyncio.Event()
+
+    runner = worker_module._summary_runner(settings, runtime, object(), stop)
+
+    assert runner is not None
+    await runner
+    assert serve.await_args.args[2] == ("DEFAULT",)
+    assert serve.await_args.kwargs["stop_event"] is stop
 
 
 def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:

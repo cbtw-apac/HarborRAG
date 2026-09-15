@@ -10,7 +10,7 @@ from harborrag_app.api.schemas import ApiModel
 from harborrag_core.chunking import PROJECTED_RELATION_TYPES, RelationType
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord
 from harborrag_core.retrieval import GraphDirection, GraphPath, GraphTriplet
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 _MAX_QUERY_LENGTH = 16_384
 _MAX_GRAPH_NODE_LENGTH = 1_024
@@ -91,6 +91,7 @@ class VectorSearchRequest(TenantScopedRetrievalRequest):
     query: str = Field(min_length=1, max_length=_MAX_QUERY_LENGTH)
     top_k: int = Field(default=10, ge=1, le=100)
     lane: RetrievalLane = RetrievalLane.HYBRID
+    mode: RetrievalMode = RetrievalMode.FLAT
     filters: dict[str, JsonValue] | None = Field(
         default=None,
         description="Optional metadata equality filters; omit for an unfiltered search.",

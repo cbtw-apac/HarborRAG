@@ -15,12 +15,12 @@ from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
 from harborrag_runtime.sdk import HarborRAG
-from harborrag_runtime.temporal.client import IngestionTemporalClient
 
 from .tenant_models import tenant_model_sources
 
 if TYPE_CHECKING:
     from harborrag_core.ports.events import EventBusPort
+    from harborrag_runtime.temporal.client import IngestionTemporalClient
 
     from ..ingestion.ports import PublicTaskStore
     from .factories import AppServiceFactories, TaskRegistry

@@ -31,6 +31,8 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/ingestions",
         "/v1/ingestions/{task_id}",
         "/v1/ingestions/{task_id}/documents",
+        "/v1/ingestions/{task_id}/pause",
+        "/v1/ingestions/{task_id}/resume",
         "/v1/ingestions/{task_id}/cancel",
         "/v1/ingestions/{task_id}/retry-failures",
         "/v1/connections",

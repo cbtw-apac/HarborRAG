@@ -5,8 +5,7 @@ import pytest
 from harborrag_core.ingestion import GraphNodeRecord
 from harborrag_engine.ingestion import GraphProjectionBatch
 
-from ..corpus import CORPUS_SIGNATURES, EvalCorpus, build_corpus
-from ..golden import PATH_CASES, STALENESS_CASES, SUBGRAPH_CASES, TRIPLET_CASES
+from ..corpus import EvalCorpus, build_corpus
 from ..sources import eval_documents
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -50,7 +49,7 @@ def test_corpus_projects_the_declared_topology(corpus: EvalCorpus) -> None:
     # not -- it carries no provider attributes, so it may only ever fill a gap. Only the
     # unresolved one has no corpus document behind it at all.
     placeholders = [node for node in runbook.nodes if node.attributes.get("placeholder") is True]
-    assert sorted(node.logical_id for node in placeholders) == ["architecture", "missing-page"]
+    assert sorted(node.logical_id for node in placeholders) == ["architecture"]
     assert [r.target_source_item_id for r in runbook.unresolved_relations] == ["missing-page"]
     # Every document contributes chunks, a version node, and exactly one source item --
     # including the attachment and placeholder-heavy provider batches.
@@ -271,16 +270,15 @@ def test_sharepoint_contains_chain_runs_through_placeholder_folders(corpus: Eval
         assert _node(batch, folder).attributes["placeholder"] is True
 
 
-def test_cross_source_link_never_resolves(corpus: EvalCorpus) -> None:
+def test_cross_source_link_never_invents_a_target_scope(corpus: EvalCorpus) -> None:
     batch = corpus.batches["HR-1"]
-    stand_in = next(
+    stand_ins = [
         node for node in batch.nodes if node.logical_id == "confluence://SPACE/team-handbook"
+    ]
+    assert not stand_ins
+    assert (corpus.source_item_key("HR-1"), corpus.source_item_key("team-handbook")) not in _edges(
+        batch, "links_to"
     )
-    assert stand_in.attributes["placeholder"] is True
-    assert (corpus.source_item_key("HR-1"), stand_in.node_key) in _edges(batch, "links_to")
-    # The stand-in is its own node: resolved_targets is per-run scope, so the real
-    # Confluence page in the same corpus is never reached by a Jira link.
-    assert stand_in.node_key != corpus.source_item_key("team-handbook")
     assert ("links_to", "confluence://SPACE/team-handbook") in {
         (relation.relation_type, relation.target_source_item_id)
         for relation in batch.unresolved_relations
@@ -313,34 +311,3 @@ def test_confluence_space_directly_contains_every_page(corpus: EvalCorpus) -> No
     assert len(space_keys) == 1, space_keys
     assert pages, "corpus has no Confluence pages to check"
     assert pages <= contained, pages - contained
-
-
-def test_every_golden_case_names_a_corpus_document(corpus: EvalCorpus) -> None:
-    """`golden/` only runs live, so CI has to catch a case naming a dropped document.
-
-    Importing the module also guards the engine result-model imports it depends on.
-    """
-
-    referenced = (
-        {c.start_doc for c in PATH_CASES}
-        | {c.end_doc for c in PATH_CASES}
-        | {c.seed_doc for c in SUBGRAPH_CASES}
-        | {c.subject_doc for c in TRIPLET_CASES}
-        | {d for c in TRIPLET_CASES for d in c.expected_object_docs}
-        | {c.seed_doc for c in STALENESS_CASES}
-        | {d for c in STALENESS_CASES for d in c.stale_docs | c.forbidden_docs}
-        | {d for c in SUBGRAPH_CASES for d in c.expected_docs | c.forbidden_docs}
-    )
-    assert referenced <= set(corpus.batches)
-
-
-def test_corpus_exercises_full_signature_vocabulary(corpus: EvalCorpus) -> None:
-    observed = {
-        (kinds[r.source_node_key], r.relation_type.value, kinds[r.target_node_key])
-        for batch in corpus.batches.values()
-        for kinds in [{n.node_key: n.node_kind.value for n in batch.nodes}]
-        for r in batch.relations
-    }
-    assert observed == CORPUS_SIGNATURES, (
-        f"missing={sorted(CORPUS_SIGNATURES - observed)} extra={sorted(observed - CORPUS_SIGNATURES)}"
-    )

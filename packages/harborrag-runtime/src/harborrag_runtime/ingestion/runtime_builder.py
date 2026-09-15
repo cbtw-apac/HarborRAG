@@ -55,6 +55,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
+from .chunking_profile import default_chunking_config
 from .composition import IngestionRuntime
 from .document.dependencies import DocumentReleaseDependencies
 from .document.normalizers import (
@@ -172,7 +173,11 @@ class IngestionRuntimeBuilder:
             connectors=connectors,
             connector_fingerprints=connector_fingerprints,
             connector_errors=connector_errors,
-            processing=build_processing_profile(settings),
+            processing=build_processing_profile(
+                settings,
+                chunking_config=self._chunking_config,
+                chunking_strategies=self._chunking_strategies,
+            ),
             control=control,
             documents=documents,
             stages=stages,
@@ -303,13 +308,7 @@ def build_default_chunker(
 
     token_counter = ApproximateTokenCounter()
     return build_chunking_service(
-        config=(
-            config
-            or ChunkingConfig(
-                configuration_version="canonical-source-policies",
-                create_route_chunks=True,
-            )
-        ),
+        config=config or default_chunking_config(),
         token_counter=token_counter,
         refiner=RecursiveTextRefiner(token_counter),
         additional_strategies=additional_strategies,

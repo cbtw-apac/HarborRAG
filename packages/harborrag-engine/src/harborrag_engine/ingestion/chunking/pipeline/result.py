@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from harborrag_core.contracts.chunking import TokenCounter
 
 from ..errors import ChunkValidationError
@@ -69,20 +71,34 @@ class ChunkResultBuilder:
                     local_part_index=candidate.local_part_index,
                     chunk_kind=self._record_factory.kind_for_role(candidate.role),
                     content_hash=content_hashes[index],
+                    section_anchors=_section_anchors(candidate.metadata),
                 )
             )
             for index, candidate in enumerate(pipeline.candidates)
         )
+        ordinal_by_candidate: dict[int, int] = {}
+        for record_kind in ("route", "evidence"):
+            kind_candidates = tuple(
+                candidate
+                for candidate in pipeline.candidates
+                if self._record_factory.record_kind_for_role(candidate.role).value == record_kind
+            )
+            for ordinal, candidate in enumerate(kind_candidates):
+                ordinal_by_candidate[id(candidate)] = ordinal
         records = tuple(
             self._record_factory.build(
                 CanonicalChunkInput(
                     request=request,
                     candidate=candidate,
-                    identity=identities[ordinal],
-                    content_hash=content_hashes[ordinal],
-                    ordinal=ordinal,
-                    previous=(identities[ordinal - 1] if ordinal > 0 else None),
-                    next_=(identities[ordinal + 1] if ordinal + 1 < len(identities) else None),
+                    identity=identities[global_ordinal],
+                    content_hash=content_hashes[global_ordinal],
+                    ordinal=ordinal_by_candidate[id(candidate)],
+                    previous=(identities[global_ordinal - 1] if global_ordinal > 0 else None),
+                    next_=(
+                        identities[global_ordinal + 1]
+                        if global_ordinal + 1 < len(identities)
+                        else None
+                    ),
                     strategy_name=pipeline.strategy_name,
                     strategy_version=pipeline.strategy_version,
                     profile=pipeline.profile,
@@ -90,7 +106,7 @@ class ChunkResultBuilder:
                     contextualize_embeddings=pipeline.contextualize_embeddings,
                 )
             )
-            for ordinal, candidate in enumerate(pipeline.candidates)
+            for global_ordinal, candidate in enumerate(pipeline.candidates)
         )
 
         self._hierarchy_validator.validate(records)
@@ -147,3 +163,13 @@ class ChunkResultBuilder:
             diagnostics=diagnostics,
             manifest=manifest,
         )
+
+
+def _section_anchors(metadata: object) -> tuple[str, ...]:
+    if not isinstance(metadata, Mapping):
+        return ()
+    values = metadata.get("heading_element_ids")
+    if not isinstance(values, (list, tuple)):
+        return ()
+    anchors = tuple(str(value).strip() for value in values)
+    return anchors if anchors and all(anchors) else ()

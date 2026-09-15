@@ -146,9 +146,9 @@ async def test_appending_messages_bumps_the_session_activity_timestamp(tmp_path:
 
 
 @pytest.mark.whitebox
-def test_migration_0024_backfills_user_ownership_and_activity(tmp_path: Path) -> None:
+def test_migration_0028_backfills_user_ownership_and_activity(tmp_path: Path) -> None:
     config = _build_config(f"sqlite+aiosqlite:///{tmp_path}/control.db")
-    command.upgrade(config, "0023")
+    command.upgrade(config, "0027")
     sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
     created_at = datetime(2026, 8, 10, 5, 0, tzinfo=UTC)
     try:
@@ -170,7 +170,7 @@ def test_migration_0024_backfills_user_ownership_and_activity(tmp_path: Path) ->
                 {"created_at": created_at},
             )
 
-        command.upgrade(config, "0024")
+        command.upgrade(config, "0028")
 
         with sync_engine.connect() as connection:
             session_row = connection.execute(

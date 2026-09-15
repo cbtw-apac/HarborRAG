@@ -235,6 +235,10 @@ def build_litellm_parameters(
     if stream:
         parameters["stream_options"] = {"include_usage": True}
     parameters.update(request.extra_params)
+    if deployment.reasoning.enable_thinking is not None:
+        parameters["extra_body"] = {
+            "chat_template_kwargs": {"enable_thinking": deployment.reasoning.enable_thinking}
+        }
     headers = {**deployment_headers, **request_headers}
     if headers:
         parameters["extra_headers"] = headers

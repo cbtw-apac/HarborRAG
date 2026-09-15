@@ -18,6 +18,61 @@ class GraphDirection(StrEnum):
     BOTH = "both"
 
 
+class GraphNodeSelectorKind(StrEnum):
+    NODE_KEY = "node_key"
+    PROVIDER_ID = "provider_id"
+    EXACT_TITLE = "exact_title"
+
+
+class GraphAccessScope(StrictModel):
+    """Canonical resource allowlists applied by the graph store before selection."""
+
+    document_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
+    source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_unique_ids(self) -> Self:
+        if len(set(self.document_ids)) != len(self.document_ids):
+            raise ValueError("graph access document_ids must be unique")
+        if len(set(self.source_scope_ids)) != len(self.source_scope_ids):
+            raise ValueError("graph access source_scope_ids must be unique")
+        return self
+
+    @property
+    def tenant_visible(self) -> bool:
+        return bool(self.document_ids or self.source_scope_ids)
+
+
+class GraphNodeResolutionQuery(StrictModel):
+    """Resolve an exact portable selector to bounded graph-node candidates."""
+
+    selector_kind: GraphNodeSelectorKind
+    value: str = Field(min_length=1, max_length=512)
+    source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10)
+    entity_types: tuple[str, ...] = Field(default=(), max_length=10)
+    # Internal canonical authorization scope. Public request schemas do not expose this
+    # field, and the authoritative retrieval boundary always overwrites it.
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
+    # Public surfaces cap this at ten. The wider core bound lets the runtime over-fetch
+    # stale candidates after the repository has applied the canonical access scope.
+    limit: int = Field(default=5, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_scopes(self) -> Self:
+        if any(not item.strip() for item in (*self.source_scope_ids, *self.entity_types)):
+            raise ValueError("graph resolver scopes must be non-empty")
+        if len(set(self.source_scope_ids)) != len(self.source_scope_ids):
+            raise ValueError("source_scope_ids must be unique")
+        if len(set(self.entity_types)) != len(self.entity_types):
+            raise ValueError("entity_types must be unique")
+        return self
+
+
+class GraphNodeResolutionResult(StrictModel):
+    candidates: tuple[GraphNodeRecord, ...]
+    truncated: bool = False
+
+
 class GraphTripletQuery(StrictModel):
     """Match canonical subject-predicate-object records by portable fields."""
 
@@ -25,6 +80,7 @@ class GraphTripletQuery(StrictModel):
     predicate: RelationType | None = None
     object: str | None = None
     limit: int = Field(default=10, ge=1, le=100)
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def require_selector(self) -> Self:
@@ -67,6 +123,7 @@ class GraphPathQuery(StrictModel):
     # forwards and one backwards, and returns nothing when restricted to a single
     # direction. Callers wanting a directed path must now ask for it explicitly.
     direction: GraphDirection = GraphDirection.BOTH
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def validate_endpoints(self) -> Self:
@@ -107,6 +164,7 @@ class GraphSubgraphQuery(StrictModel):
     max_depth: int = Field(default=2, ge=1, le=8)
     max_nodes: int = Field(default=20, ge=1, le=100)
     direction: GraphDirection = GraphDirection.BOTH
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def validate_relationship_types(self) -> Self:
@@ -135,23 +193,45 @@ def compact_node(node: GraphNodeRecord) -> dict[str, object]:
         view["section_path"] = list(node.section_path)
     if node.document_id is not None:
         view["document_id"] = str(node.document_id)
+    if node.document_version_id is not None:
+        view["document_version_id"] = str(node.document_version_id)
+    if node.source_scope_id is not None:
+        view["source_scope_id"] = node.source_scope_id
+    if node.summary is not None:
+        view["summary"] = node.summary.model_dump(mode="json", exclude_none=True)
     return view
 
 
 def compact_relation(relation: GraphEdgeRecord) -> dict[str, object]:
     """Project a relation to its predicate and endpoints."""
 
-    return {
+    view: dict[str, object] = {
+        "relation_id": relation.relation_id,
         "relation_type": relation.relation_type.value,
         "source_node_key": relation.source_node_key,
         "target_node_key": relation.target_node_key,
+        "origin": (
+            "logical_view"
+            if relation.attributes.get("logical_view") is True
+            else "source_declared"
+            if relation.source_explicit
+            else "structural"
+        ),
     }
+    if relation.source_scope_id is not None:
+        view["source_scope_id"] = relation.source_scope_id
+    if relation.document_id is not None:
+        view["document_id"] = str(relation.document_id)
+    if relation.document_version_id is not None:
+        view["document_version_id"] = str(relation.document_version_id)
+    return view
 
 
 def compact_triplet(triplet: GraphTriplet) -> dict[str, object]:
     return {
         "subject": compact_node(triplet.subject),
         "predicate": triplet.predicate.relation_type.value,
+        "relation": compact_relation(triplet.predicate),
         "object": compact_node(triplet.object),
     }
 

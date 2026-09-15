@@ -36,13 +36,18 @@ def build_chat_client_for(
     the cache evicts or replaces it.
     """
 
-    return ChatClientFactory.create_async(
+    telemetry = build_model_telemetry(
         config,
-        ChatClientDependencies(
-            telemetry=build_model_telemetry(
-                config,
-                langfuse_enabled=settings.langfuse_enabled,
-            ),
-            telemetry_ownership=ResourceOwnership.OWNED,
-        ),
+        langfuse_enabled=settings.langfuse_enabled,
     )
+    try:
+        return ChatClientFactory.create_async(
+            config,
+            ChatClientDependencies(
+                telemetry=telemetry,
+                telemetry_ownership=ResourceOwnership.OWNED,
+            ),
+        )
+    except BaseException:
+        telemetry.close()
+        raise

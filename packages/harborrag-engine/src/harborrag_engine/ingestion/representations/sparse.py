@@ -46,6 +46,21 @@ class BM25SparseEncoder:
                 tokens.append(selected)
         return tuple(tokens)
 
+    def encode_query(self, text: str) -> SparseEncoding:
+        """Use raw query TF; document length normalization belongs to indexed text."""
+
+        tokens = self.tokenize(text)
+        by_index: dict[int, float] = {}
+        for term, frequency in Counter(tokens or ("__harborrag_empty_token__",)).items():
+            index = self._index(term)
+            by_index[index] = by_index.get(index, 0.0) + frequency
+        indices = sorted(by_index)
+        return SparseEncoding(
+            profile_id=self.profile.profile_id,
+            vector=SparseVector(indices=indices, values=[by_index[index] for index in indices]),
+            token_count=len(tokens),
+        )
+
     def _index(self, term: str) -> int:
         digest = sha256(term.encode()).digest()
         return int.from_bytes(digest[:8], "big") % self.profile.hash_space

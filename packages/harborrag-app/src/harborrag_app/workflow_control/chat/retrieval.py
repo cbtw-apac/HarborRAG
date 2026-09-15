@@ -16,7 +16,7 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.memory import recalled_entity_ids
-from harborrag_runtime.sdk import RetrievalLane, RetrievalRequest
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode, RetrievalRequest
 
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
@@ -108,6 +108,7 @@ async def search_documents(
     on for this turn.
     """
 
+    graph_enabled = settings.chat_retrieval_graph_search if graph_search is None else graph_search
     return await runtime.retrieval.search(
         RetrievalRequest(
             access=AccessContext(
@@ -117,10 +118,9 @@ async def search_documents(
             query=context.standalone_query,
             top_k=settings.chat_retrieval_top_k,
             lane=RetrievalLane.HYBRID,
-            observe_graph=(
-                settings.chat_retrieval_graph_search if graph_search is None else graph_search
-            ),
+            observe_graph=graph_enabled,
             graph_seed_node_keys=recalled_entity_ids(context),
+            mode=RetrievalMode.LOCAL_SEMANTIC if graph_enabled else RetrievalMode.FLAT,
         )
     )
 

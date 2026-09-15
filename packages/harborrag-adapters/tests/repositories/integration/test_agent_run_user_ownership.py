@@ -1,6 +1,6 @@
 """Agent-run checkpoints belong to the human, not to the credential.
 
-``conversation_sessions`` became user-owned in migration 0024 while
+``conversation_sessions`` became user-owned in migration 0028 while
 ``agent_runs`` -- its foreign-key child -- still filtered
 ``(tenant_id, principal_id, session_id)``. Two humans behind one service
 principal could therefore read, checkpoint into, and resume each other's
@@ -182,14 +182,14 @@ _SEED_RUN = sa.text(
 
 
 @pytest.mark.whitebox
-def test_migration_0027_backfills_user_id_from_principal_id(tmp_path: Path) -> None:
-    """A database stamped at 0026 has runs scoped only by their credential, so
+def test_migration_0031_backfills_user_id_from_principal_id(tmp_path: Path) -> None:
+    """A database stamped at 0030 has runs scoped only by their credential, so
     that credential is their owner: the backfill must adopt it verbatim and
     then make the column mandatory."""
 
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     config = _build_config(dsn)
-    command.upgrade(config, "0026")
+    command.upgrade(config, "0030")
 
     sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
     try:

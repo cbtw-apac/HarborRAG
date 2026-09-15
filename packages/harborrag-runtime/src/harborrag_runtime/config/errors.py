@@ -12,3 +12,7 @@ class ParserConfigurationError(ConfigurationError):
 
 class TemporalConfigurationError(ConfigurationError):
     """Raised when Temporal runtime configuration is invalid or unreadable."""
+
+
+class GraphBuildConfigurationError(ConfigurationError):
+    """Raised when graph-build policy is invalid or unreadable."""

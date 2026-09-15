@@ -143,11 +143,17 @@ class ResponseCacheController:
         *,
         family: str,
         backend: ModelResponseCache | None = None,
+        configuration_fingerprint: str | None = None,
     ) -> None:
         """Bind cache policy to one model family and optional backend."""
 
         self.config = config
         self.family = family
+        self._namespace = (
+            f"{config.key_namespace}:{configuration_fingerprint}"
+            if configuration_fingerprint is not None
+            else config.key_namespace
+        )
         self.backend = backend or InMemoryModelCache(max_entries=config.max_entries)
 
     def decision(self, request: BaseModel, logical_model: str) -> CacheDecision:
@@ -168,7 +174,7 @@ class ResponseCacheController:
             logical_model=logical_model,
             tenant_id=tenant_id or "__unscoped__",
             request=request,
-            namespace=self.config.key_namespace,
+            namespace=self._namespace,
         )
         return CacheDecision(key, "eligible")
 
@@ -243,6 +249,17 @@ class ResponseCacheController:
             "preset_cache_key": decision.key,
             "ttl": self.config.ttl_seconds,
         }
+
+
+def configuration_cache_fingerprint(config: BaseModel) -> str:
+    """Invalidate shared caches when routing, models, or generation configuration changes.
+
+    Pydantic's JSON serialization masks secret values; credentials never appear in
+    the returned identity. Request messages remain hashed by deterministic_cache_key.
+    """
+
+    encoded = json.dumps(config.model_dump(mode="json"), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def deterministic_cache_key(

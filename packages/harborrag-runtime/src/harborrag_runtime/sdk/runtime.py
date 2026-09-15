@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -33,25 +33,46 @@ from ..execution.contracts import DurableIngestionExecutor
 from ..memory.context_service import RuntimeMemoryContextService
 from ..memory.facade import MemoryFacade
 from .configuration import HarborRAGConfig
-from .facades import GraphFacade, IngestionFacade, RetrievalFacade
+from .facades import GraphFacade, IngestionFacade, KnowledgeFacade, RetrievalFacade
 
 if TYPE_CHECKING:
+    from ..config.settings import RuntimeSettings
     from ..retrieval import RuntimeRetrievalService
+
+type ExecutorFactory = Callable[[ExecutionMode, "RuntimeSettings"], IngestionExecutor]
+type RetrievalFactory = Callable[["RuntimeSettings"], Awaitable["RuntimeRetrievalService"]]
+type ChatRuntimeFactory = Callable[["RuntimeSettings"], RuntimeChatService]
+
+
+async def _connect_retrieval(settings: RuntimeSettings) -> RuntimeRetrievalService:
+    from ..retrieval.composition import connect_retrieval_service
+
+    return await connect_retrieval_service(settings)
 
 
 class HarborRAG:
     """Coordinate execution and retrieval behind narrow service façades."""
 
-    def __init__(self, config: HarborRAGConfig) -> None:
+    def __init__(
+        self,
+        config: HarborRAGConfig,
+        *,
+        executor_factory: ExecutorFactory = build_ingestion_executor,
+        retrieval_factory: RetrievalFactory = _connect_retrieval,
+        chat_runtime_factory: ChatRuntimeFactory = RuntimeChatService,
+    ) -> None:
         self.config = config
         self.chat = ChatFacade(self)
         self.ingestion = IngestionFacade(self)
         self.retrieval = RetrievalFacade(self)
         self.graph = GraphFacade(self)
         self.memory = MemoryFacade(self)
+        self.knowledge = KnowledgeFacade(self)
         self._executor: IngestionExecutor | None = None
         self._retrieval: RuntimeRetrievalService | None = None
-        self._chat_runtime = RuntimeChatService(config.runtime)
+        self._executor_factory = executor_factory
+        self._retrieval_factory = retrieval_factory
+        self._chat_runtime = chat_runtime_factory(config.runtime)
         # The memory layer borrows retrieval lazily so entity anchoring can read
         # the tenant's knowledge graph without opening a graph client for
         # deployments that never resolve a mention.
@@ -81,7 +102,7 @@ class HarborRAG:
             from ..plugins import discover_runtime_plugins
 
             discover_runtime_plugins()
-        self._executor = build_ingestion_executor(
+        self._executor = self._executor_factory(
             self.config.execution_mode,
             self.config.runtime,
         )
@@ -130,9 +151,7 @@ class HarborRAG:
             return self._retrieval
         async with self._retrieval_lock:
             if self._retrieval is None:
-                from ..retrieval.composition import connect_retrieval_service
-
-                self._retrieval = await connect_retrieval_service(self.config.runtime)
+                self._retrieval = await self._retrieval_factory(self.config.runtime)
         return self._retrieval
 
     def configure_tenant_models(self, sources: TenantModelSources) -> None:
@@ -178,8 +197,6 @@ class HarborRAG:
         if self._executor is not None:
             close_operations.append(self._executor.aclose())
             self._executor = None
-        if not close_operations:
-            return
         results = await asyncio.gather(*close_operations, return_exceptions=True)
         errors = [result for result in results if isinstance(result, Exception)]
         fatal = [

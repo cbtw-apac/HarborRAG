@@ -1,4 +1,4 @@
-"""Integration coverage for memory user identity, provenance, and validity (0023).
+"""Integration coverage for memory user identity, provenance, and validity (0027).
 
 Split from ``test_memory_repository.py`` for the file-length gate; the
 ``USER``-scope case here is security-relevant: it must key on ``user_id``,

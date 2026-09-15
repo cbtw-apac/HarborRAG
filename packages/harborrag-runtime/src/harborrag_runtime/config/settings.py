@@ -7,6 +7,7 @@ without it.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -15,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
+from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 
 from .memory_settings import MemorySettingsMixin
 
@@ -85,6 +87,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     connector_config_path: Path = Path("config/connectors.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
+    graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
     object_store_endpoint_url: str | None = "http://localhost:9000"
     object_store_allow_insecure_remote: bool = False
     object_store_region: str = "us-east-1"
@@ -101,6 +104,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     falkordb_username: str | None = None
     falkordb_password: SecretStr | None = None
     falkordb_graph: str = "harborrag"
+    falkordb_tenant_graph_prefix: str = "harborrag_tenant"
+    falkordb_read_username: str | None = None
+    falkordb_read_password: SecretStr | None = None
+    falkordb_max_cached_tenants: int = Field(default=64, ge=1, le=10000)
     falkordb_ssl: bool = False
     falkordb_max_connections: int = Field(default=32, ge=1, le=1000)
     graph_relation_repair_concurrency: int = Field(default=8, ge=1, le=1000)
@@ -135,6 +142,31 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     # Upper bound on cached per-tenant chat clients; each holds a connection
     # pool, so the least recently used one is disposed rather than kept.
     chat_tenant_client_cache_size: int = Field(default=32, ge=1, le=1_024)
+    topology_operation_seconds: float = Field(default=120, gt=0, le=3600)
+    topology_job_seconds: float = Field(default=3600, gt=0, le=86400)
+    topology_lease_seconds: int = Field(default=300, ge=3, le=3600)
+    topology_max_chunks: int = Field(default=1000, ge=1, le=10000)
+    topology_task_queue: str = Field(default="harborrag-topology", min_length=1)
+    topology_poll_seconds: float = Field(default=5, ge=1, le=60)
+    topology_embedding_max_input_bytes: int = Field(default=8000, ge=100, le=100000)
+    topology_parent_enabled: bool = False
+    topology_parent_model: str | None = None
+    topology_parent_run_budget_usd: Decimal | None = None
+    topology_parent_max_output_tokens: int = Field(default=1024, ge=128, le=4096)
+    topology_parent_max_fan_in: int = Field(default=8, ge=2, le=32)
+    topology_parent_max_input_bytes: int = Field(default=24000, ge=100, le=30000)
+    topology_parent_max_input_tokens: int = Field(default=6000, ge=100, le=30000)
+    topology_parent_max_calls: int = Field(default=64, ge=1, le=10000)
+    summary_task_queue: str = Field(default="harborrag-summaries", min_length=1)
+    summary_debounce_seconds: float = Field(default=5, ge=0, le=300)
+    summary_max_wait_seconds: float = Field(default=60, ge=1, le=3600)
+    summary_tenant_enabled: bool = False
+    # Explicit conservative per-operation price bounds are required before LLM dispatch.
+    topology_llm_operation_cost_usd: Decimal | None = Field(default=None, gt=0)
+    topology_derived_enabled: bool = False
+    topology_retrieval_policy: TopologyRetrievalPolicy = Field(
+        default_factory=TopologyRetrievalPolicy
+    )
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:

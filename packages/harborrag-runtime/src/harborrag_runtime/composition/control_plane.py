@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
+    GraphConflictRepositoryPort,
     JobRepositoryPort,
     LeaseRepositoryPort,
     MemberRepositoryPort,
@@ -57,6 +58,7 @@ class ControlPlaneRepositories:
     secrets: SecretsPort
     pending_effects: PendingEffectRepositoryPort
     leases: LeaseRepositoryPort
+    graph_conflicts: GraphConflictRepositoryPort
     memories: MemoryRepository | None = None
     model_usage: ModelUsageRepository | None = None
     # Read side of a tenant's own chat models; None when this deployment does
@@ -99,6 +101,9 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.engine import (
             create_control_plane_engine,
             create_session_factory,
+        )
+        from harborrag_adapters.repositories.database.control_plane.graph_conflicts import (
+            SqlGraphConflictRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.jobs import (
             SqlActivityRepository,
@@ -201,6 +206,7 @@ class CompositionRoot:
             secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
             pending_effects=SqlPendingEffectRepository(sessions),
             leases=SqlLeaseRepository(sessions),
+            graph_conflicts=SqlGraphConflictRepository(sessions),
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),

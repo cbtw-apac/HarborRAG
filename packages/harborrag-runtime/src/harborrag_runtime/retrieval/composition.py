@@ -23,8 +23,11 @@ from ..composition.resources import (
     build_vector_repository,
     embedding_dimensions,
 )
+from ..config.graph_build import GraphBuildConfig
 from ..config.settings import RuntimeSettings
 from ..ingestion.observability import IngestionTelemetry, build_model_telemetry
+from ..topology.embedding_profile import build_contextual_profile
+from .contextual import ContextualEvidenceSearch
 from .contracts import RetrievalPolicy, RetrievalResources
 from .service import RuntimeRetrievalService
 
@@ -34,12 +37,14 @@ async def connect_retrieval_service(
 ) -> RuntimeRetrievalService:
     """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set."""
 
+    settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or embed_config.default_model
     dimensions = settings.embedding_dimensions or embedding_dimensions(
         embed_config,
         model,
     )
+    contextual_profile = build_contextual_profile(settings, embed_config)
     telemetry = IngestionTelemetry(
         metrics_port=settings.metrics_port,
         metrics_bind_address=settings.metrics_bind_address,
@@ -91,11 +96,20 @@ async def connect_retrieval_service(
                 )
             ),
             graph_repository=graph_repository,
+            topology_repository=control.topology,
+            summary_repository=control.summaries,
+            contextual_search=ContextualEvidenceSearch(
+                control.topology, vector_repository, contextual_profile
+            ),
+            document_snapshots=control.document_versions,
+            source_catalog=getattr(control, "source_scans", None),
         ),
         policy=RetrievalPolicy(
             embedding_model=model,
             embedding_dimensions=dimensions,
             dense_weight=settings.retrieval_dense_weight,
+            semantic_weight=settings.topology_retrieval_policy.semantic_weight,
+            topology=settings.topology_retrieval_policy,
         ),
         close_resources=(
             control.close,

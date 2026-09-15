@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_core.ingestion import (
     GraphEntityType,
     GraphNodeRecord,
@@ -47,7 +48,7 @@ async def test_placeholder_nodes_only_fill_gaps_and_never_overwrite() -> None:
         # The refresh path must stay gated on the existing node being a placeholder.
         assert "ON MATCH SET node = CASE WHEN node.placeholder = true" in statement
         assert all(
-            row["placeholder"] is True
+            row["placeholder"] is True and FalkorDBMapper.decode_property(row["attributes"]) == {}
             for row in parameters["rows"]
             if row["node_key"] == "node-parent-page"
         )
@@ -59,4 +60,4 @@ async def test_placeholder_nodes_only_fill_gaps_and_never_overwrite() -> None:
     assert concrete
     for statement, parameters in concrete:
         assert "ON CREATE" not in statement
-        assert all(row["placeholder"] is False for row in parameters["rows"])
+        assert all("placeholder" not in row for row in parameters["rows"])

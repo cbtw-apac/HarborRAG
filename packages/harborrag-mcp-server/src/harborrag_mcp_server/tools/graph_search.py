@@ -39,6 +39,14 @@ from harborrag_runtime.contracts import (
 )
 
 from .base import BaseMcpTool, McpToolSpec
+from .graph_search_support import (
+    COMPLETION_SCHEMA,
+    completion,
+    direction,
+)
+from .graph_search_support import (
+    relations as parse_relations,
+)
 from .output_schemas import (
     GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
     NODE_SCHEMA,
@@ -51,7 +59,6 @@ from .retrieval_inputs import (
     access,
     integer,
     optional_text,
-    string_list,
     success_or_failure_schema,
     text,
 )
@@ -61,6 +68,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("harborrag.mcp.tools.graph_search")
 _MAX_RESULTS = McpToolPolicy().max_results
+_MAX_PATHS = 5
+_MAX_PILOT_DEPTH = 4
+_MAX_SUBGRAPH_EDGES = 40
+_ANNOTATIONS: dict[str, object] = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
 
 
 @dataclass(slots=True)
@@ -73,15 +89,25 @@ class GraphTripletSearchTool(BaseMcpTool):
         output_schema=success_or_failure_schema(
             {
                 "type": "object",
-                "required": ["ok", "triplets", "diagnostics"],
+                "required": ["ok", "outcome", "triplets", "diagnostics", "completion"],
                 "properties": {
                     "ok": {"const": True},
-                    "triplets": {"type": "array", "items": TRIPLET_SCHEMA},
+                    "outcome": {
+                        "type": "string",
+                        "enum": ["matched", "no_match_within_bounds"],
+                    },
+                    "triplets": {
+                        "type": "array",
+                        "items": TRIPLET_SCHEMA,
+                        "maxItems": _MAX_RESULTS,
+                    },
                     "diagnostics": GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+                    "completion": COMPLETION_SCHEMA,
                 },
                 "additionalProperties": False,
             }
         ),
+        annotations=_ANNOTATIONS,
     )
 
     async def call(
@@ -118,10 +144,13 @@ class GraphTripletSearchTool(BaseMcpTool):
         except Exception:
             logger.exception("graph_triplet_search backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
+        diagnostics = response.diagnostics
         return {
             "ok": True,
+            "outcome": "matched" if response.triplets else "no_match_within_bounds",
             "triplets": [compact_triplet(item) for item in response.triplets],
-            "diagnostics": response.diagnostics,
+            "diagnostics": diagnostics,
+            "completion": completion(diagnostics),
         }
 
 
@@ -131,19 +160,33 @@ class GraphPathSearchTool(BaseMcpTool):
     spec = McpToolSpec(
         "graph_path_search",
         GRAPH_PATH_DESCRIPTION,
-        graph_path_schema(max_results=_MAX_RESULTS, tenant=TENANT_PROPERTY),
+        graph_path_schema(
+            max_results=_MAX_PATHS,
+            max_depth=_MAX_PILOT_DEPTH,
+            tenant=TENANT_PROPERTY,
+        ),
         output_schema=success_or_failure_schema(
             {
                 "type": "object",
-                "required": ["ok", "paths", "diagnostics"],
+                "required": ["ok", "outcome", "paths", "diagnostics", "completion"],
                 "properties": {
                     "ok": {"const": True},
-                    "paths": {"type": "array", "items": PATH_SCHEMA},
+                    "outcome": {
+                        "type": "string",
+                        "enum": ["matched", "no_path_within_bounds"],
+                    },
+                    "paths": {
+                        "type": "array",
+                        "items": PATH_SCHEMA,
+                        "maxItems": _MAX_PATHS,
+                    },
                     "diagnostics": GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+                    "completion": COMPLETION_SCHEMA,
                 },
                 "additionalProperties": False,
             }
         ),
+        annotations=_ANNOTATIONS,
     )
 
     async def call(
@@ -156,22 +199,22 @@ class GraphPathSearchTool(BaseMcpTool):
             query = GraphPathQuery(
                 start_node=text(arguments, "start_node"),
                 end_node=text(arguments, "end_node"),
-                relationship_types=_relations(arguments),
+                relationship_types=parse_relations(arguments),
                 max_depth=integer(
                     arguments,
                     "max_depth",
                     4,
                     minimum=1,
-                    maximum=8,
+                    maximum=_MAX_PILOT_DEPTH,
                 ),
                 max_paths=integer(
                     arguments,
                     "max_paths",
-                    10,
+                    _MAX_PATHS,
                     minimum=1,
-                    maximum=_MAX_RESULTS,
+                    maximum=_MAX_PATHS,
                 ),
-                direction=_direction(arguments, GraphDirection.BOTH),
+                direction=direction(arguments, GraphDirection.BOTH),
             )
             request = GraphPathRequest(access=access(arguments, principal_id), query=query)
         except (HarborValidationError, ValueError) as exc:
@@ -183,10 +226,13 @@ class GraphPathSearchTool(BaseMcpTool):
         except Exception:
             logger.exception("graph_path_search backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
+        diagnostics = response.diagnostics
         return {
             "ok": True,
+            "outcome": "matched" if response.paths else "no_path_within_bounds",
             "paths": [compact_path(item) for item in response.paths],
-            "diagnostics": response.diagnostics,
+            "diagnostics": diagnostics,
+            "completion": completion(diagnostics),
         }
 
 
@@ -196,20 +242,45 @@ class GraphSubgraphSearchTool(BaseMcpTool):
     spec = McpToolSpec(
         "graph_subgraph_search",
         GRAPH_SUBGRAPH_DESCRIPTION,
-        graph_subgraph_schema(max_results=_MAX_RESULTS, tenant=TENANT_PROPERTY),
+        graph_subgraph_schema(
+            max_results=_MAX_RESULTS,
+            max_depth=_MAX_PILOT_DEPTH,
+            tenant=TENANT_PROPERTY,
+        ),
         output_schema=success_or_failure_schema(
             {
                 "type": "object",
-                "required": ["ok", "nodes", "relations", "diagnostics"],
+                "required": [
+                    "ok",
+                    "outcome",
+                    "nodes",
+                    "relations",
+                    "diagnostics",
+                    "completion",
+                ],
                 "properties": {
                     "ok": {"const": True},
-                    "nodes": {"type": "array", "items": NODE_SCHEMA},
-                    "relations": {"type": "array", "items": RELATION_SCHEMA},
+                    "outcome": {
+                        "type": "string",
+                        "enum": ["matched", "no_match_within_bounds"],
+                    },
+                    "nodes": {
+                        "type": "array",
+                        "items": NODE_SCHEMA,
+                        "maxItems": _MAX_RESULTS,
+                    },
+                    "relations": {
+                        "type": "array",
+                        "items": RELATION_SCHEMA,
+                        "maxItems": _MAX_SUBGRAPH_EDGES,
+                    },
                     "diagnostics": GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
+                    "completion": COMPLETION_SCHEMA,
                 },
                 "additionalProperties": False,
             }
         ),
+        annotations=_ANNOTATIONS,
     )
 
     async def call(
@@ -221,13 +292,13 @@ class GraphSubgraphSearchTool(BaseMcpTool):
         try:
             query = GraphSubgraphQuery(
                 start_node=text(arguments, "start_node"),
-                relationship_types=_relations(arguments),
+                relationship_types=parse_relations(arguments),
                 max_depth=integer(
                     arguments,
                     "max_depth",
                     2,
                     minimum=1,
-                    maximum=8,
+                    maximum=_MAX_PILOT_DEPTH,
                 ),
                 max_nodes=integer(
                     arguments,
@@ -236,7 +307,7 @@ class GraphSubgraphSearchTool(BaseMcpTool):
                     minimum=1,
                     maximum=_MAX_RESULTS,
                 ),
-                direction=_direction(arguments, GraphDirection.BOTH),
+                direction=direction(arguments, GraphDirection.BOTH),
             )
             request = GraphSubgraphRequest(
                 access=access(arguments, principal_id),
@@ -251,26 +322,20 @@ class GraphSubgraphSearchTool(BaseMcpTool):
         except Exception:
             logger.exception("graph_subgraph_search backend raised during call")
             return {"ok": False, "error": "graph retrieval backend failed"}
+        relations = [compact_relation(item) for item in response.relations]
+        edge_truncated = len(relations) > _MAX_SUBGRAPH_EDGES
+        diagnostics = dict(response.diagnostics)
+        diagnostics["projection_truncated"] = bool(
+            diagnostics.get("projection_truncated") or edge_truncated
+        )
         return {
             "ok": True,
+            "outcome": "matched" if response.nodes else "no_match_within_bounds",
             "nodes": [compact_node(item) for item in response.nodes],
-            "relations": [compact_relation(item) for item in response.relations],
-            "diagnostics": response.diagnostics,
+            "relations": relations[:_MAX_SUBGRAPH_EDGES],
+            "diagnostics": diagnostics,
+            "completion": completion(
+                diagnostics,
+                extra_reasons=("edge_limit",) if edge_truncated else (),
+            ),
         }
-
-
-def _relations(arguments: dict[str, object]) -> tuple[RelationType, ...]:
-    return tuple(RelationType(item) for item in string_list(arguments, "relationship_types"))
-
-
-def _direction(
-    arguments: dict[str, object],
-    default: GraphDirection,
-) -> GraphDirection:
-    value = arguments.get("direction", default.value)
-    if not isinstance(value, str):
-        raise HarborValidationError("direction must be incoming, outgoing, or both")
-    try:
-        return GraphDirection(value)
-    except ValueError:
-        raise HarborValidationError("direction must be incoming, outgoing, or both") from None

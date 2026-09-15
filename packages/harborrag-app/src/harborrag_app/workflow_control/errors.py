@@ -10,6 +10,9 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 from harborrag_runtime.errors import (
+    MissingOptionalDependencyError as MissingOptionalDependencyError,
+)
+from harborrag_runtime.errors import (
     RuntimeConfigurationError,
     RuntimeConnectionError,
     WorkerStartupError,
@@ -61,6 +64,8 @@ class IngestionStatusFilterError(HarborValidationError):
 #
 # ``ValueError`` is included to preserve the original behaviour for local
 # argument validation raised by the application services themselves.
+
+
 _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     RuntimeConfigurationError,
     RuntimeConnectionError,

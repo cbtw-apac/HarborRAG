@@ -48,13 +48,13 @@ from .presenters import (
     task_response,
 )
 from .recovery import retry_from_task, source_from_task
+from .retry_selection import retryable_document_ids
 from .task_pages import TaskListingMixin
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
 _SUBMISSION_STATE_KEY = "submission_state"
 _SUBMITTED = "submitted"
-_RETRY_PAGE_SIZE = 200
 
 
 class IngestionApplicationService(TaskListingMixin):
@@ -214,6 +214,36 @@ class IngestionApplicationService(TaskListingMixin):
             )
         return {"items": items, "next_cursor": next_cursor}
 
+    async def pause(self, task_id: str) -> dict[str, object]:
+        store = await self._task_store_provider()
+        task = await self._required_task(store, task_id)
+        if task.status in TERMINAL_STATES:
+            raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
+        try:
+            await (await self._client_provider()).pause(task_id)
+        except WorkflowOperationError as error:
+            raise HarborConnectionError("Ingestion pause is temporarily unavailable.") from error
+        return {
+            "task_id": task.task_id,
+            "status": STATUS_NAMES[task.status],
+            "message": "Pause requested",
+        }
+
+    async def resume(self, task_id: str) -> dict[str, object]:
+        store = await self._task_store_provider()
+        task = await self._required_task(store, task_id)
+        if task.status in TERMINAL_STATES:
+            raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
+        try:
+            await (await self._client_provider()).resume(task_id)
+        except WorkflowOperationError as error:
+            raise HarborConnectionError("Ingestion resume is temporarily unavailable.") from error
+        return {
+            "task_id": task.task_id,
+            "status": STATUS_NAMES[task.status],
+            "message": "Resume requested",
+        }
+
     async def cancel(self, task_id: str) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
@@ -243,7 +273,7 @@ class IngestionApplicationService(TaskListingMixin):
             raise IngestionRetryConflictError(
                 "Failed documents can be retried after the ingestion task is complete."
             )
-        selected = await self._retryable_document_ids(
+        selected = await retryable_document_ids(
             store,
             task_id=task_id,
             requested=document_ids,
@@ -291,6 +321,7 @@ class IngestionApplicationService(TaskListingMixin):
                     tenant_id=command.tenant_id,
                     connector_name=command.connection_id,
                     connection_id=command.connection_id,
+                    source_scope_id=command.source_scope_id,
                     force_reprocess=command.force_reprocess,
                 ),
             )
@@ -307,38 +338,3 @@ class IngestionApplicationService(TaskListingMixin):
         if task is None:
             raise IngestionNotFoundError("Ingestion task was not found.")
         return task
-
-    @staticmethod
-    async def _retryable_document_ids(
-        store: PublicTaskStore,
-        *,
-        task_id: str,
-        requested: Sequence[str],
-    ) -> tuple[str, ...]:
-        requested_set = set(requested)
-        selected: list[str] = []
-        after_updated_at: datetime | None = None
-        after_document_id: str | None = None
-        while True:
-            page = await store.document_results_page(
-                task_id,
-                statuses=("failed",),
-                after_updated_at=after_updated_at,
-                after_document_id=after_document_id,
-                limit=_RETRY_PAGE_SIZE,
-            )
-            for result in page.items:
-                document_id = str(result.document_id)
-                if requested_set and document_id not in requested_set:
-                    continue
-                if result.result.get("retryable") is True:
-                    selected.append(document_id)
-            if not page.has_more or not page.items:
-                break
-            last = page.items[-1]
-            after_updated_at = require(
-                last.updated_at,
-                "paged document result is missing updated_at",
-            )
-            after_document_id = str(last.document_id)
-        return tuple(dict.fromkeys(selected))

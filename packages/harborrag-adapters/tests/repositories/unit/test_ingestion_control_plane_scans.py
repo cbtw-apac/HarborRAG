@@ -81,6 +81,47 @@ async def test_open_scan_start_is_idempotent_for_the_same_identity(
 
 
 @pytest.mark.asyncio
+async def test_source_scope_rejects_identity_changes_without_mutating_it(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        scans = control_plane.source_scans
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v1",
+        )
+
+        with pytest.raises(HarborConflictError, match="another connection"):
+            await scans.register_scope(
+                source_scope_id="scope-engineering",
+                connector_type="confluence",
+                connection_id="replacement.example",
+                configuration_fingerprint="config-v2",
+            )
+        with pytest.raises(HarborConflictError, match="another connector type"):
+            await scans.register_scope(
+                source_scope_id="scope-engineering",
+                connector_type="jira",
+                connection_id="wiki.example",
+                configuration_fingerprint="config-v2",
+            )
+
+        # The failed registrations must not poison the durable scope. A normal
+        # configuration refresh under the original identity remains valid.
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v2",
+        )
+        scan_id = await scans.start("scope-engineering")
+        await scans.fail(scan_id, safe_reason="test_complete")
+
+
+@pytest.mark.asyncio
 async def test_source_scan_records_a_batch_with_aligned_decisions(
     tmp_path: Path,
 ) -> None:

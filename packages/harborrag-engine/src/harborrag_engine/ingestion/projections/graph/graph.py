@@ -14,7 +14,11 @@ from .graph_models import (
 )
 from .graph_state import GraphProjectionContext, GraphProjectionState, GraphRelationSpec
 from .graph_structure import StructuralGraphProjector
-from .source_projector_support import relation_entity_type, source_provider_id
+from .source_projector_support import (
+    relation_entity_type,
+    source_provider_id,
+    target_connector_type,
+)
 from .source_projectors import (
     GraphSourceProjectorRegistry,
     default_graph_source_projector_registry,
@@ -104,7 +108,14 @@ class SourceRelationProjector:
 
     def project(self, relations: list[DocumentRelation]) -> tuple[UnresolvedGraphRelation, ...]:
         unresolved: list[UnresolvedGraphRelation] = []
-        seen: set[tuple[RelationType, str, str]] = set()
+        # A provider projector may already have asserted the same pair in this batch
+        # (a page listing its attachments, and the attachment descriptor resolving to
+        # the same edge). Those differ only by relation_id, and MERGE keys on
+        # relation_id, so both would survive as parallel edges.
+        seen: set[tuple[RelationType, str, str]] = {
+            (record.relation_type, record.source_node_key, record.target_node_key)
+            for record in self._state.relations.values()
+        }
         for relation in relations:
             normalized = self._normalize(relation)
             if normalized is None:
@@ -118,23 +129,28 @@ class SourceRelationProjector:
                         target_source_item_id=relation.target_id,
                     )
                 )
-            raw_target_id = resolved.source_item_id if resolved is not None else relation.target_id
-            target_id = source_provider_id(
+                # A source item ID does not establish its ingestion scope. Known
+                # ancestors are projected by the connector-specific projector;
+                # an unresolved external link must not invent a same-scope target.
+                continue
+            raw_target_id = resolved.source_item_id
+            # The far end's own connector, not the declaring document's: both the
+            # entity type and the provider-id reduction below feed the target's
+            # node key, and keying a Confluence page as a Jira issue puts it
+            # somewhere its own projection will never look.
+            target_connector = target_connector_type(
                 self._state.context.connector_type.value,
                 raw_target_id,
             )
-            target_scope = (
-                resolved.source_scope_id
-                if resolved is not None
-                else self._state.context.source_scope_id
-            )
+            target_id = source_provider_id(target_connector, raw_target_id)
+            target_scope = resolved.source_scope_id
             # Every node this projector creates stands in for something another document
-            # owns, resolved or not: it carries no provider attributes of its own, so it
-            # must never overwrite the concrete projection (adapter writes placeholders
-            # ON CREATE SET only). A resolved target only supplies a better stub title.
+            # owns: it carries no provider attributes of its own, so it must never
+            # overwrite the concrete projection (adapter writes placeholders ON CREATE
+            # SET only). The resolved target may also supply a better stub title.
             target = self._state.source_node(
                 relation_entity_type(
-                    self._state.context.connector_type.value,
+                    target_connector,
                     relation_type,
                     relation.target_type,
                     reverse=reverse,
@@ -156,6 +172,7 @@ class SourceRelationProjector:
                     source=source,
                     target=destination,
                     source_explicit=True,
+                    attributes={"source_relation": True},
                     source_relation_version=(
                         str(supplied_version)
                         if supplied_version is not None and str(supplied_version).strip()

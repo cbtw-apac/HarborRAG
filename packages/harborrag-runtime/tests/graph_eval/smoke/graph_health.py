@@ -78,10 +78,13 @@ WHERE node.tenant_id = $tenant_id AND node.graph_schema_version = $graph_schema_
   AND NOT (node)--()
 RETURN node.node_kind AS kind, count(node) AS item_count
 """
+# Explicit connector assertions are version-owned evidence supports and may repeat.
+# The user-visible structural projection is the set that must have one typed edge.
 _DUPLICATES = """
 MATCH (source:KnowledgeNode)-[relation]->(target:KnowledgeNode)
 WHERE relation.tenant_id = $tenant_id
   AND relation.graph_schema_version = $graph_schema_version
+  AND relation.source_explicit = false
 WITH relation.relation_type AS relation_type, source.node_key AS source_key,
      target.node_key AS target_key, count(relation) AS occurrences
 WHERE occurrences > 1

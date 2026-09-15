@@ -233,10 +233,10 @@ async def test_messages_cascade_when_their_session_is_deleted(tmp_path: Path) ->
 
 
 @pytest.mark.whitebox
-def test_migration_0022_backfills_legacy_pairs_as_messages(tmp_path: Path) -> None:
+def test_migration_0026_backfills_legacy_pairs_as_messages(tmp_path: Path) -> None:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     config = _build_config(dsn)
-    command.upgrade(config, "0021")
+    command.upgrade(config, "0025")
 
     sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
     created_at = datetime(2026, 8, 10, 5, 0, tzinfo=UTC)
@@ -283,7 +283,7 @@ def test_migration_0022_backfills_legacy_pairs_as_messages(tmp_path: Path) -> No
 
     engine = create_control_plane_engine(dsn)
     repo = SqlConversationMemoryRepository(create_session_factory(engine))
-    # 0024 backfills user_id from principal_id, so the migrated rows are
+    # 0028 backfills user_id from principal_id, so the migrated rows are
     # reachable under user_id == "p-1" and nothing else.
     identity = ConversationIdentity("ACME", "p-1", "s-1", "p-1")
 
@@ -301,7 +301,7 @@ def test_migration_0022_backfills_legacy_pairs_as_messages(tmp_path: Path) -> No
         asyncio.run(engine.dispose())
 
     # Downgrade re-pairs the post-upgrade turn into the restored legacy table.
-    command.downgrade(config, "0021")
+    command.downgrade(config, "0025")
     sync_engine = sa.create_engine(f"sqlite:///{tmp_path}/control.db")
     try:
         with sync_engine.connect() as connection:
