@@ -47,6 +47,7 @@ def _settings() -> SimpleNamespace:
         embedding_dimensions=3,
         model_config_path="unused.yaml",
         topology_embedding_max_input_bytes=8000,
+        topology_parent_enabled=False,
         topology_parent_max_output_tokens=1024,
         topology_parent_max_fan_in=8,
         topology_parent_max_input_bytes=24000,

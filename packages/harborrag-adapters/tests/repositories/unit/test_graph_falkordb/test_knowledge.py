@@ -88,8 +88,9 @@ async def test_provision_creates_exact_indexes_and_unique_node_constraint() -> N
 
     assert client.connected is True
     node_indexes = {
-        statement for statement, _ in client.write_calls if "(node:KnowledgeNode)" in statement
-        and "CREATE INDEX" in statement
+        statement
+        for statement, _ in client.write_calls
+        if "(node:KnowledgeNode)" in statement and "CREATE INDEX" in statement
     }
     relation_indexes = {
         statement for statement, _ in client.write_calls if "-[relation:" in statement

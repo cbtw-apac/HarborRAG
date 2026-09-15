@@ -47,3 +47,14 @@ async def test_denied_or_pending_card_replaces_legacy_content_with_safe_metadata
     result = await apply_summary_views((node,), reader, AccessContext.system("DEFAULT"))
     assert result[0].description != node.description
     assert result[0].summary.card is None
+
+
+def test_summary_cards_reject_blank_or_oversized_presentation_values():
+    with pytest.raises(ValueError, match="1 to 60 words"):
+        SummaryCard(description=" ")
+    with pytest.raises(ValueError, match="1 to 60 words"):
+        SummaryCard(description="word " * 61)
+    with pytest.raises(ValueError, match="facets"):
+        SummaryCard(description="Valid.", topics=(" ",))
+    with pytest.raises(ValueError, match="facets"):
+        SummaryCard(description="Valid.", key_entities=("x" * 81,))

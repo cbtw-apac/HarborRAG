@@ -72,9 +72,7 @@ async def test_semantic_paths_preserve_direction_and_allow_explicit_reverse_trav
         SemanticPathRequest(ACCESS, "entity-2", "entity-1", traversal="either")
     )
 
-    assert [[item.assertion_id for item in path] for path in forward.paths] == [
-        ["assertion-1"]
-    ]
+    assert [[item.assertion_id for item in path] for path in forward.paths] == [["assertion-1"]]
     assert reverse_directed.paths == ()
     assert [[item.assertion_id for item in path] for path in reverse_either.paths] == [
         ["assertion-1"]

@@ -72,9 +72,7 @@ class KnowledgeRetrieval:
         )
         active = await self._validator.validate(candidates)
         permitted = await self._permissions.validate(active.accepted, context)
-        by_chunk = {
-            str(item.payload.get("chunk_id")): _result(item) for item in permitted
-        }
+        by_chunk = {str(item.payload.get("chunk_id")): _result(item) for item in permitted}
         return EvidenceFetchResponse(
             request_id,
             tuple(by_chunk[item] for item in chunk_ids if item in by_chunk),
@@ -194,9 +192,7 @@ class KnowledgeRetrieval:
                         truncated |= bool(queue)
                         break
                     continue
-                queue.append(
-                    _Route(next_id, extended, route.visited | frozenset({next_id}))
-                )
+                queue.append(_Route(next_id, extended, route.visited | frozenset({next_id})))
         assertions = tuple(item for path in paths for item in path)
         mentions = await self._mentions_for_assertions(topology, assertions, request.access)
         return SemanticPathResponse(request_id, tuple(paths), mentions, truncated)

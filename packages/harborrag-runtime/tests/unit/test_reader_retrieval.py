@@ -256,9 +256,7 @@ class ResolutionGraph:
 
 @pytest.mark.asyncio
 async def test_graph_resolution_overfetches_then_removes_denied_title_collisions() -> None:
-    graph = ResolutionGraph(
-        (_graph_node("hidden", "source-2"), _graph_node("visible", "source-1"))
-    )
+    graph = ResolutionGraph((_graph_node("hidden", "source-2"), _graph_node("visible", "source-1")))
     response = await _reader(Permissions(), graph).resolve_graph_nodes(
         GraphNodeResolveRequest(
             ACCESS,

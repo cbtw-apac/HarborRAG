@@ -77,6 +77,8 @@ _ANNOTATIONS: dict[str, object] = {
     "idempotentHint": True,
     "openWorldHint": False,
 }
+
+
 @dataclass(slots=True)
 class GraphTripletSearchTool(BaseMcpTool):
     runtime: HarborRAG | None = None

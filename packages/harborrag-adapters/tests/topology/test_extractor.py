@@ -384,13 +384,16 @@ async def test_semantic_validation_gets_one_bounded_regeneration():
         tenant_id="t",
         document_id="d",
     )
-    assert result.model_copy(
-        update={
-            "validation_repairs": 0,
-            "rejected_output_count": 0,
-            "rejection_reasons": (),
-        }
-    ) == output()
+    assert (
+        result.model_copy(
+            update={
+                "validation_repairs": 0,
+                "rejected_output_count": 0,
+                "rejection_reasons": (),
+            }
+        )
+        == output()
+    )
     assert result.validation_repairs == result.rejected_output_count == 1
     assert result.rejection_reasons == ("evidence_validation_failed",)
     assert client.achat_structured.await_count == 2

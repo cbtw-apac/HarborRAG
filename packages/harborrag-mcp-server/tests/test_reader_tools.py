@@ -71,9 +71,7 @@ class FakeReaderKnowledge:
             outcome="ok",
             document_id=request.document_id,
             document_version_id="version-1",
-            chunks=(
-                _context_chunk(f"chunk-{offset + 1}", offset),
-            ),
+            chunks=(_context_chunk(f"chunk-{offset + 1}", offset),),
             outline=(("Overview",),) if request.include_outline else (),
             next_offset=offset + 1 if offset == 0 else None,
         )
@@ -246,9 +244,7 @@ async def test_new_reader_tool_runs_over_real_fastmcp_transport() -> None:
 @pytest.mark.asyncio
 async def test_tool_reported_failure_sets_mcp_error_flag() -> None:
     fastmcp = pytest.importorskip("fastmcp")
-    transport = create_mcp_server(
-        registry=McpServer(), allow_unauthenticated_local=True
-    )
+    transport = create_mcp_server(registry=McpServer(), allow_unauthenticated_local=True)
     async with fastmcp.Client(transport) as client:
         result = await client.call_tool(
             "fetch_evidence",

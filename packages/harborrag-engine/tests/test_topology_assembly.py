@@ -77,9 +77,7 @@ def test_ungrounded_external_identity_is_rejected() -> None:
 
 def test_source_backed_external_identity_can_join_documents_without_name_guessing() -> None:
     grounded = EvidenceSpan(start=0, end=6, quote="svc-42")
-    left = entity("ACME platform").model_copy(
-        update={"external_id": "svc-42", "span": grounded}
-    )
+    left = entity("ACME platform").model_copy(update={"external_id": "svc-42", "span": grounded})
     right = entity("ACME").model_copy(update={"external_id": "svc-42", "span": grounded})
     assert canonical_entity_id(
         "tenant",

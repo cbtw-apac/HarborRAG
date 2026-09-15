@@ -46,6 +46,17 @@ class BoundedDescriptionOutput(DescriptionOutput):
     description: str = Field(min_length=1, max_length=PARENT_DESCRIPTION_MAX_CHARS)
     complete: Literal[True]
 
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        schema = handler(core_schema)
+        # Native structured-output providers require every declared property. The
+        # facet defaults remain useful when reading older artifacts, while an empty
+        # tuple is the explicit value for a newly generated card with no such facet.
+        schema["required"] = list(schema["properties"])
+        return schema
+
     @model_validator(mode="after")
     def validate_semantic_budget(self) -> Self:
         enforce_text_budget(
@@ -105,6 +116,7 @@ def _scoped_output_model(packet_ids: frozenset[str]) -> type[BoundedDescriptionO
             cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
         ) -> JsonSchemaValue:
             schema = handler(core_schema)
+            schema["required"] = list(schema["properties"])
             citations = schema["properties"]["cited_packet_ids"]
             citations["items"]["enum"] = sorted(packet_ids)
             return schema

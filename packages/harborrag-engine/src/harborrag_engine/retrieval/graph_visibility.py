@@ -46,9 +46,7 @@ async def apply_graph_permissions(
         return states
     document_ids = tuple(
         dict.fromkeys(
-            str(record.document_id)
-            for record in records.values()
-            if record.document_id is not None
+            str(record.document_id) for record in records.values() if record.document_id is not None
         )
     )
     source_ids = tuple(
@@ -68,9 +66,7 @@ async def apply_graph_permissions(
     )
     tenant_visible = bool(allowed_documents or allowed_sources)
     for key, record in records.items():
-        if not _record_authorized(
-            record, allowed_documents, allowed_sources, tenant_visible
-        ):
+        if not _record_authorized(record, allowed_documents, allowed_sources, tenant_visible):
             states[key] = "denied"
     return states
 
@@ -115,8 +111,7 @@ def reachable_subgraph(
     selected_relations = tuple(
         relation
         for relation in relations
-        if relation.source_node_key in selected_keys
-        and relation.target_node_key in selected_keys
+        if relation.source_node_key in selected_keys and relation.target_node_key in selected_keys
     )
     return selected_nodes, selected_relations, len(reached)
 

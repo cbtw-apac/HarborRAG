@@ -49,3 +49,14 @@ async def test_backfill_enqueues_a_new_revision_without_generating(tmp_path):
         assert await control.summaries.backfill("DEFAULT", "scope-engineering") == 1
         second = await control.summaries.claim("DEFAULT")
         assert second.revision > first.revision
+
+
+@pytest.mark.asyncio
+async def test_status_backfill_all_and_invalid_retention(tmp_path):
+    async with make_control_plane(tmp_path) as control:
+        await prepare(control)
+        status = await control.summaries.status("DEFAULT")
+        assert status[0]["source_scope_id"] == "scope-engineering"
+        assert await control.summaries.backfill("DEFAULT") == 1
+        with pytest.raises(ValueError, match="at least one day"):
+            await control.summaries.cleanup("DEFAULT", retention_days=0)

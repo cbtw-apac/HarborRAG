@@ -24,9 +24,7 @@ class BudgetRequest(StrictModel):
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     cost_usd: Decimal = Field(ge=0)
-    purpose: Literal["extraction", "parent_description", "consolidation"] = (
-        "extraction"
-    )
+    purpose: Literal["extraction", "parent_description", "consolidation"] = "extraction"
     operation_key: str | None = Field(default=None, max_length=128)
     provider_calls: int = Field(default=1, ge=1, le=8)
     max_provider_calls: int = Field(default=8, ge=1, le=8)

@@ -215,9 +215,7 @@ class AuthoritativeGraphSearch:
         direction: GraphDirection,
         context: StorageOperationContext,
     ) -> AuthoritativeSubgraphResult:
-        visibility = await self._visibility(
-            candidates.nodes, candidates.relations, context=context
-        )
+        visibility = await self._visibility(candidates.nodes, candidates.relations, context=context)
         active_nodes = tuple(
             node for node in candidates.nodes if visibility.get(node.node_key) == "active"
         )
@@ -279,9 +277,7 @@ class AuthoritativeGraphSearch:
         )
         active = await self._active_versions.active_versions(document_ids)
         states = {key: self._node_state(record, active) for key, record in unique.items()}
-        return await apply_graph_permissions(
-            unique, states, self._authorizer, context
-        )
+        return await apply_graph_permissions(unique, states, self._authorizer, context)
 
     @staticmethod
     def _node_state(

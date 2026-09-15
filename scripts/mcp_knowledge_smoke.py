@@ -58,9 +58,7 @@ async def _run(arguments: argparse.Namespace) -> dict[str, object]:
                     {**identity, "start_node": start_key, "max_depth": 2},
                     principal_id=arguments.principal,
                 )
-                target = await _resolve(
-                    server, identity, arguments.principal, arguments.target
-                )
+                target = await _resolve(server, identity, arguments.principal, arguments.target)
                 if target is not None:
                     output["target"] = target
                     target_key = _unique_node_key(target)

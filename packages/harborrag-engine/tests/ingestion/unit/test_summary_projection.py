@@ -4,7 +4,7 @@ import pytest
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import KnowledgeNodeKind
-from harborrag_core.summaries import SummaryPolicy
+from harborrag_core.summaries import SummaryCard, SummaryPolicy
 from harborrag_core.topology.derived import DescriptionOutput
 from harborrag_engine.ingestion import GraphProjectionBuilder, GraphProjectionInput
 from harborrag_engine.topology.summary_planner import summary_plan
@@ -123,3 +123,62 @@ def test_nested_section_and_table_have_one_owner_and_complete_document_coverage(
         summary_plan(tuple(reversed(graph.nodes)), tuple(reversed(graph.relations)), chunks)
         == planned
     )
+
+
+def test_planner_rejects_duplicate_or_unowned_canonical_identities():
+    document = make_document([DocumentElement("p1", "paragraph", "Canonical evidence.")])
+    chunks = make_service(make_profile()).chunk(make_request(document)).chunks
+    graph = GraphProjectionBuilder().build(
+        GraphProjectionInput(
+            document=document,
+            chunks=chunks,
+            resolved_targets={},
+            graph_projection_version="graph-v1",
+        )
+    )
+    with pytest.raises(ValueError, match="unique graph node"):
+        summary_plan((*graph.nodes, graph.nodes[0]), graph.relations, chunks)
+    with pytest.raises(ValueError, match="duplicate evidence"):
+        summary_plan(graph.nodes, graph.relations, (*chunks, chunks[0]))
+    with pytest.raises(ValueError, match="assign every evidence"):
+        summary_plan(graph.nodes, (), chunks)
+
+
+@pytest.mark.asyncio
+async def test_reducer_rejects_impossible_budgets_nonprogress_and_invalid_citations(monkeypatch):
+    cache, generator = Cache(), Generator()
+    reducer = SummaryReducer("tenant", SummaryPolicy(model_fingerprint="model"), cache, generator)
+    assert not reducer._fits(())
+    assert not reducer._fits(("x" * 24001,))
+
+    monkeypatch.setattr(reducer, "_fits", lambda _inputs: False)
+    with pytest.raises(ValueError, match="fit one character"):
+        reducer._split("x")
+
+    reducer = SummaryReducer("tenant", SummaryPolicy(model_fingerprint="model"), cache, generator)
+    with pytest.raises(ValueError, match="input exceeds"):
+        await reducer._call(("x" * 24001,))
+
+    class InvalidGenerator:
+        async def generate(self, _packets):
+            return DescriptionOutput(
+                description="Invalid citations.",
+                cited_packet_ids=("unknown",),
+                complete=False,
+            )
+
+    reducer = SummaryReducer(
+        "tenant", SummaryPolicy(model_fingerprint="model"), Cache(), InvalidGenerator()
+    )
+    with pytest.raises(ValueError, match="incomplete"):
+        await reducer._call(("input",))
+
+    reducer = SummaryReducer("tenant", SummaryPolicy(model_fingerprint="model"), Cache(), generator)
+    monkeypatch.setattr(reducer, "_fits", lambda inputs: len(inputs) == 1)
+
+    async def same_size(_inputs):
+        return SummaryCard(description="Long enough replacement")
+
+    monkeypatch.setattr(reducer, "_call", same_size)
+    with pytest.raises(ValueError, match="cannot make progress"):
+        await reducer.reduce("DataSource", {}, ("first", "second"))

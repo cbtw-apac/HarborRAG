@@ -34,7 +34,11 @@ class DocumentContextReader:
         if not await self._document_allowed(request):
             return DocumentContextResponse(request_id, "unavailable", request.document_id)
         snapshot = await self._snapshots.active_snapshot(request.document_id)
-        if snapshot is None or snapshot.chunk_artifact is None or snapshot.chunk_index_artifact is None:
+        if (
+            snapshot is None
+            or snapshot.chunk_artifact is None
+            or snapshot.chunk_index_artifact is None
+        ):
             return DocumentContextResponse(request_id, "unavailable", request.document_id)
         version_id = str(snapshot.document_version_id)
         if (
@@ -149,9 +153,7 @@ class DocumentContextReader:
             str(request.access.tenant_id), (request.document_id,), access=request.access
         )
 
-    async def _version_allowed(
-        self, request: DocumentContextRequest, version_id: str
-    ) -> bool:
+    async def _version_allowed(self, request: DocumentContextRequest, version_id: str) -> bool:
         if not await self._document_allowed(request) or self._snapshots is None:
             return False
         current = await self._snapshots.active_snapshot(request.document_id)

@@ -22,9 +22,7 @@ logger = logging.getLogger("harborrag.mcp.tools.sources")
 class ListSourcesTool(ReaderTool):
     spec = LIST_SOURCES_SPEC
 
-    async def call(
-        self, arguments: dict[str, object], *, principal_id: str
-    ) -> dict[str, object]:
+    async def call(self, arguments: dict[str, object], *, principal_id: str) -> dict[str, object]:
         try:
             tenant_id = text(arguments, "tenant_id")
             source_ids = string_list(arguments, "source_ids")
@@ -50,7 +48,10 @@ class ListSourcesTool(ReaderTool):
             )
             return success(
                 response.request_id,
-                {"sources": [source(item) for item in response.sources], "next_cursor": next_cursor},
+                {
+                    "sources": [source(item) for item in response.sources],
+                    "next_cursor": next_cursor,
+                },
                 complete=next_cursor is None,
                 reasons=[] if next_cursor is None else ["page_limit"],
             )

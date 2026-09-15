@@ -37,6 +37,7 @@ async def test_inspection_exposes_llm_provenance_descriptions_and_exact_evidence
     tmp_path, monkeypatch
 ):
     async with Harness(tmp_path) as harness:
+
         async def permit_reader(document_id: str) -> None:
             await _permit_reader(harness, document_id)
 
@@ -94,9 +95,7 @@ async def test_inspection_exposes_llm_provenance_descriptions_and_exact_evidence
         assert view["generation"]["method"] == "llm_structured_extraction"
         assert view["generation"]["model"] == "test"
         assert view["generation"]["checkpoint_count"] == 1
-        assert view["representations"][0]["generated"]["description"] == (
-            "Harbor replaces Dock."
-        )
+        assert view["representations"][0]["generated"]["description"] == ("Harbor replaces Dock.")
         assert view["mentions"][0]["evidence"]["quote"] in {"Harbor", "Dock"}
         assert view["assertions"][0]["statement_text"] == "Harbor supersedes Dock"
         assert view["assertions"][0]["evidence"]["quote"] == "Harbor supersedes Dock"

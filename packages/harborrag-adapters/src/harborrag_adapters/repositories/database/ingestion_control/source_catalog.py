@@ -45,14 +45,11 @@ class SourceCatalogReader:
             select(
                 DOCUMENTS.c.source_scope_id,
                 func.count(DOCUMENTS.c.document_id).label("active_document_count"),
-                func.max(DOCUMENT_VERSIONS.c.activated_at).label(
-                    "last_successful_ingestion_at"
-                ),
+                func.max(DOCUMENT_VERSIONS.c.activated_at).label("last_successful_ingestion_at"),
             )
             .join(
                 DOCUMENT_VERSIONS,
-                DOCUMENT_VERSIONS.c.document_version_id
-                == DOCUMENTS.c.active_document_version_id,
+                DOCUMENT_VERSIONS.c.document_version_id == DOCUMENTS.c.active_document_version_id,
             )
             .where(DOCUMENTS.c.active_document_version_id.is_not(None))
             .group_by(DOCUMENTS.c.source_scope_id)
@@ -104,9 +101,7 @@ class SourceCatalogReader:
                 SOURCE_SCOPES.c.source_scope_id.in_(request.source_scope_ids)
             )
         if request.connector_types:
-            statement = statement.where(
-                SOURCE_SCOPES.c.connector_type.in_(request.connector_types)
-            )
+            statement = statement.where(SOURCE_SCOPES.c.connector_type.in_(request.connector_types))
         if request.after_source_scope_id is not None:
             statement = statement.where(
                 SOURCE_SCOPES.c.source_scope_id > request.after_source_scope_id

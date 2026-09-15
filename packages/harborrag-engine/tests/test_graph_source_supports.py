@@ -32,9 +32,7 @@ from harborrag_engine.retrieval import AuthoritativeGraphSearch
 CONTEXT = StorageOperationContext.system("tenant")
 
 
-def projection(
-    document: str, version: str, *, title: str = "Published", explicit: bool = True
-):
+def projection(document: str, version: str, *, title: str = "Published", explicit: bool = True):
     state = GraphProjectionState(
         GraphProjectionContext(
             tenant_id="tenant",

@@ -41,9 +41,7 @@ logger = logging.getLogger("harborrag.mcp.tools.readers")
 class FetchEvidenceTool(ReaderTool):
     spec = FETCH_EVIDENCE_SPEC
 
-    async def call(
-        self, arguments: dict[str, object], *, principal_id: str
-    ) -> dict[str, object]:
+    async def call(self, arguments: dict[str, object], *, principal_id: str) -> dict[str, object]:
         try:
             raw_items = arguments.get("items")
             if not isinstance(raw_items, list):
@@ -54,11 +52,7 @@ class FetchEvidenceTool(ReaderTool):
             )
             items = [evidence_item(item) for item in response.items]
             reasons = sorted(
-                {
-                    str(item["availability"])
-                    for item in items
-                    if item["availability"] != "available"
-                }
+                {str(item["availability"]) for item in items if item["availability"] != "available"}
             )
             return success(
                 response.request_id,
@@ -79,9 +73,7 @@ class FetchEvidenceTool(ReaderTool):
 class GetDocumentContextTool(ReaderTool):
     spec = GET_DOCUMENT_CONTEXT_SPEC
 
-    async def call(
-        self, arguments: dict[str, object], *, principal_id: str
-    ) -> dict[str, object]:
+    async def call(self, arguments: dict[str, object], *, principal_id: str) -> dict[str, object]:
         try:
             selected = self._context_arguments(arguments, principal_id)
             response = await self.require_runtime().knowledge.get_document_context(
@@ -144,9 +136,7 @@ class GetDocumentContextTool(ReaderTool):
             logger.exception("get_document_context failed")
             return failure("document context retrieval failed")
 
-    def _context_arguments(
-        self, arguments: dict[str, object], principal_id: str
-    ) -> dict[str, Any]:
+    def _context_arguments(self, arguments: dict[str, object], principal_id: str) -> dict[str, Any]:
         tenant_id = text(arguments, "tenant_id")
         document_id = text(arguments, "document_id")
         cursor = optional_text(arguments, "cursor")
@@ -216,9 +206,7 @@ class GetDocumentContextTool(ReaderTool):
 class ResolveGraphNodesTool(ReaderTool):
     spec = RESOLVE_GRAPH_NODES_SPEC
 
-    async def call(
-        self, arguments: dict[str, object], *, principal_id: str
-    ) -> dict[str, object]:
+    async def call(self, arguments: dict[str, object], *, principal_id: str) -> dict[str, object]:
         try:
             selector = arguments.get("selector")
             if not isinstance(selector, dict):
@@ -235,7 +223,11 @@ class ResolveGraphNodesTool(ReaderTool):
             )
             candidates = [node(item) for item in response.candidates]
             resolution = (
-                "no_match" if not candidates else "unique" if len(candidates) == 1 and not response.truncated else "ambiguous"
+                "no_match"
+                if not candidates
+                else "unique"
+                if len(candidates) == 1 and not response.truncated
+                else "ambiguous"
             )
             return success(
                 response.request_id,

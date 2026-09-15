@@ -206,7 +206,9 @@ def _build_vector_filter(filters: dict[str, object]) -> VectorFilter | None:
         must=[
             VectorFilterCondition(
                 field=name,
-                operator=FilterOperator.IN if isinstance(value, list | tuple) else FilterOperator.EQUALS,
+                operator=FilterOperator.IN
+                if isinstance(value, list | tuple)
+                else FilterOperator.EQUALS,
                 value=value,
             )
             for name, value in sorted(filters.items())

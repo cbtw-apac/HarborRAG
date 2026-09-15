@@ -217,9 +217,7 @@ async def test_owner_configuration_api_persists_and_audits_updates(tmp_path) -> 
             )
 
     assert saved.status_code == 200
-    assert saved.json()["configuration"]["tools"]["vector_search"]["defaults"] == {
-        "top_k": 3
-    }
+    assert saved.json()["configuration"]["tools"]["vector_search"]["defaults"] == {"top_k": 3}
     assert saved.json()["restart_required"] is True
     assert stale.status_code == 409
     assert configuration.path.is_file()
@@ -301,15 +299,11 @@ async def test_tool_playground_api_applies_effective_tenant_configuration(tmp_pa
             )
 
     search_schema = next(
-        tool["input_schema"]
-        for tool in catalog.json()["tools"]
-        if tool["name"] == "vector_search"
+        tool["input_schema"] for tool in catalog.json()["tools"] if tool["name"] == "vector_search"
     )
     assert search_schema["properties"]["top_k"]["default"] == 3
     assert search_schema["properties"]["top_k"]["maximum"] == 7
-    assert "vector_search" not in {
-        tool["name"] for tool in blocked_catalog.json()["tools"]
-    }
+    assert "vector_search" not in {tool["name"] for tool in blocked_catalog.json()["tools"]}
     assert over_limit.status_code == 422
     assert disabled.status_code == 403
     assert malformed.status_code == 422

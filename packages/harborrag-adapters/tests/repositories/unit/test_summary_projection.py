@@ -10,6 +10,7 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import GraphNodeRecord
 from harborrag_core.summaries import SummaryBinding, SummaryCard, SummaryManifest, SummaryPolicy
+from harborrag_core.topology.config import TenantIndexingConfig
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
 from .ingestion_control_fixtures import (
@@ -224,3 +225,41 @@ async def test_policy_aba_never_revives_old_worker_and_duplicate_claim_is_idle(t
             await control.summaries.accept(
                 first, snapshot, binding(first, snapshot, node(version)), node(version)
             )
+
+
+@pytest.mark.asyncio
+async def test_status_runnable_reconcile_and_fenced_finish_paths(tmp_path):
+    async with make_control_plane(tmp_path) as control:
+        await prepare(control)
+        policy = SummaryPolicy(model_fingerprint="model-v1", debounce_seconds=0)
+        await control.summaries.configure("DEFAULT", "scope-engineering", policy)
+        runnable = await control.summaries.runnable_scopes("DEFAULT")
+        assert len(runnable) == 1
+        assert runnable[0][0] == "scope-engineering" and runnable[0][2] == 0
+        assert "scope-engineering" in await control.summaries.source_scope_ids("DEFAULT")
+        assert (await control.summaries.status("DEFAULT"))[0]["execution"] == "queued"
+
+        lease = await control.summaries.claim("DEFAULT", source_scope_id="scope-engineering")
+        assert lease is not None
+        assert not await control.summaries.finish(lease.model_copy(update={"fence": 99}))
+        assert await control.summaries.finish(lease)
+        assert await control.summaries.reconcile("DEFAULT") == 1
+
+
+@pytest.mark.asyncio
+async def test_prohibited_tenant_and_removed_policy_do_not_dispatch(tmp_path):
+    async with make_control_plane(tmp_path) as control:
+        await prepare(control)
+        await control.topology.configure_indexing(
+            TenantIndexingConfig(tenant_id="DEFAULT", enabled=True, prohibited=True)
+        )
+        assert await control.summaries.claim("DEFAULT") is None
+
+        await control.topology.configure_indexing(
+            TenantIndexingConfig(tenant_id="DEFAULT", enabled=True)
+        )
+        lease = await control.summaries.claim("DEFAULT")
+        assert lease is not None
+        await control.summaries.configure("DEFAULT", "scope-engineering", None)
+        assert not await control.summaries.finish(lease)
+        assert not await control.summaries.runnable_scopes("DEFAULT")

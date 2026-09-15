@@ -41,7 +41,8 @@ async def test_exact_node_resolution_preserves_ambiguity_and_parameterizes_scope
         )
     ]
     repository = FalkorKnowledgeGraphRepository(
-        FalkorDBGraphConfig(), client=client  # type: ignore[arg-type]
+        FalkorDBGraphConfig(),
+        client=client,  # type: ignore[arg-type]
     )
 
     result = await repository.resolve_nodes(

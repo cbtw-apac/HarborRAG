@@ -52,9 +52,7 @@ class ImmutableEvidenceReader:
                 continue
             size = len(canonical.content.encode("utf-8"))
             if used_bytes + size > _CONTENT_BUDGET_BYTES:
-                output[item.requested_index] = EvidenceReadItem(
-                    selector.chunk_id, "output_limit"
-                )
+                output[item.requested_index] = EvidenceReadItem(selector.chunk_id, "output_limit")
                 continue
             used_bytes += size
             output[item.requested_index] = _available_item(canonical)
