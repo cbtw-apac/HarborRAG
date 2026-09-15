@@ -15,7 +15,7 @@ from harborrag_adapters.repositories.object_store import (
 from harborrag_adapters.topology.descriptions import DESCRIPTION_MAX_REPAIR_ATTEMPTS
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
-from harborrag_core.ports.description_generation import DescriptionGeneratorPort
+from harborrag_core.ports.description_generation import UsageAwareDescriptionPort
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 from harborrag_core.ports.topology import TopologyRepositoryPort
 from harborrag_core.storage import StorageOperationContext
@@ -31,6 +31,7 @@ from harborrag_runtime.tokenization import ApproximateTokenCounter
 from .budgeted_extractor import EnrichmentDeferredError
 from .contextual import Embedder
 from .reservation_deadline import reservation_seconds
+from .run_cost import RunCostLedger
 
 
 @dataclass(frozen=True)
@@ -65,12 +66,12 @@ class DerivedBudget:
             await self.settle(request)
             raise
 
-    async def settle(self, request: BudgetRequest) -> None:
+    async def settle(self, request: BudgetRequest, usage: UsageSettlement | None = None) -> None:
         await asyncio.shield(
             self.repository.settle_budget(
                 self.tenant_id,
                 request.reservation_id,
-                UsageSettlement(),
+                usage or UsageSettlement(),
             )
         )
 
@@ -84,10 +85,12 @@ class DescriptionArtifacts:
 
 @dataclass(frozen=True)
 class FrozenDescriptionGenerator:
-    delegate: DescriptionGeneratorPort
+    delegate: UsageAwareDescriptionPort
     budget: DerivedBudget
     artifacts: DescriptionArtifacts
     max_output_tokens: int = 500
+    # None when the operator set no per-run ceiling.
+    run_costs: RunCostLedger | None = None
 
     def __post_init__(self) -> None:
         if self.max_output_tokens < 1:
@@ -104,7 +107,10 @@ class FrozenDescriptionGenerator:
         context = StorageOperationContext.system(self.budget.tenant_id)
         existing = await self._read_existing(key, context)
         if existing is not None:
+            # Frozen work is reused and costs nothing, so the ceiling does not gate it.
             return existing
+        if self.run_costs is not None:
+            self.run_costs.ensure_capacity()
         # Includes schema, framing and every bounded repair with its prior response.
         input_tokens = ApproximateTokenCounter().count(description_prompt_json(packets))
         provider_calls = DESCRIPTION_MAX_REPAIR_ATTEMPTS + 1
@@ -118,9 +124,23 @@ class FrozenDescriptionGenerator:
             provider_calls=provider_calls,
         )
         deadline = await self.budget.reserve(reservation)
+        # Unknown usage retains the full reservation rather than inventing a discount.
+        settlement: UsageSettlement | None = None
         try:
             async with asyncio.timeout(deadline):
-                output = await self.delegate.generate(packets)
+                run = await self.delegate.generate_usage(packets)
+            output = run.output
+            if self.run_costs is not None:
+                self.run_costs.record(run.cost_usd)
+            reported = run.usage.prompt_tokens + run.usage.completion_tokens
+            if reported > 0:
+                # cost_usd is None when the deployment declares no pricing, and
+                # settle_budget then keeps the reserved charge rather than discounting it.
+                settlement = UsageSettlement(
+                    input_tokens=run.usage.prompt_tokens,
+                    output_tokens=run.usage.completion_tokens,
+                    cost_usd=run.cost_usd,
+                )
             if not output.complete:
                 raise ValueError("description does not account for the supplied scope")
             if not set(output.cited_packet_ids) <= {p.packet_id for p in packets}:
@@ -145,7 +165,7 @@ class FrozenDescriptionGenerator:
                 return winner
             return output
         finally:
-            await self.budget.settle(reservation)
+            await self.budget.settle(reservation, settlement)
 
     async def _read_existing(
         self,

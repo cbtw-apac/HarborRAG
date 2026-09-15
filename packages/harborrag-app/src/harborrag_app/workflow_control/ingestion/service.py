@@ -291,6 +291,7 @@ class IngestionApplicationService(TaskListingMixin):
                     tenant_id=command.tenant_id,
                     connector_name=command.connection_id,
                     connection_id=command.connection_id,
+                    source_scope_id=command.source_scope_id,
                     force_reprocess=command.force_reprocess,
                 ),
             )

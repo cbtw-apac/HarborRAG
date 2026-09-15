@@ -1,6 +1,7 @@
 """Generated views are separate from immutable source evidence and raw vectors."""
 
 import json
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import Field
@@ -23,6 +24,30 @@ class ChunkEnrichment(StrictModel):
     validation_repairs: int = Field(default=0, ge=0, le=8)
     rejected_output_count: int = Field(default=0, ge=0, le=8)
     rejection_reasons: tuple[str, ...] = Field(default=(), max_length=32)
+
+
+class RollupSource(StrictModel):
+    """One child's text and its position, for rolling up into a parent description.
+
+    `text` is the child's canonical content. Extraction output is not required: a parent
+    summarises what its children say, not what a prior model said about them.
+    """
+
+    chunk_id: str = Field(min_length=1, max_length=256)
+    text: str = Field(min_length=1)
+    section_path: tuple[str, ...] = Field(default=(), max_length=50)
+    section_ids: tuple[str, ...] = Field(default=(), max_length=50)
+
+    @classmethod
+    def from_enrichment(cls, chunk: ChunkEnrichment) -> "RollupSource":
+        """Adapt an already-enriched chunk, for callers that have one."""
+
+        return cls(
+            chunk_id=chunk.chunk_id,
+            text=chunk.description,
+            section_path=chunk.section_path,
+            section_ids=chunk.section_ids,
+        )
 
 
 class ContextualManifest(StrictModel):
@@ -61,6 +86,46 @@ class ContextualIndexProfile(StrictModel):
     @property
     def parent_index_name(self) -> str:
         return f"parent-v2-{self.parent_fingerprint[:24]}"
+
+
+@dataclass(frozen=True, slots=True)
+class DerivedVectorProduct:
+    """One vector-publishing derived product and every name it is known by.
+
+    These four facets were previously spread across three uncoordinated dicts
+    (cleanup prefixes, projection record kinds, maintenance fingerprints). Omitting a
+    product from any one of them leaks vector points with no error at write, read or
+    cleanup time, so they are declared once here.
+    """
+
+    artifact_kind: str
+    record_kind: str
+    index_prefix: str
+    profile_attribute: str
+
+    def fingerprint(self, profile: ContextualIndexProfile) -> str:
+        return str(getattr(profile, self.profile_attribute))
+
+    def index_name(self, fingerprint: str) -> str:
+        return f"{self.index_prefix}{fingerprint[:24]}"
+
+
+# `record_kind` intentionally differs from `artifact_kind` for contextual chunks: the
+# vector payload says "contextual" while the derivation row says "contextual_chunk".
+DERIVED_VECTOR_PRODUCTS: tuple[DerivedVectorProduct, ...] = (
+    DerivedVectorProduct(
+        artifact_kind="contextual_chunk",
+        record_kind="contextual",
+        index_prefix="contextual-v2-",
+        profile_attribute="fingerprint",
+    ),
+    DerivedVectorProduct(
+        artifact_kind="parent_description",
+        record_kind="parent_description",
+        index_prefix="parent-v2-",
+        profile_attribute="parent_fingerprint",
+    ),
+)
 
 
 class DescriptionPacket(StrictModel):

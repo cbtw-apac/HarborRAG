@@ -11,7 +11,7 @@ from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.indexing import VectorDistance, VectorIndexRecord, VectorIndexSpec
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import DocumentTopologyBuild
-from harborrag_core.topology.derived import ContextualManifest
+from harborrag_core.topology.derived import DERIVED_VECTOR_PRODUCTS, ContextualManifest
 from harborrag_engine.topology.vector_values import canonical_dense_vector
 
 from .derived_coverage import validate_derived_coverage
@@ -30,8 +30,8 @@ class DerivedVectorProjection:
         context: StorageOperationContext,
     ) -> None:
         index_kinds = {
-            f"contextual-v2-{manifest.embedding_profile[:24]}": "contextual",
-            f"parent-v2-{manifest.embedding_profile[:24]}": "parent_description",
+            product.index_name(manifest.embedding_profile): product.record_kind
+            for product in DERIVED_VECTOR_PRODUCTS
         }
         if manifest.index_name not in index_kinds:
             raise ValueError("derived manifest cannot target a baseline or unknown index")

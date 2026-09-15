@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Annotated, Self
 
 from pydantic import Field, model_validator
 
@@ -12,8 +12,12 @@ if TYPE_CHECKING:
     from .extraction import ExtractionOutput
 
 
+ONTOLOGY_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"
+type OntologyName = Annotated[str, Field(pattern=ONTOLOGY_NAME_PATTERN)]
+
+
 class RelationDefinition(StrictModel):
-    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    name: OntologyName
     endpoint_pairs: tuple[tuple[str, str], ...] = Field(min_length=1, max_length=256)
     direction: str = "subject_to_object"
     examples: tuple[str, ...] = Field(default=(), max_length=16)
@@ -22,7 +26,7 @@ class RelationDefinition(StrictModel):
 
 class OntologyRegistry(StrictModel):
     version: str = Field(min_length=1, max_length=128)
-    entity_types: tuple[str, ...] = Field(min_length=1, max_length=128)
+    entity_types: tuple[OntologyName, ...] = Field(min_length=1, max_length=128)
     relations: tuple[RelationDefinition, ...] = Field(min_length=1, max_length=128)
 
     @model_validator(mode="after")

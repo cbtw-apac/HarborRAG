@@ -64,7 +64,16 @@ def resolution_mapping(history: Sequence[ResolutionDecision]) -> dict[str, str]:
 
     for decision in history:
         request = decision.request
-        if request.action != "merge" or request.decision_id in reverted:
+        if request.action == "revert":
+            continue
+        if request.action != "merge":
+            # A new action added to the contract but not to this replay would otherwise
+            # log a decision, bump every tenant policy and rebuild the whole corpus while
+            # leaving the mapping byte-identical -- a no-op that looks like it worked.
+            raise HarborConflictError(
+                f"resolution replay does not handle action {request.action!r}"
+            )
+        if request.decision_id in reverted:
             continue
         roots = sorted({root(value) for value in request.entity_ids})
         winner = roots[0]

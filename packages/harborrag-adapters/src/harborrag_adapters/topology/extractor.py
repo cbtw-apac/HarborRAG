@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+
+from pydantic import BaseModel
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.chat.backend_config import ChatBackendType
-from harborrag_core.models.chat import HarborChatMessage, HarborChatMetadata, HarborChatRequest
-from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
+from harborrag_adapters.models.chat.structured import StructuredResult
+from harborrag_core.models.chat import (
+    HarborChatMessage,
+    HarborChatMetadata,
+    HarborChatRequest,
+    HarborChatUsage,
+)
+from harborrag_core.ports.model_clients import (
+    AsyncHarborChatClientProtocol,
+    StructuredUsageResult,
+)
 from harborrag_core.topology.extraction import (
     ChunkExtractionInput,
     ExtractionOutput,
@@ -148,6 +161,23 @@ def extraction_request_budget(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ExtractionRun:
+    """One completed extraction plus the billable usage it actually required."""
+
+    output: ExtractionOutput
+    usage: HarborChatUsage
+    provider_calls: int
+
+
+def _sum_usage(total: HarborChatUsage, addition: HarborChatUsage) -> HarborChatUsage:
+    return HarborChatUsage(
+        prompt_tokens=total.prompt_tokens + addition.prompt_tokens,
+        completion_tokens=total.completion_tokens + addition.completion_tokens,
+        total_tokens=total.total_tokens + addition.total_tokens,
+    )
+
+
 class LLMEntityExtractor:
     """Call a single pinned client under a deadline and validate every evidence span."""
 
@@ -167,6 +197,62 @@ class LLMEntityExtractor:
         tenant_id: str,
         document_id: str,
     ) -> ExtractionOutput:
+        """Extract without reporting usage, for callers outside the spending ledger."""
+
+        async def invoke(
+            request: HarborChatRequest, response_model: type[BaseModel]
+        ) -> StructuredUsageResult[BaseModel]:
+            parsed = await self._client.achat_structured(
+                request=request, response_model=response_model, max_repair_attempts=1
+            )
+            return StructuredResult(parsed, HarborChatUsage(), 1)
+
+        run = await self._run(
+            value,
+            profile=profile,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            invoke=invoke,
+        )
+        return run.output
+
+    async def extract_usage(
+        self,
+        value: ChunkExtractionInput,
+        *,
+        profile: ExtractionProfile,
+        tenant_id: str,
+        document_id: str,
+    ) -> ExtractionRun:
+        """Extract and report the provider usage every semantic attempt consumed."""
+
+        async def invoke(
+            request: HarborChatRequest, response_model: type[BaseModel]
+        ) -> StructuredUsageResult[BaseModel]:
+            return await self._client.achat_structured_usage(
+                request=request, response_model=response_model, max_repair_attempts=1
+            )
+
+        return await self._run(
+            value,
+            profile=profile,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            invoke=invoke,
+        )
+
+    async def _run(
+        self,
+        value: ChunkExtractionInput,
+        *,
+        profile: ExtractionProfile,
+        tenant_id: str,
+        document_id: str,
+        invoke: Callable[
+            [HarborChatRequest, type[BaseModel]],
+            Awaitable[StructuredUsageResult[BaseModel]],
+        ],
+    ) -> ExtractionRun:
         if profile.prompt_digest != digest(EXTRACTION_PROMPT):
             raise ValueError("unsupported extraction prompt revision")
         if profile.schema_version != "4":
@@ -196,12 +282,16 @@ class LLMEntityExtractor:
         )
         async with asyncio.timeout(self._operation_seconds):
             rejection_reasons: list[str] = []
+            usage = HarborChatUsage()
+            calls = 0
             for attempt in range(SEMANTIC_ATTEMPTS):
-                result = await self._client.achat_structured(
-                    request=request,
-                    response_model=response_schema(registry, schema_version=profile.schema_version),
-                    max_repair_attempts=1,
+                dispatched = await invoke(
+                    request,
+                    response_schema(registry, schema_version=profile.schema_version),
                 )
+                usage = _sum_usage(usage, dispatched.usage)
+                calls += dispatched.provider_calls
+                result = dispatched.value
                 # Revalidate even when an injected client bypasses schema checks.
                 try:
                     result = ExtractionOutput.model_validate(result.model_dump())
@@ -222,12 +312,16 @@ class LLMEntityExtractor:
                         }
                     )
                     continue
-                return result.model_copy(
-                    update={
-                        "validation_repairs": attempt,
-                        "rejected_output_count": attempt,
-                        "rejection_reasons": tuple(dict.fromkeys(rejection_reasons))[:32],
-                    }
+                return ExtractionRun(
+                    result.model_copy(
+                        update={
+                            "validation_repairs": attempt,
+                            "rejected_output_count": attempt,
+                            "rejection_reasons": tuple(dict.fromkeys(rejection_reasons))[:32],
+                        }
+                    ),
+                    usage,
+                    calls,
                 )
         raise AssertionError("semantic extraction attempts exhausted")  # pragma: no cover
 

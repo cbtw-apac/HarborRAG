@@ -15,10 +15,10 @@ from harborrag_core.topology import (
     TopologyPolicy,
 )
 from harborrag_core.topology.derived import (
-    ChunkEnrichment,
     ContextualIndexProfile,
     DescriptionOutput,
     DescriptionPacket,
+    RollupSource,
     description_prompt_json,
 )
 from harborrag_core.topology.extraction import EvidenceSpan
@@ -161,9 +161,7 @@ class Generator:
 
 def chunks(count):
     return tuple(
-        ChunkEnrichment(
-            chunk_id=f"chunk-{i}", description=f"Evidence {i}", section_path=("Section",)
-        )
+        RollupSource(chunk_id=f"chunk-{i}", text=f"Evidence {i}", section_path=("Section",))
         for i in range(count)
     )
 
@@ -183,11 +181,11 @@ async def test_parent_synthesis_tracks_all_inputs_not_just_selected_citations():
 async def test_parent_synthesis_materializes_every_section_prefix_bottom_up():
     generator = Generator()
     nested = (
-        ChunkEnrichment(chunk_id="a", description="A evidence", section_path=("A",)),
-        ChunkEnrichment(chunk_id="b", description="B evidence", section_path=("A", "B")),
-        ChunkEnrichment(
+        RollupSource(chunk_id="a", text="A evidence", section_path=("A",)),
+        RollupSource(chunk_id="b", text="B evidence", section_path=("A", "B")),
+        RollupSource(
             chunk_id="c",
-            description="C evidence",
+            text="C evidence",
             section_path=("A", "B", "C"),
         ),
     )
@@ -205,15 +203,15 @@ async def test_parent_synthesis_materializes_every_section_prefix_bottom_up():
 async def test_parent_synthesis_does_not_merge_repeated_heading_labels():
     generator = Generator()
     repeated = (
-        ChunkEnrichment(
+        RollupSource(
             chunk_id="a",
-            description="First status.",
+            text="First status.",
             section_path=("Status",),
             section_ids=("section-a",),
         ),
-        ChunkEnrichment(
+        RollupSource(
             chunk_id="b",
-            description="Second status.",
+            text="Second status.",
             section_path=("Status",),
             section_ids=("section-b",),
         ),
@@ -263,9 +261,9 @@ async def test_parent_reduction_preflights_large_flat_scope_without_spending():
 async def test_parent_reduction_counts_non_ascii_input_conservatively_before_spending():
     generator = Generator()
     values = tuple(
-        ChunkEnrichment(
+        RollupSource(
             chunk_id=f"multilingual-{index}",
-            description="界" * 400,
+            text="界" * 400,
             section_path=("International",),
         )
         for index in range(2)
@@ -285,7 +283,7 @@ async def test_missing_children_and_unknown_citations_never_publish_parent_descr
     generator = Generator()
     builder = ParentDescriptionBuilder(generator)
     with pytest.raises(ValueError, match="incomplete"):
-        await builder.build("doc", (ChunkEnrichment(chunk_id="empty"),))
+        await builder.build("doc", (RollupSource(chunk_id="empty", text=" "),))
     assert not generator.calls
     generator.unknown = True
     with pytest.raises(ValueError, match="unknown packets"):

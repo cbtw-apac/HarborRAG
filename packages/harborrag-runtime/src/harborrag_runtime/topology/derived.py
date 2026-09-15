@@ -12,9 +12,10 @@ from harborrag_core.ports.description_generation import DescriptionGeneratorPort
 from harborrag_core.ports.topology import TopologyRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import ChunkExtractionInput, DocumentTopologyBuild, TopologyJob
-from harborrag_core.topology.derived import ContextualManifest, ParentDescription
+from harborrag_core.topology.derived import ContextualManifest, ParentDescription, RollupSource
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.permissions import DerivedArtifactLineage
+from harborrag_core.topology.revisions import DERIVED_CAPABLE_PROJECTION_REVISIONS
 from harborrag_engine.topology.parent_builder import (
     ParentDescriptionBuilder,
     ParentDescriptionPolicy,
@@ -81,14 +82,7 @@ class DerivedEnrichmentCoordinator:
     ) -> dict[str, str]:
         states: dict[str, str] = {}
         if (
-            build.projection_revision
-            not in {
-                "semantic-v2",
-                "semantic-v3",
-                "semantic-v4",
-                "semantic-v5",
-                "semantic-v6",
-            }
+            build.projection_revision not in DERIVED_CAPABLE_PROJECTION_REVISIONS
             or not build.chunk_ids
         ):
             return {"contextual": "not_applicable", "parents": "not_applicable"}
@@ -139,13 +133,21 @@ class DerivedEnrichmentCoordinator:
         build: DocumentTopologyBuild,
         inputs: tuple[ChunkExtractionInput, ...],
     ) -> None:
-        del inputs
+        # Roll up the children's canonical content, read from immutable chunk artifacts.
+        # The vector payload is a lossy projection and is deliberately not the source.
+        sources = tuple(
+            RollupSource(
+                chunk_id=value.chunk_id,
+                text=value.content,
+                section_path=value.heading_path,
+                section_ids=value.section_ids,
+            )
+            for value in inputs
+            if value.content.strip()
+        )
         parents = await ParentDescriptionBuilder(
             self.resources.descriptions, self.resources.parent_policy
-        ).build(
-            job.document_id,
-            build.representations,
-        )
+        ).build(job.document_id, sources)
         context = StorageOperationContext.system(job.tenant_id)
         summary_artifact = await self.resources.parents.freeze_summaries(job, build, parents)
         summary_digest = digest([parent.model_dump(mode="json") for parent in parents])

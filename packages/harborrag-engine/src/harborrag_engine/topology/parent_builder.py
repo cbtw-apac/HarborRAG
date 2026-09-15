@@ -7,9 +7,9 @@ from typing import Literal
 from harborrag_core.chunking.identity import encoded_identifier
 from harborrag_core.ports.description_generation import DescriptionGeneratorPort
 from harborrag_core.topology.derived import (
-    ChunkEnrichment,
     DescriptionPacket,
     ParentDescription,
+    RollupSource,
     description_prompt_json,
 )
 from harborrag_core.topology.extraction import digest
@@ -64,10 +64,10 @@ class ParentDescriptionBuilder:
         self._generator, self._policy = generator, policy
 
     async def build(
-        self, document_id: str, chunks: tuple[ChunkEnrichment, ...]
+        self, document_id: str, chunks: tuple[RollupSource, ...]
     ) -> tuple[ParentDescription, ...]:
-        if not chunks or any(not chunk.description.strip() for chunk in chunks):
-            raise ValueError("parent description pending: child enrichment is incomplete")
+        if not chunks or any(not chunk.text.strip() for chunk in chunks):
+            raise ValueError("parent rollup pending: child text is incomplete")
         if len({chunk.chunk_id for chunk in chunks}) != len(chunks):
             raise ValueError("parent description inputs contain duplicate chunk identities")
         budget = _CallBudget(self._policy.max_calls)
@@ -79,7 +79,7 @@ class ParentDescriptionBuilder:
             direct[structure_path].append(
                 DescriptionPacket(
                     packet_id=chunk.chunk_id,
-                    text=chunk.description,
+                    text=chunk.text,
                     chunk_ids=(chunk.chunk_id,),
                 )
             )
@@ -127,7 +127,7 @@ class ParentDescriptionBuilder:
         return tuple(parents)
 
     @staticmethod
-    def _structure_path(document_id: str, chunk: ChunkEnrichment) -> tuple[str, ...]:
+    def _structure_path(document_id: str, chunk: RollupSource) -> tuple[str, ...]:
         if chunk.section_ids:
             if len(chunk.section_ids) != len(chunk.section_path):
                 raise ValueError("section identity path does not match heading path")

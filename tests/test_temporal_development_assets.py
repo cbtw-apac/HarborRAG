@@ -55,10 +55,10 @@ def test_api_and_worker_pin_the_executable_graph_build_policy() -> None:
     api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
     temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
 
-    expected = "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph_build.yaml"
+    expected = "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml"
     assert expected in api
     assert expected in temporal
-    assert (ROOT / "config/graph_build.yaml").is_file()
+    assert (ROOT / "config/topology/graph_build.yaml").is_file()
 
 
 def test_temporal_secret_is_explicitly_scoped_to_api_and_worker() -> None:

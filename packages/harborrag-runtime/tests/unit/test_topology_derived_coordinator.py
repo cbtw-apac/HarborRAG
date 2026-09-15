@@ -54,6 +54,12 @@ class DescriptionModel:
         self.calls = []
         self.fail = False
 
+    async def generate_usage(self, packets):
+        from harborrag_adapters.topology.descriptions import DescriptionRun
+        from harborrag_core.models.chat import HarborChatUsage
+
+        return DescriptionRun(await self.generate(packets), HarborChatUsage(), 1)
+
     async def generate(self, packets):
         self.calls.append(packets)
         if self.fail:

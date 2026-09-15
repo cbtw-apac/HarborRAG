@@ -155,7 +155,7 @@ RELATION_MEANINGS: dict[RelationType, str] = {
         "Structural containment (source scope to entity, or entity to substructure)."
     ),
     RelationType.HAS_VERSION: "Source entity to its indexed document version.",
-    RelationType.SUPPORTS: "Chunk to the structure or document version it evidences.",
+    RelationType.HAS_CHUNK: "Structure or document version to the evidence chunks it holds.",
     RelationType.PARENT_OF: "Normalized parent-child relation between source entities.",
     RelationType.LINKS_TO: "One source entity references another by link.",
     RelationType.HAS_ATTACHMENT: "Normalized relation from an entity to its attachment.",

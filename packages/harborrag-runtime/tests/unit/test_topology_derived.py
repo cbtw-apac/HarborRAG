@@ -94,6 +94,12 @@ class Descriptions:
     def __init__(self):
         self.calls = 0
 
+    async def generate_usage(self, packets):
+        from harborrag_adapters.topology.descriptions import DescriptionRun
+        from harborrag_core.models.chat import HarborChatUsage
+
+        return DescriptionRun(await self.generate(packets), HarborChatUsage(), 1)
+
     async def generate(self, packets):
         self.calls += 1
         return DescriptionOutput(
@@ -233,7 +239,9 @@ async def test_description_freeze_adopts_verified_concurrent_winner():
         delegate,
         DerivedBudget(repository, "tenant", "build", Decimal("0.1")),
         DescriptionArtifacts(
-            ImmutableArtifactReader(store), RacingWriter(writer, winner), "profile"  # type: ignore[arg-type]
+            ImmutableArtifactReader(store),
+            RacingWriter(writer, winner),
+            "profile",  # type: ignore[arg-type]
         ),
     )
     packets = (

@@ -93,6 +93,7 @@ async def upsert_nodes(
             }})
             ON CREATE SET node = row
             ON MATCH SET node = CASE WHEN node.placeholder = true THEN row ELSE node END
+            SET node.title_key = toLower(node.title)
             """,
             {"rows": rows},
         )
@@ -255,8 +256,9 @@ def _node_row(node: GraphNodeRecord, *, tenant_id: str) -> dict[str, Any]:
         "ownership_scope": node.ownership_scope.value,
         # Provider metadata is an observation on version-owned support edges.
         # A staged or failed version must not overwrite shared, visible metadata.
+        # title_key is deliberately absent: the store derives it from the title it
+        # actually stored, which for a chunk with a generated title is not this one.
         "title": node.logical_id[:512] if shared else node.title,
-        "title_key": _normalise_title(node.logical_id[:512] if shared else node.title),
         "section_path": list(node.section_path),
         "source_scope_id": node.source_scope_id,
         "document_id": (str(node.document_id) if node.document_id is not None else None),
@@ -299,15 +301,24 @@ def _observation_title(relation: GraphEdgeRecord, role: str) -> str | None:
     return observation.get("title") if isinstance(observation, dict) else None
 
 
-def _normalise_title(title: str | None) -> str | None:
-    return title.lower() if title else None
-
-
 def _display_name(node: GraphNodeRecord, *, shared: bool) -> str:
+    """Name the thing, not its identifier.
+
+    ``name`` is a display field stripped from every read contract (see
+    ``knowledge_mapping._INTERNAL_PROPERTY_KEYS``), so it is free to carry the most
+    legible label available. ``title``/``title_key`` remain the version-safe lookup
+    identity, which is why a shared node keeps its provider id there even when a
+    human title is known here.
+    """
+
+    if node.title:
+        # A leaf heading repeats across documents ("Overview", "Recipes"); its ancestry
+        # is what makes it identifiable. section_path already carries it.
+        if node.node_kind == KnowledgeNodeKind.STRUCTURE and len(node.section_path) > 1:
+            return " › ".join(node.section_path)[:512]
+        return node.title[:512]
     if shared:
         return node.logical_id[:512]
-    if node.title:
-        return node.title
     if node.node_kind == KnowledgeNodeKind.CHUNK:
         ordinal = node.attributes.get("ordinal")
         return f"Chunk {int(ordinal) + 1}" if isinstance(ordinal, int) else "Chunk"

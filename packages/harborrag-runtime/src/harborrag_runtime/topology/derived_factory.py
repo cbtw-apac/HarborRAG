@@ -34,6 +34,7 @@ from .derived_projection import DerivedVectorProjection
 from .description_factory import ConfiguredDescriptionGenerator
 from .embedding_profile import build_contextual_profile
 from .parent_materializer import ParentMaterializer
+from .run_cost import RunCostLedger
 from .service import extraction_input
 
 
@@ -146,6 +147,7 @@ class DerivedRuntimeFactory:
                     digest([job.policy.profile.fingerprint, profile.description_revision]),
                 ),
                 self.settings.topology_parent_max_output_tokens,
+                RunCostLedger(ceiling_usd=self.settings.topology_parent_run_budget_usd),
             )
             coordinator = DerivedEnrichmentCoordinator(
                 DerivedResources(

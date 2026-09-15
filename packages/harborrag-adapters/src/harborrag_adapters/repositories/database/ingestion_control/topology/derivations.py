@@ -13,6 +13,7 @@ from harborrag_core.topology.permissions import (
     DerivedArtifactRecord,
     PermissionDependency,
 )
+from harborrag_core.topology.revisions import DERIVED_CAPABLE_PROJECTION_REVISIONS
 
 from .guards import job_from_row, lock_job
 from .policy_schema import BUILD_DOCUMENTS, BUILD_PERMISSIONS, DERIVED_ARTIFACTS
@@ -123,13 +124,9 @@ class TopologyDerivationOperations:
             )
             if row is None:
                 raise HarborConflictError("derived artifact build does not exist")
-            if row["build_manifest"].get("projection_revision") in {
-                "semantic-v2",
-                "semantic-v3",
-                "semantic-v4",
-                "semantic-v5",
-                "semantic-v6",
-            } and lineage.artifact_kind in (
+            if row["build_manifest"].get(
+                "projection_revision"
+            ) in DERIVED_CAPABLE_PROJECTION_REVISIONS and lineage.artifact_kind in (
                 "contextual_chunk",
                 "parent_description",
             ):

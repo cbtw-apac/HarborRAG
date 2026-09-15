@@ -10,6 +10,7 @@ from harborrag_core.models.chat import (
     HarborChatRequest,
     HarborChatResponse,
     HarborChatStreamChunk,
+    HarborChatUsage,
 )
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse, RawEmbeddingInput
 from harborrag_core.models.rerank import (
@@ -19,6 +20,19 @@ from harborrag_core.models.rerank import (
 )
 
 StructuredResponseT = TypeVar("StructuredResponseT", bound=BaseModel)
+
+
+class StructuredUsageResult[ValueT: BaseModel](Protocol):
+    """Expose a parsed structured response together with what it cost to produce."""
+
+    @property
+    def value(self) -> ValueT: ...
+
+    @property
+    def usage(self) -> HarborChatUsage: ...
+
+    @property
+    def provider_calls(self) -> int: ...
 
 
 @runtime_checkable
@@ -102,6 +116,17 @@ class AsyncHarborChatClientProtocol(Protocol):
         **kwargs: Any,
     ) -> StructuredResponseT:
         """Generate and validate one typed asynchronous structured response."""
+        ...
+
+    async def achat_structured_usage(
+        self,
+        *,
+        response_model: type[StructuredResponseT],
+        request: HarborChatRequest | None = None,
+        messages: Sequence[HarborChatMessage] | None = None,
+        max_repair_attempts: int | None = None,
+    ) -> StructuredUsageResult[StructuredResponseT]:
+        """Generate one typed response and report the usage it consumed."""
         ...
 
     async def aclose(self) -> None:

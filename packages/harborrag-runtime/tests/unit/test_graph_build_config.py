@@ -12,7 +12,7 @@ from harborrag_runtime.topology.configuration import GraphBuildConfigSynchronize
 
 
 def test_repository_graph_build_policy_is_executable() -> None:
-    config = GraphBuildConfig.from_file(Path("config/graph_build.yaml"))
+    config = GraphBuildConfig.from_file(Path("config/topology/graph_build.yaml"))
 
     tenant = config.tenants[0]
     assert tenant.tenant_id == "DEFAULT"
@@ -21,11 +21,12 @@ def test_repository_graph_build_policy_is_executable() -> None:
     assert tenant.budget.daily_cost_usd == Decimal("15.00")
     assert tenant.budget.max_job_attempts == 10
     assert tenant.sources[0].extraction.max_output_tokens == 2048
-    assert config.runtime.derived.parent_max_fan_in == 8
-    assert config.runtime.derived.parent_max_input_bytes == 24_000
-    assert config.runtime.derived.parent_max_input_tokens == 6_000
-    assert config.runtime.derived.parent_max_calls == 256
-    assert config.runtime.derived.parent_max_output_tokens == 512
+    summarization = config.summarization
+    assert summarization.input.max_children_per_call == 8
+    assert summarization.input.max_bytes_per_call == 24_000
+    assert summarization.input.max_tokens_per_call == 6_000
+    assert summarization.budget.max_calls_per_document == 256
+    assert summarization.max_description_tokens == 512
     assert "embedding_operation_cost_usd" not in config.runtime.model_dump()
 
 
@@ -34,7 +35,7 @@ def test_yaml_is_the_single_authority_for_graph_runtime_values(
 ) -> None:
     monkeypatch.setenv("HARBORRAG_TOPOLOGY_DERIVED_ENABLED", "false")
     monkeypatch.setenv("HARBORRAG_TOPOLOGY_OPERATION_SECONDS", "45")
-    settings = RuntimeSettings(graph_build_config_path=Path("config/graph_build.yaml"))
+    settings = RuntimeSettings(graph_build_config_path=Path("config/topology/graph_build.yaml"))
     effective = GraphBuildConfig.from_settings(settings).effective_settings(settings)
 
     assert effective.topology_derived_enabled is True

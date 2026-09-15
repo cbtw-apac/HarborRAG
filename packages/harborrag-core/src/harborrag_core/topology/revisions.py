@@ -14,6 +14,20 @@ _PROJECTION_REVISION_BY_SCHEMA = MappingProxyType(
 )
 
 
+# Projections whose builds can carry derived products (contextual chunks, parent
+# descriptions). Copied verbatim into three call sites before this constant existed;
+# see test_projection_revision_registry for the invariant that keeps it current.
+DERIVED_CAPABLE_PROJECTION_REVISIONS = frozenset(
+    {
+        "semantic-v2",
+        "semantic-v3",
+        "semantic-v4",
+        "semantic-v5",
+        "semantic-v6",
+    }
+)
+
+
 def projection_revision_for_schema(schema_version: str) -> str:
     """Resolve one supported extraction schema to its compatible projection."""
 

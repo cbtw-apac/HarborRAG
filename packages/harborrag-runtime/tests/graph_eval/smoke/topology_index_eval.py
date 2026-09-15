@@ -96,9 +96,7 @@ class TopologyExperimentFactory:
                 name=name,
                 entity_type="service",
                 description=f"{name} is a service in the dependency guide.",
-                description_evidence=(
-                    EvidenceSpan(start=start, end=end, quote=name),
-                ),
+                description_evidence=(EvidenceSpan(start=start, end=end, quote=name),),
                 span=EvidenceSpan(start=start, end=end, quote=name),
             )
             for local_id, name, start, end in (
@@ -152,6 +150,12 @@ class TopologyExperimentFactory:
 
 
 class SummaryGenerator:
+    async def generate_usage(self, packets):  # type: ignore[no-untyped-def]
+        from harborrag_adapters.topology.descriptions import DescriptionRun
+        from harborrag_core.models.chat import HarborChatUsage
+
+        return DescriptionRun(await self.generate(packets), HarborChatUsage(), 1)
+
     async def generate(self, packets):  # type: ignore[no-untyped-def]
         return DescriptionOutput(
             description="Alpha depends on Beta in the architecture.",
@@ -297,9 +301,9 @@ async def run() -> int:
         )
         await repository.write(build, context=context)
         await repository.write_parents(build, parents, context=context)
-        repair_verified = await repository.verify(build, context=context) and await (
-            repository.verify_parents(build, parents, context=context)
-        )
+        repair_verified = await repository.verify(
+            build, context=context
+        ) and await repository.verify_parents(build, parents, context=context)
         await repository.database_for(other, write=True)
         foreign_nodes, foreign_edges = await _counts(repository, build, other)
         registry = TenantGraphRegistry(PREFIX)

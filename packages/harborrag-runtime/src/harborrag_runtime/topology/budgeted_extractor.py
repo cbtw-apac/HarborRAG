@@ -12,7 +12,7 @@ from harborrag_adapters.topology.extraction_budget import (
 )
 from harborrag_adapters.topology.extractor import extraction_request_budget
 from harborrag_core.ports.topology import TopologyRepositoryPort
-from harborrag_core.ports.topology_extraction import EntityExtractionPort
+from harborrag_core.ports.topology_extraction import UsageAwareExtractionPort
 from harborrag_core.topology import (
     ChunkExtractionInput,
     ExtractionOutput,
@@ -48,7 +48,7 @@ def extraction_attempt_operation_key(
 
 @dataclass(frozen=True)
 class BudgetedExtractor:
-    delegate: EntityExtractionPort
+    delegate: UsageAwareExtractionPort
     repository: TopologyRepositoryPort
     job: TopologyJob
     cost_ceiling_usd: Decimal | None
@@ -83,14 +83,24 @@ class BudgetedExtractor:
                 admission.reason or "budget_unavailable",
                 retry_after=admission.retry_after,
             )
+        # Unknown usage retains the full reservation. Failure and cancellation never
+        # reassign it downwards, because no dispatch reported what it actually cost.
+        settlement = UsageSettlement()
         try:
             async with asyncio.timeout(reservation_seconds(admission)):
-                return await self.delegate.extract(
+                run = await self.delegate.extract_usage(
                     value, profile=profile, tenant_id=tenant_id, document_id=document_id
                 )
+                reported = run.usage.prompt_tokens + run.usage.completion_tokens
+                if reported > 0:
+                    # A provider that omits usage must not settle to zero, which would
+                    # make the call free against the daily cap.
+                    settlement = UsageSettlement(
+                        input_tokens=run.usage.prompt_tokens,
+                        output_tokens=run.usage.completion_tokens,
+                    )
+                return run.output
         finally:
-            # Structured responses do not expose reliable billable usage. Retain the
-            # full reservation, including failures/cancellation, instead of inventing cost.
             await asyncio.shield(
-                self.repository.settle_budget(tenant_id, request.reservation_id, UsageSettlement())
+                self.repository.settle_budget(tenant_id, request.reservation_id, settlement)
             )

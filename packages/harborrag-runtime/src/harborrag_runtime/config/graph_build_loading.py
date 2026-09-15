@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from harborrag_runtime.config.errors import GraphBuildConfigurationError
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.loading import read_yaml_file, require_string_mapping
+from harborrag_runtime.config.ontology_loading import load_ontology
 
 
 def load_graph_build_config(path: str | Path) -> GraphBuildConfig:
@@ -25,8 +26,13 @@ def load_graph_build_config(path: str | Path) -> GraphBuildConfig:
         error_type=GraphBuildConfigurationError,
     )
     try:
-        return GraphBuildConfig.model_validate(root, strict=True)
+        config = GraphBuildConfig.model_validate(root, strict=True)
     except ValidationError as error:
         raise GraphBuildConfigurationError(
             f"Invalid graph-build configuration {source}: {error}"
         ) from error
+    base = Path(path).expanduser().parent
+    resolved = {
+        name: load_ontology(base / relative) for name, relative in config.ontologies.items()
+    }
+    return config.model_copy(update={"resolved_ontologies": resolved})

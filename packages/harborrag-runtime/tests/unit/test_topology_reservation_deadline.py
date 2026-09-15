@@ -63,7 +63,7 @@ async def test_llm_summary_is_cancelled_before_reservation_expires_and_charge_is
     store = MemoryObjectStore()
     await store.connect()
     wrapped = FrozenDescriptionGenerator(
-        SimpleNamespace(generate=slow),
+        SimpleNamespace(generate_usage=slow),
         DerivedBudget(repository, "tenant", "build", Decimal("0.1")),
         DescriptionArtifacts(
             ImmutableArtifactReader(store), ImmutableArtifactWriter(store), "profile"

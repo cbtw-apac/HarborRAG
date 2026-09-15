@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from harborrag_core.models.chat import (
     HarborChatRequest,
     HarborChatResponse,
+    HarborChatUsage,
 )
 from harborrag_core.models.errors import (
     HarborChatInvalidRequestError,
@@ -161,6 +162,26 @@ class SyncStructuredOutputExecutor:
                     return result
 
 
+@dataclass(frozen=True, slots=True)
+class StructuredResult[StructuredResponseT: BaseModel]:
+    """Carry a parsed response alongside the provider usage it actually cost."""
+
+    value: StructuredResponseT
+    usage: HarborChatUsage
+    provider_calls: int
+
+
+def _accumulated(total: HarborChatUsage, response: HarborChatResponse) -> HarborChatUsage:
+    """Sum billable usage across every call a single structured request required."""
+
+    usage = response.usage
+    return HarborChatUsage(
+        prompt_tokens=total.prompt_tokens + usage.prompt_tokens,
+        completion_tokens=total.completion_tokens + usage.completion_tokens,
+        total_tokens=total.total_tokens + usage.total_tokens,
+    )
+
+
 class AsyncStructuredOutputExecutor:
     """Execute asynchronous typed chat responses."""
 
@@ -183,7 +204,7 @@ class AsyncStructuredOutputExecutor:
         max_repair_attempts: int | None,
         strategy: StructuredOutputStrategy | None,
         request_kwargs: Mapping[str, Any],
-    ) -> StructuredResponseT:
+    ) -> StructuredResult[StructuredResponseT]:
         state = self._policy.prepare(
             messages,
             response_model=response_model,
@@ -193,12 +214,16 @@ class AsyncStructuredOutputExecutor:
             strategy=strategy,
             request_kwargs=request_kwargs,
         )
+        usage = HarborChatUsage()
+        calls = 0
         async with async_structured_deadline(self._operation_seconds, state.request):
             while True:
                 response = await self._client.achat(request=state.request)
+                usage = _accumulated(usage, response)
+                calls += 1
                 result = state.validate_or_prepare_repair(response.text)
                 if result is not None:
-                    return result
+                    return StructuredResult(result, usage, calls)
 
 
 def _validate_response_model(response_model: object) -> None:

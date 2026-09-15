@@ -1,15 +1,28 @@
 """One schema-bound description call; only HarborRAG controls source identity/access."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal, Self
 
 from pydantic import Field, GetJsonSchemaHandler, model_validator
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema
 
-from harborrag_core.models.chat import HarborChatMessage, HarborChatMetadata, HarborChatRequest
-from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
+from harborrag_adapters.models.chat.configs import HarborChatClientConfig
+from harborrag_adapters.models.chat.structured import StructuredResult
+from harborrag_adapters.models.runtime.provider import DeploymentPricing
+from harborrag_core.models.chat import (
+    HarborChatMessage,
+    HarborChatMetadata,
+    HarborChatRequest,
+    HarborChatUsage,
+)
+from harborrag_core.ports.model_clients import (
+    AsyncHarborChatClientProtocol,
+    StructuredUsageResult,
+)
 from harborrag_core.topology.derived import (
     DescriptionOutput,
     DescriptionPacket,
@@ -93,6 +106,43 @@ def _scoped_output_model(packet_ids: frozenset[str]) -> type[BoundedDescriptionO
     return ScopedDescriptionOutput
 
 
+def pin_rollup_model(
+    config: HarborChatClientConfig, model: str | None
+) -> tuple[HarborChatClientConfig, DeploymentPricing | None]:
+    """Narrow the catalog to the rollup's own model and report its pricing.
+
+    Deliberately not ``pinned_configuration``: that one rejects drift against the
+    *extraction* prompt digest and pins the extraction code version, so a summariser with
+    its own prompt can never satisfy it. What the rollup needs from pinning is narrower --
+    one deployment and no failover, so the reserved provider-call count stays a real upper
+    bound -- plus the rates needed to price what it spends.
+    """
+
+    name, logical = config.model_for(model) if model else config.model_for(None)
+    retry = config.retry.model_copy(
+        update={
+            "same_deployment_attempts": 1,
+            "max_deployment_failovers": 0,
+            "max_model_fallbacks": 0,
+        }
+    )
+    pinned = config.model_copy(
+        update={"default_model": name, "models": {name: logical}, "retry": retry}
+    )
+    return pinned, logical.deployments[0].pricing
+
+
+@dataclass(frozen=True, slots=True)
+class DescriptionRun:
+    """One parent description plus the billable usage it actually required."""
+
+    output: DescriptionOutput
+    usage: HarborChatUsage
+    provider_calls: int
+    # None when the deployment declares no pricing; the reservation then stands.
+    cost_usd: Decimal | None = None
+
+
 @dataclass(frozen=True)
 class LLMDescriptionGenerator:
     client: AsyncHarborChatClientProtocol
@@ -101,8 +151,45 @@ class LLMDescriptionGenerator:
     document_id: str
     operation_seconds: float = 120
     max_output_tokens: int = 1024
+    pricing: DeploymentPricing | None = None
 
     async def generate(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionOutput:
+        """Generate without reporting usage, for callers outside the spending ledger."""
+
+        async def invoke(
+            request: HarborChatRequest, response_model: type[BoundedDescriptionOutput]
+        ) -> StructuredUsageResult[BoundedDescriptionOutput]:
+            parsed = await self.client.achat_structured(
+                request=request,
+                response_model=response_model,
+                max_repair_attempts=DESCRIPTION_MAX_REPAIR_ATTEMPTS,
+            )
+            return StructuredResult(parsed, HarborChatUsage(), 1)
+
+        return (await self._run(packets, invoke)).output
+
+    async def generate_usage(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionRun:
+        """Generate and report the usage the parent description consumed."""
+
+        async def invoke(
+            request: HarborChatRequest, response_model: type[BoundedDescriptionOutput]
+        ) -> StructuredUsageResult[BoundedDescriptionOutput]:
+            return await self.client.achat_structured_usage(
+                request=request,
+                response_model=response_model,
+                max_repair_attempts=DESCRIPTION_MAX_REPAIR_ATTEMPTS,
+            )
+
+        return await self._run(packets, invoke)
+
+    async def _run(
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        invoke: Callable[
+            [HarborChatRequest, type[BoundedDescriptionOutput]],
+            Awaitable[StructuredUsageResult[BoundedDescriptionOutput]],
+        ],
+    ) -> DescriptionRun:
         payload = description_prompt_json(packets)
         if len(payload.encode()) > 30000:
             raise ValueError("description input exceeds packet budget")
@@ -124,11 +211,20 @@ class LLMDescriptionGenerator:
             ),
         )
         async with asyncio.timeout(self.operation_seconds):
-            output = await self.client.achat_structured(
-                request=request,
-                response_model=_scoped_output_model(
-                    frozenset(packet.packet_id for packet in packets)
-                ),
-                max_repair_attempts=DESCRIPTION_MAX_REPAIR_ATTEMPTS,
+            result = await invoke(
+                request,
+                _scoped_output_model(frozenset(packet.packet_id for packet in packets)),
             )
-        return ParentDescriptionOutputPolicy.apply(output)
+        return DescriptionRun(
+            ParentDescriptionOutputPolicy.apply(result.value),
+            result.usage,
+            result.provider_calls,
+            self._cost(result.usage),
+        )
+
+    def _cost(self, usage: HarborChatUsage) -> Decimal | None:
+        if self.pricing is None:
+            return None
+        return self.pricing.cost_for(
+            input_tokens=usage.prompt_tokens, output_tokens=usage.completion_tokens
+        )

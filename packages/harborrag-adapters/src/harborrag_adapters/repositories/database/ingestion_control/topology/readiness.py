@@ -3,6 +3,7 @@
 from sqlalchemy import exists, func, or_, select
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_core.topology.revisions import DERIVED_CAPABLE_PROJECTION_REVISIONS
 
 from .policy_schema import DERIVED_ARTIFACTS
 from .reads import eligible_builds
@@ -41,9 +42,9 @@ class TopologyReadinessOperations:
         query = select(TOPOLOGY_BUILDS.c.build_id).where(
             TOPOLOGY_BUILDS.c.tenant_id == tenant_id,
             TOPOLOGY_BUILDS.c.build_id.in_(eligible_builds(tenant_id)),
-            TOPOLOGY_BUILDS.c.manifest["projection_revision"].as_string().in_(
-                ("semantic-v2", "semantic-v3", "semantic-v4", "semantic-v5", "semantic-v6")
-            ),
+            TOPOLOGY_BUILDS.c.manifest["projection_revision"]
+            .as_string()
+            .in_(sorted(DERIVED_CAPABLE_PROJECTION_REVISIONS)),
             func.json_array_length(TOPOLOGY_BUILDS.c.manifest["chunk_ids"]) > 0,
             or_(~stages[0], ~stages[1]),
         )

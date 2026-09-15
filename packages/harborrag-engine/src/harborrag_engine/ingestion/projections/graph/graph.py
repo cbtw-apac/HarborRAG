@@ -104,7 +104,14 @@ class SourceRelationProjector:
 
     def project(self, relations: list[DocumentRelation]) -> tuple[UnresolvedGraphRelation, ...]:
         unresolved: list[UnresolvedGraphRelation] = []
-        seen: set[tuple[RelationType, str, str]] = set()
+        # A provider projector may already have asserted the same pair in this batch
+        # (a page listing its attachments, and the attachment descriptor resolving to
+        # the same edge). Those differ only by relation_id, and MERGE keys on
+        # relation_id, so both would survive as parallel edges.
+        seen: set[tuple[RelationType, str, str]] = {
+            (record.relation_type, record.source_node_key, record.target_node_key)
+            for record in self._state.relations.values()
+        }
         for relation in relations:
             normalized = self._normalize(relation)
             if normalized is None:

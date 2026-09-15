@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
+from harborrag_core.topology.ontology import OntologyRegistry
 
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
@@ -57,6 +58,7 @@ class GraphBuildSourceConfig(_GraphBuildModel):
     source_scope_id: str = Field(min_length=1, max_length=128)
     enabled: bool = True
     model: str = Field(default="primary", min_length=1, max_length=256)
+    ontology: str | None = Field(default=None, min_length=1, max_length=128)
     extraction: GraphBuildExtractionConfig = Field(default_factory=GraphBuildExtractionConfig)
 
 
@@ -82,16 +84,52 @@ class GraphBuildTenantConfig(_GraphBuildModel):
         return self.mode == "llm" and not self.prohibited
 
 
+class SummarizationBudgetConfig(_GraphBuildModel):
+    """What a summarization run is allowed to spend."""
+
+    # Stops the run once crossed. Needs pricing on the chosen deployment; without it
+    # calls are counted as unpriced and the ceiling cannot bind.
+    max_usd_per_run: Decimal | None = Field(default=None, gt=0)
+    max_calls_per_document: int = Field(default=64, ge=1, le=10000)
+
+    @field_validator("max_usd_per_run", mode="before")
+    @classmethod
+    def parse_run_budget(cls, value: object) -> Decimal | None:
+        if value is None:
+            return None
+        return GraphBuildBudgetConfig.parse_money(value)
+
+
+class SummarizationInputConfig(_GraphBuildModel):
+    """How much child content one summarization call may consume."""
+
+    max_children_per_call: int = Field(default=8, ge=2, le=32)
+    max_bytes_per_call: int = Field(default=24000, ge=100, le=30000)
+    max_tokens_per_call: int = Field(default=6000, ge=100, le=30000)
+
+
+class SummarizationConfig(_GraphBuildModel):
+    """Parent nodes summarising their 1-hop children's content.
+
+    Independent of entity extraction: children's canonical content is the input, so this
+    runs whether or not anything has been extracted. Chunks are never summarised -- they
+    already carry their full content.
+    """
+
+    enabled: bool = False
+    # None reuses the deployment's default model.
+    model: str | None = Field(default=None, min_length=1, max_length=256)
+    # The size of each generated description.
+    max_description_tokens: int = Field(default=1024, ge=128, le=4096)
+    budget: SummarizationBudgetConfig = Field(default_factory=SummarizationBudgetConfig)
+    input: SummarizationInputConfig = Field(default_factory=SummarizationInputConfig)
+
+
 class GraphBuildDerivedConfig(_GraphBuildModel):
     """Optional independently retryable vector and parent-description products."""
 
     enabled: bool = False
     embedding_max_input_bytes: int = Field(default=8000, ge=100, le=100_000)
-    parent_max_output_tokens: int = Field(default=1024, ge=128, le=4096)
-    parent_max_fan_in: int = Field(default=8, ge=2, le=32)
-    parent_max_input_bytes: int = Field(default=24000, ge=100, le=30000)
-    parent_max_input_tokens: int = Field(default=6000, ge=100, le=30000)
-    parent_max_calls: int = Field(default=64, ge=1, le=10000)
 
 
 class GraphBuildRuntimeConfig(_GraphBuildModel):
@@ -116,7 +154,24 @@ class GraphBuildConfig(_GraphBuildModel):
     """Desired graph-build policy; Postgres remains canonical runtime authority."""
 
     runtime: GraphBuildRuntimeConfig = Field(default_factory=GraphBuildRuntimeConfig)
+    summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
+    ontologies: dict[str, str] = Field(default_factory=dict, max_length=128)
+    # Populated by the loader, which alone knows where the YAML file lives.
+    resolved_ontologies: dict[str, OntologyRegistry] = Field(default_factory=dict)
     tenants: list[GraphBuildTenantConfig] = Field(default_factory=list, max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_ontology_references(self) -> Self:
+        """Reject a source naming a vocabulary the file never declares."""
+
+        for tenant in self.tenants:
+            for source in tenant.sources:
+                if source.ontology is not None and source.ontology not in self.ontologies:
+                    raise ValueError(
+                        f"source {source.source_scope_id!r} references undeclared "
+                        f"ontology {source.ontology!r}"
+                    )
+        return self
 
     @model_validator(mode="after")
     def validate_unique_tenants(self) -> Self:
@@ -145,6 +200,7 @@ class GraphBuildConfig(_GraphBuildModel):
 
         runtime = self.runtime
         derived = runtime.derived
+        summarization = self.summarization
         candidates: dict[str, object] = {
             "topology_operation_seconds": runtime.operation_timeout_seconds,
             "topology_job_seconds": runtime.job_timeout_seconds,
@@ -153,11 +209,14 @@ class GraphBuildConfig(_GraphBuildModel):
             "topology_task_queue": runtime.task_queue,
             "topology_poll_seconds": runtime.poll_seconds,
             "topology_embedding_max_input_bytes": derived.embedding_max_input_bytes,
-            "topology_parent_max_output_tokens": derived.parent_max_output_tokens,
-            "topology_parent_max_fan_in": derived.parent_max_fan_in,
-            "topology_parent_max_input_bytes": derived.parent_max_input_bytes,
-            "topology_parent_max_input_tokens": derived.parent_max_input_tokens,
-            "topology_parent_max_calls": derived.parent_max_calls,
+            "topology_parent_enabled": summarization.enabled,
+            "topology_parent_model": summarization.model,
+            "topology_parent_run_budget_usd": summarization.budget.max_usd_per_run,
+            "topology_parent_max_output_tokens": summarization.max_description_tokens,
+            "topology_parent_max_fan_in": summarization.input.max_children_per_call,
+            "topology_parent_max_input_bytes": summarization.input.max_bytes_per_call,
+            "topology_parent_max_input_tokens": summarization.input.max_tokens_per_call,
+            "topology_parent_max_calls": summarization.budget.max_calls_per_document,
             "topology_llm_operation_cost_usd": runtime.llm_operation_cost_usd,
             "topology_derived_enabled": derived.enabled,
         }
@@ -176,6 +235,9 @@ def graph_build_runtime_view(settings: RuntimeSettings) -> dict[str, object]:
         "poll_seconds": settings.topology_poll_seconds,
         "derived_enabled": settings.topology_derived_enabled,
         "embedding_max_input_bytes": settings.topology_embedding_max_input_bytes,
+        "parent_enabled": settings.topology_parent_enabled,
+        "parent_model": settings.topology_parent_model,
+        "parent_run_budget_usd": settings.topology_parent_run_budget_usd,
         "parent_max_output_tokens": settings.topology_parent_max_output_tokens,
         "parent_max_fan_in": settings.topology_parent_max_fan_in,
         "parent_max_input_bytes": settings.topology_parent_max_input_bytes,

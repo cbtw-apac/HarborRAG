@@ -18,7 +18,7 @@ from harborrag_core.chunking.identity import encoded_identifier
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import DocumentVersionSnapshot
 from harborrag_core.ports.topology import TopologyRepositoryPort
-from harborrag_core.ports.topology_extraction import EntityExtractionPort
+from harborrag_core.ports.topology_extraction import EntityExtractionPort, UsageAwareExtractionPort
 from harborrag_core.ports.topology_projection import TopologyProjectionPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import (
@@ -37,7 +37,7 @@ from .chunk_runner import ChunkExtractionRunner
 
 logger = logging.getLogger("harborrag.runtime.topology")
 type ExtractorFactory = Callable[
-    [ExtractionProfile], AbstractAsyncContextManager[EntityExtractionPort]
+    [ExtractionProfile], AbstractAsyncContextManager[UsageAwareExtractionPort]
 ]
 type DerivationRunner = Callable[[str, str], Awaitable[dict[str, str]]]
 
@@ -207,11 +207,11 @@ class TopologyEnrichmentService:
         checkpoints = {item.chunk_id: item for item in await resources.repository.checkpoints(job)}
         outputs: dict[str, ExtractionOutput] = {}
         extracted = 0
-        async with resources.extractor(job.policy.profile) as extractor:
-            if resources.require_budget or resources.llm_operation_cost_usd is not None:
-                extractor = BudgetedExtractor(
-                    extractor, resources.repository, job, resources.llm_operation_cost_usd
-                )
+        async with resources.extractor(job.policy.profile) as dispatcher:
+            cost = resources.llm_operation_cost_usd
+            extractor: EntityExtractionPort = dispatcher
+            if resources.require_budget or cost is not None:
+                extractor = BudgetedExtractor(dispatcher, resources.repository, job, cost)
             for value in inputs:
                 checkpoint = checkpoints.get(value.chunk_id)
                 if checkpoint and checkpoint.input_digest != value.input_digest:

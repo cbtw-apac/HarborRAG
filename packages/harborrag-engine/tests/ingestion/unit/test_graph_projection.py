@@ -113,7 +113,7 @@ def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     assert "has_data_source" in relation_types
     assert "has_version" in relation_types
     assert "contains" in relation_types
-    assert "supports" in relation_types
+    assert "has_chunk" in relation_types
     assert "links_to" in relation_types
     assert "parent_of" in relation_types
     assert projection.unresolved_relations[0].target_source_item_id == "not-published"
@@ -157,12 +157,12 @@ def test_repeated_heading_labels_keep_distinct_stable_section_nodes() -> None:
     sections = [node for node in projection.nodes if node.entity_type == GraphEntityType.SECTION]
     assert len(sections) == 2
     assert {node.title for node in sections} == {"Status"}
-    support_targets = {
-        relation.target_node_key
+    holders = {
+        relation.source_node_key
         for relation in projection.relations
-        if relation.relation_type.value == "supports"
+        if relation.relation_type.value == "has_chunk"
     }
-    assert {node.node_key for node in sections} <= support_targets
+    assert {node.node_key for node in sections} <= holders
 
 
 def test_structural_projection_defers_active_target_resolution() -> None:

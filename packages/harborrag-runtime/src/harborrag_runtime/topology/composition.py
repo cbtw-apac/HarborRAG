@@ -25,7 +25,7 @@ from harborrag_adapters.repositories.object_store import (
 )
 from harborrag_adapters.topology import LLMEntityExtractor, pinned_configuration
 from harborrag_adapters.topology.artifacts import ExtractionArtifacts
-from harborrag_core.ports.topology_extraction import EntityExtractionPort
+from harborrag_core.ports.topology_extraction import UsageAwareExtractionPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import ExtractionProfile
 from harborrag_core.topology.permissions import DerivedArtifactRecord
@@ -96,7 +96,9 @@ async def connect_topology_runtime(
             await GraphBuildConfigSynchronizer(
                 graph_build,
                 control.topology,
-                GraphBuildProfileFactory(settings.model_config_path),
+                GraphBuildProfileFactory(
+                    settings.model_config_path, graph_build.resolved_ontologies
+                ),
             ).apply()
         store = build_object_store(settings)
         stack.push_async_callback(store.close)
@@ -112,7 +114,7 @@ async def connect_topology_runtime(
         derived = DerivedRuntimeFactory(settings, control, graph, reader, writer)
 
         @asynccontextmanager
-        async def extractor(profile: ExtractionProfile) -> AsyncIterator[EntityExtractionPort]:
+        async def extractor(profile: ExtractionProfile) -> AsyncIterator[UsageAwareExtractionPort]:
             config = pinned_configuration(
                 HarborChatClientConfig.from_file(settings.model_config_path), profile
             )

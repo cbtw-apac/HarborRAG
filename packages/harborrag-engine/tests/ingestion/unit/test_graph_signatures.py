@@ -27,7 +27,7 @@ REQUIRED_SIGNATURES: frozenset[tuple[str, str, str]] = frozenset(
         ("Tenant", "has_data_source", "DataSource"),
         ("SourceEntity", "has_version", "DocumentVersion"),
         ("DocumentVersion", "contains", "Structure"),
-        ("Chunk", "supports", "Structure"),
+        ("Structure", "has_chunk", "Chunk"),
         ("SourceEntity", "links_to", "SourceEntity"),
         # Provider-specific, single-source: github is the only connector projecting a ref
         # to a commit, so nothing else would notice if its provenance fixture rotted.

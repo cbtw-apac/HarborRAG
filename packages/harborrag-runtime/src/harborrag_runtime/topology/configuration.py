@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from harborrag_core.topology import (
 )
 from harborrag_core.topology.budget import IndexingBudgetLimits
 from harborrag_core.topology.config import TenantIndexingConfig
+from harborrag_core.topology.ontology import OntologyRegistry
 from harborrag_runtime.config.graph_build import (
     GraphBuildConfig,
     GraphBuildSourceConfig,
@@ -24,14 +26,22 @@ from harborrag_runtime.config.graph_build import (
 class GraphBuildProfileFactory:
     """Lazily pin code-owned extraction contracts to the selected deployment."""
 
-    def __init__(self, model_config_path: str | Path) -> None:
+    def __init__(
+        self,
+        model_config_path: str | Path,
+        ontologies: Mapping[str, OntologyRegistry] | None = None,
+    ) -> None:
         self._model_config_path = model_config_path
+        self._ontologies = dict(ontologies or {})
         self._catalog: HarborChatClientConfig | None = None
 
     def build(self, source: GraphBuildSourceConfig) -> ExtractionProfile:
         if self._catalog is None:
             self._catalog = HarborChatClientConfig.from_file(self._model_config_path)
-        profile = default_extraction_profile(self._catalog, source.model).model_copy(
+        ontology = self._ontologies[source.ontology] if source.ontology else None
+        profile = default_extraction_profile(
+            self._catalog, source.model, ontology=ontology
+        ).model_copy(
             update={
                 "max_input_chars": source.extraction.max_input_chars,
                 "max_output_tokens": source.extraction.max_output_tokens,

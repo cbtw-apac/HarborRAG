@@ -85,7 +85,7 @@ class RuntimeSettings(BaseSettings):
     connector_config_path: Path = Path("config/connectors.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
-    graph_build_config_path: Path = Path("config/graph_build.yaml")
+    graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
     object_store_endpoint_url: str | None = "http://localhost:9000"
     object_store_allow_insecure_remote: bool = False
     object_store_region: str = "us-east-1"
@@ -127,6 +127,9 @@ class RuntimeSettings(BaseSettings):
     topology_task_queue: str = Field(default="harborrag-topology", min_length=1)
     topology_poll_seconds: float = Field(default=5, ge=1, le=60)
     topology_embedding_max_input_bytes: int = Field(default=8000, ge=100, le=100000)
+    topology_parent_enabled: bool = False
+    topology_parent_model: str | None = None
+    topology_parent_run_budget_usd: Decimal | None = None
     topology_parent_max_output_tokens: int = Field(default=1024, ge=128, le=4096)
     topology_parent_max_fan_in: int = Field(default=8, ge=2, le=32)
     topology_parent_max_input_bytes: int = Field(default=24000, ge=100, le=30000)

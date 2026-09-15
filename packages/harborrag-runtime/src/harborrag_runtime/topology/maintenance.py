@@ -1,7 +1,7 @@
 """Bounded topology projection audit and explicit recoverable projection cleanup."""
 
 from harborrag_core.storage import StorageOperationContext
-from harborrag_core.topology.derived import ContextualIndexProfile
+from harborrag_core.topology.derived import DERIVED_VECTOR_PRODUCTS, ContextualIndexProfile
 from harborrag_core.topology.permissions import DerivedArtifactRecord
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -115,8 +115,7 @@ def _obsolete_derived_records(
     profile: ContextualIndexProfile,
 ) -> tuple[DerivedArtifactRecord, ...]:
     expected = {
-        "contextual_chunk": profile.fingerprint,
-        "parent_description": profile.parent_fingerprint,
+        product.artifact_kind: product.fingerprint(profile) for product in DERIVED_VECTOR_PRODUCTS
     }
     return tuple(
         record

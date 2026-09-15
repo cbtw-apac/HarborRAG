@@ -113,7 +113,7 @@ async def apply_graph_build_config(settings: RuntimeSettings) -> dict[str, objec
         report = await GraphBuildConfigSynchronizer(
             config,
             control.topology,
-            GraphBuildProfileFactory(effective.model_config_path),
+            GraphBuildProfileFactory(effective.model_config_path, config.resolved_ontologies),
         ).apply()
     return {
         "config_path": str(Path(settings.graph_build_config_path).expanduser().resolve()),

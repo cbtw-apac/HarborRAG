@@ -100,6 +100,7 @@ class RelationType(StrEnum):
     # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
     # their own direction; the rest describe structure that CONTAINS already carries.
     HAS_SECTION = "has_section"
+    HAS_CHUNK = "has_chunk"
     HAS_TABLE = "has_table"
     HAS_COMMENT = "has_comment"
     CHILD_OF = "child_of"
@@ -117,7 +118,7 @@ PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
     RelationType.HAS_DATA_SOURCE,
     RelationType.CONTAINS,
     RelationType.HAS_VERSION,
-    RelationType.SUPPORTS,
+    RelationType.HAS_CHUNK,
     RelationType.PARENT_OF,
     RelationType.LINKS_TO,
     RelationType.HAS_ATTACHMENT,

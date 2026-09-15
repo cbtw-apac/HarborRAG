@@ -188,7 +188,7 @@ services:
       HARBORRAG_CONNECTOR_CONFIG_PATH: /app/config/connectors.yaml
       HARBORRAG_PARSER_CONFIG_PATH: /app/config/parsers.yaml
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
-      HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph_build.yaml
+      HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml
       LOCAL_SOURCE_PATH: /data/sources
       HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
       # Compose interpolates profile-disabled services while loading the project.

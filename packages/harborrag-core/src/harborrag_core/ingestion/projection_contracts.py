@@ -10,6 +10,7 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
 
 from .artifact_contracts import ArtifactReference
 from .graph_attribute_validation import validate_graph_attributes
+from .graph_taxonomy import derived_entity_type, validate_entity_type
 from .projection_vector import (
     VectorEvidenceRecord,
     VectorPayload,
@@ -58,7 +59,7 @@ class GraphEdgeRecord(StrictModel):
         required_scope = {
             RelationType.HAS_DATA_SOURCE: GraphOwnershipScope.SOURCE_SCOPE,
             RelationType.HAS_VERSION: GraphOwnershipScope.DOCUMENT_VERSION,
-            RelationType.SUPPORTS: GraphOwnershipScope.DOCUMENT_VERSION,
+            RelationType.HAS_CHUNK: GraphOwnershipScope.DOCUMENT_VERSION,
             RelationType.RESOLVED_AT: GraphOwnershipScope.DOCUMENT_VERSION,
         }.get(self.relation_type)
         if required_scope is not None and self.ownership_scope != required_scope:
@@ -106,6 +107,16 @@ class GraphNodeRecord(StrictModel):
     section_path: tuple[str, ...] = ()
     attributes: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def derive_forced_entity_type(cls, values: Any) -> Any:
+        """Fill the subtype for kinds that admit exactly one, so callers need not."""
+
+        if not isinstance(values, dict) or values.get("entity_type") is not None:
+            return values
+        forced = derived_entity_type(values.get("node_kind"))
+        return values if forced is None else {**values, "entity_type": forced}
+
     @field_validator("title", "description")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
@@ -129,16 +140,7 @@ class GraphNodeRecord(StrictModel):
             raise ValueError(
                 f"{self.node_kind.value} nodes require {expected_scope.value} ownership"
             )
-        required_entity_type = {
-            KnowledgeNodeKind.TENANT: GraphEntityType.TENANT,
-            KnowledgeNodeKind.DATA_SOURCE: GraphEntityType.DATA_SOURCE,
-            KnowledgeNodeKind.DOCUMENT_VERSION: GraphEntityType.DOCUMENT_VERSION,
-            KnowledgeNodeKind.CHUNK: GraphEntityType.CHUNK,
-        }.get(self.node_kind)
-        if required_entity_type is not None and self.entity_type != required_entity_type:
-            raise ValueError(
-                f"{self.node_kind.value} nodes require entity_type={required_entity_type.value}"
-            )
+        validate_entity_type(self.node_kind, self.entity_type)
         _validate_ownership(
             ownership_scope=self.ownership_scope,
             source_scope_id=self.source_scope_id,

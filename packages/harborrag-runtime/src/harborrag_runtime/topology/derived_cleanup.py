@@ -8,12 +8,11 @@ from uuid import UUID
 
 from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.storage import StorageOperationContext
-from harborrag_core.topology.derived import ContextualManifest
+from harborrag_core.topology.derived import DERIVED_VECTOR_PRODUCTS, ContextualManifest
 from harborrag_core.topology.permissions import DerivedArtifactRecord
 
 _INDEX_PREFIXES = {
-    "contextual_chunk": "contextual-v2-",
-    "parent_description": "parent-v2-",
+    product.artifact_kind: product.index_prefix for product in DERIVED_VECTOR_PRODUCTS
 }
 
 

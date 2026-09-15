@@ -46,8 +46,8 @@ class UnifiedTopologyProjection:
     ) -> None:
         """Copy an LLM description onto a leaf structure with exactly one evidence chunk."""
         await self._database.write(
-            "MATCH (chunk:KnowledgeNode:Chunk)-[:SUPPORTS]->"
-            "(structure:KnowledgeNode:Structure) "
+            "MATCH (structure:KnowledgeNode:Structure)-[:HAS_CHUNK]->"
+            "(chunk:KnowledgeNode:Chunk) "
             "WHERE chunk.tenant_id = $tenant_id AND structure.tenant_id = $tenant_id "
             "AND chunk.document_version_id = $document_version_id "
             "AND structure.document_version_id = $document_version_id "
@@ -124,8 +124,8 @@ class UnifiedTopologyProjection:
         )
         structures = await read_rows(
             self._database,
-            "MATCH (chunk:KnowledgeNode:Chunk)-[support:SUPPORTS]->"
-            "(structure:KnowledgeNode:Structure) "
+            "MATCH (structure:KnowledgeNode:Structure)-[support:HAS_CHUNK]->"
+            "(chunk:KnowledgeNode:Chunk) "
             "WHERE chunk.tenant_id = $tenant_id AND structure.tenant_id = $tenant_id "
             "AND chunk.document_version_id = $document_version_id "
             "AND structure.document_version_id = $document_version_id "

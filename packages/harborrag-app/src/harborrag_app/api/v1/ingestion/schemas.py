@@ -31,6 +31,16 @@ class IngestionCreateRequest(ApiModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
         description="Tenant projection namespace; defaults to DEFAULT.",
     )
+    source_scope_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description=(
+            "Stable corpus scope these documents join; derived from the request when "
+            "omitted. Naming one requires the admin role, because permission grants "
+            "are issued per source scope."
+        ),
+    )
     mode: IngestionMode = Field(
         default=IngestionMode.INCREMENTAL,
         description=(

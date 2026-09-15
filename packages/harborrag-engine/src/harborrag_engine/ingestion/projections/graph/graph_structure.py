@@ -75,9 +75,7 @@ class StructuralGraphProjector:
                 prefix = path[:depth]
                 target = sections[self._section_key(chunk, prefix)]
                 source = (
-                    document_node
-                    if depth == 1
-                    else sections[self._section_key(chunk, prefix[:-1])]
+                    document_node if depth == 1 else sections[self._section_key(chunk, prefix[:-1])]
                 )
                 pair = (source.node_key, target.node_key)
                 if pair in emitted:
@@ -211,11 +209,13 @@ class StructuralGraphProjector:
                     attributes={"ordinal": chunk.ordinal},
                 )
             )
+            # Containment is uniformly parent -> child, so the whole spine can be
+            # traversed in one direction.
             self._state.relation(
                 GraphRelationSpec(
-                    relation_type=RelationType.SUPPORTS,
-                    source=chunk_node,
-                    target=target,
+                    relation_type=RelationType.HAS_CHUNK,
+                    source=target,
+                    target=chunk_node,
                     source_explicit=False,
                 )
             )
@@ -243,9 +243,7 @@ class StructuralGraphProjector:
         )
 
     @classmethod
-    def _section_key(
-        cls, chunk: ChunkRecord, path: tuple[str, ...]
-    ) -> tuple[tuple[str, ...], str]:
+    def _section_key(cls, chunk: ChunkRecord, path: tuple[str, ...]) -> tuple[tuple[str, ...], str]:
         return (
             path,
             cls._section_logical_id(

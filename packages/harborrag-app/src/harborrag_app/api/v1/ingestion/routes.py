@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import (
+    authorize_role,
     authorize_task_tenant,
     authorize_tenant,
     require_role,
@@ -77,6 +78,9 @@ async def create_ingestion(
     ] = None,
 ) -> IngestionAcceptedResponse:
     authorize_tenant(principal, request.tenant)
+    if request.source_scope_id is not None:
+        # Choosing a scope chooses which permission pile the documents join.
+        authorize_role(principal, "admin")
     result = await service.submit(
         build_ingestion_command(request),
         idempotency_key=idempotency_key,

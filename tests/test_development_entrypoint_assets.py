@@ -230,7 +230,7 @@ def test_api_restarts_and_mounts_graph_build_policy() -> None:
     compose = API_COMPOSE.read_text(encoding="utf-8")
 
     assert "restart: unless-stopped" in compose
-    assert "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph_build.yaml" in compose
+    assert "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml" in compose
     assert "../../config:/app/config:ro" in compose
 
 
