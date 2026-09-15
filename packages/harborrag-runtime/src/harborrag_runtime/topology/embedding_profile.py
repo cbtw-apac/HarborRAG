@@ -14,6 +14,8 @@ from harborrag_engine.topology.parent_builder import PARENT_BUILDER_VERSION, Par
 from harborrag_runtime.composition.resources import embedding_dimensions
 from harborrag_runtime.config.settings import RuntimeSettings
 
+from .summary_policy import build_summary_policy
+
 
 def build_contextual_profile(
     settings: RuntimeSettings,
@@ -42,6 +44,9 @@ def build_contextual_profile(
                 settings.topology_parent_max_output_tokens,
                 PARENT_BUILDER_VERSION,
                 asdict(parent_policy),
+                build_summary_policy(settings).fingerprint
+                if settings.topology_parent_enabled
+                else None,
             ]
         ),
     )

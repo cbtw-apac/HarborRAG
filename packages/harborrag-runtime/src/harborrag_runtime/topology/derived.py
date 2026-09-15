@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -68,6 +69,8 @@ class DerivedResources:
     vectors: DerivedVectorProjection
     graph: ParentProjectionPort
     parent_policy: ParentDescriptionPolicy = ParentDescriptionPolicy()
+    precomputed_parents: tuple[ParentDescription, ...] | None = None
+    parent_loader: Callable[[], Awaitable[tuple[ParentDescription, ...]]] | None = None
 
 
 @dataclass(frozen=True)
@@ -145,9 +148,13 @@ class DerivedEnrichmentCoordinator:
             for value in inputs
             if value.content.strip()
         )
-        parents = await ParentDescriptionBuilder(
-            self.resources.descriptions, self.resources.parent_policy
-        ).build(job.document_id, sources)
+        parents = self.resources.precomputed_parents
+        if self.resources.parent_loader is not None:
+            parents = await self.resources.parent_loader()
+        if parents is None:
+            parents = await ParentDescriptionBuilder(
+                self.resources.descriptions, self.resources.parent_policy
+            ).build(job.document_id, sources)
         context = StorageOperationContext.system(job.tenant_id)
         summary_artifact = await self.resources.parents.freeze_summaries(job, build, parents)
         summary_digest = digest([parent.model_dump(mode="json") for parent in parents])

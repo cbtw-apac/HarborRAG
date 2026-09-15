@@ -114,6 +114,7 @@ class Harness:
         self.model = FakeExtractor()
         self.access = AccessContext.system("DEFAULT")
         self.graph = FakeProjection()
+        self.include_graph = False
         self.policy = TopologyPolicy(
             tenant_id="DEFAULT",
             source_scope_id="scope",
@@ -279,10 +280,37 @@ class Harness:
                 )
             else:
                 await repo.transition(str(version_id), state)
+        graph_reference = None
+        if self.include_graph:
+            from harborrag_adapters.repositories.object_store import ProjectionArtifactRepository
+            from harborrag_core.domain.document import Document
+            from harborrag_core.domain.provenance import DocumentProvenance
+            from harborrag_engine.ingestion import GraphProjectionBuilder
+
+            document = Document(
+                id=str(document_id),
+                title="Guide",
+                content=[],
+                content_type="page",
+                provenance=DocumentProvenance(source="local_file", record_id=item),
+            )
+            graph = GraphProjectionBuilder().build_structural(
+                document=document, chunks=chunks, graph_projection_version="g1"
+            )
+            graph_reference = await ProjectionArtifactRepository(
+                self.writer, self.reader
+            ).put_graph_projection(
+                document_id=str(document_id),
+                document_version_id=str(version_id),
+                nodes=graph.nodes,
+                relations=graph.relations,
+                context=StorageOperationContext.system("DEFAULT"),
+            )
         await repo.save_projection_manifest(
             ProjectionManifest(
                 document_id=document_id,
                 document_version_id=version_id,
+                graph_artifact=graph_reference,
                 evidence_point_ids=tuple(
                     str(row.chunk_id) for row in chunks if row.record_kind == RecordKind.EVIDENCE
                 ),

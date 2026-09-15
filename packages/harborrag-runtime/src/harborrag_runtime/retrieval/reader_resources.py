@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from harborrag_adapters.repositories.object_store import ChunkArtifactReader
 from harborrag_adapters.repositories.vector.base import HarborVectorRepository
+from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.topology.search import TopologySearchPort
 from harborrag_engine.retrieval import ActiveVersionCandidateValidator
 
@@ -23,6 +24,7 @@ class ReaderResources:
     chunks: ChunkArtifactReader
     sources: SourceCatalogReader | None
     graph: KnowledgeGraphReader | None
+    summaries: SummaryReaderPort | None = None
 
 
 __all__ = ["ReaderResources"]

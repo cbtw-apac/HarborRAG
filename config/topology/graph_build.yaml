@@ -8,6 +8,10 @@ runtime:
 # they already carry their full text. Runs independently of entity extraction.
 summarization:
   enabled: true
+  task_queue: harborrag-summaries
+  debounce_seconds: 5
+  max_wait_seconds: 60
+  tenant_enabled: false         # lazy on-demand tenant summaries are opt-in
   # model: summariser            # omit to use the deployment's default model
   max_description_tokens: 512    # size of each generated summary
   budget:
@@ -26,4 +30,4 @@ tenants:
       daily_token_cap: 200000000
       daily_cost_usd: "15.00"
     sources:
-      - source_scope_id: scope-harborrag
+      - source_scope_id: harborrag-docs

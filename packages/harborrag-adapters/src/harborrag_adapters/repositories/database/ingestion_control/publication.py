@@ -18,6 +18,7 @@ from harborrag_core.ingestion import (
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from .schema import DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_CLEANUP_JOBS
+from .summary_intent import invalidate_summary_scope, lock_summary_tenant
 from .topology.intent import enqueue_intent
 
 
@@ -34,6 +35,13 @@ class DocumentVersionPublisher:
         candidate_document_version_id: str,
     ) -> PublicationResult:
         async with self._client.sessions.begin() as session:
+            tenant = (
+                await session.execute(
+                    select(DOCUMENTS.c.tenant_id).where(DOCUMENTS.c.document_id == document_id)
+                )
+            ).scalar_one_or_none()
+            if tenant is not None:
+                await lock_summary_tenant(session, tenant)
             document_result = await session.execute(
                 select(DOCUMENTS).where(DOCUMENTS.c.document_id == document_id).with_for_update()
             )
@@ -107,6 +115,8 @@ class DocumentVersionPublisher:
                 )
             )
             cleanup_created = False
+            for scope_id in sorted({document["source_scope_id"], candidate["source_scope_id"]}):
+                await invalidate_summary_scope(session, document["tenant_id"], scope_id)
             await enqueue_intent(
                 session,
                 {
@@ -142,6 +152,13 @@ class DocumentVersionPublisher:
         """Retire one removed source without deleting canonical artifacts."""
 
         async with self._client.sessions.begin() as session:
+            tenant = (
+                await session.execute(
+                    select(DOCUMENTS.c.tenant_id).where(DOCUMENTS.c.document_id == document_id)
+                )
+            ).scalar_one_or_none()
+            if tenant is not None:
+                await lock_summary_tenant(session, tenant)
             result = await session.execute(
                 select(DOCUMENTS).where(DOCUMENTS.c.document_id == document_id).with_for_update()
             )
@@ -181,6 +198,9 @@ class DocumentVersionPublisher:
                 document_id=document_id,
                 document_version_id=active_version,
                 now=now,
+            )
+            await invalidate_summary_scope(
+                session, document["tenant_id"], document["source_scope_id"]
             )
             return DocumentRetirementResult(
                 document_id=DocumentId(document_id),

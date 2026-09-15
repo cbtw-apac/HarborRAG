@@ -55,11 +55,11 @@ class ParentViewBuilder:
 
     @staticmethod
     def _validate_parent(parent: ParentDescription, available: set[str]) -> None:
-        if not parent.complete or parent.level not in {"section", "document"}:
+        if not parent.complete or parent.level not in {"section", "structure", "document"}:
             raise ValueError("only complete section/document parent views can be projected")
-        if (parent.level == "section") != bool(parent.section_path):
+        if parent.level != "structure" and (parent.level == "section") != bool(parent.section_path):
             raise ValueError("section parent views require one non-empty hierarchy path")
-        if parent.level == "section" and parent.structure_id is None:
+        if parent.level in {"section", "structure"} and parent.structure_id is None:
             raise ValueError("section parent views require a stable structure identity")
         inputs, citations = set(parent.input_chunk_ids), set(parent.cited_chunk_ids)
         if not parent.parent_key.strip() or not parent.input_digest.strip():
@@ -97,6 +97,7 @@ class ParentViewProjection:
             {"tenant_id": str(context.tenant_id), "build_id": build.build_id},
         )
         targets = (
+            ("structure", "Structure", "target.logical_id = row.structure_id"),
             (
                 "document",
                 "DocumentVersion",
@@ -134,6 +135,7 @@ class ParentViewProjection:
         rows = self._builder.build(build, parents, str(context.tenant_id))
         bindings: list[dict[str, Any]] = []
         targets = (
+            ("structure", "Structure", "target.logical_id = row.structure_id"),
             ("document", "DocumentVersion", "target.document_id = row.document_id"),
             (
                 "section",

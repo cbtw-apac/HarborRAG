@@ -24,6 +24,7 @@ from ..contracts import (
 from .document_context import DocumentContextReader
 from .immutable_evidence import ImmutableEvidenceReader
 from .reader_resources import ReaderResources
+from .summary_views import apply_summary_views
 
 _READ_DEADLINE_SECONDS = 10
 _RESOLUTION_CANDIDATE_LIMIT = 100
@@ -44,9 +45,7 @@ class ReaderRetrieval:
             items = await self._evidence.read(request, context)
         return EvidenceReadResponse(request_id, items)
 
-    async def document_context(
-        self, request: DocumentContextRequest
-    ) -> DocumentContextResponse:
+    async def document_context(self, request: DocumentContextRequest) -> DocumentContextResponse:
         request_id = f"document-{uuid4().hex}"
         context = _context(request.access, request_id, "document-context")
         async with asyncio.timeout(_READ_DEADLINE_SECONDS):
@@ -82,6 +81,7 @@ class ReaderRetrieval:
                 return GraphNodeResolveResponse(request_id, ())
             raw = await self._resources.graph.resolve_nodes(query, context=context)
             visible = await self._visible_nodes(raw.candidates, request.access)
+            visible = await apply_summary_views(visible, self._resources.summaries, request.access)
         candidates = visible[: request.query.limit]
         return GraphNodeResolveResponse(
             request_id,
@@ -102,9 +102,7 @@ class ReaderRetrieval:
             )
             if not allowed:
                 return None
-            query = query.model_copy(
-                update={"source_scope_ids": tuple(sorted(allowed))}
-            )
+            query = query.model_copy(update={"source_scope_ids": tuple(sorted(allowed))})
         return query.model_copy(update={"limit": _RESOLUTION_CANDIDATE_LIMIT})
 
     async def _visible_nodes(
@@ -117,7 +115,9 @@ class ReaderRetrieval:
             dict.fromkeys(str(node.document_id) for node in nodes if node.document_id is not None)
         )
         source_ids = tuple(
-            dict.fromkeys(node.source_scope_id for node in nodes if node.source_scope_id is not None)
+            dict.fromkeys(
+                node.source_scope_id for node in nodes if node.source_scope_id is not None
+            )
         )
         documents = await topology.authorized_document_ids(
             str(access.tenant_id), document_ids, access=access
@@ -127,9 +127,7 @@ class ReaderRetrieval:
         )
         tenant_visible = bool(documents or sources)
         return tuple(
-            node
-            for node in nodes
-            if _node_visible(node, documents, sources, tenant_visible)
+            node for node in nodes if _node_visible(node, documents, sources, tenant_visible)
         )
 
 

@@ -23,6 +23,7 @@ from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     StructuredUsageResult,
 )
+from harborrag_core.summary_cards import SummaryCard
 from harborrag_core.topology.derived import (
     DescriptionOutput,
     DescriptionPacket,
@@ -35,7 +36,7 @@ from harborrag_core.topology.text_policy import (
     enforce_text_budget,
 )
 
-DESCRIPTION_CONTRACT_VERSION = "parent-description-v3-native-scope-bounded"
+DESCRIPTION_CONTRACT_VERSION = "parent-description-v4-summary-card"
 DESCRIPTION_MAX_REPAIR_ATTEMPTS = 2
 
 
@@ -51,6 +52,12 @@ class BoundedDescriptionOutput(DescriptionOutput):
             self.description,
             field="parent description",
             max_words=PARENT_DESCRIPTION_MAX_WORDS,
+        )
+        SummaryCard(
+            description=self.description,
+            topics=self.topics,
+            key_entities=self.key_entities,
+            content_types=self.content_types,
         )
         return self
 
@@ -68,6 +75,9 @@ class ParentDescriptionOutputPolicy:
             ),
             cited_packet_ids=output.cited_packet_ids,
             complete=output.complete,
+            topics=output.topics,
+            key_entities=output.key_entities,
+            content_types=output.content_types,
         )
 
 
@@ -81,6 +91,8 @@ DESCRIPTION_PROMPT = (
     "complete bounded input scope: process every packet and set complete=true. This flag means "
     "input coverage only; it does not claim independently evaluated semantic faithfulness. "
     "Return only the requested structured JSON, not markdown."
+    " Include concise topics, key_entities, and content_types when supported; each facet "
+    "must be at most 80 characters. These are navigation hints, not additional claims."
 )
 
 
@@ -127,7 +139,11 @@ def pin_rollup_model(
         }
     )
     pinned = config.model_copy(
-        update={"default_model": name, "models": {name: logical}, "retry": retry}
+        update={
+            "default_model": name,
+            "models": {name: logical.model_copy(update={"deployments": (logical.deployments[0],)})},
+            "retry": retry,
+        }
     )
     return pinned, logical.deployments[0].pricing
 

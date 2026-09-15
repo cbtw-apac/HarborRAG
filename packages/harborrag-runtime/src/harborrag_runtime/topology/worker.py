@@ -19,6 +19,8 @@ from harborrag_runtime.temporal.connection import connect_temporal_client
 from .composition import connect_topology_runtime
 from .derived_dispatch import DerivedDispatcher
 from .service import TopologyEnrichmentService
+from .summary_factory import SummaryRuntimeFactory
+from .summary_worker import watch_summaries
 from .workflow import TopologyEnrichmentWorkflow, TopologyWorkflowInput
 
 
@@ -77,6 +79,18 @@ async def run_temporal_worker(settings: RuntimeSettings, tenant_id: str) -> None
             ),
         ):
             async with asyncio.TaskGroup() as tasks:
+                tasks.create_task(
+                    watch_summaries(
+                        client,
+                        SummaryRuntimeFactory(
+                            settings,
+                            runtime.control,
+                            runtime.artifact_reader,
+                            runtime.artifact_writer,
+                        ),
+                        tenant_id,
+                    )
+                )
                 tasks.create_task(
                     DerivedDispatcher(runtime.control.topology, runtime.derive, settings).watch(
                         tenant_id

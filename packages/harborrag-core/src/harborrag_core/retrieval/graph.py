@@ -172,6 +172,8 @@ def compact_node(node: GraphNodeRecord) -> dict[str, object]:
         view["document_version_id"] = str(node.document_version_id)
     if node.source_scope_id is not None:
         view["source_scope_id"] = node.source_scope_id
+    if node.summary is not None:
+        view["summary"] = node.summary.model_dump(mode="json", exclude_none=True)
     return view
 
 

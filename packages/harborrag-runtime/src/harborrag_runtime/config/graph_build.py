@@ -87,8 +87,8 @@ class GraphBuildTenantConfig(_GraphBuildModel):
 class SummarizationBudgetConfig(_GraphBuildModel):
     """What a summarization run is allowed to spend."""
 
-    # Stops the run once crossed. Needs pricing on the chosen deployment; without it
-    # calls are counted as unpriced and the ceiling cannot bind.
+    # Reserve the configured worst-case call cost before spending. Missing actual
+    # usage retains that conservative charge; missing operation ceiling blocks work.
     max_usd_per_run: Decimal | None = Field(default=None, gt=0)
     max_calls_per_document: int = Field(default=64, ge=1, le=10000)
 
@@ -104,8 +104,8 @@ class SummarizationInputConfig(_GraphBuildModel):
     """How much child content one summarization call may consume."""
 
     max_children_per_call: int = Field(default=8, ge=2, le=32)
-    max_bytes_per_call: int = Field(default=24000, ge=100, le=30000)
-    max_tokens_per_call: int = Field(default=6000, ge=100, le=30000)
+    max_bytes_per_call: int = Field(default=24000, ge=2048, le=30000)
+    max_tokens_per_call: int = Field(default=6000, ge=512, le=30000)
 
 
 class SummarizationConfig(_GraphBuildModel):
@@ -117,6 +117,10 @@ class SummarizationConfig(_GraphBuildModel):
     """
 
     enabled: bool = False
+    task_queue: str = Field(default="harborrag-summaries", min_length=1, max_length=128)
+    debounce_seconds: float = Field(default=5, ge=0, le=300)
+    max_wait_seconds: float = Field(default=60, ge=1, le=3600)
+    tenant_enabled: bool = False
     # None reuses the deployment's default model.
     model: str | None = Field(default=None, min_length=1, max_length=256)
     # The size of each generated description.
@@ -210,6 +214,10 @@ class GraphBuildConfig(_GraphBuildModel):
             "topology_poll_seconds": runtime.poll_seconds,
             "topology_embedding_max_input_bytes": derived.embedding_max_input_bytes,
             "topology_parent_enabled": summarization.enabled,
+            "summary_task_queue": summarization.task_queue,
+            "summary_debounce_seconds": summarization.debounce_seconds,
+            "summary_max_wait_seconds": summarization.max_wait_seconds,
+            "summary_tenant_enabled": summarization.tenant_enabled,
             "topology_parent_model": summarization.model,
             "topology_parent_run_budget_usd": summarization.budget.max_usd_per_run,
             "topology_parent_max_output_tokens": summarization.max_description_tokens,
@@ -236,6 +244,10 @@ def graph_build_runtime_view(settings: RuntimeSettings) -> dict[str, object]:
         "derived_enabled": settings.topology_derived_enabled,
         "embedding_max_input_bytes": settings.topology_embedding_max_input_bytes,
         "parent_enabled": settings.topology_parent_enabled,
+        "summary_task_queue": settings.summary_task_queue,
+        "summary_debounce_seconds": settings.summary_debounce_seconds,
+        "summary_max_wait_seconds": settings.summary_max_wait_seconds,
+        "summary_tenant_enabled": settings.summary_tenant_enabled,
         "parent_model": settings.topology_parent_model,
         "parent_run_budget_usd": settings.topology_parent_run_budget_usd,
         "parent_max_output_tokens": settings.topology_parent_max_output_tokens,

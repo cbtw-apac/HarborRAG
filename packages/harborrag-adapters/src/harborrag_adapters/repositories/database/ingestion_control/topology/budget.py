@@ -1,9 +1,10 @@
 """Transactional tenant budget reservations shared by every worker and stage."""
 
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
 
-from sqlalchemy import and_, func, insert, select, update
+from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,8 +32,16 @@ def microusd(value: Decimal) -> int:
     return int((value * 1000000).to_integral_value(rounding=ROUND_CEILING))
 
 
+@dataclass(frozen=True)
+class SummaryBudgetOwner:
+    tenant_id: str
+    job_id: str
+    fence: int
+    document_version_id: str
+
+
 async def reserve(
-    session: AsyncSession, job: TopologyJob, request: BudgetRequest
+    session: AsyncSession, job: TopologyJob | SummaryBudgetOwner, request: BudgetRequest
 ) -> BudgetAdmission:
     state = await lock_indexing_config(session, job.tenant_id)
     now = utc_now()
@@ -65,11 +74,14 @@ async def reserve(
         calls = (
             await session.execute(
                 select(func.coalesce(func.sum(BUDGET_RESERVATIONS.c.provider_calls), 0))
-                .join(TOPOLOGY_JOBS, TOPOLOGY_JOBS.c.job_id == BUDGET_RESERVATIONS.c.job_id)
+                .outerjoin(TOPOLOGY_JOBS, TOPOLOGY_JOBS.c.job_id == BUDGET_RESERVATIONS.c.job_id)
                 .where(
                     BUDGET_RESERVATIONS.c.tenant_id == job.tenant_id,
                     BUDGET_RESERVATIONS.c.operation_key == request.operation_key,
-                    TOPOLOGY_JOBS.c.document_version_id == job.document_version_id,
+                    or_(
+                        TOPOLOGY_JOBS.c.document_version_id == job.document_version_id,
+                        BUDGET_RESERVATIONS.c.job_id == job.job_id,
+                    ),
                 )
             )
         ).scalar_one()
@@ -79,7 +91,7 @@ async def reserve(
         await session.execute(
             select(func.count())
             .select_from(BUDGET_RESERVATIONS)
-            .join(
+            .outerjoin(
                 TOPOLOGY_JOBS,
                 and_(
                     TOPOLOGY_JOBS.c.job_id == BUDGET_RESERVATIONS.c.job_id,
@@ -90,6 +102,10 @@ async def reserve(
                 BUDGET_RESERVATIONS.c.tenant_id == job.tenant_id,
                 BUDGET_RESERVATIONS.c.state == "reserved",
                 BUDGET_RESERVATIONS.c.expires_at > now,
+                or_(
+                    TOPOLOGY_JOBS.c.job_id.is_not(None),
+                    BUDGET_RESERVATIONS.c.job_id.startswith("summary:"),
+                ),
             )
         )
     ).scalar_one()

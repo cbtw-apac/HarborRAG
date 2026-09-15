@@ -8,6 +8,7 @@ import pytest
 
 from harborrag_core.topology.derived import ContextualIndexProfile
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.retrieval import composition as retrieval_factory
 
 
@@ -34,8 +35,8 @@ class _Telemetry:
         self.close = AsyncMock()
 
 
-def _settings() -> SimpleNamespace:
-    return SimpleNamespace(
+def _settings() -> RuntimeSettings:
+    return RuntimeSettings(
         model_config_path=Path("models.yaml"),
         embedding_model=None,
         embedding_dimensions=None,
@@ -56,6 +57,7 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
     control = _Resource()
     control.document_versions = object()
     control.topology = object()
+    control.summaries = object()
     objects = _ObjectStore()
     vectors = _Resource()
     graph = _Resource(connect_error=graph_error)
@@ -135,6 +137,7 @@ async def test_retrieval_factory_connects_and_owns_every_provider(monkeypatch) -
     assert resources.active_versions is control.document_versions
     assert resources.graph_repository is graph
     assert resources.topology_repository is control.topology
+    assert resources.summary_repository is control.summaries
     assert isinstance(resources.contextual_search, retrieval_factory.ContextualEvidenceSearch)
     assert policy.embedding_model == "embed-default"
     assert policy.embedding_dimensions == 32

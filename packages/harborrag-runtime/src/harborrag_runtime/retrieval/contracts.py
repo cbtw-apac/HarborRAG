@@ -18,6 +18,7 @@ from harborrag_core.ingestion import (
     SourceCatalogQuery,
 )
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
+from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.retrieval import (
     GraphNodeResolutionQuery,
     GraphNodeResolutionResult,
@@ -167,6 +168,7 @@ class RetrievalResources:
     contextual_search: ContextualSearchPort | None = None
     document_snapshots: DocumentSnapshotReader | None = None
     source_catalog: SourceCatalogReader | None = None
+    summary_repository: SummaryReaderPort | None = None
 
 
 @dataclass(frozen=True, slots=True)

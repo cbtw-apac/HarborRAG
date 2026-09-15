@@ -10,6 +10,7 @@ from harborrag_core.security.context import AccessContext
 from harborrag_core.topology.permissions import PermissionDependency, ResolvedPermissionSnapshot
 
 from ..schema import DOCUMENTS
+from ..summary_intent import invalidate_summary_scope, lock_summary_tenant
 from .authorization import authorized_documents, readable_snapshot
 from .configuration import lock_indexing_config
 from .policy_schema import PERMISSION_GRANTS, PERMISSION_HISTORY, PERMISSION_SNAPSHOTS
@@ -58,6 +59,7 @@ class TopologyPermissionOperations:
 
     async def set_permissions(self, snapshot: ResolvedPermissionSnapshot) -> None:
         async with topology_transaction(self._client) as session:
+            await lock_summary_tenant(session, snapshot.tenant_id)
             await lock_indexing_config(session, snapshot.tenant_id)
             predicate = (
                 PERMISSION_SNAPSHOTS.c.tenant_id == snapshot.tenant_id,
@@ -126,6 +128,21 @@ class TopologyPermissionOperations:
                 )
             )
             principals = set(snapshot.allowed_principal_ids) | set(snapshot.denied_principal_ids)
+            if previous is None or previous["revision"] != snapshot.revision:
+                scope_id = (
+                    snapshot.resource_id
+                    if snapshot.resource_kind == "source"
+                    else (
+                        await session.execute(
+                            select(DOCUMENTS.c.source_scope_id).where(
+                                DOCUMENTS.c.tenant_id == snapshot.tenant_id,
+                                DOCUMENTS.c.document_id == snapshot.resource_id,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                )
+                if scope_id is not None:
+                    await invalidate_summary_scope(session, snapshot.tenant_id, scope_id)
             if principals:
                 await session.execute(
                     insert(PERMISSION_GRANTS),

@@ -10,6 +10,7 @@ from typing import Annotated, Any
 
 import typer
 
+from .summary_projection import app as summary_app
 from .topology_security import app as indexing_app
 
 app = typer.Typer(no_args_is_help=True, help="Configure and operate semantic topology enrichment.")
@@ -20,6 +21,7 @@ resolution_app = typer.Typer(
 app.add_typer(resolution_app, name="resolution")
 app.add_typer(indexing_app, name="indexing")
 app.add_typer(config_app, name="config")
+app.add_typer(summary_app, name="summaries")
 Tenant = Annotated[str, typer.Option("--tenant", help="Tenant authority and evidence scope.")]
 Scope = Annotated[str, typer.Option("--source-scope", help="Canonical ingestion source scope ID.")]
 

@@ -8,6 +8,7 @@ from temporalio import workflow
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
 
+from harborrag_runtime.topology.summary_workflow import SummaryProjectionWorkflow
 from harborrag_runtime.topology.worker import dispatch
 from harborrag_runtime.topology.workflow import TopologyEnrichmentWorkflow
 
@@ -16,6 +17,13 @@ from harborrag_runtime.topology.workflow import TopologyEnrichmentWorkflow
 async def test_topology_workflow_prepares_inside_temporal_sandbox():
     SandboxedWorkflowRunner().prepare_workflow(
         workflow._Definition.must_from_class(TopologyEnrichmentWorkflow)
+    )
+
+
+@pytest.mark.asyncio
+async def test_summary_workflow_prepares_inside_temporal_sandbox():
+    SandboxedWorkflowRunner().prepare_workflow(
+        workflow._Definition.must_from_class(SummaryProjectionWorkflow)
     )
 
 

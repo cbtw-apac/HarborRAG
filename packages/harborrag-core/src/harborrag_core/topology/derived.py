@@ -152,7 +152,7 @@ def description_prompt_json(packets: tuple[DescriptionPacket, ...]) -> str:
 
 class ParentDescription(StrictModel):
     parent_key: str
-    level: Literal["section", "document", "folder"]
+    level: Literal["section", "structure", "document", "folder"]
     section_path: tuple[str, ...] = Field(default=(), max_length=50)
     structure_id: str | None = Field(default=None, min_length=1, max_length=256)
     description: str = Field(min_length=1, max_length=8000)
@@ -168,6 +168,9 @@ class DescriptionOutput(StrictModel):
     description: str = Field(min_length=1, max_length=8000)
     cited_packet_ids: tuple[str, ...] = Field(min_length=1, max_length=100)
     complete: bool
+    topics: tuple[str, ...] = Field(default=(), max_length=12)
+    key_entities: tuple[str, ...] = Field(default=(), max_length=12)
+    content_types: tuple[str, ...] = Field(default=(), max_length=8)
 
     def require_bounded_description(self) -> None:
         enforce_text_budget(

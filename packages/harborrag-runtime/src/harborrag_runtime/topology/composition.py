@@ -77,6 +77,7 @@ class TopologyRuntime:
     projection: FalkorTopologyRepository
     artifacts: ExtractionArtifacts
     artifact_reader: ImmutableArtifactReader
+    artifact_writer: ImmutableArtifactWriter
     derive: DerivationRunner
     cleanup_derived: DerivationCleanupRunner
 
@@ -160,6 +161,7 @@ async def connect_topology_runtime(
             graph,
             artifacts,
             reader,
+            writer,
             derived.complete,
             derived.cleanup,
         )

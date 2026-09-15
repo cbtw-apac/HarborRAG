@@ -23,6 +23,7 @@ from ..composition.resources import (
     build_vector_repository,
     embedding_dimensions,
 )
+from ..config.graph_build import GraphBuildConfig
 from ..config.settings import RuntimeSettings
 from ..ingestion.observability import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
@@ -36,6 +37,7 @@ async def connect_retrieval_service(
 ) -> RuntimeRetrievalService:
     """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set."""
 
+    settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or embed_config.default_model
     dimensions = settings.embedding_dimensions or embedding_dimensions(
@@ -95,6 +97,7 @@ async def connect_retrieval_service(
             ),
             graph_repository=graph_repository,
             topology_repository=control.topology,
+            summary_repository=control.summaries,
             contextual_search=ContextualEvidenceSearch(
                 control.topology, vector_repository, contextual_profile
             ),

@@ -26,12 +26,15 @@ class ConfiguredDescriptionGenerator:
     profile: ExtractionProfile
     tenant_id: str
     document_id: str
+    frozen_catalog: HarborChatClientConfig | None = None
 
     async def generate(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionOutput:
         return (await self.generate_usage(packets)).output
 
     async def generate_usage(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionRun:
-        catalog = HarborChatClientConfig.from_file(self.settings.model_config_path)
+        catalog = self.frozen_catalog or HarborChatClientConfig.from_file(
+            self.settings.model_config_path
+        )
         if self.settings.topology_parent_model:
             # The rollup has its own prompt, so it cannot pass the extraction pin.
             config, pricing = pin_rollup_model(catalog, self.settings.topology_parent_model)

@@ -29,11 +29,15 @@ from __future__ import annotations
 
 from harborrag_core.chunking import PROJECTED_RELATION_TYPES
 from harborrag_core.ingestion import KnowledgeNodeKind
+from harborrag_core.summary_cards import SummaryView
 
 from .evidence_output_schema import ASSERTION_SCHEMA, EVIDENCE_PATH_SCHEMA, NAVIGATION_SCHEMA
 
 _NODE_KIND_VALUES = [kind.value for kind in KnowledgeNodeKind]
 _PROJECTED_RELATION_VALUES = [relation.value for relation in PROJECTED_RELATION_TYPES]
+_SUMMARY_SCHEMA = SummaryView.model_json_schema()
+_SUMMARY_DEFINITIONS = _SUMMARY_SCHEMA.pop("$defs")
+_SUMMARY_SCHEMA["properties"]["card"]["anyOf"][0] = _SUMMARY_DEFINITIONS["SummaryCard"]
 
 NODE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -47,6 +51,7 @@ NODE_SCHEMA: dict[str, object] = {
         "document_id": {"type": "string"},
         "document_version_id": {"type": "string"},
         "source_scope_id": {"type": "string"},
+        "summary": _SUMMARY_SCHEMA,
     },
     "additionalProperties": False,
 }

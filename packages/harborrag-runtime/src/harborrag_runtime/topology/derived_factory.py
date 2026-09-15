@@ -2,6 +2,7 @@
 
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
+from functools import partial
 
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.runtime import ResourceOwnership
@@ -36,6 +37,7 @@ from .embedding_profile import build_contextual_profile
 from .parent_materializer import ParentMaterializer
 from .run_cost import RunCostLedger
 from .service import extraction_input
+from .summary_products import summary_parents
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,9 @@ class DerivedRuntimeFactory:
                         max_input_tokens=self.settings.topology_parent_max_input_tokens,
                         max_calls=self.settings.topology_parent_max_calls,
                     ),
+                    parent_loader=partial(summary_parents, self.control, tenant_id, build)
+                    if self.settings.topology_parent_enabled
+                    else None,
                 )
             )
             return await coordinator.complete(job, build, inputs)

@@ -97,8 +97,16 @@ def test_migration_adds_topology_tables_and_round_trips_without_document_loss(
             )
         tables = set(inspect(engine).get_table_names())
         expected = {
-            name for name in TOPOLOGY_POLICIES.metadata.tables if name.startswith("topology_")
+            name
+            for name in TOPOLOGY_POLICIES.metadata.tables
+            if name.startswith(("topology_", "summary_"))
         }
+        assert {
+            "summary_scopes",
+            "summary_bindings",
+            "summary_cache",
+            "summary_tenants",
+        } <= expected
         assert expected <= tables
         command.downgrade(config, "0019")
         tables = set(inspect(engine).get_table_names())

@@ -71,6 +71,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     ) -> None:
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
+        self._summaries = resources.summary_repository
         self._policy = policy
         self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
         self._permissions = RetrievalPermissions(resources.topology_repository)
@@ -91,6 +92,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 chunks=resources.chunk_reader,
                 sources=resources.source_catalog,
                 graph=resources.graph_repository,
+                summaries=resources.summary_repository,
             )
         )
         self._topology = TopologyRetrieval(

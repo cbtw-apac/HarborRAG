@@ -135,6 +135,10 @@ class RuntimeSettings(BaseSettings):
     topology_parent_max_input_bytes: int = Field(default=24000, ge=100, le=30000)
     topology_parent_max_input_tokens: int = Field(default=6000, ge=100, le=30000)
     topology_parent_max_calls: int = Field(default=64, ge=1, le=10000)
+    summary_task_queue: str = Field(default="harborrag-summaries", min_length=1)
+    summary_debounce_seconds: float = Field(default=5, ge=0, le=300)
+    summary_max_wait_seconds: float = Field(default=60, ge=1, le=3600)
+    summary_tenant_enabled: bool = False
     # Explicit conservative per-operation price bounds are required before LLM dispatch.
     topology_llm_operation_cost_usd: Decimal | None = Field(default=None, gt=0)
     topology_derived_enabled: bool = False

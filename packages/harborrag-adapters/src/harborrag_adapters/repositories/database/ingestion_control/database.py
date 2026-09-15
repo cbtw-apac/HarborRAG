@@ -9,6 +9,7 @@ from .reindex import ReindexJobRepository
 from .reliability import IngestionReliabilityRepository
 from .schema import METADATA
 from .source_scans import SourceScanRepository
+from .summary_repository import SummaryRepository
 from .task_events import TaskEventRepository
 from .tasks import IngestionTaskRepository
 from .topology import TopologyRepository
@@ -35,6 +36,7 @@ class IngestionControlPlaneDatabase:
         self.tasks = IngestionTaskRepository(client)
         self.task_events = TaskEventRepository(client)
         self.topology = TopologyRepository(client)
+        self.summaries = SummaryRepository(client)
 
     async def __aenter__(self) -> IngestionControlPlaneDatabase:
         await self.connect()

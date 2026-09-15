@@ -7,6 +7,7 @@ from pydantic import Field, field_validator, model_validator
 from harborrag_core.base import StrictModel
 from harborrag_core.chunking import RelationType
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
+from harborrag_core.summary_cards import SummaryView
 
 from .artifact_contracts import ArtifactReference
 from .graph_attribute_validation import validate_graph_attributes
@@ -104,6 +105,8 @@ class GraphNodeRecord(StrictModel):
     document_version_id: DocumentVersionId | None = None
     title: str | None = Field(default=None, max_length=512)
     description: str | None = Field(default=None, max_length=8000)
+    # Read-time authority join; never freeze summaries in canonical graph manifests.
+    summary: SummaryView | None = Field(default=None, exclude=True)
     section_path: tuple[str, ...] = ()
     attributes: dict[str, Any] = Field(default_factory=dict)
 
