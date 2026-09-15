@@ -150,8 +150,6 @@ class HarborRAG:
         if self._executor is not None:
             close_operations.append(self._executor.aclose())
             self._executor = None
-        if not close_operations:
-            return
         results = await asyncio.gather(*close_operations, return_exceptions=True)
         errors = [result for result in results if isinstance(result, Exception)]
         fatal = [

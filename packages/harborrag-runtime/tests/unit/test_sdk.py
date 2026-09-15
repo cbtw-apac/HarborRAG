@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from harborrag_core.chunking import RelationType
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_core.indexing import FilterOperator
 from harborrag_core.ingestion import (
     ExecutionCapabilityError,
     GraphEdgeRecord,
@@ -33,6 +36,12 @@ from harborrag_runtime.sdk import (
     HarborRAGConfig,
     IngestionRequest,
     RetrievalRequest,
+)
+from harborrag_runtime.sdk.facades import (
+    GraphFacade,
+    IngestionFacade,
+    KnowledgeFacade,
+    _build_vector_filter,
 )
 
 
@@ -262,3 +271,225 @@ async def test_sdk_graph_facade_preserves_access_context() -> None:
 
     assert response.triplets[0].predicate.relation_type == RelationType.LINKS_TO
     assert service.graph_call[1] is access
+
+
+@pytest.mark.asyncio
+async def test_ingestion_facade_delegates_every_lifecycle_operation() -> None:
+    result = object()
+    reference = object()
+    status = object()
+    owner = SimpleNamespace(
+        _ingestion_run=AsyncMock(return_value=result),
+        _ingestion_submit=AsyncMock(return_value=reference),
+        _ingestion_status=AsyncMock(return_value=status),
+        _ingestion_control=AsyncMock(),
+    )
+    facade = IngestionFacade(owner)
+    request = SimpleNamespace()
+
+    assert await facade.run(request) is result
+    assert await facade.submit(request) is reference
+    assert await facade.status("task") is status
+    await facade.pause("task")
+    await facade.resume("task")
+    await facade.cancel("task")
+
+    assert [call.args for call in owner._ingestion_control.await_args_list] == [
+        ("task", "pause"),
+        ("task", "resume"),
+        ("task", "cancel"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_graph_facade_delegates_paths_and_subgraphs() -> None:
+    access = AccessContext(principal_id="reader", tenant_id="tenant")
+    diagnostics = _Diagnostics()
+    service = SimpleNamespace(
+        search_graph_paths=AsyncMock(
+            return_value=SimpleNamespace(paths=("path",), diagnostics=diagnostics)
+        ),
+        search_graph_subgraph=AsyncMock(
+            return_value=SimpleNamespace(
+                graph=SimpleNamespace(nodes=(), relations=()), diagnostics=diagnostics
+            )
+        ),
+    )
+    owner = SimpleNamespace(_retrieval_service=AsyncMock(return_value=service))
+    facade = GraphFacade(owner)
+    request = SimpleNamespace(query="query", access=access)
+
+    paths = await facade.find_paths(request)
+    subgraph = await facade.expand_subgraph(request)
+
+    assert paths.paths == ("path",)
+    assert subgraph.nodes == () and subgraph.relations == ()
+    service.search_graph_paths.assert_awaited_once_with("query", access=access)
+    service.search_graph_subgraph.assert_awaited_once_with("query", access=access)
+
+
+@pytest.mark.asyncio
+async def test_knowledge_facade_delegates_canonical_reads() -> None:
+    response = object()
+    service = SimpleNamespace(
+        fetch_evidence=AsyncMock(return_value=response),
+        read_evidence=AsyncMock(return_value=response),
+        get_document_context=AsyncMock(return_value=response),
+        list_readable_sources=AsyncMock(return_value=response),
+        resolve_graph_nodes=AsyncMock(return_value=response),
+        resolve_entities=AsyncMock(return_value=response),
+        lookup_entities=AsyncMock(return_value=("mention",)),
+        find_semantic_relations=AsyncMock(return_value=response),
+        find_semantic_paths=AsyncMock(return_value=response),
+    )
+    owner = SimpleNamespace(_retrieval_service=AsyncMock(return_value=service))
+    facade = KnowledgeFacade(owner)
+    access = AccessContext(principal_id="reader", tenant_id="tenant")
+    request = SimpleNamespace(
+        access=access,
+        chunk_ids=("chunk",),
+        name="entity",
+        limit=3,
+        entity_id="entity-id",
+        predicates=("owns",),
+        direction="outgoing",
+    )
+
+    assert await facade.fetch_evidence(request) is response
+    assert await facade.read_evidence(request) is response
+    assert await facade.get_document_context(request) is response
+    assert await facade.list_sources(request) is response
+    assert await facade.resolve_graph_nodes(request) is response
+    assert await facade.resolve_entities(request) is response
+    assert await facade.lookup_entities(
+        access=access, entity_ids=("entity-id",), chunk_ids=("chunk",)
+    ) == ("mention",)
+    assert await facade.find_relations(request) is response
+    assert await facade.find_paths(request) is response
+
+    service.resolve_entities.assert_awaited_once_with("entity", limit=3, access=access)
+    service.find_semantic_relations.assert_awaited_once_with(
+        "entity-id",
+        predicates=("owns",),
+        direction="outgoing",
+        limit=3,
+        access=access,
+    )
+
+
+def test_vector_filter_supports_empty_scalar_and_collection_values() -> None:
+    assert _build_vector_filter({}) is None
+    built = _build_vector_filter({"scope": ["a", "b"], "tenant": "tenant"})
+    assert built is not None
+    assert [(item.field, item.operator) for item in built.must] == [
+        ("scope", FilterOperator.IN),
+        ("tenant", FilterOperator.EQUALS),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sdk_starts_once_runs_ingestion_and_closes_the_executor(monkeypatch) -> None:
+    from harborrag_runtime import plugins
+    from harborrag_runtime.sdk import runtime as sdk_runtime
+
+    executor = SimpleNamespace(
+        start=AsyncMock(),
+        run=AsyncMock(return_value="ingested"),
+        aclose=AsyncMock(),
+    )
+    build = Mock(return_value=executor)
+    discover = Mock()
+    monkeypatch.setattr(sdk_runtime, "build_ingestion_executor", build)
+    monkeypatch.setattr(plugins, "discover_runtime_plugins", discover)
+    harbor = HarborRAG(HarborRAGConfig(discover_plugins=True))
+    request = SimpleNamespace()
+
+    assert await harbor.ingestion.run(request) == "ingested"
+    await harbor.start()
+    await harbor.aclose()
+
+    discover.assert_called_once_with()
+    build.assert_called_once_with(ExecutionMode.DIRECT, harbor.config.runtime)
+    executor.start.assert_awaited_once_with()
+    executor.run.assert_awaited_once_with(request)
+    executor.aclose.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sdk_from_config_supports_async_context_management(monkeypatch, tmp_path) -> None:
+    config = HarborRAGConfig()
+    loaded = Mock(return_value=config)
+    monkeypatch.setattr(HarborRAGConfig, "from_file", loaded)
+    harbor = HarborRAG.from_config(tmp_path / "harborrag.yaml")
+    start = AsyncMock()
+    close = AsyncMock()
+    monkeypatch.setattr(harbor, "start", start)
+    monkeypatch.setattr(harbor, "aclose", close)
+
+    async with harbor as entered:
+        assert entered is harbor
+
+    loaded.assert_called_once_with(tmp_path / "harborrag.yaml")
+    start.assert_awaited_once_with()
+    close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_temporal_sdk_delegates_durable_lifecycle_operations() -> None:
+    executor = SimpleNamespace(
+        submit=AsyncMock(return_value="reference"),
+        status=AsyncMock(return_value="running"),
+        pause=AsyncMock(),
+        resume=AsyncMock(),
+        cancel=AsyncMock(),
+    )
+    harbor = HarborRAG(HarborRAGConfig(execution_mode=ExecutionMode.TEMPORAL))
+    harbor._executor = executor
+    request = SimpleNamespace()
+
+    assert await harbor.ingestion.submit(request) == "reference"
+    assert await harbor.ingestion.status("task") == "running"
+    await harbor.ingestion.pause("task")
+    await harbor.ingestion.resume("task")
+    await harbor.ingestion.cancel("task")
+
+    executor.submit.assert_awaited_once_with(request)
+    executor.status.assert_awaited_once_with("task")
+    executor.pause.assert_awaited_once_with("task")
+    executor.resume.assert_awaited_once_with("task")
+    executor.cancel.assert_awaited_once_with("task")
+
+
+@pytest.mark.asyncio
+async def test_sdk_connects_retrieval_once_and_exposes_chat_stream(monkeypatch) -> None:
+    service = SimpleNamespace(aclose=AsyncMock())
+    connect = AsyncMock(return_value=service)
+    composition = ModuleType("harborrag_runtime.retrieval.composition")
+    composition.connect_retrieval_service = connect  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "harborrag_runtime.retrieval.composition", composition)
+    harbor = HarborRAG(HarborRAGConfig())
+
+    assert await harbor._retrieval_service() is service
+    assert await harbor._retrieval_service() is service
+    stream = object()
+    harbor._chat_runtime = SimpleNamespace(stream=Mock(return_value=stream), aclose=AsyncMock())
+    request = SimpleNamespace()
+    assert harbor._chat_stream(request, prompt=ChatPrompt.CONCISE) is stream
+    await harbor.aclose()
+
+    connect.assert_awaited_once_with(harbor.config.runtime)
+    service.aclose.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sdk_close_surfaces_fatal_resource_failures() -> None:
+    class FatalResourceError(BaseException):
+        pass
+
+    harbor = HarborRAG(HarborRAGConfig())
+    harbor._chat_runtime = SimpleNamespace(
+        aclose=AsyncMock(side_effect=FatalResourceError("fatal close"))
+    )
+
+    with pytest.raises(BaseExceptionGroup, match="resource close failed"):
+        await harbor.aclose()

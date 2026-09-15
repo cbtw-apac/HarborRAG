@@ -1,7 +1,10 @@
 """Explicit summary administration and graph-independent worker composition."""
 
+from __future__ import annotations
+
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
+from typing import TYPE_CHECKING
 
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
@@ -12,11 +15,28 @@ from harborrag_runtime.composition.resources import build_object_store
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.temporal.connection import connect_temporal_client
 
 from .composition import connect_topology_authority
 from .summary_factory import SummaryRuntimeFactory
-from .summary_worker import watch_summaries
+
+if TYPE_CHECKING:
+    from temporalio.client import Client
+
+
+async def connect_temporal_client(config: TemporalRuntimeConfig) -> Client:
+    """Load the optional Temporal transport only when the worker needs it."""
+
+    from harborrag_runtime.temporal.connection import connect_temporal_client as connect
+
+    return await connect(config)
+
+
+async def watch_summaries(client: Client, factory: SummaryRuntimeFactory, tenant_id: str) -> None:
+    """Load Temporal workflow definitions only when the worker starts."""
+
+    from .summary_worker import watch_summaries as watch
+
+    await watch(client, factory, tenant_id)
 
 
 @asynccontextmanager

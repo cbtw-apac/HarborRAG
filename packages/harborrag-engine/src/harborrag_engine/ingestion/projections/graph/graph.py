@@ -133,7 +133,7 @@ class SourceRelationProjector:
                 # ancestors are projected by the connector-specific projector;
                 # an unresolved external link must not invent a same-scope target.
                 continue
-            raw_target_id = resolved.source_item_id if resolved is not None else relation.target_id
+            raw_target_id = resolved.source_item_id
             # The far end's own connector, not the declaring document's: both the
             # entity type and the provider-id reduction below feed the target's
             # node key, and keying a Confluence page as a Jira issue puts it
@@ -143,15 +143,11 @@ class SourceRelationProjector:
                 raw_target_id,
             )
             target_id = source_provider_id(target_connector, raw_target_id)
-            target_scope = (
-                resolved.source_scope_id
-                if resolved is not None
-                else self._state.context.source_scope_id
-            )
+            target_scope = resolved.source_scope_id
             # Every node this projector creates stands in for something another document
-            # owns, resolved or not: it carries no provider attributes of its own, so it
-            # must never overwrite the concrete projection (adapter writes placeholders
-            # ON CREATE SET only). A resolved target only supplies a better stub title.
+            # owns: it carries no provider attributes of its own, so it must never
+            # overwrite the concrete projection (adapter writes placeholders ON CREATE
+            # SET only). The resolved target may also supply a better stub title.
             target = self._state.source_node(
                 relation_entity_type(
                     target_connector,

@@ -229,6 +229,26 @@ async def test_summary_administration_operations_delegate_to_composed_ports(monk
     summaries.cleanup.assert_awaited_once_with("tenant", retention_days=7, apply=True)
 
 
+@pytest.mark.asyncio
+async def test_summary_temporal_adapters_are_loaded_on_demand(monkeypatch):
+    from harborrag_runtime.temporal import connection
+    from harborrag_runtime.topology import summary_worker
+
+    config = Mock()
+    client = object()
+    connect = AsyncMock(return_value=client)
+    watch = AsyncMock()
+    monkeypatch.setattr(connection, "connect_temporal_client", connect)
+    monkeypatch.setattr(summary_worker, "watch_summaries", watch)
+    factory = Mock()
+
+    assert await summary_operations.connect_temporal_client(config) is client
+    await summary_operations.watch_summaries(client, factory, "tenant")
+
+    connect.assert_awaited_once_with(config)
+    watch.assert_awaited_once_with(client, factory, "tenant")
+
+
 def test_summary_policy_loads_catalog_only_when_not_supplied(monkeypatch):
     settings = RuntimeSettings()
     catalog = object()

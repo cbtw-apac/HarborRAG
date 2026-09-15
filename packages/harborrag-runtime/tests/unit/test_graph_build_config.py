@@ -10,9 +10,11 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.topology.configuration import GraphBuildConfigSynchronizer
 
+_REPOSITORY_GRAPH_BUILD = Path(__file__).parents[4] / "config/topology/graph_build.yaml"
+
 
 def test_repository_graph_build_policy_is_executable() -> None:
-    config = GraphBuildConfig.from_file(Path("config/topology/graph_build.yaml"))
+    config = GraphBuildConfig.from_file(_REPOSITORY_GRAPH_BUILD)
 
     tenant = config.tenants[0]
     assert tenant.tenant_id == "DEFAULT"
@@ -35,7 +37,7 @@ def test_yaml_is_the_single_authority_for_graph_runtime_values(
 ) -> None:
     monkeypatch.setenv("HARBORRAG_TOPOLOGY_DERIVED_ENABLED", "false")
     monkeypatch.setenv("HARBORRAG_TOPOLOGY_OPERATION_SECONDS", "45")
-    settings = RuntimeSettings(graph_build_config_path=Path("config/topology/graph_build.yaml"))
+    settings = RuntimeSettings(graph_build_config_path=_REPOSITORY_GRAPH_BUILD)
     effective = GraphBuildConfig.from_settings(settings).effective_settings(settings)
 
     assert effective.topology_derived_enabled is True
