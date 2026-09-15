@@ -1,30 +1,6 @@
-from __future__ import annotations
+"""MCP names for the transport-independent runtime tool contracts."""
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from harborrag_runtime.tools.base import BaseTool as BaseMcpTool
+from harborrag_runtime.tools.base import ToolSpec as McpToolSpec
 
-
-@dataclass(frozen=True, slots=True)
-class McpToolSpec:
-    name: str
-    description: str
-    input_schema: dict[str, Any] = field(default_factory=lambda: {"type": "object"})
-    capability: Literal["read", "ingestion", "admin"] = "read"
-    output_schema: dict[str, Any] | None = None
-    annotations: dict[str, Any] | None = None
-
-
-class BaseMcpTool(ABC):
-    """Contract for a service-level MCP tool."""
-
-    spec: McpToolSpec
-
-    @abstractmethod
-    async def call(
-        self,
-        arguments: dict[str, object],
-        *,
-        principal_id: str,
-    ) -> dict[str, object]:
-        raise NotImplementedError
+__all__ = ["BaseMcpTool", "McpToolSpec"]

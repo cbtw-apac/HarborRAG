@@ -12,11 +12,25 @@ from ..contracts import (
     SourceListRequest,
     SourceListResponse,
 )
+from ..reader_contracts import (
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
+)
 from .readers import ReaderRetrieval
 
 
 class RuntimeReaderRetrievalMixin:
     _reader: ReaderRetrieval
+
+    async def get_document_metadata(
+        self, request: DocumentMetadataRequest
+    ) -> DocumentMetadataResponse:
+        return await self._reader.document_metadata(request)
+
+    async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
+        return await self._reader.list_documents(request)
 
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
         return await self._reader.read_evidence(request)

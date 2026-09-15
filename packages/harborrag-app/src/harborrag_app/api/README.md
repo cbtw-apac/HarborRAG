@@ -145,63 +145,42 @@ The API authenticates the principal and accepts tenant as one explicit,
 top-level request field. It defaults to `DEFAULT`; callers cannot bypass tenant
 isolation through retrieval filters.
 
-### Generate a chat completion
+### Chat and agent completions
 
-Chat uses the `chat` section of `config/models.yaml`, resolves credentials from
-`env/.env.models`, and retrieves tenant-scoped evidence before calling the
-model. Callers may choose per-request graph observation and streaming, but
-cannot submit a system prompt, provider
-credentials, model overrides, custom tools, or adapter-specific parameters.
+Use `POST /v1/chat/completions` for both modes. Only `prompt` is required;
+`session_id` may be omitted to create a conversation. `mode` defaults to
+`rag`; `mode: "agent"` enables the shared bounded retrieval tool catalog.
 
 ```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"tenant":"DEFAULT"}' \
-  http://127.0.0.1:8000/v1/chat/sessions
-
-curl --fail-with-body --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"session_id":"session-...","prompt":"What is HarborRAG?"}' \
+curl --fail-with-body --request POST \\
+  --header 'Content-Type: application/json' \\
+  --header 'Idempotency-Key: request-1' \\
+  --data '{"prompt":"What is HarborRAG?","stream":false}' \\
   http://127.0.0.1:8000/v1/chat/completions
 ```
 
-The session response contains a generated `session_id` and greeting. The completion POST
-requires that session ID and a prompt in its JSON body. `stream=true` changes the response to
-SSE. The two latest PostgreSQL-backed turns are recalled under the tenant,
-authenticated principal, and session identity. Requests are marked sensitive
-so model-response caching remains disabled. Completion endpoints accept POST
-only, keeping prompts and other sensitive content out of request URLs and access logs.
+Set `stream: true` for SSE. Use browser `fetch` to send the POST body and
+consume `response.output_text.delta` frames; `response.completed` contains
+the same final contract as JSON, including session, title, citations, usage,
+and LiteLLM generation cost. Agent mode also emits `response.agent.progress`.
+Unknown prices remain `null`. Retrieval embedding costs are not included in
+the generation subtotal. See [the full contract](../../../../../docs/users/chat/README.md).
 
-### Run a multi-turn agent
+All HTTP requests currently use `DEFAULT_USER` within their tenant. The latest
+three completed user/assistant pairs form prompt memory; older and partial
+turns stay in history but are excluded from context. A deterministic title is
+created after the first successful persisted exchange. Neither an initial
+title nor a client-supplied user ID is accepted.
 
-The agent uses the same model and memory identity but can execute multiple
-model/tool hops before synthesizing an answer. Only runtime-owned read tools
-are exposed. `graph_search` controls whether graph triplet, path, and subgraph
-tools are available, and `max_steps` bounds model/tool rounds from 1 to 8.
+Different sessions may execute concurrently. Shared database leases serialize
+one session across workers. An idempotency key replays a completed result;
+conflicting, active, failed, or uncertain duplicates return `409`. Capacity
+limits and streaming deadlines remain server-owned.
 
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"tenant":"DEFAULT"}' \
-  http://127.0.0.1:8000/v1/agent/sessions
-
-curl --fail-with-body --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"session_id":"session-...","prompt":"Connect this release policy to its owner.","graph_search":true,"max_steps":4}' \
-  http://127.0.0.1:8000/v1/agent/completions
-```
-
-The POST returns a `session_id` and greeting. Agent completions return
-aggregate token usage, turn count, and a safe tool trace containing tool names
-and success status. Raw tool arguments and results are not returned.
-
-The former `POST /v1/retrieval/search` route has been removed. Retrieval
-operations are intentionally not exposed as GET: query text and nested filters
-belong in a validated request body and should not be copied into URLs, access
-logs, browser history, or intermediary cache keys. A future GET endpoint should
-represent a persisted retrieval resource; searches are not persisted today.
+Manage conversations through `/v1/conversations`; resume agent runs through
+`POST /v1/runs/{run_id}/resume`. The old session, conversation, and agent
+completion routes remain deprecated aliases with successor and sunset headers.
+Prompts remain in POST bodies and sensitive model-response caching is disabled.
 
 ### Retrieve evidence
 

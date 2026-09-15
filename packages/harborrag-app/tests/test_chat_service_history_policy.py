@@ -1,4 +1,4 @@
-"""History-aware retrieval: the standalone query, not the raw follow-up, is searched."""
+"""Public chat searches raw queries and replays its fixed recent history."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from harborrag_runtime.memory import (
 )
 
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-OPTIONS = ChatExecutionOptions(session_id="session-1")
+OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
 
 
 class RewritingMemoryFacade(FakeMemoryFacade):
@@ -54,16 +54,8 @@ class RewritingMemoryFacade(FakeMemoryFacade):
         )
 
 
-class FailingMemoryFacade:
-    async def build_context(
-        self,
-        request: MemoryContextRequest,
-        *,
-        messages: object,
-        memories: object = None,
-        index: object = None,
-    ) -> MemoryContext:
-        del request, messages, memories
+class FailingHistory(InMemoryConversationMemory):
+    async def recent_complete_messages(self, identity, *, limit=3):
         raise RuntimeError("memory store is down")
 
 
@@ -90,7 +82,7 @@ async def _service(
 
 
 @pytest.mark.asyncio
-async def test_retrieval_searches_the_standalone_query_not_the_raw_follow_up() -> None:
+async def test_retrieval_searches_raw_follow_up_without_a_rewrite_call() -> None:
     retrieval = FakeRetrievalFacade((_result("The Platform team owns releases."),))
     runtime = FakeRuntime(
         FakeChatFacade(),
@@ -108,12 +100,13 @@ async def test_retrieval_searches_the_standalone_query_not_the_raw_follow_up() -
 
     assert response.ok is True
     assert retrieval.request is not None
-    assert retrieval.request.query == "Who owns the release policy?"
+    assert retrieval.request.query == "and who owns it?"
+    assert runtime.memory.requests == []
 
 
 @pytest.mark.asyncio
 async def test_the_user_still_sees_their_own_question_in_the_prompt() -> None:
-    """Rewriting steers retrieval; the model must still answer what was asked."""
+    """The fixed policy does not inject old summaries or rewrite the question."""
 
     chat = FakeChatFacade()
     runtime = FakeRuntime(
@@ -132,8 +125,8 @@ async def test_the_user_still_sees_their_own_question_in_the_prompt() -> None:
 
     prompt = str(chat.requests[0].messages[-1].content)
     assert "Question: and who owns it?" in prompt
-    assert "Earlier: the release policy was discussed." in prompt
-    assert chat.requests[0].metadata.retrieval_query == "Who owns the release policy?"
+    assert "Earlier: the release policy was discussed." not in prompt
+    assert chat.requests[0].metadata.retrieval_query == "and who owns it?"
 
 
 @pytest.mark.asyncio
@@ -159,8 +152,7 @@ async def test_a_memory_failure_answers_from_retrieval_instead_of_failing(
 ) -> None:
     retrieval = FakeRetrievalFacade((_result("It ships weekly."),))
     runtime = FakeRuntime(FakeChatFacade(), retrieval)
-    runtime.memory = FailingMemoryFacade()  # type: ignore[assignment]
-    service = await _service(runtime)
+    service = await _service(runtime, FailingHistory())
 
     response = await service.complete(
         "What is the release policy?",
@@ -172,7 +164,7 @@ async def test_a_memory_failure_answers_from_retrieval_instead_of_failing(
     assert response.ok is True
     assert retrieval.request is not None
     assert retrieval.request.query == "What is the release policy?"
-    assert any("answering from retrieval alone" in record.getMessage() for record in caplog.records)
+    assert "Conversation context unavailable" in caplog.text
     assert "What is the release policy?" not in caplog.text
 
 

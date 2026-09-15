@@ -133,6 +133,7 @@ async def test_completed_run_ignores_advisory_memory_and_event_failures() -> Non
     )
 
     assert result.response.text == "answer"
+    assert result.memory_persisted is False
     assert runs.checkpoints[result.run_id].status is AgentRunStatus.COMPLETED
 
 

@@ -61,6 +61,7 @@ def test_agent_service_applies_server_owned_time_and_token_budgets() -> None:
     assert options.synthesis_timeout_seconds == 30.0
     assert options.timeout_seconds == 120.0 - 30.0 - 5.0
     assert options.max_total_tokens == 120_000
+    assert options.user_id == "DEFAULT_USER"
 
 
 def test_agent_service_derives_run_timeout_from_the_transport_deadline() -> None:
@@ -96,13 +97,13 @@ async def test_agent_service_uses_created_session_and_recalls_it_on_follow_up() 
         "first question",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=AgentExecutionOptions(session_id=session_id),
+        options=AgentExecutionOptions(user_id="reader-1", session_id=session_id),
     )
     second = await service.complete(
         "follow-up question",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=AgentExecutionOptions(session_id=session_id),
+        options=AgentExecutionOptions(user_id="reader-1", session_id=session_id),
     )
 
     assert first.ok is True
@@ -159,12 +160,57 @@ async def test_agent_service_resumes_a_running_checkpoint() -> None:
         "run-crashed",
         tenant_id=tenant_id,
         principal_id=principal_id,
-        options=AgentExecutionOptions(session_id=session_id),
+        options=AgentExecutionOptions(user_id="reader-1", session_id=session_id),
     )
 
     assert resumed.ok is True
     assert resumed.data["run_id"] == "run-crashed"
     assert resumed.data["message"]["content"] == "answer-1"
+
+
+@pytest.mark.asyncio
+async def test_explicit_model_selection_survives_a_failed_run_and_resume() -> None:
+    class InterruptedChat(_Chat):
+        async def complete(self, request, *, prompt):
+            if not self.requests:
+                self.requests.append(request)
+                raise ConnectionError("temporary provider failure")
+            return await super().complete(request, prompt=prompt)
+
+    chat = InterruptedChat()
+    memory = InMemoryConversationMemory()
+    identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
+    await memory.create(identity)
+    runs = InMemoryAgentRunRepository()
+    service = AgentApplicationService(
+        lambda: SimpleNamespace(chat=chat),
+        memory=memory,
+        runs=runs,
+    )
+    failed = await service.complete(
+        "question",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=AgentExecutionOptions(
+            session_id="session-1", user_id="reader-1", model="selected-model"
+        ),
+    )
+    assert failed.ok is False
+    checkpoint = next(iter(runs._checkpoints.values()))
+    assert checkpoint.logical_model == "selected-model"
+
+    resumed = await service.resume(
+        checkpoint.identity.run_id,
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=AgentExecutionOptions(session_id="session-1", user_id="reader-1"),
+    )
+
+    assert resumed.ok is True
+    assert [request.logical_model for request in chat.requests] == [
+        "selected-model",
+        "selected-model",
+    ]
 
 
 @pytest.mark.asyncio
@@ -182,7 +228,7 @@ async def test_agent_service_resume_of_unknown_run_raises_not_found() -> None:
             "missing-run",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=AgentExecutionOptions(session_id="session-1"),
+            options=AgentExecutionOptions(user_id="reader-1", session_id="session-1"),
         )
 
 
@@ -252,7 +298,7 @@ async def test_agent_service_stream_yields_events_then_result() -> None:
             "question",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=AgentExecutionOptions(session_id=session_id),
+            options=AgentExecutionOptions(user_id="reader-1", session_id=session_id),
         )
     ]
 
@@ -296,7 +342,7 @@ async def test_agent_service_stream_cancels_the_background_run_on_early_close() 
         "question",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=AgentExecutionOptions(session_id=session_id),
+        options=AgentExecutionOptions(user_id="reader-1", session_id=session_id),
     )
 
     first = await stream.__anext__()
@@ -310,8 +356,8 @@ async def test_agent_service_stream_cancels_the_background_run_on_early_close() 
 
 
 @pytest.mark.asyncio
-async def test_agent_service_rejects_a_chat_session() -> None:
-    """Chat and agent turns share one memory table; a chat session is unknown here."""
+async def test_agent_service_accepts_a_chat_conversation_for_either_delivery_mode() -> None:
+    """The stored creation kind does not prevent switching execution mode."""
 
     chat = _Chat()
     runtime = SimpleNamespace(chat=chat)
@@ -325,21 +371,21 @@ async def test_agent_service_rejects_a_chat_session() -> None:
         ConversationIdentity("ACME", "reader-1", "chat-session", "reader-1"), kind="chat"
     )
 
-    with pytest.raises(HarborNotFoundError):
-        await service.complete(
-            "question",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=AgentExecutionOptions(session_id="chat-session"),
-        )
+    result = await service.complete(
+        "question",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=AgentExecutionOptions(user_id="reader-1", session_id="chat-session"),
+    )
     events = [
         item
         async for item in service.stream(
             "question",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=AgentExecutionOptions(session_id="chat-session"),
+            options=AgentExecutionOptions(user_id="reader-1", session_id="chat-session"),
         )
     ]
-    assert events == [{"kind": "error", "error": "HarborNotFoundError"}]
-    assert chat.requests == []
+    assert result.ok is True
+    assert events[-1]["kind"] == "result"
+    assert len(chat.requests) == 2

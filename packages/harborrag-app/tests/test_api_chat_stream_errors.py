@@ -21,6 +21,7 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.api.v1.chat import routes as chat_routes
+from harborrag_app.api.v1.chat.replay import CompletionAttempt
 from harborrag_app.api.v1.chat.schemas import ChatCompletionRequest
 from harborrag_core.contracts.errors import HarborNoIndexedContentError
 
@@ -115,8 +116,12 @@ def test_chat_stream_error_frame_names_a_provider_failure(
     )
 
     frames = _sse_frames(response.text)
-    assert frames == [
-        ("error", {"code": "chat_stream_error", "message": "The chat provider stream failed"})
+    assert frames[0][0] == "response.started"
+    assert frames[1:] == [
+        (
+            "response.error",
+            {"code": "chat_stream_error", "message": "The chat provider stream failed"},
+        )
     ]
     assert "private endpoint" not in response.text
 
@@ -144,9 +149,10 @@ def test_chat_stream_error_frame_names_a_scope_failure(
     )
 
     frames = _sse_frames(response.text)
-    assert frames == [
+    assert frames[0][0] == "response.started"
+    assert frames[1:] == [
         (
-            "error",
+            "response.error",
             {
                 "code": "harbor_not_found_error",
                 "message": "Conversation session or project was not found",
@@ -178,9 +184,40 @@ def test_chat_stream_error_frame_falls_back_for_an_unreviewed_failure(
     )
 
     frames = _sse_frames(response.text)
-    assert frames == [
-        ("error", {"code": "harbor_connection_error", "message": "Chat service is unavailable"})
+    assert frames[0][0] == "response.started"
+    assert frames[1:] == [
+        (
+            "response.error",
+            {"code": "harbor_connection_error", "message": "Chat service is unavailable"},
+        )
     ]
+
+
+def test_chat_stream_cleanup_failure_emits_only_one_terminal_event(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch,
+) -> None:
+    original = service.chat_stream
+
+    async def failing_cleanup(query: str, **kwargs: object):
+        try:
+            async for event in original(query, **kwargs):
+                yield event
+        finally:
+            raise RuntimeError("private cleanup details")
+
+    monkeypatch.setattr(service, "chat_stream", failing_cleanup)
+    body = {"prompt": "Hello", "stream": True, "idempotency_key": "cleanup-failure"}
+    response = client.post("/v1/chat/completions", json=body)
+    terminals = [
+        event
+        for event, _ in _sse_frames(response.text)
+        if event in {"response.completed", "response.error"}
+    ]
+    assert terminals == ["response.error"]
+    assert "private cleanup details" not in response.text
+    assert client.post("/v1/chat/completions", json=body).status_code == 409
 
 
 @pytest.mark.asyncio
@@ -204,15 +241,19 @@ async def test_chat_stream_closes_the_service_generator_when_the_body_is_abandon
         finally:
             closed.append("service stream")
 
-    response = chat_routes._stream_response(
-        ChatCompletionRequest(session_id="session-1", prompt="Hello"),
-        SimpleNamespace(chat_stream=chat_stream),  # type: ignore[arg-type]
-        Principal(subject="reader-1", role="reader", tenant_ids=frozenset({"DEFAULT"})),
-        timeout_seconds=5.0,
+    request = ChatCompletionRequest(session_id="session-1", prompt="Hello")
+    principal = Principal(subject="reader-1", role="reader", tenant_ids=frozenset({"DEFAULT"}))
+    service = SimpleNamespace(chat_stream=chat_stream)
+    response = chat_routes.stream_response(
+        request,
+        principal,
+        settings=ApiSettings(api_stream_timeout_seconds=5.0),
+        attempt=CompletionAttempt.for_request(service, request, principal),
     )
 
     body = response.body_iterator
-    assert b"text_delta" in await anext(body)  # type: ignore[arg-type]
+    assert b"response.started" in await anext(body)
+    assert b"response.output_text.delta" in await anext(body)  # type: ignore[arg-type]
     await body.aclose()  # type: ignore[attr-defined]
 
     assert closed == ["service stream"]
@@ -295,9 +336,10 @@ def test_chat_stream_names_an_empty_index_in_its_error_frame(
     )
 
     frames = _sse_frames(response.text)
-    assert frames == [
+    assert frames[0][0] == "response.started"
+    assert frames[1:] == [
         (
-            "error",
+            "response.error",
             {
                 "code": "no_indexed_content",
                 "message": "No content has been ingested yet, so there is nothing to search",

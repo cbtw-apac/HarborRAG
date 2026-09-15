@@ -10,14 +10,15 @@ from typing import TYPE_CHECKING
 from harborrag_app.workflow_control.errors import failure_response
 from harborrag_app.workflow_control.memory.extraction import (
     MemoryExtractionQueue,
-    submit_exchange,
 )
 from harborrag_app.workflow_control.memory.identity import MemoryIdentity
 from harborrag_app.workflow_control.memory.locks import SessionLocks
 from harborrag_app.workflow_control.memory.projects import require_project
+from harborrag_app.workflow_control.memory.titles import conversation_title
 from harborrag_app.workflow_control.memory.usage import ModelCall
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import (
+    HarborConflictError,
     HarborNoIndexedContentError,
     HarborNotFoundError,
     HarborValidationError,
@@ -33,6 +34,7 @@ from .events import cited_event, error_event
 from .options import ChatExecutionOptions
 from .preparation import ChatTurnResources, PreparedTurn, RuntimeProvider, prepare_turn
 from .presenters import chat_response_data, chat_stream_chunk_data, citation_data
+from .stream_result import stream_result
 from .turn import (
     DeliveredAnswer,
     RememberedTurn,
@@ -81,8 +83,8 @@ class ChatApplicationService:
         self._projects = projects
         self._extraction = extraction
         # Serializes completions per session so ``build context -> append``
-        # cannot interleave across concurrent requests (in-process only).
-        self._locks = locks or SessionLocks()
+        # cannot interleave across concurrent requests or SQL-backed workers.
+        self._locks = locks or SessionLocks(memory)
 
     async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
         """Reject a model name this tenant may not use, before the turn starts.
@@ -126,18 +128,25 @@ class ChatApplicationService:
                     prepared,
                     DeliveredAnswer(response.text, ModelCall.from_response(response)),
                 )
-                submit_exchange(self._extraction, identity, query, remembered.persisted)
+                title = await conversation_title(
+                    self._resources.memory,
+                    identity.conversation(),
+                    prompt=query if remembered.persisted else None,
+                )
             return AppResponse(
                 True,
-                chat_response_data(
-                    response,
-                    prepared.results,
-                    session_id=options.session_id,
-                    project_id=identity.project_id,
-                    memory_persisted=remembered.turn_persisted,
-                ),
+                {
+                    **chat_response_data(
+                        response,
+                        prepared.results,
+                        session_id=options.session_id,
+                        project_id=identity.project_id,
+                        memory_persisted=remembered.turn_persisted,
+                    ),
+                    "title": title,
+                },
             )
-        except (HarborValidationError, HarborNoIndexedContentError):
+        except (HarborValidationError, HarborNoIndexedContentError, HarborConflictError):
             # Conditions the transport must report as themselves. A rejected
             # value is a 422 and an empty index is a 409; folding either into
             # the generic envelope below would tell the caller the chat
@@ -177,8 +186,8 @@ class ChatApplicationService:
         options: ChatExecutionOptions,
     ) -> AsyncGenerator[dict[str, object], None]:
         """Yield ``{"kind": ...}`` events: one ``citations``, many ``chunk``, at
-        most one ``warning`` (memory not persisted) and at most one terminal
-        ``error``. A transport adapts these into SSE frames.
+        most one ``warning`` (memory not persisted), and one terminal
+        ``result`` or ``error``. A transport adapts these into SSE frames.
 
         ``aclosing`` is what makes an abandoned stream recoverable: when the
         client hangs up, ``GeneratorExit`` lands here, and closing the inner
@@ -188,6 +197,11 @@ class ChatApplicationService:
         """
 
         identity = _identity(tenant_id, principal_id, options)
+        try:
+            await self._require_scope(identity)
+        except Exception as exc:  # noqa: BLE001 - service streams report scope failures in band
+            yield error_event(exc, "prepare chat completion stream")
+            return
         async with self._locks.hold(identity.conversation()):
             events = self._stream_locked(query, identity=identity, options=options)
             async with contextlib.aclosing(events):
@@ -270,10 +284,24 @@ class ChatApplicationService:
         if provider_failed:
             yield {"kind": "error", "error": STREAM_ERROR, "error_type": STREAM_ERROR}
             return
+        if not answer.completed:
+            yield {"kind": "error", "error": STREAM_ERROR, "error_type": STREAM_ERROR}
+            return
         if not remembered.turn_persisted:
             yield {"kind": "warning", "warning": MEMORY_WARNING}
-            return
-        submit_exchange(self._extraction, identity, query, remembered.persisted)
+        title = await conversation_title(
+            self._resources.memory,
+            identity.conversation(),
+            prompt=query if remembered.persisted else None,
+        )
+        result = stream_result(
+            answer,
+            prepared,
+            session_id=identity.session_id,
+            project_id=identity.project_id,
+            memory_persisted=remembered.turn_persisted,
+        )
+        yield {"kind": "result", "result": {**result, "title": title}}
 
     async def _finish(
         self,
@@ -308,7 +336,7 @@ class ChatApplicationService:
     async def _require_scope(self, identity: MemoryIdentity) -> None:
         """Both the session and the optional project must exist for this caller."""
 
-        if not await self._resources.memory.exists(identity.conversation(), kind="chat"):
+        if not await self._resources.memory.exists(identity.conversation()):
             raise HarborNotFoundError("Conversation session was not found")
         await require_project(self._projects, identity.project_id, tenant_id=identity.tenant_id)
 

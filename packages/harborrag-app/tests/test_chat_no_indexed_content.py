@@ -45,7 +45,7 @@ async def test_completion_propagates_no_indexed_content_instead_of_failing() -> 
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
 
 
@@ -61,7 +61,7 @@ async def test_stream_names_no_indexed_content_in_its_error_event() -> None:
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     ]
 

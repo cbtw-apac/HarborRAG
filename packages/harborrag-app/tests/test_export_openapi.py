@@ -41,6 +41,10 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/chat/conversations",
         "/v1/chat/conversations/{session_id}",
         "/v1/chat/conversations/{session_id}/messages",
+        "/v1/conversations",
+        "/v1/conversations/{session_id}",
+        "/v1/conversations/{session_id}/messages",
+        "/v1/runs/{run_id}/resume",
         "/v1/agent/completions",
         "/v1/agent/sessions",
         "/v1/retrieval/vector",
@@ -60,7 +64,8 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     assert set(paths["/v1/agent/completions"]) >= {"post"}
     assert "get" not in paths["/v1/agent/completions"]
     assert "/v1/retrieval/search" not in paths
-    assert set(paths["/v1/chat/conversations"]) == {"get"}
+    assert set(paths["/v1/conversations"]) == {"get", "post"}
+    assert set(paths["/v1/chat/conversations"]) == {"get", "post"}
     assert set(paths["/v1/chat/conversations/{session_id}"]) == {"patch", "delete"}
     assert set(paths["/v1/chat/conversations/{session_id}/messages"]) == {"get"}
     assert set(paths["/v1/memory/memories"]) == {"get"}
@@ -118,7 +123,7 @@ def test_chat_and_agent_request_examples_are_sendable_as_written() -> None:
 
     # The required fields must actually be present, or the example cannot be sent.
     for name, required in (
-        ("ChatCompletionRequest", {"session_id", "prompt"}),
+        ("ChatCompletionRequest", {"prompt"}),
         ("AgentCompletionRequest", {"session_id", "prompt"}),
         ("AgentResumeRequest", {"session_id"}),
     ):

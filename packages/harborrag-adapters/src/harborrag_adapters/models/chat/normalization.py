@@ -22,6 +22,7 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.errors import HarborChatProviderError
 
 from .configs import HarborChatProviderConfig
+from .cost import response_cost
 from .reasoning import normalize_reasoning_content, reasoning_metadata, split_leading_think_block
 
 _FINISH_REASON_ALIASES = {
@@ -90,7 +91,7 @@ def normalize_chat_response(
         message=HarborChatMessage.assistant(content, tool_calls=tool_calls),
         finish_reason=normalize_finish_reason(choice.get("finish_reason")),
         usage=normalize_chat_usage(data.get("usage")),
-        estimated_cost_usd=normalize_response_cost(hidden),
+        estimated_cost_usd=response_cost(raw, deployment=deployment),
         latency_ms=latency_ms,
         request_id=request_id,
         provider_request_id=_provider_request_id(hidden),
@@ -134,15 +135,6 @@ def normalize_chat_usage(raw: Any) -> HarborChatUsage:
             "reasoning_tokens",
         ),
     )
-
-
-def normalize_response_cost(hidden: Mapping[str, Any]) -> float | None:
-    """Return LiteLLM's ``response_cost`` as a non-negative float, or None when absent."""
-
-    cost = hidden.get("response_cost")
-    if isinstance(cost, bool) or not isinstance(cost, int | float) or cost < 0:
-        return None
-    return float(cost)
 
 
 def normalize_finish_reason(value: Any) -> FinishReason:

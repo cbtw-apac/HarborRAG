@@ -20,7 +20,10 @@ if TYPE_CHECKING:
 
 _SERVER_INSTRUCTIONS = (
     "Use list_sources when corpus scope is unclear, then vector_search for natural-language "
-    "discovery. Re-fetch citations with fetch_evidence; use get_document_context for an "
+    "discovery. Use list_documents and get_document_metadata for document inventory. "
+    "Set include_content=false for compact search hits; use composed_evidence_search for "
+    "bounded semantic expansion followed by canonical evidence reads. Re-fetch citations "
+    "with fetch_evidence and check final references with verify_citations; use get_document_context for an "
     "ordered, version-bound reading window. Call resolve_graph_nodes before graph traversal "
     "when a provider ID or title can be ambiguous. Use graph_triplet_search for exact "
     "relations, graph_subgraph_search for a neighborhood, and graph_path_search between two "
@@ -151,8 +154,8 @@ def _request_principal_id(tenant_id: object | None = None) -> str:
     if token is None:
         return "local-unauthenticated"
     claims = token.claims or {}
-    if claims.get("role") != "owner":
-        raise PermissionError("MCP tools require an owner token")
+    if claims.get("role") not in {"reader", "owner"}:
+        raise PermissionError("MCP tools require a reader or owner token")
     if isinstance(tenant_id, str):
         authorize_claimed_tenant(claims, tenant_id)
     subject = claims.get("sub")

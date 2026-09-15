@@ -5,26 +5,24 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import cast
 
 from harborrag_app.workflow_control.chat.prompting import history_messages
 from harborrag_app.workflow_control.errors import failure_response
-from harborrag_app.workflow_control.memory.context import (
-    empty_memory_context,
-    memory_context_request,
-)
+from harborrag_app.workflow_control.memory.context import recent_memory_context
 from harborrag_app.workflow_control.memory.extraction import (
     MemoryExtractionQueue,
-    submit_exchange,
 )
 from harborrag_app.workflow_control.memory.identity import MemoryIdentity
 from harborrag_app.workflow_control.memory.locks import SessionLocks
 from harborrag_app.workflow_control.memory.projects import require_project
+from harborrag_app.workflow_control.memory.titles import conversation_title
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import (
     HarborConfigurationError,
+    HarborConflictError,
     HarborNotFoundError,
     HarborValidationError,
 )
@@ -46,7 +44,7 @@ from harborrag_runtime.sdk import HarborRAG
 
 from .options import AgentExecutionOptions
 from .support import DefaultPromptChat, agent_timeout_seconds, result_data, run_options
-from .turn import record_run_usage, remembered_exchange
+from .turn import record_run_usage
 
 # Re-exported for callers that historically imported the helpers from here.
 _run_options = run_options
@@ -98,7 +96,7 @@ class AgentApplicationService:
         self._memory_tools = memory_tools
         # Serializes runs per session so the engine's ``recent -> append`` on
         # conversation memory cannot interleave across concurrent requests.
-        self._locks = locks or SessionLocks()
+        self._locks = locks or SessionLocks(memory)
 
     def _agent_service(
         self,
@@ -122,7 +120,8 @@ class AgentApplicationService:
                 memories=self._memories,
                 index=self._index,
                 memory_owner=identity.owner(),
-                memory_tools_enabled=self._memory_tools,
+                # The current conversation policy is exactly three recent pairs.
+                memory_tools_enabled=False,
             ),
             memory=self._memory,
             runs=self._runs,
@@ -131,7 +130,7 @@ class AgentApplicationService:
     async def _require_scope(self, identity: MemoryIdentity) -> None:
         """Both the session and the optional project must exist for this caller."""
 
-        if not await self._memory.exists(identity.conversation(), kind="agent"):
+        if not await self._memory.exists(identity.conversation()):
             raise HarborNotFoundError("Conversation session was not found")
         await require_project(self._projects, identity.project_id, tenant_id=identity.tenant_id)
 
@@ -158,31 +157,16 @@ class AgentApplicationService:
                 ),
                 events=events,
             )
-            remembered = await remembered_exchange(
-                self._memory, identity, result, extraction=self._extraction
-            )
             await record_run_usage(self._usage, identity, result)
-        submit_exchange(self._extraction, identity, query, remembered)
+            await conversation_title(
+                self._memory, identity.conversation(), prompt=query, run_id=result.run_id
+            )
         return result
 
     async def _context(self, identity: MemoryIdentity, query: str) -> MemoryContext:
-        """Apply the memory policy; degrade to no history rather than fail the run."""
+        """Replay only the latest three complete user/assistant pairs."""
 
-        try:
-            return await self._runtime_provider().memory.build_context(
-                memory_context_request(identity, query),
-                messages=self._memory,
-                memories=self._memories,
-                index=self._index,
-            )
-        except Exception:  # noqa: BLE001 - non-fatal by design
-            logger.exception(
-                "Conversation memory context failed for tenant=%s session=%s; "
-                "running the agent without history",
-                identity.tenant_id,
-                identity.session_id,
-            )
-            return empty_memory_context(query)
+        return await recent_memory_context(self._memory, identity, query)
 
     async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
         """Reject a model name this tenant may not use, before the run starts.
@@ -206,8 +190,10 @@ class AgentApplicationService:
             result = await self._run_agent(
                 query, tenant_id=tenant_id, principal_id=principal_id, options=options
             )
-            return AppResponse(True, _project(result, options))
-        except HarborValidationError:
+            return AppResponse(
+                True, await self._project_result(result, options, tenant_id, principal_id)
+            )
+        except (HarborValidationError, HarborConflictError):
             # A caller-supplied value the transport must report as a 422.
             raise
         except Exception as exc:  # noqa: BLE001 - stable application envelope
@@ -220,7 +206,7 @@ class AgentApplicationService:
         tenant_id: str,
         principal_id: str,
         options: AgentExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> AsyncGenerator[dict[str, object], None]:
         """Yield ``{"kind": ...}`` events: many ``event``, exactly one terminal
         ``result`` or ``error``. A transport adapts these into SSE frames.
 
@@ -275,7 +261,12 @@ class AgentApplicationService:
                     continue
                 if item.kind == "result":
                     result = cast("AgentRunResult", item.payload)
-                    yield {"kind": "result", "result": _project(result, options)}
+                    yield {
+                        "kind": "result",
+                        "result": await self._project_result(
+                            result, options, tenant_id, principal_id
+                        ),
+                    }
                     return
                 failure = failure_response(
                     logger,
@@ -300,7 +291,7 @@ class AgentApplicationService:
     ) -> AppResponse:
         identity = _identity(tenant_id, principal_id, options)
         try:
-            await require_project(self._projects, identity.project_id, tenant_id=tenant_id)
+            await self._require_scope(identity)
             async with self._locks.hold(identity.conversation()):
                 result = await self._agent_service(identity).resume(
                     run_id, run_options(tenant_id, principal_id, options)
@@ -308,8 +299,13 @@ class AgentApplicationService:
                 # A resumed run spends real tokens too, so it is accounted for
                 # like a fresh one; the run_id ties both rows to the same run.
                 await record_run_usage(self._usage, identity, result)
-            return AppResponse(True, _project(result, options))
-        except (HarborNotFoundError, HarborConfigurationError):
+                await conversation_title(
+                    self._memory, identity.conversation(), run_id=result.run_id
+                )
+            return AppResponse(
+                True, await self._project_result(result, options, tenant_id, principal_id)
+            )
+        except (HarborNotFoundError, HarborConfigurationError, HarborConflictError):
             # Known, mapped domain errors (unresumable/unknown run, no checkpoint
             # backend configured) propagate for the transport layer to translate
             # into the right status code, matching `complete()`'s session-not-found
@@ -317,6 +313,17 @@ class AgentApplicationService:
             raise
         except Exception as exc:  # noqa: BLE001 - stable application envelope
             return failure_response(logger, exc, "resume agent run")
+
+    async def _project_result(
+        self,
+        result: AgentRunResult,
+        options: AgentExecutionOptions,
+        tenant_id: str,
+        principal_id: str,
+    ) -> dict[str, object]:
+        identity = _identity(tenant_id, principal_id, options)
+        title = await conversation_title(self._memory, identity.conversation())
+        return {**_project(result, options), "title": title}
 
 
 def _identity(tenant_id: str, principal_id: str, options: AgentExecutionOptions) -> MemoryIdentity:

@@ -79,6 +79,8 @@ async def test_a_completed_chat_turn_records_exactly_one_attributed_usage_row() 
     assert (record.prompt_tokens, record.completion_tokens, record.total_tokens) == (2, 1, 3)
     assert record.estimated_cost_usd == 0.0042
     assert record.finish_reason == "stop"
+    assert response.data["cost"]["amount_usd"] == 0.0042  # type: ignore[attr-defined]
+    assert response.data["cost"]["complete"] is True  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -120,6 +122,30 @@ async def test_a_deployment_with_no_usage_ledger_still_answers() -> None:
     response = await _complete(_service(memory))
 
     assert response.ok is True  # type: ignore[attr-defined]
+    assert response.data["cost"]["amount_usd"] is None  # type: ignore[attr-defined]
+    assert response.data["cost"]["status"] == "unavailable"  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_stream_cost_reaches_public_chunks_and_the_usage_ledger() -> None:
+    memory = await _session()
+    usage = FakeUsageRepository()
+    service = _service(memory, usage=usage, cost=0.0042)
+    events = [
+        event
+        async for event in service.stream(
+            "Hello", tenant_id="ACME", principal_id="svc-1", options=OPTIONS
+        )
+    ]
+    completed = next(
+        event["chunk"]
+        for event in events
+        if event.get("kind") == "chunk" and event["chunk"]["event"] == "completed"
+    )
+    assert completed["cost"]["amount_usd"] == 0.0042
+    assert completed["cost"]["complete"] is True
+    assert events[-1]["result"]["cost"] == completed["cost"]
+    assert usage.records[0].estimated_cost_usd == 0.0042
 
 
 @pytest.mark.asyncio

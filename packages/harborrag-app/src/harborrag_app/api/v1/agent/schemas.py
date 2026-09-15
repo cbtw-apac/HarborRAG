@@ -8,6 +8,7 @@ from pydantic import ConfigDict, Field
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.api.v1.chat.schemas import ChatUsageResponse
+from harborrag_core.models.cost import ModelCost
 
 
 class AgentSessionCreateRequest(ApiModel):
@@ -30,7 +31,7 @@ class AgentCompletionRequest(AgentSessionCreateRequest):
     # Only ``session_id`` and ``prompt`` are required. Without an explicit
     # example the docs generate a value for every optional field from its
     # pattern, and pasting those back names a project and a model that do not
-    # exist. The session id must be an agent session, not a chat one.
+    # exist. Chat and agent turns can share the same conversation.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
@@ -125,9 +126,12 @@ class AgentCompletionResponse(ApiModel):
     finish_reason: str
     stop_reason: str
     usage: ChatUsageResponse
+    cost: ModelCost = Field(default_factory=ModelCost)
     turns: int = Field(ge=1)
     tool_call_count: int = Field(ge=0)
     tool_calls: list[AgentToolCallResponse]
     session_id: str
+    title: str | None = None
+    memory_persisted: bool = True
     # The validated project the run was scoped to; null when none was given.
     project_id: str | None = None

@@ -11,6 +11,8 @@ a corpus question marks four sources, a conversational one marks none.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from harborrag_app.workflow_control.chat.presenters import cited_results
@@ -97,10 +99,12 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
         "What does the policy say?",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
 
     assert [c["chunk_id"] for c in response.data["citations"]] == ["chunk-2"]
+    messages = await memory.recent_messages(identity, limit=2)
+    assert json.loads(messages[-1].citations_json) == list(response.data["citations"])
 
 
 @pytest.mark.asyncio
@@ -158,7 +162,7 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
             "What does the policy say?",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     ]
 
@@ -169,5 +173,6 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
     assert [c["chunk_id"] for c in opening["citations"]] == ["chunk-1", "chunk-2", "chunk-3"]
     # The closing frame is a distinct kind, so a client that appends rather
     # than overwrites cannot mistake one for the other.
-    assert kinds[-1] == "cited_sources"
-    assert [c["chunk_id"] for c in events[-1]["citations"]] == ["chunk-2"]
+    assert kinds[-2:] == ["cited_sources", "result"]
+    assert [c["chunk_id"] for c in events[-2]["citations"]] == ["chunk-2"]
+    assert events[-1]["result"]["citations"] == events[-2]["citations"]

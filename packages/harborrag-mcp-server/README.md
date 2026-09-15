@@ -26,8 +26,8 @@ defaults/mcp.yaml           packaged fallback configuration
 
 ## Team deliverables
 
-- The shipped transport exposes the nine read-only tools documented in
-  [`docs/on-topology/mcp-tool-design.md`](../../docs/on-topology/mcp-tool-design.md):
+- The shipped transport exposes the thirteen read-only tools documented in
+  [MCP Tools](../../docs/users/detailed-guides/mcp-server/README.md):
   evidence search/fetch/context, source discovery, static graph description, bounded
   triplet/subgraph/path traversal, and exact graph-node resolution.
   Chat and agent are not MCP tools; they are served only through the HarborRAG
@@ -77,7 +77,7 @@ The launcher loads the protected database, model, API, and MCP environment files
 constructs the shared `HarborRAG` runtime, and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the nine advertised tool names without connecting to
+MCP handshake and print the thirteen advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:

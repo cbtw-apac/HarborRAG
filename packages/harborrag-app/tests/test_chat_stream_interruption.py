@@ -29,7 +29,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
 
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-OPTIONS = ChatExecutionOptions(session_id="session-1")
+OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
 
 
 def _chunk(
@@ -185,6 +185,7 @@ async def test_a_completed_stream_is_unchanged_and_not_marked_partial() -> None:
         "chunk",
         "chunk",
         "cited_sources",
+        "result",
     ]
     question, answer = await memory.recent_messages(IDENTITY, limit=10)
     assert (question.role, question.content) == ("user", "Hello")
@@ -240,7 +241,7 @@ async def test_a_completed_but_empty_answer_does_not_claim_memory_is_broken() ->
         )
     ]
 
-    assert [event["kind"] for event in events] == ["citations", "chunk"]
+    assert [event["kind"] for event in events] == ["citations", "chunk", "result"]
     (question,) = await memory.recent_messages(IDENTITY, limit=10)
     assert (question.role, question.content) == ("user", "Hello")
 
@@ -269,3 +270,25 @@ async def test_the_recent_window_never_contains_the_question_being_answered() ->
         "Hello",
         "Second question",
     ]
+
+
+@pytest.mark.asyncio
+async def test_partial_answers_remain_in_history_but_do_not_enter_the_next_prompt() -> None:
+    memory = await _session()
+    interrupted = _service(memory, _PartialChat())
+    _ = [
+        event
+        async for event in interrupted.stream(
+            "Interrupted question", tenant_id="ACME", principal_id="reader-1", options=OPTIONS
+        )
+    ]
+    chat = FakeChatFacade()
+    resumed = _service(memory, chat)
+    response = await resumed.complete(
+        "New question", tenant_id="ACME", principal_id="reader-1", options=OPTIONS
+    )
+    assert response.ok
+    assert replayed(chat.requests[0]) == ["New question"]
+    messages = await memory.recent_messages(IDENTITY, limit=10)
+    assert len(messages) == 4
+    assert messages[1].partial

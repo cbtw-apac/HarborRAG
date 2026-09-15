@@ -169,6 +169,7 @@ class AgentLoopRunner:
             completion_token_limit=completion_limit,
         )
         state.usage = add_usage(state.usage, response.usage)
+        state.cost = state.cost.add_call(response.estimated_cost_usd)
         state.conversation.append(response.message)
         return response, calls_made + 1
 
@@ -226,6 +227,7 @@ class AgentLoopRunner:
         except TimeoutError:
             return None
         state.usage = add_usage(state.usage, response.usage)
+        state.cost = state.cost.add_call(response.estimated_cost_usd)
         return response
 
     async def _dispatch_tool_calls(

@@ -41,6 +41,7 @@ from ..memory import (
     model_usage_records,
     project_lookup,
 )
+from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
 from ..retrieval.client import RetrievalClientMixin
 from ..retrieval.graph import GraphRetrievalService
@@ -98,6 +99,7 @@ class AppService(
         projects = project_lookup(self._composition)
         usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
+        locks = SessionLocks(memory)
         # Extraction costs a model call, so it runs off the request path; the
         # API lifespan starts and drains the pool (the CLI never starts it).
         self._extraction: MemoryExtractionQueue | None = MemoryExtractionQueue(
@@ -113,6 +115,7 @@ class AppService(
             self._resources.runtime_sdk,
             self._settings,
             memory=memory,
+            locks=locks,
             projects=projects,
             memories=memories,
             index=index,
@@ -122,6 +125,7 @@ class AppService(
         self._agent = AgentApplicationService(
             self._resources.runtime_sdk,
             memory=memory,
+            locks=locks,
             runs=runs,
             projects=projects,
             memories=memories,

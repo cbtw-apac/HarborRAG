@@ -45,10 +45,13 @@ class ConversationSessionRow(Base):
     tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     user_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
-    # "chat" | "agent": the surface that created the session; completions on
-    # the other surface treat the session as unknown (see ConversationKind).
+    # Original creation mode, retained as listing metadata across mode changes.
     kind: Mapped[str] = mapped_column(sa.String(16), nullable=False, server_default="chat")
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    title_source: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    next_message_seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, server_default="1")
+    turn_lease_token: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    turn_lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -64,6 +67,9 @@ class ConversationMessageRow(Base):
 
     __tablename__ = "conversation_messages"
     __table_args__ = (
+        sa.UniqueConstraint(
+            "tenant_id", "user_id", "session_id", "seq", name="uq_conversation_messages_owner_seq"
+        ),
         # Migration 0028 replaced the principal-led identity index with these
         # two: reads are always scoped by (tenant, user, session), and the
         # session-led index keeps the cascade/lookup-by-session path cheap.

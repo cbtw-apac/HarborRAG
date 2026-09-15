@@ -55,7 +55,7 @@ def hmac_client(
     monkeypatch: pytest.MonkeyPatch,
     service: MockAppService,
 ) -> Iterator[TestClient]:
-    """An authenticated app whose end-user identity comes from the ``oid`` claim."""
+    """An authenticated app with the shared DEFAULT_USER namespace."""
 
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")
@@ -90,13 +90,13 @@ async def test_listing_returns_the_callers_own_memories_with_provenance(
 
 
 @pytest.mark.asyncio
-async def test_the_owner_comes_from_the_principal_not_the_request(
+async def test_the_default_owner_ignores_legacy_claims_and_request_fields(
     hmac_client: TestClient,
     service: MockAppService,
 ) -> None:
-    """``oid`` is the end-user identity, so ``sub`` alone must not match."""
+    """User accounts are not enabled; only DEFAULT_USER rows are selected."""
 
-    await service.memory_store.save(memory("mem-alice", user_id="alice", principal_id="p1"))
+    await service.memory_store.save(memory("mem-default", principal_id="p1"))
     await service.memory_store.save(memory("mem-principal", user_id="p1", principal_id="p1"))
 
     response = hmac_client.get(
@@ -106,7 +106,7 @@ async def test_the_owner_comes_from_the_principal_not_the_request(
     )
 
     assert response.status_code == 200
-    assert [item["memory_id"] for item in response.json()["memories"]] == ["mem-alice"]
+    assert [item["memory_id"] for item in response.json()["memories"]] == ["mem-default"]
 
 
 @pytest.mark.asyncio

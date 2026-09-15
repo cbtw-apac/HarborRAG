@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatResponse, HarborChatStreamChunk
+from harborrag_core.models.cost import ModelCost
 
 
 def citation_data(result: RetrievalResult) -> dict[str, object]:
@@ -78,6 +79,7 @@ def chat_response_data(
         },
         "finish_reason": str(response.finish_reason),
         "usage": response.usage.model_dump(mode="json"),
+        "cost": ModelCost().add_call(response.estimated_cost_usd).model_dump(mode="json"),
         "latency_ms": response.latency_ms,
         "retry_count": response.retry_count,
         "fallback_count": response.fallback_count,
@@ -102,4 +104,5 @@ def chat_stream_chunk_data(chunk: HarborChatStreamChunk) -> dict[str, object]:
         "reasoning": chunk.reasoning_delta,
         "finish_reason": chunk.finish_reason,
         "usage": chunk.usage.model_dump(mode="json") if chunk.usage is not None else None,
+        "cost": ModelCost().add_call(chunk.estimated_cost_usd).model_dump(mode="json"),
     }

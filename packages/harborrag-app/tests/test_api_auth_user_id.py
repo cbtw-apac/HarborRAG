@@ -1,4 +1,4 @@
-"""End-user identity (``user_id``) resolution from the configured JWT claim."""
+"""User accounts are deferred; authenticated credentials share DEFAULT_USER per tenant."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from harborrag_app.api.auth.dependencies import build_token_verifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
-from harborrag_core.contracts.errors import HarborAuthError
+from harborrag_core.domain.identity import DEFAULT_USER
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 
@@ -31,37 +31,36 @@ def _token(**extra: object) -> str:
     return jwt.encode(claims, SECRET, algorithm="HS256")
 
 
-def test_default_claim_uses_the_subject_as_user_id() -> None:
+def test_subject_is_provenance_and_user_id_is_the_shared_default() -> None:
     principal = HmacTokenVerifier(secret=SECRET).verify(_token(oid="ignored"))
 
-    assert (principal.subject, principal.user_id) == ("u1", "u1")
+    assert (principal.subject, principal.user_id) == ("u1", DEFAULT_USER)
 
 
 @pytest.mark.parametrize(("claim", "value"), [("oid", "object-42"), ("email", "u1@example.com")])
-def test_custom_claim_sets_user_id(claim: str, value: str) -> None:
+def test_custom_claim_cannot_change_the_default_user(claim: str, value: str) -> None:
     principal = HmacTokenVerifier(secret=SECRET, user_id_claim=claim).verify(
         _token(**{claim: value})
     )
 
     assert principal.subject == "u1"
-    assert principal.user_id == value
+    assert principal.user_id == DEFAULT_USER
 
 
-def test_missing_custom_claim_falls_back_to_the_subject() -> None:
+def test_missing_custom_claim_keeps_the_default_user() -> None:
     principal = HmacTokenVerifier(secret=SECRET, user_id_claim="oid").verify(_token())
 
-    assert principal.user_id == "u1"
+    assert principal.user_id == DEFAULT_USER
 
 
 @pytest.mark.parametrize("value", [42, "", None, ["a"], {"id": "x"}])
-def test_invalid_custom_claim_type_is_rejected(value: object) -> None:
+def test_unused_custom_claim_does_not_affect_authentication(value: object) -> None:
     verifier = HmacTokenVerifier(secret=SECRET, user_id_claim="oid")
 
-    with pytest.raises(HarborAuthError, match="'oid' claim"):
-        verifier.verify(_token(oid=value))
+    assert verifier.verify(_token(oid=value)).user_id == DEFAULT_USER
 
 
-def test_settings_wire_the_user_id_claim_into_the_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_legacy_claim_configuration_keeps_the_default_user(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HARBORRAG_AUTH_USER_ID_CLAIM", "email")
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET)
 
@@ -69,26 +68,21 @@ def test_settings_wire_the_user_id_claim_into_the_verifier(monkeypatch: pytest.M
 
     assert isinstance(verifier, HmacTokenVerifier)
     assert verifier.user_id_claim == "email"
-    assert verifier.verify(_token(email="u1@example.com")).user_id == "u1@example.com"
+    assert verifier.verify(_token(email="u1@example.com")).user_id == DEFAULT_USER
 
 
-def test_principal_user_id_defaults_to_the_subject() -> None:
+def test_principal_uses_default_user_and_preserves_the_subject() -> None:
     principal = Principal(subject="harborrag-cli", role="owner", tenant_ids=frozenset({"*"}))
 
-    assert principal.user_id == "harborrag-cli"
+    assert principal.user_id == DEFAULT_USER
+    assert principal.subject == "harborrag-cli"
 
 
 @pytest.mark.blackbox
 def test_a_session_created_under_a_custom_claim_is_usable_on_the_next_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The routes must hand the same end-user identity to create and to complete.
-
-    With ``oid`` as the claim, the principal (``sub``) and the user (``oid``)
-    differ. A route that creates the session as the credential but completes
-    as the human would 404 on every turn, which is exactly the deployment
-    this ownership change exists for.
-    """
+    """Creation and completion agree on DEFAULT_USER despite legacy user claims."""
 
     from app_test_fixtures import MockAppService
     from fastapi.testclient import TestClient
@@ -113,9 +107,7 @@ def test_a_session_created_under_a_custom_claim_is_usable_on_the_next_request(
         )
 
     assert completion.status_code == 200
-    assert ("DEFAULT", "u1", "alice@example.com", session_id, "chat") in (
-        service.conversation_sessions
-    )
+    assert ("DEFAULT", "u1", DEFAULT_USER, session_id, "chat") in (service.conversation_sessions)
 
 
 @pytest.mark.blackbox
@@ -145,6 +137,4 @@ def test_an_agent_session_created_under_a_custom_claim_is_usable_too(
         )
 
     assert completion.status_code == 200
-    assert ("DEFAULT", "u1", "alice@example.com", session_id, "agent") in (
-        service.conversation_sessions
-    )
+    assert ("DEFAULT", "u1", DEFAULT_USER, session_id, "agent") in (service.conversation_sessions)

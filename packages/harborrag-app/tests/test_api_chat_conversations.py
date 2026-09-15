@@ -60,7 +60,7 @@ async def test_listing_returns_the_callers_own_conversations(
 
 
 @pytest.mark.asyncio
-async def test_a_session_created_over_http_is_listed_with_its_title(
+async def test_initial_session_creation_rejects_a_caller_supplied_title(
     client: TestClient,
 ) -> None:
     created = client.post(
@@ -68,13 +68,8 @@ async def test_a_session_created_over_http_is_listed_with_its_title(
         json={"tenant": "DEFAULT", "title": "  Quarterly report  "},
         headers=auth(),
     )
-    assert created.status_code == 201
-
-    response = client.get(CONVERSATIONS, headers=auth())
-
-    rows = response.json()["conversations"]
-    assert _sessions(response.json()) == [created.json()["session_id"]]
-    assert rows[0]["title"] == "Quarterly report"
+    assert created.status_code == 422
+    assert _sessions(client.get(CONVERSATIONS, headers=auth()).json()) == []
 
 
 def test_creating_a_session_without_a_title_is_unchanged(client: TestClient) -> None:
@@ -143,14 +138,14 @@ async def test_a_malformed_cursor_is_a_client_error_not_a_server_error(
 
 
 @pytest.mark.asyncio
-async def test_a_cursor_for_someone_elses_conversation_is_rejected(
+async def test_a_cursor_for_another_tenants_conversation_is_rejected(
     client: TestClient,
     service: MockAppService,
 ) -> None:
     """A well-formed cursor naming a foreign row must not page from the start."""
 
     await seed(service, "session-1")
-    await seed(service, "session-bob", BOB)
+    await seed(service, "session-bob", BOB, tenant="OTHER")
 
     response = client.get(
         CONVERSATIONS,
@@ -162,7 +157,7 @@ async def test_a_cursor_for_someone_elses_conversation_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_a_second_user_never_sees_the_first_users_conversations(
+async def test_credentials_share_default_user_conversations_within_a_tenant(
     client: TestClient,
     service: MockAppService,
 ) -> None:
@@ -172,8 +167,8 @@ async def test_a_second_user_never_sees_the_first_users_conversations(
     alice = client.get(CONVERSATIONS, headers=auth(ALICE)).json()
     bob = client.get(CONVERSATIONS, headers=auth(BOB)).json()
 
-    assert _sessions(alice) == ["session-1"]
-    assert _sessions(bob) == ["session-bob"]
+    assert _sessions(alice) == ["session-bob", "session-1"]
+    assert _sessions(bob) == _sessions(alice)
 
 
 @pytest.mark.asyncio
@@ -181,9 +176,9 @@ async def test_a_forged_owner_query_field_cannot_widen_the_listing(
     client: TestClient,
     service: MockAppService,
 ) -> None:
-    """Owner fields come from the token; sending them changes nothing."""
+    """A forged user field cannot reach a different tenant's conversations."""
 
-    await seed(service, "session-bob", BOB)
+    await seed(service, "session-bob", BOB, tenant="OTHER")
 
     response = client.get(
         CONVERSATIONS,

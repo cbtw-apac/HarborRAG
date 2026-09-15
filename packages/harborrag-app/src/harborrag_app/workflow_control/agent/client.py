@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 from ..memory import ConversationSessionService
 from ..schemas import AppResponse
@@ -42,7 +42,6 @@ class AgentClientMixin:
             session_id,
             tenant_id=tenant_id,
             principal_id=principal_id,
-            kind="agent",
             user_id=user_id,
         )
 
@@ -73,7 +72,7 @@ class AgentClientMixin:
         tenant_id: str,
         principal_id: str,
         options: AgentExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> AsyncGenerator[dict[str, object], None]:
         return self._agent.stream(
             query,
             tenant_id=tenant_id,

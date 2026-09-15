@@ -138,6 +138,7 @@ class AgentRunLifecycle:
                 messages=tuple(messages),
                 executions=(),
                 usage=HarborChatUsage(),
+                logical_model=options.logical_model,
                 stop_reason=None,
                 response=None,
                 created_at=created_at,
@@ -193,8 +194,9 @@ class AgentRunLifecycle:
             AgentRunStatus.COMPLETED,
             CheckpointOutcome(stop_reason=stop_reason, response=final_response),
         )
+        memory_persisted = False
         try:
-            await self._executor.remember(
+            memory_persisted = await self._executor.remember(
                 context.conversation_identity,
                 context.current_user_message,
                 final_response,
@@ -204,14 +206,15 @@ class AgentRunLifecycle:
             # The checkpoint above is authoritative and already committed, so
             # the run succeeds -- but a silently missing memory turn degrades
             # every later turn in the session, so it must be loud.
+            # Database exceptions may embed bound message content; log only
+            # their class and the run identity, without exception text.
             logger.error(
                 "agent run %s memory update failed (tenant=%s session=%s principal=%s): %s",
                 run_id,
                 context.identity.tenant_id,
                 context.identity.session_id,
                 context.identity.principal_id,
-                error,
-                exc_info=error,
+                type(error).__name__,
                 extra={
                     "run_id": run_id,
                     "tenant_id": context.identity.tenant_id,
@@ -245,6 +248,8 @@ class AgentRunLifecycle:
             calls_made,
             state.usage,
             stop_reason,
+            cost=state.cost,
+            memory_persisted=memory_persisted,
         )
 
     async def persist(
@@ -273,6 +278,8 @@ class AgentRunLifecycle:
                 messages=tuple(state.conversation),
                 executions=tuple(state.executions),
                 usage=state.usage,
+                cost=state.cost,
+                logical_model=context.options.logical_model,
                 stop_reason=outcome.stop_reason,
                 response=outcome.response,
                 created_at=context.created_at,

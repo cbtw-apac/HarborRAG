@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.ports.conversation import (
     ConversationHistoryRepository,
     ConversationIdentity,
@@ -112,6 +113,11 @@ class DatabaseConversationMemory:
     async def clear_messages(self, identity: ConversationIdentity) -> None:
         await self.repository.clear_messages(identity)
 
+    async def recent_complete_messages(
+        self, identity: ConversationIdentity, *, limit: int = 3
+    ) -> tuple[ConversationMessage, ...]:
+        return await self.repository.recent_complete_messages(identity, limit=limit)
+
     async def list_conversations(
         self,
         *,
@@ -139,6 +145,55 @@ class DatabaseConversationMemory:
 
     async def aclose(self) -> None:
         await self.engine.dispose()
+
+    async def claim_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> CompletionClaim:
+        return await self.repository.claim_completion(
+            tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
+        )
+
+    async def finish_completion(  # noqa: PLR0913 - mirrors the scoped idempotency port
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        key: str,
+        request_hash: str,
+        response_json: str | None,
+        session_id: str | None = None,
+    ) -> None:
+        await self.repository.finish_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+            response_json=response_json,
+            session_id=session_id,
+        )
+
+    async def set_generated_title(self, identity: ConversationIdentity, *, title: str) -> bool:
+        return await self.repository.set_generated_title(identity, title=title)
+
+    async def get_title(self, identity: ConversationIdentity) -> str | None:
+        return await self.repository.get_title(identity)
+
+    async def acquire_turn_lease(
+        self, identity: ConversationIdentity, *, token: str, lease_seconds: float
+    ) -> bool:
+        return await self.repository.acquire_turn_lease(
+            identity, token=token, lease_seconds=lease_seconds
+        )
+
+    async def renew_turn_lease(
+        self, identity: ConversationIdentity, *, token: str, lease_seconds: float
+    ) -> bool:
+        return await self.repository.renew_turn_lease(
+            identity, token=token, lease_seconds=lease_seconds
+        )
+
+    async def release_turn_lease(self, identity: ConversationIdentity, *, token: str) -> None:
+        await self.repository.release_turn_lease(identity, token=token)
 
 
 __all__ = ["DatabaseConversationMemory", "InMemoryConversationMemory"]

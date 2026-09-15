@@ -24,7 +24,9 @@ from harborrag_app.workflow_control.memory import (
 )
 from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import (
     ConversationIdentity,
@@ -105,8 +107,8 @@ class MockAppService(
         principal_id: str,
         user_id: str | None = None,
     ) -> bool:
-        return self._key(tenant_id, principal_id, user_id, session_id, "chat") in (
-            self.conversation_sessions
+        return await self.conversations.exists(
+            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
         )
 
     async def agent_session_exists(
@@ -117,8 +119,8 @@ class MockAppService(
         principal_id: str,
         user_id: str | None = None,
     ) -> bool:
-        return self._key(tenant_id, principal_id, user_id, session_id, "agent") in (
-            self.conversation_sessions
+        return await self.conversations.exists(
+            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
         )
 
     @staticmethod
@@ -129,7 +131,7 @@ class MockAppService(
         session_id: str,
         kind: str,
     ) -> tuple[str, str, str, str, str]:
-        return (tenant_id, principal_id, user_id or principal_id, session_id, kind)
+        return (tenant_id, principal_id, user_id or DEFAULT_USER, session_id, kind)
 
     async def _create_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
@@ -151,13 +153,42 @@ class MockAppService(
             self._key(tenant_id, principal_id, user_id, session_id, kind)
         )
         await self.conversations.create(
-            ConversationIdentity(tenant_id, principal_id, session_id, user_id or principal_id),
+            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER),
             kind="agent" if kind == "agent" else "chat",
             title=title,
         )
         return AppResponse(
             True,
             {"session_id": session_id, "greeting": "Hello! How can I help you today?"},
+        )
+
+    async def claim_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> CompletionClaim:
+        return await self.conversations.claim_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+        )
+
+    async def finish_completion(  # noqa: PLR0913 - mirrors CompletionRequestStore
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        key: str,
+        request_hash: str,
+        response_json: str | None,
+        session_id: str | None = None,
+    ) -> None:
+        await self.conversations.finish_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+            response_json=response_json,
+            session_id=session_id,
         )
 
     def health(self) -> AppResponse:

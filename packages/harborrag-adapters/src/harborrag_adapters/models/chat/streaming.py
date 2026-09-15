@@ -19,10 +19,10 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.errors import HarborChatProviderError, HarborModelError
 
 from .configs import HarborChatProviderConfig
+from .cost import normalize_response_cost, response_cost
 from .normalization import (
     normalize_chat_usage,
     normalize_finish_reason,
-    normalize_response_cost,
     normalize_tool_call_delta,
 )
 from .reasoning import normalize_reasoning_delta
@@ -54,6 +54,7 @@ class ChatStreamNormalizer:
         self._metadata: dict[str, Any] = {}
         self._started_at = time.perf_counter()
         self._first_output_latency_ms: float | None = None
+        self._cost_response: dict[str, Any] | None = None
 
     def consume(self, raw: Any) -> tuple[HarborChatStreamChunk, ...]:
         """Normalize every event represented by one provider stream chunk."""
@@ -75,7 +76,19 @@ class ChatStreamNormalizer:
         events.extend(self._metadata_events(data))
         if data.get("usage") is not None:
             self.usage = normalize_chat_usage(data["usage"])
-            events.append(self._event(StreamEventType.USAGE, usage=self.usage))
+            self._cost_response = {
+                "model": self.provider_model,
+                "usage": data["usage"],
+                "choices": [],
+                "service_tier": self._metadata.get("service_tier"),
+            }
+            events.append(
+                self._event(
+                    StreamEventType.USAGE,
+                    usage=self.usage,
+                    estimated_cost_usd=self.estimated_cost_usd,
+                )
+            )
 
         events.extend(self._choice_events(data))
         return tuple(events)
@@ -121,6 +134,8 @@ class ChatStreamNormalizer:
     def complete(self) -> HarborChatStreamChunk:
         """Create the final event with assembled calls, usage, timing, and finish metadata."""
 
+        if self.estimated_cost_usd is None and self._cost_response is not None:
+            self.estimated_cost_usd = response_cost(self._cost_response, deployment=self.deployment)
         metadata = {
             **self._metadata,
             "finish_reason": self.finish_reason.value,
@@ -143,6 +158,8 @@ class ChatStreamNormalizer:
         return self._event(
             StreamEventType.ERROR,
             error=error.to_dict(),
+            usage=self.usage,
+            estimated_cost_usd=self.estimated_cost_usd,
             metadata={"stream_duration_ms": self._elapsed_ms()},
         )
 

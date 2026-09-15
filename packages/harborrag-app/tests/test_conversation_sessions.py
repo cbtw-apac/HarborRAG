@@ -9,7 +9,7 @@ from harborrag_runtime.memory import InMemoryConversationMemory
 
 
 @pytest.mark.asyncio
-async def test_session_creation_returns_greeting_and_isolates_owner() -> None:
+async def test_session_creation_shares_default_user_but_preserves_explicit_scope() -> None:
     sessions = ConversationSessionService(
         InMemoryConversationMemory(),
         greetings=("Hello from HarborRAG",),
@@ -27,15 +27,19 @@ async def test_session_creation_returns_greeting_and_isolates_owner() -> None:
         tenant_id="ACME",
         principal_id="reader-1",
     )
-    assert not await sessions.exists(
+    assert await sessions.exists(
         session_id,
         tenant_id="ACME",
         principal_id="reader-2",
     )
+    assert not await sessions.exists(
+        session_id, tenant_id="ACME", principal_id="reader-1", user_id="another-user"
+    )
+    assert not await sessions.exists(session_id, tenant_id="OTHER", principal_id="reader-1")
 
 
 @pytest.mark.asyncio
-async def test_sessions_are_bound_to_the_surface_that_created_them() -> None:
+async def test_session_kind_remains_an_optional_metadata_filter() -> None:
     sessions = ConversationSessionService(InMemoryConversationMemory())
 
     chat = str(

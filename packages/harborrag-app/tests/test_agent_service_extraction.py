@@ -1,4 +1,4 @@
-"""Agent runs hand their persisted exchange to long-term extraction."""
+"""Public agent runs preserve history without automatic long-term extraction."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def _queue(facade: FakeMemoryFacade) -> MemoryExtractionQueue:
 
 
 @pytest.mark.asyncio
-async def test_a_persisted_run_is_submitted_with_the_history_message_ids() -> None:
+async def test_a_persisted_run_does_not_submit_automatic_extraction() -> None:
     facade = FakeMemoryFacade()
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY, kind="agent")
@@ -91,15 +91,9 @@ async def test_a_persisted_run_is_submitted_with_the_history_message_ids() -> No
 
     assert response.ok is True
     persisted = await memory.recent_messages(IDENTITY, limit=2)
-    request, submitted = facade.extractions[0]
-    assert (request.session_id, request.user_id) == ("session-1", "alice")
-    assert [message.message_id for message in submitted] == [  # type: ignore[attr-defined]
-        message.message_id for message in persisted
-    ]
-    assert all(
-        message.run_id == response.data["run_id"]
-        for message in submitted  # type: ignore[attr-defined]
-    )
+    assert facade.extractions == []
+    assert len(persisted) == 2
+    assert all(message.run_id == response.data["run_id"] for message in persisted)
 
 
 @pytest.mark.asyncio
@@ -125,14 +119,14 @@ async def test_a_run_whose_exchange_was_not_written_is_never_submitted() -> None
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("wired", "expected_reads"),
-    [(False, 1), (True, 2)],
+    [(False, 1), (True, 1)],
     ids=["no-queue", "queue"],
 )
-async def test_the_exchange_is_read_back_only_when_extraction_is_wired(
+async def test_extraction_configuration_does_not_add_a_history_read(
     wired: bool,
     expected_reads: int,
 ) -> None:
-    """One read builds the context; the second recovers the persisted ids."""
+    """The only recent_messages read verifies the exchange for its title."""
 
     facade = FakeMemoryFacade()
     memory = _CountingMemory()

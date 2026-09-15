@@ -176,7 +176,7 @@ def test_an_unknown_conversation_is_the_not_found_envelope(client: TestClient) -
 
 
 @pytest.mark.asyncio
-async def test_a_second_user_cannot_read_the_first_users_messages(
+async def test_another_credential_reads_the_same_default_user_history(
     client: TestClient,
     service: MockAppService,
 ) -> None:
@@ -184,8 +184,8 @@ async def test_a_second_user_cannot_read_the_first_users_messages(
 
     response = client.get(_path(), headers=auth(BOB))
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "harbor_not_found_error"
+    assert response.status_code == 200
+    assert _ids(response.json()) == ["msg-1"]
 
 
 @pytest.mark.asyncio

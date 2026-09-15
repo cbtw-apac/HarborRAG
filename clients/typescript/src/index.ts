@@ -1,41 +1,26 @@
 /**
- * Thin runtime wrapper for the HarborRAG Control Plane API (ST10).
+ * Runtime helpers for the HarborRAG operational API and chat completions.
  *
  * The generated wire types live in ./schema.d.ts (run `npm run generate`
  * against a fresh openapi.json). This wrapper adds the pieces a generator
  * can't know: bearer injection, the error envelope, and trace-id plumbing.
  */
 
-/** The single error envelope every non-2xx response carries (plan §8.3). */
-export interface HarborApiError {
-  error: {
-    code: string;
-    message: string;
-    details: Record<string, unknown>;
-    trace_id: string | null;
-  };
-}
+import { createChatMethods } from "./chat.js";
+import { apiRequestError } from "./errors.js";
+import type { HarborClientOptions } from "./options.js";
 
-/** Thrown on any non-2xx response; carries the decoded envelope. */
-export class HarborApiRequestError extends Error {
-  readonly status: number;
-  readonly envelope: HarborApiError;
-
-  constructor(status: number, envelope: HarborApiError) {
-    super(`${envelope.error.code}: ${envelope.error.message}`);
-    this.name = "HarborApiRequestError";
-    this.status = status;
-    this.envelope = envelope;
-  }
-}
-
-export interface HarborClientOptions {
-  /** e.g. "http://localhost:8000" — /api/v1 is appended per call. */
-  baseUrl: string;
-  /** Returns the bearer token, or null for auth_mode=none dev backends. */
-  getToken?: () => string | null | Promise<string | null>;
-  fetchImpl?: typeof fetch;
-}
+export { HarborApiRequestError, HarborChatStreamError } from "./errors.js";
+export type { HarborApiError } from "./errors.js";
+export type { HarborClientOptions, HarborRequestOptions } from "./options.js";
+export type {
+  ChatCompletionRequest,
+  ChatCompletionResponse,
+  ChatCost,
+  ChatCitation,
+  ChatUsage,
+  ChatStreamEvent,
+} from "./chat.js";
 
 /** Minimal typed fetch seam; screens use this until generated per-resource
  *  helpers land alongside the M1 endpoints. */
@@ -61,13 +46,13 @@ export function createHarborClient(options: HarborClientOptions) {
       },
     );
     if (!response.ok) {
-      const envelope = (await response.json()) as HarborApiError;
-      throw new HarborApiRequestError(response.status, envelope);
+      throw await apiRequestError(response);
     }
     return (await response.json()) as T;
   }
 
   return {
+    ...createChatMethods(options),
     request,
     get: <T>(path: string) => request<T>("GET", path),
     post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),

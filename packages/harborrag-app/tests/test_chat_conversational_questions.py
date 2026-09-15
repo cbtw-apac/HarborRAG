@@ -45,7 +45,7 @@ async def _ask(*prompts: str) -> FakeChatFacade:
             prompt,
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     return chat
 

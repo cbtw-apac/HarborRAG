@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner
 
@@ -34,12 +35,12 @@ class MemoryIdentity:
         user_id: str | None = None,
         project_id: str | None = None,
     ) -> MemoryIdentity:
-        """Assemble the identity, defaulting ``user_id`` to the principal."""
+        """Use the temporary shared user when no explicit SDK identity is supplied."""
 
         return cls(
             tenant_id=tenant_id,
             principal_id=principal_id,
-            user_id=user_id or principal_id,
+            user_id=user_id or DEFAULT_USER,
             session_id=session_id,
             project_id=project_id,
         )

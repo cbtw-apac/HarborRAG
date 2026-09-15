@@ -71,7 +71,8 @@ async def test_a_second_user_cannot_reach_the_first_users_session(tmp_path: Path
         assert listed.conversations == ()
 
         # Writes must not land on, or wipe, the owner's history either.
-        await repo.append(INTRUDER, ConversationTurn("injected", "injected"))
+        with pytest.raises(ValueError, match="session does not exist"):
+            await repo.append(INTRUDER, ConversationTurn("injected", "injected"))
         await repo.clear(INTRUDER)
         await repo.clear_messages(INTRUDER)
 
@@ -139,7 +140,8 @@ async def test_appending_messages_bumps_the_session_activity_timestamp(tmp_path:
                 .where(ConversationSessionRow.session_id == OWNER.session_id)
                 .values(updated_at=datetime(2020, 1, 1, tzinfo=UTC))
             )
-        await repo.append_messages(INTRUDER, (_message(new_message_id(), "injected"),))
+        with pytest.raises(ValueError, match="session does not exist"):
+            await repo.append_messages(INTRUDER, (_message(new_message_id(), "injected"),))
         assert await _updated_at(OWNER) == datetime(2020, 1, 1, tzinfo=UTC)
     finally:
         await engine.dispose()

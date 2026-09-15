@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 from uuid import uuid4
 
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
+from harborrag_core.models.cost import ModelCost
 
 
 def new_run_id() -> str:
@@ -101,6 +102,8 @@ class AgentCheckpoint:
     failure_retryable: bool = False
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
+    cost: ModelCost = field(default_factory=ModelCost)
+    logical_model: str | None = None
 
     def lease_active(self, now: datetime) -> bool:
         """Return whether a live executor still holds this run's lease at ``now``."""

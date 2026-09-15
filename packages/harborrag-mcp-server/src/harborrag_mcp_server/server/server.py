@@ -39,6 +39,7 @@ def _result_count(result: dict[str, object]) -> int:
         "items",
         "chunks",
         "sources",
+        "documents",
         "candidates",
         "triplets",
         "paths",

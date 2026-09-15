@@ -32,6 +32,7 @@ from .tool_execution import VECTOR_SEARCH_TOOL, bounded_tool_result_content
 
 _BLOCKED_TOOL_NAMES = frozenset({"agent", "chat"})
 _GRAPH_TOOL_PREFIX = "graph_"
+_GRAPH_READER_TOOLS = frozenset({"resolve_graph_nodes", "composed_evidence_search"})
 
 
 class ChatAndToolExecutor:
@@ -59,7 +60,13 @@ class ChatAndToolExecutor:
             for spec in self._tools.list_tools(tenant_id)
             if spec.capability == "read"
             and spec.name not in _BLOCKED_TOOL_NAMES
-            and (graph_search or not spec.name.startswith(_GRAPH_TOOL_PREFIX))
+            and (
+                graph_search
+                or (
+                    not spec.name.startswith(_GRAPH_TOOL_PREFIX)
+                    and spec.name not in _GRAPH_READER_TOOLS
+                )
+            )
         ]
 
     async def complete(
@@ -73,6 +80,7 @@ class ChatAndToolExecutor:
     ) -> HarborChatResponse:
         request = HarborChatRequest(
             messages=tuple(messages),
+            logical_model=options.logical_model,
             tools=tools,
             parallel_tool_calls=True if tools else None,
             max_completion_tokens=completion_token_limit,
@@ -116,8 +124,8 @@ class ChatAndToolExecutor:
         final_response: HarborChatResponse,
         *,
         run_id: str,
-    ) -> None:
-        """Persist the run's question and final answer as two history messages."""
+    ) -> bool:
+        """Persist the exchange and report whether a history write occurred."""
 
         if (
             self._memory is not None
@@ -134,6 +142,8 @@ class ChatAndToolExecutor:
                     completion_tokens=final_response.usage.completion_tokens,
                 ),
             )
+            return True
+        return False
 
     async def _execute(
         self,
@@ -196,6 +206,7 @@ class ChatAndToolExecutor:
         scoped["tenant_id"] = options.tenant_id
         if name == VECTOR_SEARCH_TOOL and not options.graph_search:
             scoped["observe_graph"] = False
+            scoped["mode"] = "flat"
         return scoped
 
 

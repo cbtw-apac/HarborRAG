@@ -1,11 +1,4 @@
-"""Shared harness for the conversation-directory route tests.
-
-Two callers are modelled deliberately: a conversation is owned by the *human*
-(the ``oid`` claim), while the ``sub`` is only the credential that acted, so a
-second caller here differs in both. That is what makes "another user cannot
-see my conversations" a real assertion rather than an artifact of the fake
-keying its sessions by whichever field the test happened to vary.
-"""
+"""Conversation route harness for the shared DEFAULT_USER namespace per tenant."""
 
 from __future__ import annotations
 
@@ -21,6 +14,7 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.base import utc_now
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationKind,
@@ -40,7 +34,7 @@ def token(
     role: str = "reader",
     tenants: tuple[str, ...] = ("DEFAULT",),
 ) -> str:
-    """A bearer token for one caller, whose ``oid`` claim owns conversations."""
+    """A token whose credential and legacy user claim can vary independently."""
 
     now = datetime.now(UTC)
     subject, user_id = caller
@@ -79,8 +73,8 @@ def identity(
 ) -> ConversationIdentity:
     """The stored isolation key for one caller's conversation."""
 
-    subject, user_id = caller
-    return ConversationIdentity(tenant, subject, session_id, user_id)
+    subject, _ = caller
+    return ConversationIdentity(tenant, subject, session_id, DEFAULT_USER)
 
 
 def message(  # noqa: PLR0913 - one stored message field per argument
@@ -127,7 +121,7 @@ async def seed(  # noqa: PLR0913 - one stored conversation attribute per argumen
 
 
 def hmac_app(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> FastAPI:
-    """An authenticated app whose end-user identity comes from the ``oid`` claim."""
+    """An authenticated app using DEFAULT_USER until user accounts are available."""
 
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")

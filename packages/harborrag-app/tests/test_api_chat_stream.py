@@ -73,13 +73,18 @@ def test_chat_stream_emits_citations_then_deltas_then_completion(
     assert response.headers["content-type"].startswith("text/event-stream")
     frames = _sse_frames(response.text)
     names = [name for name, _ in frames]
-    assert names == ["citations", "text_delta", "completed"]
-    assert frames[0][1]["citations"] == [
+    assert names == [
+        "response.started",
+        "retrieval.completed",
+        "response.output_text.delta",
+        "response.completed",
+    ]
+    assert frames[1][1]["citations"] == [
         {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}
     ]
     assert frames[0][1]["session_id"] == session_id
-    assert frames[1][1]["content"] == "Harbor response"
-    assert frames[2][1]["finish_reason"] == "stop"
+    assert frames[2][1]["content"] == "Harbor response"
+    assert frames[3][1]["finish_reason"] == "stop"
 
     call = service.chat_calls[0]
     assert call["tenant_id"] == "ACME"
@@ -106,8 +111,11 @@ def test_chat_stream_ends_with_error_event_on_failure(
 
     assert response.status_code == 200
     frames = _sse_frames(response.text)
-    assert frames == [
-        ("error", {"code": "harbor_connection_error", "message": "Chat service is unavailable"})
+    assert frames[1:] == [
+        (
+            "response.error",
+            {"code": "harbor_connection_error", "message": "Chat service is unavailable"},
+        )
     ]
     assert "private endpoint" not in response.text
 
@@ -147,7 +155,11 @@ def test_chat_stream_outlives_the_request_deadline(
 
     assert response.status_code == 200
     frames = _sse_frames(response.text)
-    assert [name for name, _ in frames] == ["text_delta"] * 3
+    assert [name for name, _ in frames] == [
+        "response.started",
+        *["response.output_text.delta"] * 3,
+        "response.error",
+    ]
 
 
 def test_chat_stream_past_its_deadline_ends_with_a_terminal_error_frame(
@@ -170,7 +182,11 @@ def test_chat_stream_past_its_deadline_ends_with_a_terminal_error_frame(
 
     assert response.status_code == 200
     frames = _sse_frames(response.text)
-    assert [name for name, _ in frames] == ["citations", "error"]
+    assert [name for name, _ in frames] == [
+        "response.started",
+        "retrieval.completed",
+        "response.error",
+    ]
     assert frames[-1][1] == {
         "code": "harbor_deadline_exceeded",
         "message": "Chat stream exceeded its server deadline",
@@ -187,6 +203,10 @@ def test_chat_stream_projects_memory_warning_as_non_terminal_frame(
         del query
         yield {"kind": "chunk", "chunk": {"event": "completed", "finish_reason": "stop"}}
         yield {"kind": "warning", "warning": "conversation_memory_unavailable"}
+        yield {
+            "kind": "result",
+            "result": {**service._chat_payload(session_id), "memory_persisted": False},
+        }
 
     monkeypatch.setattr(service, "chat_stream", lambda query, **_: events(query))
     session_id = _session(client)
@@ -196,15 +216,20 @@ def test_chat_stream_projects_memory_warning_as_non_terminal_frame(
     )
 
     frames = _sse_frames(response.text)
-    assert [name for name, _ in frames] == ["completed", "warning"]
+    assert [name for name, _ in frames] == [
+        "response.started",
+        "response.warning",
+        "response.completed",
+    ]
     assert frames[1][1]["code"] == "conversation_memory_unavailable"
+    assert frames[-1][1]["memory_persisted"] is False
 
 
-def test_chat_stream_rejects_an_agent_session(client: TestClient) -> None:
+def test_chat_stream_accepts_an_agent_session(client: TestClient) -> None:
     created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
     response = client.post(
         "/v1/chat/completions",
         json={"prompt": "Hello", "session_id": created.json()["session_id"], "stream": True},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 200

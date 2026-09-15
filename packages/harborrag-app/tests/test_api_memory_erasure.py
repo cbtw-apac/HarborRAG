@@ -14,6 +14,7 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.base import utc_now
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_core.ports.memory import MemoryScope
 
@@ -33,7 +34,7 @@ def client(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> Iterator
 
 
 def _identity(session_id: str = "session-1") -> ConversationIdentity:
-    return ConversationIdentity("DEFAULT", "dev", session_id, "dev")
+    return ConversationIdentity("DEFAULT", "dev", session_id, DEFAULT_USER)
 
 
 async def _seed_session(service: MockAppService, session_id: str = "session-1") -> None:
@@ -95,11 +96,11 @@ async def test_user_erasure_reaches_sessions_named_by_the_users_memories(
     )
     await service.memory_store.save(memory("mem-other-user", user_id="someone-else"))
 
-    response = client.delete("/v1/memory/users/dev")
+    response = client.delete(f"/v1/memory/users/{DEFAULT_USER}")
 
     assert response.status_code == 200
     assert response.json() == {
-        "user_id": "dev",
+        "user_id": DEFAULT_USER,
         "memories": 2,
         "index_points": 2,
         "sessions": 1,
@@ -120,14 +121,14 @@ async def test_user_erasure_logs_counts_and_never_content(
     await service.memory_store.save(memory("mem-user", content="lives on Rue Secrète 4"))
 
     with caplog.at_level(logging.INFO, logger=_ADMIN_LOG):
-        assert client.delete("/v1/memory/users/dev").status_code == 200
+        assert client.delete(f"/v1/memory/users/{DEFAULT_USER}").status_code == 200
 
     records = [r for r in caplog.records if "Memory erasure" in r.getMessage()]
     assert len(records) == 1
     message = records[0].getMessage()
     assert "tenant=DEFAULT" in message
     assert "actor=dev" in message
-    assert "target=dev" in message
+    assert f"target={DEFAULT_USER}" in message
     assert "memories=1" in message
     assert "Rue Secrète" not in caplog.text
 
@@ -151,7 +152,7 @@ async def test_an_index_failure_still_erases_the_canonical_row(
     await service.memory_store.save(memory("mem-user"))
 
     with caplog.at_level(logging.WARNING, logger=_ADMIN_LOG):
-        response = client.delete("/v1/memory/users/dev")
+        response = client.delete(f"/v1/memory/users/{DEFAULT_USER}")
 
     assert response.status_code == 200
     assert response.json()["memories"] == 1

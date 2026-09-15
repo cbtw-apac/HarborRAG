@@ -40,7 +40,7 @@ RESULTS = (
 async def _complete(min_relevance: float) -> tuple[FakeChatFacade, dict]:
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY, kind="chat")
-    chat = FakeChatFacade()
+    chat = FakeChatFacade(answer="See [Source 1] and [Source 2].")
     service = ChatApplicationService(
         lambda: FakeRuntime(chat, FakeRetrievalFacade(RESULTS)),  # type: ignore[arg-type]
         RuntimeSettings(chat_retrieval_min_relevance=min_relevance),
@@ -50,7 +50,7 @@ async def _complete(min_relevance: float) -> tuple[FakeChatFacade, dict]:
         "What does the release policy say?",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
     return chat, response.data
 
@@ -64,6 +64,7 @@ async def test_below_threshold_results_reach_neither_prompt_nor_citations() -> N
     assert "The activity timeout is 30 seconds." not in prompt
     # Never offered to the model, so it can never become a citation either.
     assert "[Source 2]" not in prompt
+    assert [citation["chunk_id"] for citation in data["citations"]] == ["on-topic"]
 
 
 @pytest.mark.asyncio

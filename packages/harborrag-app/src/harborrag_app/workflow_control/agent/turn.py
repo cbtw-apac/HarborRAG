@@ -77,7 +77,7 @@ async def record_run_usage(
             provider=response.provider,
             provider_model=response.provider_model,
             usage=result.usage,
-            estimated_cost_usd=response.estimated_cost_usd,
+            estimated_cost_usd=result.cost.amount_usd if result.cost.complete else None,
             finish_reason=str(response.finish_reason),
         ),
         surface="agent",

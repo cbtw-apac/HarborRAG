@@ -67,6 +67,18 @@ async def test_without_supplied_history_the_engine_still_recalls_recent_turns() 
 
 
 @pytest.mark.asyncio
+async def test_explicit_empty_history_does_not_recall_stored_turns() -> None:
+    memory = Memory()
+    await _seed(memory, ("excluded question", "excluded answer"))
+    chat = Chat([_response(text="final")])
+    service = AgentService(chat, Tools(), memory=memory)
+
+    await service.run([HarborChatMessage.user("now")], _options(history=()))
+
+    assert [message.content for message in chat.requests[0].messages][1:] == ["now"]
+
+
+@pytest.mark.asyncio
 async def test_history_is_replayed_even_without_a_memory_repository() -> None:
     chat = Chat([_response(text="final")])
     service = AgentService(chat, Tools(), memory=None)

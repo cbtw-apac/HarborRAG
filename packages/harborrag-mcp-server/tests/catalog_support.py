@@ -10,6 +10,10 @@ EXPECTED_READER_TOOLS = [
     "graph_subgraph_search",
     "graph_path_search",
     "resolve_graph_nodes",
+    "list_documents",
+    "get_document_metadata",
+    "verify_citations",
+    "composed_evidence_search",
 ]
 
 __all__ = ["EXPECTED_READER_TOOLS"]

@@ -64,7 +64,7 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
     assert response.ok is True
     assert chat.request is not None
     assert chat.request.metadata.tenant_id == "ACME"
-    assert chat.request.metadata.user_id == "reader-1"
+    assert chat.request.metadata.user_id == "DEFAULT_USER"
     assert chat.request.metadata.retrieval_query == "Hello"
     assert chat.request.metadata.chunk_ids == ("chunk-1",)
     assert len(chat.request.messages) == 1
@@ -153,8 +153,8 @@ async def test_chat_completion_allows_per_request_graph_search_override() -> Non
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_recalls_the_policy_window_of_session_turns() -> None:
-    """The window is policy, not a fixed two turns: four messages keeps two turns."""
+async def test_chat_completion_recalls_three_exchanges_regardless_of_runtime_policy() -> None:
+    """The public contract always retains at most three complete exchanges."""
 
     chat = FakeChatFacade()
     runtime = FakeRuntime(
@@ -196,11 +196,13 @@ async def test_chat_completion_recalls_the_policy_window_of_session_turns() -> N
 
     fourth = chat.requests[3]
     assert replayed(fourth) == [
+        "First question",
+        "Hello",
         "Second question",
         "Hello",
         "Third question",
         "Hello",
         "Fourth question",
     ]
-    assert fourth.metadata.user_id == "reader-1"
+    assert fourth.metadata.user_id == "DEFAULT_USER"
     assert fourth.metadata.conversation_id == options.session_id

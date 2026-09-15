@@ -185,7 +185,7 @@ def test_agent_completion_forwards_request_deadline_and_token_budget(
     assert call["token_budget"] == ApiSettings().api_agent_token_budget
 
 
-def test_agent_completion_rejects_a_chat_session(client: TestClient) -> None:
+def test_agent_completion_accepts_a_chat_session(client: TestClient) -> None:
     created = client.post("/v1/chat/sessions", json={"tenant": "DEFAULT"})
     assert created.status_code == 201
 
@@ -194,7 +194,7 @@ def test_agent_completion_rejects_a_chat_session(client: TestClient) -> None:
         json={"session_id": created.json()["session_id"], "prompt": "Hello"},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 def test_agent_completion_forwards_project_and_user_identity(
@@ -217,4 +217,4 @@ def test_agent_completion_forwards_project_and_user_identity(
     assert response.json()["project_id"] == "proj-1"
     call = service.agent_calls[0]
     assert call["project_id"] == "proj-1"
-    assert call["user_id"] == "dev"
+    assert call["user_id"] == "DEFAULT_USER"

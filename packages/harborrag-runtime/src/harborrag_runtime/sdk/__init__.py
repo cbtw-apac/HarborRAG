@@ -2,6 +2,13 @@
 
 from harborrag_core.topology.search import RetrievalMode
 from harborrag_engine.retrieval import RetrievalLane
+from harborrag_runtime.reader_contracts import (
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadata,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
+)
 
 from ..contracts import (
     DocumentContextRequest,
@@ -40,6 +47,11 @@ from .configuration import HarborRAGConfig
 from .runtime import HarborRAG
 
 __all__ = [
+    "DocumentListRequest",
+    "DocumentListResponse",
+    "DocumentMetadata",
+    "DocumentMetadataRequest",
+    "DocumentMetadataResponse",
     "DocumentContextRequest",
     "DocumentContextResponse",
     "ExecutionMode",

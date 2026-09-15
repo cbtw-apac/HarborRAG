@@ -130,6 +130,7 @@ class ChatServiceFixture:
                 "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
             },
         }
+        yield {"kind": "result", "result": self._chat_payload(session_id)}
 
     @staticmethod
     def _chat_payload(session_id: str, project_id: str | None = None) -> dict[str, object]:

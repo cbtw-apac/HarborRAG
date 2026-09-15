@@ -26,7 +26,7 @@ from .schemas import (
     AgentSessionResponse,
 )
 
-router = APIRouter(prefix="/agent", tags=["Agent"])
+router = APIRouter(prefix="/agent", tags=["Agent"], deprecated=True)
 
 ERROR_RESPONSES = documented_error_responses(
     {
@@ -155,6 +155,7 @@ def _stream_response(
             events(),
             timeout_seconds=settings.api_stream_timeout_seconds,
             error_message=_STREAM_DEADLINE_MESSAGE,
+            terminal_events=("result", "error"),
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},

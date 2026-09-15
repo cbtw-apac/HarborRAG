@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import ConfigDict, Field, JsonValue
 
 from harborrag_app.api.schemas import ApiModel
+from harborrag_core.models.cost import ModelCost
 
 # Titles are trimmed and truncated by the domain (``normalize_conversation_title``)
 # rather than rejected, so the schema cap is only input hygiene, well above the
@@ -24,31 +25,25 @@ class ChatTenantRequest(ApiModel):
 
 
 class ChatSessionCreateRequest(ChatTenantRequest):
-    model_config = ConfigDict(
-        json_schema_extra={"examples": [{"tenant": "DEFAULT", "title": "Release policy"}]}
-    )
+    """Create an unnamed conversation; its first successful turn supplies a title."""
 
-    # Names the conversation at creation so a client need not create then
-    # rename. Omitted or blank leaves it unnamed.
-    title: str | None = Field(default=None, max_length=MAX_TITLE_INPUT)
+    model_config = ConfigDict(json_schema_extra={"examples": [{"tenant": "DEFAULT"}]})
 
 
 class ChatSessionResponse(ApiModel):
     session_id: str
     greeting: str
+    title: str | None = None
 
 
 class ChatCompletionRequest(ChatTenantRequest):
-    # Only ``session_id`` and ``prompt`` are required, so the example sends
-    # exactly those two plus the tenant. Without an explicit example the docs
-    # generate a value for every optional field from its pattern, and pasting
-    # those back names a project and a model that do not exist.
+    # Only the prompt is required. Keep examples free of placeholder model
+    # and project names, which would be rejected when copied into a request.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
                     "tenant": "DEFAULT",
-                    "session_id": "session-0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
                     "prompt": "What changed in the release policy?",
                     "stream": False,
                 }
@@ -56,13 +51,24 @@ class ChatCompletionRequest(ChatTenantRequest):
         }
     )
 
-    session_id: str = Field(
+    session_id: str | None = Field(
+        default=None,
+        description="Existing conversation ID; omitted creates an unnamed conversation.",
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
     )
     prompt: str = Field(min_length=1, max_length=65_536)
     stream: bool = False
+    mode: Literal["rag", "agent"] = "rag"
+    max_steps: int = Field(default=4, ge=1, le=8)
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r".*\S.*",
+        description="Stable client request key; a completed duplicate replays without a model call.",
+    )
     graph_search: bool | None = None
     # Optional project scope; must exist within ``tenant`` (otherwise ``404``).
     project_id: str | None = Field(
@@ -103,6 +109,12 @@ class ChatUsageResponse(ApiModel):
     reasoning_tokens: int | None = Field(default=None, ge=0)
 
 
+class ChatToolCallResponse(ApiModel):
+    step: int = Field(ge=1)
+    tool: str
+    ok: bool
+
+
 class ChatCompletionResponse(ApiModel):
     id: str
     created: int | None = None
@@ -112,11 +124,19 @@ class ChatCompletionResponse(ApiModel):
     message: ChatMessageResponse
     finish_reason: str
     usage: ChatUsageResponse
+    cost: ModelCost = Field(default_factory=ModelCost)
     latency_ms: float | None = Field(default=None, ge=0)
-    retry_count: int = Field(ge=0)
-    fallback_count: int = Field(ge=0)
+    retry_count: int = Field(default=0, ge=0)
+    fallback_count: int = Field(default=0, ge=0)
     citations: tuple[ChatCitation, ...] = ()
     session_id: str
+    title: str | None = None
+    mode: Literal["rag", "agent"] = "rag"
+    run_id: str | None = None
+    stop_reason: str | None = None
+    turns: int | None = Field(default=None, ge=0)
+    tool_call_count: int | None = Field(default=None, ge=0)
+    tool_calls: list[ChatToolCallResponse] | None = None
     # The validated project the turn was scoped to; null when none was given.
     project_id: str | None = None
     # False when the answer was produced but could not be saved to conversation

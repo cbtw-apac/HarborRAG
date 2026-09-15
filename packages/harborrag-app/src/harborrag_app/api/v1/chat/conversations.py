@@ -26,14 +26,19 @@ from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.ports.conversation import ConversationKind
 
 from .dependencies import ConversationServiceDependency
+from .routes import create_chat_session
 from .schemas import (
+    ChatSessionResponse,
     ConversationListResponse,
     ConversationMessageListResponse,
     ConversationRenameRequest,
     ConversationRenameResponse,
 )
 
-router = APIRouter(prefix="/chat/conversations", tags=["Chat"])
+router = APIRouter(prefix="/conversations", tags=["Conversations"])
+router.add_api_route(
+    "", create_chat_session, methods=["POST"], response_model=ChatSessionResponse, status_code=201
+)
 
 ERROR_RESPONSES = documented_error_responses(
     {

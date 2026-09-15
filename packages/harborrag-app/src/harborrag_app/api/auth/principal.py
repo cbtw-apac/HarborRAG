@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
 
 ROLE_ORDER: dict[Role, int] = {"reader": 0, "editor": 1, "admin": 2, "owner": 3}
@@ -21,13 +22,12 @@ class Principal:
     role: Role
     tenant_ids: frozenset[str]
     token_kind: str = "jwt"
-    # Stable end-user identity for user-scoped memory. Defaults to ``subject``;
-    # the JWT verifier overrides it from ``HARBORRAG_AUTH_USER_ID_CLAIM``.
-    user_id: str = ""
+    # User accounts are not enabled yet. All requests use one end-user
+    # namespace per tenant; the authenticated subject remains audit provenance.
+    user_id: str = DEFAULT_USER
 
     def __post_init__(self) -> None:
-        if not self.user_id:
-            object.__setattr__(self, "user_id", self.subject)
+        object.__setattr__(self, "user_id", DEFAULT_USER)
 
     def can_access_tenant(self, tenant_id: str) -> bool:
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids

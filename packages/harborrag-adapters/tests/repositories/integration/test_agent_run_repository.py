@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
+from harborrag_core.models.cost import ModelCost
 from harborrag_core.ports.agent_runs import (
     AgentCheckpoint,
     AgentRunIdentity,
@@ -84,7 +86,11 @@ async def test_agent_run_create_and_get_round_trip(tmp_path: Path) -> None:
         )
         repo = SqlAgentRunRepository(sessions)
         identity = AgentRunIdentity("ACME", "reader-1", "session-1", "run-1", "user-1")
-        checkpoint = _checkpoint(identity, version=1, step=0)
+        checkpoint = replace(
+            _checkpoint(identity, version=1, step=0),
+            cost=ModelCost().add_call(0.03).add_call(None),
+            logical_model="selected-model",
+        )
 
         await repo.create(checkpoint)
         loaded = await repo.get(identity)
@@ -96,6 +102,8 @@ async def test_agent_run_create_and_get_round_trip(tmp_path: Path) -> None:
         assert loaded.messages == checkpoint.messages
         assert loaded.executions == checkpoint.executions
         assert loaded.usage == checkpoint.usage
+        assert loaded.cost == checkpoint.cost
+        assert loaded.logical_model == "selected-model"
         assert loaded.stop_reason is None
         assert loaded.response is None
         assert loaded.failure_retryable is False

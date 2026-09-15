@@ -6,6 +6,7 @@ import pytest
 from agent_test_helpers import (
     Chat,
     Memory,
+    Spec,
     Tools,
     many_tool_calls_response,
 )
@@ -66,6 +67,7 @@ async def test_agent_runs_multiple_tool_hops_and_enforces_identity() -> None:
 @pytest.mark.asyncio
 async def test_agent_graph_switch_filters_graph_capabilities() -> None:
     tools = Tools()
+    tools.specs.extend([Spec("resolve_graph_nodes"), Spec("composed_evidence_search")])
     chat = Chat([_response(text="answer")])
 
     await AgentService(chat, tools).run(
@@ -80,6 +82,29 @@ async def test_agent_graph_switch_filters_graph_capabilities() -> None:
     definitions = chat.requests[0].tools
     assert [tool.function.name for tool in definitions] == ["vector_search"]
     assert "observe_graph" not in definitions[0].function.parameters["properties"]
+
+
+@pytest.mark.asyncio
+async def test_agent_without_graph_forces_flat_retrieval_and_blocks_composed_search() -> None:
+    tools = Tools()
+    tools.specs.extend([Spec("resolve_graph_nodes"), Spec("composed_evidence_search")])
+    chat = Chat(
+        [
+            _response(
+                call=("call-1", "vector_search", '{"mode":"local_semantic","observe_graph":true}')
+            ),
+            _response(call=("call-2", "composed_evidence_search", "{}")),
+            _response(text="answer"),
+        ]
+    )
+    result = await AgentService(chat, tools).run(
+        [HarborChatMessage.user("question")],
+        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+    )
+    assert len(tools.calls) == 1
+    assert tools.calls[0][1]["mode"] == "flat"
+    assert tools.calls[0][1]["observe_graph"] is False
+    assert result.executions[1].ok is False
 
 
 @pytest.mark.asyncio

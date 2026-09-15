@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest, HarborChatResponse
 from harborrag_runtime.agent import AgentRunOptions, AgentRunResult
 from harborrag_runtime.chat import ChatFacade, ChatPrompt
@@ -98,7 +99,8 @@ def run_options(
         ),
         history=history,
         memory_summary=memory_summary,
-        user_id=options.user_id,
+        user_id=options.user_id or DEFAULT_USER,
+        logical_model=options.model,
     )
 
 
@@ -121,6 +123,8 @@ def result_data(
         "finish_reason": str(response.finish_reason),
         "stop_reason": result.stop_reason.value,
         "usage": result.usage.model_dump(mode="json"),
+        "cost": result.cost.model_dump(mode="json"),
+        "memory_persisted": result.memory_persisted,
         "turns": result.turns,
         "tool_call_count": len(result.executions),
         "tool_calls": [

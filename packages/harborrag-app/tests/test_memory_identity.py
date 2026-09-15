@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from harborrag_app.workflow_control.memory import MemoryIdentity
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner
 
@@ -28,10 +29,11 @@ def test_identity_projects_owner_and_conversation_keys() -> None:
     )
 
 
-def test_identity_defaults_user_to_the_principal_and_leaves_project_unset() -> None:
+def test_identity_uses_default_user_and_leaves_project_unset() -> None:
     identity = MemoryIdentity.build(tenant_id="ACME", principal_id="svc-1", session_id="s")
 
-    assert identity.user_id == "svc-1"
+    assert identity.user_id == DEFAULT_USER
     assert identity.project_id is None
     assert identity.owner().project_id is None
-    assert identity.conversation().user_id == "svc-1"
+    assert identity.conversation().user_id == DEFAULT_USER
+    assert identity.principal_id == "svc-1"

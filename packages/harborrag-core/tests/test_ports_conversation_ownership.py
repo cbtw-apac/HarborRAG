@@ -27,7 +27,7 @@ def test_identity_requires_a_user_and_keeps_the_principal_for_audit() -> None:
     assert identity.user_id == "user-1"
     assert identity.principal_id == "principal-1"
     # Two credentials fronting the same human are the same conversation owner.
-    assert ConversationIdentity("ACME", "principal-2", "session-1", "user-1") != identity
+    assert ConversationIdentity("ACME", "principal-2", "session-1", "user-1") == identity
     with pytest.raises(TypeError):
         ConversationIdentity("ACME", "principal-1", "session-1")  # type: ignore[call-arg]
 

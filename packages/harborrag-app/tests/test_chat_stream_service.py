@@ -59,6 +59,7 @@ async def test_chat_stream_emits_citations_then_chunks() -> None:
         "chunk",
         "chunk",
         "cited_sources",
+        "result",
     ]
     assert events[0]["citations"] == (
         {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},
@@ -168,7 +169,7 @@ async def test_chat_stream_emits_exactly_one_error_when_adapter_yields_error_the
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     ]
 
@@ -201,7 +202,7 @@ async def test_chat_stream_warns_instead_of_failing_when_memory_append_fails() -
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     ]
 
@@ -211,12 +212,14 @@ async def test_chat_stream_warns_instead_of_failing_when_memory_append_fails() -
         "chunk",
         "cited_sources",
         "warning",
+        "result",
     ]
-    assert events[-1]["warning"] == "conversation_memory_unavailable"
+    assert events[-2]["warning"] == "conversation_memory_unavailable"
+    assert events[-1]["result"]["memory_persisted"] is False
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_rejects_an_agent_session() -> None:
+async def test_chat_stream_can_continue_an_agent_conversation() -> None:
     memory = InMemoryConversationMemory()
     await memory.create(
         ConversationIdentity("ACME", "reader-1", "agent-session", "reader-1"), kind="agent"
@@ -229,16 +232,16 @@ async def test_chat_stream_rejects_an_agent_session() -> None:
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="agent-session"),
+            options=ChatExecutionOptions(session_id="agent-session", user_id="reader-1"),
         )
     ]
 
-    assert events == [
-        {
-            "kind": "error",
-            "error": "HarborNotFoundError",
-            "error_type": "HarborNotFoundError",
-        }
+    assert [event["kind"] for event in events] == [
+        "citations",
+        "chunk",
+        "chunk",
+        "cited_sources",
+        "result",
     ]
 
 
@@ -261,7 +264,7 @@ async def test_chat_stream_persists_the_partial_answer_once_when_abandoned_at_th
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
     events = [await anext(stream) for _ in range(3)]
     await stream.aclose()

@@ -51,8 +51,9 @@ def _service(
     *,
     projects: FakeProjects | None = None,
     results: tuple[RetrievalResult, ...] = (),
+    answer: str = "Hello",
 ) -> ChatApplicationService:
-    runtime = FakeRuntime(FakeChatFacade(), FakeRetrievalFacade(results))
+    runtime = FakeRuntime(FakeChatFacade(answer=answer), FakeRetrievalFacade(results))
     return ChatApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         RuntimeSettings(),
@@ -65,13 +66,13 @@ def _service(
 async def test_chat_completion_writes_user_and_assistant_messages_with_citations() -> None:
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY, kind="chat")
-    service = _service(memory, results=RESULTS)
+    service = _service(memory, results=RESULTS, answer="Hello [Source 1]")
 
     response = await service.complete(
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
 
     assert response.ok is True
@@ -84,7 +85,11 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
         None,
         None,
     )
-    assert (assistant.role, assistant.content, assistant.token_count) == ("assistant", "Hello", 1)
+    assert (assistant.role, assistant.content, assistant.token_count) == (
+        "assistant",
+        "Hello [Source 1]",
+        1,
+    )
     assert json.loads(assistant.citations_json or "null") == [
         {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}
     ]
@@ -92,7 +97,7 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
     assert (user.run_id, assistant.run_id, assistant.tool_calls_json) == (None, None, None)
     # The turn view (phase-1 history reads) stays derivable from the message log.
     (turn,) = await memory.recent(IDENTITY, limit=2)
-    assert (turn.user_content, turn.assistant_content) == ("Hello", "Hello")
+    assert (turn.user_content, turn.assistant_content) == ("Hello", "Hello [Source 1]")
 
 
 @pytest.mark.asyncio
@@ -107,7 +112,7 @@ async def test_chat_stream_writes_messages_with_completion_tokens() -> None:
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     ]
 
@@ -117,11 +122,12 @@ async def test_chat_stream_writes_messages_with_completion_tokens() -> None:
         "chunk",
         "chunk",
         "cited_sources",
+        "result",
     ]
     _, assistant = await memory.recent_messages(IDENTITY, limit=2)
     assert assistant.content == "Hello"
     assert assistant.token_count == 1
-    assert assistant.citations_json is not None
+    assert assistant.citations_json is None
 
 
 @pytest.mark.asyncio
@@ -135,7 +141,9 @@ async def test_chat_completion_echoes_a_valid_project() -> None:
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1", project_id="proj-1"),
+        options=ChatExecutionOptions(
+            session_id="session-1", user_id="reader-1", project_id="proj-1"
+        ),
     )
 
     assert response.ok is True
@@ -155,7 +163,9 @@ async def test_chat_completion_rejects_unknown_or_foreign_project(project_id: st
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1", project_id=project_id),
+            options=ChatExecutionOptions(
+                session_id="session-1", user_id="reader-1", project_id=project_id
+            ),
         )
     assert await memory.recent_messages(IDENTITY, limit=10) == ()
 
@@ -171,7 +181,9 @@ async def test_chat_completion_rejects_a_project_without_a_control_plane() -> No
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1", project_id="proj-1"),
+            options=ChatExecutionOptions(
+                session_id="session-1", user_id="reader-1", project_id="proj-1"
+            ),
         )
 
 
@@ -187,7 +199,9 @@ async def test_chat_stream_reports_unknown_project_as_terminal_error() -> None:
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1", project_id="missing"),
+            options=ChatExecutionOptions(
+                session_id="session-1", user_id="reader-1", project_id="missing"
+            ),
         )
     ]
 

@@ -13,6 +13,7 @@ EVIDENCE_BATCH_LIMIT = 10
 DOCUMENT_CONTEXT_LIMIT = 10
 SOURCE_LIST_LIMIT = 20
 SOURCE_CONNECTOR_FILTER_LIMIT = 10
+DOCUMENT_LIST_LIMIT = 20
 EVIDENCE_AVAILABILITIES = ("available", "unavailable", "output_limit")
 DOCUMENT_CONTEXT_OUTCOMES = ("ok", "unavailable", "version_changed", "output_limit")
 type EvidenceAvailability = Literal["available", "unavailable", "output_limit"]
@@ -147,6 +148,52 @@ class SourceListResponse:
 
 
 @dataclass(frozen=True, slots=True)
+class DocumentMetadata:
+    document_id: str
+    document_version_id: str
+    title: str | None
+    source_scope_id: str
+    connector_type: str
+    chunk_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentMetadataRequest:
+    access: AccessContext
+    document_id: str
+
+    def __post_init__(self) -> None:
+        if not self.document_id.strip():
+            raise ValueError("document ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentMetadataResponse:
+    request_id: str
+    document: DocumentMetadata | None
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentListRequest:
+    access: AccessContext
+    after_document_id: str | None = None
+    limit: int = DOCUMENT_LIST_LIMIT
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.limit <= DOCUMENT_LIST_LIMIT:
+            raise ValueError(f"document list limit must be between 1 and {DOCUMENT_LIST_LIMIT}")
+        if self.after_document_id is not None and not self.after_document_id.strip():
+            raise ValueError("document cursor must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentListResponse:
+    request_id: str
+    documents: tuple[DocumentMetadata, ...]
+    next_document_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class GraphNodeResolveRequest:
     access: AccessContext
     query: GraphNodeResolutionQuery
@@ -164,6 +211,12 @@ DOCUMENT_CONTEXT_CHUNK_FIELDS = tuple(value.name for value in fields(DocumentCon
 
 
 __all__ = [
+    "DOCUMENT_LIST_LIMIT",
+    "DocumentListRequest",
+    "DocumentListResponse",
+    "DocumentMetadata",
+    "DocumentMetadataRequest",
+    "DocumentMetadataResponse",
     "DOCUMENT_CONTEXT_LIMIT",
     "DOCUMENT_CONTEXT_OUTCOMES",
     "DOCUMENT_CONTEXT_CHUNK_FIELDS",

@@ -230,7 +230,7 @@ async def test_memory_failure_is_logged_at_error_with_run_identity(
 
         async def append_messages(self, identity, messages):
             del identity, messages
-            raise RuntimeError("memory unavailable")
+            raise RuntimeError("memory unavailable: private prompt content")
 
         async def clear(self, identity):
             del identity
@@ -255,6 +255,9 @@ async def test_memory_failure_is_logged_at_error_with_run_identity(
     assert record.run_id == result.run_id  # type: ignore[attr-defined]
     assert record.tenant_id == "ACME"  # type: ignore[attr-defined]
     assert record.session_id == "session-1"  # type: ignore[attr-defined]
-    assert record.exc_info is not None
+    assert record.exc_info is None
+    assert record.error_type == "RuntimeError"  # type: ignore[attr-defined]
+    assert "private prompt content" not in caplog.text
+    assert result.memory_persisted is False
     assert result.run_id in record.getMessage()
     assert [e.kind for e in events][-2:] == ["run.memory_failed", "run.completed"]

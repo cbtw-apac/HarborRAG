@@ -9,6 +9,7 @@ by ``run()`` and ``resume()``.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from harborrag_core.contracts.errors import (
@@ -17,6 +18,7 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
 )
 from harborrag_core.models.chat import HarborChatMessage, HarborChatUsage
+from harborrag_core.models.cost import ModelCost
 from harborrag_core.ports.agent_runs import (
     AgentCheckpoint,
     AgentRunIdentity,
@@ -140,7 +142,7 @@ class AgentService:
         on its own.
         """
 
-        if options.history:
+        if options.history is not None:
             return tuple(options.history)
         if self._memory is None or conversation_identity is None:
             return ()
@@ -174,6 +176,7 @@ class AgentService:
         if checkpoint is None:
             raise HarborNotFoundError("agent run is not resumable")
         _ensure_resumable(checkpoint, datetime.now(UTC))
+        options = replace(options, logical_model=checkpoint.logical_model)
 
         guard = ExecutionGuard(
             timeout_seconds=options.timeout_seconds,
@@ -198,6 +201,11 @@ class AgentService:
             conversation=conversation,
             executions=list(checkpoint.executions),
             usage=checkpoint.usage,
+            cost=(
+                checkpoint.cost
+                if checkpoint.cost.model_calls or not checkpoint.usage.total_tokens
+                else ModelCost(model_calls=max(checkpoint.step, 1))
+            ),
             step=checkpoint.step,
             version=checkpoint.version + 1,
         )

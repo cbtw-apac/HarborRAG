@@ -160,11 +160,11 @@ def test_agent_stream_forwards_stream_deadline_and_token_budget(
     assert call["token_budget"] == ApiSettings().api_agent_token_budget
 
 
-def test_agent_stream_rejects_a_chat_session(client: TestClient) -> None:
+def test_agent_stream_accepts_a_chat_session(client: TestClient) -> None:
     created = client.post("/v1/chat/sessions", json={"tenant": "DEFAULT"})
     response = client.post(
         "/v1/agent/completions",
         json={"prompt": "Hello", "session_id": created.json()["session_id"], "stream": True},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 200

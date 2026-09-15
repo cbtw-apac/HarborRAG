@@ -13,17 +13,18 @@ from __future__ import annotations
 import base64
 import binascii
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Protocol
 from uuid import uuid4
 
-ConversationKind = Literal["chat", "agent"]
-"""Which completion surface owns a session.
+from harborrag_core.ports.completion_requests import CompletionRequestStore
 
-Chat and agent turns share one memory table, so a session is bound to the
-surface that created it: a chat completion on an agent session (or the
-reverse) is treated as an unknown session rather than interleaving turns.
+ConversationKind = Literal["chat", "agent"]
+"""The mode that created a conversation, retained for listing and filtering.
+
+Chat and agent completions can continue the same owned session; its original
+kind is metadata and does not restrict which mode may serve the next turn.
 """
 
 ConversationRole = Literal["user", "assistant", "tool", "system"]
@@ -98,7 +99,7 @@ class ConversationIdentity:
     """
 
     tenant_id: str
-    principal_id: str
+    principal_id: str = field(compare=False)
     session_id: str
     user_id: str
 
@@ -167,6 +168,40 @@ def turns_from_messages(messages: Iterable[ConversationMessage]) -> tuple[Conver
     return tuple(turns)
 
 
+def complete_message_pairs(
+    messages: Iterable[ConversationMessage], *, limit: int = 3
+) -> tuple[ConversationMessage, ...]:
+    """Return the newest complete user/assistant pairs, retaining message metadata.
+
+    Tool-call assistant messages and partial answers are not completed replies.
+    A later user message displaces an unanswered question. The returned pairs
+    are oldest-first so they can be inserted directly into a model prompt.
+    """
+
+    if limit < 1:
+        raise ValueError("conversation memory limit must be positive")
+    pairs: list[tuple[ConversationMessage, ConversationMessage]] = []
+    pending: ConversationMessage | None = None
+    for message in messages:
+        if message.role == "user":
+            pending = message if message.content.strip() and not message.partial else None
+        elif pending is not None and is_complete_reply(message):
+            pairs.append((pending, message))
+            pending = None
+    return tuple(message for pair in pairs[-limit:] for message in pair)
+
+
+def is_complete_reply(message: ConversationMessage) -> bool:
+    """Whether a message is a completed assistant answer suitable for history."""
+
+    return bool(
+        message.role == "assistant"
+        and not message.partial
+        and message.content.strip()
+        and message.tool_calls_json in (None, "", "[]")
+    )
+
+
 class ConversationMemory(Protocol):
     """Persistence-neutral completed-turn memory contract."""
 
@@ -204,6 +239,12 @@ class ConversationMessageStore(Protocol):
         limit: int,
     ) -> tuple[ConversationMessage, ...]:
         """Return the last ``limit`` messages, oldest-first."""
+        ...
+
+    async def recent_complete_messages(
+        self, identity: ConversationIdentity, *, limit: int = 3
+    ) -> tuple[ConversationMessage, ...]:
+        """Return at most ``limit`` complete pairs, omitting partial/unanswered turns."""
         ...
 
     async def messages_after(
@@ -303,8 +344,46 @@ class ConversationDirectory(Protocol):
         """Retitle the conversation; ``False`` when it is not the caller's."""
         ...
 
+    async def set_generated_title(self, identity: ConversationIdentity, *, title: str) -> bool:
+        """Set the first generated title unless any title was already assigned.
 
-class ConversationRepository(ConversationMemory, ConversationSessions, Protocol):
+        A manual rename, including clearing the title, permanently wins over
+        automatic generation. Return whether this call assigned the title.
+        """
+        ...
+
+    async def get_title(self, identity: ConversationIdentity) -> str | None:
+        """Read the caller's conversation title, or none for an unknown session."""
+        ...
+
+
+class ConversationTurnLeases(Protocol):
+    """Shared renewable ownership of a conversation's active completion."""
+
+    async def acquire_turn_lease(
+        self, identity: ConversationIdentity, *, token: str, lease_seconds: float
+    ) -> bool:
+        """Claim an existing owned session whose previous lease has expired."""
+        ...
+
+    async def renew_turn_lease(
+        self, identity: ConversationIdentity, *, token: str, lease_seconds: float
+    ) -> bool:
+        """Extend a live matching lease; return false after ownership is lost."""
+        ...
+
+    async def release_turn_lease(self, identity: ConversationIdentity, *, token: str) -> None:
+        """Release only the caller's lease, leaving a successor untouched."""
+        ...
+
+
+class ConversationRepository(
+    ConversationMemory,
+    ConversationSessions,
+    ConversationTurnLeases,
+    CompletionRequestStore,
+    Protocol,
+):
     """Combined session lifecycle and completed-turn persistence contract."""
 
 
@@ -334,9 +413,12 @@ __all__ = [
     "ConversationSessions",
     "ConversationSummaryRow",
     "ConversationTurn",
+    "ConversationTurnLeases",
     "decode_conversation_cursor",
+    "complete_message_pairs",
     "encode_conversation_cursor",
     "new_message_id",
+    "is_complete_reply",
     "new_session_id",
     "normalize_conversation_title",
     "turns_from_messages",

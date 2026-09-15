@@ -95,7 +95,7 @@ def test_capacity_scope_charges_a_single_tenant_credential_to_that_tenant() -> N
     assert scope == CapacityScope(
         tenant_id="acme",
         principal_id="service-credential",
-        user_id="alice",
+        user_id="DEFAULT_USER",
     )
 
 
@@ -111,10 +111,11 @@ def test_wildcard_and_multi_tenant_credentials_share_one_aggregate_pool(
     assert capacity_scope_for(_principal(tenants=tenants)).tenant_id == SHARED_TENANT_KEY
 
 
-def test_capacity_scope_falls_back_to_the_subject_without_a_user_id_claim() -> None:
+def test_capacity_scope_uses_default_user_and_preserves_the_audit_subject() -> None:
     scope = capacity_scope_for(_principal(tenants=frozenset({"acme"})))
 
-    assert scope.user_id == scope.principal_id == "service-credential"
+    assert scope.user_id == "DEFAULT_USER"
+    assert scope.principal_id == "service-credential"
 
 
 class _RecordingLimiter:

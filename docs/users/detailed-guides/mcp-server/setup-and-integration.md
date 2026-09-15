@@ -13,9 +13,9 @@ do and what arguments they take, see [MCP Tools](README.md).
 | [In-process Python](#use-from-python) | `McpServer(...)` | Caller's own runtime | An application or test needs direct control |
 | [Container](#container-image) | `docker run harborrag-mcp` | None; stdio only | A client launches the server from an image |
 
-All transports expose the same four read-only retrieval tools -
-`vector_search`, `graph_triplet_search`, `graph_path_search`, and
-`graph_subgraph_search` - and pass through the same policy and audit boundary.
+All transports expose the same thirteen read-only tools listed in [MCP Tools](README.md)
+and pass through the same policy and audit boundary. HTTP tool calls accept `reader`
+or `owner` tokens with tenant grants; the local administration API requires `owner`.
 
 Chat and agent are **not** in the MCP catalog. They are served only through the
 HarborRAG REST API at `/v1/chat/completions` and `/v1/agent/completions`.
@@ -275,7 +275,7 @@ the registered tools without opening provider connections. The check opens an
 in-memory client session, performs the MCP initialization handshake, and asks
 the server for its tools.
 
-The normal catalog contains five retrieval tools. Chat and agent are not part
+The normal catalog contains thirteen reader tools. Chat and agent are not part
 of the MCP catalog; they are served only through the HarborRAG REST API's
 `/v1/chat` and `/v1/agent` endpoints.
 
@@ -390,7 +390,7 @@ HARBORRAG_MCP_DISABLED_TOOLS
 HARBORRAG_MCP_CONFIG_PATH
 ```
 
-The server exposes nine read-only evidence, source, and graph tools. Eight require an
+The server exposes thirteen read-only evidence, document, source, and graph tools. Twelve require an
 explicit tenant scope; `describe_graph` is a static schema lookup and requires none.
 The traversal tools need a node
 identifier the caller already holds—in practice a `chunk_id` from
@@ -448,7 +448,7 @@ never the bearer token or raw arguments. See
 
 ## Next
 
-- [MCP Tools](README.md) - the nine tools, their arguments, and what they return
+- [MCP Tools](README.md) - the thirteen tools, their arguments, and what they return
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces) -
   keep service tools in `harborrag-mcp-server` and call runtime/service
   interfaces rather than provider clients

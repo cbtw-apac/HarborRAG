@@ -19,6 +19,7 @@ from app_test_fixtures import MockAppService
 from app_test_memory import memory
 from fastapi.testclient import TestClient
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import MemoryOwner, MemoryScope
 
 
@@ -38,7 +39,7 @@ def _path(session_id: str = "session-1") -> str:
 
 
 async def _title(service: MockAppService, session_id: str = "session-1") -> str | None:
-    page = await service.conversations.list_conversations(tenant_id="DEFAULT", user_id="alice")
+    page = await service.conversations.list_conversations(tenant_id="DEFAULT", user_id=DEFAULT_USER)
     return next(row.title for row in page.conversations if row.session_id == session_id)
 
 
@@ -80,16 +81,16 @@ def test_renaming_an_unknown_conversation_is_a_not_found(client: TestClient) -> 
 
 
 @pytest.mark.asyncio
-async def test_a_second_user_cannot_rename_the_first_users_conversation(
+async def test_another_credential_can_rename_the_shared_default_user_conversation(
     client: TestClient,
     service: MockAppService,
 ) -> None:
     await seed(service, "session-1", ALICE, title="Alice only")
 
-    response = client.patch(_path(), json={"title": "hijacked"}, headers=auth(BOB))
+    response = client.patch(_path(), json={"title": "Shared title"}, headers=auth(BOB))
 
-    assert response.status_code == 404
-    assert await _title(service) == "Alice only"
+    assert response.status_code == 200
+    assert await _title(service) == "Shared title"
 
 
 @pytest.mark.asyncio
@@ -149,9 +150,9 @@ async def test_deleting_removes_the_messages_memories_and_vector_points(
 
     await seed(service, "session-1", messages=(message("msg-1"), message("msg-2", "assistant")))
     await service.memory_store.save(
-        memory("mem-session", scope=MemoryScope.SESSION, user_id="alice", session_id="session-1")
+        memory("mem-session", scope=MemoryScope.SESSION, session_id="session-1")
     )
-    await service.memory_store.save(memory("mem-user", user_id="alice"))
+    await service.memory_store.save(memory("mem-user"))
 
     response = client.delete(_path(), headers=auth())
 
@@ -191,7 +192,11 @@ async def test_deleting_goes_through_the_memory_administration_service(
     assert client.delete(_path(), headers=auth()).status_code == 200
 
     owner, actor = calls[0]
-    assert (owner.tenant_id, owner.user_id, owner.session_id) == ("DEFAULT", "alice", "session-1")
+    assert (owner.tenant_id, owner.user_id, owner.session_id) == (
+        "DEFAULT",
+        DEFAULT_USER,
+        "session-1",
+    )
     # The credential that acted is recorded as the actor, not as the owner.
     assert (owner.principal_id, actor) == ("cred-1", "cred-1")
 
@@ -204,7 +209,7 @@ def test_deleting_an_unknown_conversation_is_a_not_found(client: TestClient) -> 
 
 
 @pytest.mark.asyncio
-async def test_a_second_user_cannot_delete_the_first_users_conversation(
+async def test_another_credential_can_delete_the_shared_default_user_conversation(
     client: TestClient,
     service: MockAppService,
 ) -> None:
@@ -212,9 +217,9 @@ async def test_a_second_user_cannot_delete_the_first_users_conversation(
 
     response = client.delete(_path(), headers=auth(BOB))
 
-    assert response.status_code == 404
+    assert response.status_code == 200
     messages = await service.conversations.recent_messages(identity("session-1"), limit=10)
-    assert [row.message_id for row in messages] == ["msg-1"]
+    assert messages == ()
 
 
 @pytest.mark.asyncio

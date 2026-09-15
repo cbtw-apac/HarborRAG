@@ -21,6 +21,7 @@ from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
+from harborrag_core.models.cost import ModelCost
 from harborrag_core.ports.agent_runs import (
     AgentCheckpoint,
     AgentRunIdentity,
@@ -44,6 +45,8 @@ def _state_to_json(checkpoint: AgentCheckpoint) -> dict[str, Any]:
             for execution in checkpoint.executions
         ],
         "usage": checkpoint.usage.model_dump(mode="json"),
+        "cost": checkpoint.cost.model_dump(mode="json"),
+        "logical_model": checkpoint.logical_model,
         "response": (
             checkpoint.response.model_dump(mode="json") if checkpoint.response is not None else None
         ),
@@ -118,6 +121,8 @@ def _row_to_checkpoint(row: AgentRunRow) -> AgentCheckpoint:
         messages=messages,
         executions=executions,
         usage=usage,
+        cost=ModelCost.model_validate(row.state_json.get("cost", {})),
+        logical_model=row.state_json.get("logical_model"),
         stop_reason=AgentStopReason(row.stop_reason) if row.stop_reason is not None else None,
         response=response,
         created_at=row.created_at,

@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING
 from harborrag_core.indexing import FilterOperator, VectorFilter, VectorFilterCondition
 from harborrag_core.security import AccessContext
 from harborrag_core.topology.records import CanonicalMention
+from harborrag_runtime.reader_contracts import (
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
+)
 
 from ..contracts import (
     DocumentContextRequest,
@@ -138,6 +144,16 @@ class KnowledgeFacade:
 
     def __init__(self, owner: HarborRAG) -> None:
         self._owner = owner
+
+    async def get_document_metadata(
+        self, request: DocumentMetadataRequest
+    ) -> DocumentMetadataResponse:
+        service = await self._owner._retrieval_service()
+        return await service.get_document_metadata(request)
+
+    async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
+        service = await self._owner._retrieval_service()
+        return await service.list_documents(request)
 
     async def fetch_evidence(self, request: EvidenceFetchRequest) -> EvidenceFetchResponse:
         service = await self._owner._retrieval_service()

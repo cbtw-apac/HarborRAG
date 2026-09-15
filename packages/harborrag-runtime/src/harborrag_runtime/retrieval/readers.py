@@ -22,6 +22,13 @@ from ..contracts import (
     SourceListRequest,
     SourceListResponse,
 )
+from ..reader_contracts import (
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
+)
+from .document_catalog import DocumentCatalogReader
 from .document_context import DocumentContextReader
 from .immutable_evidence import ImmutableEvidenceReader
 from .reader_resources import ReaderResources
@@ -38,6 +45,20 @@ class ReaderRetrieval:
         self._resources = resources
         self._evidence = ImmutableEvidenceReader(resources)
         self._documents = DocumentContextReader(resources)
+        self._catalog = DocumentCatalogReader(resources)
+
+    async def document_metadata(self, request: DocumentMetadataRequest) -> DocumentMetadataResponse:
+        request_id = f"document-{uuid4().hex}"
+        context = _context(request.access, request_id, "document-metadata")
+        async with asyncio.timeout(_READ_DEADLINE_SECONDS):
+            document = await self._catalog.metadata(request.document_id, request.access, context)
+        return DocumentMetadataResponse(request_id, document)
+
+    async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
+        request_id = f"documents-{uuid4().hex}"
+        context = _context(request.access, request_id, "document-list")
+        async with asyncio.timeout(_READ_DEADLINE_SECONDS):
+            return await self._catalog.list_documents(request, request_id, context)
 
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
         request_id = f"evidence-{uuid4().hex}"

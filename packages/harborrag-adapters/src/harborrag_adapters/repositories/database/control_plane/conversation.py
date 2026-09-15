@@ -14,34 +14,47 @@ the sole separator between their histories.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from harborrag_adapters.repositories.database.control_plane import conversation_directory
+from harborrag_adapters.repositories.database.control_plane import (
+    conversation_directory,
+    conversation_leases,
+)
+from harborrag_adapters.repositories.database.control_plane.completion_requests import (
+    SqlCompletionRequestStore,
+)
 from harborrag_adapters.repositories.database.control_plane.conversation_directory import (
     ConversationListRequest,
 )
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
 from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+    AgentRunRow,
+    ConversationMemoryLegacyRow,
     ConversationMessageRow,
     ConversationSessionRow,
 )
+from harborrag_adapters.repositories.database.control_plane.schemas_completion_requests import (
+    CompletionRequestRow,
+)
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
+from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationKind,
     ConversationMessage,
     ConversationPage,
     ConversationTurn,
+    is_complete_reply,
     new_message_id,
     normalize_conversation_title,
     turns_from_messages,
 )
+from harborrag_core.ports.conversation_leases import ConversationLeaseContext
 
 
 def _identity_filter(identity: ConversationIdentity) -> tuple[ColumnElement[bool], ...]:
@@ -108,13 +121,6 @@ def _message_row(
     )
 
 
-async def _next_seq(session: AsyncSession, identity: ConversationIdentity) -> int:
-    current = await session.scalar(
-        sa.select(sa.func.max(ConversationMessageRow.seq)).where(*_identity_filter(identity))
-    )
-    return int(current or 0) + 1
-
-
 def _require_positive(limit: int) -> None:
     if limit < 1:
         raise ValueError("conversation memory limit must be positive")
@@ -125,6 +131,35 @@ class SqlConversationMemoryRepository:
     """Persist conversation sessions and messages through async SQLAlchemy."""
 
     sessions: SessionFactory
+    _lease_context: ConversationLeaseContext = field(
+        default_factory=ConversationLeaseContext, init=False
+    )
+
+    async def claim_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> CompletionClaim:
+        return await SqlCompletionRequestStore(self.sessions).claim_completion(
+            tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
+        )
+
+    async def finish_completion(  # noqa: PLR0913 - mirrors the scoped idempotency port
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        key: str,
+        request_hash: str,
+        response_json: str | None,
+        session_id: str | None = None,
+    ) -> None:
+        await SqlCompletionRequestStore(self.sessions).finish_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+            response_json=response_json,
+            session_id=session_id,
+        )
 
     async def create(
         self,
@@ -143,6 +178,7 @@ class SqlConversationMemoryRepository:
                     session_id=identity.session_id,
                     kind=kind,
                     title=normalize_conversation_title(title),
+                    title_source="manual" if normalize_conversation_title(title) else None,
                     created_at=now,
                     updated_at=now,
                 )
@@ -162,14 +198,44 @@ class SqlConversationMemoryRepository:
             return bool(await session.scalar(statement))
 
     async def delete(self, identity: ConversationIdentity) -> bool:
-        """Delete the caller's own session row; messages cascade with it."""
+        """Delete the owned session and dependent history in one transaction."""
 
         async with self.sessions.begin() as session:
+            if not await conversation_leases.lock_for_write(
+                session, identity, self._lease_context.token(identity)
+            ):
+                return False
+            # SQLite connections do not universally enable FK enforcement.
+            # Explicit deletes give erasure the same semantics on every backend.
+            await session.execute(
+                sa.delete(ConversationMessageRow).where(
+                    ConversationMessageRow.session_id == identity.session_id
+                )
+            )
+            await session.execute(
+                sa.delete(ConversationMemoryLegacyRow).where(
+                    ConversationMemoryLegacyRow.session_id == identity.session_id,
+                )
+            )
+            await session.execute(
+                sa.delete(AgentRunRow).where(
+                    AgentRunRow.session_id == identity.session_id,
+                )
+            )
             result = cast(
                 "CursorResult[Any]",
                 await session.execute(
                     sa.delete(ConversationSessionRow).where(*_session_filter(identity))
                 ),
+            )
+            await session.execute(
+                sa.update(CompletionRequestRow)
+                .where(
+                    CompletionRequestRow.tenant_id == identity.tenant_id,
+                    CompletionRequestRow.user_id == identity.user_id,
+                    CompletionRequestRow.session_id == identity.session_id,
+                )
+                .values(status="failed", response_json=None, updated_at=utc_now())
             )
             return result.rowcount > 0
 
@@ -205,6 +271,44 @@ class SqlConversationMemoryRepository:
 
     # -- per-message history -------------------------------------------------
 
+    async def set_generated_title(self, identity: ConversationIdentity, *, title: str) -> bool:
+        async with self.sessions.begin() as session:
+            if not await conversation_leases.lock_for_write(
+                session, identity, self._lease_context.token(identity)
+            ):
+                return False
+            return await conversation_directory.set_generated_title(session, identity, title)
+
+    async def get_title(self, identity: ConversationIdentity) -> str | None:
+        async with self.sessions() as session:
+            return await session.scalar(
+                sa.select(ConversationSessionRow.title).where(*_session_filter(identity))
+            )
+
+    async def acquire_turn_lease(
+        self, identity: ConversationIdentity, *, token: str, lease_seconds: float
+    ) -> bool:
+        async with self.sessions.begin() as session:
+            acquired = await conversation_leases.claim_lease(
+                session, identity, token=token, lease_seconds=lease_seconds, renew=False
+            )
+        if acquired:
+            self._lease_context.bind(identity, token)
+        return acquired
+
+    async def renew_turn_lease(
+        self, identity: ConversationIdentity, *, token: str, lease_seconds: float
+    ) -> bool:
+        async with self.sessions.begin() as session:
+            return await conversation_leases.claim_lease(
+                session, identity, token=token, lease_seconds=lease_seconds, renew=True
+            )
+
+    async def release_turn_lease(self, identity: ConversationIdentity, *, token: str) -> None:
+        async with self.sessions.begin() as session:
+            await conversation_leases.release_lease(session, identity, token=token)
+        self._lease_context.release(identity, token)
+
     async def append_messages(
         self,
         identity: ConversationIdentity,
@@ -213,17 +317,11 @@ class SqlConversationMemoryRepository:
         if not messages:
             return
         async with self.sessions.begin() as session:
-            seq = await _next_seq(session, identity)
+            seq = await conversation_leases.reserve_sequence(
+                session, identity, len(messages), self._lease_context.token(identity)
+            )
             for offset, message in enumerate(messages):
                 session.add(_message_row(identity, message, seq + offset))
-            # Same transaction as the append, and user-scoped: a conversation
-            # listing sorts by real activity, and no caller can bump a row
-            # that is not theirs.
-            await session.execute(
-                sa.update(ConversationSessionRow)
-                .where(*_session_filter(identity))
-                .values(updated_at=utc_now())
-            )
 
     async def recent_messages(
         self,
@@ -266,8 +364,44 @@ class SqlConversationMemoryRepository:
             rows = await session.scalars(statement.order_by(*_OLDEST_FIRST).limit(limit))
             return tuple(_row_to_message(row) for row in rows)
 
+    async def recent_complete_messages(
+        self, identity: ConversationIdentity, *, limit: int = 3
+    ) -> tuple[ConversationMessage, ...]:
+        _require_positive(limit)
+        statement = (
+            sa.select(ConversationMessageRow)
+            .where(
+                *_identity_filter(identity),
+                ConversationMessageRow.role.in_(("user", "assistant")),
+            )
+            .order_by(*_NEWEST_FIRST)
+            .execution_options(yield_per=100)
+        )
+        pairs: list[tuple[ConversationMessage, ConversationMessage]] = []
+        answer: ConversationMessage | None = None
+        async with self.sessions() as session:
+            result = await session.stream_scalars(statement)
+            try:
+                async for row in result:
+                    message = _row_to_message(row)
+                    if is_complete_reply(message):
+                        answer = message
+                    elif message.role == "user":
+                        if answer is not None and message.content.strip() and not message.partial:
+                            pairs.append((message, answer))
+                        answer = None
+                        if len(pairs) == limit:
+                            break
+            finally:
+                await result.close()
+        return tuple(message for pair in reversed(pairs) for message in pair)
+
     async def clear_messages(self, identity: ConversationIdentity) -> None:
         async with self.sessions.begin() as session:
+            if not await conversation_leases.lock_for_write(
+                session, identity, self._lease_context.token(identity)
+            ):
+                return
             await session.execute(
                 sa.delete(ConversationMessageRow).where(*_identity_filter(identity))
             )

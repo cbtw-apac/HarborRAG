@@ -8,6 +8,7 @@ same reason production would: the row is simply not visible to that owner.
 from __future__ import annotations
 
 from harborrag_core.base import utc_now
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -76,7 +77,7 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
     memory_id: str,
     *,
     tenant_id: str = "DEFAULT",
-    user_id: str = "dev",
+    user_id: str = DEFAULT_USER,
     principal_id: str = "dev",
     session_id: str | None = None,
     scope: MemoryScope = MemoryScope.USER,

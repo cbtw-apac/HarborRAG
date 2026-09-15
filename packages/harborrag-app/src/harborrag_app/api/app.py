@@ -24,7 +24,7 @@ from harborrag_app.api.auth.dependencies import build_token_verifier
 from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
-from harborrag_app.api.middleware import RequestBodyLimitMiddleware, TraceIdMiddleware
+from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
 from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.selection import select_app_service
@@ -185,6 +185,14 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            expose_headers=[
+                TRACE_HEADER,
+                "Idempotency-Replayed",
+                "Retry-After",
+                "Deprecation",
+                "Sunset",
+                "Link",
+            ],
         )
     register_error_handlers(app)
     app.add_api_route("/", _redirect_root, methods=["GET"], include_in_schema=False)

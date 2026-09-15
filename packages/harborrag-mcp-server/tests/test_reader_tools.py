@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import pytest
 from catalog_support import EXPECTED_READER_TOOLS
 
+from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ingestion import (
     GraphEntityType,
     GraphNodeRecord,
@@ -23,12 +25,17 @@ from harborrag_runtime.reader_contracts import (
     DOCUMENT_CONTEXT_LIMIT,
     EVIDENCE_BATCH_LIMIT,
     SOURCE_LIST_LIMIT,
+    DocumentListResponse,
+    DocumentMetadata,
+    DocumentMetadataResponse,
 )
 from harborrag_runtime.sdk import (
     DocumentContextResponse,
     EvidenceReadItem,
     EvidenceReadResponse,
     GraphNodeResolveResponse,
+    RetrievalLane,
+    RetrievalResponse,
     SourceListResponse,
 )
 
@@ -52,6 +59,25 @@ class FakeReaderKnowledge:
     context_requests: list[object] = field(default_factory=list)
     source_requests: list[object] = field(default_factory=list)
     node_requests: list[object] = field(default_factory=list)
+    document_requests: list[object] = field(default_factory=list)
+
+    async def list_documents(self, request):
+        self.document_requests.append(request)
+        page = 2 if request.after_document_id else 1
+        return DocumentListResponse(
+            f"documents-{page}",
+            (DocumentMetadata(f"document-{page}", "version-1", "Guide", "source-1", "local", 2),),
+            "document-1" if page == 1 else None,
+        )
+
+    async def get_document_metadata(self, request):
+        self.document_requests.append(request)
+        return DocumentMetadataResponse(
+            "document-1",
+            DocumentMetadata("document-1", "version-1", "Guide", "source-1", "local", 2)
+            if request.document_id == "document-1"
+            else None,
+        )
 
     async def read_evidence(self, request):
         self.evidence_requests.append(request)
@@ -133,7 +159,7 @@ class FakeRuntime:
 
 
 @pytest.mark.asyncio
-async def test_default_catalog_is_the_nine_reader_and_graph_tools() -> None:
+async def test_default_catalog_contains_all_shared_reader_and_graph_tools() -> None:
     server = McpServer(runtime=FakeRuntime())  # type: ignore[arg-type]
     assert [spec.name for spec in server.list_tools()] == EXPECTED_READER_TOOLS
     assert server.list_tools()[4].input_schema == {
@@ -141,6 +167,111 @@ async def test_default_catalog_is_the_nine_reader_and_graph_tools() -> None:
         "properties": {},
         "additionalProperties": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_document_inventory_cursor_is_bound_to_tenant_and_principal() -> None:
+    runtime = FakeRuntime()
+    server = McpServer(runtime=runtime)  # type: ignore[arg-type]
+    first = await server.call_tool(
+        "list_documents", {"tenant_id": "tenant-1", "limit": 1}, principal_id="reader-1"
+    )
+    assert first["documents"][0]["document_id"] == "document-1"
+    assert first["completion"]["complete"] is False
+    cursor = first["next_cursor"]
+    for tenant, principal in (("tenant-2", "reader-1"), ("tenant-1", "reader-2")):
+        denied = await server.call_tool(
+            "list_documents", {"tenant_id": tenant, "cursor": cursor}, principal_id=principal
+        )
+        assert denied["ok"] is False
+    second = await server.call_tool(
+        "list_documents", {"tenant_id": "tenant-1", "cursor": cursor}, principal_id="reader-1"
+    )
+    assert second["documents"][0]["document_id"] == "document-2"
+    assert second["next_cursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_document_metadata_returns_unavailable_without_leaking_metadata() -> None:
+    server = McpServer(runtime=FakeRuntime())  # type: ignore[arg-type]
+    visible = await server.call_tool(
+        "get_document_metadata", {"tenant_id": "tenant-1", "document_id": "document-1"}
+    )
+    assert visible["document"]["title"] == "Guide"
+    hidden = await server.call_tool(
+        "get_document_metadata", {"tenant_id": "tenant-1", "document_id": "hidden"}
+    )
+    assert hidden["document"] is None
+    assert hidden["completion"] == {"complete": False, "reasons": ["unavailable"]}
+
+
+@pytest.mark.asyncio
+async def test_verify_citations_checks_content_digest_and_reports_unavailable_evidence() -> None:
+    server = McpServer(runtime=FakeRuntime())  # type: ignore[arg-type]
+    digest = hashlib.sha256(b"Canonical evidence").hexdigest()
+    result = await server.call_tool(
+        "verify_citations",
+        {
+            "tenant_id": "tenant-1",
+            "items": [
+                {"chunk_id": "chunk-1", "expected_content_sha256": digest},
+                {"chunk_id": "hidden"},
+            ],
+        },
+    )
+    assert result["items"] == [
+        {"chunk_id": "chunk-1", "valid": True, "content_sha256": digest},
+        {"chunk_id": "hidden", "valid": False, "content_sha256": None},
+    ]
+    mismatch = await server.call_tool(
+        "verify_citations",
+        {
+            "tenant_id": "tenant-1",
+            "items": [{"chunk_id": "chunk-1", "expected_content_sha256": "0" * 64}],
+        },
+    )
+    assert mismatch["items"][0]["valid"] is False
+    assert mismatch["completion"]["complete"] is False
+
+
+@pytest.mark.asyncio
+async def test_composed_search_uses_semantic_mode_then_returns_canonical_content() -> None:
+    class Retrieval:
+        request = None
+
+        async def search(self, request):
+            self.request = request
+            return RetrievalResponse(
+                "search-1",
+                RetrievalLane.HYBRID,
+                (
+                    RetrievalResult(
+                        "chunk-1",
+                        "Index content",
+                        0.9,
+                        {"document_id": "document-1", "document_version_id": "version-1"},
+                    ),
+                ),
+                {},
+            )
+
+    @dataclass
+    class Runtime(FakeRuntime):
+        retrieval: Retrieval = field(default_factory=Retrieval)
+
+    runtime = Runtime()
+    result = await McpServer(runtime=runtime).call_tool(  # type: ignore[arg-type]
+        "composed_evidence_search",
+        {"tenant_id": "tenant-1", "query": "guide"},
+        principal_id="reader-1",
+    )
+    assert result["ok"] is True
+    assert result["items"][0]["text"] == "Canonical evidence"
+    assert runtime.retrieval.request.mode.value == "local_semantic"
+    assert (
+        runtime.knowledge.evidence_requests[0].items[0].expected_document_version_id == "version-1"
+    )
+    assert result["cost"]["status"] == "unavailable"
 
 
 @pytest.mark.asyncio

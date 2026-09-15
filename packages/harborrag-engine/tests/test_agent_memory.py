@@ -27,6 +27,7 @@ async def test_run_appends_question_and_final_answer_tagged_with_run_id() -> Non
     )
 
     identity = ConversationIdentity("ACME", "principal-1", "session-1", "principal-1")
+    assert result.memory_persisted is True
     user, assistant = memory.messages[identity]
     assert (user.role, user.content, user.run_id) == ("user", "question", result.run_id)
     assert (assistant.role, assistant.content, assistant.run_id) == (

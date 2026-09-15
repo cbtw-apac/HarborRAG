@@ -43,7 +43,7 @@ async def test_agent_completion_writes_question_and_answer_tagged_with_the_run()
         "first question",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=AgentExecutionOptions(session_id="session-1"),
+        options=AgentExecutionOptions(user_id="reader-1", session_id="session-1"),
     )
 
     assert response.ok is True
@@ -71,7 +71,9 @@ async def test_agent_completion_echoes_a_valid_project() -> None:
         "question",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=AgentExecutionOptions(session_id="session-1", project_id="proj-1"),
+        options=AgentExecutionOptions(
+            user_id="reader-1", session_id="session-1", project_id="proj-1"
+        ),
     )
 
     assert response.ok is True
@@ -90,7 +92,9 @@ async def test_agent_completion_rejects_an_unknown_project() -> None:
             "question",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=AgentExecutionOptions(session_id="session-1", project_id="foreign"),
+            options=AgentExecutionOptions(
+                user_id="reader-1", session_id="session-1", project_id="foreign"
+            ),
         )
     assert await memory.recent_messages(IDENTITY, limit=10) == ()
 
@@ -107,7 +111,9 @@ async def test_agent_stream_reports_unknown_project_as_terminal_error() -> None:
             "question",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=AgentExecutionOptions(session_id="session-1", project_id="missing"),
+            options=AgentExecutionOptions(
+                user_id="reader-1", session_id="session-1", project_id="missing"
+            ),
         )
     ]
 
@@ -156,7 +162,7 @@ async def test_an_agent_usage_failure_does_not_fail_the_run() -> None:
         "first question",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=AgentExecutionOptions(session_id="session-1"),
+        options=AgentExecutionOptions(user_id="reader-1", session_id="session-1"),
     )
 
     assert response.ok is True

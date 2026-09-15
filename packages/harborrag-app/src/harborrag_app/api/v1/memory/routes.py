@@ -133,6 +133,7 @@ async def delete_memory(  # noqa: PLR0913 - one parameter per documented query f
 
 @router.delete(
     "/sessions/{session_id}",
+    deprecated=True,
     response_model=SessionErasureResponse,
     responses=ERROR_RESPONSES,
 )

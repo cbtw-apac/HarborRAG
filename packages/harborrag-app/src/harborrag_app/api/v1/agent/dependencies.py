@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
@@ -47,7 +47,7 @@ class AgentCompletionService(Protocol):
         tenant_id: str,
         principal_id: str,
         options: AgentExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]: ...
+    ) -> AsyncGenerator[dict[str, object], None]: ...
 
     async def agent_resume(
         self,

@@ -211,6 +211,10 @@ def tool_definition(spec: AgentToolSpec, graph_search: bool) -> HarborChatTool:
         properties = schema.get("properties")
         if isinstance(properties, dict):
             properties.pop("observe_graph", None)
+            mode = properties.get("mode")
+            if isinstance(mode, dict):
+                mode["enum"] = ["flat"]
+                mode["default"] = "flat"
     return HarborChatTool(
         function=HarborToolFunction(
             name=spec.name,

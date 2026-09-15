@@ -47,7 +47,11 @@ _NEWEST_ACTIVITY_FIRST = (
 _MESSAGE_COUNT = (
     sa.select(sa.func.count())
     .select_from(ConversationMessageRow)
-    .where(ConversationMessageRow.session_id == ConversationSessionRow.session_id)
+    .where(
+        ConversationMessageRow.tenant_id == ConversationSessionRow.tenant_id,
+        ConversationMessageRow.user_id == ConversationSessionRow.user_id,
+        ConversationMessageRow.session_id == ConversationSessionRow.session_id,
+    )
     .scalar_subquery()
 )
 
@@ -156,7 +160,31 @@ async def rename_conversation(
                 *owner_filter(identity.tenant_id, identity.user_id),
                 ConversationSessionRow.session_id == identity.session_id,
             )
-            .values(title=normalize_conversation_title(title))
+            .values(title=normalize_conversation_title(title), title_source="manual")
+        ),
+    )
+    return result.rowcount > 0
+
+
+async def set_generated_title(
+    session: AsyncSession, identity: ConversationIdentity, title: str
+) -> bool:
+    """Assign an automatic title once without replacing a manual choice."""
+
+    normalized = normalize_conversation_title(title)
+    if normalized is None:
+        return False
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            sa.update(ConversationSessionRow)
+            .where(
+                *owner_filter(identity.tenant_id, identity.user_id),
+                ConversationSessionRow.session_id == identity.session_id,
+                ConversationSessionRow.title_source.is_(None),
+                ConversationSessionRow.title.is_(None),
+            )
+            .values(title=normalized, title_source="generated")
         ),
     )
     return result.rowcount > 0
@@ -167,4 +195,5 @@ __all__ = [
     "list_conversations",
     "owner_filter",
     "rename_conversation",
+    "set_generated_title",
 ]

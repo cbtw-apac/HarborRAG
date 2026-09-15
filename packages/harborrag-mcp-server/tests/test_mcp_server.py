@@ -319,16 +319,24 @@ async def test_call_tool_facade_rejects_policy_violation_end_to_end(
     assert fresh_audit.entries[-1]["error_type"] == "ValueError"
 
 
-def test_request_principal_requires_owner_role(monkeypatch) -> None:
+def test_request_principal_requires_reader_or_owner_role(monkeypatch) -> None:
     from types import SimpleNamespace
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
 
     from harborrag_mcp_server.server import _request_principal_id
 
-    reader = SimpleNamespace(claims={"sub": "reader-1", "role": "reader"}, client_id="client")
+    reader = SimpleNamespace(
+        claims={"sub": "reader-1", "role": "reader", "tenants": ["demo"]}, client_id="client"
+    )
     monkeypatch.setattr(dependencies, "get_access_token", lambda: reader)
-    with pytest.raises(PermissionError, match="owner"):
+    assert _request_principal_id("demo") == "reader-1"
+    with pytest.raises(PermissionError, match="requested tenant"):
+        _request_principal_id("other")
+
+    invalid = SimpleNamespace(claims={"sub": "guest-1", "role": "guest"}, client_id="client")
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: invalid)
+    with pytest.raises(PermissionError, match="reader or owner"):
         _request_principal_id()
 
     owner = SimpleNamespace(

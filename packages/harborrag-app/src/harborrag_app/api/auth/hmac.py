@@ -72,20 +72,4 @@ class HmacTokenVerifier(BaseTokenVerifier):
             role=role,
             tenant_ids=frozenset(raw_tenants),
             token_kind="jwt",
-            user_id=self._user_id(claims, subject),
         )
-
-    def _user_id(self, claims: dict[str, object], subject: str) -> str:
-        """Resolve the end-user identity from the configured claim.
-
-        A token without the configured claim falls back to ``sub``; a token
-        that carries the claim with anything but a non-empty string is rejected
-        rather than silently mapped to the subject.
-        """
-
-        if self.user_id_claim not in claims:
-            return subject
-        value = claims[self.user_id_claim]
-        if not isinstance(value, str) or not value:
-            raise HarborAuthError(f"token has invalid {self.user_id_claim!r} claim")
-        return value

@@ -64,6 +64,7 @@ class ModelCall:
         *,
         usage: HarborChatUsage | None,
         finish_reason: str | None = None,
+        estimated_cost_usd: float | None = None,
     ) -> ModelCall | None:
         """Describe a streamed call from the chunks that named its model.
 
@@ -79,6 +80,9 @@ class ModelCall:
             provider=chunk.provider,
             provider_model=chunk.provider_model,
             usage=usage,
+            estimated_cost_usd=(
+                estimated_cost_usd if estimated_cost_usd is not None else chunk.estimated_cost_usd
+            ),
             finish_reason=finish_reason,
         )
 

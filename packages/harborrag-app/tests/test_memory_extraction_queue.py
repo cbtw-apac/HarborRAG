@@ -247,7 +247,7 @@ class _BrokenAppendMemory(InMemoryConversationMemory):
 
 
 @pytest.mark.asyncio
-async def test_a_persisted_chat_turn_is_submitted_with_its_own_messages() -> None:
+async def test_a_persisted_chat_turn_does_not_trigger_automatic_extraction() -> None:
     facade = FakeMemoryFacade()
     runtime = FakeRuntime(FakeChatFacade(), memory=facade)
     history = InMemoryConversationMemory()
@@ -262,20 +262,16 @@ async def test_a_persisted_chat_turn_is_submitted_with_its_own_messages() -> Non
         "Where is the runbook?",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
     await queue.drain(timeout=5.0)
 
     assert response.data["memory_persisted"] is True
-    request, messages = facade.extractions[0]
-    assert request.session_id == "session-1"
-    assert request.question == "Where is the runbook?"
+    assert facade.extractions == []
     persisted = await history.recent_messages(
         ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), limit=2
     )
-    assert [message.message_id for message in messages] == [  # type: ignore[attr-defined]
-        message.message_id for message in persisted
-    ]
+    assert [message.content for message in persisted] == ["Where is the runbook?", "Hello"]
 
 
 @pytest.mark.asyncio
@@ -294,7 +290,7 @@ async def test_an_unpersisted_chat_turn_is_never_submitted() -> None:
         "Where is the runbook?",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
     await queue.drain(timeout=5.0)
 

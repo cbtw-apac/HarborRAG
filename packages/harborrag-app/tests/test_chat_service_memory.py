@@ -10,7 +10,6 @@ import pytest
 from chat_service_fixtures import FakeChatFacade, FakeRuntime, replayed
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
@@ -68,7 +67,7 @@ async def test_chat_completion_returns_the_answer_when_memory_append_fails(
             "Secret question text",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
 
     assert response.ok is True
@@ -95,7 +94,7 @@ async def test_chat_completion_reports_memory_persisted_on_success() -> None:
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
 
     assert response.ok is True
@@ -103,7 +102,7 @@ async def test_chat_completion_reports_memory_persisted_on_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_rejects_an_agent_session() -> None:
+async def test_chat_completion_can_continue_an_agent_conversation() -> None:
     memory = InMemoryConversationMemory()
     await memory.create(
         ConversationIdentity("ACME", "reader-1", "agent-session", "reader-1"), kind="agent"
@@ -111,14 +110,14 @@ async def test_chat_completion_rejects_an_agent_session() -> None:
     chat = FakeChatFacade()
     service = _chat_service(FakeRuntime(chat), memory)
 
-    with pytest.raises(HarborNotFoundError):
-        await service.complete(
-            "Hello",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="agent-session"),
-        )
-    assert chat.requests == []
+    response = await service.complete(
+        "Hello",
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=ChatExecutionOptions(session_id="agent-session", user_id="reader-1"),
+    )
+    assert response.ok
+    assert len(chat.requests) == 1
 
 
 @pytest.mark.asyncio
@@ -141,7 +140,7 @@ async def test_concurrent_completions_on_one_session_are_serialized() -> None:
         ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
     )
     service = _chat_service(FakeRuntime(chat), memory)
-    options = ChatExecutionOptions(session_id="session-1")
+    options = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
 
     first = asyncio.create_task(
         service.complete("First", tenant_id="ACME", principal_id="reader-1", options=options)
@@ -181,7 +180,7 @@ async def test_chat_completion_reports_memory_lost_when_only_the_question_fails(
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1"),
+        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
 
     assert response.ok is True
@@ -208,8 +207,9 @@ async def test_chat_stream_warns_when_only_the_question_append_fails() -> None:
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="session-1"),
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
         )
     ]
 
-    assert events[-1] == {"kind": "warning", "warning": "conversation_memory_unavailable"}
+    assert events[-2] == {"kind": "warning", "warning": "conversation_memory_unavailable"}
+    assert events[-1]["result"]["memory_persisted"] is False

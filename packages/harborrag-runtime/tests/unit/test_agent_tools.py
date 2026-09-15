@@ -10,6 +10,8 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
+from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
 
 class _Retrieval:
@@ -87,13 +89,13 @@ async def test_agent_tool_backend_failure_returns_generic_error_but_logs_the_cau
 
     provider = RuntimeAgentToolProvider(_Runtime(_RaisingRetrieval()))  # type: ignore[arg-type]
 
-    with caplog.at_level("ERROR", logger="harborrag.runtime.agent.tools"):
+    with caplog.at_level("ERROR", logger="harborrag.runtime.tools.vector_search"):
         response = await provider.call_tool(
             "vector_search",
             {"tenant_id": "ACME", "query": "question"},
         )
 
-    assert response == {"ok": False, "error": "agent retrieval tool failed"}
+    assert response == {"ok": False, "error": "vector retrieval backend failed"}
     logged = [record for record in caplog.records if record.exc_info is not None]
     assert logged, "the real exception must be logged even though the caller sees a generic error"
     assert "vector store unreachable" in str(logged[0].exc_info[1])
@@ -109,5 +111,32 @@ def test_agent_tool_catalog_exposes_only_bounded_read_tools() -> None:
         "graph_triplet_search",
         "graph_path_search",
         "graph_subgraph_search",
+        "fetch_evidence",
+        "get_document_context",
+        "list_sources",
+        "describe_graph",
+        "resolve_graph_nodes",
+        "list_documents",
+        "get_document_metadata",
+        "verify_citations",
+        "composed_evidence_search",
     }
     assert {tool.capability for tool in tools} == {"read"}
+    shared = build_reader_tool_catalog(provider.runtime, KnowledgeReferenceStore())
+    assert {tool.name: tool.input_schema for tool in tools} == {
+        tool.spec.name: tool.spec.input_schema for tool in shared
+    }
+
+
+@pytest.mark.asyncio
+async def test_compact_vector_hits_do_not_return_content_and_report_unknown_retrieval_cost() -> (
+    None
+):
+    provider = RuntimeAgentToolProvider(_Runtime(_Retrieval()))  # type: ignore[arg-type]
+    result = await provider.call_tool(
+        "vector_search", {"tenant_id": "ACME", "query": "release owner", "include_content": False}
+    )
+    assert "text" not in result["results"][0]
+    assert result["results"][0]["id"] == "chunk-1"
+    assert result["cost"]["amount_usd"] is None
+    assert result["cost"]["complete"] is False

@@ -7,9 +7,9 @@ own moment -- the question as soon as the turn is committed to, the answer as
 soon as any text exists -- so nothing a caller was charged for is silently
 discarded.
 
-``turns_from_messages`` still derives pairs from these records, so a question
-with no answer yet simply forms no turn and a marked-partial answer replays
-like any other.
+History retains these records for browsing, while model context selects only
+complete user-assistant pairs. Unanswered questions and marked-partial answers
+never enter the next prompt.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from ..memory.identity import MemoryIdentity
 from ..memory.messages import answer_message, append_message, question_message
 from ..memory.usage import ModelCall, record_model_usage
 from .preparation import ChatTurnResources
-from .presenters import citation_data
+from .presenters import citation_data, cited_results
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,11 +66,14 @@ class StreamedAnswer:
     usage: HarborChatUsage | None = None
     finish_reason: str | None = None
     completed: bool = False
+    estimated_cost_usd: float | None = None
 
     def observe(self, chunk: HarborChatStreamChunk) -> None:
         """Fold one chunk in, keeping the newest model identity and usage."""
 
         self.last_chunk = chunk
+        if chunk.estimated_cost_usd is not None:
+            self.estimated_cost_usd = chunk.estimated_cost_usd
         if chunk.text_delta:
             self.parts.append(chunk.text_delta)
         if chunk.usage is not None:
@@ -89,6 +92,7 @@ class StreamedAnswer:
                 self.last_chunk,
                 usage=self.usage,
                 finish_reason=self.finish_reason,
+                estimated_cost_usd=self.estimated_cost_usd,
             ),
             partial=not self.completed,
         )
@@ -114,9 +118,8 @@ class RememberedTurn:
         """What ``memory_persisted`` means to a caller: nothing was lost.
 
         Both halves count. A question that was not written leaves the answer
-        standing alone in history, which the next turn replays as an assistant
-        message with no prompt in front of it -- a lost turn, whichever half
-        the store dropped.
+        standing alone in history, so the next turn excludes that exchange
+        from context -- a lost turn, whichever half the store dropped.
 
         False only when a write was attempted and the store rejected it. A
         provider that returned no content has nothing to persist, and
@@ -174,7 +177,9 @@ async def remember_answer(
         identity.conversation(),
         answer_message(
             answer.text,
-            citations=tuple(citation_data(result) for result in results),
+            citations=tuple(
+                citation_data(result) for result in cited_results(answer.text, results)
+            ),
             completion_tokens=answer.completion_tokens,
             partial=answer.partial,
         ),

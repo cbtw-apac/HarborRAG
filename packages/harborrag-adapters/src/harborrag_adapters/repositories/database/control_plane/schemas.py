@@ -291,6 +291,9 @@ class GraphConflictRow(Base):
     """
 
     __tablename__ = "graph_conflicts"
+    __table_args__ = (
+        sa.Index("ix_graph_conflicts_tenant_detected", "tenant_id", "detected_at", "id"),
+    )
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(sa.String(128), server_default="DEFAULT", nullable=False)
@@ -310,4 +313,5 @@ class GraphConflictRow(Base):
 # module still registers on Base.metadata whenever schemas.py is imported --
 # required for Alembic autogenerate and the metadata-drift test to see them.
 from . import schemas_agent_memory as _schemas_agent_memory  # noqa: E402, F401
+from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
 from . import schemas_usage as _schemas_usage  # noqa: E402, F401

@@ -6,6 +6,8 @@ import secrets
 from collections.abc import Sequence
 
 from harborrag_app.workflow_control.schemas import AppResponse
+from harborrag_core.domain.identity import DEFAULT_USER
+from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_runtime.memory import (
     ConversationIdentity,
     ConversationKind,
@@ -80,6 +82,35 @@ class ConversationSessionService:
             kind=kind,
         )
 
+    async def claim_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> CompletionClaim:
+        return await self._repository.claim_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+        )
+
+    async def finish_completion(  # noqa: PLR0913 - mirrors CompletionRequestStore
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        key: str,
+        request_hash: str,
+        response_json: str | None,
+        session_id: str | None = None,
+    ) -> None:
+        await self._repository.finish_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+            response_json=response_json,
+            session_id=session_id,
+        )
+
 
 def _identity(
     tenant_id: str,
@@ -87,7 +118,7 @@ def _identity(
     session_id: str,
     user_id: str | None,
 ) -> ConversationIdentity:
-    return ConversationIdentity(tenant_id, principal_id, session_id, user_id or principal_id)
+    return ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
 
 
 __all__ = ["ConversationSessionService"]
