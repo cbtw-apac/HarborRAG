@@ -43,7 +43,7 @@ repos:
         require_serial: true
 
       - id: file-length
-        name: python file length (<=349)
+        name: python file length (<=1000)
         entry: uv run --all-packages --all-extras python scripts/check_python_file_length.py
         language: system
         types: [python]
