@@ -65,6 +65,12 @@ class PublicIngestionClientMixin:
             limit=limit,
         )
 
+    async def pause(self, task_id: str) -> dict[str, object]:
+        return await self._public_ingestions.pause(task_id)
+
+    async def resume(self, task_id: str) -> dict[str, object]:
+        return await self._public_ingestions.resume(task_id)
+
     async def cancel(self, task_id: str) -> dict[str, object]:
         return await self._public_ingestions.cancel(task_id)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from app_test_control_plane import control_plane_app_service
 from fastapi.testclient import TestClient
@@ -24,6 +26,7 @@ def test_list_activity_empty_in_development_mode() -> None:
 @pytest.mark.blackbox
 def test_list_activity_returns_seeded_entries_newest_first() -> None:
     """Seeded entries come back newest first, respecting the limit param."""
+    base_time = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     app = create_fastapi_app(ApiSettings())
     app.dependency_overrides[get_app_service] = lambda: control_plane_app_service(
         activity=[
@@ -35,6 +38,7 @@ def test_list_activity_returns_seeded_entries_newest_first() -> None:
                 entity_type="source",
                 entity_id="src-1",
                 summary="alice created source src-1",
+                created_at=base_time,
             ),
             ActivityEntry(
                 id="a2",
@@ -44,6 +48,7 @@ def test_list_activity_returns_seeded_entries_newest_first() -> None:
                 entity_type="project",
                 entity_id="proj-1",
                 summary="bob updated project proj-1",
+                created_at=base_time + timedelta(minutes=1),
             ),
         ]
     )
