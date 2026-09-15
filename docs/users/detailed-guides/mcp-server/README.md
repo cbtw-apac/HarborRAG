@@ -13,12 +13,13 @@ policy-bounded FastMCP transport.
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
-| `describe_graph` | None (no tenant required) | Static graph schema: node kinds, entity types, projected relations, selector rules, connector topologies, recommended workflows |
+| `describe_graph` | None (no tenant required) | Static graph contract: structural/semantic/ontology schema versions, node kinds, projected relations, and node/relation property catalogs |
 
-Call `describe_graph` first if graph selectors, relations, directions, or connector
-topology are unclear — it is a static schema lookup, not a query. The MCP server also
-advertises short cross-tool routing instructions (which tool to call for which intent)
-to any client that surfaces server-level `instructions`.
+Call `describe_graph` first — before any other graph tool — if you are not yet
+familiar with the graph model, or if graph selectors, relations, or directions are
+unclear. It is a static schema lookup, not a query. The MCP server also advertises
+short cross-tool routing instructions (which tool to call for which intent) to any
+client that surfaces server-level `instructions`.
 
 The catalog contains exactly four tools. All of them are read-only, and every one requires
 an explicit `tenant_id`.

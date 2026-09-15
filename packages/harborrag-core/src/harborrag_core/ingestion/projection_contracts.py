@@ -8,6 +8,8 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from .artifact_contracts import ArtifactReference
 from .projection_graph import (
     GRAPH_SCHEMA_VERSION,
+    ONTOLOGY_SCHEMA_VERSION,
+    SEMANTIC_SCHEMA_VERSION,
     GraphEdgeRecord,
     GraphNodeRecord,
     GraphProjectionManifest,
@@ -21,6 +23,8 @@ from .projection_vector import (
 
 __all__ = [
     "GRAPH_SCHEMA_VERSION",
+    "ONTOLOGY_SCHEMA_VERSION",
+    "SEMANTIC_SCHEMA_VERSION",
     "GraphEdgeRecord",
     "GraphNodeRecord",
     "GraphProjectionManifest",

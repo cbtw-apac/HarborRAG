@@ -20,6 +20,8 @@ from .graph_attribute_validation import validate_graph_attributes
 from .states import GraphEntityType, GraphOwnershipScope, KnowledgeNodeKind
 
 GRAPH_SCHEMA_VERSION: Literal["2.0"] = "2.0"
+SEMANTIC_SCHEMA_VERSION: Literal["semantic-v3"] = "semantic-v3"
+ONTOLOGY_SCHEMA_VERSION: Literal["enterprise-v1"] = "enterprise-v1"
 
 
 _STRUCTURE_ENTITY_TYPES = frozenset(

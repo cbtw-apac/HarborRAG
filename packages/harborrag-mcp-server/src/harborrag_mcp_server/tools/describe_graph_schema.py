@@ -1,149 +1,81 @@
 """Strict, fully-nested output JSON Schema for ``describe_graph``.
 
-Split out of ``graph_catalog.py`` (which owns the catalog *data*: the enum-keyed
-meanings, topologies, and workflows) so each module stays focused: one builds
-the payload's content, this one describes its exact shape.
+Split out of ``graph_catalog.py`` (which owns the catalog *data*: schema versions,
+node/relation names, and property lists) so each module stays focused: one builds the
+payload's content, this one describes its exact shape.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .graph_catalog import (
-    CONNECTOR_TOPOLOGIES,
-    ENTITY_TYPE_MEANINGS,
-    NODE_KIND_MEANINGS,
-    RELATION_MEANINGS,
+    CHUNK_PROPERTIES,
+    COMMON_NODE_PROPERTIES,
+    DOCUMENT_OWNED_PROPERTIES,
+    ENTITY_PROPERTIES,
+    GRAPH_NODE_KINDS,
+    GRAPH_RELATION_TYPES,
+    RELATES_PROPERTIES,
 )
 
 
-def _named_entry_schema(name_values: list[str]) -> dict[str, object]:
-    """Schema for one ``{"name": ..., "meaning": ...}`` catalog entry.
+def _closed_string_list_schema(values: Sequence[str]) -> dict[str, object]:
+    """Schema for an array whose members must come from a known, closed set.
 
-    Unlike a graph node's ``entity_type`` (open, see ``output_schemas.py``), every name
-    here comes from ``graph_catalog``'s own static, closed dictionaries -- so ``name``
-    can safely enum-constrain to the exact keys this payload actually emits.
+    Every list here comes from ``graph_catalog``'s own static data, so ``items`` can
+    safely enum-constrain to the exact values this payload actually emits.
     """
     return {
-        "type": "object",
-        "required": ["name", "meaning"],
-        "properties": {
-            "name": {"type": "string", "enum": name_values},
-            "meaning": {"type": "string", "minLength": 1},
-        },
-        "additionalProperties": False,
+        "type": "array",
+        "items": {"type": "string", "enum": list(values)},
     }
 
 
-_CAPABILITIES_SCHEMA: dict[str, object] = {
+_VERSIONS_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": [
-        "free_text_search",
-        "partial_title_matching",
-        "tenant_inventory",
-        "vector_to_graph_handoff",
-        "composed_context_retrieval",
-    ],
+    "required": ["structural", "semantic", "ontology"],
     "properties": {
-        "free_text_search": {"type": "boolean"},
-        "partial_title_matching": {"type": "boolean"},
-        "tenant_inventory": {"type": "boolean"},
-        "vector_to_graph_handoff": {"type": "boolean"},
-        "composed_context_retrieval": {"type": "boolean"},
+        "structural": {"type": "string", "minLength": 1},
+        "semantic": {"type": "string", "minLength": 1},
+        "ontology": {"type": "string", "minLength": 1},
     },
     "additionalProperties": False,
 }
 
-_SELECTOR_RULES_SCHEMA: dict[str, object] = {
+_LAYERS_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": ["accepted", "title_matching", "chunk_titles_available", "preferred_entry_tool"],
+    "required": ["nodes", "relations"],
     "properties": {
-        "accepted": {
-            "type": "array",
-            "items": {
-                "type": "string",
-                "enum": ["chunk_id", "node_key", "logical_id", "exact_title"],
-            },
-        },
-        "title_matching": {"type": "string", "enum": ["case_insensitive_exact"]},
-        "chunk_titles_available": {"type": "boolean"},
-        "preferred_entry_tool": {"type": "string", "minLength": 1},
+        "nodes": _closed_string_list_schema(GRAPH_NODE_KINDS),
+        "relations": _closed_string_list_schema(GRAPH_RELATION_TYPES),
     },
     "additionalProperties": False,
 }
 
-_TOPOLOGY_ENTRY_SCHEMA: dict[str, object] = {
+_PROPERTIES_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": ["connector", "entity_chain"],
+    "required": ["common_node", "document_owned", "Chunk", "Entity", "RELATES"],
     "properties": {
-        "connector": {
-            "type": "string",
-            "enum": [str(topology["connector"]) for topology in CONNECTOR_TOPOLOGIES],
-        },
-        "entity_chain": {
-            "type": "array",
-            "items": {"type": "string", "enum": [entity.value for entity in ENTITY_TYPE_MEANINGS]},
-            "minItems": 2,
-        },
-    },
-    "additionalProperties": False,
-}
-
-_WORKFLOW_ENTRY_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["name", "use_when", "steps"],
-    "properties": {
-        "name": {"type": "string", "minLength": 1},
-        "use_when": {"type": "string", "minLength": 1},
-        "steps": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
-    },
-    "additionalProperties": False,
-}
-
-_LIMITS_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["maximum_depth", "maximum_results"],
-    "properties": {
-        "maximum_depth": {"type": "integer"},
-        "maximum_results": {"type": "integer"},
+        "common_node": _closed_string_list_schema(COMMON_NODE_PROPERTIES),
+        "document_owned": _closed_string_list_schema(DOCUMENT_OWNED_PROPERTIES),
+        "Chunk": _closed_string_list_schema(CHUNK_PROPERTIES),
+        "Entity": _closed_string_list_schema(ENTITY_PROPERTIES),
+        "RELATES": _closed_string_list_schema(RELATES_PROPERTIES),
     },
     "additionalProperties": False,
 }
 
 OUTPUT_SCHEMA: dict[str, object] = {
     "type": "object",
-    # describe_graph always returns the full, unfiltered catalog, so every section is
-    # required.
-    "required": [
-        "ok",
-        "graph_schema_version",
-        "capabilities",
-        "selector_rules",
-        "node_kinds",
-        "entity_types",
-        "relation_types",
-        "topologies",
-        "workflows",
-        "limits",
-    ],
+    # describe_graph always returns the full, unfiltered static contract, so every
+    # section is required.
+    "required": ["ok", "versions", "layers", "properties"],
     "properties": {
         "ok": {"const": True},
-        "graph_schema_version": {"type": "string", "minLength": 1},
-        "capabilities": _CAPABILITIES_SCHEMA,
-        "selector_rules": _SELECTOR_RULES_SCHEMA,
-        "node_kinds": {
-            "type": "array",
-            "items": _named_entry_schema([kind.value for kind in NODE_KIND_MEANINGS]),
-        },
-        "entity_types": {
-            "type": "array",
-            "items": _named_entry_schema([entity.value for entity in ENTITY_TYPE_MEANINGS]),
-        },
-        "relation_types": {
-            "type": "array",
-            "items": _named_entry_schema([relation.value for relation in RELATION_MEANINGS]),
-        },
-        "topologies": {"type": "array", "items": _TOPOLOGY_ENTRY_SCHEMA},
-        "workflows": {"type": "array", "items": _WORKFLOW_ENTRY_SCHEMA},
-        "limits": _LIMITS_SCHEMA,
+        "versions": _VERSIONS_SCHEMA,
+        "layers": _LAYERS_SCHEMA,
+        "properties": _PROPERTIES_SCHEMA,
     },
     "additionalProperties": False,
 }
