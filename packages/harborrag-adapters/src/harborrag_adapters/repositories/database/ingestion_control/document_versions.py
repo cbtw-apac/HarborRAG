@@ -128,6 +128,7 @@ class DocumentVersionRepository:
             await session.execute(
                 insert(DOCUMENT_VERSIONS).values(
                     document_version_id=str(candidate.document_version_id),
+                    source_scope_id=candidate.source_identity.source_scope_id,
                     document_id=str(candidate.document_id),
                     canonical_content_hash=candidate.fingerprints.canonical_content_hash,
                     retrieval_metadata_hash=candidate.fingerprints.retrieval_metadata_hash,

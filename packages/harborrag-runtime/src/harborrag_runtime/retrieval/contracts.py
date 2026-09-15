@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from harborrag_adapters.repositories.object_store import ChunkArtifactReader
 from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorFilter
-from harborrag_core.ingestion import ActiveDocumentVersion, KnowledgeGraphTraversal
+from harborrag_core.ingestion import (
+    ActiveDocumentVersion,
+    DocumentVersionSnapshot,
+    KnowledgeGraphTraversal,
+    ReadableSource,
+    SourceCatalogQuery,
+)
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 from harborrag_core.retrieval import (
+    GraphNodeResolutionQuery,
+    GraphNodeResolutionResult,
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
@@ -20,6 +28,14 @@ from harborrag_core.retrieval import (
     GraphTripletResult,
 )
 from harborrag_core.storage import StorageOperationContext
+from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
+from harborrag_core.topology.search import (
+    ContextualSearchPort,
+    EvidenceBundle,
+    RetrievalMode,
+    TopologyDiagnostics,
+    TopologySearchPort,
+)
 from harborrag_engine.ingestion.representations import BM25SparseEncoder
 from harborrag_engine.retrieval import RetrievalLane
 
@@ -29,6 +45,17 @@ class ActiveVersionResolver(Protocol):
         self,
         document_ids: Sequence[str],
     ) -> Mapping[str, ActiveDocumentVersion]: ...
+
+
+class DocumentSnapshotReader(Protocol):
+    async def active_snapshot(self, document_id: str) -> DocumentVersionSnapshot | None: ...
+
+
+class SourceCatalogReader(Protocol):
+    async def list_readable_sources(
+        self,
+        query: SourceCatalogQuery,
+    ) -> tuple[ReadableSource, ...]: ...
 
 
 class RetrievalTelemetry(Protocol):
@@ -69,6 +96,13 @@ class KnowledgeGraphReader(Protocol):
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal: ...
 
+    async def resolve_nodes(
+        self,
+        query: GraphNodeResolutionQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> GraphNodeResolutionResult: ...
+
 
 @dataclass(frozen=True, slots=True)
 class GraphResultNeighborhood:
@@ -108,6 +142,8 @@ class RetrievalDiagnostics:
     # Structural provenance for the results, empty unless graph observation ran. Kept
     # last with a default so the positional shape of the existing fields is unchanged.
     graph_documents: tuple[GraphDocumentSummary, ...] = ()
+    short_by: int = 0
+    topology: TopologyDiagnostics = field(default_factory=TopologyDiagnostics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +152,7 @@ class RuntimeRetrievalReport:
     lane: RetrievalLane
     results: tuple[RetrievalResult, ...]
     diagnostics: RetrievalDiagnostics
+    evidence: EvidenceBundle = field(default_factory=EvidenceBundle)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +163,10 @@ class RetrievalResources:
     chunk_reader: ChunkArtifactReader
     sparse_encoder: BM25SparseEncoder
     graph_repository: KnowledgeGraphReader | None = None
+    topology_repository: TopologySearchPort | None = None
+    contextual_search: ContextualSearchPort | None = None
+    document_snapshots: DocumentSnapshotReader | None = None
+    source_catalog: SourceCatalogReader | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +175,8 @@ class RetrievalPolicy:
     embedding_dimensions: int
     normalize_embeddings: bool = True
     dense_weight: float = 0.7
+    semantic_weight: float = 0.5
+    topology: TopologyRetrievalPolicy = field(default_factory=TopologyRetrievalPolicy)
 
     def __post_init__(self) -> None:
         if not self.embedding_model.strip():
@@ -142,6 +185,8 @@ class RetrievalPolicy:
             raise ValueError("retrieval embedding dimensions must be positive")
         if not 0 <= self.dense_weight <= 1:
             raise ValueError("retrieval dense weight must be between zero and one")
+        if not 0 <= self.semantic_weight <= 1:
+            raise ValueError("retrieval semantic weight must be between zero and one")
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +194,10 @@ class RetrievalOptions:
     lane: RetrievalLane = RetrievalLane.HYBRID
     filters: VectorFilter | None = None
     observe_graph: bool = False
+    mode: RetrievalMode = RetrievalMode.FLAT
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mode", RetrievalMode(self.mode))
 
 
 CloseOperation = Callable[[], Awaitable[None]]

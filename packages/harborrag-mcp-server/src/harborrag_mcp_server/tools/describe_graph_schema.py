@@ -7,6 +7,8 @@ builds the payload's content, this one describes its exact shape.
 
 from __future__ import annotations
 
+from harborrag_core.topology.search import RetrievalMode
+
 from .graph_catalog import (
     CONNECTOR_TOPOLOGIES,
     DIRECTION_VALUES,
@@ -125,10 +127,11 @@ _WORKFLOW_ENTRY_SCHEMA: dict[str, object] = {
 
 _VECTOR_SEARCH_DEFAULTS_SCHEMA: dict[str, object] = {
     "type": "object",
-    "required": ["top_k", "lane", "filters", "observe_graph", "score_threshold"],
+    "required": ["top_k", "lane", "mode", "filters", "observe_graph", "score_threshold"],
     "properties": {
         "top_k": {"type": "integer"},
         "lane": {"type": "string", "enum": VECTOR_SEARCH_LANE_VALUES},
+        "mode": {"type": "string", "enum": [mode.value for mode in RetrievalMode]},
         "filters": _EMPTY_OBJECT_SCHEMA,
         "observe_graph": {"type": "boolean"},
         "score_threshold": {"type": "number"},

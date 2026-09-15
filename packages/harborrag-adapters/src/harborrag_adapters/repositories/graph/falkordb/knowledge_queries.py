@@ -9,6 +9,10 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_mapping import (
     KnowledgeGraphMapper,
     build_knowledge_traversal,
 )
+from harborrag_adapters.repositories.graph.falkordb.knowledge_node_resolution import (
+    resolve_knowledge_node,
+)
+from harborrag_adapters.repositories.graph.falkordb.knowledge_paths import AnchoredPathSearch
 from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
     path_limit_for,
     read_rows,
@@ -122,12 +126,14 @@ async def search_triplets(
           AND ($subject IS NULL
                OR subject.node_key = $subject
                OR subject.logical_id = $subject
-               OR toLower(subject.title) = toLower($subject))
+               OR toLower(subject.title) = toLower($subject)
+               OR toLower(predicate.source_title) = toLower($subject))
           AND ($predicate IS NULL OR predicate.relation_type = $predicate)
           AND ($object IS NULL
                OR object.node_key = $object
                OR object.logical_id = $object
-               OR toLower(object.title) = toLower($object))
+               OR toLower(object.title) = toLower($object)
+               OR toLower(predicate.target_title) = toLower($object))
         RETURN subject, predicate, object
         ORDER BY predicate.relation_id
         LIMIT $limit
@@ -155,47 +161,7 @@ async def find_paths(
 ) -> GraphPathResult:
     """Return bounded explicit paths without exposing provider node IDs."""
 
-    left, right = GraphTraversalSyntax.arrows(query.direction)
-    rows = await read_rows(
-        database,
-        f"""
-        MATCH path=(start:KnowledgeNode){left}[*1..{query.max_depth}]
-                   {right}(end:KnowledgeNode)
-        WHERE start.tenant_id = $tenant_id
-          AND end.tenant_id = $tenant_id
-          AND start.graph_schema_version = $graph_schema_version
-          AND end.graph_schema_version = $graph_schema_version
-          AND (start.node_key = $start_node
-               OR start.logical_id = $start_node
-               OR toLower(start.title) = toLower($start_node))
-          AND (end.node_key = $end_node
-               OR end.logical_id = $end_node
-               OR toLower(end.title) = toLower($end_node))
-          AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
-                  AND node.graph_schema_version = $graph_schema_version)
-          AND all(relation IN relationships(path)
-                  WHERE relation.tenant_id = $tenant_id
-                    AND relation.graph_schema_version = $graph_schema_version
-                    AND (size($relationship_types) = 0
-                         OR relation.relation_type IN $relationship_types))
-        RETURN nodes(path) AS path_nodes,
-               relationships(path) AS path_relations
-        ORDER BY size(path_relations)
-        LIMIT $max_paths
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "start_node": query.start_node,
-            "end_node": query.end_node,
-            "relationship_types": [item.value for item in query.relationship_types],
-            "max_paths": query.max_paths + 1,
-        },
-    )
-    return GraphPathResult(
-        paths=tuple(KnowledgeGraphMapper.path(row) for row in rows[: query.max_paths]),
-        truncated=len(rows) > query.max_paths,
-    )
+    return await AnchoredPathSearch(database).find(query, context=context)
 
 
 async def expand_subgraph(
@@ -220,31 +186,10 @@ async def expand_subgraph(
     relationship_types = [item.value for item in query.relationship_types]
     left, right = GraphTraversalSyntax.arrows(query.direction)
 
-    start_rows = await read_rows(
-        database,
-        """
-        MATCH (start:KnowledgeNode)
-        WHERE start.tenant_id = $tenant_id
-          AND start.graph_schema_version = $graph_schema_version
-          AND (start.node_key = $start_node
-               OR start.logical_id = $start_node
-               OR toLower(start.title) = toLower($start_node))
-        RETURN start AS node
-        ORDER BY start.node_key
-        LIMIT 1
-        """,
-        {
-            "tenant_id": tenant_id,
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "start_node": query.start_node,
-        },
+    start_node = await resolve_knowledge_node(database, query.start_node, context=context)
+    nodes: dict[str, GraphNodeRecord] = (
+        {} if start_node is None else {start_node.node_key: start_node}
     )
-    assert len(start_rows) <= 1, "start resolution must be constrained to a single row"
-
-    nodes: dict[str, GraphNodeRecord] = {}
-    for row in start_rows:
-        node = KnowledgeGraphMapper.node(row["node"])
-        nodes[node.node_key] = node
 
     relations: dict[str, GraphEdgeRecord] = {}
     truncated = False

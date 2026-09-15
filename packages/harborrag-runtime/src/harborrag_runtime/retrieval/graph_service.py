@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborCapabilityError
@@ -31,10 +32,11 @@ class RuntimeGraphRetrievalMixin:
         *,
         access: AccessContext,
     ) -> AuthoritativeTripletResult:
-        return await self._require_graph_search().triplets(
-            query,
-            context=self._graph_context(access, "graph-triplet-search"),
-        )
+        async with asyncio.timeout(10):
+            return await self._require_graph_search().triplets(
+                query,
+                context=self._graph_context(access, "graph-triplet-search"),
+            )
 
     async def search_graph_paths(
         self,
@@ -42,10 +44,11 @@ class RuntimeGraphRetrievalMixin:
         *,
         access: AccessContext,
     ) -> AuthoritativePathResult:
-        return await self._require_graph_search().paths(
-            query,
-            context=self._graph_context(access, "graph-path-search"),
-        )
+        async with asyncio.timeout(10):
+            return await self._require_graph_search().paths(
+                query,
+                context=self._graph_context(access, "graph-path-search"),
+            )
 
     async def search_graph_subgraph(
         self,
@@ -53,10 +56,11 @@ class RuntimeGraphRetrievalMixin:
         *,
         access: AccessContext,
     ) -> AuthoritativeSubgraphResult:
-        return await self._require_graph_search().subgraph(
-            query,
-            context=self._graph_context(access, "graph-subgraph-search"),
-        )
+        async with asyncio.timeout(10):
+            return await self._require_graph_search().subgraph(
+                query,
+                context=self._graph_context(access, "graph-subgraph-search"),
+            )
 
     def _require_graph_search(self) -> AuthoritativeGraphSearch:
         if self._graph_search is None:

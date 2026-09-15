@@ -31,7 +31,7 @@ from ..contracts import (
 from ..execution import IngestionExecutor, build_ingestion_executor
 from ..execution.contracts import DurableIngestionExecutor
 from .configuration import HarborRAGConfig
-from .facades import GraphFacade, IngestionFacade, RetrievalFacade
+from .facades import GraphFacade, IngestionFacade, KnowledgeFacade, RetrievalFacade
 
 if TYPE_CHECKING:
     from ..retrieval import RuntimeRetrievalService
@@ -46,6 +46,7 @@ class HarborRAG:
         self.ingestion = IngestionFacade(self)
         self.retrieval = RetrievalFacade(self)
         self.graph = GraphFacade(self)
+        self.knowledge = KnowledgeFacade(self)
         self._executor: IngestionExecutor | None = None
         self._retrieval: RuntimeRetrievalService | None = None
         self._chat_runtime = RuntimeChatService(config.runtime)

@@ -97,6 +97,11 @@ class GraphProjectionBatch:
         ):
             raise ValueError("every graph relation endpoint must exist in the batch")
         nodes_by_key = {node.node_key: node for node in self.nodes}
+        owning_versions = {
+            (node.document_id, node.document_version_id)
+            for node in self.nodes
+            if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+        }
         for relation in self.relations:
             endpoints = (
                 nodes_by_key[relation.source_node_key],
@@ -105,12 +110,14 @@ class GraphProjectionBatch:
             if any(node.owner_id != relation.owner_id for node in endpoints):
                 raise ValueError("graph relation owner must match both endpoints")
             if relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION:
+                if (relation.document_id, relation.document_version_id) not in owning_versions:
+                    raise ValueError("version-owned relation must identify a document in its batch")
                 version_endpoints = tuple(
                     node
                     for node in endpoints
                     if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
                 )
-                if not version_endpoints or any(
+                if any(
                     node.document_id != relation.document_id
                     or node.document_version_id != relation.document_version_id
                     for node in version_endpoints

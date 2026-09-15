@@ -10,6 +10,7 @@ empty result indistinguishable from a genuine miss.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from harborrag_core.chunking import PROJECTED_RELATION_TYPES, RelationType
@@ -306,7 +307,7 @@ def describe_graph_payload(for_tool: str | None = None) -> dict[str, object]:
     """
     full = _build_full_payload()
     if for_tool is None:
-        return full
+        return deepcopy(full)
 
     payload: dict[str, object] = {key: full[key] for key in _CORE_KEYS}
     payload["requested_for_tool"] = for_tool

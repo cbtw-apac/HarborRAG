@@ -106,7 +106,7 @@ async def test_expand_subgraph_resolves_start_node_to_a_single_row() -> None:
     )
 
     start_statement, start_parameters = client.read_calls[0]
-    assert "ORDER BY start.node_key" in start_statement
+    assert "ORDER BY node.node_key" in start_statement
     assert "LIMIT 1" in start_statement
     assert "max_nodes" not in start_parameters
     assert {node.node_key for node in result.nodes} == {"node-ops-a"}

@@ -15,7 +15,7 @@ from harborrag_core.retrieval import (
     GraphTripletQuery,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from ..composition.resources import AppResources
 from ..schemas import AppResponse
@@ -37,6 +37,7 @@ class RetrievalClientMixin:
         top_k: int = 10,
         filters: Mapping[str, object] | None = None,
         lane: RetrievalLane = RetrievalLane.HYBRID,
+        mode: RetrievalMode = RetrievalMode.FLAT,
         observe_graph: bool = False,
         include_content: bool = False,
         include_metadata: bool = False,
@@ -51,6 +52,7 @@ class RetrievalClientMixin:
             top_k=top_k,
             filters=filters,
             lane=lane,
+            mode=mode,
             observe_graph=observe_graph,
             include_content=include_content,
             include_metadata=include_metadata,

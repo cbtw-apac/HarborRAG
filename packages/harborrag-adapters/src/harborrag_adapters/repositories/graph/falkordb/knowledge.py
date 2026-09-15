@@ -11,8 +11,10 @@ from collections.abc import Sequence
 
 from harborrag_adapters.repositories.graph.falkordb import (
     knowledge_admin,
+    knowledge_node_resolution,
     knowledge_provisioning,
     knowledge_queries,
+    knowledge_repair,
     knowledge_writes,
 )
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
@@ -25,6 +27,8 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
 )
 from harborrag_core.retrieval import (
+    GraphNodeResolutionQuery,
+    GraphNodeResolutionResult,
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
@@ -32,6 +36,8 @@ from harborrag_core.retrieval import (
     GraphTripletResult,
 )
 from harborrag_core.storage import StorageOperationContext
+
+from .tenant_pool import GraphClientFactory, TenantGraphClientPool
 
 
 class FalkorKnowledgeGraphRepository:
@@ -42,29 +48,29 @@ class FalkorKnowledgeGraphRepository:
         config: FalkorDBGraphConfig,
         *,
         client: FalkorDBClient | None = None,
+        client_factory: GraphClientFactory | None = None,
     ) -> None:
         self._config = config
-        self._database = client or FalkorDBClient(
-            host=config.host,
-            port=config.port,
-            username=config.username,
-            password=config.password.get_secret_value() if config.password else None,
-            graph_name=config.graph_name,
-            ssl=config.ssl,
-            max_connections=config.max_connections,
-            connect_timeout_seconds=config.connect_timeout_seconds,
-            operation_timeout_seconds=config.operation_timeout_seconds,
+        self._pool = TenantGraphClientPool(
+            config,
+            client=client,
+            factory=client_factory,
+            provisioner=knowledge_provisioning.provision_graph,
         )
 
-    async def connect(self) -> None:
-        await self._database.connect()
-        await self.provision()
+    async def connect(self, *, provision: bool = True) -> None:
+        await self._pool.connect(provision=provision)
 
     async def close(self) -> None:
-        await self._database.close()
+        await self._pool.close()
 
-    async def provision(self) -> None:
-        await knowledge_provisioning.provision_graph(self._database)
+    async def provision(self, context: StorageOperationContext | None = None) -> None:
+        await self._pool.provision(context)
+
+    async def database_for(
+        self, context: StorageOperationContext, *, write: bool = False
+    ) -> FalkorDBClient:
+        return await self._pool.database_for(context, write=write)
 
     async def write_projection(
         self,
@@ -84,7 +90,9 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> None:
-        await knowledge_writes.upsert_nodes(self._database, nodes, context=context)
+        await knowledge_writes.upsert_nodes(
+            await self.database_for(context, write=True), nodes, context=context
+        )
 
     async def upsert_relations(
         self,
@@ -92,7 +100,9 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> None:
-        await knowledge_writes.upsert_relations(self._database, relations, context=context)
+        await knowledge_writes.upsert_relations(
+            await self.database_for(context, write=True), relations, context=context
+        )
 
     async def verify_projection(
         self,
@@ -102,7 +112,7 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> GraphProjectionVerification:
         return await knowledge_writes.verify_projection(
-            self._database,
+            await self.database_for(context),
             nodes,
             relations,
             context=context,
@@ -118,7 +128,7 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal:
         return await knowledge_queries.traverse(
-            self._database,
+            await self.database_for(context),
             start_node_key,
             bounds=knowledge_queries.TraversalBounds(
                 max_depth=max_depth,
@@ -134,7 +144,9 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> GraphTripletResult:
-        return await knowledge_queries.search_triplets(self._database, query, context=context)
+        return await knowledge_queries.search_triplets(
+            await self.database_for(context), query, context=context
+        )
 
     async def find_paths(
         self,
@@ -142,7 +154,9 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> GraphPathResult:
-        return await knowledge_queries.find_paths(self._database, query, context=context)
+        return await knowledge_queries.find_paths(
+            await self.database_for(context), query, context=context
+        )
 
     async def expand_subgraph(
         self,
@@ -150,7 +164,19 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal:
-        return await knowledge_queries.expand_subgraph(self._database, query, context=context)
+        return await knowledge_queries.expand_subgraph(
+            await self.database_for(context), query, context=context
+        )
+
+    async def resolve_nodes(
+        self,
+        query: GraphNodeResolutionQuery,
+        *,
+        context: StorageOperationContext,
+    ) -> GraphNodeResolutionResult:
+        return await knowledge_node_resolution.resolve_knowledge_nodes(
+            await self.database_for(context), query, context=context
+        )
 
     async def delete_relations(
         self,
@@ -162,7 +188,9 @@ class FalkorKnowledgeGraphRepository:
 
         if not relations:
             return
-        await knowledge_writes.delete_relations(self._database, relations, context=context)
+        await knowledge_writes.delete_relations(
+            await self.database_for(context, write=True), relations, context=context
+        )
 
     async def delete_version(
         self,
@@ -171,8 +199,40 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> None:
         await knowledge_admin.delete_version(
-            self._database,
+            await self.database_for(context, write=True),
             document_version_id,
+            context=context,
+        )
+
+    async def replace_source_relations(
+        self,
+        document_version_id: str,
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await knowledge_repair.replace_source_relations(
+            await self.database_for(context, write=True),
+            document_version_id,
+            nodes,
+            relations,
+            context=context,
+        )
+
+    async def retire_legacy_source_relations(
+        self,
+        source_scope_id: str,
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await knowledge_repair.retire_legacy_source_relations(
+            await self.database_for(context, write=True),
+            source_scope_id,
+            nodes,
+            relations,
             context=context,
         )
 
@@ -183,7 +243,7 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> None:
         await knowledge_admin.delete_source_item(
-            self._database,
+            await self.database_for(context, write=True),
             source_item_node_key,
             context=context,
         )
@@ -195,7 +255,7 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> None:
         await knowledge_admin.delete_source_scope(
-            self._database,
+            await self.database_for(context, write=True),
             source_scope_id,
             context=context,
         )
@@ -208,7 +268,7 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> GraphSchemaMigrationVerification:
         return await knowledge_admin.verify_schema_v2_migration(
-            self._database,
+            await self.database_for(context),
             evidence_chunk_ids=tuple(evidence_chunk_ids),
             active_source_item_node_keys=tuple(active_source_item_node_keys),
             context=context,
@@ -220,7 +280,7 @@ class FalkorKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> None:
         await knowledge_admin.delete_legacy_tenant_projection(
-            self._database,
+            await self.database_for(context, write=True),
             context=context,
         )
 
@@ -229,11 +289,15 @@ class FalkorKnowledgeGraphRepository:
         *,
         context: StorageOperationContext,
     ) -> tuple[int, int]:
-        return await knowledge_admin.tenant_projection_counts(self._database, context=context)
+        return await knowledge_admin.tenant_projection_counts(
+            await self.database_for(context), context=context
+        )
 
     async def delete_tenant_projection(
         self,
         *,
         context: StorageOperationContext,
     ) -> None:
-        await knowledge_admin.delete_tenant_projection(self._database, context=context)
+        await knowledge_admin.delete_tenant_projection(
+            await self.database_for(context, write=True), context=context
+        )

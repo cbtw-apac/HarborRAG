@@ -27,6 +27,21 @@ def test_default_tenant_is_operator_readable() -> None:
     assert RuntimeSettings().ingestion_tenant_id == "DEFAULT"
 
 
+def test_topology_retrieval_policy_is_versioned_configurable_and_bounded(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "HARBORRAG_TOPOLOGY_RETRIEVAL_POLICY",
+        '{"version":"pilot-3","rrf_constant":20,"max_context_tokens":4000}',
+    )
+    policy = RuntimeSettings().topology_retrieval_policy
+    assert policy.version == "pilot-3"
+    assert policy.rrf_constant == 20
+    assert policy.max_context_tokens == 4000
+    assert policy.seed_chunks == 8
+    monkeypatch.setenv("HARBORRAG_TOPOLOGY_RETRIEVAL_POLICY", '{"typed_relation_hops":3}')
+    with pytest.raises(ValidationError):
+        RuntimeSettings()
+
+
 def test_control_database_pool_settings_are_bounded() -> None:
     settings = RuntimeSettings(
         env="prod",

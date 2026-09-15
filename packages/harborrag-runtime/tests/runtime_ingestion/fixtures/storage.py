@@ -120,3 +120,33 @@ class InMemoryKnowledgeGraph:
             and relation.source_node_key not in removed_node_keys
             and relation.target_node_key not in removed_node_keys
         }
+
+    async def replace_source_relations(
+        self, document_version_id, nodes, relations, *, context
+    ) -> None:
+        await self.write_projection(nodes, relations, context=context)
+        retained = {relation.relation_id for relation in relations}
+        obsolete = tuple(
+            relation
+            for relation in self.relations.values()
+            if str(relation.document_version_id) == document_version_id
+            and relation.attributes.get("source_relation") is True
+            and relation.relation_id not in retained
+        )
+        await self.delete_relations(obsolete, context=context)
+
+    async def retire_legacy_source_relations(
+        self, source_scope_id, nodes, relations, *, context
+    ) -> None:
+        verification = await self.verify_projection(nodes, relations, context=context)
+        if not verification.valid:
+            raise ValueError("rebuilt source manifests failed verification")
+        obsolete = tuple(
+            relation
+            for relation in self.relations.values()
+            if relation.owner_id == context.tenant_id
+            and relation.source_scope_id == source_scope_id
+            and relation.ownership_scope.value == "SOURCE_SCOPE"
+            and relation.relation_type.value != "has_data_source"
+        )
+        await self.delete_relations(obsolete, context=context)

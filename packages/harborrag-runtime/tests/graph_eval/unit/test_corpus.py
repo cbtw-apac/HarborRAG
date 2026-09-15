@@ -50,7 +50,7 @@ def test_corpus_projects_the_declared_topology(corpus: EvalCorpus) -> None:
     # not -- it carries no provider attributes, so it may only ever fill a gap. Only the
     # unresolved one has no corpus document behind it at all.
     placeholders = [node for node in runbook.nodes if node.attributes.get("placeholder") is True]
-    assert sorted(node.logical_id for node in placeholders) == ["architecture", "missing-page"]
+    assert sorted(node.logical_id for node in placeholders) == ["architecture"]
     assert [r.target_source_item_id for r in runbook.unresolved_relations] == ["missing-page"]
     # Every document contributes chunks, a version node, and exactly one source item --
     # including the attachment and placeholder-heavy provider batches.
@@ -271,16 +271,15 @@ def test_sharepoint_contains_chain_runs_through_placeholder_folders(corpus: Eval
         assert _node(batch, folder).attributes["placeholder"] is True
 
 
-def test_cross_source_link_never_resolves(corpus: EvalCorpus) -> None:
+def test_cross_source_link_never_invents_a_target_scope(corpus: EvalCorpus) -> None:
     batch = corpus.batches["HR-1"]
-    stand_in = next(
+    stand_ins = [
         node for node in batch.nodes if node.logical_id == "confluence://SPACE/team-handbook"
+    ]
+    assert not stand_ins
+    assert (corpus.source_item_key("HR-1"), corpus.source_item_key("team-handbook")) not in _edges(
+        batch, "links_to"
     )
-    assert stand_in.attributes["placeholder"] is True
-    assert (corpus.source_item_key("HR-1"), stand_in.node_key) in _edges(batch, "links_to")
-    # The stand-in is its own node: resolved_targets is per-run scope, so the real
-    # Confluence page in the same corpus is never reached by a Jira link.
-    assert stand_in.node_key != corpus.source_item_key("team-handbook")
     assert ("links_to", "confluence://SPACE/team-handbook") in {
         (relation.relation_type, relation.target_source_item_id)
         for relation in batch.unresolved_relations

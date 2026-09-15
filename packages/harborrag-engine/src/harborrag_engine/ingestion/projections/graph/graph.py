@@ -118,6 +118,10 @@ class SourceRelationProjector:
                         target_source_item_id=relation.target_id,
                     )
                 )
+                # A source item ID does not establish its ingestion scope. Known
+                # ancestors are projected by the connector-specific projector;
+                # an unresolved external link must not invent a same-scope target.
+                continue
             raw_target_id = resolved.source_item_id if resolved is not None else relation.target_id
             target_id = source_provider_id(
                 self._state.context.connector_type.value,
@@ -156,6 +160,7 @@ class SourceRelationProjector:
                     source=source,
                     target=destination,
                     source_explicit=True,
+                    attributes={"source_relation": True},
                     source_relation_version=(
                         str(supplied_version)
                         if supplied_version is not None and str(supplied_version).strip()

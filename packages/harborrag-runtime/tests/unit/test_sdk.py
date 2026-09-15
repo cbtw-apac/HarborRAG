@@ -23,6 +23,7 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.retrieval import GraphTriplet, GraphTripletQuery
 from harborrag_core.security import AccessContext
+from harborrag_core.topology.search import EvidenceBundle
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.chat import ChatPrompt, RuntimeChatService
 from harborrag_runtime.sdk import (
@@ -88,6 +89,7 @@ class _RetrievalService:
             lane=kwargs["options"].lane,
             results=(RetrievalResult("chunk-1", "text", 0.9),),
             diagnostics=_Diagnostics(),
+            evidence=EvidenceBundle(coverage_gaps=("fixture-gap",)),
         )
 
     async def aclose(self) -> None:
@@ -231,6 +233,7 @@ async def test_sdk_retrieval_preserves_access_and_builds_filters() -> None:
     )
 
     assert response.request_id == "request-1"
+    assert response.evidence.coverage_gaps == ("fixture-gap",)
     assert service.call is not None
     _, kwargs = service.call
     assert kwargs["access"] is access

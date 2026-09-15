@@ -16,6 +16,8 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
 _INDEXED_PROPERTIES = (
     "tenant_id",
     "node_key",
+    "logical_id",
+    "title_key",
     "graph_schema_version",
     "entity_type",
     "ownership_scope",
@@ -68,6 +70,12 @@ async def provision_graph(database: FalkorDBClient) -> None:
     for relationship_type in sorted(set(RELATION_IDENTIFIERS.values())):
         for property_name in _INDEXED_RELATION_PROPERTIES:
             await _create_relation_index(database, relationship_type, property_name)
+    await database.write(
+        "MATCH (node:KnowledgeNode) "
+        "WHERE node.title_key IS NULL AND node.title IS NOT NULL "
+        "SET node.title_key = toLower(node.title)",
+        {},
+    )
     # Drop before create, never the reverse. The tenant-keyed MERGE is already live by the
     # time this runs, so leaving UNIQUE(node_key) in place rejects the second tenant of a
     # shared node_key. Creating first and dropping second would leave exactly that state

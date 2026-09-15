@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from catalog_support import EXPECTED_READER_TOOLS
 
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import McpConfiguration, McpConfigurationStore
@@ -137,7 +138,7 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
         "transport": "streamable-http",
         "mcp_path": "/mcp",
         "authentication": "bearer",
-        "tool_count": 5,
+        "tool_count": 9,
     }
     assert unauthenticated.status_code == 401
     assert authenticated.status_code == 200
@@ -149,17 +150,12 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
     assert TOKEN not in config_response.text
     assert tools_without_token.status_code == 401
     assert tools_response.status_code == 200
-    assert [tool["name"] for tool in tools_response.json()["tools"]] == [
-        "vector_search",
-        "graph_triplet_search",
-        "graph_path_search",
-        "graph_subgraph_search",
-        "describe_graph",
-    ]
+    assert [tool["name"] for tool in tools_response.json()["tools"]] == EXPECTED_READER_TOOLS
     assert call_response.status_code == 200
-    assert call_response.json() == {
-        "name": "vector_search",
-        "result": {"ok": False, "error": "vector retrieval backend is not configured"},
+    assert call_response.json()["name"] == "vector_search"
+    assert call_response.json()["result"] == {
+        "ok": False,
+        "error": "vector retrieval backend is not configured",
     }
     assert audit.entries[-1]["principal_id"] == "harborrag-local"
     assert oversized_call.status_code == 422
@@ -221,7 +217,9 @@ async def test_owner_configuration_api_persists_and_audits_updates(tmp_path) -> 
             )
 
     assert saved.status_code == 200
-    assert saved.json()["configuration"]["tools"]["vector_search"]["defaults"] == {"top_k": 3}
+    assert saved.json()["configuration"]["tools"]["vector_search"]["defaults"] == {
+        "top_k": 3
+    }
     assert saved.json()["restart_required"] is True
     assert stale.status_code == 409
     assert configuration.path.is_file()
@@ -302,12 +300,16 @@ async def test_tool_playground_api_applies_effective_tenant_configuration(tmp_pa
                 json={"name": "vector_search", "arguments": []},
             )
 
-    vector_schema = next(
-        tool["input_schema"] for tool in catalog.json()["tools"] if tool["name"] == "vector_search"
+    search_schema = next(
+        tool["input_schema"]
+        for tool in catalog.json()["tools"]
+        if tool["name"] == "vector_search"
     )
-    assert vector_schema["properties"]["top_k"]["default"] == 3
-    assert vector_schema["properties"]["top_k"]["maximum"] == 7
-    assert "vector_search" not in {tool["name"] for tool in blocked_catalog.json()["tools"]}
+    assert search_schema["properties"]["top_k"]["default"] == 3
+    assert search_schema["properties"]["top_k"]["maximum"] == 7
+    assert "vector_search" not in {
+        tool["name"] for tool in blocked_catalog.json()["tools"]
+    }
     assert over_limit.status_code == 422
     assert disabled.status_code == 403
     assert malformed.status_code == 422

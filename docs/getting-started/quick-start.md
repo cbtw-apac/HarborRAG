@@ -112,8 +112,8 @@ mode `0600`:
 scripts/deployment/dev.sh bootstrap
 ```
 
-Now fill in the values that have no safe default. **The first one is mandatory - Compose
-will not start without it:**
+Now fill in the values that have no safe default. **The first one is mandatory for the
+API and worker, so the full stack will not start without it:**
 
 ```bash
 openssl rand -hex 32     # use the output as HARBORRAG_SECRETS_ENCRYPTION_KEY
@@ -180,8 +180,8 @@ Prefer to bring things up one at a time?
 Add `--build` to `up`, `worker`, or `api` after changing source, dependencies, or baked
 worker configuration.
 
-**If `up` fails with `required variable HARBORRAG_SECRETS_ENCRYPTION_KEY is missing a
-value`**, go back to step 5 - Compose treats an empty value as unset.
+**If `up` fails with `HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and
+worker`**, go back to step 5 - the launcher treats an empty value as unset.
 
 ### 7. Verify
 
@@ -253,7 +253,7 @@ HTTP surface.
 scripts/deployment/mcp.sh --check
 ```
 
-That performs a real MCP handshake and prints the four advertised retrieval tools without
+That performs a real MCP handshake and prints the nine advertised reader tools without
 opening provider connections. For normal use, point your MCP client at
 `scripts/deployment/mcp.sh`; for a browser playground, run `scripts/deployment/mcp.sh --http`
 and open <http://127.0.0.1:8010/>. See

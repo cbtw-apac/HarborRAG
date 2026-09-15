@@ -74,6 +74,10 @@ def test_development_entrypoint_supports_documented_argument_forms(
         ".env.api",
     ):
         (environment / filename).write_text("", encoding="utf-8")
+    (environment / ".env.database").write_text(
+        "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n",
+        encoding="utf-8",
+    )
     (environment / ".env.mcp").write_text(
         "HARBORRAG_MCP_BEARER_TOKEN=test-token\n",
         encoding="utf-8",
@@ -220,6 +224,14 @@ def test_api_has_one_canonical_compose_file() -> None:
         "docker-compose.all.yml",
     ):
         assert not (API_COMPOSE.parent / obsolete_name).exists()
+
+
+def test_api_restarts_and_mounts_graph_build_policy() -> None:
+    compose = API_COMPOSE.read_text(encoding="utf-8")
+
+    assert "restart: unless-stopped" in compose
+    assert "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph_build.yaml" in compose
+    assert "../../config:/app/config:ro" in compose
 
 
 def test_api_secret_configuration_stays_in_an_ignored_environment_file() -> None:

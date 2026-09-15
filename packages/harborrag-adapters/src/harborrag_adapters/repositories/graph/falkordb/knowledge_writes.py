@@ -21,6 +21,7 @@ from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphNodeRecord,
     GraphProjectionVerification,
+    KnowledgeNodeKind,
     reject_runtime_fields,
 )
 from harborrag_core.storage import StorageOperationContext
@@ -57,7 +58,22 @@ async def upsert_nodes(
                 graph_schema_version: row.graph_schema_version,
                 tenant_id: row.tenant_id
             }})
+            WITH node, row, node.description AS described_description,
+                 node.description_build_id AS description_build_id,
+                 node.title AS described_title,
+                 node.name AS described_name
             SET node = row
+            SET node.description = CASE
+                    WHEN description_build_id IS NOT NULL
+                    THEN described_description ELSE row.description END,
+                node.description_build_id = description_build_id,
+                node.name = CASE
+                    WHEN row.node_kind = 'Chunk' AND description_build_id IS NOT NULL
+                    THEN described_name ELSE row.name END,
+                node.title = CASE
+                    WHEN row.node_kind = 'Chunk' AND description_build_id IS NOT NULL
+                    THEN described_title ELSE row.title END
+            SET node.title_key = toLower(node.title)
             """,
             {"rows": rows},
         )
@@ -227,25 +243,30 @@ async def verify_projection(
 
 
 def _node_row(node: GraphNodeRecord, *, tenant_id: str) -> dict[str, Any]:
+    shared = node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY
     return {
+        "name": _display_name(node, shared=shared),
+        "description": node.description or _structural_description(node),
         "node_key": node.node_key,
         "logical_id": node.logical_id,
         "node_kind": node.node_kind.value,
         "entity_type": node.entity_type.value,
         "graph_schema_version": node.graph_schema_version,
         "ownership_scope": node.ownership_scope.value,
-        "owner_id": str(node.owner_id),
-        "title": node.title,
+        # Provider metadata is an observation on version-owned support edges.
+        # A staged or failed version must not overwrite shared, visible metadata.
+        "title": node.logical_id[:512] if shared else node.title,
+        "title_key": _normalise_title(node.logical_id[:512] if shared else node.title),
         "section_path": list(node.section_path),
         "source_scope_id": node.source_scope_id,
         "document_id": (str(node.document_id) if node.document_id is not None else None),
         "document_version_id": (
             str(node.document_version_id) if node.document_version_id is not None else None
         ),
-        "attributes": node.attributes,
+        "attributes": {} if shared else node.attributes,
         # Top-level copy of attributes["placeholder"]: FalkorDB stores attributes as a
         # JSON string, so the placeholder guard in upsert_nodes needs it as a property.
-        "placeholder": node.attributes.get("placeholder") is True,
+        **({"placeholder": True} if node.attributes.get("placeholder") is True else {}),
         "tenant_id": tenant_id,
     }
 
@@ -258,7 +279,6 @@ def _relation_row(relation: GraphEdgeRecord, *, tenant_id: str) -> dict[str, Any
         "target_node_key": relation.target_node_key,
         "graph_schema_version": relation.graph_schema_version,
         "ownership_scope": relation.ownership_scope.value,
-        "owner_id": str(relation.owner_id),
         "source_scope_id": relation.source_scope_id,
         "document_id": (str(relation.document_id) if relation.document_id is not None else None),
         "document_version_id": (
@@ -267,5 +287,38 @@ def _relation_row(relation: GraphEdgeRecord, *, tenant_id: str) -> dict[str, Any
         "attributes": relation.attributes,
         "source_relation_version": relation.source_relation_version,
         "source_explicit": relation.source_explicit,
+        "source_title": _observation_title(relation, "source"),
+        "target_title": _observation_title(relation, "target"),
+        "source_relation": relation.attributes.get("source_relation") is True,
         "tenant_id": tenant_id,
     }
+
+
+def _observation_title(relation: GraphEdgeRecord, role: str) -> str | None:
+    observation = relation.attributes.get(f"{role}_metadata")
+    return observation.get("title") if isinstance(observation, dict) else None
+
+
+def _normalise_title(title: str | None) -> str | None:
+    return title.lower() if title else None
+
+
+def _display_name(node: GraphNodeRecord, *, shared: bool) -> str:
+    if shared:
+        return node.logical_id[:512]
+    if node.title:
+        return node.title
+    if node.node_kind == KnowledgeNodeKind.CHUNK:
+        ordinal = node.attributes.get("ordinal")
+        return f"Chunk {int(ordinal) + 1}" if isinstance(ordinal, int) else "Chunk"
+    return node.entity_type.value.replace("_", " ").title()
+
+
+def _structural_description(node: GraphNodeRecord) -> str:
+    kind = node.entity_type.value.replace("_", " ")
+    if node.node_kind == KnowledgeNodeKind.CHUNK:
+        location = " / ".join(node.section_path)
+        return f"Evidence chunk in {location}." if location else "Document evidence chunk."
+    if node.node_kind == KnowledgeNodeKind.STRUCTURE and node.title:
+        return f"Document {kind}: {node.title}."
+    return f"{kind.title()} in the source topology."

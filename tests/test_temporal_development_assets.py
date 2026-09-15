@@ -30,7 +30,7 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
 
     assert "WORKDIR /var/lib/harborrag" in dockerfile
     assert "COPY config ./config" in dockerfile
-    for name in ("TEMPORAL", "CONNECTOR", "PARSER", "MODEL"):
+    for name in ("TEMPORAL", "CONNECTOR", "PARSER", "MODEL", "GRAPH_BUILD"):
         variable = f"HARBORRAG_{name}_CONFIG_PATH"
         assert (
             f"ENV {variable}=/app/config/" in dockerfile or f"{variable}=/app/config/" in dockerfile
@@ -49,6 +49,16 @@ def test_api_mounts_config_while_worker_uses_baked_runtime_configuration() -> No
     assert "../../config:/app/config:ro" not in temporal
     assert "../../config/temporal.yaml:/app/config/temporal.yaml:ro" in temporal
     assert "COPY config ./config" in dockerfile
+
+
+def test_api_and_worker_pin_the_executable_graph_build_policy() -> None:
+    api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
+    temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
+
+    expected = "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/graph_build.yaml"
+    assert expected in api
+    assert expected in temporal
+    assert (ROOT / "config/graph_build.yaml").is_file()
 
 
 def test_temporal_secret_is_explicitly_scoped_to_api_and_worker() -> None:
@@ -96,6 +106,24 @@ def test_temporal_and_worker_subcommands_have_separate_ownership() -> None:
     assert "--profile worker" in worker_function
     assert "--no-deps" in worker_function
     assert "temporal-worker" in worker_function
+
+
+def test_server_only_temporal_does_not_interpolate_worker_encryption_secret() -> None:
+    temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
+    script = DEV_SCRIPT.read_text(encoding="utf-8")
+    temporal_function = script.split("start_temporal() {", 1)[1].split("start_worker() {", 1)[0]
+    worker_function = script.split("start_worker() {", 1)[1].split("start_api() {", 1)[0]
+    api_function = script.split("start_api() {", 1)[1].split("stop_stack() {", 1)[0]
+    up_function = script.split("    up)", 1)[1].split("        ;;", 1)[0]
+
+    assert 'HARBORRAG_SECRETS_ENCRYPTION_KEY: "${HARBORRAG_SECRETS_ENCRYPTION_KEY:-}"' in temporal
+    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY:?" not in temporal
+    assert "require_control_plane_encryption_key" not in temporal_function
+    assert "require_control_plane_encryption_key" in worker_function
+    assert "require_control_plane_encryption_key" in api_function
+    assert up_function.index("require_control_plane_encryption_key") < up_function.index(
+        "start_data"
+    )
 
 
 def test_temporal_startup_and_dependents_require_cluster_health() -> None:

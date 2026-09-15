@@ -75,7 +75,7 @@ def test_confluence_topology_includes_ancestry_and_attachments() -> None:
     }
 
 
-def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
+def test_jira_topology_preserves_parent_and_defers_unresolved_native_issue_links() -> None:
     graph = _project(
         "jira",
         {
@@ -97,7 +97,8 @@ def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
     assert {GraphEntityType.JIRA_PROJECT, GraphEntityType.JIRA_ISSUE} <= {
         node.entity_type for node in graph.nodes
     }
-    assert {"parent_of", "blocks"} <= {relation.relation_type.value for relation in graph.relations}
+    assert "parent_of" in {relation.relation_type.value for relation in graph.relations}
+    assert "blocks" not in {relation.relation_type.value for relation in graph.relations}
     assert graph.unresolved_relations[0].target_source_item_id == "ENG-3"
 
 

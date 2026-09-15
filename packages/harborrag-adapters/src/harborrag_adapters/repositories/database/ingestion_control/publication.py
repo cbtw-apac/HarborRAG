@@ -18,6 +18,7 @@ from harborrag_core.ingestion import (
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from .schema import DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_CLEANUP_JOBS
+from .topology.intent import enqueue_intent
 
 
 class DocumentVersionPublisher:
@@ -58,6 +59,7 @@ class DocumentVersionPublisher:
                 candidate_state == DocumentVersionState.ACTIVE
                 and current_active == candidate_document_version_id
             ):
+                await enqueue_intent(session, document, candidate_document_version_id)
                 return PublicationResult(
                     document_id=DocumentId(document_id),
                     active_document_version_id=DocumentVersionId(candidate_document_version_id),
@@ -100,10 +102,20 @@ class DocumentVersionPublisher:
                 .where(DOCUMENTS.c.document_id == document_id)
                 .values(
                     active_document_version_id=candidate_document_version_id,
+                    source_scope_id=candidate["source_scope_id"],
                     updated_at=now,
                 )
             )
             cleanup_created = False
+            await enqueue_intent(
+                session,
+                {
+                    "tenant_id": document["tenant_id"],
+                    "document_id": document_id,
+                    "source_scope_id": candidate["source_scope_id"],
+                },
+                candidate_document_version_id,
+            )
             if retired_version_id is not None:
                 cleanup_created = await self._ensure_cleanup(
                     session,

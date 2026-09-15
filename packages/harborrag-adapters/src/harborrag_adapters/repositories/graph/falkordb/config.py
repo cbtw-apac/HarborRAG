@@ -17,6 +17,13 @@ class FalkorDBGraphConfig(RepositoryConfig):
     username: str | None = None
     password: SecretStr | None = None
     graph_name: str = "harborrag"
+    tenant_isolation: bool = False
+    tenant_graph_prefix: str = Field(
+        default="harborrag_tenant", pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+    )
+    max_cached_tenants: int = Field(default=64, ge=1, le=10000)
+    read_username: str | None = None
+    read_password: SecretStr | None = None
     ssl: bool = False
     max_connections: int = Field(default=32, ge=1, le=1000)
     allow_insecure_remote: bool = False
@@ -24,7 +31,11 @@ class FalkorDBGraphConfig(RepositoryConfig):
     @model_validator(mode="after")
     def validate_transport(self) -> FalkorDBGraphConfig:
         loopback = _is_loopback(self.host)
-        if self.password is not None and not self.ssl and not loopback:
+        if (
+            (self.password is not None or self.read_password is not None)
+            and not self.ssl
+            and not loopback
+        ):
             raise ValueError("FalkorDB password cannot be sent over plaintext transport")
         if not self.ssl and not loopback and not self.allow_insecure_remote:
             raise ValueError(

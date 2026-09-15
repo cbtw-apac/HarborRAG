@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harborrag_core.topology.derived import ContextualIndexProfile
+from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 from harborrag_runtime.retrieval import composition as retrieval_factory
 
 
@@ -45,6 +47,7 @@ def _settings() -> SimpleNamespace:
         sparse_b=0.75,
         sparse_fixed_avg_len=128.0,
         retrieval_dense_weight=0.7,
+        topology_retrieval_policy=TopologyRetrievalPolicy(),
     )
 
 
@@ -52,6 +55,7 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
     embed = SimpleNamespace(aclose=AsyncMock())
     control = _Resource()
     control.document_versions = object()
+    control.topology = object()
     objects = _ObjectStore()
     vectors = _Resource()
     graph = _Resource(connect_error=graph_error)
@@ -68,6 +72,15 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
         Mock(return_value=embed),
     )
     monkeypatch.setattr(retrieval_factory, "embedding_dimensions", Mock(return_value=32))
+    monkeypatch.setattr(
+        retrieval_factory,
+        "build_contextual_profile",
+        Mock(
+            return_value=ContextualIndexProfile(
+                model="embed-default", dimension=32, deployment_revision="pinned"
+            )
+        ),
+    )
     monkeypatch.setattr(
         retrieval_factory,
         "build_ingestion_control",
@@ -121,6 +134,8 @@ async def test_retrieval_factory_connects_and_owns_every_provider(monkeypatch) -
     assert resources.embed_client is embed
     assert resources.active_versions is control.document_versions
     assert resources.graph_repository is graph
+    assert resources.topology_repository is control.topology
+    assert isinstance(resources.contextual_search, retrieval_factory.ContextualEvidenceSearch)
     assert policy.embedding_model == "embed-default"
     assert policy.embedding_dimensions == 32
     assert telemetry.start.await_count == 1

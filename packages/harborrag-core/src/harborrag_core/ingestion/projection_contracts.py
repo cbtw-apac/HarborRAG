@@ -89,7 +89,7 @@ class GraphProjectionManifest(StrictModel):
 
 
 class GraphNodeRecord(StrictModel):
-    """Projection-neutral graph identity; content remains in the vector store."""
+    """Projection-neutral graph identity with an optional generated description view."""
 
     node_key: str = Field(min_length=1)
     node_kind: KnowledgeNodeKind
@@ -102,10 +102,11 @@ class GraphNodeRecord(StrictModel):
     document_id: DocumentId | None = None
     document_version_id: DocumentVersionId | None = None
     title: str | None = Field(default=None, max_length=512)
+    description: str | None = Field(default=None, max_length=8000)
     section_path: tuple[str, ...] = ()
     attributes: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("title")
+    @field_validator("title", "description")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         if value is not None and not value.strip():

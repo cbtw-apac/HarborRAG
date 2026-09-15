@@ -28,7 +28,12 @@ def _node(key: str) -> dict[str, object]:
     # Mirrors exactly what knowledge_writes._node_row stores: every node written through
     # the normal write path carries a top-level tenant_id and placeholder property that
     # is not part of the GraphNodeRecord contract.
-    return {**record.model_dump(mode="json"), "tenant_id": "tenant-1", "placeholder": False}
+    return {
+        **record.model_dump(mode="json"),
+        "tenant_id": "tenant-1",
+        "title_key": key.lower(),
+        "placeholder": False,
+    }
 
 
 def _relation(relation_id: str, source: str, target: str) -> dict[str, object]:
@@ -46,10 +51,11 @@ def _relation(relation_id: str, source: str, target: str) -> dict[str, object]:
     return {**record.model_dump(mode="json"), "tenant_id": "tenant-1"}
 
 
-def test_properties_strips_tenant_id_and_placeholder_written_by_every_node_row() -> None:
+def test_properties_strips_storage_only_node_properties() -> None:
     # knowledge_writes._node_row stamps "placeholder" onto every node it writes, real or
     # not (see its comment on why). GraphNodeRecord is a StrictModel, so leaving either
     # write-only key in would make model_validate raise on every single node read back.
+    # title_key is indexed for exact lookup but is likewise not part of the public node.
     node = KnowledgeGraphMapper.node(_node("n1"))
 
     assert node.node_key == "n1"

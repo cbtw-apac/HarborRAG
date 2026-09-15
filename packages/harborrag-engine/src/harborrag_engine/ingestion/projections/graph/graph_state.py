@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -227,16 +228,22 @@ class GraphProjectionState:
         if version_owned:
             document_id = spec.document_id or self.context.document_id
             document_version_id = spec.document_version_id or self.context.document_version_id
-        source_relation_version = (
-            spec.source_relation_version or self.context.source_relation_version
-            if version_owned
-            else GRAPH_SCHEMA_VERSION
-        )
+        source_relation_version: str = GRAPH_SCHEMA_VERSION
+        if version_owned:
+            # A shared pair of source endpoints can be supported independently by
+            # several documents. Never merge those supports into a last-writer edge.
+            profile = spec.source_relation_version or self.context.source_relation_version
+            source_relation_version = sha256(
+                f"{document_id}\0{document_version_id}\0{profile}".encode()
+            ).hexdigest()
         relation_id = self._identity.relation_id(
             relation_type=spec.relation_type,
             source_node_key=spec.source.node_key,
             target_node_key=spec.target.node_key,
             source_relation_version=source_relation_version,
+        )
+        logical_source_view = (
+            ownership_scope == GraphOwnershipScope.SOURCE_SCOPE and not spec.source_explicit
         )
         relation = GraphEdgeRecord(
             relation_id=relation_id,
@@ -248,12 +255,29 @@ class GraphProjectionState:
             source_scope_id=source_scope_id,
             document_id=document_id,
             document_version_id=document_version_id,
-            attributes=spec.attributes,
+            attributes={
+                **self._source_observations(spec),
+                **spec.attributes,
+                **({"logical_view": True} if logical_source_view else {}),
+            },
             source_relation_version=source_relation_version,
             source_explicit=spec.source_explicit,
         )
         self.relations[relation_id] = relation
         return relation
+
+    @staticmethod
+    def _source_observations(spec: GraphRelationSpec) -> dict[str, Any]:
+        """Keep mutable source metadata on the document support, not shared identity."""
+
+        return {
+            f"{role}_metadata": {
+                "title": node.title,
+                "attributes": node.attributes,
+            }
+            for role, node in (("source", spec.source), ("target", spec.target))
+            if node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY
+        }
 
     def _node_key(
         self,
@@ -273,11 +297,20 @@ class GraphProjectionState:
 
     @staticmethod
     def _relation_scope(spec: GraphRelationSpec) -> GraphOwnershipScope:
-        scopes = {spec.source.ownership_scope, spec.target.ownership_scope}
-        if GraphOwnershipScope.DOCUMENT_VERSION in scopes:
-            return GraphOwnershipScope.DOCUMENT_VERSION
-        if GraphOwnershipScope.SOURCE_SCOPE in scopes:
+        if spec.relation_type.value == "has_data_source":
             return GraphOwnershipScope.SOURCE_SCOPE
+        scopes = {spec.source.ownership_scope, spec.target.ownership_scope}
+        if (
+            not spec.source_explicit
+            and GraphOwnershipScope.DOCUMENT_VERSION not in scopes
+            and GraphOwnershipScope.SOURCE_SCOPE in scopes
+        ):
+            # Repeated document observations support one visible source hierarchy.
+            return GraphOwnershipScope.SOURCE_SCOPE
+        if scopes != {GraphOwnershipScope.TENANT}:
+            # Hierarchy and source-native links are observations made by this
+            # document, even when both endpoint identities have a longer lifetime.
+            return GraphOwnershipScope.DOCUMENT_VERSION
         return GraphOwnershipScope.TENANT
 
 

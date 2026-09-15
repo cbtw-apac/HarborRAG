@@ -60,8 +60,7 @@ def _link(
 async def _seeded() -> FakeKnowledgeGraphRepository:
     """One linker with two links -- one to a real item, one to a placeholder stub.
 
-    The linker is also a member of its container, so it stays attached when its links go;
-    otherwise an orphan sweep takes the whole fixture and shows nothing.
+    The linker is also a member of its container, so it stays attached when its links go.
     """
 
     graph = FakeKnowledgeGraphRepository()
@@ -139,20 +138,15 @@ async def test_delete_relations_rejects_another_tenants_relation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cleanup_is_where_the_edgeless_stub_is_reaped() -> None:
-    """The other half of the deal: retraction defers, cleanup collects.
-
-    `delete_source_item` is a cleanup path -- it runs when an item is retired, not while
-    projections are being staged -- so the tenant-wide orphan sweep is safe there.
-    """
+async def test_online_item_cleanup_leaves_unrelated_edgeless_staged_nodes() -> None:
+    """Another document can stage an identity while this item is retired."""
 
     graph = await _seeded()
     await graph.delete_relations((_link("to-stub", "linker", "stub"),), context=_CONTEXT)
 
     await graph.delete_source_item("other", context=_CONTEXT)
 
-    # "other" went with the item, "to-other" with it, and the stub the earlier retraction
-    # left edgeless goes with the sweep. The linker survives on its container edge.
-    assert set(graph.nodes) == {"container", "linker"}
+    # Only the requested item and touching links go; staged orphans are untouched.
+    assert set(graph.nodes) == {"container", "linker", "stub"}
     assert set(graph.relations) == {"holds"}
-    assert await graph.tenant_projection_counts(context=_CONTEXT) == (2, 1)
+    assert await graph.tenant_projection_counts(context=_CONTEXT) == (3, 1)

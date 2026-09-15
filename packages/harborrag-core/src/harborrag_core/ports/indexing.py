@@ -106,6 +106,28 @@ class KnowledgeGraphRepositoryPort(Protocol):
         context: StorageOperationContext,
     ) -> None: ...
 
+    async def replace_source_relations(
+        self,
+        document_version_id: str,
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        """Verify new native link supports, then retract this version's obsolete links."""
+        ...
+
+    async def retire_legacy_source_relations(
+        self,
+        source_scope_id: str,
+        nodes: Sequence[GraphNodeRecord],
+        relations: Sequence[GraphEdgeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        """Verify rebuilt scope manifests before deleting unsupported legacy assertions."""
+        ...
+
     async def delete_version(
         self,
         document_version_id: str,

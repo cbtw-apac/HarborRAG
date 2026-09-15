@@ -37,9 +37,11 @@ def _validator(schema: dict[str, object]):
 
 VALID_NODE = {"node_key": "chunk:1", "node_kind": "Chunk", "entity_type": "chunk"}
 VALID_RELATION = {
+    "relation_id": "relation:1",
     "relation_type": "supports",
     "source_node_key": "chunk:1",
     "target_node_key": "structure:1",
+    "origin": "structural",
 }
 
 

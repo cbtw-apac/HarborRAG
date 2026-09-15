@@ -30,7 +30,7 @@ from harborrag_engine.ingestion import (
 )
 
 from ..document.models import DocumentReleaseRequest
-from .relation_supersession import document_relations, superseded_relations
+from .relation_supersession import document_relations
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 
@@ -199,6 +199,8 @@ class GraphRelationRepairService:
             )
             return (0, 0, 1)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))
+        if not source_ids:
+            return (0, 0, 0)
         targets = await self._control.document_versions.resolve_active_sources(
             tenant_id=context.tenant_id,
             connector_type=self._required_extra(document, "connector_type"),
@@ -220,36 +222,22 @@ class GraphRelationRepairService:
             },
             graph_projection_version=graph_projection_version,
         )
-        relations = document_relations(graph)
-        if not relations:
-            return (0, 0, len(graph.unresolved_relations))
+        relations = tuple(
+            relation
+            for relation in document_relations(graph)
+            if relation.attributes.get("source_relation") is True
+        )
         endpoint_keys = {
             node_key
             for relation in relations
             for node_key in (relation.source_node_key, relation.target_node_key)
         }
         nodes = tuple(node for node in graph.nodes if node.node_key in endpoint_keys)
-        # Retract before writing. The first projection could only stamp this document's
-        # own scope on a target it could not resolve, so the edge it wrote points at a
-        # stub no projection ever fills in. Left in place beside the resolved edge, a
-        # traversal returns both the real target and a target that does not exist.
-        superseded = superseded_relations(
-            self._build(
-                document,
-                chunks,
-                resolved_targets={},
-                graph_projection_version=graph_projection_version,
-            ),
-            resolved=relations,
-        )
-        if superseded:
-            logger.info(
-                "Retracting superseded placeholder relations document_id=%s count=%d",
-                document_id,
-                len(superseded),
-            )
-            await self._graph.delete_relations(superseded, context=context)
-        await self._graph.write_projection(
+        # Reconcile the whole owning version's link set, including an empty set.
+        # This handles reverse links and targets that moved after a prior repair;
+        # reconstructing the initial guessed endpoints cannot name those edges.
+        await self._graph.replace_source_relations(
+            str(snapshot.document_version_id),
             nodes,
             relations,
             context=context,
@@ -262,7 +250,7 @@ class GraphRelationRepairService:
         if not verification.valid:
             raise ValueError("repaired graph projection failed verification")
         return (
-            1,
+            int(bool(relations)),
             len(relations),
             len(graph.unresolved_relations),
         )

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_runtime.contracts import RetrievalLane, RetrievalRequest
+from harborrag_runtime.contracts import RetrievalLane, RetrievalMode, RetrievalRequest
 
 from .base import BaseMcpTool, McpToolSpec
 from .output_schemas import RETRIEVAL_DIAGNOSTICS_SCHEMA, RETRIEVAL_RESULT_SCHEMA
@@ -31,6 +31,12 @@ logger = logging.getLogger("harborrag.mcp.tools.vector_search")
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = McpToolPolicy().max_results
+_ANNOTATIONS: dict[str, object] = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
 
 
 def _results(response: RetrievalResponse, threshold: float = 0.0) -> list[dict[str, object]]:
@@ -67,6 +73,11 @@ class VectorSearchTool(BaseMcpTool):
                     "not": {"required": ["tenant_id"]},
                     "default": {},
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": [mode.value for mode in RetrievalMode],
+                    "default": RetrievalMode.FLAT.value,
+                },
                 "observe_graph": {"type": "boolean", "default": False},
                 "score_threshold": {
                     "type": "number",
@@ -91,6 +102,7 @@ class VectorSearchTool(BaseMcpTool):
                 "additionalProperties": False,
             }
         ),
+        annotations=_ANNOTATIONS,
     )
 
     async def call(
@@ -124,6 +136,7 @@ class VectorSearchTool(BaseMcpTool):
                 ),
                 filters=mapping(arguments, "filters"),
                 lane=lane,
+                mode=RetrievalMode(str(arguments.get("mode", RetrievalMode.FLAT.value))),
                 observe_graph=boolean(arguments, "observe_graph", False),
             )
         except (HarborValidationError, ValueError) as exc:

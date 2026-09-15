@@ -25,6 +25,8 @@ from ..composition.resources import (
 )
 from ..config.settings import RuntimeSettings
 from ..ingestion.observability import IngestionTelemetry, build_model_telemetry
+from ..topology.embedding_profile import build_contextual_profile
+from .contextual import ContextualEvidenceSearch
 from .contracts import RetrievalPolicy, RetrievalResources
 from .service import RuntimeRetrievalService
 
@@ -40,6 +42,7 @@ async def connect_retrieval_service(
         embed_config,
         model,
     )
+    contextual_profile = build_contextual_profile(settings, embed_config)
     telemetry = IngestionTelemetry(
         metrics_port=settings.metrics_port,
         metrics_bind_address=settings.metrics_bind_address,
@@ -91,11 +94,19 @@ async def connect_retrieval_service(
                 )
             ),
             graph_repository=graph_repository,
+            topology_repository=control.topology,
+            contextual_search=ContextualEvidenceSearch(
+                control.topology, vector_repository, contextual_profile
+            ),
+            document_snapshots=control.document_versions,
+            source_catalog=getattr(control, "source_scans", None),
         ),
         policy=RetrievalPolicy(
             embedding_model=model,
             embedding_dimensions=dimensions,
             dense_weight=settings.retrieval_dense_weight,
+            semantic_weight=settings.topology_retrieval_policy.semantic_weight,
+            topology=settings.topology_retrieval_policy,
         ),
         close_resources=(
             control.close,

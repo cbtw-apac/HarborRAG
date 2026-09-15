@@ -17,6 +17,7 @@ from harborrag_core.models.errors import (
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .parameters import ChatMessageInput, prepare_chat_request
+from .structured_deadline import async_structured_deadline, structured_deadline
 from .structured_policy import (
     apply_structured_output_mode,
     resolve_structured_output_mode,
@@ -130,6 +131,7 @@ class SyncStructuredOutputExecutor:
     ) -> None:
         self._client = client
         self._policy = StructuredOutputPolicy(config)
+        self._operation_seconds = config.timeouts.operation_seconds
 
     def chat(
         self,
@@ -151,11 +153,12 @@ class SyncStructuredOutputExecutor:
             strategy=strategy,
             request_kwargs=request_kwargs,
         )
-        while True:
-            response = self._client.chat(request=state.request)
-            result = state.validate_or_prepare_repair(response.text)
-            if result is not None:
-                return result
+        with structured_deadline(self._operation_seconds, state.request):
+            while True:
+                response = self._client.chat(request=state.request)
+                result = state.validate_or_prepare_repair(response.text)
+                if result is not None:
+                    return result
 
 
 class AsyncStructuredOutputExecutor:
@@ -168,6 +171,7 @@ class AsyncStructuredOutputExecutor:
     ) -> None:
         self._client = client
         self._policy = StructuredOutputPolicy(config)
+        self._operation_seconds = config.timeouts.operation_seconds
 
     async def achat(
         self,
@@ -189,11 +193,12 @@ class AsyncStructuredOutputExecutor:
             strategy=strategy,
             request_kwargs=request_kwargs,
         )
-        while True:
-            response = await self._client.achat(request=state.request)
-            result = state.validate_or_prepare_repair(response.text)
-            if result is not None:
-                return result
+        async with async_structured_deadline(self._operation_seconds, state.request):
+            while True:
+                response = await self._client.achat(request=state.request)
+                result = state.validate_or_prepare_repair(response.text)
+                if result is not None:
+                    return result
 
 
 def _validate_response_model(response_model: object) -> None:

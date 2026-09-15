@@ -133,6 +133,38 @@ def test_graph_projection_builds_structure_and_resolved_source_edges() -> None:
     assert len(projection.manifest.payload_sha256) == 64
 
 
+def test_repeated_heading_labels_keep_distinct_stable_section_nodes() -> None:
+    document = make_document(
+        [
+            DocumentElement("heading-a", "heading", "Status", {"level": 1}),
+            DocumentElement("paragraph-a", "paragraph", "First system status."),
+            DocumentElement("heading-b", "heading", "Status", {"level": 1}),
+            DocumentElement("paragraph-b", "paragraph", "Second system status."),
+        ]
+    )
+    chunking = make_service(make_profile(target=40, maximum=60)).chunk(make_request(document))
+    evidence = [chunk for chunk in chunking.chunks if chunk.record_kind.value == "evidence"]
+
+    assert len(evidence) == 2
+    assert {chunk.hierarchy.section_path for chunk in evidence} == {("Status",)}
+    assert len({chunk.hierarchy.section_id for chunk in evidence}) == 2
+
+    projection = GraphProjectionBuilder().build_structural(
+        document=document,
+        chunks=chunking.chunks,
+        graph_projection_version="graph-stable-sections",
+    )
+    sections = [node for node in projection.nodes if node.entity_type == GraphEntityType.SECTION]
+    assert len(sections) == 2
+    assert {node.title for node in sections} == {"Status"}
+    support_targets = {
+        relation.target_node_key
+        for relation in projection.relations
+        if relation.relation_type.value == "supports"
+    }
+    assert {node.node_key for node in sections} <= support_targets
+
+
 def test_structural_projection_defers_active_target_resolution() -> None:
     document = make_document(
         [DocumentElement("p1", "paragraph", "See the release runbook.")],
@@ -166,11 +198,12 @@ def test_structural_projection_defers_active_target_resolution() -> None:
         chunks=chunks,
         graph_projection_version="graph-stable-links",
     )
-    assert any(
+    assert not any(
         relation.source_explicit and relation.relation_type.value == "links_to"
         for relation in projection.relations
     )
     assert projection.unresolved_relations[0].target_source_item_id == "target-page"
+    assert not any(node.logical_id == "target-page" for node in projection.nodes)
 
 
 def test_graph_projection_models_comments_replies_and_section_targets() -> None:

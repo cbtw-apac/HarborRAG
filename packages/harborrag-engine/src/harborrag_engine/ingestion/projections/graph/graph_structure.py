@@ -36,58 +36,68 @@ class StructuralGraphProjector:
 
     def _section_nodes(
         self,
-    ) -> dict[tuple[str, ...], GraphNodeRecord]:
-        evidence: defaultdict[tuple[str, ...], list[ChunkRecord]] = defaultdict(list)
-        logical_ids: dict[tuple[str, ...], str] = {}
+    ) -> dict[tuple[tuple[str, ...], str], GraphNodeRecord]:
+        logical_ids: set[tuple[tuple[str, ...], str]] = set()
         for chunk in self._chunks:
             path = chunk.hierarchy.section_path
             for depth in range(1, len(path) + 1):
                 prefix = path[:depth]
-                evidence[prefix].append(chunk)
-                logical_ids.setdefault(
-                    prefix,
-                    self._section_logical_id(
-                        chunk,
-                        path=prefix,
-                        terminal=depth == len(path),
-                    ),
+                logical_ids.add(
+                    (
+                        prefix,
+                        self._section_logical_id(
+                            chunk,
+                            path=prefix,
+                            terminal=depth == len(path),
+                        ),
+                    )
                 )
         nodes = {
-            path: self._state.structure_node(
+            (path, logical_id): self._state.structure_node(
                 GraphEntityType.SECTION,
                 logical_id,
                 title=path[-1],
                 section_path=path,
             )
-            for path, logical_id in logical_ids.items()
+            for path, logical_id in sorted(logical_ids)
         }
         return nodes
 
     def _section_relations(
         self,
         document_node: GraphNodeRecord,
-        sections: dict[tuple[str, ...], GraphNodeRecord],
+        sections: dict[tuple[tuple[str, ...], str], GraphNodeRecord],
     ) -> None:
-        for path, section in sections.items():
-            if len(path) == 1:
-                relation_type = RelationType.CONTAINS
-                source, target = document_node, section
-            else:
-                relation_type = RelationType.PARENT_OF
-                source, target = sections[path[:-1]], section
-            self._state.relation(
-                GraphRelationSpec(
-                    relation_type=relation_type,
-                    source=source,
-                    target=target,
-                    source_explicit=False,
+        emitted: set[tuple[str, str]] = set()
+        for chunk in self._chunks:
+            path = chunk.hierarchy.section_path
+            for depth in range(1, len(path) + 1):
+                prefix = path[:depth]
+                target = sections[self._section_key(chunk, prefix)]
+                source = (
+                    document_node
+                    if depth == 1
+                    else sections[self._section_key(chunk, prefix[:-1])]
                 )
-            )
+                pair = (source.node_key, target.node_key)
+                if pair in emitted:
+                    continue
+                emitted.add(pair)
+                self._state.relation(
+                    GraphRelationSpec(
+                        relation_type=(
+                            RelationType.CONTAINS if depth == 1 else RelationType.PARENT_OF
+                        ),
+                        source=source,
+                        target=target,
+                        source_explicit=False,
+                    )
+                )
 
     def _tables(
         self,
         document_node: GraphNodeRecord,
-        sections: dict[tuple[str, ...], GraphNodeRecord],
+        sections: dict[tuple[tuple[str, ...], str], GraphNodeRecord],
     ) -> dict[str, GraphNodeRecord]:
         table_chunks: defaultdict[str, list[ChunkRecord]] = defaultdict(list)
         for chunk in self._chunks:
@@ -107,7 +117,7 @@ class StructuralGraphProjector:
                 section_path=records[0].hierarchy.section_path,
             )
             nodes[table_id] = table
-            source = sections.get(records[0].hierarchy.section_path, document_node)
+            source = self._section_for_chunk(sections, records[0]) or document_node
             self._state.relation(
                 GraphRelationSpec(
                     relation_type=RelationType.CONTAINS,
@@ -121,7 +131,7 @@ class StructuralGraphProjector:
     def _comments(
         self,
         document_node: GraphNodeRecord,
-        sections: dict[tuple[str, ...], GraphNodeRecord],
+        sections: dict[tuple[tuple[str, ...], str], GraphNodeRecord],
     ) -> dict[str, GraphNodeRecord]:
         comments = tuple(chunk for chunk in self._chunks if chunk.chunk_kind == ChunkKind.COMMENT)
         nodes: dict[str, GraphNodeRecord] = {}
@@ -144,7 +154,7 @@ class StructuralGraphProjector:
                     source_explicit=False,
                 )
             )
-            section = sections.get(chunk.hierarchy.section_path)
+            section = self._section_for_chunk(sections, chunk)
             if section is not None:
                 self._state.relation(
                     GraphRelationSpec(
@@ -172,7 +182,7 @@ class StructuralGraphProjector:
     def _chunk_nodes(
         self,
         document_node: GraphNodeRecord,
-        sections: dict[tuple[str, ...], GraphNodeRecord],
+        sections: dict[tuple[tuple[str, ...], str], GraphNodeRecord],
         tables: dict[str, GraphNodeRecord],
         comments: dict[str, GraphNodeRecord],
     ) -> None:
@@ -186,7 +196,7 @@ class StructuralGraphProjector:
             if target is None and chunk.table_locator is not None:
                 target = tables.get(chunk.table_locator.table_id)
             if target is None:
-                target = sections.get(chunk.hierarchy.section_path, document_node)
+                target = self._section_for_chunk(sections, chunk) or document_node
             chunk_node = self._state.node(
                 GraphNodeSpec(
                     kind=KnowledgeNodeKind.CHUNK,
@@ -219,6 +229,9 @@ class StructuralGraphProjector:
     ) -> str:
         if terminal and chunk.hierarchy.section_id is not None:
             return chunk.hierarchy.section_id
+        depth = len(path)
+        if depth <= len(chunk.hierarchy.ancestry):
+            return chunk.hierarchy.ancestry[depth - 1]
         if (
             len(path) + 1 == len(chunk.hierarchy.section_path)
             and chunk.hierarchy.parent_section_id is not None
@@ -228,6 +241,28 @@ class StructuralGraphProjector:
             "section",
             {"document_id": str(chunk.document_id), "section_path": path},
         )
+
+    @classmethod
+    def _section_key(
+        cls, chunk: ChunkRecord, path: tuple[str, ...]
+    ) -> tuple[tuple[str, ...], str]:
+        return (
+            path,
+            cls._section_logical_id(
+                chunk,
+                path=path,
+                terminal=len(path) == len(chunk.hierarchy.section_path),
+            ),
+        )
+
+    @classmethod
+    def _section_for_chunk(
+        cls,
+        sections: dict[tuple[tuple[str, ...], str], GraphNodeRecord],
+        chunk: ChunkRecord,
+    ) -> GraphNodeRecord | None:
+        path = chunk.hierarchy.section_path
+        return sections.get(cls._section_key(chunk, path)) if path else None
 
     @classmethod
     def _comment_id(cls, chunk: ChunkRecord) -> str:

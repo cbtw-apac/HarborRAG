@@ -106,15 +106,23 @@ def build_knowledge_graph(
 ) -> RuntimeKnowledgeGraphPort:
     """Create the document-versioned, non-LLM FalkorDB projection repository."""
 
-    return FalkorKnowledgeGraphRepository(
-        FalkorDBGraphConfig(
-            host=settings.falkordb_host,
-            port=settings.falkordb_port,
-            username=settings.falkordb_username,
-            password=settings.falkordb_password,
-            graph_name=settings.falkordb_graph,
-            ssl=settings.falkordb_ssl,
-            max_connections=settings.falkordb_max_connections,
-            allow_insecure_remote=settings.falkordb_allow_insecure_remote,
-        )
+    return FalkorKnowledgeGraphRepository(build_graph_config(settings))
+
+
+def build_graph_config(settings: RuntimeSettings) -> FalkorDBGraphConfig:
+    """Trusted tenant registry routing is mandatory in production composition."""
+    return FalkorDBGraphConfig(
+        host=settings.falkordb_host,
+        port=settings.falkordb_port,
+        username=settings.falkordb_username,
+        password=settings.falkordb_password,
+        graph_name=settings.falkordb_graph,
+        ssl=settings.falkordb_ssl,
+        max_connections=settings.falkordb_max_connections,
+        allow_insecure_remote=settings.falkordb_allow_insecure_remote,
+        tenant_isolation=True,
+        tenant_graph_prefix=settings.falkordb_tenant_graph_prefix,
+        max_cached_tenants=settings.falkordb_max_cached_tenants,
+        read_username=settings.falkordb_read_username,
+        read_password=settings.falkordb_read_password,
     )

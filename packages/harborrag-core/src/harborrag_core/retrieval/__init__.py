@@ -2,6 +2,9 @@
 
 from .graph import (
     GraphDirection,
+    GraphNodeResolutionQuery,
+    GraphNodeResolutionResult,
+    GraphNodeSelectorKind,
     GraphPath,
     GraphPathQuery,
     GraphPathResult,
@@ -17,6 +20,9 @@ from .graph import (
 
 __all__ = [
     "GraphDirection",
+    "GraphNodeResolutionQuery",
+    "GraphNodeResolutionResult",
+    "GraphNodeSelectorKind",
     "GraphPath",
     "GraphPathQuery",
     "GraphPathResult",
