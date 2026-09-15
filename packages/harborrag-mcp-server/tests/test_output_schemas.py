@@ -127,6 +127,8 @@ def test_retrieval_result_schema_rejects_an_unlisted_metadata_key() -> None:
             "citation_locator": {},
             "quality_score": None,
             "retrieval_source": "qdrant-authoritative",
+            "document_title": "Document One",
+            "section_path": ["Section 1"],
         },
     }
     _validator(RETRIEVAL_RESULT_SCHEMA).validate(valid)

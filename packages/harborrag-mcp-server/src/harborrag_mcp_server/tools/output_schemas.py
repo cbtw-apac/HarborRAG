@@ -168,6 +168,8 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "citation_locator",
                 "quality_score",
                 "retrieval_source",
+                "document_title",
+                "section_path",
             ],
             "properties": {
                 "document_id": {"type": "string"},
@@ -180,6 +182,8 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "citation_locator": {"type": "object"},
                 "quality_score": {"type": ["number", "null"]},
                 "retrieval_source": {"type": "string"},
+                "document_title": {"type": "string"},
+                "section_path": {"type": "array", "items": {"type": "string"}},
             },
             "additionalProperties": False,
         },
