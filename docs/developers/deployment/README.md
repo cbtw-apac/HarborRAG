@@ -45,8 +45,8 @@ the MCP bearer token.
 
 **`HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty and blocks
 startup.** It encrypts stored connector credentials in the control database, and both the
-API and the Temporal worker must read the same value. Compose guards it, and treats an
-empty value as unset:
+API and the Temporal worker must read the same value. Their launch/runtime validation
+guards it and treats an empty value as unset:
 
 ```bash
 openssl rand -hex 32     # paste into HARBORRAG_SECRETS_ENCRYPTION_KEY

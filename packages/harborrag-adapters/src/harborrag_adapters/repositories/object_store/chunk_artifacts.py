@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from hashlib import sha256
 
 from harborrag_adapters.repositories.object_store.ingestion_artifacts import (
     ARTIFACT_BUCKET,
@@ -143,8 +144,13 @@ class ChunkArtifactReader:
         reference: ArtifactReference,
         *,
         context: StorageOperationContext,
+        verify_integrity: bool = False,
     ) -> tuple[ChunkRecord, ...]:
         payload = await self._artifacts.get(reference, context=context)
+        if verify_integrity and (
+            len(payload) != reference.byte_size or sha256(payload).hexdigest() != reference.sha256
+        ):
+            raise ValueError("canonical chunk artifact integrity check failed")
         return tuple(
             ChunkRecord.model_validate_json(line) for line in payload.splitlines() if line.strip()
         )

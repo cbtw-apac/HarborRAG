@@ -298,10 +298,10 @@ Then open the files it created and replace the placeholders:
 ### Three values you must fill in
 
 `bootstrap` leaves working local defaults everywhere except these. The first one is
-mandatory - Compose refuses to start without it:
+mandatory for the API and worker; their launchers refuse to start without it:
 
 ```bash
-# 1. env/.env.database - ships EMPTY and blocks startup.
+# 1. env/.env.database - ships EMPTY and blocks API/worker startup.
 #    Encrypts stored connector credentials in the control database. The API and the
 #    worker must share the same value, and it cannot change once secrets are stored.
 openssl rand -hex 32
@@ -327,8 +327,8 @@ Model references are expanded eagerly at load time, so a missing *embedding* var
 fails just as hard as a missing chat one.
 
 > **If `dev.sh up` dies with**
-> `required variable HARBORRAG_SECRETS_ENCRYPTION_KEY is missing a value` - that is this
-> step. Compose treats an empty value the same as an unset one.
+> `HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker` - that is this
+> step. The launcher treats an empty value the same as an unset one.
 
 <details markdown="1">
 <summary><strong>Details: what reads these files, and how to point elsewhere</strong></summary>

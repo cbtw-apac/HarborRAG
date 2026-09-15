@@ -4,7 +4,7 @@ Local topology (every Task 7-9 golden expectation derives from it):
 
     runbook  --links_to-->  architecture  --links_to-->  decisions
     incident --blocks--->   architecture
-    runbook  --links_to-->  missing-page          (unresolved -> placeholder node)
+    runbook  --links_to-->  missing-page          (unresolved; no serving endpoint)
 
 See ``sources/fixtures/`` for the per-source shapes (one directory per source type,
 one JSON file per sample) and ``CORPUS_SIGNATURES`` below for the edge vocabulary the
@@ -129,9 +129,7 @@ def build_corpus() -> EvalCorpus:
     service = _chunking_service()
     documents = eval_documents()
     versions = {document_id: f"{document_id}-version-1" for document_id in documents}
-    # Every corpus document is its own resolved link target; anything a document links to
-    # that is not a corpus document (missing-page, the cross-source Confluence URI) is
-    # what the projection turns into a placeholder node.
+    # A known target supplies its actual scope. Unknown targets stay unresolved.
     resolved = {
         document_id: GraphDocumentTarget(
             source_item_id=document_id,
@@ -144,6 +142,13 @@ def build_corpus() -> EvalCorpus:
     }
     batches: dict[str, GraphProjectionBatch] = {}
     for document_id, document in documents.items():
+        connector = str(document.provenance.extra["connector_type"])
+        targets = dict(resolved)
+        for relation in document.relations:
+            name = relation.target_id.rsplit("/", 1)[-1]
+            if relation.target_id.startswith(f"{connector}://") and name in resolved:
+                if str(documents[name].provenance.extra["connector_type"]) == connector:
+                    targets[relation.target_id] = resolved[name]
         chunks = service.chunk(
             ChunkingRequest(
                 tenant_id=TENANT_ID,
@@ -156,7 +161,7 @@ def build_corpus() -> EvalCorpus:
             GraphProjectionInput(
                 document=document,
                 chunks=chunks,
-                resolved_targets=resolved,
+                resolved_targets=targets,
                 graph_projection_version="graph-eval-v1",
             )
         )

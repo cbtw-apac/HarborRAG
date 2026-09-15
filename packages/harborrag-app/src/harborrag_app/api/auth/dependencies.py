@@ -111,6 +111,13 @@ def get_principal(
     return verifier.verify(credentials.credentials)
 
 
+def authorize_role(principal: Principal, minimum: Role) -> None:
+    """Reject a principal below the minimum role, for in-body field checks."""
+
+    if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
+        raise HarborAuthError(f"requires {minimum} role", forbidden=True)
+
+
 def require_role(minimum: Role) -> Callable[..., Principal]:
     """Dependency factory enforcing a minimum role on a route (403 below it)."""
 
@@ -118,8 +125,7 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
         principal: Annotated[Principal, Depends(get_principal)],
     ) -> Principal:
         """Pass the principal through when its role clears the minimum."""
-        if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
-            raise HarborAuthError(f"requires {minimum} role", forbidden=True)
+        authorize_role(principal, minimum)
         return principal
 
     return dependency

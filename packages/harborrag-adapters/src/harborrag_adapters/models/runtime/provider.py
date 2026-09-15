@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from decimal import ROUND_CEILING, Decimal
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Protocol, Self, cast
@@ -73,6 +74,30 @@ class ImmutableProviderRegistry[ProviderKey, Descriptor]:
         return self._descriptors
 
 
+class DeploymentPricing(BaseModel):
+    """Per-deployment token rates, so a USD ceiling can be enforced from real usage.
+
+    Chat responses normalise `usage` but never populate `estimated_cost_usd`, so cost is
+    computed here instead of trusted from the provider.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    input_usd_per_million: Decimal = Field(ge=0)
+    output_usd_per_million: Decimal = Field(ge=0)
+
+    def cost_for(self, *, input_tokens: int, output_tokens: int) -> Decimal:
+        """Price one call, rounding a charge up so spend is never understated."""
+
+        if input_tokens < 0 or output_tokens < 0:
+            raise ValueError("token counts cannot be negative")
+        exact = (
+            Decimal(input_tokens) * self.input_usd_per_million
+            + Decimal(output_tokens) * self.output_usd_per_million
+        ) / Decimal(1_000_000)
+        return exact.quantize(Decimal("0.000001"), rounding=ROUND_CEILING)
+
+
 class ProviderDeploymentConfig(BaseModel):
     """Define provider model identity, credentials, transport, and routing limits."""
 
@@ -104,6 +129,7 @@ class ProviderDeploymentConfig(BaseModel):
     tpm: int | None = Field(default=None, gt=0)
     max_parallel_requests: int | None = Field(default=None, gt=0)
     enabled: bool = True
+    pricing: DeploymentPricing | None = None
     allow_ambient_credentials: bool = False
     extra_litellm_params: dict[str, Any] = Field(default_factory=dict)
 

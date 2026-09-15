@@ -11,42 +11,54 @@ tools:
     enabled: true
     defaults:
       top_k: 5
-      lane: hybrid
-      filters: {}
-      observe_graph: true
-      score_threshold: 0.0
     limits:
       top_k: 20
-      score_threshold: 1.0
+  fetch_evidence:
+    enabled: true
+  get_document_context:
+    enabled: true
+    defaults:
+      limit: 10
+      include_outline: false
+    limits:
+      limit: 10
+  list_sources:
+    enabled: true
+    defaults:
+      limit: 20
+    limits:
+      limit: 20
+  describe_graph:
+    enabled: true
   graph_triplet_search:
     enabled: true
     defaults:
       limit: 10
     limits:
       limit: 20
-  graph_path_search:
-    enabled: true
-    defaults:
-      relationship_types: []
-      max_depth: 4
-      max_paths: 10
-      # The spine mixes edge directions, so a directed default answers the most
-      # common question with silence.
-      direction: both
-    limits:
-      max_depth: 8
-      max_paths: 20
   graph_subgraph_search:
     enabled: true
     defaults:
-      relationship_types: []
       max_depth: 2
       max_nodes: 20
       direction: both
     limits:
-      max_depth: 8
+      max_depth: 4
       max_nodes: 20
-  describe_graph:
+  graph_path_search:
     enabled: true
+    defaults:
+      max_depth: 4
+      max_paths: 5
+      direction: both
+    limits:
+      max_depth: 4
+      max_paths: 5
+  resolve_graph_nodes:
+    enabled: true
+    defaults:
+      limit: 5
+    limits:
+      limit: 10
 
 tenants: {}

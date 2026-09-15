@@ -11,6 +11,7 @@ class IngestionCreateCommand:
     connection_id: str
     force_reprocess: bool
     public_request: dict[str, object]
+    source_scope_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

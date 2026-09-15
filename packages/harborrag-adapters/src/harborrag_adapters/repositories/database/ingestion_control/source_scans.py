@@ -19,13 +19,14 @@ from harborrag_core.ingestion import (
 
 from .removal_reconciliation import SourceRemovalReconciler
 from .schema import SOURCE_ITEMS, SOURCE_SCANS, SOURCE_SCOPES
+from .source_catalog import SourceCatalogReader
 from .source_item_mapping import (
     registration_from_existing,
     stored_source_item_from_row,
 )
 
 
-class SourceScanRepository:
+class SourceScanRepository(SourceCatalogReader):
     """Persist authoritative discovery scans and consecutive removal misses."""
 
     def __init__(self, client: SQLAlchemyDBClient) -> None:
@@ -62,12 +63,14 @@ class SourceScanRepository:
                 return
             if existing["tenant_id"] != tenant_id:
                 raise HarborConflictError("source scope belongs to another tenant")
+            if existing["connector_type"] != connector_type:
+                raise HarborConflictError("source scope belongs to another connector type")
+            if existing["connection_id"] != connection_id:
+                raise HarborConflictError("source scope belongs to another connection")
             await session.execute(
                 update(SOURCE_SCOPES)
                 .where(SOURCE_SCOPES.c.source_scope_id == source_scope_id)
                 .values(
-                    connector_type=connector_type,
-                    connection_id=connection_id,
                     configuration_fingerprint=configuration_fingerprint,
                     updated_at=now,
                 )

@@ -37,11 +37,11 @@ class DescribeGraphTool(BaseMcpTool):
         "describe_graph",
         (
             "Statically describe HarborRAG's graph contract: structural, semantic, and "
-            "ontology schema versions, the graph's node kinds and projected relation "
-            "types, and the property catalog for common nodes, document-owned nodes, "
-            "Chunk, Entity, and RELATES. Call this first, with no arguments, before using "
-            "any other graph tool if you are not yet familiar with the graph model. This "
-            "tool never executes a query and requires no tenant."
+            "ontology schema versions, node kinds, entity types, projected relations, "
+            "property catalogs, selector rules, connector topologies, and recommended "
+            "workflows. Call this first, with no arguments, when graph selectors, "
+            "relations, directions, or topology are unclear. This tool never executes "
+            "a query and requires no tenant."
         ),
         _INPUT_SCHEMA,
         output_schema=OUTPUT_SCHEMA,

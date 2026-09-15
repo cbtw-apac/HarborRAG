@@ -71,6 +71,9 @@ def test_confluence_attachment_parent_converges_with_the_ingested_page() -> None
             _keys(attachment, GraphEntityType.CONFLUENCE_ATTACHMENT)["att-9"],
         )
     }
+    # ...and exactly one of it: the set above cannot see parallel edges that differ
+    # only by relation_id, which is what MERGE keys on.
+    assert sum(r.relation_type is RelationType.HAS_ATTACHMENT for r in attachment.relations) == 1
 
 
 def test_jira_attachment_is_typed_as_an_attachment_not_as_a_sibling_issue() -> None:

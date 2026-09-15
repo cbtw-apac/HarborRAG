@@ -40,7 +40,8 @@ async def delete_version(
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
         },
     )
-    await _prune_orphans(database, context=context)
+    # Other projections stage shared nodes before edges. Online orphan pruning
+    # would race those writes, even for nodes this version previously supported.
 
 
 async def delete_source_item(
@@ -67,6 +68,13 @@ async def delete_source_item(
         OPTIONAL MATCH (item)-[:HAS_VERSION]->(version:KnowledgeNode)
         WHERE version.graph_schema_version = $graph_schema_version
         WITH item, collect(version.document_version_id) AS version_ids
+        OPTIONAL MATCH ()-[support]->()
+        WHERE support.tenant_id = $tenant_id
+          AND support.graph_schema_version = $graph_schema_version
+          AND support.ownership_scope = 'DOCUMENT_VERSION'
+          AND support.document_version_id IN version_ids
+        DELETE support
+        WITH DISTINCT item, version_ids
         OPTIONAL MATCH (owned:KnowledgeNode)
         WHERE owned.tenant_id = $tenant_id
           AND owned.graph_schema_version = $graph_schema_version
@@ -76,7 +84,6 @@ async def delete_source_item(
         """,
         parameters,
     )
-    await _prune_orphans(database, context=context)
 
 
 async def delete_source_scope(
@@ -290,24 +297,3 @@ async def _delete_projection(
             f"MATCH {pattern} WHERE {predicate} {deletion}",
             parameters,
         )
-
-
-async def _prune_orphans(
-    database: FalkorDBClient,
-    *,
-    context: StorageOperationContext,
-) -> None:
-    await database.write(
-        """
-        MATCH (node:KnowledgeNode)
-        WHERE node.tenant_id = $tenant_id
-          AND node.graph_schema_version = $graph_schema_version
-          AND node.ownership_scope = 'SOURCE_SCOPE'
-          AND NOT (node)--()
-        DELETE node
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-        },
-    )

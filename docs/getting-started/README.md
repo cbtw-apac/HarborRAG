@@ -41,8 +41,9 @@ of every step.
 Contributors work from the `env/` folder created by `scripts/deployment/dev.sh bootstrap`.
 Two values there have no safe default:
 
-- `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` - ships **empty**, and Docker
-  Compose refuses to start until you set it (`openssl rand -hex 32`).
+- `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` - ships **empty**, and the API
+  and worker refuse to start until you set it (`openssl rand -hex 32`). Server-only data
+  and Temporal commands do not consume stored connector secrets and may start without it.
 - The six `HARBOR_CHAT_*` and `HARBOR_EMBED_*` values in `env/.env.models` - the active
   model catalog expands references eagerly, so a missing embedding variable fails exactly
   as hard as a missing chat one.

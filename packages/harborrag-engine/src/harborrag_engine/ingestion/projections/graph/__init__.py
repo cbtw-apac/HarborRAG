@@ -7,6 +7,7 @@ from .graph_models import (
     GraphProjectionInput,
     UnresolvedGraphRelation,
 )
+from .source_projector_support import target_connector_type
 from .source_projectors import (
     ConfluenceSourceProjector,
     GenericSourceProjector,
@@ -34,4 +35,5 @@ __all__ = [
     "SharePointSourceProjector",
     "UnresolvedGraphRelation",
     "default_graph_source_projector_registry",
+    "target_connector_type",
 ]

@@ -8,15 +8,10 @@ from typing import TYPE_CHECKING
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
+from harborrag_mcp_server.references import KnowledgeReferenceStore
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp_server.tools.describe_graph import DescribeGraphTool
-from harborrag_mcp_server.tools.graph_search import (
-    GraphPathSearchTool,
-    GraphSubgraphSearchTool,
-    GraphTripletSearchTool,
-)
-from harborrag_mcp_server.tools.vector_search import VectorSearchTool
+from harborrag_mcp_server.tools.catalog_factory import build_reader_tool_catalog
 from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
 
 if TYPE_CHECKING:
@@ -39,10 +34,24 @@ def _result_count(result: dict[str, object]) -> int:
     Tools that return a `results` list (e.g. retrieval) are counted by list
     length; single-payload tools (e.g. health checks) count as one result.
     """
-    for field_name in ("results", "triplets", "paths", "nodes"):
+    for field_name in (
+        "results",
+        "items",
+        "chunks",
+        "sources",
+        "candidates",
+        "triplets",
+        "paths",
+        "nodes",
+    ):
         results = result.get(field_name)
         if isinstance(results, list):
             return len(results)
+    data = result.get("data")
+    if isinstance(data, dict):
+        counts = [len(value) for value in data.values() if isinstance(value, list)]
+        if counts:
+            return max(counts)
     return 1
 
 
@@ -56,16 +65,11 @@ class McpServer(BaseMcpServer):
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
     configuration: McpConfigurationStore | None = None
+    references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
 
     def __post_init__(self) -> None:
         if self.tools is None:
-            self.tools = [
-                VectorSearchTool(runtime=self.runtime),
-                GraphTripletSearchTool(runtime=self.runtime),
-                GraphPathSearchTool(runtime=self.runtime),
-                GraphSubgraphSearchTool(runtime=self.runtime),
-                DescribeGraphTool(),
-            ]
+            self.tools = build_reader_tool_catalog(self.runtime, self.references)
         missing_output_schema = [
             tool.spec.name for tool in self.tools if tool.spec.output_schema is None
         ]
@@ -120,9 +124,10 @@ class McpServer(BaseMcpServer):
                     policy = self.configuration.policy()
                 policy.check_call(spec, payload)
                 result = await tool.call(payload, principal_id=principal_id)
+                policy.check_output_schema(result, spec.output_schema)
                 policy.check_results(_result_count(result))
                 policy.check_output(result)
-                reported_error = result.get("ok") is False
+                reported_error = result.get("ok") is False or result.get("status") == "error"
                 self.audit.finish(
                     invocation_id,
                     name,

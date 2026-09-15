@@ -1,0 +1,33 @@
+runtime:
+  operation_timeout_seconds: 180.0
+  llm_operation_cost_usd: "0.01"
+  derived:
+    enabled: true
+
+# Parent nodes summarise their 1-hop children's content. Chunks are never summarised --
+# they already carry their full text. Runs independently of entity extraction.
+summarization:
+  enabled: true
+  task_queue: harborrag-summaries
+  debounce_seconds: 5
+  max_wait_seconds: 60
+  tenant_enabled: false         # lazy on-demand tenant summaries are opt-in
+  # model: summariser            # omit to use the deployment's default model
+  max_description_tokens: 512    # size of each generated summary
+  budget:
+    # max_usd_per_run: "5.00"    # stops the run once crossed (needs deployment pricing)
+    max_calls_per_document: 256
+  input:
+    max_children_per_call: 8
+    max_bytes_per_call: 24000
+    max_tokens_per_call: 6000
+
+tenants:
+  - tenant_id: DEFAULT
+    mode: llm  
+    budget:
+      max_concurrency: 2
+      daily_token_cap: 200000000
+      daily_cost_usd: "15.00"
+    sources:
+      - source_scope_id: harborrag-docs

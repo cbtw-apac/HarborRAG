@@ -221,7 +221,7 @@ principal.
 
 > Effective defaults come from `config/mcp.yaml` and can differ from the
 > advertised schema defaults. Read `GET /api/tools?tenant_id=<tenant>` rather
-> than assuming - see [MCP Tools](README.md#the-four-tools).
+> than assuming - see [MCP Tools](README.md).
 
 ## Management API
 
@@ -390,10 +390,9 @@ HARBORRAG_MCP_DISABLED_TOOLS
 HARBORRAG_MCP_CONFIG_PATH
 ```
 
-The server exposes five tools: `vector_search`, `graph_triplet_search`,
-`graph_path_search`, `graph_subgraph_search`, and `describe_graph`. The first
-four require an explicit tenant scope; `describe_graph` is a static schema
-lookup and requires none. The three graph tools need a node
+The server exposes nine read-only evidence, source, and graph tools. Eight require an
+explicit tenant scope; `describe_graph` is a static schema lookup and requires none.
+The traversal tools need a node
 identifier the caller already holds—in practice a `chunk_id` from
 `vector_search`, which is the same string as a `Chunk` node key. Advanced vector retrieval adds dense, sparse, or hybrid lanes, metadata
 filters, an `observe_graph` diagnostics flag (shallow provenance only — it never loads
@@ -449,7 +448,7 @@ never the bearer token or raw arguments. See
 
 ## Next
 
-- [MCP Tools](README.md) - the four tools, their arguments, and what they return
+- [MCP Tools](README.md) - the nine tools, their arguments, and what they return
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces) -
   keep service tools in `harborrag-mcp-server` and call runtime/service
   interfaces rather than provider clients

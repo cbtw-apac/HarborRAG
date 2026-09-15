@@ -78,6 +78,9 @@ class TimeoutConfig(BaseModel):
 
     request_seconds: float = Field(default=60.0, gt=0)
     stream_seconds: float | None = Field(default=None, gt=0)
+    operation_seconds: float | None = Field(
+        default=None, gt=0, description="Total structured-chat deadline across routing and repairs"
+    )
 
 
 class RetryPolicyConfig(BaseModel):

@@ -67,6 +67,7 @@ from .representations import (
     SparseEncoderProfile,
     SparseEncoding,
 )
+from .source_catalog import ReadableSource, SourceCatalogQuery
 from .source_contracts import (
     ActiveSourceDocument,
     AdmissionSnapshot,
@@ -161,12 +162,14 @@ __all__ = [
     "ProjectionCleanupJob",
     "PublicationResult",
     "RawDocumentReference",
+    "ReadableSource",
     "ReindexJob",
     "ReindexJobState",
     "ReindexProgress",
     "RepresentationSet",
     "SourceAdmissionDecision",
     "SourceBinding",
+    "SourceCatalogQuery",
     "SourceIdentity",
     "SourceItemRegistration",
     "SourceObjectVersion",

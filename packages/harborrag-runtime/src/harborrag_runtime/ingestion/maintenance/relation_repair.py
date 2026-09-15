@@ -17,6 +17,7 @@ from harborrag_adapters.repositories.object_store import (
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
+    ActiveSourceDocument,
     ChangeFingerprintBuilder,
     ProcessingProfile,
 )
@@ -27,10 +28,11 @@ from harborrag_engine.ingestion import (
     GraphProjectionBatch,
     GraphProjectionBuilder,
     GraphProjectionInput,
+    target_connector_type,
 )
 
 from ..document.models import DocumentReleaseRequest
-from .relation_supersession import document_relations, superseded_relations
+from .relation_supersession import document_relations
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 
@@ -199,12 +201,9 @@ class GraphRelationRepairService:
             )
             return (0, 0, 1)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))
-        targets = await self._control.document_versions.resolve_active_sources(
-            tenant_id=context.tenant_id,
-            connector_type=self._required_extra(document, "connector_type"),
-            connection_id=self._required_extra(document, "connection_id"),
-            source_item_ids=source_ids,
-        )
+        if not source_ids:
+            return (0, 0, 0)
+        targets = await self._resolve_targets(document, source_ids, context=context)
         graph = self._build(
             document,
             chunks,
@@ -220,36 +219,22 @@ class GraphRelationRepairService:
             },
             graph_projection_version=graph_projection_version,
         )
-        relations = document_relations(graph)
-        if not relations:
-            return (0, 0, len(graph.unresolved_relations))
+        relations = tuple(
+            relation
+            for relation in document_relations(graph)
+            if relation.attributes.get("source_relation") is True
+        )
         endpoint_keys = {
             node_key
             for relation in relations
             for node_key in (relation.source_node_key, relation.target_node_key)
         }
         nodes = tuple(node for node in graph.nodes if node.node_key in endpoint_keys)
-        # Retract before writing. The first projection could only stamp this document's
-        # own scope on a target it could not resolve, so the edge it wrote points at a
-        # stub no projection ever fills in. Left in place beside the resolved edge, a
-        # traversal returns both the real target and a target that does not exist.
-        superseded = superseded_relations(
-            self._build(
-                document,
-                chunks,
-                resolved_targets={},
-                graph_projection_version=graph_projection_version,
-            ),
-            resolved=relations,
-        )
-        if superseded:
-            logger.info(
-                "Retracting superseded placeholder relations document_id=%s count=%d",
-                document_id,
-                len(superseded),
-            )
-            await self._graph.delete_relations(superseded, context=context)
-        await self._graph.write_projection(
+        # Reconcile the whole owning version's link set, including an empty set.
+        # This handles reverse links and targets that moved after a prior repair;
+        # reconstructing the initial guessed endpoints cannot name those edges.
+        await self._graph.replace_source_relations(
+            str(snapshot.document_version_id),
             nodes,
             relations,
             context=context,
@@ -262,10 +247,49 @@ class GraphRelationRepairService:
         if not verification.valid:
             raise ValueError("repaired graph projection failed verification")
         return (
-            1,
+            int(bool(relations)),
             len(relations),
             len(graph.unresolved_relations),
         )
+
+    async def _resolve_targets(
+        self,
+        document: Document,
+        source_item_ids: Sequence[str],
+        *,
+        context: StorageOperationContext,
+    ) -> dict[str, ActiveSourceDocument]:
+        declaring_connector = self._required_extra(document, "connector_type").casefold()
+        declaring_connection = self._required_extra(document, "connection_id")
+        by_connector: dict[str, list[str]] = {}
+        for source_item_id in source_item_ids:
+            connector = target_connector_type(declaring_connector, source_item_id).casefold()
+            by_connector.setdefault(connector, []).append(source_item_id)
+
+        async def resolve(
+            connector: str,
+            ids: Sequence[str],
+        ) -> dict[str, ActiveSourceDocument]:
+            if connector == declaring_connector:
+                return await self._control.document_versions.resolve_active_sources(
+                    tenant_id=context.tenant_id,
+                    connector_type=connector,
+                    connection_id=declaring_connection,
+                    source_item_ids=ids,
+                )
+            return await self._control.document_versions.resolve_unambiguous_active_sources(
+                tenant_id=context.tenant_id,
+                connector_type=connector,
+                source_item_ids=ids,
+            )
+
+        groups = tuple(by_connector.items())
+        resolved = await asyncio.gather(*(resolve(connector, ids) for connector, ids in groups))
+        return {
+            source_item_id: target
+            for targets in resolved
+            for source_item_id, target in targets.items()
+        }
 
     def _build(
         self,

@@ -13,6 +13,9 @@ class ApproximateTokenCounter:
     scripts frequently consume one or more model tokens per character.
     """
 
+    name = "ascii-four-nonascii-one"
+    version = "1"
+
     def count(self, text: str) -> int:
         if not text:
             return 0

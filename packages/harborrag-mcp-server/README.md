@@ -9,7 +9,10 @@ __main__.py                 stdio / HTTP launcher and flag parsing
 tools/base.py               McpToolSpec and the BaseMcpTool contract
 tools/retrieval_inputs.py   shared tenant and retrieval argument schemas
 tools/vector_search.py      vector_search
+tools/reader_tools.py       fetch_evidence, get_document_context, resolve_graph_nodes
+tools/source_list_tool.py   list_sources
 tools/graph_search.py       graph_triplet_search, graph_path_search, graph_subgraph_search
+tools/describe_graph.py     static graph contract discovery
 server/base.py              server protocol
 server/server.py            tool registry, policy enforcement, dispatch
 server/http.py              loopback Streamable HTTP transport and status UI
@@ -23,8 +26,10 @@ defaults/mcp.yaml           packaged fallback configuration
 
 ## Team deliverables
 
-- The shipped transport exposes four retrieval tools: `vector_search`,
-  `graph_triplet_search`, `graph_path_search`, and `graph_subgraph_search`.
+- The shipped transport exposes the nine read-only tools documented in
+  [`docs/on-topology/mcp-tool-design.md`](../../docs/on-topology/mcp-tool-design.md):
+  evidence search/fetch/context, source discovery, static graph description, bounded
+  triplet/subgraph/path traversal, and exact graph-node resolution.
   Chat and agent are not MCP tools; they are served only through the HarborRAG
   REST API's `/v1/chat/completions` and `/v1/agent/completions` endpoints.
 - Every attempt and outcome is durably audited with a principal identifier and
@@ -72,7 +77,7 @@ The launcher loads the protected database, model, API, and MCP environment files
 constructs the shared `HarborRAG` runtime, and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the four advertised tool names without connecting to
+MCP handshake and print the nine advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:

@@ -44,16 +44,36 @@ class KnowledgeGraphMapper:
     # (see knowledge_writes._node_row) is a merge-ordering guard used only at write time.
     # Both models are StrictModel (extra="forbid"), so leaving either one in would make
     # every read raise a ValidationError instead of returning the node.
-    _INTERNAL_PROPERTY_KEYS = frozenset({"tenant_id", "placeholder"})
+    _INTERNAL_PROPERTY_KEYS = frozenset(
+        {
+            "tenant_id",
+            "title_key",
+            "placeholder",
+            "source_title",
+            "target_title",
+            "source_relation",
+            "name",
+            "generated_title",
+            "generated_description",
+            "retrieval_context",
+            "description_build_id",
+        }
+    )
 
     @classmethod
     def properties(cls, raw: Any) -> dict[str, Any]:
         values = dict(getattr(raw, "properties", raw))
-        return {
+        decoded = {
             key: FalkorDBMapper.decode_property(value)
             for key, value in values.items()
             if key not in cls._INTERNAL_PROPERTY_KEYS
         }
+        # owner_id duplicated tenant_id in every stored row. Reconstruct it at the
+        # adapter boundary so the canonical contract remains unchanged while the graph
+        # presentation has one fewer opaque identifier.
+        if "owner_id" not in decoded and "tenant_id" in values:
+            decoded["owner_id"] = FalkorDBMapper.decode_property(values["tenant_id"])
+        return decoded
 
     @staticmethod
     def decoded_list(value: Any) -> tuple[Any, ...]:

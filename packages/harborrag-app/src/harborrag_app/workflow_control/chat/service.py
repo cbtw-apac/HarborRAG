@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from harborrag_app.workflow_control.errors import failure_response
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import HarborNotFoundError
-from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatRequest,
@@ -23,8 +22,9 @@ from harborrag_runtime.memory import (
     ConversationRepository,
     ConversationTurn,
 )
-from harborrag_runtime.sdk import HarborRAG, RetrievalLane, RetrievalRequest
+from harborrag_runtime.sdk import HarborRAG, RetrievalLane, RetrievalMode, RetrievalRequest
 
+from .evidence import ChatEvidence
 from .options import ChatExecutionOptions
 from .presenters import chat_response_data, chat_stream_chunk_data, citation_data
 
@@ -66,17 +66,17 @@ class ChatApplicationService:
         try:
             chat_identity = _ChatIdentity(tenant_id, options.session_id)
             history = await self._history(identity)
-            results = await self._retrieve(
+            evidence = await self._retrieve(
                 query,
                 tenant_id=tenant_id,
                 principal_id=principal_id,
                 graph_search=options.graph_search,
+                history=history,
             )
             request = self._build_request(
                 query,
                 identity=chat_identity,
-                results=results,
-                history=history,
+                evidence=evidence,
             )
             response = await self._runtime_provider().chat.complete(
                 request,
@@ -87,7 +87,7 @@ class ChatApplicationService:
                 True,
                 chat_response_data(
                     response,
-                    results,
+                    evidence.passages,
                     session_id=options.session_id,
                 ),
             )
@@ -110,17 +110,17 @@ class ChatApplicationService:
             await self._require_session(identity)
             chat_identity = _ChatIdentity(tenant_id, options.session_id)
             history = await self._history(identity)
-            results = await self._retrieve(
+            evidence = await self._retrieve(
                 query,
                 tenant_id=tenant_id,
                 principal_id=principal_id,
                 graph_search=options.graph_search,
+                history=history,
             )
             request = self._build_request(
                 query,
                 identity=chat_identity,
-                results=results,
-                history=history,
+                evidence=evidence,
             )
         except Exception as exc:  # noqa: BLE001 - stable application envelope
             failure = failure_response(logger, exc, "prepare chat completion stream")
@@ -128,7 +128,7 @@ class ChatApplicationService:
             return
         yield {
             "kind": "citations",
-            "citations": tuple(citation_data(result) for result in results),
+            "citations": tuple(citation_data(result) for result in evidence.passages),
             "session_id": options.session_id,
         }
         text_parts: list[str] = []
@@ -163,32 +163,38 @@ class ChatApplicationService:
         tenant_id: str,
         principal_id: str,
         graph_search: bool | None,
-    ) -> tuple[RetrievalResult, ...]:
+        history: tuple[HarborChatMessage, ...],
+    ) -> ChatEvidence:
+        graph_enabled = (
+            self._settings.chat_retrieval_graph_search if graph_search is None else graph_search
+        )
         response = await self._runtime_provider().retrieval.search(
             RetrievalRequest(
                 access=AccessContext(principal_id=principal_id, tenant_id=TenantId(tenant_id)),
                 query=query,
                 top_k=self._settings.chat_retrieval_top_k,
                 lane=RetrievalLane.HYBRID,
-                observe_graph=(
-                    self._settings.chat_retrieval_graph_search
-                    if graph_search is None
-                    else graph_search
-                ),
+                observe_graph=graph_enabled,
+                mode=RetrievalMode.LOCAL_SEMANTIC if graph_enabled else RetrievalMode.FLAT,
             )
         )
-        return response.results
+        return ChatEvidence.prepare(
+            response,
+            query=query,
+            history=history,
+            max_bytes=self._settings.topology_retrieval_policy.max_context_tokens,
+            overlay=graph_enabled,
+        )
 
     def _build_request(
         self,
         query: str,
         *,
         identity: _ChatIdentity,
-        results: Sequence[RetrievalResult],
-        history: Sequence[HarborChatMessage] = (),
+        evidence: ChatEvidence,
     ) -> HarborChatRequest:
         request = HarborChatRequest(
-            messages=(*history, HarborChatMessage.user(self._prompt_text(query, results))),
+            messages=(*evidence.history, HarborChatMessage.user(evidence.prompt)),
             sensitive=True,
         )
         metadata = request.metadata.model_copy(
@@ -197,10 +203,10 @@ class ChatApplicationService:
                 "conversation_id": identity.session_id,
                 "retrieval_query": query,
                 "document_ids": tuple(
-                    str(result.metadata.get("document_id", "")) for result in results
+                    str(result.metadata.get("document_id", "")) for result in evidence.passages
                 ),
-                "chunk_ids": tuple(result.id for result in results),
-                "source_citations": tuple(citation_data(result) for result in results),
+                "chunk_ids": tuple(result.id for result in evidence.passages),
+                "source_citations": tuple(citation_data(result) for result in evidence.passages),
             }
         )
         return request.model_copy(update={"metadata": metadata})
@@ -223,33 +229,6 @@ class ChatApplicationService:
     async def _require_session(self, identity: ConversationIdentity) -> None:
         if not await self._memory.exists(identity):
             raise HarborNotFoundError("Conversation session was not found")
-
-    @staticmethod
-    def _prompt_text(query: str, results: Sequence[RetrievalResult]) -> str:
-        """Fold retrieval into one explicitly delimited turn.
-
-        The chat provider adapter renders every ``HarborChatMessage`` by role
-        only (`build_litellm_messages`) -- it does not special-case
-        ``context_kind``. Sending each chunk as its own
-        ``HarborChatMessage.retrieved_context(...)`` message would therefore
-        reach the model as an indistinguishable extra user turn. Folding
-        everything into one labeled block keeps context and question
-        unambiguous regardless of provider.
-        """
-
-        if not results:
-            return query
-        context = "\n\n".join(
-            f"[Source {index}] (document_id={result.metadata.get('document_id', 'unknown')})\n"
-            f"{result.text}"
-            for index, result in enumerate(results, start=1)
-        )
-        return (
-            "Use the retrieved context below to answer the question. "
-            "If it is insufficient, say so instead of guessing.\n\n"
-            f"Retrieved context:\n{context}\n\n"
-            f"Question: {query}"
-        )
 
 
 def _turn_messages(turns: Sequence[ConversationTurn]) -> tuple[HarborChatMessage, ...]:

@@ -19,14 +19,13 @@ if TYPE_CHECKING:
 
 
 _SERVER_INSTRUCTIONS = (
-    "Call describe_graph when graph selectors, relations, directions, or topology are "
-    "unclear. For natural-language discovery, call vector_search first and use its "
-    "returned chunk_id as a graph selector. Use graph_subgraph_search for nearby "
-    "context, graph_path_search when both endpoints are known, and "
-    "graph_triplet_search for exact graph filters. Graph tools do not provide "
-    "free-text or partial-title search. Tenant data tools require tenant_id. "
-    "observe_graph=true on vector_search adds shallow provenance diagnostics; it "
-    "does not retrieve additional evidence content."
+    "Use list_sources when corpus scope is unclear, then vector_search for natural-language "
+    "discovery. Re-fetch citations with fetch_evidence; use get_document_context for an "
+    "ordered, version-bound reading window. Call resolve_graph_nodes before graph traversal "
+    "when a provider ID or title can be ambiguous. Use graph_triplet_search for exact "
+    "relations, graph_subgraph_search for a neighborhood, and graph_path_search between two "
+    "stable node keys. Cite immutable evidence only; graph records are navigation. Preserve "
+    "stored direction and report bounded completion reasons."
 )
 
 
@@ -129,11 +128,17 @@ def _tool_handler(
     tool_name: str,
 ) -> Any:
     async def invoke(**arguments: object) -> dict[str, object]:
-        return await server.call_tool(
+        result = await server.call_tool(
             tool_name,
             arguments,
             principal_id=_request_principal_id(arguments.get("tenant_id")),
         )
+        if result.get("ok") is False:
+            from fastmcp.exceptions import ToolError
+
+            message = result.get("error")
+            raise ToolError(message if isinstance(message, str) else "tool execution failed")
+        return result
 
     invoke.__name__ = tool_name
     return invoke

@@ -9,11 +9,17 @@ two documents and compares their keys.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from harborrag_core.chunking import ConnectorType, DocumentKind
 from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import GraphEntityType
-from harborrag_engine.ingestion import GraphProjectionBuilder, GraphProjectionInput
+from harborrag_engine.ingestion import (
+    GraphDocumentTarget,
+    GraphProjectionBuilder,
+    GraphProjectionInput,
+)
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 
@@ -26,6 +32,7 @@ def project(
     *,
     source_item_id: str,
     relations: list[DocumentRelation] | None = None,
+    resolved_targets: Mapping[str, GraphDocumentTarget] | None = None,
 ):
     document = make_document(
         [DocumentElement("p1", "paragraph", "Provider evidence")],
@@ -56,7 +63,7 @@ def project(
         GraphProjectionInput(
             document=document,
             chunks=rebound,
-            resolved_targets={},
+            resolved_targets=resolved_targets or {},
             graph_projection_version="graph-v2",
         )
     )

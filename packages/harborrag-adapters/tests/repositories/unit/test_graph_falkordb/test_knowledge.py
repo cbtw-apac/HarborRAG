@@ -15,6 +15,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphPathQuery,
     GraphTripletQuery,
 )
@@ -87,16 +88,20 @@ async def test_provision_creates_exact_indexes_and_unique_node_constraint() -> N
     await repository(client).connect()
 
     assert client.connected is True
-    assert all("CREATE INDEX" in statement for statement, _ in client.write_calls)
     node_indexes = {
-        statement for statement, _ in client.write_calls if "(node:KnowledgeNode)" in statement
+        statement
+        for statement, _ in client.write_calls
+        if "(node:KnowledgeNode)" in statement and "CREATE INDEX" in statement
     }
     relation_indexes = {
         statement for statement, _ in client.write_calls if "-[relation:" in statement
     }
-    assert len(node_indexes) + len(relation_indexes) == len(client.write_calls)
+    assert len(node_indexes) + len(relation_indexes) + 1 == len(client.write_calls)
+    assert any("SET node.title_key = toLower(node.title)" in call[0] for call in client.write_calls)
     # tenant_id is filtered by every read, delete, and count, so it must be indexed.
     assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.tenant_id)" in node_indexes
+    assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.logical_id)" in node_indexes
+    assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.title_key)" in node_indexes
     # owner_id duplicates tenant_id and is filtered by no query; indexing it is pure cost.
     assert not any("owner_id" in statement for statement in node_indexes)
     # Relationship predicates were unindexed scans before; each written type is covered.
@@ -277,7 +282,11 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
     ]
 
     result = await repository(client).search_triplets(
-        GraphTripletQuery(subject="node-document", limit=2),
+        GraphTripletQuery(
+            subject="node-document",
+            limit=2,
+            access_scope=GraphAccessScope(document_ids=("document-1",)),
+        ),
         context=StorageOperationContext.system("tenant-1"),
     )
 
@@ -286,19 +295,25 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
     assert "node-document" not in statement
     assert parameters["subject"] == "node-document"
     assert parameters["tenant_id"] == "tenant-1"
+    assert parameters["authorized_document_ids"] == ["document-1"]
+    assert statement.count("$authorized_document_ids") == 3
+    assert statement.index("$authorized_document_ids") < statement.index("LIMIT $limit")
     assert result.triplets[0].predicate.relation_id == "relation-1"
 
 
 @pytest.mark.asyncio
 async def test_path_search_returns_explicit_canonical_paths() -> None:
     client = FakeFalkorDBClient()
-    path_nodes = [node.model_dump(mode="json") for node in nodes()]
+    document, section = nodes()
+    path_nodes = [node.model_dump(mode="json") for node in (document, section)]
     path_relations = [relation().model_dump(mode="json")]
     client.read_results = [
+        FakeQueryResult([HeaderItem("node")], [[document.model_dump(mode="json")]]),
+        FakeQueryResult([HeaderItem("node")], [[section.model_dump(mode="json")]]),
         FakeQueryResult(
             [HeaderItem("path_nodes"), HeaderItem("path_relations")],
             [[path_nodes, path_relations]],
-        )
+        ),
     ]
 
     result = await repository(client).find_paths(
@@ -310,10 +325,15 @@ async def test_path_search_returns_explicit_canonical_paths() -> None:
         context=StorageOperationContext.system("tenant-1"),
     )
 
-    statement, parameters = client.read_calls[0]
+    statement, parameters = client.read_calls[2]
     assert "all(node IN nodes(path) WHERE node.tenant_id = $tenant_id" in statement
+    assert "node_key: $start_node_key" in statement
+    assert "node_key: $end_node_key" in statement
+    assert "start.logical_id = $start_node" not in statement
     # FalkorDB rejects ORDER BY over an unprojected path expression, so the ordering has
     # to name the projected alias. Pinned because the failure is query-time only.
     assert "ORDER BY size(path_relations)" in statement
     assert parameters["relationship_types"] == ["contains"]
+    assert parameters["start_node_key"] == "node-document"
+    assert parameters["end_node_key"] == "node-section"
     assert result.paths[0].nodes[1].node_key == "node-section"

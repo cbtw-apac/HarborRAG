@@ -10,7 +10,7 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import chat, doctor, ingest, init, retrieve
+from harborrag_app.cli.commands import chat, doctor, ingest, init, retrieve, topology
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.runner import CliState
@@ -86,6 +86,7 @@ app.add_typer(
     help="Submit, observe, and control ingestion runs.",
     rich_help_panel="Ingestion",
 )
+app.add_typer(topology.app, name="topology", rich_help_panel="Ingestion")
 app.command(
     "chat",
     help="Generate a response with the configured chat model.",

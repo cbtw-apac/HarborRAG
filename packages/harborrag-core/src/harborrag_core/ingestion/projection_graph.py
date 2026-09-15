@@ -15,22 +15,15 @@ from pydantic import Field, field_validator, model_validator
 from harborrag_core.base import StrictModel
 from harborrag_core.chunking import RelationType
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
+from harborrag_core.summary_cards import SummaryView
 
 from .graph_attribute_validation import validate_graph_attributes
+from .graph_taxonomy import derived_entity_type, validate_entity_type
 from .states import GraphEntityType, GraphOwnershipScope, KnowledgeNodeKind
 
 GRAPH_SCHEMA_VERSION: Literal["2.0"] = "2.0"
 SEMANTIC_SCHEMA_VERSION: Literal["semantic-v3"] = "semantic-v3"
 ONTOLOGY_SCHEMA_VERSION: Literal["enterprise-v1"] = "enterprise-v1"
-
-
-_STRUCTURE_ENTITY_TYPES = frozenset(
-    {
-        GraphEntityType.SECTION,
-        GraphEntityType.TABLE,
-        GraphEntityType.COMMENT,
-    }
-)
 
 
 class GraphEdgeRecord(StrictModel):
@@ -64,7 +57,7 @@ class GraphEdgeRecord(StrictModel):
         required_scope = {
             RelationType.HAS_DATA_SOURCE: GraphOwnershipScope.SOURCE_SCOPE,
             RelationType.HAS_VERSION: GraphOwnershipScope.DOCUMENT_VERSION,
-            RelationType.SUPPORTS: GraphOwnershipScope.DOCUMENT_VERSION,
+            RelationType.HAS_CHUNK: GraphOwnershipScope.DOCUMENT_VERSION,
             RelationType.RESOLVED_AT: GraphOwnershipScope.DOCUMENT_VERSION,
         }.get(self.relation_type)
         if required_scope is not None and self.ownership_scope != required_scope:
@@ -95,7 +88,7 @@ class GraphProjectionManifest(StrictModel):
 
 
 class GraphNodeRecord(StrictModel):
-    """Projection-neutral graph identity; content remains in the vector store."""
+    """Projection-neutral graph identity with an optional generated description view."""
 
     node_key: str = Field(min_length=1)
     node_kind: KnowledgeNodeKind
@@ -108,10 +101,23 @@ class GraphNodeRecord(StrictModel):
     document_id: DocumentId | None = None
     document_version_id: DocumentVersionId | None = None
     title: str | None = Field(default=None, max_length=512)
+    description: str | None = Field(default=None, max_length=8000)
+    # Read-time authority join; never freeze summaries in canonical graph manifests.
+    summary: SummaryView | None = Field(default=None, exclude=True)
     section_path: tuple[str, ...] = ()
     attributes: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("title")
+    @model_validator(mode="before")
+    @classmethod
+    def derive_forced_entity_type(cls, values: Any) -> Any:
+        """Fill the subtype for kinds that admit exactly one, so callers need not."""
+
+        if not isinstance(values, dict) or values.get("entity_type") is not None:
+            return values
+        forced = derived_entity_type(values.get("node_kind"))
+        return values if forced is None else {**values, "entity_type": forced}
+
+    @field_validator("title", "description")
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         if value is not None and not value.strip():
@@ -134,27 +140,7 @@ class GraphNodeRecord(StrictModel):
             raise ValueError(
                 f"{self.node_kind.value} nodes require {expected_scope.value} ownership"
             )
-        required_entity_type = {
-            KnowledgeNodeKind.TENANT: GraphEntityType.TENANT,
-            KnowledgeNodeKind.DATA_SOURCE: GraphEntityType.DATA_SOURCE,
-            KnowledgeNodeKind.DOCUMENT_VERSION: GraphEntityType.DOCUMENT_VERSION,
-            KnowledgeNodeKind.CHUNK: GraphEntityType.CHUNK,
-        }.get(self.node_kind)
-        if required_entity_type is not None and self.entity_type != required_entity_type:
-            raise ValueError(
-                f"{self.node_kind.value} nodes require entity_type={required_entity_type.value}"
-            )
-        # STRUCTURE is the one open-ended kind whose types this engine fully owns:
-        # the structural projector emits exactly these three, so anything else is a
-        # mistake rather than an extension. SOURCE_ENTITY is deliberately left
-        # unconstrained -- GraphEntityType is an open enum precisely so a new
-        # connector can name its own item kinds without editing this contract.
-        if (
-            self.node_kind == KnowledgeNodeKind.STRUCTURE
-            and self.entity_type not in _STRUCTURE_ENTITY_TYPES
-        ):
-            allowed = ", ".join(sorted(item.value for item in _STRUCTURE_ENTITY_TYPES))
-            raise ValueError(f"structure nodes require entity_type in ({allowed})")
+        validate_entity_type(self.node_kind, self.entity_type)
         _validate_ownership(
             ownership_scope=self.ownership_scope,
             source_scope_id=self.source_scope_id,

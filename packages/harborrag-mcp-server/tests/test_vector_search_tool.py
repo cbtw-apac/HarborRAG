@@ -7,7 +7,7 @@ import pytest
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_mcp_server.server.server import McpServer
 from harborrag_mcp_server.tools.vector_search import VectorSearchTool
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 
 def _result(id_: str, text: str, score: float) -> RetrievalResult:
@@ -95,6 +95,7 @@ async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
             "query": "alpha",
             "tenant_id": "demo",
             "lane": "dense",
+            "mode": "local_semantic",
             "filters": {"category": "runbook"},
             "observe_graph": False,
             "score_threshold": 0.8,
@@ -104,6 +105,7 @@ async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
 
     request = retrieval.last_request
     assert request.lane == RetrievalLane.DENSE
+    assert request.mode == RetrievalMode.LOCAL_SEMANTIC
     assert request.filters == {"category": "runbook"}
     assert request.observe_graph is False
     assert [item["id"] for item in result["results"]] == ["high"]
@@ -119,6 +121,7 @@ async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
         {"query": "x", "tenant_id": "demo", "top_k": True},
         {"query": "x", "tenant_id": "demo", "top_k": 21},
         {"query": "x", "tenant_id": "demo", "lane": "invalid"},
+        {"query": "x", "tenant_id": "demo", "mode": "global"},
         {"query": "x", "tenant_id": "demo", "filters": "invalid"},
         {"query": "x", "tenant_id": "demo", "score_threshold": True},
     ],

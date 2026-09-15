@@ -37,9 +37,11 @@ def _validator(schema: dict[str, object]):
 
 VALID_NODE = {"node_key": "chunk:1", "node_kind": "Chunk", "entity_type": "chunk"}
 VALID_RELATION = {
-    "relation_type": "supports",
-    "source_node_key": "chunk:1",
-    "target_node_key": "structure:1",
+    "relation_id": "relation:1",
+    "relation_type": "has_chunk",
+    "source_node_key": "structure:1",
+    "target_node_key": "chunk:1",
+    "origin": "structural",
 }
 
 
@@ -77,13 +79,13 @@ def test_relation_schema_rejects_violations(instance) -> None:
 @pytest.mark.parametrize(
     "instance",
     [
-        {"subject": VALID_NODE, "predicate": "supports", "object": VALID_NODE, "extra": 1},
+        {"subject": VALID_NODE, "predicate": "has_chunk", "object": VALID_NODE, "extra": 1},
         {
             "subject": {**VALID_NODE, "unexpected": "x"},
-            "predicate": "supports",
+            "predicate": "has_chunk",
             "object": VALID_NODE,
         },
-        {"subject": VALID_NODE, "predicate": "supports"},
+        {"subject": VALID_NODE, "predicate": "has_chunk"},
     ],
 )
 def test_triplet_schema_rejects_violations(instance) -> None:

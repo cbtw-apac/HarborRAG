@@ -21,7 +21,7 @@ from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus,
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import new_session_id
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 
 class MockAppService(
@@ -107,6 +107,7 @@ class MockAppService(
         top_k: int = 10,
         filters: Mapping[str, object] | None = None,
         lane: RetrievalLane = RetrievalLane.HYBRID,
+        mode: RetrievalMode = RetrievalMode.FLAT,
         observe_graph: bool = False,
         include_content: bool = False,
         include_metadata: bool = False,
@@ -120,6 +121,7 @@ class MockAppService(
                 "top_k": top_k,
                 "filters": dict(filters or {}),
                 "lane": lane,
+                "mode": mode,
                 "observe_graph": observe_graph,
                 "include_content": include_content,
                 "include_metadata": include_metadata,

@@ -95,7 +95,7 @@ async def test_subgraph_search_applies_bounded_filtered_traversal() -> None:
     )
 
     _, start_parameters = client.read_calls[0]
-    assert start_parameters["start_node"] == "node-document"
+    assert start_parameters["selector"] == "node-document"
     _, level_parameters = client.read_calls[1]
     assert level_parameters["relationship_types"] == ["contains"]
     assert len(result.nodes) == 2
@@ -132,12 +132,12 @@ async def test_version_cleanup_deletes_only_version_owned_v2_records() -> None:
         context=StorageOperationContext.system("tenant-1"),
     )
 
-    assert len(client.write_calls) == 3
+    assert len(client.write_calls) == 2
     for statement, parameters in client.write_calls[:2]:
         assert "ownership_scope = 'DOCUMENT_VERSION'" in statement
         assert "graph_schema_version = $graph_schema_version" in statement
         assert parameters["document_version_id"] == "version-1"
-    assert "NOT (node)--()" in client.write_calls[2][0]
+    assert all("NOT (node)--()" not in call[0] for call in client.write_calls)
 
 
 @pytest.mark.asyncio
@@ -152,6 +152,22 @@ async def test_source_scope_cleanup_is_connection_scoped() -> None:
     assert len(client.write_calls) == 2
     assert all("source_scope_id = $source_scope_id" in call[0] for call in client.write_calls)
     assert all(call[1]["source_scope_id"] == "scope-1" for call in client.write_calls)
+
+
+@pytest.mark.asyncio
+async def test_source_item_cleanup_removes_owned_supports_between_shared_endpoints() -> None:
+    client = FakeFalkorDBClient()
+    await repository(client).delete_source_item(
+        "source-item-1", context=StorageOperationContext.system("tenant-1")
+    )
+    assert len(client.write_calls) == 1
+    statement, parameters = client.write_calls[0]
+    assert "support.document_version_id IN version_ids" in statement
+    assert "support.ownership_scope = 'DOCUMENT_VERSION'" in statement
+    assert "support.tenant_id = $tenant_id" in statement
+    assert statement.index("DELETE support") < statement.index("DETACH DELETE owned, item")
+    assert "NOT (node)--()" not in statement
+    assert parameters["node_key"] == "source-item-1"
 
 
 @pytest.mark.asyncio
@@ -197,7 +213,9 @@ async def test_provisioning_swallows_idempotent_ddl_but_reraises_real_failures(
 ) -> None:
     class FailingClient(FakeFalkorDBClient):
         async def write(self, statement: str, parameters: dict[str, object]) -> None:
-            raise RuntimeError(message)
+            if statement.lstrip().startswith("CREATE INDEX"):
+                raise RuntimeError(message)
+            await super().write(statement, parameters)
 
         async def create_unique_node_constraint(
             self, *, label: str, properties: tuple[str, ...]
@@ -227,7 +245,7 @@ async def test_relation_cleanup_deletes_relations_and_never_a_node() -> None:
     write no relation and fail its own verification. Scoping the test to the keys just
     retracted does not help: a placeholder shared by several linking documents is exactly
     the node the other writer is staging. A deletion that does not exist cannot race, so
-    the stub is left for the tenant-wide prune that version and source-item cleanup run.
+    the identity-only stub is left for quiesced maintenance, never online cleanup.
     """
 
     client = FakeFalkorDBClient()

@@ -15,7 +15,7 @@ from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
 from .batch_client import AsyncChatBatchMixin
 from .client_runtime import ChatClientRuntime
 from .parameters import ChatMessageInput
-from .structured import AsyncStructuredOutputExecutor
+from .structured import AsyncStructuredOutputExecutor, StructuredResult
 from .structured_strategy import StructuredOutputStrategy
 
 
@@ -56,7 +56,7 @@ class AsyncHarborChatClient(
         """Generate, validate, and optionally repair one typed response."""
 
         self._ensure_open()
-        return await AsyncStructuredOutputExecutor(self, self.config).achat(
+        result = await AsyncStructuredOutputExecutor(self, self.config).achat(
             messages,
             response_model=response_model,
             request=request,
@@ -64,6 +64,28 @@ class AsyncHarborChatClient(
             max_repair_attempts=max_repair_attempts,
             strategy=strategy,
             request_kwargs=kwargs,
+        )
+        return result.value
+
+    async def achat_structured_usage[StructuredResponseT: BaseModel](
+        self,
+        *,
+        response_model: type[StructuredResponseT],
+        request: HarborChatRequest | None = None,
+        messages: Sequence[ChatMessageInput] | None = None,
+        max_repair_attempts: int | None = None,
+    ) -> StructuredResult[StructuredResponseT]:
+        """Generate one typed response and report the usage every call consumed."""
+
+        self._ensure_open()
+        return await AsyncStructuredOutputExecutor(self, self.config).achat(
+            messages,
+            response_model=response_model,
+            request=request,
+            model=None,
+            max_repair_attempts=max_repair_attempts,
+            strategy=None,
+            request_kwargs={},
         )
 
     def astream(
