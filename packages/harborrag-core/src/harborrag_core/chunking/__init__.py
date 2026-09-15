@@ -11,7 +11,12 @@ from .identity import (
 from .metadata import ChunkMetadata, FrozenMetadata, thaw_metadata
 from .record import ChunkRecord
 from .schemas import (
+    CHUNK_PROPERTIES,
+    COMMON_NODE_PROPERTIES,
+    DOCUMENT_OWNED_PROPERTIES,
+    ENTITY_PROPERTIES,
     PROJECTED_RELATION_TYPES,
+    RELATES_PROPERTIES,
     ChunkContainer,
     ChunkHierarchy,
     ChunkKind,
@@ -27,6 +32,8 @@ from .source_schemas import ChunkSecurity, CitationLocator, SourceAttribute, Sou
 from .table_schemas import TableChunkLocator, TableProjectionType
 
 __all__ = [
+    "CHUNK_PROPERTIES",
+    "COMMON_NODE_PROPERTIES",
     "ChunkContainer",
     "ChunkContractError",
     "ChunkHierarchy",
@@ -41,9 +48,12 @@ __all__ = [
     "CitationLocator",
     "ConnectorType",
     "ContainerKind",
+    "DOCUMENT_OWNED_PROPERTIES",
     "DocumentKind",
+    "ENTITY_PROPERTIES",
     "FrozenMetadata",
     "PROJECTED_RELATION_TYPES",
+    "RELATES_PROPERTIES",
     "RelationType",
     "RecordKind",
     "SourceAttribute",

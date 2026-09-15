@@ -131,6 +131,35 @@ PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
 )
 
 
+# Property catalogs for the forward-looking, versioned semantic-v3 / enterprise-v1
+# entity-relation contract (see describe_graph's tool documentation). No Pydantic model
+# in this repo enforces the Entity/RELATES property shapes yet, so these are declared
+# statically here rather than derived from a canonical source.
+COMMON_NODE_PROPERTIES: tuple[str, ...] = ("node_key", "name", "description", "entity_type")
+DOCUMENT_OWNED_PROPERTIES: tuple[str, ...] = (
+    "document_id",
+    "document_version_id",
+    "source_scope_id",
+)
+CHUNK_PROPERTIES: tuple[str, ...] = ("chunk_id", "section_path")
+ENTITY_PROPERTIES: tuple[str, ...] = (
+    "id",
+    "name",
+    "type",
+    "description",
+    "aliases",
+    "support_count",
+)
+RELATES_PROPERTIES: tuple[str, ...] = (
+    "types",
+    "description",
+    "weight",
+    "polarities",
+    "modalities",
+    "support_count",
+)
+
+
 class ChunkContainer(StrictModel):
     """One ordered structural container surrounding a chunk."""
 

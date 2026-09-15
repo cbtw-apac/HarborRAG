@@ -7,6 +7,8 @@ payload's content, this one describes its exact shape.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from .graph_catalog import (
     CHUNK_PROPERTIES,
     COMMON_NODE_PROPERTIES,
@@ -18,7 +20,7 @@ from .graph_catalog import (
 )
 
 
-def _closed_string_list_schema(values: list[str]) -> dict[str, object]:
+def _closed_string_list_schema(values: Sequence[str]) -> dict[str, object]:
     """Schema for an array whose members must come from a known, closed set.
 
     Every list here comes from ``graph_catalog``'s own static data, so ``items`` can
@@ -26,7 +28,7 @@ def _closed_string_list_schema(values: list[str]) -> dict[str, object]:
     """
     return {
         "type": "array",
-        "items": {"type": "string", "enum": values},
+        "items": {"type": "string", "enum": list(values)},
     }
 
 
