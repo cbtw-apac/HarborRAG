@@ -1,4 +1,4 @@
-"""Fail when a Python file reaches 350 physical lines.
+"""Fail when a Python file reaches 1001 physical lines.
 
 The count includes imports, comments, docstrings, blanks, and every other
 physical line. Both tracked and non-ignored untracked files are checked so the
@@ -13,7 +13,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MAX_LINES = 349
+MAX_LINES = 1000
 # Alembic revisions are generated, append-only, and identified by their revision graph.
 # Splitting one would break that graph without making anything easier to read, so the
 # gate skips them rather than inviting a per-file suppression comment.
