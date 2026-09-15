@@ -8,7 +8,7 @@ from harborrag_core.ingestion import (
     GraphOwnershipScope,
     KnowledgeNodeKind,
 )
-from harborrag_core.retrieval import GraphSubgraphQuery
+from harborrag_core.retrieval import GraphAccessScope, GraphSubgraphQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 
 from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
@@ -101,7 +101,12 @@ async def test_expand_subgraph_resolves_start_node_to_a_single_row() -> None:
     ]
 
     result = await repository(client).expand_subgraph(
-        GraphSubgraphQuery(start_node="Ops", max_depth=1, max_nodes=10),
+        GraphSubgraphQuery(
+            start_node="Ops",
+            max_depth=1,
+            max_nodes=10,
+            access_scope=GraphAccessScope(document_ids=("document-1",)),
+        ),
         context=StorageOperationContext.system("tenant-1"),
     )
 
@@ -109,6 +114,8 @@ async def test_expand_subgraph_resolves_start_node_to_a_single_row() -> None:
     assert "ORDER BY node.node_key" in start_statement
     assert "LIMIT 1" in start_statement
     assert "max_nodes" not in start_parameters
+    assert start_parameters["authorized_document_ids"] == ["document-1"]
+    assert start_statement.index("$authorized_document_ids") < start_statement.index("LIMIT 1")
     assert {node.node_key for node in result.nodes} == {"node-ops-a"}
 
 

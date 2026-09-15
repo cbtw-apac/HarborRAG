@@ -14,7 +14,12 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
     KnowledgeNodeKind,
 )
-from harborrag_core.retrieval import GraphSubgraphQuery, GraphTripletQuery
+from harborrag_core.retrieval import (
+    GraphSubgraphQuery,
+    GraphTriplet,
+    GraphTripletQuery,
+    GraphTripletResult,
+)
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import AuthoritativeGraphSearch
 
@@ -23,6 +28,14 @@ class ScopedAuthorizer:
     def __init__(self, *, documents=(), sources=()):
         self.documents = set(documents)
         self.sources = set(sources)
+
+    async def allowed_document_ids(self, tenant_id, *, access, limit=10000):
+        del tenant_id, access, limit
+        return tuple(sorted(self.documents))
+
+    async def allowed_source_scope_ids(self, tenant_id, *, access, limit=10000):
+        del tenant_id, access, limit
+        return tuple(sorted(self.sources))
 
     async def authorized_document_ids(self, tenant_id, document_ids, *, access):
         del tenant_id, access
@@ -82,6 +95,38 @@ async def test_graph_acl_drops_denied_items_without_leaking_them_in_diagnostics(
     assert result.diagnostics.candidate_count == 0
     assert result.diagnostics.stale_count == 0
     assert result.diagnostics.unpublished_count == 0
+
+
+@pytest.mark.asyncio
+async def test_graph_acl_is_attached_before_the_repository_applies_its_limit() -> None:
+    visible = _source("visible", "visible")
+    target = _source("target", "visible")
+    visible_triplet = GraphTriplet(
+        subject=visible,
+        predicate=_link("visible-link", visible, target, "visible"),
+        object=target,
+    )
+
+    class ScopedRepository(Repository):
+        async def search_triplets(self, query, *, context):
+            del context
+            assert query.access_scope is not None
+            assert query.access_scope.source_scope_ids == ("visible",)
+            return GraphTripletResult(triplets=(visible_triplet,), truncated=False)
+
+    search = AuthoritativeGraphSearch(
+        ScopedRepository(),
+        NoActiveVersions(),
+        ScopedAuthorizer(sources=("visible",)),  # type: ignore[arg-type]
+    )
+
+    result = await search.triplets(
+        GraphTripletQuery(subject="visible", limit=1),
+        context=StorageOperationContext.system("tenant-1"),
+    )
+
+    assert result.triplets == (visible_triplet,)
+    assert result.diagnostics.projection_truncated is False
 
 
 @pytest.mark.asyncio

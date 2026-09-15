@@ -64,7 +64,7 @@ TenantQuery = Annotated[
 )
 async def graph_overview(
     service: GraphServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("admin"))],
     tenant: TenantQuery = "DEFAULT",
 ) -> GraphOverviewResponse:
     authorize_tenant(principal, tenant)

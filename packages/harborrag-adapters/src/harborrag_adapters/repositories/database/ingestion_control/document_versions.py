@@ -330,6 +330,19 @@ class DocumentVersionRepository:
             source_item_ids=source_item_ids,
         )
 
+    async def resolve_unambiguous_active_sources(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        source_item_ids: Sequence[str],
+    ) -> dict[str, ActiveSourceDocument]:
+        return await self._reader.resolve_unambiguous_active_sources(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            source_item_ids=source_item_ids,
+        )
+
     async def active_relation_document_ids(
         self,
         *,

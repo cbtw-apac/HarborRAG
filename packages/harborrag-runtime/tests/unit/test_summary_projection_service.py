@@ -10,7 +10,9 @@ from harborrag_core.ingestion import DocumentIdentityBuilder
 from harborrag_core.models.chat import HarborChatUsage
 from harborrag_core.summaries import SummaryPolicy
 from harborrag_core.topology.derived import DescriptionOutput
+from harborrag_engine.topology.summary_reducer import SummaryBudgetDeferred
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.topology.summary_inputs import SummaryInputLoader
 from harborrag_runtime.topology.summary_service import SummaryProjectionService
 
 
@@ -37,12 +39,14 @@ class Model:
 
 
 def service(harness, model):
+    settings = RuntimeSettings(topology_llm_operation_cost_usd=Decimal("0.1"))
+    loader = SummaryInputLoader(harness.control.summaries, harness.reader, harness.writer, settings)
     return SummaryProjectionService(
-        harness.control,
-        harness.reader,
-        harness.writer,
-        RuntimeSettings(topology_llm_operation_cost_usd=Decimal("0.1")),
+        harness.control.summaries,
+        harness.control.topology,
+        settings,
         lambda lease: model,
+        loader.load,
     )
 
 
@@ -87,11 +91,47 @@ async def test_unconfigured_cost_defers_without_provider_calls(tmp_path):
             "DEFAULT", "scope", SummaryPolicy(model_fingerprint="model", debounce_seconds=0)
         )
         model = Model()
+        settings = RuntimeSettings()
+        loader = SummaryInputLoader(
+            harness.control.summaries, harness.reader, harness.writer, settings
+        )
         runner = SummaryProjectionService(
-            harness.control, harness.reader, harness.writer, RuntimeSettings(), lambda lease: model
+            harness.control.summaries,
+            harness.control.topology,
+            settings,
+            lambda lease: model,
+            loader.load,
         )
         assert await runner.run_once("DEFAULT") == "blocked"
         assert not model.calls
+
+
+@pytest.mark.asyncio
+async def test_concurrent_summary_failures_prefer_infrastructure_error(tmp_path, caplog):
+    async with Harness(tmp_path) as harness:
+        await harness.publish()
+        await harness.control.summaries.configure(
+            "DEFAULT", "scope", SummaryPolicy(model_fingerprint="model", debounce_seconds=0)
+        )
+
+        async def fail_loading(_lease, _snapshot):
+            raise ExceptionGroup(
+                "concurrent summary failures",
+                [SummaryBudgetDeferred("summary_call_budget"), RuntimeError("storage failed")],
+            )
+
+        runner = SummaryProjectionService(
+            harness.control.summaries,
+            harness.control.topology,
+            RuntimeSettings(topology_llm_operation_cost_usd=Decimal("0.1")),
+            lambda lease: Model(),
+            fail_loading,
+        )
+
+        assert await runner.run_once("DEFAULT") == "failed"
+        status = await harness.control.summaries.status("DEFAULT")
+        assert status[0]["error_code"] == "RuntimeError"
+        assert "Summary projection attempt failed" in caplog.text
 
 
 @pytest.mark.asyncio

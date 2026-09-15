@@ -28,6 +28,7 @@ from .graph_metadata import selector_matches, supported_nodes
 from .graph_visibility import (
     GraphVisibilityAuthorizer,
     apply_graph_permissions,
+    graph_access_scope,
     reachable_subgraph,
 )
 
@@ -90,9 +91,10 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativeTripletResult:
+        access_scope = await graph_access_scope(self._authorizer, context)
         candidate_limit = _candidate_limit(query.limit)
         candidates = await self._repository.search_triplets(
-            query.model_copy(update={"limit": candidate_limit}),
+            query.model_copy(update={"limit": candidate_limit, "access_scope": access_scope}),
             context=context,
         )
         visibility = await self._visibility(
@@ -148,9 +150,10 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativePathResult:
+        access_scope = await graph_access_scope(self._authorizer, context)
         candidate_limit = _candidate_limit(query.max_paths)
         candidates = await self._repository.find_paths(
-            query.model_copy(update={"max_paths": candidate_limit}),
+            query.model_copy(update={"max_paths": candidate_limit, "access_scope": access_scope}),
             context=context,
         )
         visibility = await self._visibility(
@@ -194,8 +197,14 @@ class AuthoritativeGraphSearch:
         *,
         context: StorageOperationContext,
     ) -> AuthoritativeSubgraphResult:
+        access_scope = await graph_access_scope(self._authorizer, context)
         candidates = await self._repository.expand_subgraph(
-            query.model_copy(update={"max_nodes": _candidate_limit(query.max_nodes)}),
+            query.model_copy(
+                update={
+                    "max_nodes": _candidate_limit(query.max_nodes),
+                    "access_scope": access_scope,
+                }
+            ),
             context=context,
         )
         return await self._accept_subgraph(

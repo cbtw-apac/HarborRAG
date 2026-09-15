@@ -17,7 +17,7 @@ from harborrag_core.chunking import ChunkRecord, RecordKind
 from harborrag_core.chunking.identity import encoded_identifier
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import DocumentVersionSnapshot
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyEnrichmentRepositoryPort
 from harborrag_core.ports.topology_extraction import EntityExtractionPort, UsageAwareExtractionPort
 from harborrag_core.ports.topology_projection import TopologyProjectionPort
 from harborrag_core.storage import StorageOperationContext
@@ -59,7 +59,7 @@ class TopologyRunResult:
 
 @dataclass(frozen=True)
 class TopologyResources:
-    repository: TopologyRepositoryPort
+    repository: TopologyEnrichmentRepositoryPort
     versions: VersionReader
     chunks: ChunkArtifactReader
     artifacts: ExtractionArtifacts

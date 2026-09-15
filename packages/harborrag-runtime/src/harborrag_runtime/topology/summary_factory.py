@@ -16,6 +16,7 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .description_factory import ConfiguredDescriptionGenerator
+from .summary_inputs import SummaryInputLoader
 from .summary_policy import build_summary_policy
 from .summary_service import SummaryProjectionService
 
@@ -83,6 +84,11 @@ class SummaryRuntimeFactory:
         )
 
     def service(self) -> SummaryProjectionService:
+        loader = SummaryInputLoader(self.control.summaries, self.reader, self.writer, self.settings)
         return SummaryProjectionService(
-            self.control, self.reader, self.writer, self.settings, self.generator
+            self.control.summaries,
+            self.control.topology,
+            self.settings,
+            self.generator,
+            loader.load,
         )

@@ -11,7 +11,7 @@ from harborrag_adapters.topology.extraction_budget import (
     extraction_operation_key,
 )
 from harborrag_adapters.topology.extractor import extraction_request_budget
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyBudgetRepositoryPort
 from harborrag_core.ports.topology_extraction import UsageAwareExtractionPort
 from harborrag_core.topology import (
     ChunkExtractionInput,
@@ -49,7 +49,7 @@ def extraction_attempt_operation_key(
 @dataclass(frozen=True)
 class BudgetedExtractor:
     delegate: UsageAwareExtractionPort
-    repository: TopologyRepositoryPort
+    repository: TopologyBudgetRepositoryPort
     job: TopologyJob
     cost_ceiling_usd: Decimal | None
 

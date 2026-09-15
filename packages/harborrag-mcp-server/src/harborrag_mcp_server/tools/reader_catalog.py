@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+from harborrag_runtime.reader_contracts import (
+    DOCUMENT_CONTEXT_CHUNK_FIELDS,
+    DOCUMENT_CONTEXT_LIMIT,
+    DOCUMENT_CONTEXT_OUTCOMES,
+    EVIDENCE_AVAILABILITIES,
+    EVIDENCE_BATCH_LIMIT,
+    EVIDENCE_ITEM_FIELDS,
+    SOURCE_CONNECTOR_FILTER_LIMIT,
+    SOURCE_LIST_LIMIT,
+)
+
 from .base import McpToolSpec
 from .retrieval_inputs import TENANT_PROPERTY, success_or_failure_schema
 
@@ -59,25 +70,12 @@ _EVIDENCE_ITEM_INPUT = {
 }
 _EVIDENCE_ITEM_OUTPUT = {
     "type": "object",
-    "required": [
-        "chunk_id",
-        "availability",
-        "text",
-        "document_id",
-        "document_version_id",
-        "document_title",
-        "source_scope_id",
-        "connector_type",
-        "chunk_kind",
-        "ordinal",
-        "section_path",
-        "citation_locator",
-    ],
+    "required": list(EVIDENCE_ITEM_FIELDS),
     "properties": {
         "chunk_id": {"type": "string", "minLength": 1},
         "availability": {
             "type": "string",
-            "enum": ["available", "unavailable", "output_limit"],
+            "enum": list(EVIDENCE_AVAILABILITIES),
         },
         "text": {"type": ["string", "null"]},
         "document_id": {"type": ["string", "null"]},
@@ -107,13 +105,19 @@ FETCH_EVIDENCE_SPEC = McpToolSpec(
                 "type": "array",
                 "items": _EVIDENCE_ITEM_INPUT,
                 "minItems": 1,
-                "maxItems": 10,
+                "maxItems": EVIDENCE_BATCH_LIMIT,
             },
         },
         "additionalProperties": False,
     },
     output_schema=_success(
-        {"items": {"type": "array", "items": _EVIDENCE_ITEM_OUTPUT, "maxItems": 10}},
+        {
+            "items": {
+                "type": "array",
+                "items": _EVIDENCE_ITEM_OUTPUT,
+                "maxItems": EVIDENCE_BATCH_LIMIT,
+            }
+        },
         ["items"],
     ),
     annotations=READ_ONLY_ANNOTATIONS,
@@ -121,14 +125,7 @@ FETCH_EVIDENCE_SPEC = McpToolSpec(
 
 _CONTEXT_CHUNK = {
     "type": "object",
-    "required": [
-        "chunk_id",
-        "ordinal",
-        "text",
-        "chunk_kind",
-        "section_path",
-        "citation_locator",
-    ],
+    "required": list(DOCUMENT_CONTEXT_CHUNK_FIELDS),
     "properties": {
         "chunk_id": {"type": "string", "minLength": 1},
         "ordinal": {"type": "integer", "minimum": 0},
@@ -159,7 +156,12 @@ GET_DOCUMENT_CONTEXT_SPEC = McpToolSpec(
             "anchor_chunk_id": {"type": "string", "minLength": 1, "maxLength": 256},
             "anchor_section_path": _SECTION_PATH,
             "cursor": {"type": "string", "pattern": "^cur_"},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 10},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": DOCUMENT_CONTEXT_LIMIT,
+                "default": DOCUMENT_CONTEXT_LIMIT,
+            },
             "include_outline": {"type": "boolean", "default": False},
         },
         "allOf": [
@@ -171,12 +173,20 @@ GET_DOCUMENT_CONTEXT_SPEC = McpToolSpec(
         {
             "outcome": {
                 "type": "string",
-                "enum": ["ok", "unavailable", "version_changed", "output_limit"],
+                "enum": list(DOCUMENT_CONTEXT_OUTCOMES),
             },
             "document_id": {"type": "string", "minLength": 1},
             "document_version_id": {"type": ["string", "null"]},
-            "chunks": {"type": "array", "items": _CONTEXT_CHUNK, "maxItems": 10},
-            "outline": {"type": "array", "items": _SECTION_PATH, "maxItems": 10},
+            "chunks": {
+                "type": "array",
+                "items": _CONTEXT_CHUNK,
+                "maxItems": DOCUMENT_CONTEXT_LIMIT,
+            },
+            "outline": {
+                "type": "array",
+                "items": _SECTION_PATH,
+                "maxItems": DOCUMENT_CONTEXT_LIMIT,
+            },
             "outline_complete": {"type": "boolean"},
             "next_cursor": {"type": ["string", "null"]},
         },
@@ -237,23 +247,32 @@ LIST_SOURCES_SPEC = McpToolSpec(
             "source_ids": {
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
-                "maxItems": 20,
+                "maxItems": SOURCE_LIST_LIMIT,
                 "uniqueItems": True,
             },
             "connector_types": {
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
-                "maxItems": 10,
+                "maxItems": SOURCE_CONNECTOR_FILTER_LIMIT,
                 "uniqueItems": True,
             },
             "cursor": {"type": "string", "pattern": "^cur_"},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20},
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": SOURCE_LIST_LIMIT,
+                "default": SOURCE_LIST_LIMIT,
+            },
         },
         "additionalProperties": False,
     },
     output_schema=_success(
         {
-            "sources": {"type": "array", "items": _SOURCE, "maxItems": 20},
+            "sources": {
+                "type": "array",
+                "items": _SOURCE,
+                "maxItems": SOURCE_LIST_LIMIT,
+            },
             "next_cursor": {"type": ["string", "null"]},
         },
         ["sources", "next_cursor"],

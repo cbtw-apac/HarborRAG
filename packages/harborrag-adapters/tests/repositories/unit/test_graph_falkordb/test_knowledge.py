@@ -15,6 +15,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphPathQuery,
     GraphTripletQuery,
 )
@@ -281,7 +282,11 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
     ]
 
     result = await repository(client).search_triplets(
-        GraphTripletQuery(subject="node-document", limit=2),
+        GraphTripletQuery(
+            subject="node-document",
+            limit=2,
+            access_scope=GraphAccessScope(document_ids=("document-1",)),
+        ),
         context=StorageOperationContext.system("tenant-1"),
     )
 
@@ -290,6 +295,9 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
     assert "node-document" not in statement
     assert parameters["subject"] == "node-document"
     assert parameters["tenant_id"] == "tenant-1"
+    assert parameters["authorized_document_ids"] == ["document-1"]
+    assert statement.count("$authorized_document_ids") == 3
+    assert statement.index("$authorized_document_ids") < statement.index("LIMIT $limit")
     assert result.triplets[0].predicate.relation_id == "relation-1"
 
 

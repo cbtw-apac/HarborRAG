@@ -122,6 +122,14 @@ class Permissions:
         self.revoke_after_first = False
         self.source_ids = set(source_ids)
 
+    async def allowed_document_ids(self, tenant_id, *, access, limit=10000):
+        del tenant_id, access, limit
+        return ("document-1",)
+
+    async def allowed_source_scope_ids(self, tenant_id, *, access, limit=10000):
+        del tenant_id, access, limit
+        return tuple(sorted(self.source_ids))
+
     async def authorized_document_ids(self, tenant_id, document_ids, *, access):
         del tenant_id, access
         self.calls += 1
@@ -251,11 +259,34 @@ class ResolutionGraph:
     async def resolve_nodes(self, query, *, context):
         del context
         self.query = query
-        return GraphNodeResolutionResult(candidates=self.candidates)
+        candidates = self.candidates
+        if query.access_scope is not None:
+            documents = set(query.access_scope.document_ids)
+            sources = set(query.access_scope.source_scope_ids)
+            candidates = tuple(
+                node
+                for node in candidates
+                if (
+                    (node.document_id is not None and str(node.document_id) in documents)
+                    or (
+                        node.document_id is None
+                        and node.source_scope_id is not None
+                        and node.source_scope_id in sources
+                    )
+                    or (
+                        node.ownership_scope == GraphOwnershipScope.TENANT
+                        and query.access_scope.tenant_visible
+                    )
+                )
+            )
+        return GraphNodeResolutionResult(
+            candidates=candidates[: query.limit],
+            truncated=len(candidates) > query.limit,
+        )
 
 
 @pytest.mark.asyncio
-async def test_graph_resolution_overfetches_then_removes_denied_title_collisions() -> None:
+async def test_graph_resolution_applies_acl_before_overfetching_title_collisions() -> None:
     graph = ResolutionGraph((_graph_node("hidden", "source-2"), _graph_node("visible", "source-1")))
     response = await _reader(Permissions(), graph).resolve_graph_nodes(
         GraphNodeResolveRequest(
@@ -270,6 +301,27 @@ async def test_graph_resolution_overfetches_then_removes_denied_title_collisions
 
     assert graph.query.limit == 100
     assert [item.node_key for item in response.candidates] == ["visible"]
+
+
+@pytest.mark.asyncio
+async def test_hidden_title_collisions_cannot_consume_the_resolution_limit() -> None:
+    hidden = tuple(_graph_node(f"hidden-{index:03}", "source-2") for index in range(101))
+    graph = ResolutionGraph((*hidden, _graph_node("visible", "source-1")))
+
+    response = await _reader(Permissions(), graph).resolve_graph_nodes(
+        GraphNodeResolveRequest(
+            ACCESS,
+            GraphNodeResolutionQuery(
+                selector_kind=GraphNodeSelectorKind.EXACT_TITLE,
+                value="Payments",
+                limit=1,
+            ),
+        )
+    )
+
+    assert [item.node_key for item in response.candidates] == ["visible"]
+    assert response.truncated is False
+    assert graph.query.access_scope.source_scope_ids == ("source-1",)
 
 
 @pytest.mark.asyncio

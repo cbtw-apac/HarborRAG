@@ -12,7 +12,11 @@ from harborrag_core.ingestion import (
     GraphOwnershipScope,
     KnowledgeNodeKind,
 )
-from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
+from harborrag_core.retrieval import (
+    GraphAccessScope,
+    GraphNodeResolutionQuery,
+    GraphNodeSelectorKind,
+)
 from harborrag_core.storage import StorageOperationContext
 
 from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
@@ -50,6 +54,7 @@ async def test_exact_node_resolution_preserves_ambiguity_and_parameterizes_scope
             selector_kind=GraphNodeSelectorKind.EXACT_TITLE,
             value="Payments",
             source_scope_ids=("source-1",),
+            access_scope=GraphAccessScope(source_scope_ids=("source-1",)),
             limit=2,
         ),
         context=StorageOperationContext.system("tenant-1"),
@@ -60,4 +65,8 @@ async def test_exact_node_resolution_preserves_ambiguity_and_parameterizes_scope
     assert "Payments" not in statement
     assert parameters["title_key"] == "payments"
     assert parameters["source_scope_ids"] == ["source-1"]
+    assert parameters["authorized_source_scope_ids"] == ["source-1"]
+    assert parameters["authorized_document_ids"] == []
+    assert parameters["access_unrestricted"] is False
+    assert statement.index("$authorized_source_scope_ids") < statement.index("LIMIT $limit")
     assert [item.node_key for item in result.candidates] == ["node-1", "node-2"]

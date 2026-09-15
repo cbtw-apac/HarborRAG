@@ -10,7 +10,7 @@ from ..traversal import GraphTraversalSyntax
 from .client import FalkorDBClient
 from .knowledge_mapping import KnowledgeGraphMapper
 from .knowledge_node_resolution import resolve_knowledge_node
-from .knowledge_support import read_rows
+from .knowledge_support import access_parameters, access_predicate, read_rows
 
 
 class AnchoredPathSearch:
@@ -31,10 +31,20 @@ class AnchoredPathSearch:
         *,
         context: StorageOperationContext,
     ) -> GraphPathResult:
-        start = await resolve_knowledge_node(self._database, query.start_node, context=context)
+        start = await resolve_knowledge_node(
+            self._database,
+            query.start_node,
+            access_scope=query.access_scope,
+            context=context,
+        )
         if start is None:
             return GraphPathResult(paths=())
-        end = await resolve_knowledge_node(self._database, query.end_node, context=context)
+        end = await resolve_knowledge_node(
+            self._database,
+            query.end_node,
+            access_scope=query.access_scope,
+            context=context,
+        )
         if end is None:
             return GraphPathResult(paths=())
 
@@ -54,10 +64,12 @@ class AnchoredPathSearch:
             }})
             MATCH path=(start){left}[*1..{query.max_depth}]{right}(end)
             WHERE all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
-                      AND node.graph_schema_version = $graph_schema_version)
+                      AND node.graph_schema_version = $graph_schema_version
+                      AND {access_predicate("node")})
               AND all(relation IN relationships(path)
                       WHERE relation.tenant_id = $tenant_id
                         AND relation.graph_schema_version = $graph_schema_version
+                        AND {access_predicate("relation")}
                         AND (size($relationship_types) = 0
                              OR relation.relation_type IN $relationship_types))
             RETURN nodes(path) AS path_nodes,
@@ -72,6 +84,7 @@ class AnchoredPathSearch:
                 "end_node_key": end.node_key,
                 "relationship_types": [item.value for item in query.relationship_types],
                 "max_paths": query.max_paths + 1,
+                **access_parameters(query.access_scope),
             },
         )
         return GraphPathResult(

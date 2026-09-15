@@ -55,6 +55,36 @@ class _ParentSpec:
     structure_id: str | None = None
 
 
+@dataclass(frozen=True)
+class _ReductionPlan:
+    """Group sizes for each reduction level, planned against worst-case output."""
+
+    levels: tuple[tuple[int, ...], ...]
+    calls: int
+
+
+@dataclass(frozen=True)
+class _SectionPlan:
+    path: tuple[str, ...]
+    direct: tuple[DescriptionPacket, ...]
+    children: tuple[tuple[str, ...], ...]
+    reduction: _ReductionPlan
+
+
+@dataclass(frozen=True)
+class _ParentBuildPlan:
+    sections: tuple[_SectionPlan, ...]
+    document_direct: tuple[DescriptionPacket, ...]
+    document_children: tuple[tuple[str, ...], ...]
+    document_reduction: _ReductionPlan
+
+    @property
+    def calls(self) -> int:
+        return self.document_reduction.calls + sum(
+            section.reduction.calls for section in self.sections
+        )
+
+
 class ParentDescriptionBuilder:
     def __init__(
         self,
@@ -90,37 +120,40 @@ class ParentDescriptionBuilder:
                 existing = labels.setdefault(prefix, label)
                 if existing != label:
                     raise ValueError("stable section identity maps to conflicting heading labels")
-        required_calls = self._planned_required_calls(direct, paths)
-        if required_calls > self._policy.max_calls:
+        plan = self._plan(direct, paths)
+        if plan.calls > self._policy.max_calls:
             raise ValueError(
                 "parent reduction plan requires "
-                f"{required_calls} calls but the configured budget allows "
+                f"{plan.calls} calls but the configured budget allows "
                 f"{self._policy.max_calls}; no provider calls were issued"
             )
         parents: list[ParentDescription] = []
         reduced_sections: dict[tuple[str, ...], DescriptionPacket] = {}
-        for path in sorted(paths, key=lambda item: (-len(item), item)):
-            child_packets = [
-                reduced_sections[child]
-                for child in sorted(reduced_sections)
-                if len(child) == len(path) + 1 and child[:-1] == path
-            ]
-            packets = (*direct.get(path, ()), *child_packets)
-            parent_key = digest([document_id, "section", path[-1]])
-            reduced = await self._reduce(packets, budget)
-            reduced_sections[path] = reduced
+        for section in plan.sections:
+            packets = (
+                *section.direct,
+                *(reduced_sections[child] for child in section.children),
+            )
+            parent_key = digest([document_id, "section", section.path[-1]])
+            reduced = await self._execute(packets, section.reduction, budget)
+            reduced_sections[section.path] = reduced
             parents.append(
                 self._parent(
-                    _ParentSpec(parent_key, "section", labels[path], path[-1]),
+                    _ParentSpec(
+                        parent_key,
+                        "section",
+                        labels[section.path],
+                        section.path[-1],
+                    ),
                     packets,
                     reduced,
                 )
             )
         document_packets = (
-            *direct.get((), ()),
-            *(reduced_sections[path] for path in sorted(reduced_sections) if len(path) == 1),
+            *plan.document_direct,
+            *(reduced_sections[path] for path in plan.document_children),
         )
-        document = await self._reduce(document_packets, budget)
+        document = await self._execute(document_packets, plan.document_reduction, budget)
         parents.append(
             self._parent(_ParentSpec(document_id, "document"), document_packets, document)
         )
@@ -140,38 +173,49 @@ class ParentDescriptionBuilder:
             for depth in range(1, len(chunk.section_path) + 1)
         )
 
-    def _planned_required_calls(
+    def _plan(
         self,
         direct: dict[tuple[str, ...], list[DescriptionPacket]],
         paths: set[tuple[str, ...]],
-    ) -> int:
-        calls = 0
+    ) -> _ParentBuildPlan:
+        sections: list[_SectionPlan] = []
         reduced_sections: dict[tuple[str, ...], DescriptionPacket] = {}
         for path in sorted(paths, key=lambda item: (-len(item), item)):
+            children = tuple(
+                child
+                for child in sorted(reduced_sections)
+                if len(child) == len(path) + 1 and child[:-1] == path
+            )
             packets = (
                 *direct.get(path, ()),
-                *(
-                    reduced_sections[child]
-                    for child in sorted(reduced_sections)
-                    if len(child) == len(path) + 1 and child[:-1] == path
-                ),
+                *(reduced_sections[child] for child in children),
             )
-            reduced_sections[path], added = self._plan_reduce(packets)
-            calls += added
+            reduction, reduced_sections[path] = self._plan_reduction(packets)
+            sections.append(_SectionPlan(path, tuple(direct.get(path, ())), children, reduction))
+        document_children = tuple(path for path in sorted(reduced_sections) if len(path) == 1)
         document_packets = (
             *direct.get((), ()),
-            *(reduced_sections[path] for path in sorted(reduced_sections) if len(path) == 1),
+            *(reduced_sections[path] for path in document_children),
         )
-        _, added = self._plan_reduce(document_packets)
-        calls += added
-        return calls
+        document_reduction, _ = self._plan_reduction(document_packets)
+        return _ParentBuildPlan(
+            tuple(sections),
+            tuple(direct.get((), ())),
+            document_children,
+            document_reduction,
+        )
 
-    def _plan_reduce(self, packets: tuple[DescriptionPacket, ...]) -> tuple[DescriptionPacket, int]:
+    def _plan_reduction(
+        self, packets: tuple[DescriptionPacket, ...]
+    ) -> tuple[_ReductionPlan, DescriptionPacket]:
         current = packets
         calls = 0
+        levels: list[tuple[int, ...]] = []
         while len(current) > 1:
             next_level = []
-            for group in self._groups(current):
+            groups = self._groups(current)
+            levels.append(tuple(len(group) for group in groups))
+            for group in groups:
                 if len(group) == 1:
                     next_level.append(group[0])
                 else:
@@ -182,7 +226,7 @@ class ParentDescriptionBuilder:
                     "parent reduction plan cannot fit two packets; no provider calls were issued"
                 )
             current = tuple(next_level)
-        return current[0], calls
+        return _ReductionPlan(tuple(levels), calls), current[0]
 
     @staticmethod
     def _planned_packet(packets: tuple[DescriptionPacket, ...]) -> DescriptionPacket:
@@ -196,17 +240,22 @@ class ParentDescriptionBuilder:
             ),
         )
 
-    async def _reduce(
-        self, packets: tuple[DescriptionPacket, ...], budget: _CallBudget
+    async def _execute(
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        plan: _ReductionPlan,
+        budget: _CallBudget,
     ) -> DescriptionPacket:
         current = packets
-        while len(current) > 1:
-            next_level = tuple(
-                [await self._summarize(group, budget) for group in self._groups(current)]
-            )
-            if len(next_level) >= len(current):
-                raise ValueError("parent reduction cannot fit two children; increase input budget")
-            current = next_level
+        for sizes in plan.levels:
+            groups: list[tuple[DescriptionPacket, ...]] = []
+            offset = 0
+            for size in sizes:
+                groups.append(current[offset : offset + size])
+                offset += size
+            if offset != len(current):
+                raise RuntimeError("parent reduction plan does not match its inputs")
+            current = tuple([await self._summarize(group, budget) for group in groups])
         return current[0]
 
     def _groups(

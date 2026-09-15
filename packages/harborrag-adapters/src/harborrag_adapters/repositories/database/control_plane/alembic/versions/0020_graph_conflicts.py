@@ -4,8 +4,8 @@ v1 is record-only: resolving a conflict persists the caller's chosen action
 but does not itself mutate FalkorDB -- no adapter primitive exists yet to
 patch a single node/relation in place.
 
-Revision ID: 0023
-Revises: 0022
+Revision ID: 0020
+Revises: 0019
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0023"
-down_revision = "0022"
+revision = "0020"
+down_revision = "0019"
 branch_labels = None
 depends_on = None
 

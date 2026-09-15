@@ -181,6 +181,36 @@ class TopologyPermissionOperations:
             )
         return tuple(str(value["document_id"]) for value in values)
 
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext | None, limit: int = 10000
+    ) -> tuple[str, ...]:
+        """Enumerate readable source scopes for a pre-query graph ACL."""
+
+        if access is None:
+            return ()
+        bound = max(1, min(limit, 10000))
+        source = PERMISSION_SNAPSHOTS.alias("readable_source_acl")
+        async with self._client.sessions() as session:
+            values = (
+                (
+                    await session.execute(
+                        select(source.c.resource_id)
+                        .where(
+                            source.c.tenant_id == tenant_id,
+                            source.c.resource_kind == "source",
+                            readable_snapshot(source, access),
+                        )
+                        .order_by(source.c.resource_id)
+                        .limit(bound + 1)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        if len(values) > bound:
+            raise HarborConflictError("authorized source enumeration exceeds the configured budget")
+        return tuple(str(value) for value in values)
+
     async def authorized_document_ids(
         self, tenant_id: str, document_ids: tuple[str, ...], *, access: AccessContext | None
     ) -> set[str]:

@@ -81,6 +81,9 @@ async def test_acl_filtered_before_reads_and_mode_off_preserves_raw_acl(tmp_path
         assert await control.topology.allowed_document_ids("DEFAULT", access=ACCESS) == (
             job.document_id,
         )
+        assert await control.topology.allowed_source_scope_ids("DEFAULT", access=ACCESS) == (
+            "scope-engineering",
+        )
         state = await control.topology.get_indexing("DEFAULT")
         paused = await control.topology.configure_indexing(
             state.config.model_copy(update={"spending_paused": True})

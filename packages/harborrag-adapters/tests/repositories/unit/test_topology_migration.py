@@ -17,7 +17,7 @@ def test_permission_migration_preserves_legacy_jobs_but_does_not_grant_access(
 ) -> None:
     path = tmp_path / "legacy-topology.db"
     config = _build_config(f"sqlite+aiosqlite:///{path}")
-    command.upgrade(config, "0020")
+    command.upgrade(config, "0021")
     engine = create_engine(f"sqlite:///{path}")
     try:
         with engine.begin() as connection:
@@ -28,7 +28,7 @@ def test_permission_migration_preserves_legacy_jobs_but_does_not_grant_access(
                     "VALUES ('legacy','tenant','scope','doc','version',1,'fingerprint','{}','accepted',1,1,'2026-09-08')"
                 )
             )
-        command.upgrade(config, "0021")
+        command.upgrade(config, "0022")
         with engine.connect() as connection:
             row = connection.execute(
                 text(
@@ -48,12 +48,56 @@ def test_permission_migration_preserves_legacy_jobs_but_does_not_grant_access(
                 ).scalar_one()
                 == 0
             )
-        command.downgrade(config, "0020")
+        command.downgrade(config, "0021")
         with engine.connect() as connection:
             assert (
                 connection.execute(text("SELECT job_id FROM topology_jobs")).scalar_one()
                 == "legacy"
             )
+    finally:
+        engine.dispose()
+
+
+def test_published_graph_conflicts_schema_upgrades_to_the_current_head(
+    tmp_path: Path,
+) -> None:
+    """A database stamped with dev's published 0020 must run every new migration."""
+
+    path = tmp_path / "published-0020.db"
+    dsn = f"sqlite+aiosqlite:///{path}"
+    config = _build_config(dsn)
+    command.upgrade(config, "0020")
+    engine = create_engine(f"sqlite:///{path}")
+    try:
+        with engine.begin() as connection:
+            assert (
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+                == "0020"
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO graph_conflicts "
+                    "(id,tenant_id,conflict_type,subject_node_key,description,status,detected_at) "
+                    "VALUES ('existing','tenant','duplicate','node-a','published conflict','open',"
+                    "'2026-09-15')"
+                )
+            )
+
+        run_migrations(dsn)
+
+        with engine.connect() as connection:
+            assert (
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+                == "0023"
+            )
+            assert (
+                connection.execute(
+                    text("SELECT description FROM graph_conflicts WHERE id = 'existing'")
+                ).scalar_one()
+                == "published conflict"
+            )
+        tables = set(inspect(engine).get_table_names())
+        assert {"topology_jobs", "topology_permission_snapshots", "summary_scopes"} <= tables
     finally:
         engine.dispose()
 

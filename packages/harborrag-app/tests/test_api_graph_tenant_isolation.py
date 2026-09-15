@@ -25,12 +25,12 @@ from harborrag_app.api.settings import ApiSettings
 _AUTH_SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 
 
-def _tenant_token(*, tenants: list[str]) -> str:
+def _tenant_token(*, tenants: list[str], role: str = "owner") -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
             "sub": "tenant-user",
-            "role": "owner",
+            "role": role,
             "tenants": tenants,
             "iat": now - timedelta(seconds=1),
             "exp": now + timedelta(minutes=5),
@@ -51,6 +51,22 @@ def _seed_other_tenant_conflict(service: MockAppService) -> None:
     """Add a second, OTHER-tenant conflict alongside the fixture's DEFAULT-tenant one."""
     other = graph_conflict("gc_other", tenant_id="OTHER")
     service.graph_conflicts[other.id] = other
+
+
+def test_graph_overview_requires_admin_role(
+    monkeypatch: pytest.MonkeyPatch,
+    service: MockAppService,
+) -> None:
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_AUTH_SECRET))
+    headers = {"Authorization": f"Bearer {_tenant_token(tenants=['ACME'], role='reader')}"}
+
+    with TestClient(app) as tenant_client:
+        response = tenant_client.get(
+            "/v1/graph/overview", params={"tenant": "ACME"}, headers=headers
+        )
+
+    assert response.status_code == 403
 
 
 def test_scoped_principal_cannot_list_another_tenants_conflicts(

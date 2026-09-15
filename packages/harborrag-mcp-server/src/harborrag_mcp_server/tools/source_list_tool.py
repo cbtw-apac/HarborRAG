@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
+from harborrag_runtime.reader_contracts import SOURCE_LIST_LIMIT
 from harborrag_runtime.sdk import SourceListRequest, SourceListResponse
 
 from .reader_base import ReaderTool
@@ -30,7 +31,13 @@ class ListSourcesTool(ReaderTool):
             stored = self._cursor(arguments, tenant_id, principal_id)
             match_cursor_value(arguments, stored, "source_ids", list(source_ids))
             match_cursor_value(arguments, stored, "connector_types", list(connector_types))
-            requested_limit = integer(arguments, "limit", 20, minimum=1, maximum=20)
+            requested_limit = integer(
+                arguments,
+                "limit",
+                SOURCE_LIST_LIMIT,
+                minimum=1,
+                maximum=SOURCE_LIST_LIMIT,
+            )
             match_cursor_value(arguments, stored, "limit", requested_limit)
             source_ids = tuple(stored.get("source_ids", source_ids))
             connector_types = tuple(stored.get("connector_types", connector_types))

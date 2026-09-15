@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION, GraphNodeRecord
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphNodeResolutionQuery,
     GraphNodeResolutionResult,
     GraphNodeSelectorKind,
@@ -12,13 +13,14 @@ from harborrag_core.storage import StorageOperationContext
 
 from .client import FalkorDBClient
 from .knowledge_mapping import KnowledgeGraphMapper
-from .knowledge_support import read_rows
+from .knowledge_support import access_parameters, access_predicate, read_rows
 
 
 async def resolve_knowledge_node(
     database: FalkorDBClient,
     selector: str,
     *,
+    access_scope: GraphAccessScope | None = None,
     context: StorageOperationContext,
 ) -> GraphNodeRecord | None:
     """Resolve one portable selector without allowing an ambiguous multi-node seed.
@@ -31,13 +33,15 @@ async def resolve_knowledge_node(
 
     rows = await read_rows(
         database,
-        """
+        f"""
         MATCH (node:KnowledgeNode)
         WHERE node.tenant_id = $tenant_id
           AND node.graph_schema_version = $graph_schema_version
+          AND {access_predicate("node")}
         OPTIONAL MATCH (node)-[support]-()
         WHERE support.tenant_id = $tenant_id
           AND support.graph_schema_version = $graph_schema_version
+          AND {access_predicate("support")}
         WITH node, collect(support) AS observations
         WHERE (node.node_key = $selector
                OR node.logical_id = $selector
@@ -55,6 +59,7 @@ async def resolve_knowledge_node(
             "tenant_id": str(context.tenant_id),
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "selector": selector,
+            **access_parameters(access_scope),
         },
     )
     assert len(rows) <= 1, "node selector resolution must return at most one row"
@@ -81,6 +86,7 @@ async def resolve_knowledge_nodes(
         WHERE node.tenant_id = $tenant_id
           AND node.graph_schema_version = $graph_schema_version
           AND ({selector_clause})
+          AND {access_predicate("node")}
           AND (size($source_scope_ids) = 0 OR node.source_scope_id IN $source_scope_ids)
           AND (size($entity_types) = 0 OR node.entity_type IN $entity_types)
         RETURN node
@@ -95,6 +101,7 @@ async def resolve_knowledge_nodes(
             "source_scope_ids": list(query.source_scope_ids),
             "entity_types": list(query.entity_types),
             "limit": query.limit + 1,
+            **access_parameters(query.access_scope),
         },
     )
     return GraphNodeResolutionResult(

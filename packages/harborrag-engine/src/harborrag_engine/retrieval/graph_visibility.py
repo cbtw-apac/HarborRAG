@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord, GraphOwnershipScope
-from harborrag_core.retrieval import GraphDirection
+from harborrag_core.retrieval import GraphAccessScope, GraphDirection
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 
@@ -16,6 +16,22 @@ from .graph_metadata import selector_matches
 
 class GraphVisibilityAuthorizer(Protocol):
     """Resolve graph ownership scopes against canonical reader permissions."""
+
+    async def allowed_document_ids(
+        self,
+        tenant_id: str,
+        *,
+        access: AccessContext,
+        limit: int = 10000,
+    ) -> tuple[str, ...]: ...
+
+    async def allowed_source_scope_ids(
+        self,
+        tenant_id: str,
+        *,
+        access: AccessContext,
+        limit: int = 10000,
+    ) -> tuple[str, ...]: ...
 
     async def authorized_document_ids(
         self,
@@ -32,6 +48,28 @@ class GraphVisibilityAuthorizer(Protocol):
         *,
         access: AccessContext,
     ) -> set[str]: ...
+
+
+async def graph_access_scope(
+    authorizer: GraphVisibilityAuthorizer | None,
+    context: StorageOperationContext,
+) -> GraphAccessScope | None:
+    """Resolve canonical allowlists before the graph store selects or limits rows."""
+
+    if authorizer is None:
+        return None
+    document_ids, source_scope_ids = await asyncio.gather(
+        authorizer.allowed_document_ids(
+            str(context.tenant_id), access=context.access, limit=10_000
+        ),
+        authorizer.allowed_source_scope_ids(
+            str(context.tenant_id), access=context.access, limit=10_000
+        ),
+    )
+    return GraphAccessScope(
+        document_ids=tuple(sorted(set(document_ids))),
+        source_scope_ids=tuple(sorted(set(source_scope_ids))),
+    )
 
 
 async def apply_graph_permissions(
@@ -129,4 +167,9 @@ def _record_authorized(
     return record.ownership_scope == GraphOwnershipScope.TENANT and tenant_visible
 
 
-__all__ = ["GraphVisibilityAuthorizer", "apply_graph_permissions", "reachable_subgraph"]
+__all__ = [
+    "GraphVisibilityAuthorizer",
+    "apply_graph_permissions",
+    "graph_access_scope",
+    "reachable_subgraph",
+]

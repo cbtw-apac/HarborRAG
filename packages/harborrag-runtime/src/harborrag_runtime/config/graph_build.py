@@ -14,6 +14,79 @@ from harborrag_core.topology.ontology import OntologyRegistry
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
 
+type _RuntimeField = tuple[str, str, tuple[str, ...]]
+_RUNTIME_FIELDS: tuple[_RuntimeField, ...] = (
+    (
+        "topology_operation_seconds",
+        "operation_timeout_seconds",
+        ("runtime", "operation_timeout_seconds"),
+    ),
+    ("topology_job_seconds", "job_timeout_seconds", ("runtime", "job_timeout_seconds")),
+    ("topology_lease_seconds", "lease_seconds", ("runtime", "lease_seconds")),
+    ("topology_max_chunks", "max_chunks_per_document", ("runtime", "max_chunks_per_document")),
+    ("topology_task_queue", "task_queue", ("runtime", "task_queue")),
+    ("topology_poll_seconds", "poll_seconds", ("runtime", "poll_seconds")),
+    (
+        "topology_embedding_max_input_bytes",
+        "embedding_max_input_bytes",
+        ("runtime", "derived", "embedding_max_input_bytes"),
+    ),
+    ("topology_parent_enabled", "parent_enabled", ("summarization", "enabled")),
+    ("summary_task_queue", "summary_task_queue", ("summarization", "task_queue")),
+    (
+        "summary_debounce_seconds",
+        "summary_debounce_seconds",
+        ("summarization", "debounce_seconds"),
+    ),
+    (
+        "summary_max_wait_seconds",
+        "summary_max_wait_seconds",
+        ("summarization", "max_wait_seconds"),
+    ),
+    (
+        "summary_tenant_enabled",
+        "summary_tenant_enabled",
+        ("summarization", "tenant_enabled"),
+    ),
+    ("topology_parent_model", "parent_model", ("summarization", "model")),
+    (
+        "topology_parent_run_budget_usd",
+        "parent_run_budget_usd",
+        ("summarization", "budget", "max_usd_per_run"),
+    ),
+    (
+        "topology_parent_max_output_tokens",
+        "parent_max_output_tokens",
+        ("summarization", "max_description_tokens"),
+    ),
+    (
+        "topology_parent_max_fan_in",
+        "parent_max_fan_in",
+        ("summarization", "input", "max_children_per_call"),
+    ),
+    (
+        "topology_parent_max_input_bytes",
+        "parent_max_input_bytes",
+        ("summarization", "input", "max_bytes_per_call"),
+    ),
+    (
+        "topology_parent_max_input_tokens",
+        "parent_max_input_tokens",
+        ("summarization", "input", "max_tokens_per_call"),
+    ),
+    (
+        "topology_parent_max_calls",
+        "parent_max_calls",
+        ("summarization", "budget", "max_calls_per_document"),
+    ),
+    (
+        "topology_llm_operation_cost_usd",
+        "llm_operation_cost_usd",
+        ("runtime", "llm_operation_cost_usd"),
+    ),
+    ("topology_derived_enabled", "derived_enabled", ("runtime", "derived", "enabled")),
+)
+
 
 class _GraphBuildModel(StrictModel):
     """Strict scalar validation in addition to recursive immutability."""
@@ -202,31 +275,9 @@ class GraphBuildConfig(_GraphBuildModel):
     def effective_settings(self, settings: RuntimeSettings) -> RuntimeSettings:
         """Project the single YAML authority into internal runtime settings."""
 
-        runtime = self.runtime
-        derived = runtime.derived
-        summarization = self.summarization
-        candidates: dict[str, object] = {
-            "topology_operation_seconds": runtime.operation_timeout_seconds,
-            "topology_job_seconds": runtime.job_timeout_seconds,
-            "topology_lease_seconds": runtime.lease_seconds,
-            "topology_max_chunks": runtime.max_chunks_per_document,
-            "topology_task_queue": runtime.task_queue,
-            "topology_poll_seconds": runtime.poll_seconds,
-            "topology_embedding_max_input_bytes": derived.embedding_max_input_bytes,
-            "topology_parent_enabled": summarization.enabled,
-            "summary_task_queue": summarization.task_queue,
-            "summary_debounce_seconds": summarization.debounce_seconds,
-            "summary_max_wait_seconds": summarization.max_wait_seconds,
-            "summary_tenant_enabled": summarization.tenant_enabled,
-            "topology_parent_model": summarization.model,
-            "topology_parent_run_budget_usd": summarization.budget.max_usd_per_run,
-            "topology_parent_max_output_tokens": summarization.max_description_tokens,
-            "topology_parent_max_fan_in": summarization.input.max_children_per_call,
-            "topology_parent_max_input_bytes": summarization.input.max_bytes_per_call,
-            "topology_parent_max_input_tokens": summarization.input.max_tokens_per_call,
-            "topology_parent_max_calls": summarization.budget.max_calls_per_document,
-            "topology_llm_operation_cost_usd": runtime.llm_operation_cost_usd,
-            "topology_derived_enabled": derived.enabled,
+        candidates = {
+            settings_name: _nested_value(self, config_path)
+            for settings_name, _, config_path in _RUNTIME_FIELDS
         }
         return settings.model_copy(update=candidates)
 
@@ -235,25 +286,13 @@ def graph_build_runtime_view(settings: RuntimeSettings) -> dict[str, object]:
     """Return the non-secret effective runtime subset used by graph building."""
 
     return {
-        "operation_timeout_seconds": settings.topology_operation_seconds,
-        "job_timeout_seconds": settings.topology_job_seconds,
-        "lease_seconds": settings.topology_lease_seconds,
-        "max_chunks_per_document": settings.topology_max_chunks,
-        "task_queue": settings.topology_task_queue,
-        "poll_seconds": settings.topology_poll_seconds,
-        "derived_enabled": settings.topology_derived_enabled,
-        "embedding_max_input_bytes": settings.topology_embedding_max_input_bytes,
-        "parent_enabled": settings.topology_parent_enabled,
-        "summary_task_queue": settings.summary_task_queue,
-        "summary_debounce_seconds": settings.summary_debounce_seconds,
-        "summary_max_wait_seconds": settings.summary_max_wait_seconds,
-        "summary_tenant_enabled": settings.summary_tenant_enabled,
-        "parent_model": settings.topology_parent_model,
-        "parent_run_budget_usd": settings.topology_parent_run_budget_usd,
-        "parent_max_output_tokens": settings.topology_parent_max_output_tokens,
-        "parent_max_fan_in": settings.topology_parent_max_fan_in,
-        "parent_max_input_bytes": settings.topology_parent_max_input_bytes,
-        "parent_max_input_tokens": settings.topology_parent_max_input_tokens,
-        "parent_max_calls": settings.topology_parent_max_calls,
-        "llm_operation_cost_usd": settings.topology_llm_operation_cost_usd,
+        view_name: getattr(settings, settings_name)
+        for settings_name, view_name, _ in _RUNTIME_FIELDS
     }
+
+
+def _nested_value(root: object, path: tuple[str, ...]) -> object:
+    value = root
+    for attribute in path:
+        value = getattr(value, attribute)
+    return value

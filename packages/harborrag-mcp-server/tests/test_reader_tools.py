@@ -14,6 +14,16 @@ from harborrag_core.ingestion import (
     ReadableSource,
 )
 from harborrag_mcp_server.server import McpServer, create_mcp_server
+from harborrag_mcp_server.tools.reader_catalog import (
+    FETCH_EVIDENCE_SPEC,
+    GET_DOCUMENT_CONTEXT_SPEC,
+    LIST_SOURCES_SPEC,
+)
+from harborrag_runtime.reader_contracts import (
+    DOCUMENT_CONTEXT_LIMIT,
+    EVIDENCE_BATCH_LIMIT,
+    SOURCE_LIST_LIMIT,
+)
 from harborrag_runtime.sdk import (
     DocumentContextResponse,
     EvidenceReadItem,
@@ -92,6 +102,16 @@ class FakeReaderKnowledge:
     async def resolve_graph_nodes(self, request):
         self.node_requests.append(request)
         return GraphNodeResolveResponse("nodes-1", (_node("node-1"), _node("node-2")))
+
+
+def test_reader_transport_bounds_share_the_runtime_contract() -> None:
+    evidence = FETCH_EVIDENCE_SPEC.input_schema["properties"]["items"]
+    context = GET_DOCUMENT_CONTEXT_SPEC.input_schema["properties"]["limit"]
+    sources = LIST_SOURCES_SPEC.input_schema["properties"]["limit"]
+
+    assert evidence["maxItems"] == EVIDENCE_BATCH_LIMIT
+    assert context["maximum"] == context["default"] == DOCUMENT_CONTEXT_LIMIT
+    assert sources["maximum"] == sources["default"] == SOURCE_LIST_LIMIT
 
 
 def _context_chunk(chunk_id: str, ordinal: int):

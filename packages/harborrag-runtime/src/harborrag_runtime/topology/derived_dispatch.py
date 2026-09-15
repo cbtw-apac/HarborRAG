@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyDerivationRepositoryPort
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .embedding_profile import build_contextual_profile
@@ -15,7 +15,7 @@ logger = logging.getLogger("harborrag.runtime.topology")
 class DerivedDispatcher:
     def __init__(
         self,
-        repository: TopologyRepositoryPort,
+        repository: TopologyDerivationRepositoryPort,
         runner: DerivationRunner,
         settings: RuntimeSettings,
     ) -> None:

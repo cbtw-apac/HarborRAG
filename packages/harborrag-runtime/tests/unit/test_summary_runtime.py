@@ -139,7 +139,9 @@ def test_summary_factory_pins_generator_policy_and_composes_service(monkeypatch)
     assert factory.generator(lease) is generator
     assert configured.call_args.args[2:] == ("tenant", "summary:scope")
     assert configured.call_args.kwargs == {"frozen_catalog": catalog}
-    assert factory.service().control is factory.control
+    service = factory.service()
+    assert service.repository is factory.control.summaries
+    assert service.budget is factory.control.topology
 
     monkeypatch.setattr(
         summary_factory,
@@ -418,7 +420,7 @@ async def test_summary_input_loader_builds_empty_source_and_rejects_changed_mani
         retained_nodes=AsyncMock(return_value=()),
     )
     loader = SummaryInputLoader(
-        SimpleNamespace(summaries=repository),
+        repository,
         Mock(),
         Mock(),
         RuntimeSettings(),

@@ -24,6 +24,25 @@ class GraphNodeSelectorKind(StrEnum):
     EXACT_TITLE = "exact_title"
 
 
+class GraphAccessScope(StrictModel):
+    """Canonical resource allowlists applied by the graph store before selection."""
+
+    document_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
+    source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_unique_ids(self) -> Self:
+        if len(set(self.document_ids)) != len(self.document_ids):
+            raise ValueError("graph access document_ids must be unique")
+        if len(set(self.source_scope_ids)) != len(self.source_scope_ids):
+            raise ValueError("graph access source_scope_ids must be unique")
+        return self
+
+    @property
+    def tenant_visible(self) -> bool:
+        return bool(self.document_ids or self.source_scope_ids)
+
+
 class GraphNodeResolutionQuery(StrictModel):
     """Resolve an exact portable selector to bounded graph-node candidates."""
 
@@ -31,8 +50,11 @@ class GraphNodeResolutionQuery(StrictModel):
     value: str = Field(min_length=1, max_length=512)
     source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10)
     entity_types: tuple[str, ...] = Field(default=(), max_length=10)
+    # Internal canonical authorization scope. Public request schemas do not expose this
+    # field, and the authoritative retrieval boundary always overwrites it.
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
     # Public surfaces cap this at ten. The wider core bound lets the runtime over-fetch
-    # before permission filtering so denied title collisions cannot starve visible ones.
+    # stale candidates after the repository has applied the canonical access scope.
     limit: int = Field(default=5, ge=1, le=100)
 
     @model_validator(mode="after")
@@ -58,6 +80,7 @@ class GraphTripletQuery(StrictModel):
     predicate: RelationType | None = None
     object: str | None = None
     limit: int = Field(default=10, ge=1, le=100)
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def require_selector(self) -> Self:
@@ -100,6 +123,7 @@ class GraphPathQuery(StrictModel):
     # forwards and one backwards, and returns nothing when restricted to a single
     # direction. Callers wanting a directed path must now ask for it explicitly.
     direction: GraphDirection = GraphDirection.BOTH
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def validate_endpoints(self) -> Self:
@@ -140,6 +164,7 @@ class GraphSubgraphQuery(StrictModel):
     max_depth: int = Field(default=2, ge=1, le=8)
     max_nodes: int = Field(default=20, ge=1, le=100)
     direction: GraphDirection = GraphDirection.BOTH
+    access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def validate_relationship_types(self) -> Self:

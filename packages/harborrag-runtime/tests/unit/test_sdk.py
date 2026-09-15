@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -30,6 +29,7 @@ from harborrag_core.topology.search import EvidenceBundle
 from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.chat import ChatPrompt, RuntimeChatService
 from harborrag_runtime.sdk import (
+    EvidenceFetchRequest,
     ExecutionMode,
     GraphTripletRequest,
     HarborRAG,
@@ -41,7 +41,6 @@ from harborrag_runtime.sdk.facades import (
     GraphFacade,
     IngestionFacade,
     KnowledgeFacade,
-    _build_vector_filter,
 )
 
 
@@ -61,8 +60,8 @@ def test_sdk_config_file_is_strict_and_defaults_to_direct(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_direct_sdk_rejects_durable_controls() -> None:
-    harbor = HarborRAG(HarborRAGConfig())
-    harbor._executor = SimpleNamespace()
+    executor = SimpleNamespace(start=AsyncMock())
+    harbor = HarborRAG(HarborRAGConfig(), executor_factory=Mock(return_value=executor))
 
     with pytest.raises(ExecutionCapabilityError, match="ingestion.run"):
         await harbor.ingestion.submit(
@@ -235,7 +234,7 @@ async def test_sdk_retrieval_preserves_access_and_builds_filters() -> None:
             access=access,
             query="retention policy",
             top_k=3,
-            filters={"source_scope_id": "scope-1"},
+            filters={"source_scope_id": ["scope-1", "scope-2"], "tenant_id": "tenant-1"},
             lane=RetrievalLane.DENSE,
             observe_graph=False,
         )
@@ -247,7 +246,10 @@ async def test_sdk_retrieval_preserves_access_and_builds_filters() -> None:
     _, kwargs = service.call
     assert kwargs["access"] is access
     assert kwargs["tenant_id"] == "tenant-1"
-    assert kwargs["options"].filters.must[0].field == "source_scope_id"
+    conditions = {item.field: item for item in kwargs["options"].filters.must}
+    assert conditions["source_scope_id"].operator == FilterOperator.IN
+    assert conditions["source_scope_id"].value == ["scope-1", "scope-2"]
+    assert conditions["tenant_id"].operator == FilterOperator.EQUALS
     assert kwargs["options"].lane == RetrievalLane.DENSE
     assert kwargs["options"].observe_graph is False
     assert response.lane == RetrievalLane.DENSE
@@ -377,20 +379,9 @@ async def test_knowledge_facade_delegates_canonical_reads() -> None:
     )
 
 
-def test_vector_filter_supports_empty_scalar_and_collection_values() -> None:
-    assert _build_vector_filter({}) is None
-    built = _build_vector_filter({"scope": ["a", "b"], "tenant": "tenant"})
-    assert built is not None
-    assert [(item.field, item.operator) for item in built.must] == [
-        ("scope", FilterOperator.IN),
-        ("tenant", FilterOperator.EQUALS),
-    ]
-
-
 @pytest.mark.asyncio
 async def test_sdk_starts_once_runs_ingestion_and_closes_the_executor(monkeypatch) -> None:
     from harborrag_runtime import plugins
-    from harborrag_runtime.sdk import runtime as sdk_runtime
 
     executor = SimpleNamespace(
         start=AsyncMock(),
@@ -399,9 +390,8 @@ async def test_sdk_starts_once_runs_ingestion_and_closes_the_executor(monkeypatc
     )
     build = Mock(return_value=executor)
     discover = Mock()
-    monkeypatch.setattr(sdk_runtime, "build_ingestion_executor", build)
     monkeypatch.setattr(plugins, "discover_runtime_plugins", discover)
-    harbor = HarborRAG(HarborRAGConfig(discover_plugins=True))
+    harbor = HarborRAG(HarborRAGConfig(discover_plugins=True), executor_factory=build)
     request = SimpleNamespace()
 
     assert await harbor.ingestion.run(request) == "ingested"
@@ -437,14 +427,17 @@ async def test_sdk_from_config_supports_async_context_management(monkeypatch, tm
 @pytest.mark.asyncio
 async def test_temporal_sdk_delegates_durable_lifecycle_operations() -> None:
     executor = SimpleNamespace(
+        start=AsyncMock(),
         submit=AsyncMock(return_value="reference"),
         status=AsyncMock(return_value="running"),
         pause=AsyncMock(),
         resume=AsyncMock(),
         cancel=AsyncMock(),
     )
-    harbor = HarborRAG(HarborRAGConfig(execution_mode=ExecutionMode.TEMPORAL))
-    harbor._executor = executor
+    harbor = HarborRAG(
+        HarborRAGConfig(execution_mode=ExecutionMode.TEMPORAL),
+        executor_factory=Mock(return_value=executor),
+    )
     request = SimpleNamespace()
 
     assert await harbor.ingestion.submit(request) == "reference"
@@ -461,20 +454,24 @@ async def test_temporal_sdk_delegates_durable_lifecycle_operations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sdk_connects_retrieval_once_and_exposes_chat_stream(monkeypatch) -> None:
-    service = SimpleNamespace(aclose=AsyncMock())
+async def test_sdk_connects_retrieval_once_and_exposes_chat_stream() -> None:
+    response = object()
+    service = SimpleNamespace(fetch_evidence=AsyncMock(return_value=response), aclose=AsyncMock())
     connect = AsyncMock(return_value=service)
-    composition = ModuleType("harborrag_runtime.retrieval.composition")
-    composition.connect_retrieval_service = connect  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "harborrag_runtime.retrieval.composition", composition)
-    harbor = HarborRAG(HarborRAGConfig())
-
-    assert await harbor._retrieval_service() is service
-    assert await harbor._retrieval_service() is service
     stream = object()
-    harbor._chat_runtime = SimpleNamespace(stream=Mock(return_value=stream), aclose=AsyncMock())
-    request = SimpleNamespace()
-    assert harbor._chat_stream(request, prompt=ChatPrompt.CONCISE) is stream
+    chat = SimpleNamespace(stream=Mock(return_value=stream), aclose=AsyncMock())
+    harbor = HarborRAG(
+        HarborRAGConfig(),
+        retrieval_factory=connect,
+        chat_runtime_factory=Mock(return_value=chat),
+    )
+    access = AccessContext(principal_id="reader", tenant_id="tenant")
+    request = EvidenceFetchRequest(access, ("chunk",))
+
+    assert await harbor.knowledge.fetch_evidence(request) is response
+    assert await harbor.knowledge.fetch_evidence(request) is response
+    chat_request = SimpleNamespace()
+    assert harbor.chat.stream(chat_request, prompt=ChatPrompt.CONCISE) is stream
     await harbor.aclose()
 
     connect.assert_awaited_once_with(harbor.config.runtime)
@@ -486,9 +483,10 @@ async def test_sdk_close_surfaces_fatal_resource_failures() -> None:
     class FatalResourceError(BaseException):
         pass
 
-    harbor = HarborRAG(HarborRAGConfig())
-    harbor._chat_runtime = SimpleNamespace(
-        aclose=AsyncMock(side_effect=FatalResourceError("fatal close"))
+    chat = SimpleNamespace(aclose=AsyncMock(side_effect=FatalResourceError("fatal close")))
+    harbor = HarborRAG(
+        HarborRAGConfig(),
+        chat_runtime_factory=Mock(return_value=chat),
     )
 
     with pytest.raises(BaseExceptionGroup, match="resource close failed"):

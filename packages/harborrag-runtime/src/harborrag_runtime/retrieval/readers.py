@@ -10,6 +10,7 @@ from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, Sourc
 from harborrag_core.retrieval import GraphNodeResolutionQuery
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.retrieval import graph_access_scope
 
 from ..contracts import (
     DocumentContextRequest,
@@ -76,7 +77,7 @@ class ReaderRetrieval:
         request_id = f"nodes-{uuid4().hex}"
         context = _context(request.access, request_id, "graph-node-resolution")
         async with asyncio.timeout(_READ_DEADLINE_SECONDS):
-            query = await self._authorized_resolution_query(request)
+            query = await self._authorized_resolution_query(request, context)
             if query is None:
                 return GraphNodeResolveResponse(request_id, ())
             raw = await self._resources.graph.resolve_nodes(query, context=context)
@@ -90,20 +91,26 @@ class ReaderRetrieval:
         )
 
     async def _authorized_resolution_query(
-        self, request: GraphNodeResolveRequest
+        self,
+        request: GraphNodeResolveRequest,
+        context: StorageOperationContext,
     ) -> GraphNodeResolutionQuery | None:
         topology = self._resources.topology
         query = request.query
-        if topology is not None and query.source_scope_ids:
-            allowed = await topology.authorized_source_scope_ids(
-                str(request.access.tenant_id),
-                query.source_scope_ids,
-                access=request.access,
-            )
+        access_scope = await graph_access_scope(topology, context)
+        if access_scope is not None and not access_scope.tenant_visible:
+            return None
+        if access_scope is not None and query.source_scope_ids:
+            allowed = set(query.source_scope_ids) & set(access_scope.source_scope_ids)
             if not allowed:
                 return None
             query = query.model_copy(update={"source_scope_ids": tuple(sorted(allowed))})
-        return query.model_copy(update={"limit": _RESOLUTION_CANDIDATE_LIMIT})
+        return query.model_copy(
+            update={
+                "access_scope": access_scope,
+                "limit": _RESOLUTION_CANDIDATE_LIMIT,
+            }
+        )
 
     async def _visible_nodes(
         self, nodes: tuple[GraphNodeRecord, ...], access: AccessContext

@@ -10,7 +10,7 @@ from pydantic import JsonValue
 
 from harborrag_core.ingestion import ArtifactReference
 from harborrag_core.ports.description_generation import DescriptionGeneratorPort
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyDerivationRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import ChunkExtractionInput, DocumentTopologyBuild, TopologyJob
 from harborrag_core.topology.derived import ContextualManifest, ParentDescription, RollupSource
@@ -62,7 +62,7 @@ class ParentProjectionPort(Protocol):
 
 @dataclass(frozen=True)
 class DerivedResources:
-    repository: TopologyRepositoryPort
+    repository: TopologyDerivationRepositoryPort
     contextual: ContextualMaterializer
     parents: ParentMaterializer
     descriptions: DescriptionGeneratorPort

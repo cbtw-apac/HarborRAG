@@ -26,6 +26,10 @@ class TopologySearchPort(Protocol):
         self, tenant_id: str, *, access: AccessContext, limit: int = 10000
     ) -> tuple[str, ...]: ...
 
+    async def allowed_source_scope_ids(
+        self, tenant_id: str, *, access: AccessContext, limit: int = 10000
+    ) -> tuple[str, ...]: ...
+
     async def authorized_document_ids(
         self, tenant_id: str, document_ids: tuple[str, ...], *, access: AccessContext
     ) -> set[str]: ...

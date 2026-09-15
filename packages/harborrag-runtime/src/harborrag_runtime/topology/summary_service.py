@@ -2,16 +2,12 @@
 
 import asyncio
 import json
-from collections.abc import Callable
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import uuid4
 
-from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_adapters.repositories.object_store import (
-    ImmutableArtifactReader,
-    ImmutableArtifactWriter,
-)
 from harborrag_adapters.topology.descriptions import DESCRIPTION_MAX_REPAIR_ATTEMPTS
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
@@ -23,8 +19,16 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.ports.description_generation import UsageAwareDescriptionPort
+from harborrag_core.ports.summary_projection import SummaryExecutionRepositoryPort
+from harborrag_core.ports.topology import TopologyBudgetRepositoryPort
 from harborrag_core.schemas.ids import TenantId
-from harborrag_core.summaries import SummaryBinding, SummaryCard, SummaryLease, SummaryManifest
+from harborrag_core.summaries import (
+    SummaryBinding,
+    SummaryCard,
+    SummaryLease,
+    SummaryManifest,
+    SummarySnapshot,
+)
 from harborrag_core.topology.budget import BudgetRequest, UsageSettlement
 from harborrag_core.topology.derived import (
     DescriptionOutput,
@@ -32,6 +36,7 @@ from harborrag_core.topology.derived import (
     description_prompt_json,
 )
 from harborrag_core.topology.extraction import digest
+from harborrag_engine.topology.summary_planner import SummaryPlanNode
 from harborrag_engine.topology.summary_reducer import (
     SummaryBudgetDeferred,
     SummaryReducer,
@@ -42,13 +47,18 @@ from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .reservation_deadline import reservation_seconds
-from .summary_inputs import SummaryInputLoader
+
+logger = logging.getLogger("harborrag.runtime.topology")
+type SummaryPlanLoader = Callable[
+    [SummaryLease, SummarySnapshot], Awaitable[tuple[SummaryPlanNode, ...]]
+]
 
 
 @dataclass
 class BudgetedSummaryGenerator:
     delegate: UsageAwareDescriptionPort
-    control: IngestionControlPlaneDatabase
+    repository: SummaryExecutionRepositoryPort
+    budget: TopologyBudgetRepositoryPort
     lease: SummaryLease
     settings: RuntimeSettings
     spent_usd: Decimal = Decimal(0)
@@ -71,7 +81,7 @@ class BudgetedSummaryGenerator:
             operation_key=digest([self.lease.policy.fingerprint, description_prompt_json(packets)]),
             provider_calls=calls,
         )
-        admission = await self.control.summaries.reserve(self.lease, request)
+        admission = await self.repository.reserve(self.lease, request)
         if not admission.admitted:
             raise SummaryBudgetDeferred(admission.reason or "budget_unavailable")
         usage = UsageSettlement()
@@ -87,19 +97,17 @@ class BudgetedSummaryGenerator:
             return result.output
         finally:
             await asyncio.shield(
-                self.control.topology.settle_budget(
-                    self.lease.tenant_id, request.reservation_id, usage
-                )
+                self.budget.settle_budget(self.lease.tenant_id, request.reservation_id, usage)
             )
 
 
 @dataclass(frozen=True)
 class SummaryProjectionService:
-    control: IngestionControlPlaneDatabase
-    reader: ImmutableArtifactReader
-    writer: ImmutableArtifactWriter
+    repository: SummaryExecutionRepositoryPort
+    budget: TopologyBudgetRepositoryPort
     settings: RuntimeSettings
     generator_factory: Callable[[SummaryLease], UsageAwareDescriptionPort]
+    load_inputs: SummaryPlanLoader
 
     async def run_once(
         self,
@@ -108,7 +116,7 @@ class SummaryProjectionService:
         source_scope_id: str | None = None,
         heartbeat: Callable[[], None] | None = None,
     ) -> str:
-        lease = await self.control.summaries.claim(
+        lease = await self.repository.claim(
             tenant_id,
             lease_seconds=self.settings.topology_lease_seconds,
             source_scope_id=source_scope_id,
@@ -123,20 +131,24 @@ class SummaryProjectionService:
                         await self._complete(lease)
                     finally:
                         renewal.cancel()
-            current = await self.control.summaries.finish(lease)
+            current = await self.repository.finish(lease)
             return "current" if current else "superseded"
         except asyncio.CancelledError:
             # Lease expiry allows another worker to reuse completed reductions.
             raise
         except Exception as error:
-            cause = error
-            while isinstance(cause, ExceptionGroup):
-                cause = cause.exceptions[0]
-            blocked = isinstance(
-                cause, (SummaryBudgetDeferred, EnrichmentDeferredError, HarborConflictError)
+            blocked, code = _summary_failure(error)
+            logger.warning(
+                "Summary projection attempt failed",
+                exc_info=True,
+                extra={
+                    "tenant_id": lease.tenant_id,
+                    "source_scope_id": lease.source_scope_id,
+                    "error_code": code,
+                    "blocked": blocked,
+                },
             )
-            code = str(cause) if isinstance(cause, SummaryBudgetDeferred) else type(cause).__name__
-            await self.control.summaries.finish(lease, error_code=code[:128], blocked=blocked)
+            await self.repository.finish(lease, error_code=code[:128], blocked=blocked)
             return "blocked" if blocked else "failed"
 
     async def _renew(self, lease: SummaryLease, heartbeat: Callable[[], None] | None) -> None:
@@ -144,25 +156,21 @@ class SummaryProjectionService:
             if heartbeat:
                 heartbeat()
             await asyncio.sleep(min(20, self.settings.topology_lease_seconds / 3))
-            await self.control.summaries.renew(
-                lease, lease_seconds=self.settings.topology_lease_seconds
-            )
+            await self.repository.renew(lease, lease_seconds=self.settings.topology_lease_seconds)
 
     async def _complete(self, lease: SummaryLease) -> None:
         if lease.source_scope_id == "@tenant":
             await self._complete_tenant(lease)
             return
-        repository = self.control.summaries
+        repository = self.repository
         snapshot = await repository.snapshot(lease)
-        plan = await SummaryInputLoader(self.control, self.reader, self.writer, self.settings).load(
-            lease, snapshot
-        )
+        plan = await self.load_inputs(lease, snapshot)
         reducer = SummaryReducer(
             lease.tenant_id,
             lease.policy,
             repository,
             BudgetedSummaryGenerator(
-                self.generator_factory(lease), self.control, lease, self.settings
+                self.generator_factory(lease), repository, self.budget, lease, self.settings
             ),
         )
         cards: dict[str, SummaryCard] = {}
@@ -231,7 +239,7 @@ class SummaryProjectionService:
             cards[item.node.node_key] = card
 
     async def _complete_tenant(self, lease: SummaryLease) -> None:
-        repository = self.control.summaries
+        repository = self.repository
         snapshot = await repository.snapshot(lease)
         children = await repository.tenant_inputs(lease)
         node = GraphNodeRecord(
@@ -248,7 +256,7 @@ class SummaryProjectionService:
             lease.policy,
             repository,
             BudgetedSummaryGenerator(
-                self.generator_factory(lease), self.control, lease, self.settings
+                self.generator_factory(lease), repository, self.budget, lease, self.settings
             ),
         )
         inputs = tuple(child.card.model_dump_json() for child in children)
@@ -281,3 +289,21 @@ class SummaryProjectionService:
             coverage_mode="complete" if chunk_ids else "empty",
         )
         await repository.accept(lease, snapshot, binding, node)
+
+
+def _summary_failure(error: BaseException) -> tuple[bool, str]:
+    """Classify every concurrent failure; infrastructure errors take precedence."""
+
+    leaves = _exception_leaves(error)
+    blocked_types = (SummaryBudgetDeferred, EnrichmentDeferredError, HarborConflictError)
+    failures = tuple(cause for cause in leaves if not isinstance(cause, blocked_types))
+    cause = failures[0] if failures else leaves[0]
+    blocked = not failures
+    code = str(cause) if isinstance(cause, SummaryBudgetDeferred) else type(cause).__name__
+    return blocked, code
+
+
+def _exception_leaves(error: BaseException) -> tuple[BaseException, ...]:
+    if isinstance(error, BaseExceptionGroup):
+        return tuple(leaf for child in error.exceptions for leaf in _exception_leaves(child))
+    return (error,)

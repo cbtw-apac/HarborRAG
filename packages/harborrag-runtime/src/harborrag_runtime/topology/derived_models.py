@@ -17,7 +17,7 @@ from harborrag_core.contracts import HarborConflictError
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
 from harborrag_core.ports.description_generation import UsageAwareDescriptionPort
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyBudgetRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.budget import BudgetRequest, UsageSettlement
 from harborrag_core.topology.derived import (
@@ -46,7 +46,7 @@ class RequestEmbedder:
 
 @dataclass(frozen=True)
 class DerivedBudget:
-    repository: TopologyRepositoryPort
+    repository: TopologyBudgetRepositoryPort
     tenant_id: str
     build_id: str
     cost_ceiling_usd: Decimal | None

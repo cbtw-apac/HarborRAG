@@ -3,7 +3,6 @@
 import asyncio
 from dataclasses import dataclass
 
-from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.object_store import (
     ChunkArtifactReader,
     ImmutableArtifactReader,
@@ -22,6 +21,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
     ProjectionManifest,
 )
+from harborrag_core.ports.summary_projection import SummaryInputRepositoryPort
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.summaries import SummaryLease, SummarySnapshot
@@ -32,7 +32,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 @dataclass(frozen=True)
 class SummaryInputLoader:
-    control: IngestionControlPlaneDatabase
+    repository: SummaryInputRepositoryPort
     reader: ImmutableArtifactReader
     writer: ImmutableArtifactWriter
     settings: RuntimeSettings
@@ -40,8 +40,7 @@ class SummaryInputLoader:
     async def load(
         self, lease: SummaryLease, snapshot: SummarySnapshot
     ) -> tuple[SummaryPlanNode, ...]:
-        repository = self.control.summaries
-        documents = await repository.source_documents(lease.tenant_id, lease.source_scope_id)
+        documents = await self.repository.source_documents(lease.tenant_id, lease.source_scope_id)
         if {
             row["document_id"]: row["active_document_version_id"] for row in documents
         } != snapshot.document_versions:
@@ -75,7 +74,9 @@ class SummaryInputLoader:
             self._merge_nodes(nodes, batch_nodes, lease)
             edges.update((edge.relation_id, edge) for edge in batch_edges)
         if not documents:
-            for node in await repository.retained_nodes(lease.tenant_id, lease.source_scope_id):
+            for node in await self.repository.retained_nodes(
+                lease.tenant_id, lease.source_scope_id
+            ):
                 if node.node_kind in {
                     KnowledgeNodeKind.DATA_SOURCE,
                     KnowledgeNodeKind.SOURCE_ENTITY,

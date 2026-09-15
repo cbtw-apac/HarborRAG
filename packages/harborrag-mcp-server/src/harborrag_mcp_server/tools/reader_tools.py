@@ -9,6 +9,7 @@ from typing import Any
 
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
+from harborrag_runtime.reader_contracts import DOCUMENT_CONTEXT_LIMIT
 from harborrag_runtime.sdk import (
     DocumentContextRequest,
     DocumentContextResponse,
@@ -97,7 +98,7 @@ class GetDocumentContextTool(ReaderTool):
                 and next_cursor is None
                 and response.outcome == "ok"
             )
-            reasons = []
+            reasons: list[str] = []
             if response.outcome != "ok":
                 reasons.append(response.outcome)
             if next_cursor is not None:
@@ -155,7 +156,13 @@ class GetDocumentContextTool(ReaderTool):
             raise HarborValidationError("cursor does not match the requested version")
         match_cursor_value(arguments, stored, "anchor_chunk_id", anchor_chunk)
         match_cursor_value(arguments, stored, "anchor_section_path", list(anchor_path))
-        requested_limit = integer(arguments, "limit", 10, minimum=1, maximum=10)
+        requested_limit = integer(
+            arguments,
+            "limit",
+            DOCUMENT_CONTEXT_LIMIT,
+            minimum=1,
+            maximum=DOCUMENT_CONTEXT_LIMIT,
+        )
         requested_outline = boolean(arguments, "include_outline", False)
         match_cursor_value(arguments, stored, "limit", requested_limit)
         match_cursor_value(arguments, stored, "include_outline", requested_outline)

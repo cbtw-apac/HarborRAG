@@ -14,6 +14,8 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_node_resolution im
 )
 from harborrag_adapters.repositories.graph.falkordb.knowledge_paths import AnchoredPathSearch
 from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
+    access_parameters,
+    access_predicate,
     path_limit_for,
     read_rows,
 )
@@ -115,7 +117,7 @@ async def search_triplets(
 
     rows = await read_rows(
         database,
-        """
+        f"""
         MATCH (subject:KnowledgeNode)-[predicate]->(object:KnowledgeNode)
         WHERE subject.tenant_id = $tenant_id
           AND object.tenant_id = $tenant_id
@@ -123,6 +125,9 @@ async def search_triplets(
           AND subject.graph_schema_version = $graph_schema_version
           AND object.graph_schema_version = $graph_schema_version
           AND predicate.graph_schema_version = $graph_schema_version
+          AND {access_predicate("subject")}
+          AND {access_predicate("predicate")}
+          AND {access_predicate("object")}
           AND ($subject IS NULL
                OR subject.node_key = $subject
                OR subject.logical_id = $subject
@@ -145,6 +150,7 @@ async def search_triplets(
             "predicate": query.predicate.value if query.predicate is not None else None,
             "object": query.object,
             "limit": query.limit + 1,
+            **access_parameters(query.access_scope),
         },
     )
     return GraphTripletResult(
@@ -186,7 +192,12 @@ async def expand_subgraph(
     relationship_types = [item.value for item in query.relationship_types]
     left, right = GraphTraversalSyntax.arrows(query.direction)
 
-    start_node = await resolve_knowledge_node(database, query.start_node, context=context)
+    start_node = await resolve_knowledge_node(
+        database,
+        query.start_node,
+        access_scope=query.access_scope,
+        context=context,
+    )
     nodes: dict[str, GraphNodeRecord] = (
         {} if start_node is None else {start_node.node_key: start_node}
     )
@@ -213,6 +224,8 @@ async def expand_subgraph(
               AND related.graph_schema_version = $graph_schema_version
               AND relation.tenant_id = $tenant_id
               AND relation.graph_schema_version = $graph_schema_version
+              AND {access_predicate("relation")}
+              AND {access_predicate("related")}
               AND (size($relationship_types) = 0
                    OR relation.relation_type IN $relationship_types)
             RETURN relation, related
@@ -224,6 +237,7 @@ async def expand_subgraph(
                 "frontier": frontier,
                 "relationship_types": relationship_types,
                 "level_limit": level_limit + 1,
+                **access_parameters(query.access_scope),
             },
         )
         if len(rows) > level_limit:

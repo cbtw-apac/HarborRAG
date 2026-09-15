@@ -1,6 +1,7 @@
 """Provider-independent retrieval request and result contracts."""
 
 from .graph import (
+    GraphAccessScope,
     GraphDirection,
     GraphNodeResolutionQuery,
     GraphNodeResolutionResult,
@@ -19,6 +20,7 @@ from .graph import (
 )
 
 __all__ = [
+    "GraphAccessScope",
     "GraphDirection",
     "GraphNodeResolutionQuery",
     "GraphNodeResolutionResult",

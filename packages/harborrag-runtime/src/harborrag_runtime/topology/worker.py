@@ -11,7 +11,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyDispatchRepositoryPort
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.temporal.connection import connect_temporal_client
@@ -40,7 +40,7 @@ class TopologyActivities:
 
 async def dispatch(
     client: Client,
-    repository: TopologyRepositoryPort,
+    repository: TopologyDispatchRepositoryPort,
     settings: RuntimeSettings,
     tenant_id: str,
 ) -> int:

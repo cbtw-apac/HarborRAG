@@ -1,14 +1,14 @@
 """Durable opt-in semantic enrichment, independent from document publication.
 
-Revision ID: 0020
-Revises: 0019
+Revision ID: 0021
+Revises: 0020
 """
 
 from alembic import op
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, text
 
-revision = "0020"
-down_revision = "0019"
+revision = "0021"
+down_revision = "0020"
 branch_labels = None
 depends_on = None
 

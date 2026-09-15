@@ -8,7 +8,7 @@ from pathlib import Path
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.topology import default_extraction_profile, pinned_configuration
-from harborrag_core.ports.topology import TopologyRepositoryPort
+from harborrag_core.ports.topology import TopologyConfigurationRepositoryPort
 from harborrag_core.topology import (
     ExtractionProfile,
     TopologyPolicy,
@@ -69,7 +69,7 @@ class GraphBuildConfigSynchronizer:
     def __init__(
         self,
         config: GraphBuildConfig,
-        repository: TopologyRepositoryPort,
+        repository: TopologyConfigurationRepositoryPort,
         profiles: GraphBuildProfileFactory,
     ) -> None:
         self._config = config

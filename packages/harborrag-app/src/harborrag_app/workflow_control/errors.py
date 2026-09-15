@@ -5,10 +5,12 @@ from __future__ import annotations
 from logging import Logger
 
 from harborrag_core.contracts.errors import (
-    HarborConfigurationError,
     HarborConflictError,
     HarborNotFoundError,
     HarborValidationError,
+)
+from harborrag_runtime.errors import (
+    MissingOptionalDependencyError as MissingOptionalDependencyError,
 )
 from harborrag_runtime.errors import (
     RuntimeConfigurationError,
@@ -64,14 +66,6 @@ class IngestionStatusFilterError(HarborValidationError):
 # argument validation raised by the application services themselves.
 
 
-class MissingOptionalDependencyError(HarborConfigurationError):
-    """A command needs a client that its install extra did not bring.
-
-    The message names the pip extra to install; it never carries provider or path detail,
-    which is why it may be shown verbatim.
-    """
-
-
 _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     RuntimeConfigurationError,
     RuntimeConnectionError,
@@ -82,7 +76,6 @@ _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
     WorkflowRunAlreadyStartedError,
     WorkflowSubmissionError,
     ValueError,
-    MissingOptionalDependencyError,
 )
 
 

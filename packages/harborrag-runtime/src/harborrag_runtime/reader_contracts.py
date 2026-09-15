@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from typing import Literal
 
 from harborrag_core.ingestion import GraphNodeRecord, ReadableSource
 from harborrag_core.retrieval import GraphNodeResolutionQuery
 from harborrag_core.security import AccessContext
+
+EVIDENCE_BATCH_LIMIT = 10
+DOCUMENT_CONTEXT_LIMIT = 10
+SOURCE_LIST_LIMIT = 20
+SOURCE_CONNECTOR_FILTER_LIMIT = 10
+EVIDENCE_AVAILABILITIES = ("available", "unavailable", "output_limit")
+DOCUMENT_CONTEXT_OUTCOMES = ("ok", "unavailable", "version_changed", "output_limit")
+type EvidenceAvailability = Literal["available", "unavailable", "output_limit"]
+type DocumentContextOutcome = Literal["ok", "unavailable", "version_changed", "output_limit"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +43,8 @@ class EvidenceReadRequest:
     items: tuple[EvidenceReadSelector, ...]
 
     def __post_init__(self) -> None:
-        if not 1 <= len(self.items) <= 10:
-            raise ValueError("evidence read requires between 1 and 10 items")
+        if not 1 <= len(self.items) <= EVIDENCE_BATCH_LIMIT:
+            raise ValueError(f"evidence read requires between 1 and {EVIDENCE_BATCH_LIMIT} items")
         chunk_ids = tuple(item.chunk_id for item in self.items)
         if len(set(chunk_ids)) != len(chunk_ids):
             raise ValueError("evidence read chunk IDs must be unique")
@@ -43,7 +53,7 @@ class EvidenceReadRequest:
 @dataclass(frozen=True, slots=True)
 class EvidenceReadItem:
     chunk_id: str
-    availability: str
+    availability: EvidenceAvailability
     text: str | None = None
     document_id: str | None = None
     document_version_id: str | None = None
@@ -86,7 +96,7 @@ class DocumentContextRequest:
             raise ValueError("anchor section path entries must be non-empty")
         if self.anchor_chunk_id is not None and self.anchor_section_path:
             raise ValueError("use either anchor_chunk_id or anchor_section_path")
-        if self.offset < 0 or not 1 <= self.limit <= 10:
+        if self.offset < 0 or not 1 <= self.limit <= DOCUMENT_CONTEXT_LIMIT:
             raise ValueError("context offset or limit is outside its bounded range")
 
 
@@ -103,7 +113,7 @@ class DocumentContextChunk:
 @dataclass(frozen=True, slots=True)
 class DocumentContextResponse:
     request_id: str
-    outcome: str
+    outcome: DocumentContextOutcome
     document_id: str
     document_version_id: str | None = None
     chunks: tuple[DocumentContextChunk, ...] = ()
@@ -120,9 +130,12 @@ class SourceListRequest:
     limit: int = 20
 
     def __post_init__(self) -> None:
-        if not 1 <= self.limit <= 20:
-            raise ValueError("source list limit must be between 1 and 20")
-        if len(self.source_scope_ids) > 20 or len(self.connector_types) > 10:
+        if not 1 <= self.limit <= SOURCE_LIST_LIMIT:
+            raise ValueError(f"source list limit must be between 1 and {SOURCE_LIST_LIMIT}")
+        if (
+            len(self.source_scope_ids) > SOURCE_LIST_LIMIT
+            or len(self.connector_types) > SOURCE_CONNECTOR_FILTER_LIMIT
+        ):
             raise ValueError("source list filters exceed their bounds")
 
 
@@ -146,10 +159,24 @@ class GraphNodeResolveResponse:
     truncated: bool = False
 
 
+EVIDENCE_ITEM_FIELDS = tuple(value.name for value in fields(EvidenceReadItem))
+DOCUMENT_CONTEXT_CHUNK_FIELDS = tuple(value.name for value in fields(DocumentContextChunk))
+
+
 __all__ = [
+    "DOCUMENT_CONTEXT_LIMIT",
+    "DOCUMENT_CONTEXT_OUTCOMES",
+    "DOCUMENT_CONTEXT_CHUNK_FIELDS",
+    "EVIDENCE_AVAILABILITIES",
+    "EVIDENCE_BATCH_LIMIT",
+    "EVIDENCE_ITEM_FIELDS",
+    "SOURCE_CONNECTOR_FILTER_LIMIT",
+    "SOURCE_LIST_LIMIT",
     "DocumentContextChunk",
+    "DocumentContextOutcome",
     "DocumentContextRequest",
     "DocumentContextResponse",
+    "EvidenceAvailability",
     "EvidenceReadItem",
     "EvidenceReadRequest",
     "EvidenceReadResponse",
