@@ -4,14 +4,12 @@ import pytest
 from jsonschema.validators import validator_for
 
 from harborrag_core.chunking import PROJECTED_RELATION_TYPES
-from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
+from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.ingestion.projection_contracts import GRAPH_SCHEMA_VERSION
 from harborrag_mcp_server.tools.describe_graph import DescribeGraphTool
 from harborrag_mcp_server.tools.graph_catalog import (
-    CONNECTOR_TOPOLOGIES,
-    missing_entity_type_docs,
-    missing_node_kind_docs,
-    missing_projected_relation_docs,
+    ONTOLOGY_SCHEMA_VERSION,
+    SEMANTIC_SCHEMA_VERSION,
 )
 
 
@@ -24,7 +22,7 @@ async def test_describe_graph_accepts_an_empty_object_and_needs_no_runtime() -> 
     result = await tool.call({}, principal_id="in-process")
 
     assert result["ok"] is True
-    assert result["graph_schema_version"] == GRAPH_SCHEMA_VERSION
+    assert result["versions"]["structural"] == GRAPH_SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
@@ -47,50 +45,50 @@ def test_describe_graph_advertises_read_only_annotations() -> None:
     }
 
 
-def test_enum_backed_documentation_is_complete() -> None:
-    assert missing_node_kind_docs() == []
-    assert missing_entity_type_docs() == []
-    assert missing_projected_relation_docs() == []
+@pytest.mark.asyncio
+async def test_describe_graph_versions_cover_structural_semantic_and_ontology() -> None:
+    result = await DescribeGraphTool().call({}, principal_id="in-process")
 
-
-def test_reserved_non_projected_relations_are_absent() -> None:
-    from harborrag_mcp_server.tools.graph_catalog import RELATION_MEANINGS
-
-    assert set(RELATION_MEANINGS) <= set(PROJECTED_RELATION_TYPES)
-
-
-def test_connector_topologies_cover_every_documented_provider() -> None:
-    connectors = {topology["connector"] for topology in CONNECTOR_TOPOLOGIES}
-    assert connectors == {"confluence", "jira", "local"}
-    for topology in CONNECTOR_TOPOLOGIES:
-        assert len(topology["entity_chain"]) >= 2
+    assert result["versions"] == {
+        "structural": GRAPH_SCHEMA_VERSION,
+        "semantic": SEMANTIC_SCHEMA_VERSION,
+        "ontology": ONTOLOGY_SCHEMA_VERSION,
+    }
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_node_kinds_and_entity_types_come_from_canonical_enums() -> None:
+async def test_describe_graph_layers_come_from_canonical_enums() -> None:
     result = await DescribeGraphTool().call({}, principal_id="in-process")
 
-    assert {item["name"] for item in result["node_kinds"]} == {
-        kind.value for kind in KnowledgeNodeKind
+    assert result["layers"]["nodes"] == [kind.value for kind in KnowledgeNodeKind]
+    assert result["layers"]["relations"] == [
+        relation.value for relation in PROJECTED_RELATION_TYPES
+    ]
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_properties_cover_common_and_named_property_sets() -> None:
+    result = await DescribeGraphTool().call({}, principal_id="in-process")
+
+    assert set(result["properties"]) == {
+        "common_node",
+        "document_owned",
+        "Chunk",
+        "Entity",
+        "RELATES",
     }
-    assert {item["name"] for item in result["entity_types"]} == {
-        entity.value for entity in GraphEntityType
-    }
+    for property_names in result["properties"].values():
+        assert property_names
+        assert all(isinstance(name, str) and name for name in property_names)
 
 
-def test_maximum_depth_and_results_are_derived_not_restated() -> None:
-    from harborrag_mcp_server.policy import McpToolPolicy
-    from harborrag_mcp_server.tools.graph_catalog import MAXIMUM_DEPTH, MAXIMUM_RESULTS
-    from harborrag_mcp_server.tools.graph_search import (
-        GraphPathSearchTool,
-        GraphSubgraphSearchTool,
-    )
+@pytest.mark.asyncio
+async def test_describe_graph_never_accepts_extra_arguments() -> None:
+    from harborrag_mcp_server.server.server import McpServer
 
-    path_properties = GraphPathSearchTool.spec.input_schema["properties"]
-    subgraph_properties = GraphSubgraphSearchTool.spec.input_schema["properties"]
-    assert MAXIMUM_DEPTH == path_properties["max_depth"]["maximum"]
-    assert MAXIMUM_DEPTH == subgraph_properties["max_depth"]["maximum"]
-    assert MAXIMUM_RESULTS == McpToolPolicy().max_results
+    server = McpServer()
+    with pytest.raises(ValueError, match="do not match"):
+        await server.call_tool("describe_graph", {"query": "anything"})
 
 
 @pytest.mark.asyncio
