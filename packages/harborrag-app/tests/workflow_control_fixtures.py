@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import pytest_asyncio
+
+from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import (
     ProcessingProfileInput,
+    RetryFailuresInput,
     SourceIngestionInput,
     SourceIngestionStatus,
 )
 from harborrag_runtime.temporal.submission import SourceSubmission
+from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
 
 
 class FakeRuntimeClient:
@@ -142,3 +153,114 @@ def source_input(
             submission.document_concurrency if submission.document_concurrency is not None else 8
         ),
     )
+
+
+class FakeTemporalClient:
+    def __init__(self) -> None:
+        self.started: list[SourceIngestionInput] = []
+        self.paused: list[str] = []
+        self.resumed: list[str] = []
+        self.cancelled: list[str] = []
+        self.retries: list[RetryFailuresInput] = []
+
+    async def start_ingestion(self, source: SourceIngestionInput) -> RuntimeWorkflowRef:
+        self.started.append(source)
+        return RuntimeWorkflowRef(source.task_id, "internal", "internal-run")
+
+    async def pause(self, task_id: str) -> None:
+        self.paused.append(task_id)
+
+    async def resume(self, task_id: str) -> None:
+        self.resumed.append(task_id)
+
+    async def cancel(self, task_id: str) -> None:
+        self.cancelled.append(task_id)
+
+    async def start_retry_failures(
+        self,
+        request: RetryFailuresInput,
+    ) -> RuntimeWorkflowRef:
+        self.retries.append(request)
+        return RuntimeWorkflowRef(request.retry_task_id, "internal", "internal-run")
+
+
+def public_ingestion_source_input(
+    _settings: RuntimeSettings,
+    submission: SourceSubmission,
+) -> SourceIngestionInput:
+    return SourceIngestionInput(
+        task_id=submission.task_id,
+        tenant_id=submission.tenant_id,
+        connector_name="harborrag-workspace",
+        connector_type="local",
+        connection_id="harborrag-workspace",
+        source_scope_id="scope-harborrag-workspace",
+        configuration_fingerprint="connector-test",
+        processing=ProcessingProfileInput(
+            parser_profile="parser-v1",
+            normalizer_version="normalizer-v1",
+            chunk_strategy="chunk-v1",
+            dense_encoder_profile="dense-v1",
+            sparse_encoder_profile="sparse-v1",
+            graph_projection_version="graph-v1",
+        ),
+    )
+
+
+def public_ingestion_command(*, marker: str = "one") -> IngestionCreateCommand:
+    return IngestionCreateCommand(
+        tenant_id="ACME",
+        connection_id="harborrag-workspace",
+        force_reprocess=False,
+        public_request={
+            "connection_id": "harborrag-workspace",
+            "tenant": "ACME",
+            "marker": marker,
+        },
+    )
+
+
+@pytest_asyncio.fixture
+async def service_resources(
+    tmp_path: Path,
+) -> AsyncIterator[
+    tuple[IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient]
+]:
+    client = SQLAlchemyDBClient(
+        backend="sqlite",
+        url=f"sqlite+aiosqlite:///{tmp_path / 'ingestion-api.db'}",
+        pool_size=None,
+        max_overflow=None,
+        pool_recycle_seconds=1_800,
+        echo=False,
+    )
+    control = IngestionControlPlaneDatabase(client, create_schema=True)
+    await control.connect()
+    registry = IngestionTaskRegistry(control)
+    temporal = FakeTemporalClient()
+    identifiers = iter(
+        (
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003",
+            "00000000-0000-4000-8000-000000000004",
+        )
+    )
+
+    async def runtime_client() -> FakeTemporalClient:
+        return temporal
+
+    async def task_store() -> IngestionTaskRegistry:
+        return registry
+
+    service = IngestionApplicationService(
+        RuntimeSettings(ingestion_tenant_id="default"),
+        client_provider=runtime_client,
+        task_store_provider=task_store,
+        source_input_builder=public_ingestion_source_input,
+        task_id_factory=lambda: next(identifiers),
+    )
+    try:
+        yield service, control, temporal
+    finally:
+        await control.close()

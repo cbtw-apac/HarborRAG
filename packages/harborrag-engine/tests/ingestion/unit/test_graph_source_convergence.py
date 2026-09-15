@@ -9,61 +9,12 @@ is why these live apart from the single-document topology tests.
 
 from __future__ import annotations
 
-from harborrag_core.chunking import ConnectorType, DocumentKind, RelationType
+from harborrag_core.chunking import RelationType
 from harborrag_core.domain.document import DocumentRelation
-from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
-from harborrag_engine.ingestion import GraphProjectionBuilder, GraphProjectionInput
 
-from .chunking_helpers import make_document, make_profile, make_request, make_service
-
-
-def _project(
-    connector: str,
-    extra: dict[str, object],
-    *,
-    source_item_id: str,
-    relations: list[DocumentRelation] | None = None,
-):
-    document = make_document(
-        [DocumentElement("p1", "paragraph", "Provider evidence")],
-        source=connector,
-        extra=extra,
-    )
-    document.relations = relations or []
-    chunks = (
-        make_service(
-            make_profile(target=40, maximum=60),
-            configuration_version="3",
-            create_route_chunks=True,
-        )
-        .chunk(make_request(make_document(document.content)))
-        .chunks
-    )
-    rebound = tuple(
-        chunk.model_copy(
-            update={
-                "connector_type": ConnectorType(connector),
-                "document_kind": DocumentKind(f"{connector}_file"),
-                "source_item_id": source_item_id,
-            }
-        )
-        for chunk in chunks
-    )
-    return GraphProjectionBuilder().build(
-        GraphProjectionInput(
-            document=document,
-            chunks=rebound,
-            resolved_targets={},
-            graph_projection_version="graph-v2",
-        )
-    )
-
-
-def _keys(graph, entity_type: GraphEntityType) -> dict[str, str]:
-    return {
-        node.logical_id: node.node_key for node in graph.nodes if node.entity_type is entity_type
-    }
+from .graph_convergence_helpers import keys as _keys
+from .graph_convergence_helpers import project as _project
 
 
 def test_confluence_attachment_parent_converges_with_the_ingested_page() -> None:

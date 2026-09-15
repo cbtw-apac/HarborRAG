@@ -113,6 +113,18 @@ def build_stage_table(
     return table
 
 
+def stage_line(status: str, progress: Mapping[str, Any]) -> Text:
+    """One-line stage strip for inline progress: ``✓ Discover  ↻ Fetch  ○ Parse …``."""
+
+    line = Text()
+    for view in stage_views(status, progress):
+        symbol, style = _STATE_PRESENTATION[view.state]
+        if line:
+            line.append("  ")
+        line.append(f"{symbol} {view.name}", style=style)
+    return line
+
+
 def stage_views(
     status: str,
     progress: Mapping[str, Any],

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from harborrag_core.domain.graph_conflict import GraphConflict
 from harborrag_runtime.sdk import RetrievalLane
 
 
@@ -119,6 +122,20 @@ def retrieval_payload(
     }
 
 
+def graph_conflict(conflict_id: str = "gc_1", *, tenant_id: str = "DEFAULT") -> GraphConflict:
+    """Return one open graph conflict for API contract tests."""
+
+    return GraphConflict(
+        id=conflict_id,
+        tenant_id=tenant_id,
+        conflict_type="node_identity",
+        subject_node_key="document:1",
+        competing_node_key="document:2",
+        description="Two sources describe the same entity differently",
+        detected_at=datetime(2026, 8, 12, tzinfo=UTC),
+    )
+
+
 def projection_inventory_payload(tenant: str) -> dict[str, object]:
     """Return the projection inventory a tenant reports before deletion."""
 
@@ -138,6 +155,7 @@ def projection_inventory_payload(tenant: str) -> dict[str, object]:
 
 
 __all__ = [
+    "graph_conflict",
     "graph_diagnostics",
     "graph_payload",
     "graph_records",

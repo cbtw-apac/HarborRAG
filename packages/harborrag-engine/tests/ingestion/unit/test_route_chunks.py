@@ -59,6 +59,28 @@ def test_release_chunking_starts_with_required_document_route() -> None:
     assert result.statistics.evidence_chunk_count == 1
 
 
+def test_evidence_ordinals_are_contiguous_after_routes_are_filtered_out() -> None:
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "Alpha beta gamma delta."),
+            DocumentElement("p2", "paragraph", "Epsilon zeta eta theta."),
+            DocumentElement("p3", "paragraph", "Iota kappa lambda mu."),
+        ],
+        source="local_file",
+        record_id="guide.md",
+        extra={"relative_path": "docs/guide.md"},
+    )
+
+    result = make_service(
+        make_profile(target=20, maximum=60),
+        configuration_version="3",
+        create_route_chunks=True,
+    ).chunk(make_request(document))
+
+    evidence = [chunk for chunk in result.chunks if chunk.record_kind == RecordKind.EVIDENCE]
+    assert [chunk.ordinal for chunk in evidence] == list(range(len(evidence)))
+
+
 def test_route_identity_is_deterministic_for_identical_version_input() -> None:
     document = make_document(
         [DocumentElement("p1", "paragraph", "Stable evidence")],

@@ -15,6 +15,10 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse
 
+# Every command below goes through the CLI's project gate; give each test its own
+# project instead of inheriting whatever directory pytest was started from.
+pytestmark = pytest.mark.usefixtures("cli_project")
+
 
 class FakeComposition:
     mode = "test"

@@ -211,6 +211,8 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "citation_locator",
                 "quality_score",
                 "retrieval_source",
+                "document_title",
+                "section_path",
             ],
             "properties": {
                 "document_id": {"type": "string"},

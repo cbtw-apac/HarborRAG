@@ -1,5 +1,6 @@
 # Developer Documentation
 
+- [Running HarborRAG from a checkout](checkout-quick-start.md) - clone, sync, the service-free check, and the full Temporal stack.
 - [Architecture](architecture/README.md) - package ownership, dependency direction, and implemented boundaries.
   - [Data lifecycle](architecture/data-lifecycle.md) - authority, artifacts, projections, publication, and retrieval.
   - [Runtime reliability](architecture/runtime-reliability.md) - Temporal boundaries, replay, retries, and safe failure behavior.

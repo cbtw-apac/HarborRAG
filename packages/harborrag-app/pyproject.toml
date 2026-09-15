@@ -11,8 +11,8 @@ dependencies = [
     "harborrag-runtime==2.0.0a1",
     "pydantic>=2.13,<3",
     "python-dotenv>=1,<2",
+    "PyYAML>=6.0,<7",
     "rich>=14,<16",
-    "textual>=8.2,<9",
     "typer>=0.24,<0.27",
 ]
 

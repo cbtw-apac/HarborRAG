@@ -21,6 +21,7 @@ from harborrag_runtime.config.graph_build import (
     GraphBuildTenantConfig,
 )
 from harborrag_runtime.config.graph_build_loading import load_graph_build_config
+from harborrag_runtime.config.models import ModelCatalogSummary, describe_model_catalog
 from harborrag_runtime.config.parsers import (
     PARSER_CONFIG_VERSION,
     ParserCatalog,
@@ -59,6 +60,7 @@ __all__ = [
     "GraphBuildRuntimeConfig",
     "GraphBuildSourceConfig",
     "GraphBuildTenantConfig",
+    "ModelCatalogSummary",
     "PARSER_CONFIG_VERSION",
     "ParserCatalog",
     "ParserConfigurationError",
@@ -74,6 +76,7 @@ __all__ = [
     "TemporalWorkflowOptions",
     "WorkerConfig",
     "connector_fingerprint",
+    "describe_model_catalog",
     "load_connector_catalog",
     "load_graph_build_config",
     "load_parser_catalog",

@@ -25,6 +25,8 @@ def _result(id_: str, text: str, score: float) -> RetrievalResult:
             "citation_locator": {},
             "quality_score": None,
             "retrieval_source": "qdrant-authoritative",
+            "document_title": "Document One",
+            "section_path": ["Section 1"],
         },
     )
 

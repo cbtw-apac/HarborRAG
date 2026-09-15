@@ -9,6 +9,8 @@ from harborrag_core.ingestion.projection_contracts import GRAPH_SCHEMA_VERSION
 from harborrag_mcp_server.tools.describe_graph import DescribeGraphTool
 from harborrag_mcp_server.tools.graph_catalog import (
     CONNECTOR_TOPOLOGIES,
+    ONTOLOGY_SCHEMA_VERSION,
+    SEMANTIC_SCHEMA_VERSION,
     missing_entity_type_docs,
     missing_node_kind_docs,
     missing_projected_relation_docs,
@@ -25,6 +27,7 @@ async def test_describe_graph_accepts_an_empty_object_and_needs_no_runtime() -> 
 
     assert result["ok"] is True
     assert result["graph_schema_version"] == GRAPH_SCHEMA_VERSION
+    assert result["versions"]["structural"] == GRAPH_SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
@@ -67,9 +70,26 @@ def test_connector_topologies_cover_every_documented_provider() -> None:
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_node_kinds_and_entity_types_come_from_canonical_enums() -> None:
+async def test_describe_graph_versions_cover_structural_semantic_and_ontology() -> None:
     result = await DescribeGraphTool().call({}, principal_id="in-process")
 
+    assert result["versions"] == {
+        "structural": GRAPH_SCHEMA_VERSION,
+        "semantic": SEMANTIC_SCHEMA_VERSION,
+        "ontology": ONTOLOGY_SCHEMA_VERSION,
+    }
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_layers_come_from_canonical_enums() -> None:
+    result = await DescribeGraphTool().call({}, principal_id="in-process")
+    defaults = result["defaults"]
+    assert defaults["vector_search"]["mode"] == "flat"
+
+    assert result["layers"]["nodes"] == [kind.value for kind in KnowledgeNodeKind]
+    assert result["layers"]["relations"] == [
+        relation.value for relation in PROJECTED_RELATION_TYPES
+    ]
     assert {item["name"] for item in result["node_kinds"]} == {
         kind.value for kind in KnowledgeNodeKind
     }
@@ -89,8 +109,6 @@ async def test_describe_graph_defaults_are_read_from_the_live_tool_schemas() -> 
 
     result = await DescribeGraphTool().call({}, principal_id="in-process")
     defaults = result["defaults"]
-    assert defaults["vector_search"]["mode"] == "flat"
-
     assert defaults.keys() == {
         "vector_search",
         "graph_triplet_search",
@@ -149,6 +167,31 @@ async def test_describe_graph_surfaces_the_triplet_anyof_requirement() -> None:
 
     validator_type = validator_for(tool.spec.output_schema)
     validator_type(tool.spec.output_schema).validate(result)
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_properties_cover_common_and_named_property_sets() -> None:
+    result = await DescribeGraphTool().call({}, principal_id="in-process")
+
+    assert set(result["properties"]) == {
+        "common_node",
+        "document_owned",
+        "Chunk",
+        "Entity",
+        "RELATES",
+    }
+    for property_names in result["properties"].values():
+        assert property_names
+        assert all(isinstance(name, str) and name for name in property_names)
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_never_accepts_extra_arguments() -> None:
+    from harborrag_mcp_server.server.server import McpServer
+
+    server = McpServer()
+    with pytest.raises(ValueError, match="do not match"):
+        await server.call_tool("describe_graph", {"query": "anything"})
 
 
 @pytest.mark.asyncio

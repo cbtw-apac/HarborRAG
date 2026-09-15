@@ -166,6 +166,42 @@ async def test_ensure_collection_uses_keyword_indexes_for_projection_fields(
 
 
 @pytest.mark.asyncio
+async def test_ensure_collection_uses_numeric_indexes_for_numeric_payload_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A numeric field must not be indexed as a keyword.
+
+    A keyword index answers equality only, so a range filter on it degrades to a
+    full scan while the field still reports as indexed -- silently, which is why
+    the numeric mapping is asserted rather than assumed.
+    """
+
+    monkeypatch.setattr(repository_module, "qm", ExtendedModels)
+    monkeypatch.setattr(collections_module, "qm", ExtendedModels)
+    raw = ExtendedRawQdrant()
+    raw.exists = False
+    repository = QdrantVectorRepository(
+        make_config(),
+        client=FakeQdrantClient(raw),  # type: ignore[arg-type]
+    )
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(
+        index_name="docs",
+        dimension=3,
+        metadata_indexes=["token_count", "quality_score", "record_kind"],
+    )
+
+    await repository.ensure_index(spec, context=context)
+
+    schemas = {call["field_name"]: call["field_schema"] for call in raw.create_payload_index_calls}
+    assert schemas == {
+        "token_count": ExtendedModels.PayloadSchemaType.INTEGER,
+        "quality_score": ExtendedModels.PayloadSchemaType.FLOAT,
+        "record_kind": ExtendedModels.PayloadSchemaType.KEYWORD,
+    }
+
+
+@pytest.mark.asyncio
 async def test_ensure_collection_repairs_mismatched_projection_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

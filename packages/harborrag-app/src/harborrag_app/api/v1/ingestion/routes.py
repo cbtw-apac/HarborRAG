@@ -229,6 +229,38 @@ def _sse_frame(event: HarborEvent) -> bytes:
 
 
 @router.post(
+    "/{task_id}/pause",
+    response_model=IngestionActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=ERROR_RESPONSES,
+)
+async def pause_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> IngestionActionResponse:
+    task = await service.get_task(task_id)
+    authorize_task_tenant(principal, task)
+    return IngestionActionResponse.model_validate(await service.pause(task_id))
+
+
+@router.post(
+    "/{task_id}/resume",
+    response_model=IngestionActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=ERROR_RESPONSES,
+)
+async def resume_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> IngestionActionResponse:
+    task = await service.get_task(task_id)
+    authorize_task_tenant(principal, task)
+    return IngestionActionResponse.model_validate(await service.resume(task_id))
+
+
+@router.post(
     "/{task_id}/cancel",
     response_model=IngestionActionResponse,
     status_code=status.HTTP_202_ACCEPTED,

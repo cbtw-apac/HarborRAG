@@ -1,5 +1,13 @@
 # Troubleshooting
 
+
+## Projects created with `harborrag init`
+
+Start with `harborrag doctor`: each ✗ line prints its fix, and the
+[Quick Start](../../getting-started/quick-start.md#4-check-everything-is-in-place)
+tabulates the common ones (blank API key, services not started, missing clients, wrong
+source folder, blank connector credentials, running outside the project).
+
 ## Installation and imports
 
 | Symptom | Likely cause | Resolution |

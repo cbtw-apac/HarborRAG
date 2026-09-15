@@ -1,0 +1,45 @@
+# Model catalog for @{provider_label}. `${@{credential_variable}}` is expanded from .env
+# when the file loads, so a blank key fails at `harborrag doctor`, not mid-ingestion.
+chat:
+  default_model: primary
+  backend:
+    type: direct_sdk
+  timeouts:
+    request_seconds: 60
+  security:
+    allowed_providers: [@{provider}]
+@{security_extra}  models:
+    primary:
+      deployments:
+        - name: @{provider}-chat
+          provider: @{provider}
+          model: @{model_prefix}@{chat_model}
+          api_key: ${@{credential_variable}}
+@{chat_extra}          capabilities:
+            streaming: true
+            structured_output: true
+            json_mode: true
+            tools: true
+
+embed:
+  default_model: primary
+  timeouts:
+    request_seconds: 60
+  default_batch_size: 64
+  security:
+    allowed_providers: [@{provider}]
+@{security_extra}  models:
+    primary:
+      embedding_space: harbor-local-v1
+      deployments:
+        - name: @{provider}-embedding
+          provider: @{provider}
+          model: @{model_prefix}@{embed_model}
+          api_key: ${@{credential_variable}}
+@{embed_extra}          capabilities:
+            batch: true
+            configurable_dimensions: true
+            encoding_format: true
+            purpose: true
+            supported_purposes: [query, document]
+@{embed_capability_extra}

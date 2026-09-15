@@ -13,16 +13,17 @@ policy-bounded FastMCP transport.
 | `fetch_evidence` | Tenant and up to 10 chunk IDs with optional expected document/version | Reauthorized immutable artifact text and per-item availability |
 | `get_document_context` | Tenant, document, optional anchor/version/cursor, limit | Ordered version-bound chunks, bounded outline, continuation cursor |
 | `list_sources` | Tenant, optional source/type filters, cursor, limit | Readable corpus scopes and safe freshness metadata |
-| `describe_graph` | Empty object | Static graph schema, selectors, topologies, and workflows |
+| `describe_graph` | Empty object | Static schema versions, property catalogs, selectors, topologies, and workflows |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
 | `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `resolve_graph_nodes` | Tenant, exact typed selector, optional source/type scope | Authorized candidates with explicit ambiguity |
 
-Call `describe_graph` first if graph selectors, relations, directions, or connector
-topology are unclear — it is a static schema lookup, not a query. The MCP server also
-advertises short cross-tool routing instructions (which tool to call for which intent)
-to any client that surfaces server-level `instructions`.
+Call `describe_graph` first — before any other graph tool — if you are not yet
+familiar with the graph model, or if graph selectors, relations, or directions are
+unclear. It is a static schema lookup, not a query. The MCP server also advertises
+short cross-tool routing instructions (which tool to call for which intent) to any
+client that surfaces server-level `instructions`.
 
 The catalog contains exactly nine read-only tools. Eight require an explicit `tenant_id`;
 `describe_graph` accepts `{}` because it returns only the static supported model.
