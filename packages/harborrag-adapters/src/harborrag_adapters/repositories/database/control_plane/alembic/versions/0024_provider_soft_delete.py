@@ -6,8 +6,8 @@ constraint or leaves a dangling reference depending on the backend. Deleting
 now sets ``deleted_at`` and keeps the row so the reference stays valid;
 ``list``/``get`` hide deleted providers as if they were gone.
 
-Revision ID: 0021
-Revises: 0020
+Revision ID: 0024
+Revises: 0023
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0021"
-down_revision = "0020"
+revision = "0024"
+down_revision = "0023"
 branch_labels = None
 depends_on = None
 
