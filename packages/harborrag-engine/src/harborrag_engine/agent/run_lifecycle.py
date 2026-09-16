@@ -140,6 +140,10 @@ class AgentRunLifecycle:
                 executions=(),
                 usage=HarborChatUsage(),
                 logical_model=options.logical_model,
+                graph_search=options.graph_search,
+                max_steps=options.max_steps,
+                max_total_tokens=options.max_total_tokens,
+                timeout_seconds=options.timeout_seconds,
                 stop_reason=None,
                 response=None,
                 created_at=created_at,
@@ -154,12 +158,21 @@ class AgentRunLifecycle:
     ) -> None:
         """Best-effort checkpoint and event for an unexpected loop exception."""
 
-        with contextlib.suppress(Exception):
+        try:
             await self.persist(
                 context,
                 state,
                 AgentRunStatus.FAILED,
                 CheckpointOutcome(failure_retryable=is_retryable_failure(error)),
+            )
+        except Exception:
+            # Still best effort -- the original error must propagate -- but not
+            # silent. When this save is lost the run stays RUNNING under a live
+            # lease until it expires, and a resume meanwhile fails with a
+            # misleading conflict. That is worth a line in the log.
+            logger.exception(
+                "recording the failed state of agent run %s did not persist",
+                context.identity.run_id,
             )
         with contextlib.suppress(Exception):
             await emit(
@@ -170,8 +183,13 @@ class AgentRunLifecycle:
     async def record_cancellation(self, context: RunContext, state: LoopState) -> None:
         """Best-effort durable cancellation convergence before propagation."""
 
-        with contextlib.suppress(Exception):
+        try:
             await self.persist(context, state, AgentRunStatus.CANCELLED)
+        except Exception:
+            logger.exception(
+                "recording the cancellation of agent run %s did not persist",
+                context.identity.run_id,
+            )
         with contextlib.suppress(Exception):
             await emit(
                 context.events,
@@ -301,6 +319,10 @@ class AgentRunLifecycle:
                 usage=state.usage,
                 cost=state.cost,
                 logical_model=context.options.logical_model,
+                graph_search=context.options.graph_search,
+                max_steps=context.options.max_steps,
+                max_total_tokens=context.options.max_total_tokens,
+                timeout_seconds=context.options.timeout_seconds,
                 stop_reason=outcome.stop_reason,
                 response=outcome.response,
                 created_at=context.created_at,

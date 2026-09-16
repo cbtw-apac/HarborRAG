@@ -44,6 +44,7 @@ _AGENT_INSTRUCTIONS = (
     "cite source-backed claims by copying the exact [Source: ...] marker supplied in each "
     "tool result's citation_guide. A citation is valid only when it is copied verbatim, "
     "including its ref suffix. Never construct, reformat, invent, or alter a marker. "
+    "State plainly which parts of your answer are drawn from evidence and "
     "distinguish any inference. If the user asks for indexed or tool evidence and the tools "
     "return none, report the evidence gap and stop. Offer a hypothesis only when the user "
     "explicitly requests one."
@@ -182,7 +183,7 @@ class AgentService:
         if checkpoint is None:
             raise HarborNotFoundError("agent run is not resumable")
         _ensure_resumable(checkpoint, datetime.now(UTC))
-        options = replace(options, logical_model=checkpoint.logical_model)
+        options = _resumed_options(options, checkpoint)
 
         guard = ExecutionGuard(
             timeout_seconds=options.timeout_seconds,
@@ -222,6 +223,39 @@ class AgentService:
         await self._loop.lifecycle.persist(context, state, AgentRunStatus.RUNNING)
         state.step += 1
         return await self._loop.execute(context, state)
+
+
+def _resumed_options(options: AgentRunOptions, checkpoint: AgentCheckpoint) -> AgentRunOptions:
+    """Restore the options the run started under, not the resumer's own.
+
+    A transcript has to be the product of one set of tool definitions and one
+    budget. While only ``logical_model`` was restored, resuming with
+    ``graph_search=True`` gave the model graph tools that the earlier steps
+    never had, and a different ``max_steps`` or ``timeout_seconds`` silently
+    re-budgeted a run already in progress.
+
+    A field the checkpoint does not carry predates this and falls back to the
+    caller's value, which is what the run effectively had before.
+    """
+
+    return replace(
+        options,
+        logical_model=checkpoint.logical_model,
+        graph_search=(
+            options.graph_search if checkpoint.graph_search is None else checkpoint.graph_search
+        ),
+        max_steps=options.max_steps if checkpoint.max_steps is None else checkpoint.max_steps,
+        max_total_tokens=(
+            options.max_total_tokens
+            if checkpoint.max_total_tokens is None
+            else checkpoint.max_total_tokens
+        ),
+        timeout_seconds=(
+            options.timeout_seconds
+            if checkpoint.timeout_seconds is None
+            else checkpoint.timeout_seconds
+        ),
+    )
 
 
 def _ensure_resumable(checkpoint: AgentCheckpoint, now: datetime) -> None:

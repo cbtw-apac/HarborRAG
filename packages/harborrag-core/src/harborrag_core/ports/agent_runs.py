@@ -186,7 +186,16 @@ class AgentCheckpoint:
     lease_owner: str | None = None
     lease_expires_at: datetime | None = None
     cost: ModelCost = field(default_factory=ModelCost)
+    # The options that shaped the run. A resume restores them so the transcript
+    # stays the product of one set of tool definitions and one budget: passing
+    # graph_search=True to resume a run that started without it would hand the
+    # model tools the earlier steps never had. ``None`` means the checkpoint
+    # predates the field, and the resumer's own value is used.
     logical_model: str | None = None
+    graph_search: bool | None = None
+    max_steps: int | None = None
+    max_total_tokens: int | None = None
+    timeout_seconds: float | None = None
 
     def lease_active(self, now: datetime) -> bool:
         """Return whether a live executor still holds this run's lease at ``now``."""

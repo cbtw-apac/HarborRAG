@@ -61,6 +61,10 @@ def _state_to_json(checkpoint: AgentCheckpoint) -> dict[str, Any]:
         "usage": checkpoint.usage.model_dump(mode="json"),
         "cost": checkpoint.cost.model_dump(mode="json"),
         "logical_model": checkpoint.logical_model,
+        "graph_search": checkpoint.graph_search,
+        "max_steps": checkpoint.max_steps,
+        "max_total_tokens": checkpoint.max_total_tokens,
+        "timeout_seconds": checkpoint.timeout_seconds,
         "response": (
             checkpoint.response.model_dump(mode="json") if checkpoint.response is not None else None
         ),
@@ -154,6 +158,10 @@ def _row_to_checkpoint(row: AgentRunRow) -> AgentCheckpoint:
         usage=usage,
         cost=ModelCost.model_validate(row.state_json.get("cost", {})),
         logical_model=row.state_json.get("logical_model"),
+        graph_search=row.state_json.get("graph_search"),
+        max_steps=row.state_json.get("max_steps"),
+        max_total_tokens=row.state_json.get("max_total_tokens"),
+        timeout_seconds=row.state_json.get("timeout_seconds"),
         stop_reason=AgentStopReason(row.stop_reason) if row.stop_reason is not None else None,
         response=response,
         created_at=row.created_at,

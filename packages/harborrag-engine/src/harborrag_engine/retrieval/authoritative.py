@@ -21,6 +21,27 @@ from .active_versions import ActiveVersionCandidateValidator
 _INITIAL_OVERSAMPLE = 3
 _MINIMUM_WINDOW = 20
 _MAXIMUM_WINDOW = 1_000
+_WIDENING_MARGIN = 1.5
+"""Headroom for a stale rate that worsens further down the ranking."""
+
+
+def _next_window(window: int, *, accepted: int, wanted: int) -> int:
+    """Widen to what this pass suggests is needed, not merely to double.
+
+    Each pass re-reads the whole window from the start, because a larger
+    ``top_k`` re-ranks globally rather than paging. Doubling therefore paid for
+    60 + 120 + 240 + ... reads to reach a window the first pass already implied:
+    if 60 candidates yielded 6 survivors and 10 are wanted, roughly 100 are
+    needed, so going there directly costs one more read instead of three.
+
+    The margin covers a stale rate that worsens further down the ranking, and
+    the result is never narrower than doubling would have given.
+    """
+
+    projected = window * 2
+    if accepted > 0:
+        projected = max(projected, int(window * wanted / accepted * _WIDENING_MARGIN) + 1)
+    return min(_MAXIMUM_WINDOW, projected)
 
 
 class RetrievalLane(StrEnum):
@@ -144,7 +165,7 @@ class AuthoritativeProjectionSearch:
                         exhausted=exhausted,
                     ),
                 )
-            window = min(_MAXIMUM_WINDOW, window * 2)
+            window = _next_window(window, accepted=len(validated.accepted), wanted=request.top_k)
 
     async def _search_collection(
         self,

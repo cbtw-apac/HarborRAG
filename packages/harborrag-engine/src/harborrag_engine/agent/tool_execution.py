@@ -15,7 +15,7 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.ports.agent_runs import AgentToolExecution
 
-from .guard import digest_arguments
+from .guard import call_digest
 from .protocols import AgentToolSpec
 
 VECTOR_SEARCH_TOOL = "vector_search"
@@ -46,10 +46,7 @@ def rejected_execution(
     """Reply to a tool call that will never execute, without calling the tool."""
     result = {"ok": False, "error": error}
     content = bounded_tool_result_content(result)
-    arguments = call.function.parsed_arguments
-    digest = digest_arguments(
-        arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
-    )
+    digest = call_digest(call)
     return (
         HarborChatMessage.tool(content, tool_call_id=call.id, name=call.function.name),
         AgentToolExecution(

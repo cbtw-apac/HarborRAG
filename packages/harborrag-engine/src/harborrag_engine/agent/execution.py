@@ -27,7 +27,7 @@ from harborrag_engine.conversation import (
 )
 
 from .citations import evidence_references, tool_result_with_citation_guide
-from .guard import ExecutionGuard, digest_arguments
+from .guard import ExecutionGuard, call_digest
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
 from .schemas import AgentRunOptions
 from .tool_execution import VECTOR_SEARCH_TOOL, bounded_tool_result_content
@@ -167,9 +167,7 @@ class ChatAndToolExecutor:
     ) -> tuple[HarborChatMessage, AgentToolExecution]:
         name = call.function.name
         arguments = call.function.parsed_arguments
-        digest = digest_arguments(
-            arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
-        )
+        digest = call_digest(call)
         result = await self._invoke(name, arguments, options=options, allowed_tools=allowed_tools)
         evidence = evidence_references(name, result)
         content = bounded_tool_result_content(

@@ -25,7 +25,7 @@ from harborrag_engine.conversation import ConversationIdentity, ConversationMemo
 
 from .events import AgentEvent, emit
 from .execution import ChatAndToolExecutor
-from .guard import ExecutionGuard, digest_arguments
+from .guard import ExecutionGuard, call_digest
 from .helpers import add_usage
 from .loop_state import LoopState, RunContext, StepOutcome
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
@@ -100,7 +100,10 @@ class AgentLoopRunner:
             # Cancellation is a normal terminal outcome, not an unexpected
             # crash. Shield the best-effort checkpoint from the caller's
             # cancellation so a later resume cannot replay stale RUNNING work.
-            with contextlib.suppress(BaseException):
+            # ``Exception``, not ``BaseException``: the shielded persist failing
+            # must not stop cancellation propagating, but a KeyboardInterrupt or
+            # SystemExit raised inside it is not this handler's to discard.
+            with contextlib.suppress(Exception):
                 await asyncio.shield(self._lifecycle.record_cancellation(context, state))
             raise
         except Exception as error:
@@ -249,12 +252,7 @@ class AgentLoopRunner:
         rejected: dict[str, tuple[HarborChatMessage, AgentToolExecution]] = {}
         repeated = False
         for call in admitted:
-            arguments = call.function.parsed_arguments
-            digest = digest_arguments(
-                arguments
-                if isinstance(arguments, dict)
-                else {"__unparsed__": call.function.arguments}
-            )
+            digest = call_digest(call)
             if guard.observe_tool_call(call.function.name, digest):
                 repeated = True
                 rejected[call.id] = rejected_execution(
