@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
 import re
+from typing import Any
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.parsers.common.normalization import compact_text, html_to_text
-from .html_to_markdown import html_to_markdown
 
+from .html_to_markdown import html_to_markdown
 from .schemas import (
     JiraCustomFieldKind,
     JiraCustomFieldMetadata,
@@ -163,42 +163,48 @@ def field_text(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
-        if "<" in value and ">" in value:
-            try:
-                # Prefer a Markdown-preserving conversion when HTML contains tables
-                md = html_to_markdown(value)
-                # If the helper returned Markdown containing a table, return it.
-                # Use a simple presence check rather than a brittle line-index check.
-                if md and "|" in md and "---" in md:
-                    return md
-                # otherwise fallback to plain visible-text extraction
-            except Exception:
-                pass
-            return html_to_text(value)
-        return compact_text(value)
+        return _field_text_from_string(value)
     if isinstance(value, dict):
         # If this looks like Atlassian Document Format (ADF), attempt to
         # convert it to Markdown (preserving tables) before falling back
         # to a plain-text ADF walk.
-        try:
-            if value.get("type") == "doc" or isinstance(value.get("content"), list):
-                md = _adf_to_markdown(value)
-                if md and md.strip():
-                    return md.strip()
-        except Exception:
-            # fall through to text-only extraction on any failure
-            pass
-        adf_text = compact_text("".join(_walk_adf(value)))
-        if adf_text:
-            return adf_text
-        for key in ("displayName", "name", "value", "key", "emailAddress"):
-            if value.get(key):
-                return compact_text(str(value[key]))
-        nested_parts = [field_text(item) for item in value.values()]
-        return compact_text("\n".join(part for part in nested_parts if part))
+        return _field_text_from_dict(value)
     if isinstance(value, list):
         return compact_text("\n".join(field_text(item) for item in value))
     return compact_text(str(value))
+
+
+def _field_text_from_string(value: str) -> str:
+    """Handle string values: prefer HTML->Markdown for tables, else plain text."""
+    if "<" in value and ">" in value:
+        try:
+            md = html_to_markdown(value)
+            if md and "|" in md and "---" in md:
+                return md
+        except Exception:
+            pass
+        return html_to_text(value)
+    return compact_text(value)
+
+
+def _field_text_from_dict(value: dict[str, Any]) -> str:
+    """Handle dict-like values including ADF, objects, and nested structures."""
+    try:
+        if value.get("type") == "doc" or isinstance(value.get("content"), list):
+            md = _adf_to_markdown(value)
+            if md and md.strip():
+                return md.strip()
+    except Exception:
+        # fall through to text-only extraction on any failure
+        pass
+    adf_text = compact_text("".join(_walk_adf(value)))
+    if adf_text:
+        return adf_text
+    for key in ("displayName", "name", "value", "key", "emailAddress"):
+        if value.get(key):
+            return compact_text(str(value[key]))
+    nested_parts = [field_text(item) for item in value.values()]
+    return compact_text("\n".join(part for part in nested_parts if part))
 
 
 def _walk_adf(node: Any) -> list[str]:
@@ -264,18 +270,23 @@ def _adf_to_markdown(node: Any) -> str:
 
 
 def _adf_table_to_markdown(table_node: dict[str, Any]) -> str:
-    # table_node.content -> list of tableRow nodes
+    rows, header_row = _extract_adf_table_rows(table_node)
+    if not rows:
+        return ""
+    return _format_md_table(rows, header_row)
+
+
+def _extract_adf_table_rows(table_node: dict[str, Any]) -> tuple[list[list[str]], int | None]:
+    """Return normalized rows and header_row index (or None)."""
     rows: list[list[str]] = []
-    header_row = None
+    header_row: int | None = None
     for row in table_node.get("content", []) or []:
         if not isinstance(row, dict) or row.get("type") != "tableRow":
             continue
         cells: list[str] = []
         for cell in row.get("content", []) or []:
-            # cell may be tableHeader or tableCell
             if not isinstance(cell, dict):
                 continue
-            # extract textual content of the cell (walk children safely)
             parts: list[str] = []
             for child in cell.get("content", []) or []:
                 parts.extend(_walk_adf(child))
@@ -289,9 +300,10 @@ def _adf_table_to_markdown(table_node: dict[str, Any]) -> str:
                 if isinstance(cell_node, dict)
             ):
                 header_row = len(rows) - 1
+    return rows, header_row
 
-    if not rows:
-        return ""
+
+def _format_md_table(rows: list[list[str]], header_row: int | None) -> str:
     max_cols = max(len(r) for r in rows)
     norm = [r + [""] * (max_cols - len(r)) for r in rows]
     if header_row is not None and 0 <= header_row < len(norm):
