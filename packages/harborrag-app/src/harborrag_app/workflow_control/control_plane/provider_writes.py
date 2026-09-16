@@ -202,8 +202,14 @@ class ControlPlaneProviderWritesMixin:
         domain_rules: list[RoutingRule] = []
         for entry in rules:
             provider_id = entry["provider_id"]
-            if await control_plane.providers.get(provider_id, tenant_ids=None) is None:
+            provider = await control_plane.providers.get(provider_id, tenant_ids=None)
+            if provider is None:
                 raise HarborNotFoundError(f"provider {provider_id!r} not found")
+            if provider.family != entry["family"]:
+                raise HarborValidationError(
+                    f"provider {provider_id!r} belongs to {provider.family!r}, "
+                    f"not {entry['family']!r}"
+                )
             try:
                 domain_rules.append(
                     RoutingRule(

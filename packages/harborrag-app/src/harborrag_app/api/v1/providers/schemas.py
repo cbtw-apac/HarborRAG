@@ -28,6 +28,8 @@ class ProviderUpdateInput(ApiModel):
 
     @model_validator(mode="after")
     def reject_explicit_null_config(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name must be omitted, not null")
         """`{"config": null}` must 422, not crash the secret-free validation path."""
         if "config" in self.model_fields_set and self.config is None:
             raise ValueError("config must be omitted, not null; send {} to clear it")

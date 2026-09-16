@@ -203,6 +203,26 @@ def test_create_provider_rejects_a_tenant_outside_the_callers_claim() -> None:
     assert response.status_code == 403
 
 
+def test_update_provider_outside_the_callers_tenants_404s() -> None:
+    """Updating a provider outside the caller's tenant scope must 404, not silently apply."""
+    app = create_fastapi_app(ApiSettings())
+    service = control_plane_app_service()
+    app.dependency_overrides[get_app_service] = lambda: service
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/providers",
+            json={"tenant_id": "tenant-a", "name": "Docs", "family": "chat", "config": {}},
+        ).json()
+
+        app.dependency_overrides[get_principal] = lambda: Principal(
+            subject="other-tenant-user", role="admin", tenant_ids=frozenset({"tenant-b"})
+        )
+        response = client.patch(f"/v1/providers/{created['id']}", json={"name": "Hacked"})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "harbor_not_found_error"
+
+
 def test_provider_outside_the_callers_tenants_404s_not_403s() -> None:
     """Existence of a provider in another tenant must not leak via a 403."""
     app = create_fastapi_app(ApiSettings())

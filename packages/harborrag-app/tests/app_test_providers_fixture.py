@@ -70,12 +70,11 @@ class ProviderServiceFixture:
         actor: str,
         tenant_ids: frozenset[str] | None = None,
     ) -> AppResponse:
-        del tenant_ids
         self.provider_update_calls.append(
             {"provider_id": provider_id, "updates": dict(updates), "actor": actor}
         )
         found = self.providers.get(provider_id)
-        if found is None:
+        if found is None or (tenant_ids is not None and found.tenant_id not in tenant_ids):
             raise HarborNotFoundError(f"provider {provider_id!r} not found")
         if "name" in updates:
             found.name = updates["name"]  # type: ignore[assignment]
