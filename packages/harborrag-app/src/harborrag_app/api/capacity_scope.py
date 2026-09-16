@@ -97,10 +97,17 @@ def plan_capacity_buckets(
 
     Tier identities are namespaced before hashing, so a user id equal to a
     principal id still keys two independent counters. When they *are* the same
-    identity -- ``HARBORRAG_AUTH_USER_ID_CLAIM`` unset, so ``Principal.user_id``
-    defaults to the subject -- the two tiers collapse into one bucket carrying
-    the stricter limit of each dimension. Incrementing a single key twice for
-    one request would otherwise halve the effective limit.
+    identity the two tiers collapse into one bucket carrying the stricter limit
+    of each dimension, because incrementing a single key twice for one request
+    would otherwise halve the effective limit.
+
+    Note what this means for an API caller today: ``Principal.user_id`` is
+    pinned to ``DEFAULT_USER`` while user accounts are disabled, so it never
+    equals the subject and the tiers never collapse -- instead every principal
+    in a tenant shares one user bucket. The user tier is therefore a
+    per-tenant limit in practice, and one caller holding several long-lived
+    streams can exhaust it for everyone. Callers that need a real per-person
+    tier must set ``limit_scope`` to ``principal``.
     """
     tenant = _tier_bucket("tenant", scope, scope.tenant_id, limits.tenant)
     if scope.user_id == scope.principal_id:

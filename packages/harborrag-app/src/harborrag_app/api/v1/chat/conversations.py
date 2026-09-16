@@ -1,10 +1,17 @@
-"""The authenticated caller's own conversations: list, read, rename, delete.
+"""The tenant's conversations: list, read, rename, delete.
 
-The owner of a conversation is always assembled from verified claims
-(``sub`` plus the configured user-id claim) and never from a request field, so
-no query parameter or body key can widen a listing to someone else's history.
-``user_id`` is what owns a conversation, which is what keeps one shared
-service credential from pooling several people's conversations together.
+The owner of a conversation is assembled from verified claims and never from a
+request field, so no query parameter or body key can widen a listing beyond
+what the token already grants.
+
+User accounts are not enabled yet, so that owner is not per-person.
+``Principal.__post_init__`` pins ``user_id`` to ``DEFAULT_USER`` for every
+caller, which makes conversations a single namespace *per tenant*: any subject
+holding a token for a tenant can list, read, rename, delete and complete every
+conversation in it, whoever started it. ``HARBORRAG_AUTH_USER_ID_CLAIM`` is
+resolved by the verifier and then discarded, so setting it does not change
+this. Isolation here is the tenant boundary, not the person; per-user
+ownership needs the user-accounts decision, not a configuration change.
 
 Deleting a conversation goes through the same erasure the memory surface
 exposes (``DELETE /v1/memory/sessions/{session_id}``), so the memories and

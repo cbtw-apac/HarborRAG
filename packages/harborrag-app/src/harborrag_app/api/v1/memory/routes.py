@@ -1,10 +1,16 @@
-"""Authenticated administration of the caller's own long-term memory.
+"""Authenticated administration of a tenant's long-term memory.
 
-Every owner here is derived from the verified principal (``sub`` and the
-configured user-id claim), never from a request field, so a caller cannot ask
-about or erase anyone else's memory. The one endpoint that acts on a different
-person -- right-to-erasure for a named user -- requires the ``admin`` role and
-is still confined to a tenant the caller may access.
+Every owner here is derived from the verified principal, never from a request
+field, so a caller cannot reach outside the tenants its token grants. The one
+endpoint that acts on a named person -- right-to-erasure -- requires the
+``admin`` role and is still confined to a tenant the caller may access.
+
+Within a tenant there is no per-person boundary yet. User accounts are not
+enabled, so ``Principal.user_id`` is pinned to ``DEFAULT_USER`` for every
+caller and USER-scoped memories form one namespace per tenant: any subject
+holding a token for a tenant reads and erases all of them.
+``HARBORRAG_AUTH_USER_ID_CLAIM`` is resolved and then discarded, so setting it
+does not change this.
 """
 
 from __future__ import annotations
