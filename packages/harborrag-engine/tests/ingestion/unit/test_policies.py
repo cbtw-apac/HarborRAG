@@ -29,6 +29,10 @@ def test_document_version_policy_enforces_order_and_replay() -> None:
         DocumentVersionState.VERIFIED,
         DocumentVersionState.CHUNKS_READY,
     )
+    assert policy.already_reached(
+        DocumentVersionState.ACTIVE,
+        DocumentVersionState.CANONICAL_READY,
+    )
     with pytest.raises(PublicationConflictError):
         policy.require(
             DocumentVersionState.CANONICAL_READY,
@@ -48,6 +52,17 @@ def test_publication_policy_requires_verified_mandatory_projections() -> None:
         policy.require_publishable(
             decision=SourceAdmissionDecision.NEW,
             state=DocumentVersionState.PROJECTIONS_STAGED,
+            requires_processing=True,
+        )
+    policy.require_publishable(
+        decision=SourceAdmissionDecision.FORCE_REPROCESS,
+        state=DocumentVersionState.ACTIVE,
+        requires_processing=True,
+    )
+    with pytest.raises(PublicationConflictError):
+        policy.require_publishable(
+            decision=SourceAdmissionDecision.NEW,
+            state=DocumentVersionState.ACTIVE,
             requires_processing=True,
         )
 

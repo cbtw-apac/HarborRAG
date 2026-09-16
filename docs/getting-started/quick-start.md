@@ -25,8 +25,8 @@ harborrag --help
 ```
 
 `[local]` brings the `harborrag` command and the client libraries for the local stack. The
-help output lists five commands: `init`, `doctor`, `ingest`, `retrieve`, and `chat` - you
-will use them in that order.
+primary flow uses `init`, `doctor`, `ingest`, `retrieve`, and `chat` in that order; the CLI
+also exposes `topology` for graph-build operations.
 
 ## 2. Create a project
 

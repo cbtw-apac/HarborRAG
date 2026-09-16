@@ -98,6 +98,7 @@ def graph_triplet_schema(
 def graph_path_schema(
     *,
     max_results: int = _DEFAULT_MAX_RESULTS,
+    max_depth: int = 8,
     tenant: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
@@ -108,7 +109,12 @@ def graph_path_schema(
             "start_node": {"type": "string", "minLength": 1},
             "end_node": {"type": "string", "minLength": 1},
             "relationship_types": _relationship_types(),
-            "max_depth": {"type": "integer", "minimum": 1, "maximum": 8, "default": 4},
+            "max_depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": max_depth,
+                "default": min(4, max_depth),
+            },
             "max_paths": {
                 "type": "integer",
                 "minimum": 1,
@@ -128,6 +134,7 @@ def graph_path_schema(
 def graph_subgraph_schema(
     *,
     max_results: int = _DEFAULT_MAX_RESULTS,
+    max_depth: int = 8,
     tenant: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
@@ -137,7 +144,12 @@ def graph_subgraph_schema(
             "tenant_id": dict(tenant or _TENANT),
             "start_node": {"type": "string", "minLength": 1},
             "relationship_types": _relationship_types(),
-            "max_depth": {"type": "integer", "minimum": 1, "maximum": 8, "default": 2},
+            "max_depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": max_depth,
+                "default": min(2, max_depth),
+            },
             "max_nodes": {
                 "type": "integer",
                 "minimum": 1,

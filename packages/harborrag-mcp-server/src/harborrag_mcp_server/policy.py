@@ -56,3 +56,20 @@ class McpToolPolicy:
             raise ValueError("MCP output must be JSON serializable.") from exc
         if size > self.max_output_bytes:
             raise ValueError("MCP output budget exceeded.")
+
+    def check_output_schema(
+        self,
+        result: dict[str, object],
+        schema: dict[str, object] | None,
+    ) -> None:
+        if schema is None:
+            raise RuntimeError("MCP tool has no output schema.")
+        try:
+            serialized = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+            validator_type = validator_for(schema)
+            validator_type.check_schema(schema)
+            validator_type(schema).validate(json.loads(serialized))
+        except SchemaError as exc:
+            raise RuntimeError("MCP tool has an invalid output schema.") from exc
+        except ValidationError as exc:
+            raise RuntimeError("MCP tool returned an invalid output.") from exc

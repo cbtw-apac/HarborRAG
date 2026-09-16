@@ -22,7 +22,7 @@ from harborrag_mcp_server.tools.base import McpToolSpec
 from .models import McpConfiguration, ToolConfiguration
 from .validation import validate_tools
 
-_RESULT_LIMIT_FIELDS = frozenset({"top_k", "limit", "max_paths", "max_nodes"})
+_RESULT_LIMIT_FIELDS = frozenset({"top_k", "limit", "max_paths", "max_nodes", "max_hops"})
 _POLICY_ENVIRONMENT = {
     "HARBORRAG_MCP_MAX_RESULTS": "max_results",
     "HARBORRAG_MCP_MAX_ARGUMENT_BYTES": "max_argument_bytes",

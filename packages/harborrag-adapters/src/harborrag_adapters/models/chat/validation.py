@@ -173,8 +173,8 @@ def _validate_reasoning_capability(
 ) -> None:
     if request.reasoning_effort is None:
         return
-    if not bool(getattr(deployment.capabilities, "reasoning", False)):
-        _raise_capability_error(request, deployment, "reasoning")
+    if not deployment.capabilities.reasoning_effort:
+        _raise_capability_error(request, deployment, "reasoning effort")
 
 
 def _validate_multimodal_capabilities(
@@ -224,6 +224,13 @@ def _validate_request_security(
     deployment: HarborChatProviderConfig,
 ) -> None:
     policy = config.security
+    if deployment.reasoning.enable_thinking is not None and {
+        "extra_body",
+        "chat_template_kwargs",
+    }.intersection(request.extra_params):
+        raise _invalid(
+            request, deployment, "body extensions cannot override typed reasoning controls"
+        )
     if len(request.extra_params) > policy.max_extra_params:
         raise _invalid(request, deployment, "too many request extra_params")
     try:

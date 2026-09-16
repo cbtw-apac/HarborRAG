@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
 from time import perf_counter
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from harborrag_core.domain.retrieval import RetrievalResult
-from harborrag_core.indexing import VectorSearchResult
-from harborrag_core.models.embed import EmbeddingPurpose, HarborEmbedRequest
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
+from harborrag_core.topology.records import CanonicalMention
+from harborrag_core.topology.search import RetrievalMode
 from harborrag_engine.retrieval import (
     ActiveVersionCandidateValidator,
     AuthoritativeGraphSearch,
@@ -22,6 +20,13 @@ from harborrag_engine.retrieval import (
     RetrievalLane,
 )
 
+from ..contracts import (
+    EntityResolveResponse,
+    EvidenceFetchResponse,
+    RelationSearchResponse,
+    SemanticPathRequest,
+    SemanticPathResponse,
+)
 from .contracts import (
     CloseOperation,
     RetrievalDiagnostics,
@@ -31,11 +36,16 @@ from .contracts import (
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
+from .evidence import budget_diagnostics, build_evidence_bundle, select_evidence
 from .graph_observation import GraphObservation, GraphObserver
 from .graph_service import RuntimeGraphRetrievalMixin
-from .validation import required_text, validate_retrieval_request
-
-_CHUNK_LOAD_CONCURRENCY = 8
+from .knowledge import KnowledgeRetrieval
+from .permissions import RetrievalPermissions
+from .reader_service import RuntimeReaderRetrievalMixin
+from .readers import ReaderResources, ReaderRetrieval
+from .result_loader import EvidenceResultLoader
+from .topology import TopologyRetrieval
+from .validation import validate_retrieval_request
 
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
@@ -48,7 +58,7 @@ class _NullRetrievalTelemetry:
         del count
 
 
-class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
+class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrievalMixin):
     """Resolve projection visibility through Postgres before loading evidence."""
 
     def __init__(
@@ -59,17 +69,49 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         close_resources: tuple[CloseOperation, ...] = (),
         telemetry: RetrievalTelemetry | None = None,
     ) -> None:
-        self._embed = resources.embed_client
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
+        self._summaries = resources.summary_repository
         self._policy = policy
+        self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
+        self._permissions = RetrievalPermissions(resources.topology_repository)
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
+        self._knowledge = KnowledgeRetrieval(
+            resources.topology_repository,
+            resources.vector_repository,
+            self._candidate_validator,
+            self._permissions,
+        )
+        self._reader = ReaderRetrieval(
+            ReaderResources(
+                vectors=resources.vector_repository,
+                validator=self._candidate_validator,
+                permissions=self._permissions,
+                topology=resources.topology_repository,
+                snapshots=resources.document_snapshots,
+                chunks=resources.chunk_reader,
+                sources=resources.source_catalog,
+                graph=resources.graph_repository,
+                summaries=resources.summary_repository,
+            )
+        )
+        self._topology = TopologyRetrieval(
+            resources.topology_repository,
+            resources.vector_repository,
+            self._candidate_validator,
+            policy=policy.topology.model_copy(update={"semantic_weight": policy.semantic_weight}),
+            contextual=resources.contextual_search,
+        )
         self._search = AuthoritativeProjectionSearch(
             resources.vector_repository,
             self._candidate_validator,
         )
         self._graph_search = (
-            AuthoritativeGraphSearch(resources.graph_repository, resources.active_versions)
+            AuthoritativeGraphSearch(
+                resources.graph_repository,
+                resources.active_versions,
+                resources.topology_repository,
+            )
             if resources.graph_repository is not None
             else None
         )
@@ -77,7 +119,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         self._telemetry = telemetry or _NullRetrievalTelemetry()
         self._observer = (
             GraphObserver(resources.graph_repository)
-            if resources.graph_repository is not None
+            if resources.graph_repository is not None and resources.topology_repository is None
             else None
         )
         self._closed = False
@@ -109,12 +151,12 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             access=access,
         )
         sparse_vector = (
-            self._sparse.encode(query).vector
+            self._sparse.encode_query(query).vector
             if selected.lane in {RetrievalLane.SPARSE, RetrievalLane.HYBRID}
             else None
         )
         dense_vector = (
-            await self._dense_vector(query)
+            await self._result_loader.dense_vector(query)
             if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
             else None
         )
@@ -124,14 +166,20 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 top_k=top_k,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filters=selected.filters,
+                filters=await self._permissions.scope_filter(selected.filters, context),
                 dense_weight=self._policy.dense_weight,
             ),
             context=context,
         )
-        loaded, load_failures = await self._load_candidates(
-            search.candidates,
+        topology = await self._topology.prepare(
+            query,
+            await self._permissions.validate(search.candidates, context),
+            options=selected,
             context=context,
+            dense_vector=dense_vector,
+        )
+        loaded, load_failures = await self._result_loader.load_candidates(
+            topology.candidates,
             request_id=request_id,
         )
         observation = (
@@ -143,13 +191,23 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             if selected.observe_graph and self._observer is not None
             else GraphObservation()
         )
+        loaded, topology_diagnostics = await self._topology.finalize(
+            topology, loaded, context=context
+        )
         final_validation = await self._candidate_validator.validate(
             tuple(candidate for candidate, _ in loaded)
         )
-        active_candidate_ids = {str(candidate.id) for candidate in final_validation.accepted}
+        permitted = await self._permissions.validate(final_validation.accepted, context)
+        active_candidate_ids = {str(candidate.id) for candidate in permitted}
         results = [
             result for candidate, result in loaded if str(candidate.id) in active_candidate_ids
         ]
+        if selected.mode != RetrievalMode.FLAT:
+            results, tokens, excluded = select_evidence(
+                results, topology.flat, top_k=top_k, policy=self._policy.topology
+            )
+            topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
+        results = results[:top_k]
         if final_validation.rejected_count:
             # Graph observation is optional diagnostic context. Discard it when
             # publication advanced during retrieval so it cannot describe a
@@ -179,6 +237,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             request_id=request_id,
             lane=selected.lane,
             results=tuple(results),
+            evidence=build_evidence_bundle(tuple(results), topology.evidence, topology_diagnostics),
             diagnostics=RetrievalDiagnostics(
                 candidate_hits=len(search.candidates),
                 stale_candidates=stale_count,
@@ -190,43 +249,56 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
                 graph_truncated=observation.truncated,
                 duration_ms=duration_ms,
                 graph_documents=observation.documents,
+                short_by=max(0, top_k - len(results)),
+                topology=topology_diagnostics,
             ),
         )
 
-    async def _load_candidates(
+    async def fetch_evidence(
+        self, chunk_ids: tuple[str, ...], *, access: AccessContext
+    ) -> EvidenceFetchResponse:
+        return await self._knowledge.fetch(chunk_ids, access=access)
+
+    async def resolve_entities(
+        self, name: str, *, limit: int, access: AccessContext
+    ) -> EntityResolveResponse:
+        return await self._knowledge.resolve_entities(name, limit=limit, access=access)
+
+    async def lookup_entities(
         self,
-        candidates: Sequence[VectorSearchResult],
         *,
-        context: StorageOperationContext,
-        request_id: str,
-    ) -> tuple[list[tuple[VectorSearchResult, RetrievalResult]], int]:
-        """Validate candidates concurrently, skipping malformed payloads."""
-
-        load_limit = asyncio.Semaphore(_CHUNK_LOAD_CONCURRENCY)
-
-        async def load(candidate: VectorSearchResult) -> RetrievalResult:
-            async with load_limit:
-                return await self._load_result(candidate, context=context)
-
-        loaded = await asyncio.gather(
-            *(load(candidate) for candidate in candidates),
-            return_exceptions=True,
+        entity_ids: tuple[str, ...] = (),
+        chunk_ids: tuple[str, ...] = (),
+        access: AccessContext,
+    ) -> tuple[CanonicalMention, ...]:
+        return await self._knowledge.lookup_entities(
+            entity_ids=entity_ids,
+            chunk_ids=chunk_ids,
+            access=access,
         )
-        results: list[tuple[VectorSearchResult, RetrievalResult]] = []
-        failures = 0
-        for candidate, result in zip(candidates, loaded, strict=True):
-            if isinstance(result, Exception):
-                failures += 1
-                logger.warning(
-                    "Skipping malformed or unreadable retrieval candidate",
-                    extra={"request_id": request_id, "candidate_id": str(candidate.id)},
-                    exc_info=(type(result), result, result.__traceback__),
-                )
-                continue
-            if isinstance(result, BaseException):
-                raise result
-            results.append((candidate, result))
-        return results, failures
+
+    async def find_semantic_relations(
+        self,
+        entity_id: str,
+        *,
+        predicates: tuple[str, ...],
+        direction: str,
+        limit: int,
+        access: AccessContext,
+    ) -> RelationSearchResponse:
+        return await self._knowledge.find_relations(
+            entity_id,
+            predicates=predicates,
+            direction=direction,
+            limit=limit,
+            access=access,
+        )
+
+    async def find_semantic_paths(
+        self,
+        request: SemanticPathRequest,
+    ) -> SemanticPathResponse:
+        return await self._knowledge.find_paths(request)
 
     @staticmethod
     def _retrieval_context(
@@ -236,6 +308,8 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
         access: AccessContext | None,
     ) -> StorageOperationContext:
         if access is not None:
+            if str(access.tenant_id) != tenant_id:
+                raise ValueError("retrieval access tenant must match tenant_id")
             return StorageOperationContext.for_access(
                 access,
                 operation_kind="retrieval",
@@ -245,56 +319,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin):
             tenant_id,
             operation_kind="retrieval",
             idempotency_key=request_id,
-        )
-
-    async def _dense_vector(self, query: str) -> tuple[float, ...]:
-        response = await self._embed.aembed(
-            request=HarborEmbedRequest(
-                inputs=(query,),
-                logical_model=self._policy.embedding_model,
-                dimensions=self._policy.embedding_dimensions,
-                purpose=EmbeddingPurpose.QUERY,
-                normalize=self._policy.normalize_embeddings,
-                cacheable=False,
-                sensitive=True,
-            )
-        )
-        value = response.embeddings[0].value
-        if not isinstance(value, tuple):
-            raise ValueError("retrieval requires a float query embedding")
-        if len(value) != self._policy.embedding_dimensions:
-            raise ValueError("retrieval embedding has an unexpected dimension")
-        return value
-
-    async def _load_result(
-        self,
-        candidate: VectorSearchResult,
-        *,
-        context: StorageOperationContext,
-    ) -> RetrievalResult:
-        payload = candidate.payload
-        del context
-        chunk_id = required_text(payload, "chunk_id")
-        return RetrievalResult(
-            id=chunk_id,
-            text=required_text(payload, "content"),
-            score=candidate.score,
-            metadata={
-                "document_id": required_text(payload, "document_id"),
-                "document_version_id": required_text(payload, "document_version_id"),
-                "record_kind": required_text(payload, "record_kind"),
-                "chunk_kind": required_text(payload, "chunk_kind"),
-                "connector_type": required_text(payload, "connector_type"),
-                # Where the hit sits, not just what it says. The payload has
-                # carried both since the projection was written; without them a
-                # caller can cite a chunk by id but cannot name the page and
-                # heading it came from.
-                "document_title": payload.get("document_title"),
-                "section_path": payload.get("section_path", []),
-                "citation_locator": payload.get("citation_locator", {}),
-                "quality_score": payload.get("quality_score"),
-                "retrieval_source": "qdrant-authoritative",
-            },
         )
 
     async def aclose(self) -> None:

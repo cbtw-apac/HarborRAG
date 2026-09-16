@@ -5,6 +5,7 @@ from __future__ import annotations
 from harborrag_core.chunking import RelationType
 from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.ingestion import GraphEntityType
+from harborrag_engine.ingestion import GraphDocumentTarget
 
 from .graph_convergence_helpers import keys as _keys
 from .graph_convergence_helpers import project as _project
@@ -37,6 +38,14 @@ def test_cross_connector_link_converges_with_the_page_it_names() -> None:
                 target_type="document",
             )
         ],
+        resolved_targets={
+            "confluence://ENG/77": GraphDocumentTarget(
+                source_item_id="confluence://ENG/77",
+                document_id="page-document",
+                document_version_id="page-version",
+                source_scope_id="tenant-1",
+            )
+        },
     )
 
     # The stand-in the Jira batch writes is the page's own node, not a phantom
@@ -82,6 +91,14 @@ def test_same_connector_link_identity_is_unchanged_by_scheme_reading() -> None:
                 target_type="document",
             )
         ],
+        resolved_targets={
+            "confluence://ENG/88": GraphDocumentTarget(
+                source_item_id="confluence://ENG/88",
+                document_id="target-document",
+                document_version_id="target-version",
+                source_scope_id="tenant-1",
+            )
+        },
     )
 
     assert (

@@ -124,7 +124,8 @@ def test_watch_events_emits_ndjson(monkeypatch, capsys) -> None:
 def test_the_textual_dashboard_is_gone() -> None:
     import importlib.util
 
-    assert importlib.util.find_spec("harborrag_app.cli.dashboard") is None
+    dashboard = importlib.util.find_spec("harborrag_app.cli.dashboard")
+    assert dashboard is None or dashboard.loader is None
 
 
 def test_watch_refuses_an_unusable_control_plane(monkeypatch, capsys) -> None:

@@ -12,8 +12,8 @@ def _report(**overrides) -> dict:
         "tenant_id": "tenant-1",
         "node_count": 10,
         "relation_count": 9,
-        "relations_by_type": {"contains": 5, "supports": 4},
-        "signature_census": {"Chunk supports Structure": 4},
+        "relations_by_type": {"contains": 5, "has_chunk": 4},
+        "signature_census": {"Structure has_chunk Chunk": 4},
         "node_keys": ["a", "b", "c", "d"],
         "relation_ids": ["r1", "r2", "r3"],
         "placeholder_count": 13,
@@ -38,7 +38,7 @@ def test_jaccard_measures_identity_churn() -> None:
 
 
 def test_new_signature_is_gated_unless_allowed() -> None:
-    current = _report(signature_census={"Chunk supports Structure": 4, "Tenant links_to Chunk": 1})
+    current = _report(signature_census={"Structure has_chunk Chunk": 4, "Tenant links_to Chunk": 1})
     diff = diff_reports(_report(), current)
     assert diff.added_signatures == ("Tenant links_to Chunk",)
     assert diff.gate_failures(0.0, 0.0, allow_new_signatures=False) != ()
@@ -86,5 +86,5 @@ def test_equal_placeholder_counts_diff_clean() -> None:
 
 
 def test_census_deltas_reported() -> None:
-    diff = diff_reports(_report(), _report(relations_by_type={"contains": 7, "supports": 4}))
+    diff = diff_reports(_report(), _report(relations_by_type={"contains": 7, "has_chunk": 4}))
     assert diff.relation_count_deltas["contains"] == (5, 7)

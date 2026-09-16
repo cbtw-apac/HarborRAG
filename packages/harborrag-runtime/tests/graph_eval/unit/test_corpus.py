@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_core.ingestion import GraphEntityType, GraphNodeRecord
+from harborrag_core.ingestion import GraphNodeRecord
 from harborrag_engine.ingestion import GraphProjectionBatch
 
 from ..corpus import EvalCorpus, build_corpus
@@ -49,7 +49,7 @@ def test_corpus_projects_the_declared_topology(corpus: EvalCorpus) -> None:
     # not -- it carries no provider attributes, so it may only ever fill a gap. Only the
     # unresolved one has no corpus document behind it at all.
     placeholders = [node for node in runbook.nodes if node.attributes.get("placeholder") is True]
-    assert sorted(node.logical_id for node in placeholders) == ["architecture", "missing-page"]
+    assert sorted(node.logical_id for node in placeholders) == ["architecture"]
     assert [r.target_source_item_id for r in runbook.unresolved_relations] == ["missing-page"]
     # Every document contributes chunks, a version node, and exactly one source item --
     # including the attachment and placeholder-heavy provider batches.
@@ -270,30 +270,15 @@ def test_sharepoint_contains_chain_runs_through_placeholder_folders(corpus: Eval
         assert _node(batch, folder).attributes["placeholder"] is True
 
 
-def test_cross_source_link_targets_the_page_it_names(corpus: EvalCorpus) -> None:
-    """A Jira link to a Confluence page must key on the page, not on Jira.
-
-    The stand-in used to be typed from the *linking* document's connector, so a
-    ``confluence://`` target became a ``jira_issue`` whose provider id was still a
-    whole URI. Both feed ``source_entity_node_key``, so the stub could never land
-    on the page's own node however often either side was reprojected.
-    """
-
+def test_cross_source_link_never_invents_a_target_scope(corpus: EvalCorpus) -> None:
     batch = corpus.batches["HR-1"]
-    stand_in = next(
-        node
-        for node in batch.nodes
-        if node.entity_type is GraphEntityType.CONFLUENCE_PAGE
-        and node.logical_id == "team-handbook"
+    stand_ins = [
+        node for node in batch.nodes if node.logical_id == "confluence://SPACE/team-handbook"
+    ]
+    assert not stand_ins
+    assert (corpus.source_item_key("HR-1"), corpus.source_item_key("team-handbook")) not in _edges(
+        batch, "links_to"
     )
-    assert stand_in.attributes["placeholder"] is True
-    assert (corpus.source_item_key("HR-1"), stand_in.node_key) in _edges(batch, "links_to")
-    # The whole point: the stub now shares the real page's identity, so the
-    # concrete projection claims it instead of leaving a second phantom node.
-    assert stand_in.node_key == corpus.source_item_key("team-handbook")
-    # Resolution is still a separate question. resolve_active_sources is scoped to
-    # the linking document's own connector and connection, so the link stays on
-    # the unresolved list even though its stub is now correctly keyed.
     assert ("links_to", "confluence://SPACE/team-handbook") in {
         (relation.relation_type, relation.target_source_item_id)
         for relation in batch.unresolved_relations

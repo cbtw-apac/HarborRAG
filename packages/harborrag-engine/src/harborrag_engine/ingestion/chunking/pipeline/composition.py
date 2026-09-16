@@ -24,6 +24,16 @@ from .result import ChunkResultBuilder
 from .service import ChunkingService
 
 
+def builtin_chunking_strategies(token_counter: TokenCounter) -> tuple[ChunkStrategy, ...]:
+    """The maintained strategies shared by execution and processing identity."""
+
+    return (
+        CanonicalDocumentChunkingStrategy(token_counter),
+        ConfluenceChunkingStrategy(token_counter),
+        JiraChunkingStrategy(token_counter),
+    )
+
+
 def build_chunking_service(
     *,
     config: ChunkingConfig,
@@ -34,12 +44,7 @@ def build_chunking_service(
     """Compose maintained strategies and shared transformation stages."""
 
     strategies = ChunkStrategyRegistry(
-        (
-            CanonicalDocumentChunkingStrategy(token_counter),
-            ConfluenceChunkingStrategy(token_counter),
-            JiraChunkingStrategy(token_counter),
-            *additional_strategies,
-        )
+        (*builtin_chunking_strategies(token_counter), *additional_strategies)
     )
     table_splitter = TableRowSplitter(token_counter, refiner)
     oversized_refiner = OversizedUnitRefiner(refiner, table_splitter)

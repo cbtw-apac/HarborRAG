@@ -29,7 +29,7 @@ New here? Start with the [Quick Start](../getting-started/quick-start.md) -
 | --- | --- |
 | CLI | `init`, `doctor`, `chat`, `retrieve`, and the `ingest` subgroup: `ingest run` executes in-process, the other `ingest` commands drive Temporal |
 | HTTP API | `/v1/...` public contract - ingestion, retrieval, chat, agent, admin; `/api/v1/...` operational routes |
-| MCP | four read-only retrieval tools over stdio or bearer-authenticated loopback HTTP, plus a browser playground |
+| MCP | nine read-only evidence, source, and graph tools over stdio or bearer-authenticated loopback HTTP, plus a browser playground |
 
 The MCP server implements stdio plus bearer-authenticated, loopback-only Streamable HTTP.
 TLS, remote exposure, and production token verification remain deployment-owned. The

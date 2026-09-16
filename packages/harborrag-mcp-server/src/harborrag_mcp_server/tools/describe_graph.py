@@ -36,11 +36,12 @@ class DescribeGraphTool(BaseMcpTool):
     spec = McpToolSpec(
         "describe_graph",
         (
-            "Statically describe HarborRAG's graph contract: node kinds, entity types, "
-            "projected relations, selector rules, connector topologies, and recommended "
+            "Statically describe HarborRAG's graph contract: structural, semantic, and "
+            "ontology schema versions, node kinds, entity types, projected relations, "
+            "property catalogs, selector rules, connector topologies, and recommended "
             "workflows. Call this first, with no arguments, when graph selectors, "
-            "relations, directions, or topology are unclear. This tool never executes a "
-            "query and requires no tenant."
+            "relations, directions, or topology are unclear. This tool never executes "
+            "a query and requires no tenant."
         ),
         _INPUT_SCHEMA,
         output_schema=OUTPUT_SCHEMA,

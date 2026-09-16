@@ -8,6 +8,7 @@ from threading import RLock
 
 from .config import CircuitBreakerConfig, RoutingStrategy
 from .health import deployment_state_key
+from .operation_deadline import OperationDeadlineExceeded, remaining_timeout
 from .routing_runtime import DeploymentLike, DeploymentRuntime
 from .routing_state import (
     RoutingLease,
@@ -119,7 +120,11 @@ class DeploymentSelector[D: DeploymentLike]:
         """Acquire local and distributed concurrency and rate-limit admission."""
 
         if state.sync_semaphore is not None:
-            state.sync_semaphore.acquire()
+            timeout = remaining_timeout()
+            if not state.sync_semaphore.acquire(timeout=timeout if timeout is not None else -1):
+                raise OperationDeadlineExceeded(
+                    "model operation deadline exceeded during admission"
+                )
         lease: RoutingLease | None = None
         incremented = False
         try:

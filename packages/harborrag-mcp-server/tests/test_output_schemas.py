@@ -37,9 +37,11 @@ def _validator(schema: dict[str, object]):
 
 VALID_NODE = {"node_key": "chunk:1", "node_kind": "Chunk", "entity_type": "chunk"}
 VALID_RELATION = {
-    "relation_type": "supports",
-    "source_node_key": "chunk:1",
-    "target_node_key": "structure:1",
+    "relation_id": "relation:1",
+    "relation_type": "has_chunk",
+    "source_node_key": "structure:1",
+    "target_node_key": "chunk:1",
+    "origin": "structural",
 }
 
 
@@ -77,13 +79,13 @@ def test_relation_schema_rejects_violations(instance) -> None:
 @pytest.mark.parametrize(
     "instance",
     [
-        {"subject": VALID_NODE, "predicate": "supports", "object": VALID_NODE, "extra": 1},
+        {"subject": VALID_NODE, "predicate": "has_chunk", "object": VALID_NODE, "extra": 1},
         {
             "subject": {**VALID_NODE, "unexpected": "x"},
-            "predicate": "supports",
+            "predicate": "has_chunk",
             "object": VALID_NODE,
         },
-        {"subject": VALID_NODE, "predicate": "supports"},
+        {"subject": VALID_NODE, "predicate": "has_chunk"},
     ],
 )
 def test_triplet_schema_rejects_violations(instance) -> None:
@@ -127,6 +129,8 @@ def test_retrieval_result_schema_rejects_an_unlisted_metadata_key() -> None:
             "citation_locator": {},
             "quality_score": None,
             "retrieval_source": "qdrant-authoritative",
+            "document_title": "Document One",
+            "section_path": ["Section 1"],
         },
     }
     _validator(RETRIEVAL_RESULT_SCHEMA).validate(valid)
@@ -157,14 +161,30 @@ def test_retrieval_diagnostics_schema_rejects_a_malformed_graph_document() -> No
         _validator(RETRIEVAL_DIAGNOSTICS_SCHEMA).validate(malformed)
 
 
-def test_describe_graph_output_schema_rejects_an_unknown_entity_type_or_extra_key() -> None:
-    valid_entry = {"name": "chunk", "meaning": "Citation-ready indexed evidence."}
-    entity_types_schema = OUTPUT_SCHEMA["properties"]["entity_types"]["items"]
-    _validator(entity_types_schema).validate(valid_entry)
+def test_describe_graph_output_schema_rejects_an_unknown_node_kind_or_extra_key() -> None:
+    layers_schema = OUTPUT_SCHEMA["properties"]["layers"]
+    valid_layers = {"nodes": ["Chunk"], "relations": ["contains"]}
+    _validator(layers_schema).validate(valid_layers)
     with pytest.raises(ValidationError):
-        _validator(entity_types_schema).validate({"name": "not_a_real_entity_type", "meaning": "x"})
+        _validator(layers_schema).validate({"nodes": ["NotARealNodeKind"], "relations": []})
     with pytest.raises(ValidationError):
-        _validator(entity_types_schema).validate({**valid_entry, "extra": True})
+        _validator(layers_schema).validate({**valid_layers, "extra": True})
+
+
+def test_describe_graph_output_schema_requires_every_property_section() -> None:
+    properties_schema = OUTPUT_SCHEMA["properties"]["properties"]
+    valid_properties = {
+        "common_node": ["node_key"],
+        "document_owned": ["document_id"],
+        "Chunk": ["chunk_id"],
+        "Entity": ["id"],
+        "RELATES": ["types"],
+    }
+    _validator(properties_schema).validate(valid_properties)
+    for missing_key in valid_properties:
+        incomplete = {k: v for k, v in valid_properties.items() if k != missing_key}
+        with pytest.raises(ValidationError):
+            _validator(properties_schema).validate(incomplete)
 
 
 def test_server_rejects_a_registered_tool_with_no_output_schema() -> None:

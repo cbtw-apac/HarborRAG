@@ -118,6 +118,7 @@ DOCUMENT_VERSIONS = Table(
     "document_versions",
     METADATA,
     Column("document_version_id", String(128), primary_key=True),
+    Column("source_scope_id", String(128), nullable=False),
     Column(
         "document_id",
         String(128),

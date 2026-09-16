@@ -19,6 +19,7 @@ class HarborChatCapabilities(StrictModel):
     multimodal: bool = False
     audio_input: bool = False
     reasoning_content: bool = False
+    reasoning_effort: bool = False
 
 
 class HarborEmbedCapabilities(StrictModel):

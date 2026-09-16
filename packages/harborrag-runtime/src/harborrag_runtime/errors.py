@@ -7,6 +7,10 @@ class RuntimeConfigurationError(ValueError):
     """Raised when runtime configuration is internally inconsistent."""
 
 
+class MissingOptionalDependencyError(RuntimeConfigurationError):
+    """A requested runtime capability was not installed."""
+
+
 class RuntimeConnectionError(ConnectionError):
     """Raised when the runtime cannot connect to Temporal."""
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import (
+    authorize_role,
     authorize_task_tenant,
     authorize_tenant,
     require_role,
@@ -77,6 +78,9 @@ async def create_ingestion(
     ] = None,
 ) -> IngestionAcceptedResponse:
     authorize_tenant(principal, request.tenant)
+    if request.source_scope_id is not None:
+        # Choosing a scope chooses which permission pile the documents join.
+        authorize_role(principal, "admin")
     result = await service.submit(
         build_ingestion_command(request),
         idempotency_key=idempotency_key,
@@ -222,6 +226,38 @@ def _sse_frame(event: HarborEvent) -> bytes:
     name = event.name.replace("\n", "").replace("\r", "")
     id_line = f"id: {event.seq}\n" if event.seq is not None else ""
     return f"{id_line}event: {name}\ndata: {json.dumps(event.payload, default=str)}\n\n".encode()
+
+
+@router.post(
+    "/{task_id}/pause",
+    response_model=IngestionActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=ERROR_RESPONSES,
+)
+async def pause_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> IngestionActionResponse:
+    task = await service.get_task(task_id)
+    authorize_task_tenant(principal, task)
+    return IngestionActionResponse.model_validate(await service.pause(task_id))
+
+
+@router.post(
+    "/{task_id}/resume",
+    response_model=IngestionActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=ERROR_RESPONSES,
+)
+async def resume_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> IngestionActionResponse:
+    task = await service.get_task(task_id)
+    authorize_task_tenant(principal, task)
+    return IngestionActionResponse.model_validate(await service.resume(task_id))
 
 
 @router.post(

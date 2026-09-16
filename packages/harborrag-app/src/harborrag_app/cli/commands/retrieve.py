@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 import typer
 
 from harborrag_app.cli.runner import invoke
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
+
+
+class _ModeOptions(TypedDict, total=False):
+    mode: RetrievalMode
 
 
 # Typer requires each public CLI option to remain a separate function parameter.
@@ -46,6 +50,10 @@ def command(  # noqa: PLR0913
             help="Retrieval lane: dense, sparse, or hybrid.",
         ),
     ] = RetrievalLane.HYBRID,
+    mode: Annotated[
+        RetrievalMode,
+        typer.Option("--mode", help="Flat retrieval or bounded canonical semantic expansion."),
+    ] = RetrievalMode.FLAT,
     filters_json: Annotated[
         str | None,
         typer.Option(
@@ -86,6 +94,7 @@ def command(  # noqa: PLR0913
     """Search active Qdrant vectors and expand matching FalkorDB context."""
 
     filters = _filters(filters_json)
+    mode_options: _ModeOptions = {"mode": mode} if mode != RetrievalMode.FLAT else {}
     invoke(
         lambda service: service.retrieve(
             query,
@@ -96,6 +105,7 @@ def command(  # noqa: PLR0913
             observe_graph=observe_graph,
             include_content=include_content,
             include_metadata=include_metadata,
+            **mode_options,
         ),
         context=context,
         command="retrieve",

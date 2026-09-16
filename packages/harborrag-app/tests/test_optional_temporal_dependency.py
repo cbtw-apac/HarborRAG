@@ -38,3 +38,17 @@ def test_connecting_the_temporal_client_without_temporalio_explains_the_extra() 
     )
     assert result.returncode == 0, result.stderr
     assert 'pip install "harborrag[temporal]"' in result.stdout
+
+
+def test_summary_worker_uses_the_same_optional_temporal_error() -> None:
+    result = _run(
+        "import asyncio\n"
+        "from harborrag_runtime.topology.summary_operations import connect_temporal_client\n"
+        "from harborrag_runtime.errors import MissingOptionalDependencyError\n"
+        "try:\n"
+        "    asyncio.run(connect_temporal_client(None))\n"
+        "except MissingOptionalDependencyError as exc:\n"
+        "    print('friendly:', exc)\n"
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'pip install "harborrag[temporal]"' in result.stdout

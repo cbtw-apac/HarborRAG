@@ -3,17 +3,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from datetime import timedelta
 from typing import Any
 
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from harborrag_adapters.repositories.object_store import (
+    ImmutableArtifactReader,
+    ImmutableArtifactWriter,
+)
 from harborrag_core.observability.process_logging import configure_logging
+from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion import build_ingestion_runtime
+from harborrag_runtime.topology.summary_factory import SummaryRuntimeFactory
+from harborrag_runtime.topology.summary_worker import serve_summaries
 
 from .connection import connect_temporal_client
 from .ingestion_activities import IngestionActivities
@@ -67,10 +74,45 @@ async def run_workers(
             "Temporal ingestion worker polling queues: %s",
             ", ".join(config.task_queues.as_tuple()),
         )
-        runs = asyncio.gather(*(worker.run() for worker in workers))
+        summary_run = _summary_runner(settings, runtime, client, stop_event)
+        runs = asyncio.gather(
+            *(worker.run() for worker in workers),
+            *((summary_run,) if summary_run is not None else ()),
+        )
         await _wait_for_shutdown(workers, runs, stop_event=stop_event)
     finally:
         await runtime.close()
+
+
+def _summary_runner(
+    settings: RuntimeSettings,
+    runtime: Any,
+    client: Client,
+    stop_event: asyncio.Event | None,
+) -> Coroutine[Any, Any, None] | None:
+    """Attach the optional semantic projection queue to the deployed worker."""
+    if not hasattr(settings, "graph_build_config_path"):
+        return None
+    graph_build = GraphBuildConfig.from_settings(settings)
+    if not graph_build.summarization.enabled:
+        return None
+    tenants = tuple(tenant.tenant_id for tenant in graph_build.tenants)
+    if not tenants:
+        logger.warning("Summary projection enabled but no managed tenants are configured")
+        return None
+    effective = graph_build.effective_settings(settings)
+    factory = SummaryRuntimeFactory(
+        effective,
+        runtime.control,
+        ImmutableArtifactReader(runtime.object_store),
+        ImmutableArtifactWriter(runtime.object_store),
+    )
+    logger.info(
+        "Temporal summary worker polling queue=%s tenants=%s",
+        effective.summary_task_queue,
+        ",".join(tenants),
+    )
+    return serve_summaries(client, factory, tenants, stop_event=stop_event)
 
 
 def _build_worker(

@@ -47,6 +47,24 @@ require_file() {
     [[ -f "${ROOT_DIR}/${path}" ]] || fail "Missing ${label}: ${path}. Run '$0 bootstrap'."
 }
 
+require_control_plane_encryption_key() {
+    require_file "${DATABASE_ENV_FILE}" "database environment"
+    local configured
+    if [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]]; then
+        configured="${HARBORRAG_SECRETS_ENCRYPTION_KEY}"
+    else
+        configured="$(
+            sed -n 's/^HARBORRAG_SECRETS_ENCRYPTION_KEY=//p' \
+                "${ROOT_DIR}/${DATABASE_ENV_FILE}" | tail -n 1
+        )"
+    fi
+    configured="${configured#"${configured%%[![:space:]]*}"}"
+    configured="${configured%"${configured##*[![:space:]]}"}"
+    if [[ -z "${configured}" || "${configured}" == '""' || "${configured}" == "''" ]]; then
+        fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker; set it in ${DATABASE_ENV_FILE}."
+    fi
+}
+
 ensure_environment_file() {
     local target="$1"
     local template="$2"
@@ -198,6 +216,7 @@ start_temporal() {
 
 start_worker() {
     local rebuild="${1:-0}"
+    require_control_plane_encryption_key
     require_data_network
     require_temporal_server
     prepare_worker_mount
@@ -222,6 +241,7 @@ start_worker() {
 
 start_api() {
     local rebuild="${1:-0}"
+    require_control_plane_encryption_key
     require_data_network
     require_temporal_server
     [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
@@ -331,6 +351,7 @@ case "${command}" in
         if ((created_environment)); then
             fail "Review the new environment files, then run '$0 up' again."
         fi
+        require_control_plane_encryption_key
         start_data
         start_temporal
         if ((start_worker_flag)); then

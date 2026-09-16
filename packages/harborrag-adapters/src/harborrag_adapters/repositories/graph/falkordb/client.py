@@ -88,7 +88,12 @@ class FalkorDBClient(AsyncLifecycle):
 
     async def ping(self) -> None:
         async with self._operation_slots:
-            await self.raw.list_graphs()
+            execute = getattr(self.raw, "execute_command", None)
+            if execute is not None:
+                # Reader credentials need PING, not tenant-wide GRAPH.LIST access.
+                await execute("PING")
+            else:
+                await self.raw.list_graphs()
 
     async def write(self, statement: str, parameters: Mapping[str, Any]) -> Any:
         """Execute one parameterized FalkorDB write query."""

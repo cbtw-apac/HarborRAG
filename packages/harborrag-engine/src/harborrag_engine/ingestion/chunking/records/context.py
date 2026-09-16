@@ -28,6 +28,7 @@ class ChunkContextBuilder:
         next_: ChunkIdentity | None,
     ) -> ChunkHierarchy:
         parent_path = candidate.structural_path[:-1]
+        section_anchors = self._section_anchors(candidate)
         return ChunkHierarchy(
             document_title=request.document.title.strip() or None,
             section_path=candidate.structural_path,
@@ -36,13 +37,14 @@ class ChunkContextBuilder:
                 self._identity.section_id(
                     document_id=request.document.id,
                     section_path=parent_path,
+                    stable_source_anchors=section_anchors[:-1],
                 )
                 if parent_path
                 else None
             ),
             ancestry=self._section_ancestry(
                 request.document.id,
-                candidate.structural_path,
+                candidate,
             ),
             parent_title=self.parent_title(candidate.metadata),
             previous_chunk_id=(
@@ -128,15 +130,27 @@ class ChunkContextBuilder:
     def _section_ancestry(
         self,
         document_id: str,
-        section_path: tuple[str, ...],
+        candidate: ChunkCandidate,
     ) -> tuple[str, ...]:
+        section_path = candidate.structural_path
+        anchors = self._section_anchors(candidate)
         return tuple(
             self._identity.section_id(
                 document_id=document_id,
                 section_path=section_path[:depth],
+                stable_source_anchors=anchors[:depth],
             )
             for depth in range(1, len(section_path))
         )
+
+    @staticmethod
+    def _section_anchors(candidate: ChunkCandidate) -> tuple[str, ...]:
+        values = candidate.metadata.get("heading_element_ids")
+        if not isinstance(values, (list, tuple)):
+            return ()
+        anchors = tuple(str(value).strip() for value in values)
+        # Connector-supplied tab paths can add labels without source heading IDs.
+        return anchors if len(anchors) == len(candidate.structural_path) and all(anchors) else ()
 
     @staticmethod
     def parent_title(metadata: Mapping[str, object]) -> str | None:

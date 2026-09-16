@@ -100,6 +100,7 @@ class RelationType(StrEnum):
     # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
     # their own direction; the rest describe structure that CONTAINS already carries.
     HAS_SECTION = "has_section"
+    HAS_CHUNK = "has_chunk"
     HAS_TABLE = "has_table"
     HAS_COMMENT = "has_comment"
     CHILD_OF = "child_of"
@@ -117,7 +118,7 @@ PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
     RelationType.HAS_DATA_SOURCE,
     RelationType.CONTAINS,
     RelationType.HAS_VERSION,
-    RelationType.SUPPORTS,
+    RelationType.HAS_CHUNK,
     RelationType.PARENT_OF,
     RelationType.LINKS_TO,
     RelationType.HAS_ATTACHMENT,
@@ -128,6 +129,35 @@ PROJECTED_RELATION_TYPES: tuple[RelationType, ...] = (
     RelationType.POINTS_TO,
     RelationType.RESOLVED_AT,
     RelationType.INCLUDES,
+)
+
+
+# Property catalogs for the forward-looking, versioned semantic-v3 / enterprise-v1
+# entity-relation contract (see describe_graph's tool documentation). No Pydantic model
+# in this repo enforces the Entity/RELATES property shapes yet, so these are declared
+# statically here rather than derived from a canonical source.
+COMMON_NODE_PROPERTIES: tuple[str, ...] = ("node_key", "name", "description", "entity_type")
+DOCUMENT_OWNED_PROPERTIES: tuple[str, ...] = (
+    "document_id",
+    "document_version_id",
+    "source_scope_id",
+)
+CHUNK_PROPERTIES: tuple[str, ...] = ("chunk_id", "section_path")
+ENTITY_PROPERTIES: tuple[str, ...] = (
+    "id",
+    "name",
+    "type",
+    "description",
+    "aliases",
+    "support_count",
+)
+RELATES_PROPERTIES: tuple[str, ...] = (
+    "types",
+    "description",
+    "weight",
+    "polarities",
+    "modalities",
+    "support_count",
 )
 
 

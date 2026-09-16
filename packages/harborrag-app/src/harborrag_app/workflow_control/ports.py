@@ -9,7 +9,7 @@ from harborrag_core.retrieval import (
     GraphSubgraphQuery,
     GraphTripletQuery,
 )
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from .agent import AgentExecutionOptions
 from .chat.options import ChatExecutionOptions
@@ -168,6 +168,7 @@ class BaseAppService(ProviderPort, ABC):
         top_k: int = 10,
         filters: Mapping[str, object] | None = None,
         lane: RetrievalLane = RetrievalLane.HYBRID,
+        mode: RetrievalMode = RetrievalMode.FLAT,
         observe_graph: bool = False,
         include_content: bool = False,
         include_metadata: bool = False,

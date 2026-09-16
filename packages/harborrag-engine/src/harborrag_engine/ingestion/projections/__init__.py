@@ -6,6 +6,7 @@ from .graph import (
     GraphSourceProjector,
     GraphSourceProjectorRegistry,
     UnresolvedGraphRelation,
+    target_connector_type,
 )
 from .vector import (
     EVIDENCE_INDEX,
@@ -40,4 +41,5 @@ __all__ = [
     "VectorProjectionInput",
     "VectorProjectionPolicy",
     "VectorProjectionStore",
+    "target_connector_type",
 ]

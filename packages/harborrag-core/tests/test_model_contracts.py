@@ -68,6 +68,9 @@ class ContractClient:
     async def achat_structured(self, *args: Any, **kwargs: Any) -> NoReturn:
         raise NotImplementedError
 
+    async def achat_structured_usage(self, *args: Any, **kwargs: Any) -> NoReturn:
+        raise NotImplementedError
+
     def embed(self, *args: Any, **kwargs: Any) -> NoReturn:
         raise NotImplementedError
 

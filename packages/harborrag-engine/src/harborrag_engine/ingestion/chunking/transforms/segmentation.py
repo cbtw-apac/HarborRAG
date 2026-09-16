@@ -174,7 +174,7 @@ class DocumentStructureSegmenter:
             boundary_kind = self._boundary_kind(document, element)
             role = self._role(element, boundary_kind)
             anchor = self._anchor(element, boundary_kind, structural_path)
-            merge_group = self._merge_group(element, role, structural_path)
+            merge_group = self._merge_group(element, role, structural_path, tuple(heading_ids))
             # A table is rendered from its canonical artifact rather than from the
             # tab-separated element body, so the chunk keeps its column names,
             # caption, and grid. The source span still describes the original
@@ -330,6 +330,7 @@ class DocumentStructureSegmenter:
         element: DocumentElement,
         role: str,
         structural_path: tuple[str, ...],
+        heading_ids: tuple[str, ...],
     ) -> str:
         metadata = element.metadata
         explicit = metadata.get("merge_group")
@@ -344,4 +345,5 @@ class DocumentStructureSegmenter:
             return f"json:{metadata.get('json_path', element.id)}"
         if role in {"figure", "caption"}:
             return f"visual:{metadata.get('parent_element_id', element.id)}"
-        return f"{role}:section:{path}"
+        identity = json.dumps(heading_ids, ensure_ascii=False, separators=(",", ":"))
+        return f"{role}:section:{path}:anchors:{identity}"

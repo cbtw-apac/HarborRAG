@@ -49,6 +49,8 @@ def service() -> MockAppService:
     [
         ("GET", "/v1/ingestions/ing_1"),
         ("GET", "/v1/ingestions/ing_1/documents"),
+        ("POST", "/v1/ingestions/ing_1/pause"),
+        ("POST", "/v1/ingestions/ing_1/resume"),
         ("POST", "/v1/ingestions/ing_1/cancel"),
         ("POST", "/v1/ingestions/ing_1/retry-failures"),
     ],

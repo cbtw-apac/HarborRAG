@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -14,19 +14,15 @@ from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
+from harborrag_runtime.temporal.optional import load_temporal_attribute
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 from harborrag_runtime.temporal.submission import SourceSubmission, build_source_input
 from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
 
-from ..errors import MissingOptionalDependencyError
 from ..ingestion.ports import PublicTaskStore
 
 if TYPE_CHECKING:
     from harborrag_runtime.temporal.client import IngestionTemporalClient
-
-TEMPORAL_EXTRA_HINT = (
-    'Durable ingestion commands need the Temporal client: pip install "harborrag[temporal]"'
-)
 
 type ClientFactory = Callable[
     [TemporalRuntimeConfig],
@@ -58,13 +54,14 @@ async def connect_temporal_client(config: TemporalRuntimeConfig) -> IngestionTem
     Direct-mode commands never call this, so they must not pay for the import either.
     """
 
-    try:
-        from harborrag_runtime.temporal.client import IngestionTemporalClient
-    except ModuleNotFoundError as exc:
-        if (exc.name or "").split(".")[0] == "temporalio":
-            raise MissingOptionalDependencyError(TEMPORAL_EXTRA_HINT) from exc
-        raise
-    return await IngestionTemporalClient.connect(config)
+    client_type = cast(
+        "type[IngestionTemporalClient]",
+        load_temporal_attribute(
+            "harborrag_runtime.temporal.client",
+            "IngestionTemporalClient",
+        ),
+    )
+    return await client_type.connect(config)
 
 
 def _retrieval_runtime(settings: RuntimeSettings) -> HarborRAG:
