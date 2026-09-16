@@ -48,6 +48,8 @@ credential that reaches a log or a database row.
 _COUNT_QUALIFIERS = frozenset(
     {
         "budget",
+        "cap",
+        "ceiling",
         "chunk",
         "count",
         "estimate",
@@ -56,6 +58,7 @@ _COUNT_QUALIFIERS = frozenset(
         "min",
         "overlap",
         "per",
+        "quota",
         "size",
         "total",
         "usage",
