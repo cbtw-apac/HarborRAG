@@ -365,3 +365,56 @@ def test_tenant_scoped_owner_cannot_access_global_configuration() -> None:
     authorize_request_tenant(request, "demo")
     with pytest.raises(Unauthorized, match="requested tenant"):
         authorize_request_tenant(request, "*")
+
+
+def test_the_transport_masks_details_of_an_unexpected_failure() -> None:
+    """A driver or filesystem error must not be narrated to the MCP client.
+
+    FastMCP defaults ``mask_error_details`` off, which relays any exception
+    escaping a tool as ``Error calling tool 'x': {exc}`` -- enough to leak a
+    connection URL or a server path. The HTTP route already masks; the MCP
+    transport has to agree.
+    """
+
+    pytest.importorskip("fastmcp")
+
+    transport = create_mcp_server(allow_unauthenticated_local=True)
+
+    # FastMCP keeps the resolved setting private; there is no public accessor.
+    assert transport._mask_error_details is True
+
+
+@pytest.mark.asyncio
+async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -> None:
+    """A token probing another tenant is exactly what the trail exists to show.
+
+    Resolving the principal as a call argument put it before ``call_tool``, so
+    an authorization refusal produced no audit record at all.
+    """
+
+    from types import SimpleNamespace
+
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.server import _tool_handler
+
+    intruder = SimpleNamespace(
+        claims={"sub": "reader-1", "role": "reader", "tenants": ["demo"]},
+        client_id="client",
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: intruder)
+    server = McpServer(audit=McpAuditLog())
+    handler = _tool_handler(server, "describe_graph")
+
+    with pytest.raises(PermissionError):
+        await handler(tenant_id="someone-else")
+
+    entries = server.audit.entries
+    assert [entry["event"] for entry in entries] == [
+        "tool_invocation_attempted",
+        "tool_invocation_completed",
+    ]
+    assert entries[-1]["error_type"] == "PermissionError"
+    assert entries[-1]["outcome"] == "error"
+    assert all(entry["principal_id"] == "reader-1" for entry in entries)

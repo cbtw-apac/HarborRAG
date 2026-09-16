@@ -86,6 +86,13 @@ def create_mcp_server(
         auth=auth,
         lifespan=lifespan,
         instructions=_SERVER_INSTRUCTIONS,
+        # FastMCP defaults this off, which sends any exception escaping a tool
+        # to the client as "Error calling tool 'x': {exc}" -- a driver error
+        # carrying a connection URL, or an audit error carrying a server path.
+        # The HTTP route already masks to the exception type; this makes the MCP
+        # transport agree. A ToolError we raise ourselves is still delivered in
+        # full, so a model keeps the messages it has to self-correct from.
+        mask_error_details=True,
     )
 
     for spec in facade.list_tools():
@@ -131,10 +138,27 @@ def _tool_handler(
     tool_name: str,
 ) -> Any:
     async def invoke(**arguments: object) -> dict[str, object]:
+        try:
+            principal_id = _request_principal_id(arguments.get("tenant_id"))
+        except PermissionError as exc:
+            # Resolving the principal as a call argument put it *before*
+            # ``call_tool``, so a token probing another tenant or holding the
+            # wrong role left no audit record at all -- exactly the event the
+            # trail exists to show. Record the attempt and its refusal here.
+            subject = _token_subject()
+            invocation_id = server.audit.start(tool_name, arguments, principal_id=subject)
+            server.audit.finish(
+                invocation_id,
+                tool_name,
+                principal_id=subject,
+                outcome="error",
+                error_type=type(exc).__name__,
+            )
+            raise
         result = await server.call_tool(
             tool_name,
             arguments,
-            principal_id=_request_principal_id(arguments.get("tenant_id")),
+            principal_id=principal_id,
         )
         if result.get("ok") is False:
             from fastmcp.exceptions import ToolError
@@ -145,6 +169,28 @@ def _tool_handler(
 
     invoke.__name__ = tool_name
     return invoke
+
+
+def _token_subject() -> str:
+    """Best-effort caller identity for auditing a refused request.
+
+    Deliberately performs no authorization of its own: this runs *because* the
+    request was refused, and an audit line naming the token beats one naming
+    nobody.
+    """
+
+    from fastmcp.server.dependencies import get_access_token
+
+    token = get_access_token()
+    if token is None:
+        return "local-unauthenticated"
+    claims = token.claims or {}
+    subject = claims.get("sub")
+    if isinstance(subject, str) and subject.strip():
+        return subject
+    if token.client_id:
+        return token.client_id
+    return "authenticated-unknown"
 
 
 def _request_principal_id(tenant_id: object | None = None) -> str:

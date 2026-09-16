@@ -102,7 +102,17 @@ async def apply_graph_permissions(
             str(context.tenant_id), source_ids, access=context.access
         ),
     )
-    tenant_visible = bool(allowed_documents or allowed_sources)
+    # A tenant-scoped record carries no document and no source to check, so
+    # whether it is readable is a question about the *principal*, not about
+    # whatever else happened to be retrieved beside it. Resolve it from the
+    # principal's own allowlists, and only when the batch actually contains
+    # such a record.
+    tenant_visible = False
+    if any(
+        record.document_id is None and record.source_scope_id is None
+        for record in records.values()
+    ):
+        tenant_visible = await _tenant_readable(authorizer, context)
     for key, record in records.items():
         if not _record_authorized(record, allowed_documents, allowed_sources, tenant_visible):
             states[key] = "denied"
@@ -152,6 +162,26 @@ def reachable_subgraph(
         if relation.source_node_key in selected_keys and relation.target_node_key in selected_keys
     )
     return selected_nodes, selected_relations, len(reached)
+
+
+async def _tenant_readable(
+    authorizer: GraphVisibilityAuthorizer,
+    context: StorageOperationContext,
+) -> bool:
+    """Whether this principal may read anything at all in this tenant.
+
+    Deriving this from the batch made the answer depend on batch composition: a
+    batch holding only tenant-scoped nodes produced empty allowlists and denied
+    them to a fully authorized reader, while a single readable document
+    alongside them unlocked every one. ``limit=1`` because this asks only
+    whether any grant exists.
+    """
+
+    documents, sources = await asyncio.gather(
+        authorizer.allowed_document_ids(str(context.tenant_id), access=context.access, limit=1),
+        authorizer.allowed_source_scope_ids(str(context.tenant_id), access=context.access, limit=1),
+    )
+    return bool(documents or sources)
 
 
 def _record_authorized(

@@ -17,7 +17,11 @@ from harborrag_mcp_server.configuration import (
     McpConfiguration,
     McpConfigurationStore,
 )
-from harborrag_mcp_server.server.http_auth import authorize_request_tenant, owner_only
+from harborrag_mcp_server.server.http_auth import (
+    Unauthorized,
+    authorize_request_tenant,
+    owner_only,
+)
 from harborrag_mcp_server.server.http_responses import (
     browser_security_headers,
     configuration_response,
@@ -267,6 +271,12 @@ def _call_tool_handler(
                 arguments,
                 principal_id=principal_id,
             )
+        except Unauthorized as exc:
+            # Carries its own status. Without this clause the generic handler
+            # below turned a cross-tenant call into "500 tool execution failed
+            # (Unauthorized)" -- an authorization decision reported as a server
+            # fault, which is both wrong and unactionable for the caller.
+            return error_response(exc.message, status_code=exc.status_code)
         except PermissionError as exc:
             return error_response(str(exc), status_code=403)
         except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:

@@ -160,6 +160,53 @@ async def test_working_memory_requires_run_scope_and_positive_ttl(owner: MemoryO
 
 
 @pytest.mark.asyncio
+async def test_long_term_refuses_a_write_attributed_to_a_colleague(
+    owner: MemoryOwner,
+) -> None:
+    """Attribution inside a tenant has to be the caller's own.
+
+    ``visible_to`` compares only the fields the scope keys on, so a
+    TENANT-scoped write was checked against the tenant alone. Any member could
+    publish a tenant-wide fact stamped with a colleague's ``user_id``; erasure
+    is by owner, so the colleague's erasure would delete it and the author's
+    would miss it.
+    """
+
+    tier = LongTermMemory(MemoryRepositoryFake())
+    colleague = Memory(
+        memory_id="borrowed-1",
+        scope=MemoryScope.TENANT,
+        memory_type=MemoryType.FACT,
+        owner=MemoryOwner(tenant_id=owner.tenant_id, user_id="someone-else"),
+        content="the company is metric",
+    )
+
+    with pytest.raises(MemoryScopeError, match="attributed to another owner"):
+        await tier.save(owner, colleague)
+
+
+@pytest.mark.asyncio
+async def test_long_term_still_accepts_an_unattributed_tenant_fact(
+    owner: MemoryOwner,
+) -> None:
+    """Leaving a field unset is how a genuinely tenant-wide fact is recorded."""
+
+    repository = MemoryRepositoryFake()
+    tier = LongTermMemory(repository)
+    tenant_wide = Memory(
+        memory_id="tenant-1",
+        scope=MemoryScope.TENANT,
+        memory_type=MemoryType.FACT,
+        owner=MemoryOwner(tenant_id=owner.tenant_id),
+        content="the company is metric",
+    )
+
+    await tier.save(owner, tenant_wide)
+
+    assert await tier.get(owner, "tenant-1") == tenant_wide
+
+
+@pytest.mark.asyncio
 async def test_long_term_rejects_forged_and_global_writes(owner: MemoryOwner) -> None:
     repository = MemoryRepositoryFake()
     tier = LongTermMemory(repository)
