@@ -213,6 +213,7 @@ class ProviderRow(Base):
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class RoutingRuleRow(Base):

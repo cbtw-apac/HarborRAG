@@ -17,11 +17,22 @@ from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
-from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.testing.control_plane_fakes_graph_conflicts import (
     FakeGraphConflictRepository as FakeGraphConflictRepository,
+)
+from harborrag_core.testing.control_plane_fakes_providers import (
+    FakeProviderCostTracker as FakeProviderCostTracker,
+)
+from harborrag_core.testing.control_plane_fakes_providers import (
+    FakeProviderProbe as FakeProviderProbe,
+)
+from harborrag_core.testing.control_plane_fakes_providers import (
+    FakeProviderRepository as FakeProviderRepository,
+)
+from harborrag_core.testing.control_plane_fakes_providers import (
+    FakeRoutingRuleRepository as FakeRoutingRuleRepository,
 )
 
 
@@ -225,35 +236,6 @@ class FakeSettingsRepository:
         """Replace the settings document."""
         self.settings = settings
         return settings
-
-
-@dataclass(slots=True)
-class FakeProviderRepository:
-    """Dict-backed ProviderRepositoryPort."""
-
-    providers: dict[str, Provider] = field(default_factory=dict)
-
-    async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
-        """Providers visible to ``tenant_ids`` (None: unrestricted)."""
-        return [p for p in self.providers.values() if _in_scope(p.tenant_id, tenant_ids)]
-
-    async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
-        """Provider by id within ``tenant_ids``, or None."""
-        provider = self.providers.get(provider_id)
-        if provider is None or not _in_scope(provider.tenant_id, tenant_ids):
-            return None
-        return provider
-
-    async def save(self, provider: Provider) -> Provider:
-        """Insert or overwrite a provider."""
-        self.providers[provider.id] = provider
-        return provider
-
-    async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:
-        """Drop the provider if present within ``tenant_ids``."""
-        provider = self.providers.get(provider_id)
-        if provider is not None and _in_scope(provider.tenant_id, tenant_ids):
-            del self.providers[provider_id]
 
 
 @dataclass(slots=True)

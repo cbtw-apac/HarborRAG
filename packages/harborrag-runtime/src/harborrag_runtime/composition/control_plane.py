@@ -18,10 +18,13 @@ from harborrag_core.ports.control_plane import (
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
+    RoutingRuleRepositoryPort,
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationRepository
+from harborrag_core.ports.provider_cost import ProviderCostTrackerPort
+from harborrag_core.ports.provider_probe import ProviderProbePort
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
@@ -49,6 +52,7 @@ class ControlPlaneRepositories:
     activity: ActivityRepositoryPort
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
+    routing_rules: RoutingRuleRepositoryPort
     members: MemberRepositoryPort
     conversation_memory: ConversationRepository
     agent_runs: AgentRunRepository
@@ -56,6 +60,8 @@ class ControlPlaneRepositories:
     pending_effects: PendingEffectRepositoryPort
     leases: LeaseRepositoryPort
     graph_conflicts: GraphConflictRepositoryPort
+    provider_probe: ProviderProbePort
+    provider_cost: ProviderCostTrackerPort
 
 
 @dataclass(slots=True)
@@ -84,6 +90,8 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
+        from harborrag_adapters.models.chat.probe import LiteLLMProviderProbe
+        from harborrag_adapters.models.runtime.provider_cost import InMemoryProviderCostTracker
         from harborrag_adapters.repositories.database.control_plane.agent_runs import (
             SqlAgentRunRepository,
         )
@@ -120,6 +128,7 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.workspace import (
             SqlMemberRepository,
             SqlProviderRepository,
+            SqlRoutingRuleRepository,
             SqlSettingsRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
@@ -176,6 +185,7 @@ class CompositionRoot:
                 "control database; set HARBORRAG_SECRETS_ENCRYPTION_KEY before pointing "
                 "this process at any persistent or shared database"
             )
+        secrets_repository = SqlSecretsRepository(sessions, encryption_key=secrets_key)
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
             sources=SqlSourceRepository(sessions),
@@ -183,13 +193,16 @@ class CompositionRoot:
             activity=SqlActivityRepository(sessions),
             settings=SqlSettingsRepository(sessions),
             providers=SqlProviderRepository(sessions),
+            routing_rules=SqlRoutingRuleRepository(sessions),
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
             agent_runs=SqlAgentRunRepository(sessions),
-            secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
+            secrets=secrets_repository,
             pending_effects=SqlPendingEffectRepository(sessions),
             leases=SqlLeaseRepository(sessions),
             graph_conflicts=SqlGraphConflictRepository(sessions),
+            provider_probe=LiteLLMProviderProbe(secrets=secrets_repository),
+            provider_cost=InMemoryProviderCostTracker(),
         )
         composition = cls(
             control_plane=repositories,

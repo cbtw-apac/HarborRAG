@@ -13,11 +13,16 @@ from app_test_graph_records import (
     retrieval_payload,
 )
 from app_test_ingestion import IngestionServiceFixture
+from app_test_provider_records import provider as default_provider
+from app_test_provider_records import routing_rule as default_routing_rule
+from app_test_providers_fixture import ProviderServiceFixture
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
+from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.memory import new_session_id
@@ -28,6 +33,7 @@ class MockAppService(
     AgentServiceFixture,
     ChatServiceFixture,
     IngestionServiceFixture,
+    ProviderServiceFixture,
     BaseAppService,
 ):
     def __init__(self) -> None:
@@ -44,6 +50,14 @@ class MockAppService(
         default_conflict = graph_conflict()
         self.graph_conflicts: dict[str, GraphConflict] = {default_conflict.id: default_conflict}
         self.graph_conflict_resolve_calls: list[dict[str, object]] = []
+        default_prov = default_provider()
+        self.providers: dict[str, Provider] = {default_prov.id: default_prov}
+        self.routing_rules: list[RoutingRule] = [default_routing_rule()]
+        self.provider_create_calls: list[dict[str, object]] = []
+        self.provider_update_calls: list[dict[str, object]] = []
+        self.provider_delete_calls: list[dict[str, object]] = []
+        self.provider_test_calls: list[dict[str, object]] = []
+        self.routing_replace_calls: list[dict[str, object]] = []
 
     async def create_chat_session(
         self,
