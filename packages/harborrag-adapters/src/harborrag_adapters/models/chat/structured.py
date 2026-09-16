@@ -75,7 +75,7 @@ class StructuredOutputAttemptState[ResponseT: BaseModel]:
                     request=self.request,
                     completion_attempts=self.completion_attempts,
                 ) from exc
-            self.request = build_repair_request(self.request, content, self.schema)
+            self.request = build_repair_request(self.request, content, self.schema, error=exc)
             return None
 
 
@@ -85,7 +85,7 @@ class StructuredOutputPolicy:
     def __init__(self, config: HarborChatClientConfig) -> None:
         self._config = config
 
-    def prepare(
+    def prepare(  # noqa: PLR0913 - explicit structured-call policy inputs
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,
@@ -134,7 +134,7 @@ class SyncStructuredOutputExecutor:
         self._policy = StructuredOutputPolicy(config)
         self._operation_seconds = config.timeouts.operation_seconds
 
-    def chat(
+    def chat(  # noqa: PLR0913 - public structured-call options
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,
@@ -194,7 +194,7 @@ class AsyncStructuredOutputExecutor:
         self._policy = StructuredOutputPolicy(config)
         self._operation_seconds = config.timeouts.operation_seconds
 
-    async def achat(
+    async def achat(  # noqa: PLR0913 - public structured-call options
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,

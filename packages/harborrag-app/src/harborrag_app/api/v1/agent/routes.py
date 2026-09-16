@@ -15,6 +15,7 @@ from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.api.v1.chat.completion_dependency import CompletionServiceDependency
 from harborrag_app.api.v1.chat.routes import COMPLETION_RESPONSES, complete_request
+from harborrag_app.api.v1.chat.schemas import ChatCompletionResponse
 from harborrag_app.api.v1.chat.sessions import session_router
 from harborrag_app.workflow_control.agent import AgentExecutionOptions
 from harborrag_core.contracts.errors import HarborConnectionError
@@ -77,7 +78,7 @@ async def create_agent_session(
 
 @router.post(
     "/completions",
-    response_model=AgentCompletionResponse,
+    response_model=ChatCompletionResponse,
     responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
     summary="Create a bounded agent completion",
     description="Omit session_id to create an agent session. Set stream=true for the same SSE "
@@ -93,11 +94,13 @@ async def create_agent_completion(
         str | None,
         Header(alias="Idempotency-Key", description="Stable request key (1–128 characters)."),
     ] = None,
-) -> AgentCompletionResponse | StreamingResponse:
+) -> ChatCompletionResponse | StreamingResponse:
     result = await complete_request(request, service, principal, context, header_key)
     if isinstance(result, StreamingResponse):
         return result
-    return AgentCompletionResponse.model_validate(result.model_dump())
+    if result.outcome == "answered":
+        AgentCompletionResponse.model_validate(result.model_dump())
+    return result
 
 
 def _options(

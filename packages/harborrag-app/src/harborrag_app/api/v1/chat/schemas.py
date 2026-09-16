@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, JsonValue, StringConstraints
+from pydantic import ConfigDict, Field, JsonValue, StringConstraints, model_validator
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_core.models.cost import ModelCost
@@ -153,6 +153,8 @@ class ChatCompletionResponse(ApiModel):
     provider: str
     provider_model: str
     message: ChatMessageResponse
+    outcome: Literal["answered", "refused"] = "answered"
+    refusal_reason: Literal["out_of_scope"] | None = None
     finish_reason: str
     usage: ChatUsageResponse
     cost: ModelCost = Field(default_factory=ModelCost)
@@ -176,6 +178,14 @@ class ChatCompletionResponse(ApiModel):
     # False when the answer was produced but could not be saved to conversation
     # memory (the next prompt will not recall this turn). Never a 5xx.
     memory_persisted: bool = True
+
+    @model_validator(mode="after")
+    def validate_refusal(self) -> ChatCompletionResponse:
+        if (self.outcome == "refused") != (self.refusal_reason is not None):
+            raise ValueError("refusal_reason must be present exactly when outcome is refused")
+        if self.outcome == "refused" and self.citations:
+            raise ValueError("refused completions cannot cite retrieved evidence")
+        return self
 
 
 class ConversationSummary(ApiModel):

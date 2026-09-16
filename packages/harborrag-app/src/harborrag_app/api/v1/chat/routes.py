@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from time import time
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, Header, Response
 from fastapi.responses import StreamingResponse
@@ -27,8 +29,10 @@ from .replay import CompletionAttempt
 from .schemas import (
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChatMessageResponse,
     ChatSessionCreateRequest,
     ChatSessionResponse,
+    ChatUsageResponse,
     CompletionRequest,
 )
 from .streaming import stream_response
@@ -37,7 +41,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 ERROR_RESPONSES = documented_error_responses(
     {
-        422: "Invalid completion request",
+        422: "Invalid completion request; out-of-scope prompts return a completed refusal",
         404: "Conversation session or project not found",
         409: "No indexed content, busy conversation, or conflicting idempotency key",
         503: "Chat service unavailable",
@@ -51,7 +55,8 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
                     "type": "string",
                     "description": "response.started, retrieval.completed, response.output_text.delta, "
                     "response.citations, response.agent.progress, response.warning, and exactly one "
-                    "response.completed or response.error. The completed payload matches JSON.",
+                    "response.completed or response.error. Scope refusals use response.completed "
+                    "with the same payload schema as JSON.",
                 }
             }
         }
@@ -199,19 +204,9 @@ async def _complete_chat(
     # may record, are settled inside the stream rather than here.
     dispatched = False
     try:
-        if replay is None:
-            await service.validate_completion_scope(
-                request.prompt,
-                MemoryAccess(
-                    tenant_id=request.tenant,
-                    principal_id=principal.subject,
-                    user_id=principal.user_id,
-                    project_id=request.project_id,
-                    session_id=request.session_id,
-                ),
-                model=request.model,
-                mode=request.mode,
-            )
+        refusal_message = (
+            await _classify_refusal(request, service, principal) if replay is None else None
+        )
         if replay is not None:
             await _require_session(service, request, principal, replay.session_id)
         elif request.session_id is None:
@@ -226,6 +221,8 @@ async def _complete_chat(
                 raise HarborConnectionError("Chat service is unavailable")
             session = ChatSessionResponse.model_validate(created.data)
             request = request.model_copy(update={"session_id": session.session_id})
+        if refusal_message is not None:
+            return await _completed_refusal(request, principal, attempt, settings, refusal_message)
         if request.stream:
             return stream_response(
                 request, principal, settings=settings, attempt=attempt, replay=replay
@@ -249,3 +246,70 @@ async def _complete_chat(
         else:
             await attempt.release()
         raise
+
+
+async def _classify_refusal(
+    request: CompletionRequest, service: CompletionService, principal: Principal
+) -> str | None:
+    try:
+        await service.validate_completion_scope(
+            request.prompt,
+            MemoryAccess(
+                tenant_id=request.tenant,
+                principal_id=principal.subject,
+                user_id=principal.user_id,
+                project_id=request.project_id,
+                session_id=request.session_id,
+            ),
+            model=request.model,
+            mode=request.mode,
+        )
+    except HarborValidationError as error:
+        if error.details.get("reason") != "out_of_scope":
+            raise
+        return str(error)
+    return None
+
+
+async def _completed_refusal(
+    request: CompletionRequest,
+    principal: Principal,
+    attempt: CompletionAttempt,
+    settings: ApiSettings,
+    message: str,
+) -> ChatCompletionResponse | StreamingResponse:
+    refusal = _scope_refusal(request, message)
+    await attempt.finish(refusal)
+    if request.stream:
+        return stream_response(
+            request,
+            principal,
+            settings=settings,
+            attempt=attempt,
+            replay=refusal,
+            replayed=False,
+        )
+    return refusal
+
+
+def _scope_refusal(request: CompletionRequest, message: str) -> ChatCompletionResponse:
+    """Represent policy admission as a completion without claiming answer-model work."""
+
+    if request.session_id is None:
+        raise ValueError("completion session must be resolved before a refusal")
+    return ChatCompletionResponse(
+        id=f"policy-{uuid4().hex}",
+        created=int(time()),
+        model="scope_gate",
+        provider="policy",
+        provider_model="scope_gate",
+        message=ChatMessageResponse(role="assistant", content=message),
+        outcome="refused",
+        refusal_reason="out_of_scope",
+        finish_reason="out_of_scope",
+        usage=ChatUsageResponse(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        session_id=request.session_id,
+        mode=request.mode,
+        project_id=request.project_id,
+        memory_persisted=False,
+    )

@@ -10,6 +10,8 @@ const completion = {
   session_id: "session-1",
   title: "Release policy",
   message: { role: "assistant", content: "Hello 🌊" },
+  outcome: "answered",
+  refusal_reason: null,
   usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
   cost: { amount_usd: 0.001, currency: "USD", status: "estimated", complete: true,
     scope: "answer_generation", model_calls: 1, priced_model_calls: 1 },
@@ -125,14 +127,21 @@ test("evidence survives split-byte SSE and the final answer remains authoritativ
   assert.deepEqual(events[1].data, result);
 });
 
-test("scope rejection is an HTTP error before streaming begins", async () => {
-  const api = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async () =>
-    Response.json({ error: { code: "harbor_validation_error", message: "Outside indexed knowledge",
-      details: { reason: "out_of_scope" } } }, { status: 422 }),
+test("scope refusal uses the normal completion shape in JSON and SSE", async () => {
+  const refusal = { ...completion, outcome: "refused", refusal_reason: "out_of_scope",
+    finish_reason: "out_of_scope", message: { role: "assistant", content: "Outside indexed knowledge" },
+    citations: [], memory_persisted: false };
+  const api = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async (_url, init) =>
+    JSON.parse(init.body).stream
+      ? sseResponse(byteStream(frame("response.started", {
+          session_id: refusal.session_id, mode: "rag", replayed: false,
+        }) + frame("response.completed", refusal)))
+      : Response.json(refusal),
   });
-  await assert.rejects(collect(api.streamChat({ prompt: "Write a snake game" })), (error) =>
-    error instanceof HarborApiRequestError && error.status === 422 &&
-    error.envelope.error.details.reason === "out_of_scope");
+  const json = await api.completeChat({ prompt: "Unrelated request" });
+  const events = await collect(api.streamChat({ prompt: "Unrelated request" }));
+  assert.deepEqual(json, refusal);
+  assert.deepEqual(events.at(-1), { event: "response.completed", data: refusal });
 });
 
 test("streamChat preserves HTTP error envelopes and supports non-JSON proxy errors", async () => {

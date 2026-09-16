@@ -207,13 +207,17 @@ def _answer(response: dict[str, Any]) -> str:
 
 
 def _out_of_scope(status: int, response: dict[str, Any]) -> bool:
-    error = response.get("error")
+    message = response.get("message")
     return (
-        status == 422
-        and isinstance(error, dict)
-        and error.get("code") == "harbor_validation_error"
-        and isinstance(error.get("details"), dict)
-        and error["details"].get("reason") == "out_of_scope"
+        status == 200
+        and response.get("outcome") == "refused"
+        and response.get("refusal_reason") == "out_of_scope"
+        and response.get("finish_reason") == "out_of_scope"
+        and isinstance(response.get("session_id"), str)
+        and isinstance(message, dict)
+        and isinstance(message.get("content"), str)
+        and bool(message["content"].strip())
+        and response.get("citations") == []
     )
 
 

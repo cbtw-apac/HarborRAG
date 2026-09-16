@@ -57,6 +57,8 @@ export interface ChatCompletionResponse {
   provider: string;
   provider_model: string;
   message: { role: "assistant"; content: string };
+  outcome: "answered" | "refused";
+  refusal_reason: "out_of_scope" | null;
   finish_reason: string;
   usage: ChatUsage;
   cost: ChatCost;
@@ -161,10 +163,10 @@ export function createChatMethods(options: HarborClientOptions) {
   async function completeAgent(
     request: AgentCompletionRequest,
     requestOptions: HarborRequestOptions = {},
-  ): Promise<AgentCompletionResponse> {
+  ): Promise<ChatCompletionResponse> {
     return (await (await fetchCompletion(
       "/v1/agent/completions", { ...request, stream: false }, false, requestOptions,
-    )).json()) as AgentCompletionResponse;
+    )).json()) as ChatCompletionResponse;
   }
 
   /** Resume an unfinished run, retaining its original prompt and model. JSON only. */

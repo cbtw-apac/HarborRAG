@@ -96,24 +96,41 @@ def test_chat_probe_requires_exact_citation_marker_in_answer() -> None:
 
 
 @pytest.mark.parametrize(
-    "status,reason,expected",
-    [(422, "out_of_scope", True), (200, "out_of_scope", False), (422, "other", False)],
+    "status,outcome,reason,expected",
+    [
+        (200, "refused", "out_of_scope", True),
+        (422, "refused", "out_of_scope", False),
+        (200, "answered", "out_of_scope", False),
+        (200, "refused", "other", False),
+    ],
 )
-def test_negative_probe_requires_structured_scope_rejection(status, reason, expected) -> None:
-    response = {"error": {"code": "harbor_validation_error", "details": {"reason": reason}}}
+def test_negative_probe_requires_completion_refusal(status, outcome, reason, expected) -> None:
+    response = {
+        "outcome": outcome,
+        "refusal_reason": reason,
+        "finish_reason": "out_of_scope",
+        "session_id": "session-1",
+        "message": {"role": "assistant", "content": "I cannot answer that request."},
+        "citations": [],
+    }
     assert chat_quality_api_probe._out_of_scope(status, response) is expected
 
 
-def test_negative_probe_preserves_http_error_body_without_registering_session(monkeypatch) -> None:
+def test_negative_probe_tracks_refusal_session_for_cleanup(monkeypatch) -> None:
     api = chat_quality_api_probe.HarborApi("http://127.0.0.1:8000", "DEFAULT", None)
-    response = {"error": {"code": "harbor_validation_error", "details": {"reason": "out_of_scope"}}}
+    response = {"outcome": "refused", "refusal_reason": "out_of_scope", "session_id": "session-1"}
     monkeypatch.setattr(
         api, "_send_with_status", lambda *args, **kwargs: (422, json.dumps(response))
     )
 
-    status, body = api.complete_with_status("What is 2 + 2?")
+    status, body = api.complete_with_status("Unsupported request")
 
     assert status == 422 and body == response and api.sessions == set()
+    monkeypatch.setattr(
+        api, "_send_with_status", lambda *args, **kwargs: (200, json.dumps(response))
+    )
+    assert api.complete_with_status("Unsupported request")[0] == 200
+    assert api.sessions == {"session-1"}
 
 
 def test_live_probe_stops_before_chat_when_authorized_retrieval_is_empty() -> None:

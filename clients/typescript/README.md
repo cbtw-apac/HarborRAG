@@ -126,11 +126,15 @@ headers and abort signal as chat. It cannot change the run's prompt/model or str
 For new agent runs use `completeAgent` / `streamAgent`; both post to
 `/v1/agent/completions` and need only `prompt`. Both streaming helpers use the
 same event parser and cancellation behavior.
+`completeAgent` returns `ChatCompletionResponse`; check `outcome` before using
+run fields, which are null when a scope refusal prevented the run.
 Citation content is bounded, authorized source text; render it as text, not raw HTML.
 During SSE, candidate citations arrive in `retrieval.completed`; replace them with the
 final answer's citations rather than assuming every candidate was used. Agent text
-arrives at completion, with progress events beforehand. HTTP scope rejections are
-`HarborApiRequestError` (`422`, `details.reason: out_of_scope`), not SSE events.
+arrives at completion, with progress events beforehand. Out-of-scope prompts
+complete with `outcome: "refused"` and `refusal_reason: "out_of_scope"` in the
+same JSON or `response.completed` schema as an answer. Invalid requests and
+service failures still use `HarborApiRequestError`.
 
 ## Session history
 

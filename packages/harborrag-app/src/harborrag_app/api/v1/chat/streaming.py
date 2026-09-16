@@ -72,14 +72,17 @@ def progress_frame(event: dict[str, object]) -> bytes | None:
     return None
 
 
-def stream_response(
+def stream_response(  # noqa: PLR0913 - shared stream lifecycle and replay state
     request: CompletionRequest,
     principal: Principal,
     *,
     settings: ApiSettings,
     attempt: CompletionAttempt,
     replay: ChatCompletionResponse | None = None,
+    replayed: bool | None = None,
 ) -> StreamingResponse:
+    was_replayed = replay is not None if replayed is None else replayed
+
     async def events() -> AsyncGenerator[bytes, None]:
         terminal = sse_frame("response.error", error_payload({"error_type": "ChatStreamError"}))
         try:
@@ -88,7 +91,7 @@ def stream_response(
                 {
                     "session_id": replay.session_id if replay else request.session_id,
                     "mode": request.mode,
-                    "replayed": replay is not None,
+                    "replayed": was_replayed,
                 },
             )
             if replay is not None:
@@ -140,6 +143,6 @@ def stream_response(
         headers={
             "Cache-Control": "no-store",
             "X-Accel-Buffering": "no",
-            "Idempotency-Replayed": str(replay is not None).lower(),
+            "Idempotency-Replayed": str(was_replayed).lower(),
         },
     )

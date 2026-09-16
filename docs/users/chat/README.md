@@ -7,8 +7,9 @@ returned ID on later requests. Both endpoints can use the same session.
 
 Both HTTP modes run a request-scope check before generation or SSE headers. Requests
 about indexed knowledge, relevant source code, and the conversation are allowed.
-Unrelated creation requests (for example, "write a Python snake game") are rejected
-with HTTP `422`, code `harbor_validation_error`, and `details.reason: out_of_scope`.
+Unrelated creation requests (for example, "write a Python snake game") receive
+HTTP `200` with the normal completion schema, `outcome: "refused"`, and
+`refusal_reason: "out_of_scope"`. They do not run answer generation.
 "Find and explain the snake implementation in our repository" remains a valid search.
 The check is model-based, not an authorization boundary or proof of answer relevance.
 Malformed classifier output fails closed with `503`; it never enables generation.
@@ -54,8 +55,17 @@ The JSON response always includes `session_id`; keep it and send it in the
 next completion request to continue this user's session. A streamed response
 announces it in `response.started` before any generation, then repeats it in
 `response.completed`. The response also includes `title`, `mode`, model identity,
-`message`, `finish_reason`, token `usage`, `cost`, `citations`, and
+`message`, `outcome`, `refusal_reason`, `finish_reason`, token `usage`, `cost`, `citations`, and
 `memory_persisted`. Agent results also include run and tool metadata.
+
+An out-of-scope refusal uses the same fields in chat and agent mode. Its
+`message.content` explains the refusal, `citations` is empty, and
+`memory_persisted` is `false`. The completion reports `model: "scope_gate"` and
+`provider: "policy"` with zero answer-generation usage; the separate scope
+classifier call is recorded in the usage ledger. A new refusal still creates
+a session so the response can return its `session_id`. Agent run fields are
+null because no agent run started. Completed idempotent retries replay the
+same refusal without classifying again.
 
 Titles start empty and are generated after the first successfully stored
 exchange from the first ten prompt words, capped at 80 characters. This is
@@ -98,7 +108,8 @@ Agent mode streams progress and returns the answer at completion; it does not
 currently stream intermediate model text.
 
 Unknown sessions/projects and invalid models are rejected before streaming
-with ordinary HTTP errors, as are out-of-scope requests. Failures after headers are sent use
+with ordinary HTTP errors. Out-of-scope requests finish with `response.completed`
+and the same refusal payload as JSON. Failures after headers are sent use
 `response.error`. Interrupted RAG output is saved as partial when possible,
 but partial exchanges are excluded from the next prompt.
 
