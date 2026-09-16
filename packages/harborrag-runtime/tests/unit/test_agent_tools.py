@@ -9,6 +9,7 @@ import pytest
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_engine.agent.execution import ChatAndToolExecutor
 from harborrag_engine.agent.schemas import AgentRunOptions
+from harborrag_runtime.agent.memory_tool_specs import MEMORY_AGENT_TOOL_SPECS
 from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.sdk import RetrievalLane
@@ -263,3 +264,49 @@ async def test_a_schema_rejection_never_echoes_the_models_own_arguments() -> Non
     assert padding not in error
     assert len(error) < 500
     assert "filters" in error
+
+
+_TENANT_FREE_TOOLS = frozenset({"describe_graph", "search_memory", "manage_memory"})
+"""Tools that legitimately take no tenant, each for a stated reason.
+
+``describe_graph`` reads only the static graph contract and touches no tenant's
+data. The two memory tools are bound server-side to a full ``MemoryOwner`` that
+already carries the tenant, and their schemas forbid owner fields outright.
+"""
+
+
+def test_every_tool_either_declares_a_tenant_or_is_knowingly_tenant_free() -> None:
+    """The engine binds a tenant only where the schema declares the property.
+
+    That makes an omitted ``tenant_id`` property a silent grant of an unscoped
+    call rather than a loud failure: ``ToolSpec.input_schema`` defaults to a
+    bare ``{"type": "object"}``, so a tool added without a schema would receive
+    the model's raw arguments with no tenant bound and nothing would complain.
+    Keep the exemptions explicit so that day is a test failure.
+    """
+
+    specs = [tool.spec for tool in build_reader_tool_catalog(None, KnowledgeReferenceStore())]
+    specs.extend(MEMORY_AGENT_TOOL_SPECS)
+    assert specs, "the catalog must not be empty"
+
+    unscoped = {
+        spec.name
+        for spec in specs
+        if "tenant_id" not in (spec.input_schema.get("properties") or {})
+    }
+
+    assert unscoped == _TENANT_FREE_TOOLS
+
+
+def test_a_tenant_free_tool_forbids_the_properties_it_does_not_declare() -> None:
+    """Their safety rests on the schema refusing anything extra."""
+
+    specs = {spec.name: spec for spec in MEMORY_AGENT_TOOL_SPECS}
+    specs["describe_graph"] = next(
+        tool.spec
+        for tool in build_reader_tool_catalog(None, KnowledgeReferenceStore())
+        if tool.spec.name == "describe_graph"
+    )
+
+    for name in _TENANT_FREE_TOOLS:
+        assert specs[name].input_schema.get("additionalProperties") is False, name

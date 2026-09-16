@@ -106,8 +106,8 @@ def plan_capacity_buckets(
     equals the subject and the tiers never collapse -- instead every principal
     in a tenant shares one user bucket. The user tier is therefore a
     per-tenant limit in practice, and one caller holding several long-lived
-    streams can exhaust it for everyone. Callers that need a real per-person
-    tier must set ``limit_scope`` to ``principal``.
+    streams can exhaust it for everyone. The principal tier is the only one
+    that separates callers today.
     """
     tenant = _tier_bucket("tenant", scope, scope.tenant_id, limits.tenant)
     if scope.user_id == scope.principal_id:
