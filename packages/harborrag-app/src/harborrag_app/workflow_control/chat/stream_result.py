@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
+from harborrag_core.models.chat import (
+    FinishReason,
+    HarborChatMessage,
+    HarborChatResponse,
+    HarborChatUsage,
+)
 
 from .preparation import PreparedTurn
 from .presenters import chat_response_data
@@ -30,7 +35,7 @@ def stream_result(
         provider_model=chunk.provider_model,
         deployment=chunk.deployment,
         message=HarborChatMessage.assistant(delivered.text),
-        finish_reason=answer.finish_reason or "unknown",
+        finish_reason=FinishReason.parse(answer.finish_reason),
         usage=answer.usage or HarborChatUsage(),
         estimated_cost_usd=(
             delivered.call.estimated_cost_usd if delivered.call is not None else None

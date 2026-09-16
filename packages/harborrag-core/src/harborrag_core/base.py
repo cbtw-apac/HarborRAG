@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from functools import cache
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -90,15 +91,29 @@ class FrozenList(list[Any]):
     sort = _immutable
 
 
+@cache
+def _frozen_metadata_type() -> type:
+    """``FrozenMetadata``, imported late to break the cycle back to this module.
+
+    It is already immutable, so re-wrapping it in a ``FrozenDict`` would lose
+    its behaviour. Recognising it by comparing ``__name__`` and ``__module__``
+    worked only while the class stayed exactly where it was: moving it, or
+    subclassing it, silently resumed re-wrapping. ``chunking.metadata`` imports
+    this module, so the import has to happen on first call rather than at
+    module scope.
+    """
+
+    from harborrag_core.chunking.metadata import FrozenMetadata
+
+    return FrozenMetadata
+
+
 def _deep_freeze(value: Any) -> Any:
     """Freeze nested built-in containers while retaining JSON serialization."""
 
     if isinstance(value, BaseModel):
         return value
-    if (
-        type(value).__name__ == "FrozenMetadata"
-        and type(value).__module__ == "harborrag_core.chunking.metadata"
-    ):
+    if isinstance(value, _frozen_metadata_type()):
         return value
     if isinstance(value, Mapping):
         return FrozenDict({key: _deep_freeze(item) for key, item in value.items()})

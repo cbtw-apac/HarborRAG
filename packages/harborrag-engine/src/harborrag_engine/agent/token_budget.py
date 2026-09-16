@@ -6,7 +6,12 @@ import json
 import math
 from collections.abc import Iterable
 
-from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatTool
+from harborrag_core.models.chat import (
+    FinishReason,
+    HarborChatMessage,
+    HarborChatResponse,
+    HarborChatTool,
+)
 
 from .loop_state import LoopState, RunContext
 
@@ -131,7 +136,7 @@ def exhausted_response(run_id: str, message: str) -> HarborChatResponse:
         provider_model="token-budget-guard",
         deployment="local",
         message=HarborChatMessage.assistant(message),
-        finish_reason="length",
+        finish_reason=FinishReason.LENGTH,
     )
 
 

@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-from typing import Protocol
+from typing import Protocol, cast
 from unicodedata import category
 from uuid import uuid4
 
+from harborrag_core.domain.validation import require_identity_fields
+from harborrag_core.invariants import require
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
 from harborrag_core.models.cost import ModelCost
 
@@ -57,6 +59,16 @@ class AgentRunIdentity:
     run_id: str
     user_id: str
 
+    def __post_init__(self) -> None:
+        # The isolation keys only. ``principal_id`` stays out of every
+        # predicate by design, so it is provenance rather than a boundary.
+        require_identity_fields(
+            tenant_id=self.tenant_id,
+            session_id=self.session_id,
+            run_id=self.run_id,
+            user_id=self.user_id,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class AgentEvidenceReference:
@@ -90,8 +102,8 @@ class AgentEvidenceReference:
     def marker(self) -> str:
         """Exact model-visible provenance retained across checkpoint upgrades."""
 
-        assert self.canonical_marker is not None
-        return self.canonical_marker
+        require(self.canonical_marker is not None, "agent evidence marker must be derived")
+        return cast("str", self.canonical_marker)
 
     def _derived_marker(self) -> str:
         """Build the initial readable label for newly observed evidence."""

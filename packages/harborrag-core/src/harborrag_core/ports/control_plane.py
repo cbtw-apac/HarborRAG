@@ -114,7 +114,19 @@ class ActivityRepositoryPort(Protocol):
 
 
 class SettingsRepositoryPort(Protocol):
-    """Single-document workspace settings (plan §5.5)."""
+    """Single-document workspace settings (plan §5.5).
+
+    NOT tenant-scoped, despite ``SettingsRepositoryProvider`` below being a
+    ``TenantScopedRepositoryProvider`` and ``WorkspaceSettings`` carrying a
+    ``tenant_id``. Neither method takes a scope and the SQL adapter addresses
+    one fixed row, so in a multi-tenant deployment every tenant reads and
+    overwrites the same document.
+
+    Closing this needs a unique constraint on ``workspace_settings.tenant_id``
+    and a migration to split the existing row, so it is a schema decision
+    rather than a code change. Until then, treat the document as workspace-wide
+    and do not store anything tenant-specific in it.
+    """
 
     async def get(self) -> WorkspaceSettings:
         """The settings document (empty document if never written)."""

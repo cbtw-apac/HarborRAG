@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Literal, Protocol
 from uuid import uuid4
 
+from harborrag_core.domain.validation import require_identity_fields
 from harborrag_core.ports.completion_requests import CompletionRequestStore
 
 ConversationKind = Literal["chat", "agent"]
@@ -102,6 +103,19 @@ class ConversationIdentity:
     principal_id: str = field(compare=False)
     session_id: str
     user_id: str
+
+    def __post_init__(self) -> None:
+        # The three isolation keys must be present: an empty one is an upstream
+        # bug that would otherwise pool every such caller into a shared ""
+        # bucket, which ``MemoryOwner`` has refused all along. ``principal_id``
+        # is deliberately exempt -- it is audit provenance, excluded from
+        # comparison, and callers legitimately leave it blank when building an
+        # identity purely as a lookup key.
+        require_identity_fields(
+            tenant_id=self.tenant_id,
+            session_id=self.session_id,
+            user_id=self.user_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
