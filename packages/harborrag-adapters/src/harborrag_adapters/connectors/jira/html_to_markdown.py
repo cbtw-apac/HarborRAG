@@ -9,7 +9,6 @@ Only a lightweight subset of Confluence's test helper is required here:
 from __future__ import annotations
 
 import re
-from typing import List
 
 try:
     from bs4 import BeautifulSoup, Tag
@@ -49,9 +48,9 @@ def html_to_markdown(html: str | bytes) -> str:
     return out.strip()
 
 
-def _render_table(table: "Tag") -> str:
+def _render_table(table: Tag) -> str:
     # Collect rows
-    rows: List[List[str]] = []
+    rows: list[list[str]] = []
     for tr in table.find_all("tr"):
         cells = []
         for cell in tr.find_all(["th", "td"]):
@@ -80,9 +79,9 @@ def _render_table(table: "Tag") -> str:
     return "\n".join(md_rows)
 
 
-def _cell_text(cell: "Tag") -> str:
+def _cell_text(cell: Tag) -> str:
     # prefer textual content; preserve internal newlines between block children
-    parts: List[str] = []
+    parts: list[str] = []
     for child in cell.children:
         if hasattr(child, "get_text"):
             parts.append(str(child.get_text(" ", strip=True)))
@@ -100,7 +99,7 @@ def _escape_cell(value: str) -> str:
 
 def _compact_text(text: str) -> str:
     lines = [line.strip() for line in text.splitlines()]
-    compact: List[str] = []
+    compact: list[str] = []
     for line in lines:
         if not line:
             if compact and compact[-1]:
