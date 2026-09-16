@@ -2349,7 +2349,7 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.19,<1" },
     { name = "pydantic", specifier = ">=2.13,<3" },
     { name = "pydantic-settings", specifier = ">=2.2" },
-    { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.30,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]

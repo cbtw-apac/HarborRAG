@@ -70,7 +70,14 @@ async def test_in_memory_checkpoints_are_bounded_isolated_and_versioned() -> Non
     assert await repository.get(second.identity) is second
 
 
-def test_database_checkpoints_require_an_explicit_production_dsn() -> None:
+def test_database_checkpoints_require_an_explicit_production_dsn(monkeypatch) -> None:
+    """The assertion is about an *unset* DSN, so the test has to unset it.
+
+    Reading whatever the process environment happened to hold made this pass
+    only when nothing earlier had exported one.
+    """
+
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
     settings = RuntimeSettings().model_copy(update={"env": "prod"})
     with pytest.raises(HarborConfigurationError, match="HARBORRAG_CONTROL_DB_URL"):
         DatabaseAgentRunRepository.configured(settings)
@@ -78,6 +85,8 @@ def test_database_checkpoints_require_an_explicit_production_dsn() -> None:
 
 @pytest.mark.asyncio
 async def test_database_checkpoint_composition_and_delegation(monkeypatch) -> None:
+    # Asserts on the default DSN, so the environment must not supply one.
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
     from harborrag_adapters.repositories.database.control_plane import (
         agent_runs,
         engine,
