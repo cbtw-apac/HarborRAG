@@ -17,7 +17,7 @@ import yaml
 
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_mcp_server.tools.base import McpToolSpec
+from harborrag_runtime.tools.base import ToolSpec
 
 from .models import McpConfiguration, ToolConfiguration
 from .validation import validate_tools
@@ -49,7 +49,7 @@ class McpConfigurationStore:
         *,
         path: Path,
         configuration: McpConfiguration,
-        specs: list[McpToolSpec],
+        specs: list[ToolSpec],
         audit: McpAuditLog,
         environment: Mapping[str, str] | None = None,
     ) -> None:
@@ -67,7 +67,7 @@ class McpConfigurationStore:
         cls,
         *,
         path: str | Path,
-        specs: list[McpToolSpec],
+        specs: list[ToolSpec],
         audit: McpAuditLog,
         environment: Mapping[str, str] | None = None,
     ) -> McpConfigurationStore:
@@ -187,7 +187,7 @@ class McpConfigurationStore:
             limits=dict(global_override.limits | tenant_override.limits),
         )
 
-    def tool_spec(self, spec: McpToolSpec, tenant_id: str | None = None) -> McpToolSpec:
+    def tool_spec(self, spec: ToolSpec, tenant_id: str | None = None) -> ToolSpec:
         resolved = self.resolve(spec.name, tenant_id)
         schema = copy.deepcopy(spec.input_schema)
         properties = schema.get("properties", {})

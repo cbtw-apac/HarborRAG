@@ -123,7 +123,7 @@ print(list_tools())
 ```
 
 ```python
-# Server instance: returns McpToolSpec objects with .name and .input_schema.
+# Server instance: returns ToolSpec objects with .name and .input_schema.
 from harborrag_mcp_server.server import McpServer
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 

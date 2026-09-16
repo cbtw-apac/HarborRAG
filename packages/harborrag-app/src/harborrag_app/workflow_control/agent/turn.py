@@ -77,6 +77,9 @@ async def record_run_usage(
             provider=response.provider,
             provider_model=response.provider_model,
             usage=result.usage,
+            # NULL means "this run's price is not fully known", never "free".
+            # ``ModelUsageTotals.unpriced_requests`` is what keeps a reader from
+            # mistaking the coalesced 0.0 in the cost sum for a complete bill.
             estimated_cost_usd=result.cost.amount_usd if result.cost.complete else None,
             finish_reason=str(response.finish_reason),
         ),

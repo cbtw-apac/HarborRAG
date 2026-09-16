@@ -6,8 +6,8 @@ import pytest
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.vector_search import VectorSearchTool
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
+from harborrag_runtime.tools.vector_search import VectorSearchTool
 
 
 def _result(id_: str, text: str, score: float) -> RetrievalResult:

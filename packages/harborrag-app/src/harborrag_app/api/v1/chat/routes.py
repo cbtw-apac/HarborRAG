@@ -135,6 +135,9 @@ async def _complete_chat(
     replay = await attempt.claim()
     response.headers["Cache-Control"] = "no-store"
     response.headers["Idempotency-Replayed"] = str(replay is not None).lower()
+    # A streamed turn returns before this is set: its spend, and the failure it
+    # may record, are settled inside the stream rather than here.
+    dispatched = False
     try:
         if replay is not None:
             await _require_session(service, request, principal, replay.session_id)
@@ -154,6 +157,7 @@ async def _complete_chat(
             )
         if replay is not None:
             return replay
+        dispatched = True
         result = await dispatch.complete(service, request, principal, settings)
         if not result.ok:
             raise HarborConnectionError("Chat service is unavailable")
@@ -161,5 +165,12 @@ async def _complete_chat(
         await attempt.finish(payload)
         return payload
     except BaseException:
-        await attempt.finish()
+        # Only a request that reached the model can have cost anything, and only
+        # that one records an unreplayable failure. Everything before dispatch --
+        # a busy turn, an unavailable session store, a caller that went away --
+        # hands the key back instead of burning it.
+        if dispatched:
+            await attempt.finish()
+        else:
+            await attempt.release()
         raise

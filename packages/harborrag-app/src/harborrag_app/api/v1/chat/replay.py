@@ -30,7 +30,12 @@ class CompletionAttempt:
     ) -> CompletionAttempt:
         # Delivery format does not alter the paid operation. A retry may ask
         # for JSON after its stream disconnected and receive the saved result.
-        serialized = request.model_dump_json(exclude={"stream", "idempotency_key"})
+        #
+        # ``session_id`` is excluded because the server assigns it and hands it
+        # back in the first stream frame: a retry that echoes the session it was
+        # just told about describes the same paid operation as the attempt that
+        # omitted it, and must replay rather than read as a different request.
+        serialized = request.model_dump_json(exclude={"stream", "idempotency_key", "session_id"})
         return cls(
             service,
             request.tenant,
@@ -59,6 +64,29 @@ class CompletionAttempt:
             raise HarborConflictError(messages.get(claim.status, "Completion cannot be replayed"))
         self.claimed = True
         return None
+
+    async def release(self) -> None:
+        """Give the key back after a failure that never reached a model.
+
+        Marking such a claim ``failed`` would spend the caller's key on work
+        that never cost anything, and the only way past a failed claim is a
+        brand-new key. Releasing keeps the duplicate-suppression window while
+        the request was in flight and leaves the key reusable afterwards.
+        """
+
+        if not self.claimed or self.key is None:
+            return
+        try:
+            await self.service.release_completion(
+                tenant_id=self.tenant_id,
+                user_id=self.user_id,
+                key=self.key,
+                request_hash=self.request_hash,
+            )
+        except Exception:  # noqa: BLE001 - a stranded claim must not mask the real error
+            logger.exception("Completion claim could not be released")
+        finally:
+            self.claimed = False
 
     async def finish(self, result: ChatCompletionResponse | None = None) -> None:
         if not self.claimed or self.key is None:

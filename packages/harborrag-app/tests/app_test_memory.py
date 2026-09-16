@@ -36,10 +36,20 @@ class FakeMemoryStore:
 
     async def search(self, query: MemoryQuery) -> tuple[Memory, ...]:
         scopes = query.scopes or tuple(MemoryScope)
+
+        def matches(memory: Memory) -> bool:
+            # Mirrors SqlMemoryRepository: erasure matches the row's stored
+            # tenant/user, reads match caller visibility.
+            if query.stored_by_owner:
+                return (
+                    query.owner.user_id is not None
+                    and memory.owner.tenant_id == query.owner.tenant_id
+                    and memory.owner.user_id == query.owner.user_id
+                )
+            return visible_to(memory.scope, memory.owner, query.owner)
+
         found = [
-            memory
-            for memory in self.rows.values()
-            if memory.scope in scopes and visible_to(memory.scope, memory.owner, query.owner)
+            memory for memory in self.rows.values() if memory.scope in scopes and matches(memory)
         ]
         found.sort(key=lambda memory: (-memory.importance, memory.memory_id))
         return tuple(found[: query.limit])
@@ -80,6 +90,7 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
     user_id: str = DEFAULT_USER,
     principal_id: str = "dev",
     session_id: str | None = None,
+    project_id: str | None = None,
     scope: MemoryScope = MemoryScope.USER,
     content: str = "prefers metric units",
     importance: float = 0.5,
@@ -97,6 +108,7 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
             user_id=user_id,
             principal_id=principal_id,
             session_id=session_id,
+            project_id=project_id,
         ),
         content=content,
         importance=importance,

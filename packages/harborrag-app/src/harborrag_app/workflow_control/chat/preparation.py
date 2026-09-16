@@ -26,6 +26,13 @@ from .options import ChatExecutionOptions
 from .prompting import build_chat_request, history_messages
 from .retrieval import relevant_results, search_documents
 
+# ``ChatEvidence`` budgets the rendered prompt in bytes; the policy states it in
+# tokens. Four is the usual conservative byte-per-token ratio for the mixed
+# prose and JSON an evidence packet carries -- passing the token count straight
+# through instead capped the whole evidence block at roughly a quarter of the
+# context it was allowed, and rejected long questions outright.
+_BYTES_PER_TOKEN = 4
+
 if TYPE_CHECKING:
     from harborrag_core.domain.retrieval import RetrievalResult
 
@@ -98,7 +105,9 @@ async def prepare_turn(
             replace(response, results=results),
             query=query,
             history=history_messages(context.messages),
-            max_bytes=resources.settings.topology_retrieval_policy.max_context_tokens,
+            max_bytes=(
+                resources.settings.topology_retrieval_policy.max_context_tokens * _BYTES_PER_TOKEN
+            ),
             overlay=graph_enabled,
         )
         if results

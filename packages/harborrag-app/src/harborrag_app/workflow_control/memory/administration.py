@@ -38,6 +38,10 @@ _PAGE = 1_000
 _MAX_PASSES = 50
 _USER_SCOPES = (MemoryScope.USER,)
 _SESSION_SCOPES = (MemoryScope.SESSION,)
+# Scopes a user's own rows can carry that no caller-visibility query can reach
+# for them: PROJECT keys on (tenant_id, project_id) and RUN needs a run_id the
+# eraser does not have. Matched on the row's stored user instead.
+_AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.RUN, MemoryScope.TENANT)
 _NO_STORE = "long-term memory is not configured for this deployment"
 
 
@@ -181,6 +185,12 @@ class MemoryAdministrationService:
             await self._conversations.clear_messages(
                 ConversationIdentity(owner.tenant_id, principal_id, session_id, target)
             )
+        # Anything the user authored outside their own visibility key. Without
+        # this pass a project-scoped fact about the erased user survives and
+        # stays recallable to everyone else in that project.
+        authored = await self._purge(user_owner, _AUTHORED_SCOPES, stored_by_owner=True)
+        memories += authored.memories
+        points += authored.index_points
         report = ErasureReport(
             memories=memories,
             index_points=points,
@@ -195,6 +205,8 @@ class MemoryAdministrationService:
         self,
         owner: MemoryOwner,
         scopes: tuple[MemoryScope, ...],
+        *,
+        stored_by_owner: bool = False,
     ) -> _Purged:
         """Delete every memory visible to ``owner`` at ``scopes``, plus vectors.
 
@@ -216,12 +228,20 @@ class MemoryAdministrationService:
                     scopes=scopes,
                     limit=_PAGE,
                     include_invalid=True,
+                    stored_by_owner=stored_by_owner,
                 )
             )
             if not rows:
                 return _Purged(deleted, unindexed, frozenset(conversations))
             for row in rows:
-                await self._memories.delete(owner, row.memory_id)
+                # ``delete`` re-checks visibility, and a PROJECT-scoped row is
+                # not visible to an eraser holding no project_id -- the same
+                # asymmetry that hides it from the query. The row's own owner
+                # always satisfies that check, and the search above already
+                # pinned the row to this tenant and user, so authorization is
+                # established before we get here rather than by this argument.
+                caller = row.owner if stored_by_owner else owner
+                await self._memories.delete(caller, row.memory_id)
                 deleted += 1
                 unindexed += await self._unindex(row)
                 principal_id = row.owner.principal_id

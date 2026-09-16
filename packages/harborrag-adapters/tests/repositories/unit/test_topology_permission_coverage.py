@@ -43,7 +43,9 @@ def snapshot(  # noqa: PLR0913 - test factory exposes each independent ACL state
 
 
 @pytest.mark.asyncio
-async def test_permission_coverage_reports_active_corpus_without_identifiers(tmp_path: Path) -> None:
+async def test_permission_coverage_reports_active_corpus_without_identifiers(
+    tmp_path: Path,
+) -> None:
     async with make_control_plane(tmp_path) as control:
         empty = await control.topology.permission_coverage("DEFAULT")
         assert not empty.corpus_present

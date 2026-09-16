@@ -199,6 +199,12 @@ class MemoryQuery:
     limit: int = 20
     include_invalid: bool = False
     as_of: datetime | None = None
+    # Match rows *stored under* ``owner``'s tenant and user rather than rows
+    # visible to ``owner``. Erasure needs this and reads must never use it: a
+    # PROJECT-scoped memory is keyed on (tenant_id, project_id) with no user,
+    # so scope visibility alone can never find the rows one user authored
+    # there, and erasing by project would take everybody else's with them.
+    stored_by_owner: bool = False
 
     def __post_init__(self) -> None:
         if not 1 <= self.limit <= 1000:

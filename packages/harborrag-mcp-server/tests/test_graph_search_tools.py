@@ -13,15 +13,15 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import GraphPath, GraphTriplet
-from harborrag_mcp_server.tools.graph_search import (
-    GraphPathSearchTool,
-    GraphSubgraphSearchTool,
-    GraphTripletSearchTool,
-)
 from harborrag_runtime.sdk import (
     GraphPathResponse,
     GraphSubgraphResponse,
     GraphTripletResponse,
+)
+from harborrag_runtime.tools.graph_search import (
+    GraphPathSearchTool,
+    GraphSubgraphSearchTool,
+    GraphTripletSearchTool,
 )
 
 

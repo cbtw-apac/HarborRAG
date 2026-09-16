@@ -117,7 +117,15 @@ async def test_agent_stream_reports_unknown_project_as_terminal_error() -> None:
         )
     ]
 
-    assert events == [{"kind": "error", "error": "HarborNotFoundError"}]
+    # ``error_type`` is what the transport branches on; without it this reaches
+    # the caller as a generic "service unavailable" frame.
+    assert events == [
+        {
+            "kind": "error",
+            "error": "HarborNotFoundError",
+            "error_type": "HarborNotFoundError",
+        }
+    ]
 
 
 @pytest.mark.asyncio

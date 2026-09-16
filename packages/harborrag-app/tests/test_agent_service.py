@@ -310,6 +310,37 @@ async def test_agent_service_stream_yields_events_then_result() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_stream_error_carries_the_type_the_transport_branches_on() -> None:
+    """Without ``error_type`` every agent failure reads as one generic outage.
+
+    The transport's error table is keyed on it, so a missing key collapses a
+    busy turn and a lost lease into "Chat service is unavailable" and tells the
+    caller to back off when it should retry. The rag surface is pinned by
+    ``test_chat_stream_error_frame_names_a_scope_failure``; this is its agent twin.
+    """
+
+    runtime = SimpleNamespace(chat=_Chat())
+    service = AgentApplicationService(
+        lambda: runtime,  # type: ignore[arg-type]
+        memory=InMemoryConversationMemory(),
+        runs=InMemoryAgentRunRepository(),
+    )
+
+    items = [
+        item
+        async for item in service.stream(
+            "question",
+            tenant_id="ACME",
+            principal_id="reader-1",
+            options=AgentExecutionOptions(user_id="reader-1", session_id="missing-session"),
+        )
+    ]
+
+    assert [item["kind"] for item in items] == ["error"]
+    assert items[0]["error_type"] == "HarborNotFoundError"
+
+
+@pytest.mark.asyncio
 async def test_agent_service_stream_cancels_the_background_run_on_early_close() -> None:
     started = asyncio.Event()
     release = asyncio.Event()

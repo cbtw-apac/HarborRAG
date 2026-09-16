@@ -13,9 +13,6 @@ from harborrag_runtime.tools.retrieval_schemas import (
     GRAPH_TRIPLET_DESCRIPTION as GRAPH_TRIPLET_DESCRIPTION,
 )
 from harborrag_runtime.tools.retrieval_schemas import (
-    VECTOR_SEARCH_DESCRIPTION as VECTOR_SEARCH_DESCRIPTION,
-)
-from harborrag_runtime.tools.retrieval_schemas import (
     graph_path_schema as graph_path_schema,
 )
 from harborrag_runtime.tools.retrieval_schemas import (

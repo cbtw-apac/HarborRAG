@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConflictError
-from harborrag_core.ports.completion_requests import CompletionClaim
+from harborrag_core.ports.completion_requests import STALE_CLAIM_SECONDS, CompletionClaim
 from harborrag_core.ports.conversation import (
     CONVERSATION_CURSOR_ERROR,
     MAX_CONVERSATION_PAGE_LIMIT,
@@ -74,6 +74,7 @@ class InMemoryConversationMemory:
         self._state: dict[ConversationIdentity, _SessionState] = {}
         self._lock = asyncio.Lock()
         self._completion_claims: dict[tuple[str, str, str], tuple[str, CompletionClaim]] = {}
+        self._completion_claimed_at: dict[tuple[str, str, str], datetime] = {}
         self._completion_sessions: dict[tuple[str, str, str], str] = {}
         self._lease_context = ConversationLeaseContext()
 
@@ -85,8 +86,19 @@ class InMemoryConversationMemory:
             existing = self._completion_claims.get(identity)
             if existing is not None:
                 stored_hash, claim = existing
-                return claim if stored_hash == request_hash else CompletionClaim("conflict")
+                if stored_hash != request_hash:
+                    return CompletionClaim("conflict")
+                # Mirrors SqlCompletionRequestStore: a claim whose holder never
+                # came back must not wedge its key, and nothing else ends
+                # ``in_progress``.
+                claimed_at = self._completion_claimed_at.get(identity)
+                abandoned = claimed_at is None or utc_now() - claimed_at >= timedelta(
+                    seconds=STALE_CLAIM_SECONDS
+                )
+                if claim.status != "in_progress" or not abandoned:
+                    return claim
             self._completion_claims[identity] = (request_hash, CompletionClaim("in_progress"))
+            self._completion_claimed_at[identity] = utc_now()
             return CompletionClaim("claimed")
 
     async def finish_completion(  # noqa: PLR0913 - mirrors the scoped idempotency port
@@ -118,6 +130,22 @@ class InMemoryConversationMemory:
                     "completed" if response_json is not None else "failed", response_json
                 ),
             )
+
+    async def release_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> None:
+        identity = (tenant_id, user_id, key)
+        async with self._lock:
+            existing = self._completion_claims.get(identity)
+            if (
+                existing is None
+                or existing[0] != request_hash
+                or existing[1].status != "in_progress"
+            ):
+                return
+            del self._completion_claims[identity]
+            self._completion_claimed_at.pop(identity, None)
+            self._completion_sessions.pop(identity, None)
 
     # -- sessions ------------------------------------------------------------
 

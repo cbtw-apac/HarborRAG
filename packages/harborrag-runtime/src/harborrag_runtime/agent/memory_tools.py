@@ -179,11 +179,18 @@ class AgentMemoryTools:
             embedding = await self.embedder(memory.content) if self.embedder is not None else None
             await self.index.index_memory(memory, embedding=embedding)
         except Exception:  # noqa: BLE001 - the canonical write already succeeded
-            logger.warning(
-                "Indexing an agent-recorded memory failed for tenant=%s scope=%s; "
-                "it stays recallable through the repository",
+            # Not a warning: where an index is wired, ``MemoryRecall`` treats it
+            # as the authoritative candidate source and does not also search the
+            # repository, so an unindexed row is durable but unrecallable until
+            # something reindexes it. The canonical write standing is what keeps
+            # this from being data loss; it is not what makes the fact usable.
+            logger.error(
+                "Indexing an agent-recorded memory failed for tenant=%s scope=%s "
+                "memory_id=%s; the row is stored but will not be recalled until "
+                "it is reindexed",
                 self.owner.tenant_id,
                 memory.scope.value,
+                memory.memory_id,
                 exc_info=True,
             )
 

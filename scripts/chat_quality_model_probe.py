@@ -144,9 +144,7 @@ def _assessment(probe: Probe, answer: str) -> dict[str, object]:
     normalized = answer.casefold()
     results = _results(probe)
     cited_chunks = {result.id for result in cited_results(answer, results)}
-    cited = {
-        index for index, result in enumerate(results, 1) if result.id in cited_chunks
-    }
+    cited = {index for index, result in enumerate(results, 1) if result.id in cited_chunks}
     required_terms = all(_term_present(term, normalized) for term in probe.required_terms)
     checks = {
         "required_terms": required_terms,
@@ -171,7 +169,9 @@ def _term_present(term: str, normalized: str) -> bool:
             for date in ("september 1, 2026", "1 september 2026", "september 1st, 2026")
         )
     pattern = _TERM_PATTERNS.get(term)
-    return bool(pattern.search(normalized)) if pattern is not None else term.casefold() in normalized
+    return (
+        bool(pattern.search(normalized)) if pattern is not None else term.casefold() in normalized
+    )
 
 
 async def _run() -> int:

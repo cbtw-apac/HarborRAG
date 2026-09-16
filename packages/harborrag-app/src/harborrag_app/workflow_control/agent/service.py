@@ -41,6 +41,7 @@ from harborrag_runtime.agent import (
 from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
 from harborrag_runtime.memory import MemoryContext
 from harborrag_runtime.sdk import HarborRAG
+from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
 from .options import AgentExecutionOptions
 from .support import DefaultPromptChat, agent_timeout_seconds, result_data, run_options
@@ -53,6 +54,22 @@ _result_data = result_data
 type RuntimeProvider = Callable[[], HarborRAG]
 
 logger = logging.getLogger("harborrag.app.workflow_control.agent")
+
+
+def _error_event(failure: AppResponse) -> dict[str, object]:
+    """Describe a failure the way the transport can branch on it.
+
+    Mirrors the rag surface's ``chat.events.error_event``: without
+    ``error_type`` the transport's lookup table misses and every agent failure
+    reaches the caller as one "service unavailable" frame, so a busy
+    conversation turn and a lost lease become indistinguishable from an outage.
+    """
+
+    return {
+        "kind": "error",
+        "error": failure.error,
+        "error_type": str(failure.data["error_type"]),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +114,9 @@ class AgentApplicationService:
         # Serializes runs per session so the engine's ``recent -> append`` on
         # conversation memory cannot interleave across concurrent requests.
         self._locks = locks or SessionLocks(memory)
+        # Held for the service's lifetime, not per run: a tool cursor the model
+        # was handed on an earlier turn has to still resolve on a later one.
+        self._references = KnowledgeReferenceStore()
 
     def _agent_service(
         self,
@@ -120,8 +140,11 @@ class AgentApplicationService:
                 memories=self._memories,
                 index=self._index,
                 memory_owner=identity.owner(),
-                # The current conversation policy is exactly three recent pairs.
-                memory_tools_enabled=False,
+                # HARBORRAG_MEMORY_AGENT_TOOLS. The conversation policy itself is
+                # exactly three recent pairs either way; these tools only let a
+                # run read and write long-term memory explicitly.
+                memory_tools_enabled=self._memory_tools,
+                references=self._references,
             ),
             memory=self._memory,
             runs=self._runs,
@@ -223,7 +246,7 @@ class AgentApplicationService:
             await self._require_scope(_identity(tenant_id, principal_id, options))
         except Exception as exc:  # noqa: BLE001 - stable application envelope
             failure = failure_response(logger, exc, "prepare agent run stream")
-            yield {"kind": "error", "error": failure.error}
+            yield _error_event(failure)
             return
 
         queue: asyncio.Queue[_StreamItem] = asyncio.Queue()
@@ -273,7 +296,7 @@ class AgentApplicationService:
                     cast("Exception", item.payload),
                     "run agent completion stream",
                 )
-                yield {"kind": "error", "error": failure.error}
+                yield _error_event(failure)
                 return
         finally:
             if not task.done():

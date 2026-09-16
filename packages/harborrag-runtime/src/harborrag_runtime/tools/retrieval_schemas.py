@@ -172,10 +172,6 @@ def graph_subgraph_schema(
     }
 
 
-VECTOR_SEARCH_DESCRIPTION = (
-    "Search tenant-scoped indexed evidence for a natural-language query. Each result "
-    "carries a chunk_id that doubles as a graph node key for the graph tools."
-)
 GRAPH_TRIPLET_DESCRIPTION = (
     f"Find active subject-predicate-object records in the tenant knowledge graph. {_SELECTOR_HINT}"
 )

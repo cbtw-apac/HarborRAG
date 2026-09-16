@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage
 from harborrag_core.topology.search import EvidenceBundle
@@ -51,7 +52,10 @@ class ChatEvidence:
             builder.guidance["conflicts_present"] = True
         builder.guidance["coverage_gaps"] = list(bundle.coverage_gaps)
         if not builder.fits():
-            raise ValueError("chat question and safety guidance exceed the context budget")
+            # The question alone does not fit, so no evidence ever could. This
+            # is the caller's input being too long, not the service being
+            # unavailable: ValueError here reached the client as a 503.
+            raise HarborValidationError("Question is too long for this deployment's context budget")
         for result in response.results:
             builder.add_passage(result)
         if overlay:

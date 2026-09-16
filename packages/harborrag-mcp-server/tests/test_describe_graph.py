@@ -17,7 +17,7 @@ from harborrag_core.ingestion.projection_contracts import (
     ONTOLOGY_SCHEMA_VERSION,
     SEMANTIC_SCHEMA_VERSION,
 )
-from harborrag_mcp_server.tools.describe_graph import DescribeGraphTool
+from harborrag_runtime.tools.describe_graph import DescribeGraphTool
 from harborrag_runtime.tools.describe_graph import DescribeGraphTool as RuntimeDescribeGraphTool
 
 

@@ -107,7 +107,9 @@ class AgentEvidenceReference:
 def _marker_text(value: str, limit: int) -> str:
     """Keep untrusted source labels on one bounded marker line."""
 
-    safe_value = "".join(character for character in value if not category(character).startswith("C"))
+    safe_value = "".join(
+        character for character in value if not category(character).startswith("C")
+    )
     normalized = re.sub(r"\s+", " ", safe_value).strip()
     normalized = normalized.replace("[", "(").replace("]", ")").replace('"', "'")
     return normalized[:limit] or "unknown"
@@ -117,9 +119,7 @@ def _reference_text(value: object, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
     safe = "".join(
-        character
-        for character in value[: limit + 1]
-        if not category(character).startswith("C")
+        character for character in value[: limit + 1] if not category(character).startswith("C")
     )
     normalized = re.sub(r"\s+", " ", safe).strip()
     return normalized[:limit] if normalized else None

@@ -112,9 +112,7 @@ class PermissionCoverageReport(StrictModel):
     def validate_summary(self) -> Self:
         corpus_present = self.sources.resources > 0 and self.documents.resources > 0
         coverage_complete = (
-            corpus_present
-            and self.sources.coverage_complete
-            and self.documents.coverage_complete
+            corpus_present and self.sources.coverage_complete and self.documents.coverage_complete
         )
         processing_complete = (
             coverage_complete

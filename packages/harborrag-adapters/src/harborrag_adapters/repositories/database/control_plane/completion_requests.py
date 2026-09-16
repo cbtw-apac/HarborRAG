@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import cast
 
 import sqlalchemy as sa
@@ -16,7 +17,11 @@ from harborrag_adapters.repositories.database.control_plane.schemas_completion_r
     CompletionRequestRow,
 )
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
-from harborrag_core.ports.completion_requests import CompletionClaim, CompletionClaimStatus
+from harborrag_core.ports.completion_requests import (
+    STALE_CLAIM_SECONDS,
+    CompletionClaim,
+    CompletionClaimStatus,
+)
 
 
 @dataclass(slots=True)
@@ -53,7 +58,38 @@ class SqlCompletionRequestStore:
                     raise
                 if row.request_hash != request_hash:
                     return CompletionClaim("conflict")
+                if row.status == "in_progress":
+                    return await self._claim_if_abandoned(
+                        tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
+                    )
                 return CompletionClaim(cast("CompletionClaimStatus", row.status), row.response_json)
+
+    async def _claim_if_abandoned(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> CompletionClaim:
+        """Take over an ``in_progress`` claim whose worker never came back.
+
+        The conditional update is the arbitration: concurrent retries race on
+        the same predicate and exactly one observes a changed row, so a live
+        claim is never stolen from a worker that is merely slow.
+        """
+
+        cutoff = utc_now() - timedelta(seconds=STALE_CLAIM_SECONDS)
+        async with self.sessions.begin() as session:
+            taken = await session.scalar(
+                sa.update(CompletionRequestRow)
+                .where(
+                    CompletionRequestRow.tenant_id == tenant_id,
+                    CompletionRequestRow.user_id == user_id,
+                    CompletionRequestRow.key == key,
+                    CompletionRequestRow.request_hash == request_hash,
+                    CompletionRequestRow.status == "in_progress",
+                    CompletionRequestRow.updated_at < cutoff,
+                )
+                .values(updated_at=utc_now())
+                .returning(CompletionRequestRow.key)
+            )
+        return CompletionClaim("claimed" if taken is not None else "in_progress")
 
     async def finish_completion(  # noqa: PLR0913 - mirrors the scoped idempotency port
         self,
@@ -95,5 +131,21 @@ class SqlCompletionRequestStore:
                     response_json=response_json,
                     session_id=session_id,
                     updated_at=utc_now(),
+                )
+            )
+
+    async def release_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> None:
+        """Delete an active claim so an unspent key can be used again."""
+
+        async with self.sessions.begin() as session:
+            await session.execute(
+                sa.delete(CompletionRequestRow).where(
+                    CompletionRequestRow.tenant_id == tenant_id,
+                    CompletionRequestRow.user_id == user_id,
+                    CompletionRequestRow.key == key,
+                    CompletionRequestRow.request_hash == request_hash,
+                    CompletionRequestRow.status == "in_progress",
                 )
             )

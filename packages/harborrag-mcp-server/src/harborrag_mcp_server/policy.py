@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from jsonschema.exceptions import SchemaError, ValidationError
 from jsonschema.validators import validator_for
 
-from harborrag_mcp_server.tools.base import McpToolSpec
+from harborrag_runtime.tools.base import ToolSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +16,7 @@ class McpToolPolicy:
     max_output_bytes: int = 1024 * 1024
     allow_ingestion: bool = False
 
-    def check_call(self, spec: McpToolSpec, arguments: dict[str, object]) -> None:
+    def check_call(self, spec: ToolSpec, arguments: dict[str, object]) -> None:
         if spec.capability == "ingestion" and not self.allow_ingestion:
             raise PermissionError("MCP ingestion tools are disabled.")
         try:

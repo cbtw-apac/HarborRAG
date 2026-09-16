@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_mcp_server.references import KnowledgeReferenceStore
 from harborrag_mcp_server.server.base import BaseMcpServer
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp_server.tools.catalog_factory import build_reader_tool_catalog
 from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
+from harborrag_runtime.tools.base import BaseTool, ToolSpec
+from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
+from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
 if TYPE_CHECKING:
     from harborrag_mcp_server.configuration import McpConfigurationStore
@@ -62,7 +62,7 @@ class McpServer(BaseMcpServer):
 
     runtime: HarborRAG | None = None
     memory: ConversationRepository = field(default_factory=InMemoryConversationMemory)
-    tools: list[BaseMcpTool] | None = None
+    tools: list[BaseTool] | None = None
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
     configuration: McpConfigurationStore | None = None
@@ -80,7 +80,7 @@ class McpServer(BaseMcpServer):
                 f"{', '.join(sorted(missing_output_schema))}"
             )
 
-    def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:
+    def list_tools(self, tenant_id: str | None = None) -> list[ToolSpec]:
         if self.tools is None:
             raise HarborInvariantError("self.tools must not be None here")
         if self.configuration is None:

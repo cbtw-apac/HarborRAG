@@ -69,6 +69,24 @@ def test_retry_without_session_replays_without_new_session_or_model_call(client,
     assert len(client.get("/v1/conversations").json()["conversations"]) == 1
 
 
+def test_retry_echoing_the_disclosed_session_replays(client, service):
+    """The session the first attempt handed back does not change the request.
+
+    A stream announces ``session_id`` in its first frame, so the natural retry
+    after a mid-stream disconnect carries a session the original request did
+    not. That is the same paid operation and must replay, not conflict.
+    """
+
+    body = {"prompt": "Explain the release", "idempotency_key": "disclosed-1"}
+    first = client.post("/v1/chat/completions", json={**body, "stream": True})
+    session = _sse_frames(first.text)[0][1]["session_id"]
+    retried = client.post("/v1/chat/completions", json={**body, "session_id": session})
+    assert retried.status_code == 200
+    assert retried.headers["idempotency-replayed"] == "true"
+    assert retried.json() == _sse_frames(first.text)[-1][1]
+    assert len(service.chat_calls) == 1
+
+
 def test_stream_result_can_be_retried_as_json(client, service):
     body = {"prompt": "Explain the release", "idempotency_key": "stream-1"}
     streamed = client.post("/v1/chat/completions", json={**body, "stream": True})
@@ -96,6 +114,27 @@ def test_failed_request_requires_an_explicit_new_key(client, service, monkeypatc
     body = {"prompt": "Explain the release", "idempotency_key": "failed-1"}
     assert client.post("/v1/chat/completions", json=body).status_code == 503
     assert client.post("/v1/chat/completions", json=body).status_code == 409
+
+
+def test_failure_before_dispatch_leaves_the_key_reusable(client, service, monkeypatch):
+    """A turn that never reached a model must not consume the caller's key.
+
+    ``test_failed_request_requires_an_explicit_new_key`` pins the opposite for a
+    failure *after* dispatch, where spend may already have happened. Here the
+    session store is what fails, so nothing was charged.
+    """
+
+    async def unavailable(*args, **kwargs):
+        return AppResponse(False, {}, "Unavailable")
+
+    monkeypatch.setattr(service, "create_chat_session", unavailable)
+    body = {"prompt": "Explain the release", "idempotency_key": "prespend-1"}
+    assert client.post("/v1/chat/completions", json=body).status_code == 503
+    monkeypatch.undo()
+    retried = client.post("/v1/chat/completions", json=body)
+    assert retried.status_code == 200
+    assert retried.headers["idempotency-replayed"] == "false"
+    assert len(service.chat_calls) == 1
 
 
 def test_deleted_conversation_cannot_be_replayed(client, service):

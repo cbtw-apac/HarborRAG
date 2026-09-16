@@ -50,9 +50,7 @@ def _display_text(value: object, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
     safe = "".join(
-        character
-        for character in value[: limit + 1]
-        if not category(character).startswith("C")
+        character for character in value[: limit + 1] if not category(character).startswith("C")
     )
     normalized = " ".join(safe.split()).strip()
     return normalized[:limit] if normalized else None

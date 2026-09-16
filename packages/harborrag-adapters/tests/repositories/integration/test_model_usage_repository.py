@@ -65,12 +65,16 @@ async def test_usage_records_round_trip_and_aggregate_by_tenant_user_and_window(
         await repo.record(_usage("user-2", estimated_cost_usd=None))
         await repo.record(_usage("user-1", tenant_id="OTHER"))
 
+        # user-2's row carries no price, so the 1.0 below is a floor across 3
+        # requests, not a bill for all of them. ``unpriced_requests`` is what
+        # says so; without it the same 1.0 reads as complete.
         assert await repo.totals(tenant_id="ACME") == ModelUsageTotals(
             requests=3,
             prompt_tokens=30,
             completion_tokens=12,
             total_tokens=42,
             estimated_cost_usd=1.0,
+            unpriced_requests=1,
         )
         assert await repo.totals(tenant_id="ACME", user_id="user-1") == ModelUsageTotals(
             requests=2,
@@ -78,6 +82,7 @@ async def test_usage_records_round_trip_and_aggregate_by_tenant_user_and_window(
             completion_tokens=8,
             total_tokens=28,
             estimated_cost_usd=1.0,
+            unpriced_requests=0,
         )
         # A null cost contributes nothing rather than making the sum null.
         no_cost = await repo.totals(tenant_id="ACME", user_id="user-2")

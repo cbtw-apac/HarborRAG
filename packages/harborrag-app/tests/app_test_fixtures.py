@@ -191,6 +191,16 @@ class MockAppService(
             session_id=session_id,
         )
 
+    async def release_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> None:
+        await self.conversations.release_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+        )
+
     def health(self) -> AppResponse:
         return AppResponse(
             True,

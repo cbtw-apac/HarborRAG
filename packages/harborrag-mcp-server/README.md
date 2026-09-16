@@ -6,13 +6,6 @@ Owns the FastMCP transport, pre-execution policy, and durable audit boundary.
 
 ```text
 __main__.py                 stdio / HTTP launcher and flag parsing
-tools/base.py               McpToolSpec and the BaseMcpTool contract
-tools/retrieval_inputs.py   shared tenant and retrieval argument schemas
-tools/vector_search.py      vector_search
-tools/reader_tools.py       fetch_evidence, get_document_context, resolve_graph_nodes
-tools/source_list_tool.py   list_sources
-tools/graph_search.py       graph_triplet_search, graph_path_search, graph_subgraph_search
-tools/describe_graph.py     static graph contract discovery
 server/base.py              server protocol
 server/server.py            tool registry, policy enforcement, dispatch
 server/http.py              loopback Streamable HTTP transport and status UI
@@ -23,6 +16,13 @@ policy.py                   compiled safety ceilings
 audit.py                    JSONL audit writer
 defaults/mcp.yaml           packaged fallback configuration
 ```
+
+The tools themselves are not owned here. Every tool implementation, argument
+schema, and output schema lives in `harborrag_runtime.tools` and is shared with
+the agent transport, so the two surfaces cannot drift apart; this package owns
+only what is genuinely MCP -- the transport, the policy ceilings applied before
+dispatch, and the audit boundary. `build_reader_tool_catalog` is what the server
+registers, and `BaseTool` / `ToolSpec` are the contracts it dispatches against.
 
 ## Team deliverables
 

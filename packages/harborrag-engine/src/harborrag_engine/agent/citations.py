@@ -311,9 +311,7 @@ def _display_text(value: object, limit: int) -> str | None:
     if not isinstance(value, str):
         return None
     safe = "".join(
-        character
-        for character in value[: limit + 1]
-        if not category(character).startswith("C")
+        character for character in value[: limit + 1] if not category(character).startswith("C")
     )
     normalized = " ".join(safe.split()).strip()
     return normalized[:limit] if normalized else None
@@ -349,11 +347,7 @@ def _location(locator: object, ordinal: object) -> str | None:
         line = _range_location(locator, "start_line", "end_line", "line")
         if line is not None:
             return line
-    if (
-        isinstance(ordinal, int)
-        and not isinstance(ordinal, bool)
-        and 0 <= ordinal <= 1_000_000_000
-    ):
+    if isinstance(ordinal, int) and not isinstance(ordinal, bool) and 0 <= ordinal <= 1_000_000_000:
         return f"passage {ordinal + 1}"
     return None
 

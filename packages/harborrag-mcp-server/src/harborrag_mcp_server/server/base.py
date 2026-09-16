@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from harborrag_mcp_server.tools.base import McpToolSpec
+from harborrag_runtime.tools.base import ToolSpec
 
 
 class BaseMcpServer(ABC):
     """Contract for an MCP server exposing only audited service-level tools."""
 
     @abstractmethod
-    def list_tools(self, tenant_id: str | None = None) -> list[McpToolSpec]:
+    def list_tools(self, tenant_id: str | None = None) -> list[ToolSpec]:
         raise NotImplementedError
 
     @abstractmethod

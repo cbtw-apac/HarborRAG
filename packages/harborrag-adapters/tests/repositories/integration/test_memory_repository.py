@@ -263,3 +263,44 @@ async def test_delete_is_scoped_to_the_caller(tmp_path: Path) -> None:
         assert await repo.get(owner, memory.memory_id) is None
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_erasure_query_reaches_a_users_project_rows_and_no_one_elses(
+    tmp_path: Path,
+) -> None:
+    """``stored_by_owner`` is erasure's predicate, and it stays pinned to one user.
+
+    PROJECT scope keys on (tenant_id, project_id) with no user, so an eraser
+    holding no project_id can never reach these rows through scope visibility
+    -- and widening the query to the whole project instead would sweep up every
+    other member's memories.
+    """
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        repo = SqlMemoryRepository(sessions)
+        mine = MemoryOwner(tenant_id="ACME", user_id="alice", project_id="atlas")
+        theirs = MemoryOwner(tenant_id="ACME", user_id="bob", project_id="atlas")
+        elsewhere = MemoryOwner(tenant_id="OTHER", user_id="alice", project_id="atlas")
+        await repo.save(_memory(mine, MemoryScope.PROJECT, "alice in atlas"))
+        await repo.save(_memory(theirs, MemoryScope.PROJECT, "bob in atlas"))
+        await repo.save(_memory(elsewhere, MemoryScope.PROJECT, "other tenant"))
+
+        eraser = MemoryOwner(tenant_id="ACME", user_id="alice")
+        assert await repo.search(MemoryQuery(owner=eraser, scopes=(MemoryScope.PROJECT,))) == ()
+        found = await repo.search(
+            MemoryQuery(
+                owner=eraser,
+                scopes=(MemoryScope.PROJECT,),
+                stored_by_owner=True,
+                include_invalid=True,
+            )
+        )
+        assert [item.content for item in found] == ["alice in atlas"]
+    finally:
+        await engine.dispose()

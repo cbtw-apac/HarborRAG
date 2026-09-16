@@ -49,6 +49,7 @@ _TOTALS = (
     sa.func.coalesce(sa.func.sum(ModelUsageRow.completion_tokens), 0).label("completion_tokens"),
     sa.func.coalesce(sa.func.sum(ModelUsageRow.total_tokens), 0).label("total_tokens"),
     sa.func.coalesce(sa.func.sum(ModelUsageRow.estimated_cost_usd), 0.0).label("cost"),
+    sa.func.count().filter(ModelUsageRow.estimated_cost_usd.is_(None)).label("unpriced"),
 )
 
 
@@ -95,6 +96,7 @@ class SqlModelUsageRepository:
             completion_tokens=int(row.completion_tokens),
             total_tokens=int(row.total_tokens),
             estimated_cost_usd=float(row.cost),
+            unpriced_requests=int(row.unpriced or 0),
         )
 
 

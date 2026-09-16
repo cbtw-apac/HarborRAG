@@ -72,6 +72,10 @@ class ModelUsageTotals:
     completion_tokens: int = 0
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    # How many of ``requests`` carried no usable price. ``estimated_cost_usd``
+    # sums only the priced ones, so a caller that ignores this reads unknown
+    # spend as free -- the one thing the cost model exists to prevent.
+    unpriced_requests: int = 0
 
 
 class ModelUsageRepository(Protocol):

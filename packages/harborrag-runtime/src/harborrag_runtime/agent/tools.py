@@ -41,12 +41,19 @@ class RuntimeAgentToolProvider:
     index: MemoryIndex | None = None
     memory_owner: MemoryOwner | None = None
     memory_tools_enabled: bool = False
+    # Opaque cursors and node handles are issued from here, so the store has to
+    # outlive one run: a ``cur_*`` handle the model saw last turn is replayed
+    # from conversation history this turn, and a per-provider store would have
+    # forgotten it, making cross-turn pagination impossible. Sharing one is safe
+    # because ``resolve`` re-binds every read to its own tenant and principal.
+    # The MCP transport holds one for the whole server for the same reason.
+    references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
     _tools: dict[str, BaseTool] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._tools = {
             tool.spec.name: tool
-            for tool in build_reader_tool_catalog(self.runtime, KnowledgeReferenceStore())
+            for tool in build_reader_tool_catalog(self.runtime, self.references)
         }
 
     def list_tools(self, tenant_id: str | None = None) -> list[AgentToolSpec]:

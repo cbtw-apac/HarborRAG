@@ -44,9 +44,7 @@ async def _permission_coverage_counts(
     expired = and_(known, snapshot.c.resolved_at <= now, snapshot.c.expires_at <= now)
 
     def count_when(predicate: ColumnElement[bool]) -> ColumnElement[int]:
-        return cast(
-            ColumnElement[int], func.coalesce(func.sum(case((predicate, 1), else_=0)), 0)
-        )
+        return cast(ColumnElement[int], func.coalesce(func.sum(case((predicate, 1), else_=0)), 0))
 
     row = (
         (
@@ -58,9 +56,9 @@ async def _permission_coverage_counts(
                     count_when(unknown).label("unknown_snapshots"),
                     count_when(not_yet_valid).label("not_yet_valid_snapshots"),
                     count_when(expired).label("expired_snapshots"),
-                    count_when(
-                        and_(current, snapshot.c.processing_allowed.is_(False))
-                    ).label("processing_disallowed_snapshots"),
+                    count_when(and_(current, snapshot.c.processing_allowed.is_(False))).label(
+                        "processing_disallowed_snapshots"
+                    ),
                     count_when(and_(current, snapshot.c.public.is_(True))).label(
                         "public_snapshots"
                     ),

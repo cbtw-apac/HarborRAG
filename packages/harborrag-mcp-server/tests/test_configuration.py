@@ -12,12 +12,12 @@ from harborrag_mcp_server.configuration import (
     McpConfigurationStore,
 )
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
+from harborrag_runtime.tools.base import BaseTool, ToolSpec
 
 
 @dataclass(slots=True)
-class ConfigurableTool(BaseMcpTool):
-    spec = McpToolSpec(
+class ConfigurableTool(BaseTool):
+    spec = ToolSpec(
         "search",
         "Configurable search.",
         {

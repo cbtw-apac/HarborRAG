@@ -113,6 +113,41 @@ async def test_user_erasure_reaches_sessions_named_by_the_users_memories(
 
 
 @pytest.mark.asyncio
+async def test_user_erasure_reaches_project_scoped_memories_but_only_the_targets(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    """Right-to-erasure must reach a project-scoped fact about the user.
+
+    PROJECT scope keys on (tenant_id, project_id) with no user, so neither the
+    visibility query nor ``delete``'s own re-check can reach it for an eraser
+    holding no project_id -- it survived erasure and stayed recallable to
+    everyone else in the project. The second assertion is the guard that
+    matters just as much: erasing by project instead would have taken a
+    different user's project memory with it.
+    """
+
+    await service.memory_store.save(
+        memory("mem-project", scope=MemoryScope.PROJECT, project_id="atlas")
+    )
+    await service.memory_store.save(
+        memory(
+            "mem-project-other",
+            scope=MemoryScope.PROJECT,
+            project_id="atlas",
+            user_id="someone-else",
+        )
+    )
+
+    response = client.delete(f"/v1/memory/users/{DEFAULT_USER}")
+
+    assert response.status_code == 200
+    assert response.json()["memories"] == 1
+    assert service.memory_index.deleted == ["mem-project"]
+    assert list(service.memory_store.rows) == ["mem-project-other"]
+
+
+@pytest.mark.asyncio
 async def test_user_erasure_logs_counts_and_never_content(
     client: TestClient,
     service: MockAppService,

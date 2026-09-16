@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
@@ -129,26 +130,34 @@ def _stream_response(
     settings: ApiSettings,
 ) -> StreamingResponse:
     async def events() -> AsyncGenerator[bytes, None]:
-        async for item in service.agent_stream(
+        # ``aclosing`` is what makes the service generator's ``finally`` run in
+        # order: it cancels the background task driving the run. A bare
+        # ``async for`` leaves that to asyncgen finalization at some later,
+        # unordered moment, so an abandoned response body keeps spending tokens
+        # and keeps holding the conversation turn lease. The chat route does the
+        # same, and has a test pinning it.
+        stream = service.agent_stream(
             request.prompt,
             tenant_id=request.tenant,
             principal_id=principal.subject,
             options=_options(request, principal, settings=settings, stream=True),
-        ):
-            kind = item["kind"]
-            if kind == "event":
-                event = item["event"]
-                payload: object = event
-                name = str(event["name"])  # type: ignore[index]
-            elif kind == "result":
-                payload = item["result"]
-                name = "result"
-            else:
-                payload = {"code": "harbor_connection_error", "message": _UNAVAILABLE_MESSAGE}
-                name = "error"
-            yield sse_frame(name, payload)
-            if kind in ("result", "error"):
-                return
+        )
+        async with contextlib.aclosing(stream):
+            async for item in stream:
+                kind = item["kind"]
+                if kind == "event":
+                    event = item["event"]
+                    payload: object = event
+                    name = str(event["name"])  # type: ignore[index]
+                elif kind == "result":
+                    payload = item["result"]
+                    name = "result"
+                else:
+                    payload = {"code": "harbor_connection_error", "message": _UNAVAILABLE_MESSAGE}
+                    name = "error"
+                yield sse_frame(name, payload)
+                if kind in ("result", "error"):
+                    return
 
     return StreamingResponse(
         bounded_sse_frames(

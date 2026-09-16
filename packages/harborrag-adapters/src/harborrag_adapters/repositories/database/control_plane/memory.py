@@ -115,9 +115,28 @@ def _scope_condition(scope: MemoryScope, caller: MemoryOwner) -> sa.ColumnElemen
     return sa.and_(*conditions)
 
 
+def _ownership_condition(scope: MemoryScope, caller: MemoryOwner) -> sa.ColumnElement[bool]:
+    """Rows at ``scope`` stored under this tenant and user, whatever else they key on.
+
+    Erasure's predicate, never a read's. It deliberately ignores the scope's
+    own owner fields so a PROJECT-scoped row the user wrote is reachable, and
+    it always pins ``tenant_id`` and ``user_id`` so it can only ever reach that
+    one person's rows.
+    """
+
+    if caller.user_id is None:
+        return sa.false()
+    return sa.and_(
+        MemoryRow.scope == scope.value,
+        MemoryRow.tenant_id == caller.tenant_id,
+        MemoryRow.user_id == caller.user_id,
+    )
+
+
 def _visibility_filter(query: MemoryQuery) -> sa.ColumnElement[bool]:
     scopes = query.scopes or _ALL_SCOPES
-    return sa.or_(*(_scope_condition(scope, query.owner) for scope in scopes))
+    condition = _ownership_condition if query.stored_by_owner else _scope_condition
+    return sa.or_(*(condition(scope, query.owner) for scope in scopes))
 
 
 def _validity_filter(query: MemoryQuery, now: datetime) -> sa.ColumnElement[bool]:

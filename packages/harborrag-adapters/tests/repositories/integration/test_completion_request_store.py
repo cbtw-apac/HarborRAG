@@ -72,3 +72,59 @@ async def test_erasure_removes_replay_text_without_allowing_a_new_claim(
     claim = await repo.claim_completion(**pending)
     assert claim.status == "failed"
     assert claim.result_json is None
+
+
+@pytest.mark.asyncio
+async def test_released_claim_frees_the_key_without_recording_a_failure(
+    sessions: SessionFactory,
+) -> None:
+    """A request that never reached a model must not consume its key.
+
+    ``finish_completion(response_json=None)`` records ``failed``, and the only
+    way past a failed claim is a brand-new key -- the right outcome when spend
+    may have happened, the wrong one for a turn that never dispatched.
+    """
+
+    store = SqlCompletionRequestStore(sessions)
+    request = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    assert (await store.claim_completion(**request)).status == "claimed"
+    await store.release_completion(**request)
+    assert (await store.claim_completion(**request)).status == "claimed"
+
+
+@pytest.mark.asyncio
+async def test_release_leaves_a_settled_claim_alone(sessions: SessionFactory) -> None:
+    """Only an active claim is releasable; a stored answer is never thrown away."""
+
+    store = SqlCompletionRequestStore(sessions)
+    request = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    await store.claim_completion(**request)
+    await store.finish_completion(**request, response_json='{"session_id":"s","text":"ok"}')
+    await store.release_completion(**request)
+    replay = await store.claim_completion(**request)
+    assert replay.status == "completed"
+    assert replay.result_json == '{"session_id":"s","text":"ok"}'
+
+
+@pytest.mark.asyncio
+async def test_abandoned_claim_is_taken_over_instead_of_wedging_the_key(
+    sessions: SessionFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker killed between claim and finish must not wedge its key forever.
+
+    ``in_progress`` has no other terminal transition, so without a staleness
+    bound a client that derives its key from the message content could never
+    send that message again.
+    """
+
+    import harborrag_adapters.repositories.database.control_plane.completion_requests as module
+
+    store = SqlCompletionRequestStore(sessions)
+    request = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    assert (await store.claim_completion(**request)).status == "claimed"
+    # Still held while the holder could plausibly be alive.
+    assert (await store.claim_completion(**request)).status == "in_progress"
+
+    monkeypatch.setattr(module, "STALE_CLAIM_SECONDS", -1)
+    assert (await store.claim_completion(**request)).status == "claimed"

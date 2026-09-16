@@ -9,8 +9,8 @@ from catalog_support import EXPECTED_READER_TOOLS
 from harborrag_mcp_server.server import call_tool, create_mcp_server, list_tools
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_runtime.tools.base import BaseTool, ToolSpec
 
 
 def test_package_exposes_the_mcp_server_namespace() -> None:
@@ -126,8 +126,8 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
     assert describe.outputSchema is not None
 
 
-class BrokenTool(BaseMcpTool):
-    spec = McpToolSpec("broken", "broken", output_schema={"type": "object"})
+class BrokenTool(BaseTool):
+    spec = ToolSpec("broken", "broken", output_schema={"type": "object"})
 
     async def call(self, arguments, *, principal_id):
         return await super().call(arguments, principal_id=principal_id)
@@ -141,8 +141,8 @@ class BrokenServer(BaseMcpServer):
         return await super().call_tool(name, arguments, principal_id=principal_id)
 
 
-class InvalidOutputTool(BaseMcpTool):
-    spec = McpToolSpec(
+class InvalidOutputTool(BaseTool):
+    spec = ToolSpec(
         "invalid_output",
         "Return an invalid result.",
         output_schema={
@@ -178,7 +178,7 @@ async def test_server_rejects_tool_output_that_breaks_its_advertised_schema() ->
 
 @pytest.mark.asyncio
 async def test_mcp_registry_exposes_retrieval_tools():
-    spec = McpToolSpec("tool", "description")
+    spec = ToolSpec("tool", "description")
     assert spec.input_schema == {"type": "object"}
     server = McpServer()
     assert [tool.name for tool in server.list_tools()] == EXPECTED_READER_TOOLS
@@ -235,7 +235,7 @@ def test_tool_policy_enforces_result_budget():
 def test_tool_policy_enforces_declared_input_schema():
     from harborrag_mcp_server.policy import McpToolPolicy
 
-    spec = McpToolSpec(
+    spec = ToolSpec(
         "search",
         "Search.",
         input_schema={
