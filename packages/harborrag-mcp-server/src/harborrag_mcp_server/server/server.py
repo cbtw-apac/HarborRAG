@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import TYPE_CHECKING
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_mcp_server.server.base import BaseMcpServer
+from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
 from harborrag_runtime.tools.base import BaseTool, ToolSpec
 from harborrag_runtime.tools.budgets import result_count
@@ -78,7 +79,18 @@ class McpServer(BaseMcpServer):
             # validation, and the eventual AccessContext. Otherwise whitespace can
             # select global policy here and a tenant override in the tool layer.
             payload["tenant_id"] = tenant_value.strip()
-        invocation_id = self.audit.start(name, payload, principal_id=principal_id)
+        audited_tenant = payload.get("tenant_id")
+        tenant_id = audited_tenant if isinstance(audited_tenant, str) else None
+        # Off the event loop: each durable audit event opens, writes and
+        # fsyncs under a lock, twice per call, and this dispatch runs inline in
+        # the transport's loop.
+        invocation_id = await asyncio.to_thread(
+            self.audit.start,
+            name,
+            payload,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+        )
         try:
             if self.tools is None:
                 raise HarborInvariantError("self.tools must not be None here")
@@ -101,13 +113,15 @@ class McpServer(BaseMcpServer):
                 policy.check_output_schema(result, spec.output_schema)
                 policy.check_results(result_count(result))
                 policy.check_output(result)
-                reported_error = result.get("ok") is False or result.get("status") == "error"
-                self.audit.finish(
+                reported_error = tool_reported_error(result)
+                await asyncio.to_thread(
+                    self.audit.finish,
                     invocation_id,
                     name,
                     principal_id=principal_id,
                     outcome="error" if reported_error else "success",
                     error_type="ToolReportedError" if reported_error else None,
+                    tenant_id=tenant_id,
                 )
                 return result
             raise ValueError(f"Unknown MCP tool: {name}")
@@ -118,5 +132,6 @@ class McpServer(BaseMcpServer):
                 principal_id=principal_id,
                 outcome="error",
                 error_type=type(exc).__name__,
+                tenant_id=tenant_id,
             )
             raise

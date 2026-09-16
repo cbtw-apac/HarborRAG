@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
-from harborrag_mcp_server.server.base import BaseMcpServer
+from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 from harborrag_mcp_server.server.http_auth import authorize_claimed_tenant
 from harborrag_mcp_server.server.server import McpServer
 
@@ -95,6 +95,10 @@ def create_mcp_server(
         mask_error_details=True,
     )
 
+    # Registered once, from the global view. FastMCP builds its tool table at
+    # startup, so tools/list cannot vary per tenant: a tool a tenant has
+    # disabled is still advertised and then refused at call time with a
+    # PermissionError naming it. Global enabled: false is honoured here.
     for spec in facade.list_tools():
         transport.add_tool(
             FunctionTool(
@@ -160,7 +164,7 @@ def _tool_handler(
             arguments,
             principal_id=principal_id,
         )
-        if result.get("ok") is False:
+        if tool_reported_error(result):
             from fastmcp.exceptions import ToolError
 
             message = result.get("error")

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import json
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from catalog_support import EXPECTED_READER_TOOLS
@@ -418,3 +420,63 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
     assert entries[-1]["error_type"] == "PermissionError"
     assert entries[-1]["outcome"] == "error"
     assert all(entry["principal_id"] == "reader-1" for entry in entries)
+
+
+@pytest.mark.asyncio
+async def test_the_audit_records_which_tenant_a_call_touched() -> None:
+    """The first question asked of a trail, and it could not answer it."""
+
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    log = McpAuditLog()
+    server = McpServer(audit=log)
+
+    await server.call_tool("describe_graph", {}, principal_id="reader-1")
+    with contextlib.suppress(Exception):
+        # Rejected for a missing query; the point is that the attempt is
+        # recorded against the tenant it was aimed at.
+        await server.call_tool("vector_search", {"tenant_id": "  ACME  "}, principal_id="reader-1")
+
+    tenants = [entry["tenant_id"] for entry in log.entries]
+    # describe_graph takes no tenant; vector_search records the canonical
+    # stripped value, the same one that drove policy and validation.
+    assert tenants[0] is None
+    assert "ACME" in tenants
+
+
+def test_a_relative_audit_path_does_not_follow_the_launch_directory(tmp_path, monkeypatch) -> None:
+    """An MCP client picks the working directory; the trail must not move.
+
+    A relative path also meant the owner-only directory rules the writer
+    enforces landed wherever the client happened to start the server.
+    """
+
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    log = McpAuditLog(path=Path(".harborrag/mcp-audit.jsonl"))
+
+    assert log.path is not None
+    assert log.path.is_absolute()
+    assert log.path == tmp_path / ".harborrag/mcp-audit.jsonl"
+
+
+def test_an_absolute_audit_path_is_left_alone(tmp_path) -> None:
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    chosen = tmp_path / "audit.jsonl"
+
+    assert McpAuditLog(path=chosen).path == chosen
+
+
+def test_one_predicate_decides_whether_a_result_failed() -> None:
+    """The audit and the MCP handler disagreed about status == "error"."""
+
+    from harborrag_mcp_server.server.base import tool_reported_error
+
+    assert tool_reported_error({"ok": False}) is True
+    assert tool_reported_error({"status": "error"}) is True
+    assert tool_reported_error({"ok": True}) is False
+    assert tool_reported_error({"results": []}) is False
