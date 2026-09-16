@@ -36,6 +36,9 @@ from harborrag_core.indexing import (
 )
 from harborrag_core.storage import StorageFamily, StorageOperationContext
 
+_MAX_HYBRID_CANDIDATES = 1_000
+"""Most candidates per lane fusion will hold in memory at once."""
+
 qm: Any
 try:
     from qdrant_client import models as _qm
@@ -178,8 +181,18 @@ class QdrantQueryExecutor:
                 f"collection schema {query.index_name!r} has no sparse vector lane",
                 context=self.error_context("hybrid_search", query.index_name, context=context),
             )
+        # Fusion needs both lanes in memory, so the candidate set is capped.
+        # A page beyond that cap cannot be answered: returning the empty slice
+        # it produces would report "no more results" for a page that was never
+        # looked at.
+        if query.offset + query.top_k > _MAX_HYBRID_CANDIDATES:
+            raise HarborStorageCapabilityError(
+                f"hybrid search cannot page beyond {_MAX_HYBRID_CANDIDATES} candidates; "
+                f"requested offset {query.offset} with top_k {query.top_k}",
+                context=self.error_context("hybrid_search", query.index_name, context=context),
+            )
         candidate_limit = min(
-            1000,
+            _MAX_HYBRID_CANDIDATES,
             max(query.top_k + query.offset, query.top_k * 4),
         )
         common = {

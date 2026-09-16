@@ -12,8 +12,13 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
+
+try:
+    from alembic import command
+    from alembic.config import Config
+except ImportError as exc:  # pragma: no cover - exercised by the bare install check
+    raise MissingOptionalDependencyError("alembic") from exc
 
 _SCRIPT_LOCATION = Path(__file__).parent / "alembic"
 

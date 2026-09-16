@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
 redis: Any
@@ -43,7 +44,7 @@ class RedisDBClient(AsyncLifecycle):
         operation_timeout_seconds: float,
     ) -> None:
         if redis is None:
-            raise ImportError("redis is not installed")
+            raise MissingOptionalDependencyError("redis")
         self._url = url
         self._connect_timeout_seconds = connect_timeout_seconds
         self._operation_timeout_seconds = operation_timeout_seconds

@@ -20,7 +20,16 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 import sqlalchemy as sa
-from cryptography.fernet import Fernet, InvalidToken
+
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
+
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+except ImportError as exc:  # pragma: no cover - exercised by the bare install check
+    # The registry turns this exact wording into a friendly configuration
+    # error naming the extra. Importing unguarded gave a bare traceback from
+    # a base install instead.
+    raise MissingOptionalDependencyError("cryptography") from exc
 
 from harborrag_core.contracts.errors import HarborNotFoundError, HarborSecretDecryptionError
 
