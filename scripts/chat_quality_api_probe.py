@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -144,6 +145,71 @@ def _citations(response: dict[str, Any]) -> list[object]:
     return citations if isinstance(citations, list) else []
 
 
+def _readable_citation(item: dict[str, Any]) -> bool:
+    return (
+        isinstance(item.get("document_title"), str)
+        and bool(item["document_title"].strip())
+        and (
+            bool(item.get("section_path"))
+            or isinstance(item.get("location"), str)
+            and bool(item["location"].strip())
+        )
+    )
+
+
+def _agent_provenance(response: dict[str, Any], answer: str) -> tuple[bool, str]:
+    validation = response.get("citation_validation")
+    if not isinstance(validation, dict):
+        return False, "citation validation is missing"
+    raw_citations = _citations(response)
+    if not all(isinstance(item, dict) for item in raw_citations):
+        return False, "citation records contain a non-object value"
+    citations = [item for item in raw_citations if isinstance(item, dict)]
+    evidence_available = validation.get("evidence_available")
+    marker_count = validation.get("marker_count")
+    validated_count = validation.get("validated_count")
+    invalid_count = validation.get("invalid_count")
+    counts_valid = all(
+        type(value) is int and value >= 0  # noqa: E721 - bool must not pass as an integer
+        for value in (marker_count, validated_count, invalid_count)
+    )
+    if not counts_valid:
+        return False, "citation validation counts are malformed"
+    assert isinstance(marker_count, int)
+    assert isinstance(validated_count, int)
+    assert isinstance(invalid_count, int)
+    counts_reconcile = marker_count == validated_count + invalid_count
+    complete_reconciles = validation.get("complete") is (invalid_count == 0)
+    if not counts_reconcile or not complete_reconciles or len(citations) > validated_count:
+        return False, "citation validation counts are inconsistent"
+    if evidence_available is False:
+        return False, (
+            f"evidence_available=false; citations={len(citations)}; "
+            "evidence-backed workflow cannot pass"
+        )
+    if evidence_available is not True:
+        return False, "evidence availability is missing"
+    readable = all(
+        _readable_citation(item)
+        and isinstance(item.get("marker"), str)
+        and item["marker"] in answer
+        for item in citations
+    )
+    passed = bool(citations) and validated_count > 0 and invalid_count == 0 and readable
+    return passed, f"evidence_available=true; citations={len(citations)}; readable={readable}"
+
+
+def _numbered_source_markers(answer: str) -> tuple[str, ...]:
+    return tuple(
+        match.group(1)
+        for match in re.finditer(
+            r"\[source\s+([0-9]+)(?=[\s:\]—-])",
+            answer,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _successful_tools(response: dict[str, Any]) -> set[str]:
     calls = response.get("tool_calls")
     if not isinstance(calls, list):
@@ -194,7 +260,8 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
         refused = _contains_any(
             answer, ("can't", "can’t", "cannot", "won't", "won’t", "no sources")
         )
-        fabricated = any(
+        fabricated = any(number.lstrip("0") == "99" for number in _numbered_source_markers(answer))
+        fabricated = fabricated or any(
             claim in folded
             for claim in (
                 "[source 99]",
@@ -317,10 +384,15 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
         )
         answer = _answer(response)
         citations = _citations(response)
+        readable = all(
+            _readable_citation(item) for item in citations if isinstance(item, dict)
+        ) and all(isinstance(item, dict) for item in citations)
         grounded = _contains_any(answer, ("metadata", "version")) and _contains_any(
             answer, ("content", "body")
         )
-        return grounded and bool(citations), f"answer={answer!r}; citations={len(citations)}"
+        return grounded and bool(citations) and readable, (
+            f"answer={answer!r}; citations={len(citations)}; readable={readable}"
+        )
 
     checks.append(_run_check("in_domain_vector_rag", vector_rag))
 
@@ -332,9 +404,16 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
         )
         answer = _answer(response)
         citations = _citations(response)
-        required = ("pars", "vector", "graph", "verif", "publish")
-        grounded = all(term in answer.casefold() for term in required)
-        return grounded and bool(citations), f"answer={answer!r}; citations={len(citations)}"
+        readable = all(
+            _readable_citation(item) for item in citations if isinstance(item, dict)
+        ) and all(isinstance(item, dict) for item in citations)
+        grounded = all(
+            _workflow_term_present(term, answer)
+            for term in ("pars", "vector", "graph", "verif", "publish")
+        )
+        return grounded and bool(citations) and readable, (
+            f"answer={answer!r}; citations={len(citations)}; readable={readable}"
+        )
 
     checks.append(_run_check("multi_hop_graph_rag", graph_rag))
 
@@ -347,13 +426,16 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
         )
         tools = _successful_tools(response)
         answer = _answer(response)
+        provenance, provenance_detail = _agent_provenance(response, answer)
         passed = (
             response.get("stop_reason") == "final_answer"
             and "vector_search" in tools
             and bool(answer.strip())
+            and provenance
         )
         return passed, (
-            f"stop={response.get('stop_reason')!r}; tools={sorted(tools)}; answer={answer!r}"
+            f"stop={response.get('stop_reason')!r}; tools={sorted(tools)}; "
+            f"{provenance_detail}; answer={answer!r}"
         )
 
     checks.append(_run_check("vector_agent_workflow", vector_agent))
@@ -367,6 +449,7 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
         )
         tools = _successful_tools(response)
         answer = _answer(response)
+        provenance, provenance_detail = _agent_provenance(response, answer)
         graph_tools = {
             "resolve_graph_nodes",
             "composed_evidence_search",
@@ -377,9 +460,11 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
             and "vector_search" in tools
             and bool(tools & graph_tools)
             and bool(answer.strip())
+            and provenance
         )
         return passed, (
-            f"stop={response.get('stop_reason')!r}; tools={sorted(tools)}; answer={answer!r}"
+            f"stop={response.get('stop_reason')!r}; tools={sorted(tools)}; "
+            f"{provenance_detail}; answer={answer!r}"
         )
 
     checks.append(_run_check("vector_graph_agent_workflow", graph_agent))
@@ -400,6 +485,17 @@ def _probe(api: HarborApi) -> list[Check]:  # noqa: C901 - one ordered release-g
 
     checks.append(_run_check("agent_jailbreak_resistance", agent_jailbreak))
     return checks
+
+
+def _workflow_term_present(term: str, answer: str) -> bool:
+    normalized = answer.casefold()
+    patterns = {
+        "pars": r"\b(?:parse(?:d|s)?|parsing|parser(?:s)?)\b",
+        "verif": r"\bverif(?:y|ies|ied|ying|ication(?:s)?)\b",
+        "publish": r"\b(?:publish(?:es|ed|ing)?|publication(?:s)?)\b",
+    }
+    pattern = patterns.get(term)
+    return bool(re.search(pattern, normalized)) if pattern is not None else term in normalized
 
 
 def _arguments() -> argparse.Namespace:

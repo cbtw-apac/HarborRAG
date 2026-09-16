@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 from harborrag_app.workflow_control.chat.memory_block import memory_block
+from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_app.workflow_control.chat.prompting import (
     build_chat_request,
     history_messages,
@@ -316,6 +317,7 @@ def test_sources_are_labelled_by_title_so_near_duplicates_stay_distinct() -> Non
     assert "BE Onboarding checklist" in text
     # And the model is told they may be different things.
     assert "different documents" in text
+    assert "copying its exact" in text
 
 
 def test_a_section_trail_is_shown_when_the_chunk_has_one() -> None:
@@ -332,5 +334,5 @@ def test_an_untitled_source_still_renders_with_its_document_id() -> None:
 
     text = prompt_text("Anything?", [_result("Some text.")])
 
-    assert "[Source 1]" in text
+    assert citation_marker(1, _result("Some text.")) in text
     assert "Some text." in text

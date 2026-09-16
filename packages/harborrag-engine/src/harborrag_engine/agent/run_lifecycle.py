@@ -27,6 +27,7 @@ from harborrag_core.ports.agent_runs import (
     AgentStopReason,
 )
 
+from .citations import assess_answer_citations
 from .events import AgentEvent, emit
 from .execution import ChatAndToolExecutor
 from .loop_state import LoopState, RunContext
@@ -188,6 +189,21 @@ class AgentRunLifecycle:
         """Commit completion before updating advisory memory and event sinks."""
 
         run_id = context.identity.run_id
+        citation_assessment = assess_answer_citations(final_response.text, state.executions)
+        citation_evidence_available = any(execution.evidence for execution in state.executions)
+        citation_records = tuple(
+            {
+                "document_id": reference.document_id,
+                "chunk_id": reference.chunk_id,
+                "score": reference.score,
+                "tool": reference.tool,
+                "document_title": reference.document_title,
+                "section_path": list(reference.section_path),
+                "location": reference.location,
+                "marker": reference.marker,
+            }
+            for reference in citation_assessment.citations
+        )
         await self.persist(
             context,
             state,
@@ -201,6 +217,7 @@ class AgentRunLifecycle:
                 context.current_user_message,
                 final_response,
                 run_id=run_id,
+                citations=citation_records,
             )
         except Exception as error:  # noqa: BLE001 - memory is advisory; the run stays complete
             # The checkpoint above is authoritative and already committed, so
@@ -250,6 +267,10 @@ class AgentRunLifecycle:
             stop_reason,
             cost=state.cost,
             memory_persisted=memory_persisted,
+            citations=citation_assessment.citations,
+            citation_marker_count=citation_assessment.marker_count,
+            invalid_citation_markers=citation_assessment.invalid_markers,
+            citation_evidence_available=citation_evidence_available,
         )
 
     async def persist(

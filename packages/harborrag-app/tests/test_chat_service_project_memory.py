@@ -8,6 +8,7 @@ import pytest
 from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
+from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -66,7 +67,8 @@ def _service(
 async def test_chat_completion_writes_user_and_assistant_messages_with_citations() -> None:
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY, kind="chat")
-    service = _service(memory, results=RESULTS, answer="Hello [Source 1]")
+    answer = f"Hello {citation_marker(1, RESULTS[0])}"
+    service = _service(memory, results=RESULTS, answer=answer)
 
     response = await service.complete(
         "Hello",
@@ -87,7 +89,7 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
     )
     assert (assistant.role, assistant.content, assistant.token_count) == (
         "assistant",
-        "Hello [Source 1]",
+        answer,
         1,
     )
     assert json.loads(assistant.citations_json or "null") == [
@@ -97,7 +99,7 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
     assert (user.run_id, assistant.run_id, assistant.tool_calls_json) == (None, None, None)
     # The turn view (phase-1 history reads) stays derivable from the message log.
     (turn,) = await memory.recent(IDENTITY, limit=2)
-    assert (turn.user_content, turn.assistant_content) == ("Hello", "Hello [Source 1]")
+    assert (turn.user_content, turn.assistant_content) == ("Hello", answer)
 
 
 @pytest.mark.asyncio

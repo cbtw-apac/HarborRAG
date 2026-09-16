@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from hashlib import sha256
 from typing import Protocol
+from unicodedata import category
 from uuid import uuid4
 
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
@@ -56,6 +59,73 @@ class AgentRunIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentEvidenceReference:
+    """Canonical source chunk returned by one successful agent tool call."""
+
+    tool: str
+    chunk_id: str
+    document_id: str
+    score: float | None = None
+    document_title: str | None = None
+    section_path: tuple[str, ...] = ()
+    location: str | None = None
+    canonical_marker: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "document_title", _reference_text(self.document_title, 256))
+        object.__setattr__(
+            self,
+            "section_path",
+            tuple(
+                value
+                for part in self.section_path[:16]
+                if (value := _reference_text(part, 128)) is not None
+            ),
+        )
+        object.__setattr__(self, "location", _reference_text(self.location, 120))
+        if self.canonical_marker is None:
+            object.__setattr__(self, "canonical_marker", self._derived_marker())
+
+    @property
+    def marker(self) -> str:
+        """Exact model-visible provenance retained across checkpoint upgrades."""
+
+        assert self.canonical_marker is not None
+        return self.canonical_marker
+
+    def _derived_marker(self) -> str:
+        """Build the initial readable label for newly observed evidence."""
+
+        title = _marker_text(self.document_title or self.document_id or "Untitled document", 120)
+        section_value = " > ".join(part for part in self.section_path if part.strip())
+        section = _marker_text(section_value, 220) if section_value else ""
+        location = section or _marker_text(self.location or "source passage", 120)
+        reference = sha256(f"{self.document_id}\0{self.chunk_id}".encode()).hexdigest()[:12]
+        return f'[Source: "{title}" — {location} (ref {reference})]'
+
+
+def _marker_text(value: str, limit: int) -> str:
+    """Keep untrusted source labels on one bounded marker line."""
+
+    safe_value = "".join(character for character in value if not category(character).startswith("C"))
+    normalized = re.sub(r"\s+", " ", safe_value).strip()
+    normalized = normalized.replace("[", "(").replace("]", ")").replace('"', "'")
+    return normalized[:limit] or "unknown"
+
+
+def _reference_text(value: object, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    safe = "".join(
+        character
+        for character in value[: limit + 1]
+        if not category(character).startswith("C")
+    )
+    normalized = re.sub(r"\s+", " ", safe).strip()
+    return normalized[:limit] if normalized else None
+
+
+@dataclass(frozen=True, slots=True)
 class AgentToolExecution:
     """Safe public trace for one tool invocation.
 
@@ -70,6 +140,7 @@ class AgentToolExecution:
     tool: str
     ok: bool
     arguments_digest: str
+    evidence: tuple[AgentEvidenceReference, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +216,7 @@ class AgentRunRepository(Protocol):
 
 __all__ = [
     "AgentCheckpoint",
+    "AgentEvidenceReference",
     "AgentRunIdentity",
     "AgentRunRepository",
     "AgentRunStatus",

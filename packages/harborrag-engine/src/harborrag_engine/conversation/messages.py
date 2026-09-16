@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
@@ -20,6 +22,7 @@ def run_exchange_messages(
     *,
     run_id: str,
     completion_tokens: int | None = None,
+    citations: Sequence[object] = (),
 ) -> tuple[ConversationMessage, ConversationMessage]:
     """The user question and final answer of one run, both tagged with ``run_id``.
 
@@ -41,6 +44,7 @@ def run_exchange_messages(
         content=assistant_content,
         created_at=created_at,
         token_count=completion_tokens,
+        citations_json=json.dumps(list(citations)) if citations else None,
         run_id=run_id,
     )
     return user, assistant

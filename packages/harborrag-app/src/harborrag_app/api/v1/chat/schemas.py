@@ -97,7 +97,20 @@ class ChatMessageResponse(ApiModel):
 class ChatCitation(ApiModel):
     document_id: str
     chunk_id: str
-    score: float
+    score: float | None
+    tool: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    document_title: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    section_path: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
+    location: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    marker: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class AgentCitationValidation(ApiModel):
+    complete: bool
+    evidence_available: bool
+    marker_count: int = Field(ge=0)
+    validated_count: int = Field(ge=0)
+    invalid_count: int = Field(ge=0)
 
 
 class ChatUsageResponse(ApiModel):
@@ -129,6 +142,9 @@ class ChatCompletionResponse(ApiModel):
     retry_count: int = Field(default=0, ge=0)
     fallback_count: int = Field(default=0, ge=0)
     citations: tuple[ChatCitation, ...] = ()
+    citation_validation: AgentCitationValidation | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     session_id: str
     title: str | None = None
     mode: Literal["rag", "agent"] = "rag"

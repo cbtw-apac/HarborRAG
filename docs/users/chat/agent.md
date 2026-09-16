@@ -45,7 +45,23 @@ token, and repeated-call limits. A guarded stop normally gets one final
 tool-free synthesis call when the remaining budget permits.
 
 The response adds `run_id`, `stop_reason`, `turns`, `tool_call_count`,
-and a bounded `tool_calls` trace to the shared completion fields.
+a bounded `tool_calls` trace, and citation validation to the shared completion
+fields. Source-backed claims use copy-exact, readable markers such as:
+
+```text
+[Source: "Deployment Guide" — Operations > Rollback policy (ref 6f2a91cd17a4)]
+```
+
+The short reference suffix disambiguates passages with the same document and
+section labels. Each item in `citations` carries `document_title`,
+`section_path`, a page, line, or passage `location` when available, and the
+canonical `document_id` and `chunk_id`. `citation_validation.complete` is
+false if the answer invents a marker. `evidence_available` and `marker_count`
+make an uncited answer visible to clients and release gates without treating a
+safe abstention as a citation failure. Unsupported markers never become
+citation records. The same validated citations are saved with the assistant's
+conversation message.
+
 Stop reasons include `final_answer`, `max_steps`, `timeout`,
 `repeated_tool_call`, and `token_budget_exceeded`.
 Token usage and generation cost aggregate every model call, including final

@@ -24,6 +24,7 @@ from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, Ha
 from harborrag_core.models.cost import ModelCost
 from harborrag_core.ports.agent_runs import (
     AgentCheckpoint,
+    AgentEvidenceReference,
     AgentRunIdentity,
     AgentRunStatus,
     AgentStopReason,
@@ -60,6 +61,7 @@ def _checkpoint(  # noqa: PLR0913 - test helper covers every checkpoint field ex
                 tool="vector_search",
                 ok=True,
                 arguments_digest="deadbeef",
+                evidence=(AgentEvidenceReference("vector_search", "chunk-1", "doc-1", 0.9),),
             ),
         ),
         usage=HarborChatUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),

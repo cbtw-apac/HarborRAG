@@ -13,6 +13,7 @@ from chat_service_fixtures import (
 from workflow_control_fixtures import FakeComposition
 
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
+from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -36,7 +37,6 @@ async def _options(
 async def test_chat_completion_attaches_access_metadata_and_projects_response() -> None:
     # Cites the one retrieved source, so the projected citations are non-empty:
     # only sources an answer actually cites are reported.
-    chat = FakeChatFacade(answer="Grounded in [Source 1].")
     results = (
         RetrievalResult(
             id="chunk-1",
@@ -45,6 +45,8 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
             metadata={"document_id": "doc-1"},
         ),
     )
+    answer = f"Grounded in {citation_marker(1, results[0])}."
+    chat = FakeChatFacade(answer=answer)
     runtime = FakeRuntime(chat, FakeRetrievalFacade(results))
     service = AppService(
         FakeComposition({"runtime": {"ready": True}}),
@@ -74,7 +76,7 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
     assert chat.request.messages[0].content.endswith("Question: Hello")
     assert response.data["message"] == {
         "role": "assistant",
-        "content": "Grounded in [Source 1].",
+        "content": answer,
     }
     assert response.data["usage"]["total_tokens"] == 3
     assert response.data["citations"] == (

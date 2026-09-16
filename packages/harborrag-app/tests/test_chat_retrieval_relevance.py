@@ -13,6 +13,7 @@ import pytest
 from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
+from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
@@ -40,7 +41,15 @@ RESULTS = (
 async def _complete(min_relevance: float) -> tuple[FakeChatFacade, dict]:
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY, kind="chat")
-    chat = FakeChatFacade(answer="See [Source 1] and [Source 2].")
+    visible = tuple(
+        result
+        for result in RESULTS
+        if result.relevance is None or result.relevance >= min_relevance
+    )
+    markers = " and ".join(
+        citation_marker(index, result) for index, result in enumerate(visible, start=1)
+    )
+    chat = FakeChatFacade(answer=f"See {markers}." if markers else "No source supports this.")
     service = ChatApplicationService(
         lambda: FakeRuntime(chat, FakeRetrievalFacade(RESULTS)),  # type: ignore[arg-type]
         RuntimeSettings(chat_retrieval_min_relevance=min_relevance),
@@ -63,7 +72,7 @@ async def test_below_threshold_results_reach_neither_prompt_nor_citations() -> N
     assert "Release approvals require two reviewers." in prompt
     assert "The activity timeout is 30 seconds." not in prompt
     # Never offered to the model, so it can never become a citation either.
-    assert "[Source 2]" not in prompt
+    assert citation_marker(2, RESULTS[1]) not in prompt
     assert [citation["chunk_id"] for citation in data["citations"]] == ["on-topic"]
 
 

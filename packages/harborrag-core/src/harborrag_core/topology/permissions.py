@@ -63,6 +63,73 @@ class ResolvedPermissionSnapshot(StrictModel):
         )
 
 
+class PermissionCoverageCounts(StrictModel):
+    """Aggregate ACL state for one kind of active corpus resource."""
+
+    resources: int = Field(ge=0)
+    current_snapshots: int = Field(ge=0)
+    missing_snapshots: int = Field(ge=0)
+    unknown_snapshots: int = Field(ge=0)
+    not_yet_valid_snapshots: int = Field(ge=0)
+    expired_snapshots: int = Field(ge=0)
+    processing_disallowed_snapshots: int = Field(ge=0)
+    public_snapshots: int = Field(ge=0)
+    restricted_snapshots: int = Field(ge=0)
+    coverage_complete: bool
+
+    @model_validator(mode="after")
+    def validate_partition(self) -> Self:
+        classified = (
+            self.current_snapshots
+            + self.missing_snapshots
+            + self.unknown_snapshots
+            + self.not_yet_valid_snapshots
+            + self.expired_snapshots
+        )
+        if classified != self.resources:
+            raise ValueError("permission coverage categories must partition resources")
+        if self.public_snapshots + self.restricted_snapshots != self.current_snapshots:
+            raise ValueError("current permission snapshots must be public or restricted")
+        if self.processing_disallowed_snapshots > self.current_snapshots:
+            raise ValueError("processing-disallowed snapshots must be current")
+        if self.coverage_complete != (self.current_snapshots == self.resources):
+            raise ValueError("permission coverage completeness does not match snapshot counts")
+        return self
+
+
+class PermissionCoverageReport(StrictModel):
+    """Content-free permission readiness evidence for a tenant's active corpus."""
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    checked_at: datetime
+    sources: PermissionCoverageCounts
+    documents: PermissionCoverageCounts
+    corpus_present: bool
+    snapshot_coverage_complete: bool
+    processing_permission_complete: bool
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> Self:
+        corpus_present = self.sources.resources > 0 and self.documents.resources > 0
+        coverage_complete = (
+            corpus_present
+            and self.sources.coverage_complete
+            and self.documents.coverage_complete
+        )
+        processing_complete = (
+            coverage_complete
+            and self.sources.processing_disallowed_snapshots == 0
+            and self.documents.processing_disallowed_snapshots == 0
+        )
+        if self.corpus_present != corpus_present:
+            raise ValueError("corpus presence does not match permission coverage counts")
+        if self.snapshot_coverage_complete != coverage_complete:
+            raise ValueError("snapshot coverage summary does not match resource coverage")
+        if self.processing_permission_complete != processing_complete:
+            raise ValueError("processing permission summary does not match snapshot coverage")
+        return self
+
+
 class BuildInputLineage(StrictModel):
     input_document_versions: dict[str, str] = Field(min_length=1, max_length=1000)
     permission_dependencies: tuple[PermissionDependency, ...] = Field(min_length=2, max_length=2000)

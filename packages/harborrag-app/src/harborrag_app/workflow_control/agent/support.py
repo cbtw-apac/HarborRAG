@@ -113,6 +113,20 @@ def result_data(
     """Project one finished run without leaking deployment metadata."""
 
     response = result.response
+    citations = [
+        {
+            "document_id": reference.document_id,
+            "chunk_id": reference.chunk_id,
+            "score": reference.score,
+            "tool": reference.tool,
+            "document_title": reference.document_title,
+            "section_path": list(reference.section_path),
+            "location": reference.location,
+            "marker": reference.marker,
+        }
+        for reference in result.citations
+    ]
+    invalid_count = len(result.invalid_citation_markers)
     return {
         "id": response.id,
         "run_id": result.run_id,
@@ -125,6 +139,14 @@ def result_data(
         "usage": result.usage.model_dump(mode="json"),
         "cost": result.cost.model_dump(mode="json"),
         "memory_persisted": result.memory_persisted,
+        "citations": citations,
+        "citation_validation": {
+            "complete": invalid_count == 0,
+            "evidence_available": result.citation_evidence_available,
+            "marker_count": result.citation_marker_count,
+            "validated_count": result.citation_marker_count - invalid_count,
+            "invalid_count": invalid_count,
+        },
         "turns": result.turns,
         "tool_call_count": len(result.executions),
         "tool_calls": [

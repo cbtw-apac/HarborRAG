@@ -13,7 +13,7 @@ from harborrag_runtime.memory import MemoryContext
 
 from ..memory.identity import MemoryIdentity
 from .memory_block import memory_block
-from .presenters import citation_data
+from .presenters import citation_data, citation_marker
 
 if TYPE_CHECKING:
     from .evidence import ChatEvidence
@@ -41,7 +41,9 @@ ROUTING = (
     "than merging them into one answer. "
     "Answer from this conversation when the question is about the "
     "conversation or about the user. Use the sources for questions about the "
-    "indexed material, and cite each one you use as [Source N]. When neither "
+    "indexed material, and cite each one by copying its exact [Source N: ...] label. "
+    "Never alter text inside that label. Name the document and section in the sentence "
+    "as well so a reader can understand the provenance. When neither "
     "the conversation nor the sources answers the question, say so plainly "
     "instead of guessing."
 )
@@ -165,18 +167,7 @@ def _source_label(index: int, result: RetrievalResult) -> str:
     """
 
     metadata = result.metadata
-    title = str(metadata.get("document_title") or "").strip()
-    section = metadata.get("section_path")
-    trail = (
-        " > ".join(part for part in section if isinstance(part, str) and part.strip())
-        if isinstance(section, list)
-        else ""
-    )
-    parts = [f"[Source {index}]"]
-    if title:
-        parts.append(f'"{title}"')
-    if trail:
-        parts.append(f"({trail})")
+    parts = [citation_marker(index, result)]
     parts.append(f"(document_id={metadata.get('document_id', 'unknown')})")
     return " ".join(parts)
 

@@ -22,6 +22,16 @@ async def indexing_status(settings: RuntimeSettings, tenant_id: str) -> dict[str
     return state.model_dump(mode="json")
 
 
+async def permission_coverage(
+    settings: RuntimeSettings, tenant_id: str
+) -> dict[str, object]:
+    """Return aggregate active-corpus ACL coverage without source or principal identifiers."""
+
+    async with connect_topology_authority(settings) as control:
+        report = await control.topology.permission_coverage(tenant_id)
+    return report.model_dump(mode="json")
+
+
 async def import_permissions(
     settings: RuntimeSettings, snapshot: ResolvedPermissionSnapshot
 ) -> dict[str, object]:

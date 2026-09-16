@@ -293,14 +293,19 @@ async def test_agent_truncates_oversized_tool_results() -> None:
     tools = _HugeResultTools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search", "{}")),
+            _response(call=("call-1", "graph_path_search", "{}")),
             _response(text="answer"),
         ]
     )
 
     await AgentService(chat, tools).run(
         [HarborChatMessage.user("question")],
-        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+        AgentRunOptions(
+            tenant_id="ACME",
+            principal_id="reader-1",
+            session_id="session-1",
+            graph_search=True,
+        ),
     )
 
     tool_message = next(m for m in chat.requests[1].messages if m.role.value == "tool")
@@ -319,14 +324,19 @@ async def test_agent_bounds_circular_tool_results() -> None:
 
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search", "{}")),
+            _response(call=("call-1", "graph_path_search", "{}")),
             _response(text="answer"),
         ]
     )
 
     await AgentService(chat, _CircularResultTools()).run(
         [HarborChatMessage.user("question")],
-        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+        AgentRunOptions(
+            tenant_id="ACME",
+            principal_id="reader-1",
+            session_id="session-1",
+            graph_search=True,
+        ),
     )
 
     tool_message = next(message for message in chat.requests[1].messages if message.role == "tool")

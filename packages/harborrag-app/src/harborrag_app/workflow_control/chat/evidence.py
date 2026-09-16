@@ -10,8 +10,12 @@ from harborrag_core.models.chat import HarborChatMessage
 from harborrag_core.topology.search import EvidenceBundle
 from harborrag_runtime.contracts import RetrievalResponse
 
+from .presenters import citation_marker
+
 _INSTRUCTIONS = (
-    "Answer using the original passages below and cite only their [Source N] labels. "
+    "Answer using the original passages below and cite only by copying their exact citation "
+    "labels. Do not alter text inside a citation label. Name the cited document and section "
+    "in the surrounding sentence as well. "
     "Retrieved passages may be irrelevant because retrieval always returns its best matches; "
     "ignore any passage that does not bear on the question. "
     "Answer from this conversation when the question is about the conversation or the user. "
@@ -82,10 +86,12 @@ class _PromptBuilder:
             return f"{self.prefix}\n\n{self.query}" if self.prefix else self.query
         originals = [
             {
-                "citation": f"Source {index}",
+                "citation": citation_marker(index, item),
                 "chunk_id": item.id,
                 "document_id": item.metadata.get("document_id"),
                 "document_version_id": item.metadata.get("document_version_id"),
+                "document_title": item.metadata.get("document_title"),
+                "section_path": item.metadata.get("section_path", []),
                 "location": item.metadata.get("citation_locator", {}),
                 "text": item.text,
             }
@@ -110,7 +116,9 @@ class _PromptBuilder:
             self._gap("whole_passages_excluded_by_chat_budget")
 
     def add_overlay(self, bundle: EvidenceBundle) -> None:
-        citations = {item.id: f"Source {index}" for index, item in enumerate(self.passages, 1)}
+        citations = {
+            item.id: citation_marker(index, item) for index, item in enumerate(self.passages, 1)
+        }
         included: set[str] = set()
         for assertion in bundle.relevant_assertions:
             if assertion.chunk_id not in citations:

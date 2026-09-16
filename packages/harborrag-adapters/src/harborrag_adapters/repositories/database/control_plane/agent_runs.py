@@ -24,6 +24,7 @@ from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, Ha
 from harborrag_core.models.cost import ModelCost
 from harborrag_core.ports.agent_runs import (
     AgentCheckpoint,
+    AgentEvidenceReference,
     AgentRunIdentity,
     AgentRunStatus,
     AgentStopReason,
@@ -41,6 +42,19 @@ def _state_to_json(checkpoint: AgentCheckpoint) -> dict[str, Any]:
                 "tool": execution.tool,
                 "ok": execution.ok,
                 "arguments_digest": execution.arguments_digest,
+                "evidence": [
+                    {
+                        "tool": reference.tool,
+                        "chunk_id": reference.chunk_id,
+                        "document_id": reference.document_id,
+                        "score": reference.score,
+                        "document_title": reference.document_title,
+                        "section_path": list(reference.section_path),
+                        "location": reference.location,
+                        "marker": reference.marker,
+                    }
+                    for reference in execution.evidence
+                ],
             }
             for execution in checkpoint.executions
         ],
@@ -71,6 +85,23 @@ def _state_from_json(
             tool=item["tool"],
             ok=item["ok"],
             arguments_digest=item["arguments_digest"],
+            evidence=tuple(
+                AgentEvidenceReference(
+                    tool=reference["tool"],
+                    chunk_id=reference["chunk_id"],
+                    document_id=reference["document_id"],
+                    score=reference.get("score"),
+                    document_title=reference.get("document_title"),
+                    section_path=tuple(reference.get("section_path") or ()),
+                    location=reference.get("location"),
+                    canonical_marker=(
+                        reference.get("marker")
+                        if isinstance(reference.get("marker"), str)
+                        else None
+                    ),
+                )
+                for reference in item.get("evidence", ())
+            ),
         )
         for item in data["executions"]
     )

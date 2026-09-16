@@ -25,6 +25,7 @@ from harborrag_engine.conversation import (
     run_exchange_messages,
 )
 
+from .citations import evidence_references, tool_result_with_citation_guide
 from .guard import ExecutionGuard, digest_arguments
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
 from .schemas import AgentRunOptions
@@ -130,6 +131,7 @@ class ChatAndToolExecutor:
         final_response: HarborChatResponse,
         *,
         run_id: str,
+        citations: Sequence[object] = (),
     ) -> bool:
         """Persist the exchange and report whether a history write occurred."""
 
@@ -146,6 +148,7 @@ class ChatAndToolExecutor:
                     final_response.text,
                     run_id=run_id,
                     completion_tokens=final_response.usage.completion_tokens,
+                    citations=citations,
                 ),
             )
             return True
@@ -165,7 +168,10 @@ class ChatAndToolExecutor:
             arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
         )
         result = await self._invoke(name, arguments, options=options, allowed_names=allowed_names)
-        content = bounded_tool_result_content(result)
+        evidence = evidence_references(name, result)
+        content = bounded_tool_result_content(
+            tool_result_with_citation_guide(name, result, evidence)
+        )
         return (
             HarborChatMessage.tool(content, tool_call_id=call.id, name=name),
             AgentToolExecution(
@@ -174,6 +180,7 @@ class ChatAndToolExecutor:
                 tool=name,
                 ok=result.get("ok") is True,
                 arguments_digest=digest,
+                evidence=evidence,
             ),
         )
 

@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
 from harborrag_core.models.cost import ModelCost
-from harborrag_core.ports.agent_runs import AgentStopReason, AgentToolExecution
+from harborrag_core.ports.agent_runs import (
+    AgentEvidenceReference,
+    AgentStopReason,
+    AgentToolExecution,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +25,10 @@ class AgentRunResult:
     stop_reason: AgentStopReason
     cost: ModelCost = field(default_factory=ModelCost)
     memory_persisted: bool = False
+    citations: tuple[AgentEvidenceReference, ...] = ()
+    citation_marker_count: int = 0
+    invalid_citation_markers: tuple[str, ...] = ()
+    citation_evidence_available: bool = False
 
 
 @dataclass(frozen=True, slots=True)

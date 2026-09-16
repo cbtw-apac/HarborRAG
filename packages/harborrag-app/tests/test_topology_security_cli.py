@@ -61,6 +61,33 @@ def test_permission_import_requires_resolved_schema_and_does_not_echo_private_er
     assert result.exit_code != 0 and "private-secret-group" not in result.output
 
 
+def test_permission_status_reports_tenant_coverage(monkeypatch):
+    received = []
+
+    async def coverage(_settings, tenant):
+        received.append(tenant)
+        return {
+            "tenant_id": tenant,
+            "corpus_present": True,
+            "snapshot_coverage_complete": False,
+        }
+
+    monkeypatch.setattr(security_operations, "permission_coverage", coverage)
+    result = CliRunner().invoke(
+        app, ["topology", "indexing", "permissions-status", "--tenant", "tenant"]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "ok": True,
+        "data": {
+            "tenant_id": "tenant",
+            "corpus_present": True,
+            "snapshot_coverage_complete": False,
+        },
+    }
+    assert received == ["tenant"]
+
+
 def test_entity_inspection_requires_explicit_principal(monkeypatch):
     received = []
 

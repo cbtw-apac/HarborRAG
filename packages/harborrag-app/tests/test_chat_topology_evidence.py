@@ -11,6 +11,7 @@ from test_chat_service import _options
 from workflow_control_fixtures import FakeComposition
 
 from harborrag_app.workflow_control.chat.evidence import ChatEvidence
+from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -88,10 +89,14 @@ def test_qualified_assertions_paths_and_gaps_are_separate_from_originals() -> No
     )
     packet = _packet(evidence.prompt)
     assert packet["original_passages"][0]["text"] == _RAW
+    assert "document_title" in packet["original_passages"][0]
+    assert "section_path" in packet["original_passages"][0]
     assert len(packet["original_passages"]) == 1
     guidance = packet["generated_guidance"]
     assertion = guidance["qualified_assertions"][0]
-    assert assertion["source_citation"] == "Source 1"
+    assert assertion["source_citation"] == (
+        '[Source 1: "doc-1" — source passage]'
+    )
     assert assertion["observation"]["polarity"] == "negative"
     assert assertion["observation"]["modality"] == "possible"
     assert assertion["observation"]["attribution"] == "Alice"
@@ -168,7 +173,7 @@ class _TopologyRetrieval(FakeRetrievalFacade):
 async def test_chat_mode_wiring_and_original_only_citations(
     stream: bool, graph_search: bool
 ) -> None:
-    chat = FakeChatFacade(answer="Grounded in [Source 1].")
+    chat = FakeChatFacade(answer=f"Grounded in {citation_marker(1, _result())}.")
     retrieval = _TopologyRetrieval()
     runtime = FakeRuntime(chat, retrieval)
     service = AppService(

@@ -46,8 +46,14 @@ Titles start empty and are generated after the first successfully stored
 exchange from the first ten prompt words, capped at 80 characters. This is
 deterministic and adds no model call. Manual renames take precedence.
 
-`citations` contains the chunks actually cited by the RAG answer as
-`[Source N]`; the same citations are saved with the assistant message.
+`citations` contains the chunks actually cited by the answer. Citation records
+include a document title, section path, and page or line location when the
+ingested source provides them, alongside canonical document and chunk IDs.
+RAG and agent answers use readable, copy-exact source markers. A RAG answer can
+say “section Operations > Rollback policy of Deployment Guide” and append
+`[Source 1: "Deployment Guide" — Operations > Rollback policy]`. Agent results
+also return `citation_validation`. The same citations are saved with the
+assistant message.
 `memory_persisted: false` means the answer succeeded but its conversation
 exchange was not saved. The answer remains available in the response.
 

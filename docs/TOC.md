@@ -38,6 +38,7 @@
   - [Projection Rebuild](developers/architecture/projection-rebuild.md)
 - [Extending HarborRAG](developers/extending/README.md)
 - [Testing](developers/testing/README.md)
+  - [Chat Release Evaluation](developers/testing/chat-release-evaluation.md)
 - [Deployment](developers/deployment/README.md)
 - [Release Process](developers/release-process.md)
 - [Open-Source Publication Guidelines](developers/publication-guidelines.md)

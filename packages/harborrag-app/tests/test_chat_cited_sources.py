@@ -15,7 +15,11 @@ import json
 
 import pytest
 
-from harborrag_app.workflow_control.chat.presenters import cited_results
+from harborrag_app.workflow_control.chat.presenters import (
+    citation_data,
+    citation_marker,
+    cited_results,
+)
 from harborrag_core.domain.retrieval import RetrievalResult
 
 
@@ -32,9 +36,26 @@ def _results(count: int) -> tuple[RetrievalResult, ...]:
 
 
 def test_only_the_marked_sources_are_returned() -> None:
-    used = cited_results("Grounded in [Source 1] and [Source 3].", _results(4))
+    results = _results(4)
+    answer = f"Grounded in {citation_marker(1, results[0])} and {citation_marker(3, results[2])}."
+    used = cited_results(answer, results)
 
     assert [result.id for result in used] == ["chunk-1", "chunk-3"]
+
+
+def test_only_the_server_generated_readable_marker_is_accepted() -> None:
+    results = list(_results(3))
+    results[1].metadata.update(
+        {
+            "document_title": "Deployment Guide",
+            "section_path": ["Operations", "Rollback policy"],
+        }
+    )
+    marker = citation_marker(2, results[1])
+
+    used = cited_results(f"Supported {marker}; forged [Source 1: Overview].", results)
+
+    assert [result.id for result in used] == ["chunk-2"]
 
 
 def test_an_answer_that_marks_nothing_cites_nothing() -> None:
@@ -43,10 +64,17 @@ def test_an_answer_that_marks_nothing_cites_nothing() -> None:
     assert cited_results("Your name is Huy.", _results(5)) == ()
 
 
+def test_legacy_plain_marker_is_not_readable_provenance() -> None:
+    assert cited_results("Grounded in [Source 1].", _results(1)) == ()
+
+
 def test_markers_are_deduplicated_and_kept_in_retrieval_order() -> None:
     """A source cited three times is still one citation, ordered by retrieval."""
 
-    used = cited_results("[Source 3] then [Source 1] then [Source 3] again.", _results(3))
+    results = _results(3)
+    first = citation_marker(1, results[0])
+    third = citation_marker(3, results[2])
+    used = cited_results(f"{third} then {first} then {third} again.", results)
 
     assert [result.id for result in used] == ["chunk-1", "chunk-3"]
 
@@ -60,6 +88,58 @@ def test_out_of_range_markers_are_ignored(answer: str) -> None:
 
 def test_no_results_means_no_citations_whatever_the_answer_says() -> None:
     assert cited_results("Confidently citing [Source 1].", ()) == ()
+
+
+def test_oversized_source_number_is_ignored_without_raising() -> None:
+    answer = f"Unsupported [Source {'9' * 5_000}]."
+
+    assert cited_results(answer, _results(1)) == ()
+
+
+def test_citation_data_includes_readable_document_section_and_location() -> None:
+    result = RetrievalResult(
+        id="chunk-1",
+        text="body",
+        score=0.9,
+        metadata={
+            "document_id": "doc-1",
+            "document_title": "Deployment Guide",
+            "section_path": ["Operations", "Rollback policy"],
+            "citation_locator": {"start_line": 40, "end_line": 46},
+        },
+    )
+
+    assert citation_data(result) == {
+        "document_id": "doc-1",
+        "chunk_id": "chunk-1",
+        "score": 0.9,
+        "document_title": "Deployment Guide",
+        "section_path": ("Operations", "Rollback policy"),
+        "location": "lines 40–46",
+    }
+    assert citation_marker(1, result) == (
+        '[Source 1: "Deployment Guide" — Operations > Rollback policy]'
+    )
+
+
+def test_public_readable_metadata_is_bounded_and_control_characters_are_removed() -> None:
+    result = RetrievalResult(
+        id="chunk-1",
+        text="body",
+        score=0.9,
+        metadata={
+            "document_id": "doc-1",
+            "document_title": "\u202e" + "T" * 1_000,
+            "section_path": ["\u2066" + "S" * 1_000] * 100,
+        },
+    )
+
+    citation = citation_data(result)
+
+    assert len(citation["document_title"]) == 256
+    assert "\u202e" not in citation["document_title"]
+    assert len(citation["section_path"]) == 16
+    assert all(len(part) == 128 for part in citation["section_path"])
 
 
 @pytest.mark.asyncio
@@ -78,10 +158,11 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
     class _CitingChat(FakeChatFacade):
         async def complete(self, request, *, prompt=None):
             response = await super().complete(request, prompt=prompt)
+            results = _results(3)
             return response.model_copy(
                 update={
                     "message": response.message.model_copy(
-                        update={"content": "Grounded in [Source 2]."}
+                        update={"content": f"Grounded in {citation_marker(2, results[1])}."}
                     )
                 }
             )
@@ -130,13 +211,14 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
 
     class _CitingStream(FakeChatFacade):
         async def _events(self):
+            results = _results(3)
             yield HarborChatStreamChunk(
                 event=StreamEventType.TEXT_DELTA,
                 logical_model="primary",
                 provider="mock",
                 provider_model="mock-chat",
                 deployment="internal-deployment",
-                text_delta="Grounded in [Source 2].",
+                text_delta=f"Grounded in {citation_marker(2, results[1])}.",
             )
             yield HarborChatStreamChunk(
                 event=StreamEventType.COMPLETED,
