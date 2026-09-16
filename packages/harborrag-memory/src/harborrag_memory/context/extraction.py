@@ -168,6 +168,8 @@ class MemoryExtractor:
         digest = content_hash(fact.content, scope)
         if digest in plan.hashes:
             return None
+        if await self._already_stored(owner, scope, digest, fact.content):
+            return None
         if await self._is_restatement(owner, scope, fact.content):
             return None
         anchored = await anchored_fact(
@@ -269,6 +271,40 @@ class MemoryExtractor:
                 if memory.is_valid_at(now):
                     found[reference_token(memory)] = memory
         return found
+
+    async def _already_stored(
+        self,
+        owner: MemoryOwner,
+        scope: MemoryScope,
+        digest: str,
+        content: str,
+    ) -> bool:
+        """Whether this exact fact is already stored, asked directly.
+
+        ``plan.hashes`` is built from at most ``EXISTING_LIMIT`` rows per scope
+        with no ordering guarantee, so past that many memories the "add-only,
+        a retry is a no-op" guarantee lapsed and restatements accumulated. This
+        asks about the one fact being written instead of hoping it appeared in
+        the window, and the semantic check below stays as the backstop for
+        differently-worded restatements.
+        """
+
+        scoped = scope_query_owner(owner, scope)
+        if scoped is None:
+            return False
+        query = MemoryQuery(
+            owner=scoped,
+            scopes=(scope,),
+            memory_types=RECALL_MEMORY_TYPES,
+            text=content,
+            limit=EXISTING_LIMIT,
+        )
+        try:
+            matches = await self._memories.search(query)
+        except Exception:
+            logger.warning("checking for an existing memory failed", exc_info=True)
+            return False
+        return any(memory.content_hash == digest for memory in matches)
 
     async def _is_restatement(self, owner: MemoryOwner, scope: MemoryScope, content: str) -> bool:
         """Whether the index already holds a near-identical memory in ``scope``."""

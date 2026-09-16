@@ -9,6 +9,7 @@ written by other producers still load.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -27,6 +28,8 @@ from harborrag_core.ports.conversation import (
     ConversationRole,
     new_message_id,
 )
+
+logger = logging.getLogger("harborrag.memory.langchain.converters")
 
 type Clock = Callable[[], datetime]
 
@@ -143,16 +146,33 @@ def _additional_kwargs(message: ConversationMessage) -> dict[str, Any]:
     if message.token_count is not None:
         extras[_TOKEN_COUNT_KEY] = message.token_count
     if message.citations_json:
-        extras[_CITATIONS_KEY] = json.loads(message.citations_json)
+        citations = _decode(message.citations_json, field="citations_json")
+        if citations is not None:
+            extras[_CITATIONS_KEY] = citations
     return extras
+
+
+def _decode(payload: str, *, field: str) -> Any:
+    """Parse a persisted JSON column, or ``None`` when the row is corrupt.
+
+    One unparseable row used to raise out of ``aget_messages`` and make the
+    entire conversation unreadable. A message with unreadable metadata is worth
+    more than no conversation, so the metadata is dropped and the text kept.
+    """
+
+    try:
+        return json.loads(payload)
+    except (TypeError, ValueError):
+        logger.warning("discarding unparseable %s on a stored message", field)
+        return None
 
 
 def _tool_calls_from_json(payload: str | None) -> list[ToolCall]:
     if not payload:
         return []
-    entries = json.loads(payload)
+    entries = _decode(payload, field="tool_calls_json")
     if not isinstance(entries, list):
-        raise ValueError("tool_calls_json must encode a JSON list")
+        return []
     return [_tool_call(entry) for entry in entries if isinstance(entry, dict)]
 
 

@@ -9,7 +9,7 @@ from harborrag_core.ports.conversation import (
 )
 from harborrag_core.ports.memory import MemoryOwner
 
-from ..errors import MemoryScopeError
+from ..identity import conversation_identity
 
 
 class ShortTermMemory:
@@ -26,24 +26,9 @@ class ShortTermMemory:
     async def append(self, owner: MemoryOwner, turn: ConversationTurn) -> None:
         await self._conversation.append(_conversation_identity(owner), turn)
 
-    async def record(self, owner: MemoryOwner, turn: ConversationTurn) -> None:
-        """Compatibility alias for :meth:`append`."""
-
-        await self.append(owner, turn)
-
     async def clear(self, owner: MemoryOwner) -> None:
         await self._conversation.clear(_conversation_identity(owner))
 
 
 def _conversation_identity(owner: MemoryOwner) -> ConversationIdentity:
-    if owner.principal_id is None or owner.session_id is None:
-        raise MemoryScopeError("short-term memory requires principal_id and session_id")
-    return ConversationIdentity(
-        tenant_id=owner.tenant_id,
-        principal_id=owner.principal_id,
-        session_id=owner.session_id,
-        # Conversation history is owned by the human; fall back to the
-        # credential only for owners predating user-scoped ownership, which
-        # is exactly what migration 0024 backfilled.
-        user_id=owner.user_id or owner.principal_id,
-    )
+    return conversation_identity(owner, subject="short-term memory")

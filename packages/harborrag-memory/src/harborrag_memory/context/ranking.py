@@ -183,9 +183,16 @@ def rank(candidates: Iterable[ScoredMemory]) -> tuple[ScoredMemory, ...]:
 
 
 def dedupe_key(memory: Memory) -> str:
-    """Return the identity two restatements of one fact share."""
+    """Return the identity two restatements of one fact share.
 
-    return memory.content_hash or normalize_content(memory.content)
+    Deliberately *not* ``content_hash``: that is salted with the scope, so the
+    same sentence stored at SESSION and at USER hashed differently and both
+    survived recall, spending the budget twice and showing the reader one fact
+    as two. Rows without a hash already deduped on normalized content, so this
+    also makes the rule independent of whether a hash happens to exist.
+    """
+
+    return normalize_content(memory.content)
 
 
 def deduplicate(candidates: Sequence[ScoredMemory]) -> tuple[ScoredMemory, ...]:

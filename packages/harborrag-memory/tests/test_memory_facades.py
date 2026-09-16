@@ -110,7 +110,7 @@ async def test_short_term_uses_conversation_turns_and_validates_owner(
     tier = ShortTermMemory(ConversationRepositoryFake())
     turn = ConversationTurn(user_content="question", assistant_content="answer")
     await tier.append(owner, turn)
-    await tier.record(owner, turn)
+    await tier.append(owner, turn)
     assert await tier.recent(owner) == (turn, turn)
     await tier.clear(owner)
     assert await tier.recent(owner) == ()

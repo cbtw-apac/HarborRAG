@@ -102,25 +102,46 @@ def test_equal_scores_break_toward_the_narrower_scope() -> None:
     ]
 
 
-def test_dedupe_key_prefers_the_content_hash_over_the_content() -> None:
-    digest = content_hash("Dana owns ingest", MemoryScope.USER)
+def test_dedupe_key_ignores_the_scope_the_fact_is_filed_under() -> None:
+    """``content_hash`` is salted with the scope, so it cannot be the key.
 
-    assert dedupe_key(memory_row("anything at all", content_hash=digest)) == digest
+    One sentence stored at both SESSION and USER hashed differently, so both
+    survived recall: the budget was spent twice and the reader saw one fact
+    presented as two.
+    """
+
+    session = content_hash("Dana owns ingest", MemoryScope.SESSION)
+    user = content_hash("Dana owns ingest", MemoryScope.USER)
+    assert session != user
+
+    assert dedupe_key(memory_row("Dana owns ingest", content_hash=session)) == dedupe_key(
+        memory_row("Dana owns ingest", content_hash=user)
+    )
     assert dedupe_key(memory_row("Dana  OWNS ingest")) == normalize_content("dana owns ingest")
 
 
-def test_deduplicate_by_hash_keeps_the_highest_scoring_instance() -> None:
-    digest = content_hash("Dana owns ingest", MemoryScope.USER)
+def test_deduplicate_keeps_the_highest_scoring_copy_across_scopes() -> None:
+    """The same fact recalled from two scopes collapses to its best instance."""
+
     ranked = rank(
         [
-            scored("weak restatement", importance=0.1, content_hash=digest),
-            scored("strong restatement", importance=0.9, content_hash=digest),
+            scored(
+                "Dana owns ingest",
+                importance=0.1,
+                content_hash=content_hash("Dana owns ingest", MemoryScope.SESSION),
+            ),
+            scored(
+                "Dana owns ingest",
+                importance=0.9,
+                content_hash=content_hash("Dana owns ingest", MemoryScope.USER),
+            ),
         ]
     )
 
     kept = deduplicate(ranked)
 
-    assert [candidate.memory.content for candidate in kept] == ["strong restatement"]
+    assert len(kept) == 1
+    assert kept[0].memory.importance == 0.9
 
 
 def test_deduplicate_by_normalized_content_when_no_hash_is_stored() -> None:

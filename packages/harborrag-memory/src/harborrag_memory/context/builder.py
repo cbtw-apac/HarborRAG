@@ -24,7 +24,7 @@ from harborrag_core.ports.memory import (
     MemoryType,
 )
 
-from ..errors import MemoryScopeError
+from ..identity import conversation_identity
 from .condenser import condense_question
 from .entities import unique_ids
 from .model import MemoryModelLike
@@ -52,19 +52,7 @@ class _WindowState:
 
 
 def _identity(owner: MemoryOwner) -> ConversationIdentity:
-    if owner.principal_id is None or owner.session_id is None:
-        raise MemoryScopeError(
-            "per-turn memory context requires an owner with principal_id and session_id"
-        )
-    return ConversationIdentity(
-        tenant_id=owner.tenant_id,
-        principal_id=owner.principal_id,
-        session_id=owner.session_id,
-        # Conversation history is owned by the human; fall back to the
-        # credential only for owners predating user-scoped ownership, which
-        # is exactly what migration 0024 backfilled.
-        user_id=owner.user_id or owner.principal_id,
-    )
+    return conversation_identity(owner, subject="per-turn memory context")
 
 
 class MemoryContextBuilder:
