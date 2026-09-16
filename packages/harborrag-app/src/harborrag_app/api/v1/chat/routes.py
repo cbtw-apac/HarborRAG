@@ -146,6 +146,11 @@ async def _complete_chat(
                 tenant_id=request.tenant,
                 principal_id=principal.subject,
                 user_id=principal.user_id,
+                # The unified endpoint serves both modes, and the session it
+                # opens has to be findable under the one that produced it:
+                # agent runs were filed as chat and never appeared in
+                # GET /v1/conversations?kind=agent.
+                kind="agent" if request.mode == "agent" else "chat",
             )
             if not created.ok:
                 raise HarborConnectionError("Chat service is unavailable")

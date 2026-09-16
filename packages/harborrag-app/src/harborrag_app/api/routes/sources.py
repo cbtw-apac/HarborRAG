@@ -22,7 +22,7 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.workflow_control import BaseAppService
-from harborrag_core.domain.source_config import SourceConfig
+from harborrag_core.domain.source_config import SourceConfig, SourceStatus
 from harborrag_core.security.redaction import redact_mapping
 
 router = APIRouter(tags=["sources"], dependencies=[Depends(require_role("reader"))])
@@ -41,7 +41,11 @@ class SourceUpdateInput(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     config: dict[str, JsonValue] | None = None
     schedule: str | None = None
-    status: str | None = None
+    # The domain type is a Literal on a plain dataclass, which is a static
+    # annotation and no runtime check, so an unvalidated str was written
+    # straight through: PATCH {"status": "banana"} persisted, and any scheduler
+    # keyed on active/paused/error then mishandled the row.
+    status: SourceStatus | None = None
 
     @model_validator(mode="after")
     def reject_explicit_null_config(self) -> SourceUpdateInput:

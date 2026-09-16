@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 
 from harborrag_core.ports.completion_requests import CompletionClaim
+from harborrag_core.ports.conversation import ConversationKind
 
 from ..memory import ConversationSessionService
 from ..schemas import AppResponse
@@ -61,6 +62,7 @@ class ChatClientMixin:
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        kind: ConversationKind = "chat",
     ) -> AppResponse:
         """``user_id`` owns the new conversation and defaults to the principal.
 
@@ -73,7 +75,7 @@ class ChatClientMixin:
         return await self._sessions.create(
             tenant_id=tenant_id,
             principal_id=principal_id,
-            kind="chat",
+            kind=kind,
             user_id=user_id,
             title=title,
         )

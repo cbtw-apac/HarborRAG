@@ -27,6 +27,7 @@ from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus,
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ports.completion_requests import CompletionClaim
+from harborrag_core.ports.conversation import ConversationKind
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
 from harborrag_runtime.memory import (
@@ -90,6 +91,7 @@ class MockAppService(
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        kind: ConversationKind = "chat",
     ) -> AppResponse:
         return await self._create_session(tenant_id, principal_id, user_id, "chat", title)
 
