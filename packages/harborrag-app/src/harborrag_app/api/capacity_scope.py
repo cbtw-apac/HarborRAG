@@ -101,13 +101,9 @@ def plan_capacity_buckets(
     of each dimension, because incrementing a single key twice for one request
     would otherwise halve the effective limit.
 
-    Note what this means for an API caller today: ``Principal.user_id`` is
-    pinned to ``DEFAULT_USER`` while user accounts are disabled, so it never
-    equals the subject and the tiers never collapse -- instead every principal
-    in a tenant shares one user bucket. The user tier is therefore a
-    per-tenant limit in practice, and one caller holding several long-lived
-    streams can exhaust it for everyone. The principal tier is the only one
-    that separates callers today.
+    When a token's end-user claim equals its subject, the user and principal
+    tiers collapse to one bucket with the stricter limit. Distinct end users
+    behind a shared credential receive separate user buckets.
     """
     tenant = _tier_bucket("tenant", scope, scope.tenant_id, limits.tenant)
     if scope.user_id == scope.principal_id:

@@ -12,6 +12,7 @@ class ChatPrompt(StrEnum):
 
     DEFAULT = "default"
     CONCISE = "concise"
+    QUERY_GATE = "query_gate"
 
 
 class PromptReader(Protocol):
@@ -24,6 +25,7 @@ class PromptCatalog:
     _FILENAMES = {
         ChatPrompt.DEFAULT: "default.md",
         ChatPrompt.CONCISE: "concise.md",
+        ChatPrompt.QUERY_GATE: "query_gate.md",
     }
 
     def __init__(self, reader: PromptReader) -> None:

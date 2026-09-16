@@ -116,8 +116,8 @@ def test_agent_completion_rejects_unknown_session(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_agent_completion_requires_session_and_prompt(client: TestClient) -> None:
-    assert client.post("/v1/agent/completions", json={"prompt": "Hello"}).status_code == 422
+def test_agent_completion_creates_session_but_requires_prompt(client: TestClient) -> None:
+    assert client.post("/v1/agent/completions", json={"prompt": "Hello"}).status_code == 200
     assert (
         client.post(
             "/v1/agent/completions",

@@ -62,7 +62,13 @@ async def test_chat_stream_emits_citations_then_chunks() -> None:
         "result",
     ]
     assert events[0]["citations"] == (
-        {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},
+        {
+            "document_id": "doc-1",
+            "chunk_id": "chunk-1",
+            "score": 0.9,
+            "marker": '[Source 1: "doc-1" — source passage]',
+            "content": "HarborRAG is a retrieval-augmented generation platform.",
+        },
     )
     assert events[1]["chunk"]["event"] == "text_delta"
     assert events[1]["chunk"]["content"] == "Hello"

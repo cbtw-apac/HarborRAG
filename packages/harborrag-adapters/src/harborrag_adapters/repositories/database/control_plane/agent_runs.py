@@ -52,6 +52,8 @@ def _state_to_json(checkpoint: AgentCheckpoint) -> dict[str, Any]:
                         "section_path": list(reference.section_path),
                         "location": reference.location,
                         "marker": reference.marker,
+                        "content": reference.content,
+                        "content_truncated": reference.content_truncated,
                     }
                     for reference in execution.evidence
                 ],
@@ -103,6 +105,8 @@ def _state_from_json(
                         if isinstance(reference.get("marker"), str)
                         else None
                     ),
+                    content=reference.get("content"),
+                    content_truncated=reference.get("content_truncated") is True,
                 )
                 for reference in item.get("evidence", ())
             ),

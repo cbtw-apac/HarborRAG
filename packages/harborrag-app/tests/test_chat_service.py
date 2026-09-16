@@ -80,7 +80,13 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
     }
     assert response.data["usage"]["total_tokens"] == 3
     assert response.data["citations"] == (
-        {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},
+        {
+            "document_id": "doc-1",
+            "chunk_id": "chunk-1",
+            "score": 0.9,
+            "marker": '[Source 1: "doc-1" — source passage]',
+            "content": "HarborRAG is a retrieval-augmented generation platform.",
+        },
     )
     assert "deployment" not in response.data
     assert "provider_metadata" not in response.data

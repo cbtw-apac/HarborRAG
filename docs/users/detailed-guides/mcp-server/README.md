@@ -49,7 +49,8 @@ The catalog contains thirteen read-only tools. Twelve require an explicit `tenan
 | `composed_evidence_search` | `tenant_id`, `query` | `top_k` (1–10), lane, filters, graph observation, score threshold | Local semantic expansion followed by canonical evidence reads |
 
 Chat and agent are **not** MCP tools. Both use the HarborRAG REST API
-at `/v1/chat/completions`, with `mode: rag` or `mode: agent` - see [Chat](../../chat/README.md).
+at `/v1/chat/completions` and `/v1/agent/completions`, respectively — see
+[Chat](../../chat/README.md).
 Ingestion is controlled through the CLI or the authenticated API, never through MCP.
 
 > Defaults advertised in the schema can be overridden per deployment in

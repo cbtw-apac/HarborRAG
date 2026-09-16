@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, Response
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
+from harborrag_app.api.dependencies import ResponseContextDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.contracts.errors import (
     HarborConnectionError,
     HarborNotFoundError,
@@ -27,6 +29,7 @@ from .schemas import (
     ChatCompletionResponse,
     ChatSessionCreateRequest,
     ChatSessionResponse,
+    CompletionRequest,
 )
 from .streaming import stream_response
 
@@ -40,7 +43,7 @@ ERROR_RESPONSES = documented_error_responses(
         503: "Chat service unavailable",
     }
 )
-_COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
+COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
     200: {
         "content": {
             "text/event-stream": {
@@ -61,7 +64,6 @@ _COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
     response_model=ChatSessionResponse,
     status_code=201,
     responses=ERROR_RESPONSES,
-    deprecated=True,
 )
 async def create_chat_session(
     request: ChatSessionCreateRequest,
@@ -82,30 +84,77 @@ async def create_chat_session(
 @router.post(
     "/completions",
     response_model=ChatCompletionResponse,
-    responses=ERROR_RESPONSES | _COMPLETION_RESPONSES,
+    responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
+    summary="Create a retrieval chat completion",
+    description="For bounded tool runs use POST /v1/agent/completions. "
+    "Omit session_id to create a session. Set stream=true for SSE with the same final "
+    "completion payload. Use Idempotency-Key to safely replay a completed request.",
 )
 async def create_chat_completion(
-    request: ChatCompletionRequest,
+    request: Annotated[
+        ChatCompletionRequest,
+        Body(
+            openapi_examples={
+                "existing_session": {
+                    "summary": "Continue a session",
+                    "description": "Use the session_id returned by an earlier completion.",
+                    "value": {
+                        "tenant": "DEFAULT",
+                        "session_id": "session-0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
+                        "prompt": "What changed next?",
+                        "stream": False,
+                    },
+                },
+                "new_session": {
+                    "summary": "Create a session",
+                    "value": {
+                        "tenant": "DEFAULT",
+                        "prompt": "What changed in the release policy?",
+                        "stream": False,
+                    },
+                },
+            }
+        ),
+    ],
     service: CompletionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
-    response: Response,
-    http_request: Request,
+    context: ResponseContextDependency,
     _capacity: ApiCapacityDependency,
+    header_key: Annotated[
+        str | None,
+        Header(
+            alias="Idempotency-Key",
+            description="Stable request key (1–128 characters); must match the body key if both "
+            "are supplied. Replays completed requests without another model call.",
+        ),
+    ] = None,
 ) -> ChatCompletionResponse | StreamingResponse:
-    header_key = http_request.headers.get("Idempotency-Key")
+    return await complete_request(request, service, principal, context, header_key)
+
+
+async def complete_request(
+    request: CompletionRequest,
+    service: CompletionService,
+    principal: Principal,
+    context: ResponseContextDependency,
+    header_key: str | None,
+) -> ChatCompletionResponse | StreamingResponse:
+    """Shared admission, replay, and SSE lifecycle for both public surfaces."""
+
     if header_key is not None:
         if request.idempotency_key is not None and request.idempotency_key != header_key:
             raise HarborValidationError("Body and header idempotency keys must match")
         if not header_key.strip() or len(header_key) > 128:
             raise HarborValidationError("Idempotency-Key must contain 1 to 128 characters")
         request = request.model_copy(update={"idempotency_key": header_key})
-    settings: ApiSettings = http_request.app.state.settings
-    return await _complete_chat(request, service, principal, response, settings=settings)
+    return await _complete_chat(
+        request, service, principal, context.response, settings=context.settings
+    )
 
 
 async def _require_session(
     service: CompletionService,
-    request: ChatCompletionRequest,
+    request: CompletionRequest,
     principal: Principal,
     session_id: str,
 ) -> None:
@@ -118,19 +167,30 @@ async def _require_session(
         raise HarborNotFoundError("Conversation session was not found")
 
 
+async def _validate_request(
+    request: CompletionRequest,
+    service: CompletionService,
+    principal: Principal,
+) -> None:
+    authorize_tenant(principal, request.tenant)
+    if request.mode == "agent":
+        await service.validate_agent_model(request.model, tenant_id=request.tenant)
+    else:
+        await service.validate_chat_model(request.model, tenant_id=request.tenant)
+    await service.validate_chat_project(request.project_id, tenant_id=request.tenant)
+    if request.session_id is not None:
+        await _require_session(service, request, principal, request.session_id)
+
+
 async def _complete_chat(
-    request: ChatCompletionRequest,
+    request: CompletionRequest,
     service: CompletionService,
     principal: Principal,
     response: Response,
     *,
     settings: ApiSettings,
 ) -> ChatCompletionResponse | StreamingResponse:
-    authorize_tenant(principal, request.tenant)
-    await service.validate_chat_model(request.model, tenant_id=request.tenant)
-    await service.validate_chat_project(request.project_id, tenant_id=request.tenant)
-    if request.session_id is not None:
-        await _require_session(service, request, principal, request.session_id)
+    await _validate_request(request, service, principal)
     attempt = CompletionAttempt.for_request(service, request, principal)
     replay = await attempt.claim()
     response.headers["Cache-Control"] = "no-store"
@@ -139,6 +199,19 @@ async def _complete_chat(
     # may record, are settled inside the stream rather than here.
     dispatched = False
     try:
+        if replay is None:
+            await service.validate_completion_scope(
+                request.prompt,
+                MemoryAccess(
+                    tenant_id=request.tenant,
+                    principal_id=principal.subject,
+                    user_id=principal.user_id,
+                    project_id=request.project_id,
+                    session_id=request.session_id,
+                ),
+                model=request.model,
+                mode=request.mode,
+            )
         if replay is not None:
             await _require_session(service, request, principal, replay.session_id)
         elif request.session_id is None:
@@ -146,10 +219,7 @@ async def _complete_chat(
                 tenant_id=request.tenant,
                 principal_id=principal.subject,
                 user_id=principal.user_id,
-                # The unified endpoint serves both modes, and the session it
-                # opens has to be findable under the one that produced it:
-                # agent runs were filed as chat and never appeared in
-                # GET /v1/conversations?kind=agent.
+                # Session lists are scoped to the surface that created them.
                 kind="agent" if request.mode == "agent" else "chat",
             )
             if not created.ok:
@@ -170,10 +240,10 @@ async def _complete_chat(
         await attempt.finish(payload)
         return payload
     except BaseException:
-        # Only a request that reached the model can have cost anything, and only
-        # that one records an unreplayable failure. Everything before dispatch --
+        # Only a dispatched answer records an unreplayable failure. Admission
+        # classification has its own usage record. Everything before dispatch --
         # a busy turn, an unavailable session store, a caller that went away --
-        # hands the key back instead of burning it.
+        # hands the answer key back instead of burning it.
         if dispatched:
             await attempt.finish()
         else:

@@ -67,9 +67,13 @@ class HmacTokenVerifier(BaseTokenVerifier):
             or any(not isinstance(item, str) or not item for item in raw_tenants)
         ):
             raise HarborAuthError("token has invalid tenants claim")
+        user_id = claims.get(self.user_id_claim)
+        if not isinstance(user_id, str) or not user_id.strip() or len(user_id) > 512:
+            raise HarborAuthError("token has invalid user identity claim")
         return Principal(
             subject=subject,
             role=role,
             tenant_ids=frozenset(raw_tenants),
             token_kind="jwt",
+            user_id=user_id,
         )

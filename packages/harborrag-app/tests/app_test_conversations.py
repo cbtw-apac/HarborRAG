@@ -1,4 +1,4 @@
-"""Conversation route harness for the shared DEFAULT_USER namespace per tenant."""
+"""Conversation route harness for signed end-user identities per tenant."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.base import utc_now
-from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationKind,
@@ -22,7 +21,7 @@ from harborrag_core.ports.conversation import (
 )
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
-CONVERSATIONS = "/v1/chat/conversations"
+CONVERSATIONS = "/v1/chat/sessions"
 # (credential subject, end-user identity)
 ALICE = ("cred-1", "alice")
 BOB = ("cred-2", "bob")
@@ -34,7 +33,7 @@ def token(
     role: str = "reader",
     tenants: tuple[str, ...] = ("DEFAULT",),
 ) -> str:
-    """A token whose credential and legacy user claim can vary independently."""
+    """A token whose credential and signed end-user claim vary independently."""
 
     now = datetime.now(UTC)
     subject, user_id = caller
@@ -73,8 +72,8 @@ def identity(
 ) -> ConversationIdentity:
     """The stored isolation key for one caller's conversation."""
 
-    subject, _ = caller
-    return ConversationIdentity(tenant, subject, session_id, DEFAULT_USER)
+    subject, user_id = caller
+    return ConversationIdentity(tenant, subject, session_id, user_id)
 
 
 def message(  # noqa: PLR0913 - one stored message field per argument
@@ -121,7 +120,7 @@ async def seed(  # noqa: PLR0913 - one stored conversation attribute per argumen
 
 
 def hmac_app(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> FastAPI:
-    """An authenticated app using DEFAULT_USER until user accounts are available."""
+    """An authenticated app using the signed oid claim for session ownership."""
 
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")

@@ -1,6 +1,8 @@
-"""Public chat-completion and conversation-directory API."""
+"""Public chat completion and session API."""
 
-from .conversations import router as conversations_router
 from .routes import router
+from .sessions import session_router
 
-__all__ = ["conversations_router", "router"]
+router.include_router(session_router("chat"))
+
+__all__ = ["router"]

@@ -176,7 +176,7 @@ def test_an_unknown_conversation_is_the_not_found_envelope(client: TestClient) -
 
 
 @pytest.mark.asyncio
-async def test_another_credential_reads_the_same_default_user_history(
+async def test_another_user_cannot_read_private_history(
     client: TestClient,
     service: MockAppService,
 ) -> None:
@@ -184,8 +184,7 @@ async def test_another_credential_reads_the_same_default_user_history(
 
     response = client.get(_path(), headers=auth(BOB))
 
-    assert response.status_code == 200
-    assert _ids(response.json()) == ["msg-1"]
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

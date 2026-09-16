@@ -18,8 +18,12 @@ def test_prompt_catalog_resolves_named_templates() -> None:
 def test_packaged_prompts_are_available_and_non_empty() -> None:
     catalog = PromptCatalog.packaged()
 
-    assert "HarborRAG" in catalog.resolve(ChatPrompt.DEFAULT)
+    assert catalog.resolve(ChatPrompt.DEFAULT).startswith("You are Harbor Assistance")
     assert "concisely" in catalog.resolve(ChatPrompt.CONCISE)
+    gate = catalog.resolve(ChatPrompt.QUERY_GATE)
+    assert "Harbor Assistance" in gate
+    assert '{"scope":"unsupported"}' in gate
+    assert "named-project" in gate and "repository" in gate
 
 
 def test_prompt_catalog_rejects_empty_templates() -> None:

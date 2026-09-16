@@ -33,6 +33,13 @@ class ChatServiceFixture:
     # ``require_project`` makes it in production.
     known_projects: set[str]
 
+    async def validate_completion_scope(self, query, access, *, model, mode):
+        # Gate classification is covered with a real gate and controlled model
+        # in test_query_scope; endpoint fixtures record admission independently.
+        if not hasattr(self, "scope_calls"):
+            self.scope_calls = []
+        self.scope_calls.append((query, access, model, mode))
+
     async def validate_chat_project(self, project_id: str | None, *, tenant_id: str) -> None:
         del tenant_id
         if project_id is not None and project_id not in self.known_projects:
@@ -58,6 +65,7 @@ class ChatServiceFixture:
             options.session_id,
             tenant_id=tenant_id,
             principal_id=principal_id,
+            user_id=options.user_id,
         )
         if not exists:
             raise HarborNotFoundError("Conversation session was not found")

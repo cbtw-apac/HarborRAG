@@ -8,10 +8,11 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.agent import AgentExecutionOptions
+from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
 from harborrag_app.workflow_control.schemas import AppResponse
 
 
-class AgentCompletionService(Protocol):
+class AgentCompletionService(QueryScopeValidator, Protocol):
     async def create_agent_session(
         self,
         *,

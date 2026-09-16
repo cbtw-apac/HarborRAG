@@ -43,6 +43,7 @@ def _checkpoint() -> AgentCheckpoint:
                         "Deployment Guide",
                         ("Operations", "Rollback"),
                         "lines 40–46",
+                        content="Authorized passage\nwith original formatting.",
                     ),
                 ),
             ),
@@ -72,6 +73,15 @@ def test_legacy_checkpoint_without_evidence_remains_readable() -> None:
     _, executions, _, _, _ = _state_from_json(data)
 
     assert executions[0].evidence == ()
+
+
+def test_legacy_checkpoint_without_content_remains_readable():
+    data = _state_to_json(_checkpoint())
+    reference = data["executions"][0]["evidence"][0]
+    reference.pop("content")
+    reference.pop("content_truncated")
+    _, executions, _, _, _ = _state_from_json(data)
+    assert executions[0].evidence[0].content is None
 
 
 def test_checkpoint_preserves_an_exact_marker_from_an_earlier_formatter() -> None:

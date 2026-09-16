@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-import contextlib
-from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Header
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
+from harborrag_app.api.dependencies import ResponseContextDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.api.sse import bounded_sse_frames, sse_frame
+from harborrag_app.api.v1.chat.completion_dependency import CompletionServiceDependency
+from harborrag_app.api.v1.chat.routes import COMPLETION_RESPONSES, complete_request
+from harborrag_app.api.v1.chat.sessions import session_router
 from harborrag_app.workflow_control.agent import AgentExecutionOptions
-from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
+from harborrag_core.contracts.errors import HarborConnectionError
 
-from .dependencies import AgentCompletionService, AgentServiceDependency
+from .dependencies import AgentServiceDependency
 from .schemas import (
     AgentCompletionRequest,
     AgentCompletionResponse,
@@ -27,23 +28,25 @@ from .schemas import (
     AgentSessionResponse,
 )
 
-router = APIRouter(prefix="/agent", tags=["Agent"], deprecated=True)
+router = APIRouter(prefix="/agent", tags=["Agent"])
+router.include_router(session_router("agent"))
 
 ERROR_RESPONSES = documented_error_responses(
     {
         422: "Invalid agent-completion request",
         404: "Conversation session or project not found",
+        409: "No indexed content, busy session, or conflicting idempotency key",
         503: "Agent service unavailable",
     }
 )
 
 _UNAVAILABLE_MESSAGE = "Agent service is unavailable"
-_STREAM_DEADLINE_MESSAGE = "Agent stream exceeded its server deadline"
 
 RESUME_ERROR_RESPONSES = documented_error_responses(
     {
         422: "Invalid agent-resume request",
         404: "Agent run not found or not resumable",
+        409: "Agent run already has an active executor",
         500: "Agent run checkpointing is not configured",
         503: "Agent service unavailable",
     }
@@ -75,128 +78,47 @@ async def create_agent_session(
 @router.post(
     "/completions",
     response_model=AgentCompletionResponse,
-    responses=ERROR_RESPONSES,
+    responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
+    summary="Create a bounded agent completion",
+    description="Omit session_id to create an agent session. Set stream=true for the same SSE "
+    "event contract as chat. Use Idempotency-Key to replay completed requests safely.",
 )
 async def create_agent_completion(
     request: AgentCompletionRequest,
-    service: AgentServiceDependency,
+    service: CompletionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
-    response: Response,
-    http_request: Request,
+    context: ResponseContextDependency,
     _capacity: ApiCapacityDependency,
+    header_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", description="Stable request key (1–128 characters)."),
+    ] = None,
 ) -> AgentCompletionResponse | StreamingResponse:
-    settings: ApiSettings = http_request.app.state.settings
-    return await _complete_agent(request, service, principal, response, settings=settings)
-
-
-async def _complete_agent(
-    request: AgentCompletionRequest,
-    service: AgentCompletionService,
-    principal: Principal,
-    response: Response,
-    *,
-    settings: ApiSettings,
-) -> AgentCompletionResponse | StreamingResponse:
-    authorize_tenant(principal, request.tenant)
-    response.headers["Cache-Control"] = "no-store"
-    # Before the stream/JSON branch on purpose: a disallowed model must be one
-    # 422 either way, never an error frame after the headers are on the wire.
-    await service.validate_agent_model(request.model, tenant_id=request.tenant)
-    if request.stream:
-        if not await service.agent_session_exists(
-            request.session_id,
-            tenant_id=request.tenant,
-            principal_id=principal.subject,
-            user_id=principal.user_id,
-        ):
-            raise HarborNotFoundError("Conversation session was not found")
-        return _stream_response(request, service, principal, settings=settings)
-    result = await service.agent_completion(
-        request.prompt,
-        tenant_id=request.tenant,
-        principal_id=principal.subject,
-        options=_options(request, principal, settings=settings, stream=False),
-    )
-    if not result.ok:
-        raise HarborConnectionError(_UNAVAILABLE_MESSAGE)
-    return AgentCompletionResponse.model_validate(result.data)
-
-
-def _stream_response(
-    request: AgentCompletionRequest,
-    service: AgentCompletionService,
-    principal: Principal,
-    *,
-    settings: ApiSettings,
-) -> StreamingResponse:
-    async def events() -> AsyncGenerator[bytes, None]:
-        # ``aclosing`` is what makes the service generator's ``finally`` run in
-        # order: it cancels the background task driving the run. A bare
-        # ``async for`` leaves that to asyncgen finalization at some later,
-        # unordered moment, so an abandoned response body keeps spending tokens
-        # and keeps holding the conversation turn lease. The chat route does the
-        # same, and has a test pinning it.
-        stream = service.agent_stream(
-            request.prompt,
-            tenant_id=request.tenant,
-            principal_id=principal.subject,
-            options=_options(request, principal, settings=settings, stream=True),
-        )
-        async with contextlib.aclosing(stream):
-            async for item in stream:
-                kind = item["kind"]
-                if kind == "event":
-                    event = item["event"]
-                    payload: object = event
-                    name = str(event["name"])  # type: ignore[index]
-                elif kind == "result":
-                    payload = item["result"]
-                    name = "result"
-                else:
-                    payload = {"code": "harbor_connection_error", "message": _UNAVAILABLE_MESSAGE}
-                    name = "error"
-                yield sse_frame(name, payload)
-                if kind in ("result", "error"):
-                    return
-
-    return StreamingResponse(
-        bounded_sse_frames(
-            events(),
-            timeout_seconds=settings.api_stream_timeout_seconds,
-            error_message=_STREAM_DEADLINE_MESSAGE,
-            terminal_events=("result", "error"),
-        ),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-    )
+    result = await complete_request(request, service, principal, context, header_key)
+    if isinstance(result, StreamingResponse):
+        return result
+    return AgentCompletionResponse.model_validate(result.model_dump())
 
 
 def _options(
-    request: AgentCompletionRequest | AgentResumeRequest,
+    request: AgentResumeRequest,
     principal: Principal,
     *,
     settings: ApiSettings,
-    stream: bool,
 ) -> AgentExecutionOptions:
-    """Hand the server-owned budgets to the agent: the applicable HTTP deadline
-    (request timeout for JSON responses, stream timeout for SSE) and the total
-    token budget. The application service derives the engine's run timeout
-    from that deadline so a graceful ``timeout`` stop stays reachable.
-    """
+    """Resume under the server-owned JSON deadline and total token budget."""
 
     return AgentExecutionOptions(
         session_id=request.session_id,
         graph_search=request.graph_search,
         max_steps=request.max_steps,
-        deadline_seconds=(
-            settings.api_stream_timeout_seconds if stream else settings.api_request_timeout_seconds
-        ),
+        deadline_seconds=settings.api_request_timeout_seconds,
         token_budget=settings.api_agent_token_budget,
         project_id=request.project_id,
         user_id=principal.user_id,
         # Resume has no model of its own: a run keeps whatever it started
         # under, so its checkpoint is never continued on a different model.
-        model=request.model if isinstance(request, AgentCompletionRequest) else None,
+        model=None,
     )
 
 
@@ -210,17 +132,17 @@ async def resume_agent_run(
     request: AgentResumeRequest,
     service: AgentServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
-    http_request: Request,
+    context: ResponseContextDependency,
     _capacity: ApiCapacityDependency,
 ) -> AgentCompletionResponse:
     authorize_tenant(principal, request.tenant)
-    settings: ApiSettings = http_request.app.state.settings
-    response = await service.agent_resume(
+    result = await service.agent_resume(
         run_id,
         tenant_id=request.tenant,
         principal_id=principal.subject,
-        options=_options(request, principal, settings=settings, stream=False),
+        options=_options(request, principal, settings=context.settings),
     )
-    if not response.ok:
+    if not result.ok:
         raise HarborConnectionError(_UNAVAILABLE_MESSAGE)
-    return AgentCompletionResponse.model_validate(response.data)
+    context.response.headers["Cache-Control"] = "no-store"
+    return AgentCompletionResponse.model_validate(result.data)

@@ -32,7 +32,7 @@ def client(monkeypatch: pytest.MonkeyPatch, service: MockAppService) -> Iterator
 
 
 def _sessions(payload: dict[str, object]) -> list[str]:
-    rows = payload["conversations"]
+    rows = payload["sessions"]
     assert isinstance(rows, list)
     return [str(row["session_id"]) for row in rows]
 
@@ -47,7 +47,7 @@ async def test_listing_returns_the_callers_own_conversations(
     response = client.get(CONVERSATIONS, headers=auth())
 
     assert response.status_code == 200
-    rows = response.json()["conversations"]
+    rows = response.json()["sessions"]
     assert len(rows) == 1
     assert rows[0]["session_id"] == "session-1"
     assert rows[0]["kind"] == "chat"
@@ -78,7 +78,7 @@ def test_creating_a_session_without_a_title_is_unchanged(client: TestClient) -> 
     created = client.post("/v1/chat/sessions", json={}, headers=auth())
 
     assert created.status_code == 201
-    rows = client.get(CONVERSATIONS, headers=auth()).json()["conversations"]
+    rows = client.get(CONVERSATIONS, headers=auth()).json()["sessions"]
     assert "title" not in rows[0]
 
 
@@ -90,8 +90,8 @@ async def test_the_kind_filter_separates_chat_from_agent_conversations(
     await seed(service, "session-chat")
     await seed(service, "session-agent", kind="agent")
 
-    chats = client.get(CONVERSATIONS, params={"kind": "chat"}, headers=auth())
-    agents = client.get(CONVERSATIONS, params={"kind": "agent"}, headers=auth())
+    chats = client.get(CONVERSATIONS, headers=auth())
+    agents = client.get("/v1/agent/sessions", headers=auth())
 
     assert _sessions(chats.json()) == ["session-chat"]
     assert _sessions(agents.json()) == ["session-agent"]
@@ -157,7 +157,7 @@ async def test_a_cursor_for_another_tenants_conversation_is_rejected(
 
 
 @pytest.mark.asyncio
-async def test_credentials_share_default_user_conversations_within_a_tenant(
+async def test_credentials_only_list_their_own_user_conversations(
     client: TestClient,
     service: MockAppService,
 ) -> None:
@@ -167,8 +167,8 @@ async def test_credentials_share_default_user_conversations_within_a_tenant(
     alice = client.get(CONVERSATIONS, headers=auth(ALICE)).json()
     bob = client.get(CONVERSATIONS, headers=auth(BOB)).json()
 
-    assert _sessions(alice) == ["session-bob", "session-1"]
-    assert _sessions(bob) == _sessions(alice)
+    assert _sessions(alice) == ["session-1"]
+    assert _sessions(bob) == ["session-bob"]
 
 
 @pytest.mark.asyncio

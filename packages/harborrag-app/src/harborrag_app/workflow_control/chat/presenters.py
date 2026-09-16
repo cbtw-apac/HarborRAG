@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from unicodedata import category
+from urllib.parse import urlsplit, urlunsplit
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatResponse, HarborChatStreamChunk
@@ -25,7 +26,8 @@ def citation_data(result: RetrievalResult) -> dict[str, object]:
         citation["document_title"] = title
     if section:
         citation["section_path"] = section
-    location = _citation_location(metadata.get("citation_locator"))
+    locator = metadata.get("citation_locator")
+    location = _citation_location(locator) or _citation_uri(locator)
     if location is not None:
         citation["location"] = location
     return citation
@@ -42,8 +44,34 @@ def citation_marker(index: int, result: RetrievalResult) -> str:
         120,
     )
     section = " > ".join(_citation_section(metadata.get("section_path")))
-    location = section or _citation_location(metadata.get("citation_locator")) or "source passage"
+    locator = metadata.get("citation_locator")
+    location = (
+        section
+        or _citation_location(locator)
+        or ("source page" if _citation_uri(locator) is not None else "source passage")
+    )
     return f'[Source {index}: "{title}" — {_marker_text(location, 220)}]'
+
+
+def evidence_data(index: int, result: RetrievalResult) -> dict[str, object]:
+    """Return bounded authorized evidence to clients, never to telemetry metadata."""
+
+    return {
+        **citation_data(result),
+        "marker": citation_marker(index, result),
+        "content": result.text[:8000],
+        **({"content_truncated": True} if len(result.text) > 8000 else {}),
+    }
+
+
+def cited_evidence(
+    answer: str, results: Sequence[RetrievalResult]
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        evidence_data(index, result)
+        for index, result in enumerate(results, start=1)
+        if citation_marker(index, result) in answer
+    )
 
 
 def _display_text(value: object, limit: int) -> str | None:
@@ -89,6 +117,33 @@ def _citation_location(value: object) -> str | None:
         ):
             return f"{label} {start}" if start == end else f"{label}s {start}–{end}"
     return None
+
+
+def _citation_uri(value: object) -> str | None:
+    """Expose a bounded source page when a chunk has no heading or page range."""
+
+    if not isinstance(value, dict):
+        return None
+    raw = value.get("uri")
+    if (
+        not isinstance(raw, str)
+        or len(raw) > 2048
+        or any(category(character).startswith("C") for character in raw)
+    ):
+        return None
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme not in {"https", "http"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    uri = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    return uri if len(uri) <= 1024 else None
 
 
 def cited_results(
@@ -154,9 +209,7 @@ def chat_response_data(
         "latency_ms": response.latency_ms,
         "retry_count": response.retry_count,
         "fallback_count": response.fallback_count,
-        "citations": tuple(
-            citation_data(result) for result in cited_results(response.text, results)
-        ),
+        "citations": cited_evidence(response.text, results),
         "session_id": session_id,
         "project_id": project_id,
         "memory_persisted": memory_persisted,

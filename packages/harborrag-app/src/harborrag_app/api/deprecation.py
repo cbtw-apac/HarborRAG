@@ -10,17 +10,12 @@ SUNSET = "Sun, 07 Feb 2027 00:00:00 GMT"
 
 def replacement(path: str) -> str | None:
     exact = {
-        "/v1/chat/sessions": "/v1/conversations",
-        "/v1/agent/sessions": "/v1/conversations",
-        "/v1/agent/completions": "/v1/chat/completions",
         "/v1/graph/traverse": "/v1/retrieval/graph/subgraphs",
     }
     if path in exact:
         return exact[path]
     prefixes = {
-        "/v1/chat/conversations": "/v1/conversations",
-        "/v1/agent/runs/": "/v1/runs/",
-        "/v1/memory/sessions/": "/v1/conversations/",
+        "/v1/memory/sessions/": "/v1/chat/sessions/",
     }
     for old, new in prefixes.items():
         if path == old or path.startswith(old if old.endswith("/") else old + "/"):

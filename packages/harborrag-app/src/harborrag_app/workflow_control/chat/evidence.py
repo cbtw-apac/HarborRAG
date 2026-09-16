@@ -169,10 +169,7 @@ class _PromptBuilder:
 
 
 def _quoted(value: object) -> str:
-    # JSON escaping preserves source strings losslessly; tag escapes prevent a
-    # retrieved passage from visually terminating the evidence delimiter.
-    return (
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-        .replace("<", "\\u003c")
-        .replace(">", "\\u003e")
-    )
+    # Escaping '<' prevents a retrieved passage from closing the evidence tag.
+    # Keep '>' literal: it separates section names inside citation markers, and
+    # escaping it caused models to copy '\\u003e' instead of the exact marker.
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")

@@ -17,7 +17,7 @@ from harborrag_app.api.capacity_scope import SHARED_TENANT_KEY, CapacityScope
 from harborrag_app.api.settings import ApiSettings
 
 
-def _principal(*, tenants: frozenset[str], user_id: str = "") -> Principal:
+def _principal(*, tenants: frozenset[str], user_id: str = "DEFAULT_USER") -> Principal:
     return Principal(
         subject="service-credential",
         role="owner",
@@ -95,7 +95,7 @@ def test_capacity_scope_charges_a_single_tenant_credential_to_that_tenant() -> N
     assert scope == CapacityScope(
         tenant_id="acme",
         principal_id="service-credential",
-        user_id="DEFAULT_USER",
+        user_id="alice",
     )
 
 
@@ -111,7 +111,7 @@ def test_wildcard_and_multi_tenant_credentials_share_one_aggregate_pool(
     assert capacity_scope_for(_principal(tenants=tenants)).tenant_id == SHARED_TENANT_KEY
 
 
-def test_capacity_scope_uses_default_user_and_preserves_the_audit_subject() -> None:
+def test_capacity_scope_uses_direct_caller_default_and_preserves_audit_subject() -> None:
     scope = capacity_scope_for(_principal(tenants=frozenset({"acme"})))
 
     assert scope.user_id == "DEFAULT_USER"

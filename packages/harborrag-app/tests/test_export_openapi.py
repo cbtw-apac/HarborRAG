@@ -38,15 +38,13 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
         "/v1/connections",
         "/v1/chat/completions",
         "/v1/chat/sessions",
-        "/v1/chat/conversations",
-        "/v1/chat/conversations/{session_id}",
-        "/v1/chat/conversations/{session_id}/messages",
-        "/v1/conversations",
-        "/v1/conversations/{session_id}",
-        "/v1/conversations/{session_id}/messages",
-        "/v1/runs/{run_id}/resume",
-        "/v1/agent/completions",
+        "/v1/chat/sessions/{session_id}",
+        "/v1/chat/sessions/{session_id}/messages",
         "/v1/agent/sessions",
+        "/v1/agent/sessions/{session_id}",
+        "/v1/agent/sessions/{session_id}/messages",
+        "/v1/agent/runs/{run_id}/resume",
+        "/v1/agent/completions",
         "/v1/retrieval/vector",
         "/v1/retrieval/graph/triplets",
         "/v1/retrieval/graph/paths",
@@ -64,10 +62,10 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
     assert set(paths["/v1/agent/completions"]) >= {"post"}
     assert "get" not in paths["/v1/agent/completions"]
     assert "/v1/retrieval/search" not in paths
-    assert set(paths["/v1/conversations"]) == {"get", "post"}
-    assert set(paths["/v1/chat/conversations"]) == {"get", "post"}
-    assert set(paths["/v1/chat/conversations/{session_id}"]) == {"patch", "delete"}
-    assert set(paths["/v1/chat/conversations/{session_id}/messages"]) == {"get"}
+    assert set(paths["/v1/agent/sessions"]) == {"get", "post"}
+    assert set(paths["/v1/chat/sessions"]) == {"get", "post"}
+    assert set(paths["/v1/chat/sessions/{session_id}"]) == {"patch", "delete"}
+    assert set(paths["/v1/chat/sessions/{session_id}/messages"]) == {"get"}
     assert set(paths["/v1/memory/memories"]) == {"get"}
     assert set(paths["/v1/memory/users/{user_id}"]) == {"delete"}
     for path in (
@@ -84,7 +82,7 @@ def test_export_produces_stable_schema_with_m0_surface() -> None:
 
 @pytest.mark.blackbox
 def test_chat_and_agent_request_examples_are_sendable_as_written() -> None:
-    """The docs example must be a body a reader can paste and have succeed.
+    """The docs schema example must be a body a reader can paste and send.
 
     Every optional field on these requests carries a pattern, so without an
     explicit example the schema generator invents a value for each one. Those
@@ -124,8 +122,17 @@ def test_chat_and_agent_request_examples_are_sendable_as_written() -> None:
     # The required fields must actually be present, or the example cannot be sent.
     for name, required in (
         ("ChatCompletionRequest", {"prompt"}),
-        ("AgentCompletionRequest", {"session_id", "prompt"}),
+        ("AgentCompletionRequest", {"prompt"}),
         ("AgentResumeRequest", {"session_id"}),
     ):
         example = components[name]["examples"][0]
         assert required <= set(example), f"{name} example omits {required - set(example)}"
+
+    chat_request = components["ChatCompletionRequest"]
+    assert "session_id" in chat_request["properties"]
+
+    body = schema["paths"]["/v1/chat/completions"]["post"]["requestBody"]
+    examples = body["content"]["application/json"]["examples"]
+    assert next(iter(examples)) == "existing_session"
+    assert examples["existing_session"]["value"]["session_id"].startswith("session-")
+    assert "session_id" not in examples["new_session"]["value"]

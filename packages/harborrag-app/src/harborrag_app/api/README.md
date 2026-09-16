@@ -147,9 +147,9 @@ isolation through retrieval filters.
 
 ### Chat and agent completions
 
-Use `POST /v1/chat/completions` for both modes. Only `prompt` is required;
-`session_id` may be omitted to create a conversation. `mode` defaults to
-`rag`; `mode: "agent"` enables the shared bounded retrieval tool catalog.
+Use `POST /v1/chat/completions` for retrieval chat and `/v1/agent/completions`
+for the bounded retrieval tool loop. Only `prompt` is required; `session_id`
+may be omitted to create a session. The endpoint determines execution mode.
 
 ```bash
 curl --fail-with-body --request POST \\
@@ -166,7 +166,10 @@ and LiteLLM generation cost. Agent mode also emits `response.agent.progress`.
 Unknown prices remain `null`. Retrieval embedding costs are not included in
 the generation subtotal. See [the full contract](../../../../../docs/users/chat/README.md).
 
-All HTTP requests currently use `DEFAULT_USER` within their tenant. The latest
+Authenticated HTTP requests use the configured, signed user claim (`sub` by
+default) within their tenant. Set `HARBORRAG_AUTH_USER_ID_CLAIM` when a shared
+service credential represents several people; each token must carry a stable
+user value. Local no-auth development uses `DEFAULT_USER`. The latest
 three completed user/assistant pairs form prompt memory; older and partial
 turns stay in history but are excluded from context. A deterministic title is
 created after the first successful persisted exchange. Neither an initial
@@ -177,9 +180,11 @@ one session across workers. An idempotency key replays a completed result;
 conflicting, active, failed, or uncertain duplicates return `409`. Capacity
 limits and streaming deadlines remain server-owned.
 
-Manage conversations through `/v1/conversations`; resume agent runs through
-`POST /v1/runs/{run_id}/resume`. The old session, conversation, and agent
-completion routes remain deprecated aliases with successor and sunset headers.
+Manage sessions through `/v1/chat/sessions` or `/v1/agent/sessions`: POST creates,
+GET lists, GET `/{session_id}/messages` reads history, PATCH `/{session_id}` renames,
+and DELETE `/{session_id}` erases. Lists return `sessions` filtered by creating surface.
+Resume agent runs through `POST /v1/agent/runs/{run_id}/resume`. Conversation routes
+and the generic `/v1/runs/*` family are removed; stored history is unchanged.
 Prompts remain in POST bodies and sensitive model-response caching is disabled.
 
 ### Retrieve evidence
@@ -313,6 +318,9 @@ Production refuses `auth_mode=none`. HMAC secrets must contain at least 32
 UTF-8 bytes. Tokens must contain `sub`, `role`, `tenants`, `iat`, `exp`, `iss`,
 and `aud` claims. `tenants` is a non-empty list of tenant identifiers the
 principal may access; a global role does not grant access to other tenants.
+`HARBORRAG_AUTH_USER_ID_CLAIM` selects the required signed end-user claim
+(`sub` by default). A shared service credential needs a different claim value
+for each person; a missing or invalid value returns `401`.
 The default issuer is `harborrag`, the default audience is `harborrag-api`, and
 the role order is:
 
@@ -345,6 +353,7 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_AUTH_SECRET` | unset | Shared HS256 secret |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required JWT issuer |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required JWT audience |
+| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Required signed end-user claim used for session and memory ownership |
 | `HARBORRAG_CORS_ORIGINS` | `[]` | JSON list of allowed browser origins |
 | `HARBORRAG_DOCS_ENABLED` | `true` in dev | Enables Swagger and the live OpenAPI route |
 | `HARBORRAG_MAX_REQUEST_BODY_BYTES` | `1048576` | Maximum request body accepted before JSON parsing |

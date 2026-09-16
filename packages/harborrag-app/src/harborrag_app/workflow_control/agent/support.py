@@ -123,6 +123,8 @@ def result_data(
             "section_path": list(reference.section_path),
             "location": reference.location,
             "marker": reference.marker,
+            "content": reference.content,
+            "content_truncated": reference.content_truncated,
         }
         for reference in result.citations
     ]

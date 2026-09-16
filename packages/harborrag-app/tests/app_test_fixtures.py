@@ -93,7 +93,7 @@ class MockAppService(
         title: str | None = None,
         kind: ConversationKind = "chat",
     ) -> AppResponse:
-        return await self._create_session(tenant_id, principal_id, user_id, "chat", title)
+        return await self._create_session(tenant_id, principal_id, user_id, kind, title)
 
     async def create_agent_session(
         self,

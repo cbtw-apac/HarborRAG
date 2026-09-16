@@ -114,7 +114,9 @@ def test_blank_summary_leaves_the_instructions_untouched(summary: str | None) ->
 def test_summary_is_appended_after_the_loop_instructions() -> None:
     text = agent_instructions("Release owner is Platform.")
 
-    assert text.index("Use the available tools") < text.index("Summary of earlier turns")
+    assert text.index("retrieve relevant evidence before answering") < text.index(
+        "Summary of earlier turns"
+    )
     assert text.rstrip().endswith("Release owner is Platform.")
 
 

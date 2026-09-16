@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import Literal
 
 from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.ports.conversation import ConversationKind
 
 from ..memory import ConversationSessionService
+from ..memory.access import MemoryAccess
 from ..schemas import AppResponse
 from .options import ChatExecutionOptions
 from .service import ChatApplicationService
@@ -18,6 +20,11 @@ class ChatClientMixin:
 
     _chat: ChatApplicationService
     _sessions: ConversationSessionService
+
+    async def validate_completion_scope(
+        self, query: str, access: MemoryAccess, *, model: str | None, mode: Literal["rag", "agent"]
+    ) -> None:
+        await self._chat.validate_scope(query, access, model=model, mode=mode)
 
     async def claim_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str

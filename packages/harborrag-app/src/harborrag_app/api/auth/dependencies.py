@@ -20,6 +20,7 @@ from harborrag_core.contracts.errors import (
     HarborConfigurationError,
     HarborNotFoundError,
 )
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
 
 logger = logging.getLogger("harborrag.app.api.auth")
@@ -105,7 +106,7 @@ def get_principal(
             role="owner",
             tenant_ids=frozenset({"*"}),
             token_kind="none",
-            user_id="dev",
+            user_id=DEFAULT_USER,
         )
     if credentials is None:
         raise HarborAuthError("missing bearer token")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from harborrag_app.api.v1.agent.schemas import AgentCompletionResponse
 from harborrag_app.api.v1.chat.schemas import ChatCompletionResponse
 from harborrag_app.workflow_control.agent.support import result_data
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse
@@ -44,6 +45,9 @@ def test_public_agent_result_reports_citation_validation() -> None:
 
     data = result_data(result, session_id="session-1")
     public = ChatCompletionResponse.model_validate({**data, "mode": "agent"})
+    # Both resume URLs and the deprecated completion route must accept the real
+    # service payload, not just a fake that omits citation metadata.
+    assert AgentCompletionResponse.model_validate(data).model_dump() == public.model_dump()
 
     assert public.citations[0].model_dump() == {
         "document_id": "doc-1",

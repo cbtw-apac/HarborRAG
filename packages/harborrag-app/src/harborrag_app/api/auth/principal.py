@@ -22,12 +22,13 @@ class Principal:
     role: Role
     tenant_ids: frozenset[str]
     token_kind: str = "jwt"
-    # User accounts are not enabled yet. All requests use one end-user
-    # namespace per tenant; the authenticated subject remains audit provenance.
+    # The verifier supplies a trusted end-user claim for authenticated calls.
+    # Direct callers and unauthenticated local development retain the default.
     user_id: str = DEFAULT_USER
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "user_id", DEFAULT_USER)
+        if not self.user_id or not self.user_id.strip():
+            raise ValueError("principal user_id must not be blank")
 
     def can_access_tenant(self, tenant_id: str) -> bool:
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids

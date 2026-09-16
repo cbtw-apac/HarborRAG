@@ -1,3 +1,3 @@
-"""Temporary end-user identity until application user accounts are enabled."""
+"""Fallback end-user identity for direct and unauthenticated local callers."""
 
 DEFAULT_USER = "DEFAULT_USER"

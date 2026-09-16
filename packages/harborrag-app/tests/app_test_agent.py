@@ -38,6 +38,15 @@ class AgentServiceFixture:
             "finish_reason": "stop",
             "stop_reason": "final_answer",
             "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+            # Match production result_data, including its always-present citation metadata.
+            "citations": [],
+            "citation_validation": {
+                "complete": True,
+                "evidence_available": False,
+                "marker_count": 0,
+                "validated_count": 0,
+                "invalid_count": 0,
+            },
             "turns": 2,
             "tool_call_count": 1,
             "tool_calls": [{"step": 1, "tool": "vector_search", "ok": True}],
@@ -57,6 +66,7 @@ class AgentServiceFixture:
             options.session_id,
             tenant_id=tenant_id,
             principal_id=principal_id,
+            user_id=options.user_id,
         )
         if not exists:
             raise HarborNotFoundError("Conversation session was not found")
@@ -128,6 +138,13 @@ class AgentServiceFixture:
     ) -> AppResponse:
         if run_id != "run-1":
             raise HarborNotFoundError("Agent run was not found")
+        if not await self.agent_session_exists(
+            options.session_id,
+            tenant_id=tenant_id,
+            principal_id=principal_id,
+            user_id=options.user_id,
+        ):
+            raise HarborNotFoundError("Conversation session was not found")
         self.agent_resume_calls.append(
             {
                 "run_id": run_id,

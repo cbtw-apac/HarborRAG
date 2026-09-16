@@ -8,12 +8,13 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
+from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.ports.conversation import ConversationKind
 
 
-class ChatService(Protocol):
+class ChatService(QueryScopeValidator, Protocol):
     async def create_chat_session(
         self,
         *,

@@ -5,12 +5,8 @@ field, so a caller cannot reach outside the tenants its token grants. The one
 endpoint that acts on a named person -- right-to-erasure -- requires the
 ``admin`` role and is still confined to a tenant the caller may access.
 
-Within a tenant there is no per-person boundary yet. User accounts are not
-enabled, so ``Principal.user_id`` is pinned to ``DEFAULT_USER`` for every
-caller and USER-scoped memories form one namespace per tenant: any subject
-holding a token for a tenant reads and erases all of them.
-``HARBORRAG_AUTH_USER_ID_CLAIM`` is resolved and then discarded, so setting it
-does not change this.
+USER and SESSION memory are scoped to the signed end-user claim. A shared
+service credential must carry a distinct end-user claim for each person.
 """
 
 from __future__ import annotations

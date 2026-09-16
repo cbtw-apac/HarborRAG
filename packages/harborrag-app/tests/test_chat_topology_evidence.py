@@ -128,6 +128,23 @@ def test_untrusted_closing_tags_are_losslessly_quoted() -> None:
     assert evidence.passages[0].text == raw
 
 
+def test_nested_section_citation_marker_remains_literal_in_model_prompt() -> None:
+    result = _result()
+    result.metadata.update(
+        {"document_title": "Data Connectors", "section_path": ["Architecture", "Admission"]}
+    )
+    response = replace(_response(), results=(result,), evidence=EvidenceBundle())
+
+    evidence = ChatEvidence.prepare(
+        response, query="How does admission work?", history=(), max_bytes=8000, overlay=False
+    )
+
+    marker = citation_marker(1, result)
+    assert "Architecture > Admission" in evidence.prompt
+    assert "\\u003e" not in evidence.prompt
+    assert _packet(evidence.prompt)["original_passages"][0]["citation"] == marker
+
+
 def test_budget_keeps_whole_passages_and_complete_history_pairs() -> None:
     response = replace(_response(), results=(_result(text="x" * 5000), _result("short", "Small")))
     history = (
@@ -206,7 +223,15 @@ async def test_chat_mode_wiring_and_original_only_citations(
     assert retrieval.request.mode == (
         RetrievalMode.LOCAL_SEMANTIC if graph_search else RetrievalMode.FLAT
     )
-    assert citations == ({"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},)
+    assert citations == (
+        {
+            "document_id": "doc-1",
+            "chunk_id": "chunk-1",
+            "score": 0.9,
+            "marker": '[Source 1: "doc-1" — source passage]',
+            "content": "According to Alice, A may not depend on B after 2025 if the pilot succeeds.",
+        },
+    )
     assert chat.request is not None
     assert chat.request.metadata.chunk_ids == ("chunk-1",)
     packet = _packet(chat.request.messages[-1].content)

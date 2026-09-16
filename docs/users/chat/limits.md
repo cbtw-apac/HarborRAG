@@ -28,8 +28,10 @@ See [retrieval settings](README.md#retrieval-and-models).
 | Principal | `HARBORRAG_API_REQUESTS_PER_MINUTE` (60) | `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` (4) |
 | Tenant | `HARBORRAG_API_REQUESTS_PER_MINUTE_PER_TENANT` (600) | `HARBORRAG_API_MAX_INFLIGHT_PER_TENANT` (40) |
 
-All three scopes must admit a request. Since HTTP currently uses
-`DEFAULT_USER`, its user allowance is shared by callers in that scope.
+All three scopes must admit a request. Authenticated callers with distinct
+signed user claims have separate user allowances, even behind one credential;
+the credential and tenant limits still apply to them together. Local
+`auth_mode=none` shares a single `DEFAULT_USER` allowance.
 A rejection identifies `limit_scope` and `limit_kind`. Streamed responses
 hold their capacity reservation for the full stream lifetime.
 
@@ -92,14 +94,17 @@ calls. With no prices available, the amount is `null` and status is
 `unavailable`. An explicitly reported zero remains a valid estimate.
 
 The scope is **answer generation**. Retrieval embeddings, reranking,
-infrastructure, and separately invoked memory operations are not included.
+request-scope classification, infrastructure, and separately invoked memory operations
+are not included. HTTP admission uses one additional bounded model call per fresh
+request, recorded separately in the usage ledger with `finish_reason=query_scope_gate`,
+even when it rejects the request. Completed replays and run resumptions skip admission.
 Automatic conversation titles add no model call.
 
 The usage ledger records completed chat/agent usage and reported usage from
 partial RAG streams. Complete agent aggregates are recorded as their full
 cost; an aggregate with missing prices records a null scalar cost rather
 than claiming a complete bill. A ledger failure does not discard the answer.
-Totals retain tenant, `DEFAULT_USER`, principal, session, and run attribution
+Totals retain tenant, verified user, principal, session, and run attribution
 where applicable.
 
 See [Chat migration](README.md#migration) before upgrading an existing

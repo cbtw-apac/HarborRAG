@@ -12,10 +12,10 @@ from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_runtime.chat import ChatPrompt
 
 from .completion_dependency import CompletionService
-from .schemas import ChatCompletionRequest
+from .schemas import CompletionRequest
 
 
-def chat_options(request: ChatCompletionRequest, principal: Principal) -> ChatExecutionOptions:
+def chat_options(request: CompletionRequest, principal: Principal) -> ChatExecutionOptions:
     if request.session_id is None:
         raise ValueError("completion session must be resolved before execution")
     return ChatExecutionOptions(
@@ -29,7 +29,7 @@ def chat_options(request: ChatCompletionRequest, principal: Principal) -> ChatEx
 
 
 def agent_options(
-    request: ChatCompletionRequest, principal: Principal, settings: ApiSettings
+    request: CompletionRequest, principal: Principal, settings: ApiSettings
 ) -> AgentExecutionOptions:
     if request.session_id is None:
         raise ValueError("completion session must be resolved before execution")
@@ -51,7 +51,7 @@ def agent_options(
 
 async def complete(
     service: CompletionService,
-    request: ChatCompletionRequest,
+    request: CompletionRequest,
     principal: Principal,
     settings: ApiSettings,
 ) -> AppResponse:
@@ -72,7 +72,7 @@ async def complete(
 
 def stream(
     service: CompletionService,
-    request: ChatCompletionRequest,
+    request: CompletionRequest,
     principal: Principal,
     settings: ApiSettings,
 ) -> AsyncGenerator[dict[str, object], None]:

@@ -26,10 +26,9 @@ EVIDENCE_PREAMBLE = (
 )
 """Why the sources are offered rather than imposed.
 
-Chat retrieval has no relevance gate -- the hybrid lane fuses by rank, so its
-scores say nothing about whether a match is any good, and the raw similarity
-that would is dropped before it reaches here. The prompt therefore has to be
-what tells the model that a weak match is still a possible non-answer.
+Request-scope admission and similarity filtering do not prove answerability.
+Hybrid rank scores are not relevance probabilities, and some lanes cannot
+report raw similarity. The model must still reject irrelevant evidence.
 """
 
 NO_SOURCES = "No sources were retrieved for this question."

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, JsonValue
+from pydantic import ConfigDict, Field, JsonValue, StringConstraints
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_core.models.cost import ModelCost
@@ -13,6 +13,7 @@ from harborrag_core.models.cost import ModelCost
 # rather than rejected, so the schema cap is only input hygiene, well above the
 # stored length.
 MAX_TITLE_INPUT = 1_000
+VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class ChatTenantRequest(ApiModel):
@@ -36,7 +37,7 @@ class ChatSessionResponse(ApiModel):
     title: str | None = None
 
 
-class ChatCompletionRequest(ChatTenantRequest):
+class CompletionRequest(ChatTenantRequest):
     # Only the prompt is required. Keep examples free of placeholder model
     # and project names, which would be rejected when copied into a request.
     model_config = ConfigDict(
@@ -53,7 +54,7 @@ class ChatCompletionRequest(ChatTenantRequest):
 
     session_id: str | None = Field(
         default=None,
-        description="Existing conversation ID; omitted creates an unnamed conversation.",
+        description="Existing conversation ID; omitted or null creates an unnamed conversation.",
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -89,9 +90,15 @@ class ChatCompletionRequest(ChatTenantRequest):
     )
 
 
+class ChatCompletionRequest(CompletionRequest):
+    """Retrieval chat only; bounded tool runs use the agent endpoint."""
+
+    mode: Literal["rag"] = "rag"
+
+
 class ChatMessageResponse(ApiModel):
     role: Literal["assistant"]
-    content: str
+    content: VerbatimText
 
 
 class ChatCitation(ApiModel):
@@ -103,6 +110,17 @@ class ChatCitation(ApiModel):
     section_path: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
     location: str | None = Field(default=None, exclude_if=lambda value: value is None)
     marker: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    content: VerbatimText | None = Field(
+        default=None,
+        max_length=8000,
+        exclude_if=lambda value: value is None,
+        description="Authorized source passage, not generated text. May be absent on older runs.",
+    )
+    content_truncated: bool = Field(
+        default=False,
+        description="True when content is a bounded excerpt rather than the full passage.",
+        exclude_if=lambda value: not value,
+    )
 
 
 class AgentCitationValidation(ApiModel):
@@ -171,10 +189,10 @@ class ConversationSummary(ApiModel):
     message_count: int = Field(ge=0)
 
 
-class ConversationListResponse(ApiModel):
-    """One page of conversations; ``next_cursor`` is absent on the last page."""
+class SessionListResponse(ApiModel):
+    """One page of sessions; ``next_cursor`` is absent on the last page."""
 
-    conversations: list[ConversationSummary] = Field(default_factory=list)
+    sessions: list[ConversationSummary] = Field(default_factory=list)
     next_cursor: str | None = None
 
 
@@ -183,7 +201,7 @@ class ConversationMessageRecord(ApiModel):
 
     message_id: str
     role: Literal["user", "assistant", "tool", "system"]
-    content: str
+    content: VerbatimText
     created_at: str
     token_count: int | None = Field(default=None, ge=0)
     # Whatever the turn returned to the caller; shape follows the turn that

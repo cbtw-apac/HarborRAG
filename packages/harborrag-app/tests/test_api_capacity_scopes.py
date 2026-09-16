@@ -110,32 +110,22 @@ async def test_concurrency_rejection_names_the_tier_that_bound(
     assert str(rejection.value).endswith(f"the {tier} scope")
 
 
-def test_every_api_caller_in_a_tenant_shares_one_user_bucket() -> None:
-    """Characterizes the user tier while user accounts are disabled.
-
-    ``capacity_scope_for`` reads ``principal.user_id``, which
-    ``Principal.__post_init__`` pins to ``DEFAULT_USER`` for everyone. So the
-    user tier is a per-tenant limit, not a per-person one: two different
-    subjects key the same user bucket, and one of them holding several
-    long-lived streams exhausts it for the other. Nothing exercised
-    ``capacity_scope_for`` from a real Principal before, which is why the
-    collapse tests below could describe behaviour no caller reaches.
-
-    Flip this test when user accounts land; do not delete it.
-    """
+def test_signed_users_have_separate_capacity_buckets_behind_one_credential() -> None:
 
     alice = capacity_scope_for(
-        Principal(subject="alice", role="reader", tenant_ids=frozenset({"ACME"}))
+        Principal(subject="shared", role="reader", tenant_ids=frozenset({"ACME"}), user_id="alice")
     )
     bob = capacity_scope_for(
-        Principal(subject="bob", role="reader", tenant_ids=frozenset({"ACME"}))
+        Principal(subject="shared", role="reader", tenant_ids=frozenset({"ACME"}), user_id="bob")
     )
 
-    assert alice.user_id == bob.user_id
-    assert alice.principal_id != bob.principal_id
-    # The identical-key collapse below is therefore unreachable from the API:
-    # user_id never equals principal_id, so three buckets are always planned.
+    assert alice.user_id != bob.user_id
+    assert alice.principal_id == bob.principal_id
     assert len(plan_capacity_buckets(alice, limits(user=(2, 1), principal=(3, 2)))) == 3
+    assert (
+        plan_capacity_buckets(alice, limits())[0].identity
+        != plan_capacity_buckets(bob, limits())[0].identity
+    )
 
 
 def test_an_unset_user_id_claim_collapses_the_two_identical_keys() -> None:

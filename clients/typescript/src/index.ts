@@ -6,6 +6,7 @@
  * can't know: bearer injection, the error envelope, and trace-id plumbing.
  */
 
+import { createSessionMethods } from "./sessions.js";
 import { createChatMethods } from "./chat.js";
 import { apiRequestError } from "./errors.js";
 import type { HarborClientOptions } from "./options.js";
@@ -13,6 +14,7 @@ import type { HarborClientOptions } from "./options.js";
 export { HarborApiRequestError, HarborChatStreamError } from "./errors.js";
 export type { HarborApiError } from "./errors.js";
 export type { HarborClientOptions, HarborRequestOptions } from "./options.js";
+export type { SessionSurface, SessionListOptions, SessionHistoryOptions } from "./sessions.js";
 export type { paths, components, operations } from "./schema.js";
 export type {
   ChatCompletionRequest,
@@ -21,6 +23,9 @@ export type {
   ChatCitation,
   ChatUsage,
   ChatStreamEvent,
+  AgentCompletionRequest,
+  AgentResumeRequest,
+  AgentCompletionResponse,
 } from "./chat.js";
 
 /** Minimal typed fetch seam; screens use this until generated per-resource
@@ -54,6 +59,7 @@ export function createHarborClient(options: HarborClientOptions) {
 
   return {
     ...createChatMethods(options),
+    ...createSessionMethods(options),
     request,
     get: <T>(path: string) => request<T>("GET", path),
     post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),

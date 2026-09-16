@@ -82,8 +82,13 @@ class AgentEvidenceReference:
     section_path: tuple[str, ...] = ()
     location: str | None = None
     canonical_marker: str | None = None
+    content: str | None = None
+    content_truncated: bool = False
 
     def __post_init__(self) -> None:
+        if self.content is not None and len(self.content) > 8000:
+            object.__setattr__(self, "content", self.content[:8000])
+            object.__setattr__(self, "content_truncated", True)
         object.__setattr__(self, "document_title", _reference_text(self.document_title, 256))
         object.__setattr__(
             self,

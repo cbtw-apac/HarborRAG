@@ -270,6 +270,7 @@ def _reference(
         document_title,
         section_path,
         location,
+        content=str(item["text"]),
     )
 
 

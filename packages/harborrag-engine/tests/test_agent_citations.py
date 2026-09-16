@@ -77,6 +77,7 @@ async def test_agent_validates_citations_and_persists_only_backed_references() -
     assert result.invalid_citation_markers == (forged,)
     assert result.citation_evidence_available is True
     assert result.executions[0].evidence == result.citations
+    assert result.citations[0].content == "Grounded source content."
 
     tool_message = next(message for message in chat.requests[1].messages if message.role == "tool")
     model_result = json.loads(tool_message.content)
@@ -130,6 +131,7 @@ def test_evidence_extraction_accepts_only_available_source_content() -> None:
 
     references = evidence_references("composed_evidence_search", result)
     assert [reference.chunk_id for reference in references] == ["available"]
+    assert [reference.content for reference in references] == ["source"]
     guided = tool_result_with_citation_guide("composed_evidence_search", result, references)
     assert guided["citation_guide"] == [
         {
@@ -141,6 +143,13 @@ def test_evidence_extraction_accepts_only_available_source_content() -> None:
     assessment = assess_answer_citations("No citation markers.", ())
     assert assessment.marker_count == 0
     assert assessment.citations == ()
+
+
+def test_evidence_content_is_bounded_without_changing_its_marker():
+    reference = AgentEvidenceReference("vector_search", "chunk", "doc", content="x" * 9000)
+    assert reference.content == "x" * 8000
+    assert reference.content_truncated is True
+    assert reference.marker == AgentEvidenceReference("vector_search", "chunk", "doc").marker
 
 
 def test_citation_guide_is_bounded_and_carries_model_visible_evidence() -> None:

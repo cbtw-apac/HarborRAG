@@ -84,7 +84,9 @@ the same `idempotency_key` and original request body when retrying the same turn
 (the `stream` flag may change); use a new key for a new turn. If the original request
 omitted `session_id`, keep it omitted for that retry, even after receiving the new ID.
 
-`cost.scope` is `answer_generation`: it excludes retrieval and background memory work.
+`cost.scope` is `answer_generation`: it excludes retrieval, request-scope classification,
+and background memory work. HTTP admission adds one small model call per fresh request;
+its usage is recorded separately as `query_scope_gate`, including rejected requests.
 An unknown price has `amount_usd: null`; a known subtotal can have `complete: false`.
 
 ## Chat without streaming
@@ -92,15 +94,66 @@ An unknown price has `amount_usd: null`; a known subtotal can have `complete: fa
 ```ts
 const result = await api.completeChat({
   tenant: "ACME",
-  session_id: sessionId, // Omit to create a new conversation.
   prompt: "Who approves the release?",
-  mode: "rag", // Use "agent" for tool-assisted execution.
 });
-console.log(result.message.content, result.citations, result.cost);
+const next = await api.completeChat({
+  tenant: "ACME", session_id: result.session_id,
+  prompt: "What evidence supports that?",
+});
+console.log(next.message.content, next.citations, next.cost);
 ```
 
 The generic `get`, `post`, `patch`, and `delete` helpers retain their `/api/v1` prefix.
 Chat helpers use `/v1/chat/completions` directly.
+The server resolves the end user from a verified token claim. Provide a token
+for the current user on each request; a shared credential needs a stable signed
+end-user claim configured with `HARBORRAG_AUTH_USER_ID_CLAIM`. Changing that
+claim changes which sessions the token can see.
+
+## Agent resume and evidence
+
+```ts
+const resumed = await api.resumeAgent("run-...", {
+  tenant: "ACME", session_id: "session-...", max_steps: 4,
+});
+for (const citation of resumed.citations) {
+  console.log(citation.document_title, citation.content, citation.content_truncated);
+}
+```
+
+`resumeAgent` posts to `/v1/agent/runs/{run_id}/resume` and accepts the same per-request
+headers and abort signal as chat. It cannot change the run's prompt/model or stream.
+For new agent runs use `completeAgent` / `streamAgent`; both post to
+`/v1/agent/completions` and need only `prompt`. Both streaming helpers use the
+same event parser and cancellation behavior.
+Citation content is bounded, authorized source text; render it as text, not raw HTML.
+During SSE, candidate citations arrive in `retrieval.completed`; replace them with the
+final answer's citations rather than assuming every candidate was used. Agent text
+arrives at completion, with progress events beforehand. HTTP scope rejections are
+`HarborApiRequestError` (`422`, `details.reason: out_of_scope`), not SSE events.
+
+## Session history
+
+```ts
+const page = await api.listSessions("chat", { tenant: "ACME", limit: 20 });
+const agentPage = await api.listSessions("agent", { tenant: "ACME" });
+const history = await api.getSessionHistory("chat", sessionId, {
+  tenant: "ACME", limit: 50,
+});
+// Continue with { after: history.next_cursor } when present.
+await api.renameSession("chat", sessionId, "Release policy", "ACME");
+// Explicit creation is optional; completions can create sessions automatically.
+const session = await api.createSession("agent", "ACME");
+```
+
+Lists contain `sessions` and optional `next_cursor`; history contains `messages`
+and optional `next_cursor`. Pass a list cursor as `cursor`, a history cursor as
+`after`. `deleteSession(surface, sessionId, tenant)` erases history and associated
+memory. Every helper accepts headers and an abort signal as its final options
+argument. Lists are filtered by creating surface; session IDs remain shared.
+
+The conversation routes and generic `/v1/runs/*` routes are removed. Session helpers
+use `/v1/{chat|agent}/sessions`; they do not use the operational `/api/v1` prefix.
 
 ## Test
 

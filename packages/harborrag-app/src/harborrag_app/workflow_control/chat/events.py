@@ -14,7 +14,7 @@ from harborrag_app.workflow_control.memory.identity import MemoryIdentity
 
 from .options import ChatExecutionOptions
 from .preparation import PreparedTurn
-from .presenters import citation_data, cited_results
+from .presenters import cited_evidence
 
 logger = logging.getLogger("harborrag.app.workflow_control.chat")
 
@@ -57,9 +57,7 @@ def cited_event(
 
     return {
         "kind": "cited_sources",
-        "citations": tuple(
-            citation_data(result) for result in cited_results(answer, prepared.results)
-        ),
+        "citations": cited_evidence(answer, prepared.results),
         "session_id": options.session_id,
         "project_id": identity.project_id,
     }

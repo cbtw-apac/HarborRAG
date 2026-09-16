@@ -6,17 +6,20 @@ stored for browsing; dropping them from a prompt does not erase history.
 
 ## Identity and scope
 
-All current HTTP callers use the logical user `DEFAULT_USER`. Storage and
-lookup remain scoped by `(tenant, user_id, session_id)`, while the
-authenticated principal is retained for audit. Callers authorized for the
-same tenant share that tenant's `DEFAULT_USER` conversations. HTTP does not
-accept a user ID from the request or use a token claim to select another user.
+Authenticated storage and lookup are scoped by `(tenant, user_id, session_id)`.
+`user_id` comes from the verified JWT claim selected by
+`HARBORRAG_AUTH_USER_ID_CLAIM` (`sub` by default); the credential subject is
+retained for audit. The claim must be stable across requests. A different
+signed user in the same tenant cannot open the session, even with its ID.
+HTTP does not accept a user ID from the request body or query. Local
+`auth_mode=none` uses the shared `DEFAULT_USER` development identity.
 
-Direct SDK callers can still supply explicit user identities. CLI and
-application-service calls that omit one use `DEFAULT_USER`. Tenant
-authorization continues to apply.
+Direct SDK callers can supply explicit user identities. CLI and
+application-service calls that omit one use `DEFAULT_USER`. Tenant authorization
+continues to apply. Existing sessions under the old shared identity require a
+trusted owner mapping before migration; the API does not expose them to all users.
 
-A conversation can alternate between `mode: "rag"` and `mode: "agent"`.
+A session can alternate between the chat and agent completion endpoints.
 Its stored `kind` describes how it was created, not an execution restriction.
 
 ## Which history is used
@@ -69,24 +72,26 @@ All endpoints below require tenant access and the `reader` role when
 authentication is enabled.
 
 ```bash
-curl "http://localhost:8000/v1/conversations?tenant=DEFAULT&limit=20" \
+curl "http://localhost:8000/v1/chat/sessions?tenant=DEFAULT&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/v1/conversations/session-.../messages?tenant=DEFAULT&limit=50" \
+curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant=DEFAULT&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
-curl -X PATCH "http://localhost:8000/v1/conversations/session-...?tenant=DEFAULT" \
+curl -X PATCH "http://localhost:8000/v1/chat/sessions/session-...?tenant=DEFAULT" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   --data '{"title":"Release policy"}'
 ```
 
-Conversation lists are newest-activity first, default to 20 rows, and accept
-`limit=1..100`, optional `kind`, and opaque `cursor`.
+Session lists return a `sessions` array, newest-activity first, default to 20 rows,
+and accept `limit=1..100` and opaque `cursor`. Use `/v1/agent/sessions` for
+sessions created by the agent surface; its history, rename, and delete paths
+have the same shape. The path determines the listing kind, not a query parameter.
 Message lists are oldest first, default to 50 rows, and accept
 `limit=1..200`; pass the returned `next_cursor` as `after`.
 Messages include citations, timestamps, run IDs, and partial status.
 
-Delete with `DELETE /v1/conversations/{session_id}?tenant=DEFAULT`.
+Delete with `DELETE /v1/chat/sessions/{session_id}?tenant=DEFAULT`.
 The operation removes the session and its history, associated stored
 checkpoints through the repository, and session-scoped memory/index entries.
 The response reports deletion counts; it is not a claim that unrelated
@@ -97,4 +102,4 @@ Existing long-term memory can still be inspected or erased through
 operations are separate from completion context.
 
 See [Chat](README.md#migration) for the `0033`/`0034` database migration
-requirement and deprecated endpoint replacements.
+requirement and endpoint replacements.

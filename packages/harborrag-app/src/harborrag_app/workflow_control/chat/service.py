@@ -5,9 +5,10 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from harborrag_app.workflow_control.errors import failure_response
+from harborrag_app.workflow_control.memory.access import MemoryAccess
 from harborrag_app.workflow_control.memory.extraction import (
     MemoryExtractionQueue,
 )
@@ -33,7 +34,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from .events import cited_event, error_event
 from .options import ChatExecutionOptions
 from .preparation import ChatTurnResources, PreparedTurn, RuntimeProvider, prepare_turn
-from .presenters import chat_response_data, chat_stream_chunk_data, citation_data
+from .presenters import chat_response_data, chat_stream_chunk_data, evidence_data
+from .query_scope import require_query_scope
 from .stream_result import stream_result
 from .turn import (
     DeliveredAnswer,
@@ -95,6 +97,12 @@ class ChatApplicationService:
         """
 
         await self._resources.runtime().chat.validate_model(model, tenant_id=tenant_id)
+
+    async def validate_scope(
+        self, query: str, access: MemoryAccess, *, model: str | None, mode: Literal["rag", "agent"]
+    ) -> None:
+        await self.validate_project(access.project_id, tenant_id=access.tenant_id)
+        await require_query_scope(self._resources, query, access, model=model, mode=mode)
 
     async def validate_project(self, project_id: str | None, *, tenant_id: str) -> None:
         """Reject a project this tenant does not have, before the turn starts.
@@ -223,7 +231,9 @@ class ChatApplicationService:
             return
         yield {
             "kind": "citations",
-            "citations": tuple(citation_data(result) for result in prepared.results),
+            "citations": tuple(
+                evidence_data(index, result) for index, result in enumerate(prepared.results, 1)
+            ),
             "session_id": options.session_id,
             "project_id": identity.project_id,
         }

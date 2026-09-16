@@ -18,7 +18,9 @@ import pytest
 from harborrag_app.workflow_control.chat.presenters import (
     citation_data,
     citation_marker,
+    cited_evidence,
     cited_results,
+    evidence_data,
 )
 from harborrag_core.domain.retrieval import RetrievalResult
 
@@ -41,6 +43,18 @@ def test_only_the_marked_sources_are_returned() -> None:
     used = cited_results(answer, results)
 
     assert [result.id for result in used] == ["chunk-1", "chunk-3"]
+
+
+def test_evidence_preserves_text_markers_and_bounds_output_without_telemetry_content():
+    results = _results(2)
+    results[1].text = "line one\n" + "x" * 9000
+    evidence = cited_evidence(citation_marker(2, results[1]), results)
+    assert len(evidence) == 1
+    assert evidence[0]["content"] == results[1].text[:8000]
+    assert evidence[0]["content_truncated"] is True
+    assert evidence[0]["marker"] == citation_marker(2, results[1])
+    assert "content" not in citation_data(results[1])
+    assert evidence_data(1, results[0])["content"] == "body 1"
 
 
 def test_only_the_server_generated_readable_marker_is_accepted() -> None:
@@ -122,6 +136,24 @@ def test_citation_data_includes_readable_document_section_and_location() -> None
     )
 
 
+def test_citation_uses_source_page_when_heading_and_range_are_missing() -> None:
+    result = RetrievalResult(
+        id="chunk-1",
+        text="body",
+        score=0.9,
+        metadata={
+            "document_id": "doc-1",
+            "document_title": "Project Charter",
+            "citation_locator": {"uri": "https://example.com/wiki/pages/123?token=private#section"},
+        },
+    )
+
+    assert citation_data(result)["location"] == "https://example.com/wiki/pages/123"
+    assert citation_marker(1, result) == '[Source 1: "Project Charter" — source page]'
+    result.metadata["citation_locator"] = {"uri": "javascript:alert(1)"}
+    assert "location" not in citation_data(result)
+
+
 def test_public_readable_metadata_is_bounded_and_control_characters_are_removed() -> None:
     result = RetrievalResult(
         id="chunk-1",
@@ -185,7 +217,9 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
 
     assert [c["chunk_id"] for c in response.data["citations"]] == ["chunk-2"]
     messages = await memory.recent_messages(identity, limit=2)
-    assert json.loads(messages[-1].citations_json) == list(response.data["citations"])
+    # History retains provenance without copying complete source passages into every turn.
+    assert json.loads(messages[-1].citations_json) == [citation_data(_results(3)[1])]
+    assert response.data["citations"][0]["content"] == "body 2"
 
 
 @pytest.mark.asyncio

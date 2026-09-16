@@ -59,11 +59,8 @@ class ApiSettings(BaseSettings):
     auth_audience: str = "harborrag-api"
     auth_max_token_lifetime_seconds: int = Field(default=3600, ge=60, le=86_400)
     auth_clock_skew_seconds: int = Field(default=30, ge=0, le=300)
-    # JWT claim naming the stable end-user identity. Resolved by the verifier
-    # and then discarded: ``Principal.__post_init__`` pins ``user_id`` to
-    # ``DEFAULT_USER`` while user accounts are disabled, so this has no effect
-    # on ownership or on capacity tiers today. It is kept as the seam the
-    # user-accounts work will use; do not document it as an isolation control.
+    # A required, signed JWT claim naming the stable end user. Use a claim
+    # other than sub when one service credential acts for several people.
     auth_user_id_claim: str = Field(default="sub", min_length=1)
     max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=16_777_216)
     api_capacity_redis_url: SecretStr | None = None

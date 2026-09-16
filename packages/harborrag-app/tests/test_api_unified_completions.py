@@ -34,10 +34,11 @@ def client(monkeypatch, service: MockAppService):
 
 @pytest.mark.parametrize("mode", ["rag", "agent"])
 def test_modes_share_session_and_final_json_sse_contract(client, service, mode):
-    session = client.post("/v1/conversations", json={}).json()["session_id"]
+    session = client.post("/v1/chat/sessions", json={}).json()["session_id"]
+    path = "/v1/agent/completions" if mode == "agent" else "/v1/chat/completions"
     body = {"session_id": session, "prompt": "Explain the release", "mode": mode}
-    ordinary = client.post("/v1/chat/completions", json=body)
-    streamed = client.post("/v1/chat/completions", json={**body, "stream": True})
+    ordinary = client.post(path, json=body)
+    streamed = client.post(path, json={**body, "stream": True})
     assert ordinary.status_code == streamed.status_code == 200
     frames = _sse_frames(streamed.text)
     assert frames[0] == (
@@ -54,10 +55,11 @@ def test_modes_share_session_and_final_json_sse_contract(client, service, mode):
 
 @pytest.mark.parametrize("mode", ["rag", "agent"])
 def test_retry_without_session_replays_without_new_session_or_model_call(client, service, mode):
+    path = "/v1/agent/completions" if mode == "agent" else "/v1/chat/completions"
     body = {"prompt": "Explain the release", "mode": mode, "idempotency_key": "request-1"}
-    first = client.post("/v1/chat/completions", json=body)
-    again = client.post("/v1/chat/completions", json=body)
-    stream = client.post("/v1/chat/completions", json={**body, "stream": True})
+    first = client.post(path, json=body)
+    again = client.post(path, json=body)
+    stream = client.post(path, json={**body, "stream": True})
     assert first.status_code == again.status_code == stream.status_code == 200
     assert first.json() == again.json()
     assert again.headers["idempotency-replayed"] == "true"
@@ -66,7 +68,7 @@ def test_retry_without_session_replays_without_new_session_or_model_call(client,
     assert frames[-1] == ("response.completed", first.json())
     calls = service.chat_calls if mode == "rag" else service.agent_calls
     assert len(calls) == 1
-    assert len(client.get("/v1/conversations").json()["conversations"]) == 1
+    assert len(client.get(path.replace("/completions", "/sessions")).json()["sessions"]) == 1
 
 
 def test_retry_echoing_the_disclosed_session_replays(client, service):
@@ -141,29 +143,34 @@ def test_deleted_conversation_cannot_be_replayed(client, service):
     body = {"prompt": "Private answer", "idempotency_key": "erased-1"}
     first = client.post("/v1/chat/completions", json=body)
     session = first.json()["session_id"]
-    assert client.delete(f"/v1/conversations/{session}").status_code == 200
+    assert client.delete(f"/v1/chat/sessions/{session}").status_code == 200
     assert client.post("/v1/chat/completions", json=body).status_code == 409
     assert len(service.chat_calls) == 1
 
 
 def test_initial_title_and_client_user_identity_are_rejected(client):
-    assert client.post("/v1/conversations", json={"title": "Initial"}).status_code == 422
+    assert client.post("/v1/chat/sessions", json={"title": "Initial"}).status_code == 422
     assert (
         client.post("/v1/chat/completions", json={"prompt": "Hi", "user_id": "other"}).status_code
         == 422
     )
 
 
-def test_deprecated_routes_expose_successor_and_sunset(client):
-    old = client.post("/v1/chat/sessions", json={})
-    assert old.headers["deprecation"] == "true"
-    assert "Sunset" in old.headers
-    assert "/v1/conversations" in old.headers["link"]
-    new = client.post("/v1/conversations", json={})
-    assert "deprecation" not in new.headers
+def test_session_families_replace_conversation_routes(client):
     paths = client.app.openapi()["paths"]
-    assert paths["/v1/agent/completions"]["post"]["deprecated"] is True
-    assert not paths["/v1/conversations"]["post"].get("deprecated", False)
+    for surface in ("chat", "agent"):
+        created = client.post(f"/v1/{surface}/sessions", json={})
+        assert created.status_code == 201
+        assert "deprecation" not in created.headers
+        assert not paths[f"/v1/{surface}/completions"]["post"].get("deprecated", False)
+        assert set(paths[f"/v1/{surface}/sessions"]) == {"get", "post"}
+        assert set(paths[f"/v1/{surface}/sessions/{{session_id}}"]) == {"patch", "delete"}
+        assert set(paths[f"/v1/{surface}/sessions/{{session_id}}/messages"]) == {"get"}
+    for removed in ("/v1/conversations", "/v1/chat/conversations"):
+        assert client.get(removed).status_code == 404
+        assert client.post(removed, json={}).status_code == 404
+        assert removed not in paths
+    assert "/v1/runs/{run_id}/resume" not in paths
 
 
 @pytest.mark.asyncio

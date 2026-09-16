@@ -63,8 +63,13 @@ def test_agent_stream_emits_progress_events_then_result(
     assert response.headers["content-type"].startswith("text/event-stream")
     frames = _sse_frames(response.text)
     names = [name for name, _ in frames]
-    assert names == ["run.started", "run.completed", "result"]
-    assert frames[0][1]["run_id"] == "run-1"
+    assert names == [
+        "response.started",
+        "response.agent.progress",
+        "response.agent.progress",
+        "response.completed",
+    ]
+    assert frames[1][1]["run_id"] == "run-1"
     assert frames[-1][1]["message"]["content"] == "Agent response"
     assert frames[-1][1]["run_id"] == "run-1"
 
@@ -91,9 +96,10 @@ def test_agent_stream_ends_with_error_event_on_failure(
 
     assert response.status_code == 200
     frames = _sse_frames(response.text)
-    assert frames == [
-        ("error", {"code": "harbor_connection_error", "message": "Agent service is unavailable"})
-    ]
+    assert frames[0][0] == "response.started"
+    assert frames[-1][0] == "response.error"
+    assert frames[-1][1]["code"] == "harbor_connection_error"
+    assert len(frames) == 2
     assert "private endpoint" not in response.text
 
 
@@ -141,7 +147,11 @@ def test_agent_stream_past_its_deadline_ends_with_a_terminal_error_frame(
 
     assert response.status_code == 200
     frames = _sse_frames(response.text)
-    assert [name for name, _ in frames] == ["run.started", "error"]
+    assert [name for name, _ in frames] == [
+        "response.started",
+        "response.agent.progress",
+        "response.error",
+    ]
     assert frames[-1][1]["code"] == "harbor_deadline_exceeded"
 
 

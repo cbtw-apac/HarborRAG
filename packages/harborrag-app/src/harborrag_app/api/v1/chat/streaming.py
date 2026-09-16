@@ -15,7 +15,7 @@ from harborrag_app.api.sse import bounded_sse_frames, sse_frame
 
 from . import dispatch
 from .replay import CompletionAttempt
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .schemas import ChatCompletionResponse, CompletionRequest
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
@@ -61,7 +61,9 @@ def progress_frame(event: dict[str, object]) -> bytes | None:
     if kind == "chunk":
         chunk = cast("dict[str, object]", event["chunk"])
         if chunk.get("event") == "text_delta":
-            return sse_frame("response.output_text.delta", chunk)
+            # The UI needs display text, not provider metadata or reasoning
+            # that may share an adapter chunk with the visible delta.
+            return sse_frame("response.output_text.delta", {"content": chunk["content"]})
         return None
     if kind == "event":
         return sse_frame("response.agent.progress", event["event"])
@@ -71,7 +73,7 @@ def progress_frame(event: dict[str, object]) -> bytes | None:
 
 
 def stream_response(
-    request: ChatCompletionRequest,
+    request: CompletionRequest,
     principal: Principal,
     *,
     settings: ApiSettings,

@@ -17,10 +17,7 @@ class MemoryIdentity:
     ``user_id`` is the identity user-scoped memory is keyed by; ``project_id``
     is the validated project the turn happened in, when the caller supplied one.
 
-    On the API path ``user_id`` is ``DEFAULT_USER`` for every caller while user
-    accounts are disabled, so USER-scoped memory is one namespace per tenant
-    rather than per person. ``HARBORRAG_AUTH_USER_ID_CLAIM`` names the claim the
-    user-accounts work will read; it has no effect today.
+    On the authenticated API path ``user_id`` comes from a verified token claim.
     """
 
     tenant_id: str

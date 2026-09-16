@@ -10,7 +10,7 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_core.contracts.errors import HarborConflictError
 
 from .completion_dependency import CompletionService
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .schemas import ChatCompletionResponse, CompletionRequest
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
@@ -26,7 +26,7 @@ class CompletionAttempt:
 
     @classmethod
     def for_request(
-        cls, service: CompletionService, request: ChatCompletionRequest, principal: Principal
+        cls, service: CompletionService, request: CompletionRequest, principal: Principal
     ) -> CompletionAttempt:
         # Delivery format does not alter the paid operation. A retry may ask
         # for JSON after its stream disconnected and receive the saved result.
@@ -66,12 +66,13 @@ class CompletionAttempt:
         return None
 
     async def release(self) -> None:
-        """Give the key back after a failure that never reached a model.
+        """Give the key back after a failure that never reached answer generation.
 
         Marking such a claim ``failed`` would spend the caller's key on work
-        that never cost anything, and the only way past a failed claim is a
+        that produced no answer, and the only way past a failed claim is a
         brand-new key. Releasing keeps the duplicate-suppression window while
         the request was in flight and leaves the key reusable afterwards.
+        Scope admission may already have incurred its separately recorded cost.
         """
 
         if not self.claimed or self.key is None:

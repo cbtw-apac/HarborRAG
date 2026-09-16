@@ -119,8 +119,9 @@ class AuthoritativeSearchResult:
 class AuthoritativeProjectionSearch:
     """Over-fetch vector candidates and keep only Postgres-active document versions.
 
-    This validates version activeness, not access. There is no intra-tenant permission
-    model: isolation is physical, one vector collection per tenant.
+    This validates version activeness. The surrounding retrieval service supplies
+    the authorized document filter before search and checks permissions again
+    afterward; a tenant's vector collection alone does not grant access.
     """
 
     def __init__(
