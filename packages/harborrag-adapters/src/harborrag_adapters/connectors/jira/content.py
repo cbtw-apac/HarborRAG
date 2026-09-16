@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
+import re
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.parsers.common.normalization import compact_text, html_to_text
+from .html_to_markdown import html_to_markdown
 
 from .schemas import (
     JiraCustomFieldKind,
@@ -25,6 +27,7 @@ def build_raw_content(
 ) -> str:
     """Render a JIRA issue and optional child data as readable plain text."""
     fields = issue.get("fields", {})
+    rendered_fields = issue.get("renderedFields", {}) or {}
     lines = [
         f"# {issue.get('key')} {fields.get('summary') or ''}".strip(),
         "",
@@ -33,7 +36,8 @@ def build_raw_content(
         f"Priority: {_name(fields.get('priority')) or ''}".strip(),
         "",
         "## Description",
-        field_text(fields.get("description")),
+        # Prefer rendered HTML (if available) so we preserve tables/formatting
+        field_text(rendered_fields.get("description") or fields.get("description")),
     ]
 
     custom_field_lines = [
@@ -160,9 +164,30 @@ def field_text(value: Any) -> str:
         return ""
     if isinstance(value, str):
         if "<" in value and ">" in value:
+            try:
+                # Prefer a Markdown-preserving conversion when HTML contains tables
+                md = html_to_markdown(value)
+                # If the helper returned Markdown containing a table, return it.
+                # Use a simple presence check rather than a brittle line-index check.
+                if md and "|" in md and "---" in md:
+                    return md
+                # otherwise fallback to plain visible-text extraction
+            except Exception:
+                pass
             return html_to_text(value)
         return compact_text(value)
     if isinstance(value, dict):
+        # If this looks like Atlassian Document Format (ADF), attempt to
+        # convert it to Markdown (preserving tables) before falling back
+        # to a plain-text ADF walk.
+        try:
+            if value.get("type") == "doc" or isinstance(value.get("content"), list):
+                md = _adf_to_markdown(value)
+                if md and md.strip():
+                    return md.strip()
+        except Exception:
+            # fall through to text-only extraction on any failure
+            pass
         adf_text = compact_text("".join(_walk_adf(value)))
         if adf_text:
             return adf_text
@@ -200,6 +225,94 @@ def _walk_adf(node: Any) -> list[str]:
     if node_type in {"paragraph", "heading", "listItem"} and node_parts:
         node_parts.append("\n")
     return node_parts
+
+
+def _adf_to_markdown(node: Any) -> str:
+    """Render a subset of ADF to Markdown, with table support.
+
+    This implements minimal ADF handling sufficient to render tables and
+    paragraphs into readable Markdown. It is conservative and falls back
+    to plain-text when structures are unfamiliar.
+    """
+    parts: list[str] = []
+
+    def render(n: Any) -> str:
+        if isinstance(n, str):
+            return n
+        if isinstance(n, list):
+            return "".join(render(child) for child in n)
+        if not isinstance(n, dict):
+            return ""
+        t = n.get("type")
+        if t == "paragraph":
+            return compact_text("".join(_walk_adf(n))) + "\n\n"
+        if t == "heading":
+            level = (n.get("attrs") or {}).get("level") or 1
+            try:
+                level = int(level)
+            except Exception:
+                level = 1
+            text = compact_text("".join(_walk_adf(n)))
+            return f"{('#' * max(1, min(level, 6)))} {text}\n\n" if text else ""
+        if t == "table":
+            return _adf_table_to_markdown(n) + "\n\n"
+        # Generic: render children
+        return "".join(render(child) for child in n.get("content", []) or [])
+
+    parts.append(render(node))
+    return _compact_md("".join(parts))
+
+
+def _adf_table_to_markdown(table_node: dict[str, Any]) -> str:
+    # table_node.content -> list of tableRow nodes
+    rows: list[list[str]] = []
+    header_row = None
+    for row in table_node.get("content", []) or []:
+        if not isinstance(row, dict) or row.get("type") != "tableRow":
+            continue
+        cells: list[str] = []
+        for cell in row.get("content", []) or []:
+            # cell may be tableHeader or tableCell
+            if not isinstance(cell, dict):
+                continue
+            # extract textual content of the cell (walk children safely)
+            parts: list[str] = []
+            for child in cell.get("content", []) or []:
+                parts.extend(_walk_adf(child))
+            cell_text = compact_text("".join(parts))
+            cells.append(_escape_table_cell(cell_text))
+        if cells:
+            rows.append(cells)
+            if header_row is None and any(
+                (cell_node.get("type") == "tableHeader")
+                for cell_node in row.get("content", [])
+                if isinstance(cell_node, dict)
+            ):
+                header_row = len(rows) - 1
+
+    if not rows:
+        return ""
+    max_cols = max(len(r) for r in rows)
+    norm = [r + [""] * (max_cols - len(r)) for r in rows]
+    if header_row is not None and 0 <= header_row < len(norm):
+        header = norm[header_row]
+        data = norm[:header_row] + norm[header_row + 1 :]
+    else:
+        header = [f"Column {i + 1}" for i in range(max_cols)]
+        data = norm
+    sep = ["---"] * max_cols
+    md_lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(sep) + " |"]
+    for row in data:
+        md_lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(md_lines)
+
+
+def _escape_table_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", "<br>")
+
+
+def _compact_md(value: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", value).strip()
 
 
 def _name(value: Any) -> str | None:
