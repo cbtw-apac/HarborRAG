@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import os
+import stat
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
 from harborrag_adapters.repositories.backends import sqlalchemy as sqlalchemy_module
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient, UTCDateTime
-from harborrag_adapters.repositories.backends.sqlite import sqlite_url
+from harborrag_adapters.repositories.backends.sqlite import (
+    prepare_sqlite_database,
+    sqlite_url,
+)
 
 
 def make_client(
@@ -158,4 +163,44 @@ def test_sqlite_url_builds_absolute_path_url(tmp_path) -> None:  # type: ignore[
     target = tmp_path / "nested" / "harbor.db"
     url = sqlite_url(str(target))
     assert url == f"sqlite+aiosqlite:///{target}"
+
+
+def test_building_a_url_creates_nothing(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Resolving a configured location must not touch the filesystem."""
+
+    target = tmp_path / "nested" / "harbor.db"
+
+    sqlite_url(str(target))
+
+    assert not target.parent.exists()
+
+
+def test_preparing_the_database_creates_it_owner_only(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    target = tmp_path / "nested" / "harbor.db"
+
+    url = prepare_sqlite_database(str(target))
+
+    assert url == f"sqlite+aiosqlite:///{target}"
     assert target.parent.is_dir()
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_preparing_the_database_leaves_an_existing_directory_alone(
+    tmp_path,  # type: ignore[no-untyped-def]
+) -> None:
+    """The operator chose that directory; only one we create is ours to narrow.
+
+    Resetting the mode of a pre-existing parent stripped group and other access
+    from a shared location, and raised PermissionError on one this process does
+    not own.
+    """
+
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    os.chmod(shared, 0o755)
+
+    prepare_sqlite_database(str(shared / "harbor.db"))
+
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert stat.S_IMODE((shared / "harbor.db").stat().st_mode) == 0o600

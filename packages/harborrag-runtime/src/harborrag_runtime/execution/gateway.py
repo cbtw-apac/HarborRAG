@@ -43,9 +43,13 @@ def prepare_configured_source_submission(
     *,
     environment: Mapping[str, str] | None = None,
 ) -> PreparedSourceSubmission:
-    """Translate the default Temporal deployment's policy at composition only."""
+    """Translate the shared ingestion batch policy at composition only.
 
-    defaults = TemporalRuntimeConfig.from_settings(settings).ingestion
+    Reads only the ingestion section: this runs on the direct path too, which
+    never connects to Temporal and must not be failed by its deployment config.
+    """
+
+    defaults = TemporalRuntimeConfig.ingestion_from_settings(settings)
     return prepare_source_submission(
         settings,
         submission,

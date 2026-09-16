@@ -109,8 +109,7 @@ async def apply_graph_permissions(
     # such a record.
     tenant_visible = False
     if any(
-        record.document_id is None and record.source_scope_id is None
-        for record in records.values()
+        record.document_id is None and record.source_scope_id is None for record in records.values()
     ):
         tenant_visible = await _tenant_readable(authorizer, context)
     for key, record in records.items():

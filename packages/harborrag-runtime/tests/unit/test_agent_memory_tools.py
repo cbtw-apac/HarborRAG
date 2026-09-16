@@ -224,9 +224,7 @@ async def test_owner_fields_are_still_refused_beneath_the_schema(field: str) -> 
     tools = AgentMemoryTools(
         owner=OWNER,
         memories=_Memories(),  # type: ignore[arg-type]
-        policy=RuntimeMemoryContextService(
-            RuntimeSettings(), embedder_builder=_no_embedder
-        ).policy,
+        policy=RuntimeMemoryContextService(RuntimeSettings(), embedder_builder=_no_embedder).policy,
     )
 
     with pytest.raises(ValueError, match=f"{field} is bound by the server"):
