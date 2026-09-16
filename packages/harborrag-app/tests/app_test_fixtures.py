@@ -28,6 +28,7 @@ from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
+from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
 from harborrag_runtime.memory import (
     ConversationIdentity,
     InMemoryConversationMemory,
@@ -68,10 +69,12 @@ class MockAppService(
         self.memory_index = FakeMemoryIndex()
         self.conversations = InMemoryConversationMemory()
         self._extraction = None
+        self.pending_effects = FakePendingEffectRepository()
         self._memory_admin = MemoryAdministrationService(
             conversations=self.conversations,
             memories=self.memory_store,  # type: ignore[arg-type]
             index=self.memory_index,  # type: ignore[arg-type]
+            pending_effects=self.pending_effects,
         )
         self._conversation_directory = ConversationDirectoryService(
             self.conversations, self._memory_admin

@@ -1,15 +1,15 @@
-"""Defensive helpers for the two per-turn ``BaseChatModel`` calls."""
+"""Model-port dispatch and defensive text helpers for memory policies."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel
 
 from harborrag_core.ports.conversation import ConversationMessage
 
+from .model import MemoryModel, MemoryModelLike
 from .prompts import NO_MESSAGES_PLACEHOLDER
 
 _ROLE_LABELS = {
@@ -20,14 +20,27 @@ _ROLE_LABELS = {
 }
 
 
-async def generate_text(model: BaseChatModel, *, system: str, user: str) -> str:
+def _model_port(model: MemoryModelLike) -> MemoryModel:
+    if isinstance(model, MemoryModel):
+        return model
+    from ..langchain.model import LangChainMemoryModel
+
+    return LangChainMemoryModel(model)
+
+
+async def generate_text(model: MemoryModelLike, *, system: str, user: str) -> str:
     """Ask ``model`` for one plain-text completion and return it stripped."""
 
-    response = await model.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
-    return message_text(response)
+    return (await _model_port(model).generate_text(system=system, user=user)).strip()
 
 
-def message_text(message: BaseMessage) -> str:
+async def generate_structured(
+    model: MemoryModelLike, *, schema: type[BaseModel], system: str, user: str
+) -> object:
+    return await _model_port(model).generate_structured(schema=schema, system=system, user=user)
+
+
+def message_text(message: Any) -> str:
     """Read a message's text whether ``text`` is a property or a method.
 
     ``langchain_core`` moved ``BaseMessage.text`` from a method to a property,

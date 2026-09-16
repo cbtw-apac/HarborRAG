@@ -161,15 +161,15 @@ class MemberRepositoryPort(Protocol):
 class PendingEffectRepositoryPort(Protocol):
     """Durable retry queue for control-plane side effects (ML2 recoverability hardening).
 
-    A row is enqueued only when a secondary effect -- secret retirement or
-    audit logging -- fails after the primary write it depends on has already
-    committed. It is never a step on the happy path. The recovery drain
+    Secret retirement and audit logging enqueue failed post-commit effects.
+    Erasure enqueues intent before deleting canonical identifiers, retaining
+    the keys needed to recover interrupted work across stores. The recovery drain
     retries each pending row and calls ``complete`` once the retry succeeds;
     a row that keeps failing simply stays pending for the next drain pass.
     """
 
     async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
-        """Durably record a failed side effect for later retry."""
+        """Durably record replayable work before its recovery identifiers are lost."""
 
     async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
         """Oldest-first pending effects, for the recovery drain."""

@@ -2,10 +2,10 @@
 
 Allowed direction (lower layers never import higher ones):
 
-    harborrag_core      -> (stdlib only)
+    harborrag_core      -> no HarborRAG package
     harborrag_adapters  -> core
     harborrag_memory    -> core
-    harborrag_engine    -> core, memory
+    harborrag_engine    -> core
     harborrag_runtime   -> core, adapters, engine, memory
     harborrag_app       -> core, runtime
     harborrag_mcp_server -> core, runtime
@@ -45,7 +45,7 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     "harborrag_core": set(),
     "harborrag_adapters": {"harborrag_core"},
     "harborrag_memory": {"harborrag_core"},
-    "harborrag_engine": {"harborrag_core", "harborrag_memory"},
+    "harborrag_engine": {"harborrag_core"},
     "harborrag_runtime": {
         "harborrag_core",
         "harborrag_adapters",

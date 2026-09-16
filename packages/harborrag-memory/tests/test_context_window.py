@@ -160,6 +160,8 @@ async def test_second_trigger_folds_the_prior_summary_into_a_replacement(
     context_builder = builder(policy=policy, store=store, memories=memories, model=model)
 
     await context_builder.build(owner, "first question")
+    added = conversation(2, tokens=20)
+    await store.append_messages(identity, added)
     second = await context_builder.build(owner, "second question")
 
     assert second.summary == "second summary text"
@@ -169,7 +171,7 @@ async def test_second_trigger_folds_the_prior_summary_into_a_replacement(
     assert list(memories.rows) == ["summary:s-1"]
     assert memories.rows["summary:s-1"].content == "second summary text"
     assert memories.rows["summary:s-1"].source_message_ids == tuple(
-        message.message_id for message in rows[:4]
+        message.message_id for message in rows[4:]
     )
 
 
@@ -199,7 +201,7 @@ async def test_stored_summary_is_reused_when_nothing_triggers(
 
     assert context.summary == "Dana owns ingestion."
     assert context.summary_written is False
-    assert context.messages == tuple(rows)
+    assert context.messages == (rows[1],)
     assert model.calls == []
     assert len(memories.saved) == 1
 
@@ -216,14 +218,16 @@ async def test_summary_failures_degrade_to_the_prior_summary(
     rows = conversation(6, tokens=20)
     await store.append_messages(identity, rows)
     await memories.save(
-        SummaryRecord(owner=owner, summary="prior summary", covered=(rows[0],), now=NOW).to_memory()
+        SummaryRecord(
+            owner=owner, summary="prior summary", covered=tuple(rows[:2]), now=NOW
+        ).to_memory()
     )
     memories.saved.clear()
     memories.fail_save = failing == "repository"
     model = chat_model("fresh summary", failure="model down" if failing == "model" else None)
     policy = MemoryPolicy(
         recent_max_messages=10,
-        recent_max_tokens=150,
+        recent_max_tokens=100,
         summary_keep_messages=2,
         query_rewrite=False,
     )
@@ -234,7 +238,7 @@ async def test_summary_failures_degrade_to_the_prior_summary(
 
     assert context.summary == "prior summary"
     assert context.summary_written is False
-    assert context.messages == tuple(rows)
+    assert context.messages == tuple(rows[2:])
     assert memories.saved == []
 
 
@@ -304,6 +308,7 @@ async def test_a_summary_round_trips_for_an_owner_without_a_user_id(
     second = await context_builder.build(owner, "q2")
 
     assert first.summary == "first summary"
-    assert "first summary" in model.prompts[1]
-    assert second.summary == "second summary"
+    assert len(model.prompts) == 1
+    assert second.summary == "first summary"
+    assert second.summary_written is False
     assert await memories.get(memories.saved[-1].owner, "summary:s-1") is not None

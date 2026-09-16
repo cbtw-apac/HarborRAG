@@ -4,11 +4,11 @@ Scope-aware memory shared by chat and agent orchestration in
 [HarborRAG](https://github.com/cbtw-apac/HarborRAG). This package owns the memory facade;
 storage lives in `harborrag-adapters` and the contracts live in `harborrag-core`.
 
-Memory policy is written against LangChain primitives (`langchain-core` messages and
-`trim_messages`, LangGraph's `BaseStore`). It stays provider-neutral in the sense that
-matters: no LLM-provider SDK is imported here, and the chat model is injected as a
-`BaseChatModel` -- HarborRAG's LiteLLM-backed implementation of that interface lives in
-`harborrag-adapters`.
+Model policies accept the `MemoryModel` protocol: asynchronous `generate_text` and
+`generate_structured` methods receive plain system/user strings. Existing LangChain
+`BaseChatModel` callers continue to work through a compatibility adapter. LangChain
+still supplies message conversion and window trimming; LangGraph is not required.
+Storage, embedding, and indexing use the contracts in `harborrag-core`.
 
 It is a required dependency of `harborrag-runtime`, so any HarborRAG install already has it.
 
@@ -178,7 +178,14 @@ raises `MemoryConfigurationError` at wiring time.
    the prior summary, and save it under the deterministic id `summary:<session_id>` so a
    session never accumulates duplicates. `source_message_ids` lists only the messages
    that refresh folded in, so the row never grows without bound;
-   `metadata["last_covered_message_id"]` is the frontier.
+   `metadata["last_covered_message_id"]` is the frontier. Previously covered messages
+   are excluded from later refreshes, so unchanged history does not call the summary
+   model again. If the frontier is older than the recent window, unread history is
+   summarized in at most four bounded pages per turn. Any remaining backlog resumes
+   from the saved frontier on later turns; the current turn still gets its recent
+   history window. A non-advancing history cursor stops catch-up safely. An existing
+   summary retains its original ownership/provenance fields across credential or
+   project-context changes within the same user-owned session.
 6. Token-trim the window to `recent_max_tokens` with LangChain's `trim_messages`
    (`strategy="last"`, `start_on="human"`), so the window never opens on a tool result
    separated from the assistant tool call that produced it. The post-summary boundary is

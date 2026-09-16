@@ -20,8 +20,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from harborrag_adapters.repositories.vector.base import HarborVectorRepository
     from harborrag_core.ports.memory import MemoryEmbedder, MemoryIndex
+    from harborrag_core.ports.storage import VectorRepositoryPort
 
     from ..config.settings import RuntimeSettings
 
@@ -37,7 +37,7 @@ class MemoryIndexResources(Protocol):
     """
 
     @property
-    def vector_repository(self) -> HarborVectorRepository: ...
+    def vector_repository(self) -> VectorRepositoryPort: ...
 
     @property
     def embedding_dimensions(self) -> int: ...

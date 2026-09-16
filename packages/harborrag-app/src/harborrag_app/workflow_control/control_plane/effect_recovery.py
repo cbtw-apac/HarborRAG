@@ -14,6 +14,7 @@ and a requeued activity entry keeps its original id, so it can't double-write.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -76,19 +77,23 @@ async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityE
 
 
 async def recover_pending_control_plane_effects(
-    control_plane: ControlPlaneRepositories, *, limit: int = 100
+    control_plane: ControlPlaneRepositories,
+    *,
+    limit: int = 100,
+    erasure_handler: Callable[[PendingControlPlaneEffect], Awaitable[bool]] | None = None,
 ) -> int:
-    """Retry durably-queued secret retirements and audit-log writes.
+    """Retry queued effects and authorized cross-store erasure intents.
 
-    Each pending row's first attempt ran only after the write it depends on
-    already committed, so retrying is always safe and never touches an
-    in-flight request. A row that fails again is left pending for the next
-    drain pass; one bad row must not block the rest.
+    Post-commit effects and pre-delete erasure intents are idempotent; a
+    concurrent initial attempt may perform the same deletion harmlessly.
+    A row that fails again is left pending for the next drain pass; one bad
+    row must not block the rest.
     """
     recovered = 0
     for effect in await control_plane.pending_effects.list_pending(limit=limit):
         try:
-            await _replay_effect(control_plane, effect)
+            if erasure_handler is None or not await erasure_handler(effect):
+                await _replay_effect(control_plane, effect)
         except Exception:
             logger.exception(
                 "control-plane pending effect retry failed id=%s kind=%s",

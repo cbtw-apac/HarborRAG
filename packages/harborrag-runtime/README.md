@@ -10,6 +10,8 @@ for HarborRAG ingestion. Framework-independent domain types and ports live in
 src/harborrag_runtime/
   __init__.py       # lazy public facade
   contracts.py      # stable SDK request/response value objects
+  ingestion_contracts.py # provider-neutral durable ingestion gateway and DTOs
+  source_query.py   # provider-neutral source filtering contracts
   document_stage_catalog.py # sandbox-safe document stage metadata
   temporal_models.py        # replay-safe routing/retry payload models
   errors.py         # runtime failures
@@ -25,8 +27,12 @@ src/harborrag_runtime/
   composition/
     control_plane.py # production repository assembly
     resources.py     # storage/control resource factories
+    storage_providers.py # registered storage factories selected by runtime settings
   execution/
     contracts.py    # execution strategy protocols
+    gateway.py      # default ingestion gateway composition
+    source_submission.py # provider-neutral source preparation and defaults
+    task_registry.py # authoritative task registration
     submission.py   # shared request-to-source translation
     direct.py       # inline execution strategy
     temporal.py     # durable execution strategy
@@ -80,6 +86,7 @@ src/harborrag_runtime/
       reindex.py         # connector-free reindexing
       reindex_plan.py    # stale-lane selection policy
   temporal/
+    gateway.py      # neutral ingestion DTO translation to/from Temporal
     client.py       # source/reindex submission and controls
     schemas.py      # small workflow-history contracts
     ingestion_activities.py   # twelve document-stage activity boundaries
@@ -97,6 +104,19 @@ contracts, configuration parsing, execution strategies, and retrieval service
 live in focused modules behind that facade. Direct and Temporal strategies use
 the same submission builder, so execution mode does not change request
 identity or filtering semantics.
+
+Applications submit durable ingestion through `ingestion_contracts.IngestionGateway`.
+Its submission, retry, status, and result DTOs contain no Temporal replay state or
+workflow options. `temporal.gateway.TemporalIngestionGateway` translates those
+contracts to Temporal payloads and back. Connector preparation and task registration
+live in `execution/source_submission.py` and `execution/task_registry.py`, so changing
+the execution provider does not require changing application ingestion services.
+The application composition accepts a gateway factory taking `RuntimeSettings` and
+a separate provider description for health reporting. The original Temporal import
+paths remain available for callers that use the Temporal client directly.
+The default composition translates Temporal YAML policy into `SourceSubmissionDefaults`;
+an alternative composition can call `prepare_source_submission` with its own defaults
+without loading Temporal configuration.
 
 `document_stage_catalog.py` and `temporal_models.py` intentionally remain
 lightweight top-level modules. Temporal imports them inside its restricted

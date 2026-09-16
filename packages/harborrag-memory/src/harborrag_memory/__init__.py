@@ -27,6 +27,7 @@ from .context import (
     recalled_entity_ids,
     type_weight,
 )
+from .context.model import MemoryModel
 from .errors import MemoryConfigurationError, MemoryError, MemoryScopeError
 from .manager import MemoryManager, MemorySnapshot
 from .schemas import (
@@ -75,6 +76,7 @@ __all__ = [
     "MemoryIndex",
     "MemoryManager",
     "MemoryManagerConfig",
+    "MemoryModel",
     "MemoryMatch",
     "MemoryOwner",
     "MemoryPolicy",

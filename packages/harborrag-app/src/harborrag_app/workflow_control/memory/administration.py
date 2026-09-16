@@ -22,8 +22,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborNotFoundError, HarborUnavailableError
+from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
+from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope
+
+from .erasure import SESSION_ERASURE, MemoryErasureJournal
 
 if TYPE_CHECKING:
     from harborrag_core.ports.agent_runs import AgentRunRepository
@@ -84,11 +88,13 @@ class MemoryAdministrationService:
         memories: MemoryRepository | None = None,
         index: MemoryIndex | None = None,
         runs: AgentRunRepository | None = None,
+        pending_effects: PendingEffectRepositoryPort | None = None,
     ) -> None:
         self._conversations = conversations
         self._memories = memories
         self._index = index
         self._runs = runs
+        self._erasure = MemoryErasureJournal(memories, index, pending_effects)
 
     def _store(self) -> MemoryRepository:
         if self._memories is None:
@@ -119,8 +125,7 @@ class MemoryAdministrationService:
         memory = await store.get(owner, memory_id)
         if memory is None:
             raise HarborNotFoundError("Memory was not found")
-        await store.delete(owner, memory_id)
-        await self._unindex(memory)
+        await self._erasure.erase_memory(memory)
         logger.info(
             "Memory deleted tenant=%s actor=%s memory_id=%s scope=%s",
             owner.tenant_id,
@@ -145,8 +150,15 @@ class MemoryAdministrationService:
         # Delete the session itself, not only its messages: an emptied session
         # still exists, so it would keep appearing in the caller's
         # conversation list after they deleted it.
-        await self._conversations.delete(identity)
+        effect_id = await self._erasure.begin(
+            SESSION_ERASURE,
+            owner,
+            memories_required=self._memories is not None,
+            index_required=self._index is not None,
+        )
         purged = await self._purge(owner, _SESSION_SCOPES)
+        await self._conversations.delete(identity)
+        await self._erasure.complete(effect_id)
         report = ErasureReport(
             memories=purged.memories,
             index_points=purged.index_points,
@@ -155,6 +167,31 @@ class MemoryAdministrationService:
         )
         _log_erasure("session", owner.tenant_id, actor, owner.session_id, report)
         return report
+
+    async def recover_erasure(self, effect: PendingControlPlaneEffect) -> bool:
+        """Replay authorized durable intents even after their session/row disappeared."""
+
+        if await self._erasure.replay(effect):
+            return True
+        if effect.kind != SESSION_ERASURE:
+            return False
+        owner = MemoryOwner(**effect.payload["owner"])
+        if effect.payload.get("memories_required") and self._memories is None:
+            raise HarborUnavailableError("session erasure memory store is not configured")
+        if effect.payload.get("index_required") and self._index is None:
+            raise HarborUnavailableError("session erasure index is not configured")
+        if owner.principal_id is None or owner.session_id is None:
+            raise ValueError("session erasure intent lacks its ownership key")
+        await self._purge(owner, _SESSION_SCOPES)
+        await self._conversations.delete(
+            ConversationIdentity(
+                owner.tenant_id,
+                owner.principal_id,
+                owner.session_id,
+                owner.user_id or owner.principal_id,
+            )
+        )
+        return True
 
     async def erase_user(self, owner: MemoryOwner, *, actor: str) -> ErasureReport:
         """Erase everything reachable for one end user within the tenant.
@@ -240,10 +277,10 @@ class MemoryAdministrationService:
                 # always satisfies that check, and the search above already
                 # pinned the row to this tenant and user, so authorization is
                 # established before we get here rather than by this argument.
-                caller = row.owner if stored_by_owner else owner
-                await self._memories.delete(caller, row.memory_id)
+                # Search established authorization; the journal retains the row's
+                # full owner so replay remains possible after canonical deletion.
+                unindexed += await self._erasure.erase_memory(row)
                 deleted += 1
-                unindexed += await self._unindex(row)
                 principal_id = row.owner.principal_id
                 session_id = row.source_session_id or row.owner.session_id
                 if principal_id is not None and session_id is not None:
@@ -255,22 +292,6 @@ class MemoryAdministrationService:
             ",".join(scope.value for scope in scopes),
         )
         return _Purged(deleted, unindexed, frozenset(conversations))
-
-    async def _unindex(self, memory: Memory) -> int:
-        """Remove one memory's vector, tolerating an index that cannot."""
-
-        if self._index is None:
-            return 0
-        try:
-            await self._index.delete_memory(memory.owner, memory.memory_id)
-        except Exception:  # noqa: BLE001 - the canonical row is already gone
-            logger.warning(
-                "Memory index delete failed for tenant=%s memory_id=%s; the row was removed",
-                memory.owner.tenant_id,
-                memory.memory_id,
-            )
-            return 0
-        return 1
 
     async def _erase_checkpoints(self, owner: MemoryOwner) -> int:
         """Delete the user's agent-run checkpoints where the store supports it.

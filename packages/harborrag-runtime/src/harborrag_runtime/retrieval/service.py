@@ -52,7 +52,7 @@ from .validation import validate_retrieval_request
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
 if TYPE_CHECKING:
-    from harborrag_adapters.repositories.vector.base import HarborVectorRepository
+    from harborrag_core.ports.storage import VectorRepositoryPort
 
     from ..config.settings import RuntimeSettings
 
@@ -133,7 +133,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._closed = False
 
     @property
-    def vector_repository(self) -> HarborVectorRepository:
+    def vector_repository(self) -> VectorRepositoryPort:
         """The connected vector client, for sharing with the memory index."""
 
         return self._vector_repository

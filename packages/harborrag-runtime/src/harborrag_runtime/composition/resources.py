@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
@@ -8,29 +8,23 @@ from harborrag_adapters.repositories.graph.falkordb import (
     FalkorDBGraphConfig,
     FalkorKnowledgeGraphRepository,
 )
+from harborrag_adapters.repositories.graph.falkordb.topology import FalkorTopologyRepository
 from harborrag_adapters.repositories.object_store.s3 import (
     S3ObjectStore,
     S3ObjectStoreConfig,
 )
 from harborrag_adapters.repositories.vector import (
     HarborVectorDBClient,
-    HarborVectorRepository,
 )
 from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
-from harborrag_core.ports import (
-    GraphRetrievalRepositoryPort,
-    KnowledgeGraphRepositoryPort,
-)
+from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 
 from ..config.settings import RuntimeSettings
-
-
-class RuntimeKnowledgeGraphPort(
-    KnowledgeGraphRepositoryPort,
-    GraphRetrievalRepositoryPort,
-    Protocol,
-):
-    """Combined write and retrieval capabilities required by runtime composition."""
+from .storage_providers import (
+    RuntimeKnowledgeGraphPort,
+    RuntimeTopologyPort,
+    storage_providers,
+)
 
 
 def build_ingestion_control(
@@ -70,8 +64,24 @@ def embedding_dimensions(config: Any, model_name: str) -> int:
     )
 
 
-def build_object_store(settings: RuntimeSettings) -> S3ObjectStore:
-    """Create the MinIO/S3 immutable artifact repository."""
+def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:
+    """Resolve the configured immutable artifact provider."""
+
+    if settings.object_store_provider == "memory":
+        from harborrag_adapters.repositories.object_store.memory import (
+            MemoryObjectStore,
+        )
+
+        return MemoryObjectStore()
+    if settings.object_store_provider == "filesystem":
+        from harborrag_adapters.repositories.object_store.filesystem import (
+            FilesystemObjectStore,
+            FilesystemObjectStoreConfig,
+        )
+
+        return FilesystemObjectStore(FilesystemObjectStoreConfig(root=settings.object_store_root))
+    if settings.object_store_provider != "s3":
+        return storage_providers.object_store(settings)
 
     return S3ObjectStore(
         S3ObjectStoreConfig(
@@ -87,8 +97,11 @@ def build_object_store(settings: RuntimeSettings) -> S3ObjectStore:
 
 def build_vector_repository(
     settings: RuntimeSettings,
-) -> HarborVectorRepository:
-    """Create the Qdrant dense/sparse projection repository."""
+) -> VectorRepositoryPort:
+    """Resolve the configured vector projection provider."""
+
+    if settings.vector_provider != "qdrant":
+        return storage_providers.vector_repository(settings)
 
     return HarborVectorDBClient.default().create_from_config(
         QdrantVectorConfig(
@@ -104,9 +117,20 @@ def build_vector_repository(
 def build_knowledge_graph(
     settings: RuntimeSettings,
 ) -> RuntimeKnowledgeGraphPort:
-    """Create the document-versioned, non-LLM FalkorDB projection repository."""
+    """Resolve the configured document-versioned graph provider."""
+
+    if settings.graph_provider != "falkordb":
+        return storage_providers.knowledge_graph(settings)
 
     return FalkorKnowledgeGraphRepository(build_graph_config(settings))
+
+
+def build_topology_repository(settings: RuntimeSettings) -> RuntimeTopologyPort:
+    """Resolve topology through the same provider choice as the knowledge graph."""
+
+    if settings.graph_provider != "falkordb":
+        return storage_providers.topology(settings)
+    return FalkorTopologyRepository(build_graph_config(settings))
 
 
 def build_graph_config(settings: RuntimeSettings) -> FalkorDBGraphConfig:

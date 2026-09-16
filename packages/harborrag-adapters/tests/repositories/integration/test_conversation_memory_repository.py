@@ -158,13 +158,12 @@ async def test_recent_turns_are_derived_from_messages(tmp_path: Path) -> None:
             ),
         )
 
-        # Turns pair a user message with the *next* assistant message; the
-        # tool-call assistant stub (empty content) is that next message here.
+        # Empty/tool-call stubs do not displace the completed answer.
         assert await repo.recent(identity, limit=5) == (
             ConversationTurn("q-0", "a-0"),
-            ConversationTurn("q-1", ""),
+            ConversationTurn("q-1", "a-1"),
         )
-        assert await repo.recent(identity, limit=1) == (ConversationTurn("q-1", ""),)
+        assert await repo.recent(identity, limit=1) == (ConversationTurn("q-1", "a-1"),)
         assert len(await repo.recent_messages(identity, limit=100)) == 7
     finally:
         await engine.dispose()

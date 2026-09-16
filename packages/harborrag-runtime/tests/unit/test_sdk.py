@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -56,6 +57,181 @@ def test_sdk_config_file_is_strict_and_defaults_to_direct(tmp_path) -> None:
     assert config.execution_mode == ExecutionMode.DIRECT
     assert config.discover_plugins is False
     assert config.runtime.env == "dev"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_type", [OSError, asyncio.CancelledError])
+async def test_sdk_rebuilds_executor_after_failed_startup(monkeypatch, failure_type) -> None:
+    from harborrag_runtime import plugins
+
+    discover = Mock()
+    monkeypatch.setattr(plugins, "discover_runtime_plugins", discover)
+    failed = SimpleNamespace(start=AsyncMock(side_effect=failure_type()), aclose=AsyncMock())
+    healthy = SimpleNamespace(start=AsyncMock(), aclose=AsyncMock())
+    factory = Mock(side_effect=[failed, healthy])
+    harbor = HarborRAG(HarborRAGConfig(discover_plugins=True), executor_factory=factory)
+
+    with pytest.raises(failure_type):
+        await harbor.start()
+    failed.aclose.assert_awaited_once_with()
+
+    await harbor.start()
+    await harbor.start()
+
+    assert factory.call_count == 2
+    discover.assert_called_once_with()
+    healthy.start.assert_awaited_once_with()
+    await harbor.aclose()
+    healthy.aclose.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sdk_concurrent_startup_waits_for_executor_readiness() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def start() -> None:
+        entered.set()
+        await release.wait()
+
+    executor = SimpleNamespace(start=AsyncMock(side_effect=start), aclose=AsyncMock())
+    factory = Mock(return_value=executor)
+    harbor = HarborRAG(HarborRAGConfig(discover_plugins=False), executor_factory=factory)
+    first = asyncio.create_task(harbor.start())
+    await entered.wait()
+    second = asyncio.create_task(harbor.start())
+    try:
+        await asyncio.sleep(0)
+        assert not second.done()
+    finally:
+        release.set()
+        await asyncio.gather(first, second)
+
+    factory.assert_called_once()
+    executor.start.assert_awaited_once_with()
+    await harbor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sdk_retains_executor_when_startup_cleanup_fails() -> None:
+    failed = SimpleNamespace(
+        start=AsyncMock(side_effect=OSError("startup failed")),
+        aclose=AsyncMock(side_effect=[OSError("close failed"), None]),
+    )
+    healthy = SimpleNamespace(start=AsyncMock(), aclose=AsyncMock())
+    factory = Mock(side_effect=[failed, healthy])
+    harbor = HarborRAG(HarborRAGConfig(discover_plugins=False), executor_factory=factory)
+
+    with pytest.raises(ExceptionGroup, match="startup and cleanup failed") as failure:
+        await harbor.start()
+    assert [str(error) for error in failure.value.exceptions] == [
+        "startup failed",
+        "close failed",
+    ]
+
+    await harbor.start()
+
+    assert failed.aclose.await_count == 2
+    healthy.start.assert_awaited_once_with()
+    await harbor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sdk_shutdown_waits_for_startup_and_retries_failed_resources() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def start() -> None:
+        entered.set()
+        await release.wait()
+
+    executor = SimpleNamespace(
+        start=AsyncMock(side_effect=start),
+        aclose=AsyncMock(side_effect=[OSError("executor close failed"), None]),
+    )
+    retrieval = SimpleNamespace(
+        aclose=AsyncMock(side_effect=[OSError("retrieval close failed"), None])
+    )
+    harbor = HarborRAG(
+        HarborRAGConfig(discover_plugins=False), executor_factory=Mock(return_value=executor)
+    )
+    harbor._retrieval = retrieval
+    startup = asyncio.create_task(harbor.start())
+    await entered.wait()
+    shutdown = asyncio.create_task(harbor.aclose())
+    try:
+        await asyncio.sleep(0)
+        executor.aclose.assert_not_awaited()
+    finally:
+        release.set()
+        await startup
+        with pytest.raises(ExceptionGroup, match="resource close failed") as failure:
+            await shutdown
+    assert len(failure.value.exceptions) == 2
+
+    await harbor.aclose()
+    await harbor.aclose()
+
+    assert executor.aclose.await_count == 2
+    assert retrieval.aclose.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_sdk_shutdown_closes_retrieval_that_is_still_connecting() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    retrieval = SimpleNamespace(aclose=AsyncMock())
+
+    async def connect(_settings):
+        entered.set()
+        await release.wait()
+        return retrieval
+
+    harbor = HarborRAG(HarborRAGConfig(discover_plugins=False), retrieval_factory=connect)
+    startup = asyncio.create_task(harbor._retrieval_service())
+    await entered.wait()
+    shutdown = asyncio.create_task(harbor.aclose())
+    try:
+        await asyncio.sleep(0)
+        assert not shutdown.done()
+    finally:
+        release.set()
+        await asyncio.gather(startup, shutdown)
+
+    retrieval.aclose.assert_awaited_once_with()
+    await harbor.aclose()
+    retrieval.aclose.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_sdk_discovers_plugins_before_retrieval_without_starting_ingestion(
+    monkeypatch,
+) -> None:
+    from harborrag_runtime import plugins
+
+    calls = []
+    monkeypatch.setattr(plugins, "discover_runtime_plugins", lambda: calls.append("plugins"))
+    retrieval = SimpleNamespace(aclose=AsyncMock())
+
+    async def connect(_settings):
+        calls.append("retrieval")
+        return retrieval
+
+    executor = SimpleNamespace(start=AsyncMock(), aclose=AsyncMock())
+    factory = Mock(return_value=executor)
+    harbor = HarborRAG(
+        HarborRAGConfig(discover_plugins=True),
+        retrieval_factory=connect,
+        executor_factory=factory,
+    )
+
+    assert await harbor._retrieval_service() is retrieval
+    assert await harbor._retrieval_service() is retrieval
+    factory.assert_not_called()
+    await harbor.start()
+
+    assert calls == ["plugins", "retrieval"]
+    await harbor.aclose()
 
 
 @pytest.mark.asyncio

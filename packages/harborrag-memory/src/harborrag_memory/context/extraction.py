@@ -15,8 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from langchain_core.language_models import BaseChatModel
-
+from harborrag_core.base import utc_now
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import (
     Memory,
@@ -30,10 +29,10 @@ from harborrag_core.ports.memory import (
     new_memory_id,
 )
 
-from ..langchain.converters import utc_now
 from .entities import anchored_fact
 from .facts import ExtractedFact, extracted_facts
 from .hashing import content_hash
+from .model import MemoryModelLike
 from .policy import MemoryPolicy
 from .prompting import render_transcript
 from .prompts import EXTRACTION_USER_TEMPLATE, NO_MEMORIES_PLACEHOLDER
@@ -97,7 +96,7 @@ class MemoryExtractor:
         *,
         policy: MemoryPolicy,
         memories: MemoryRepository,
-        model: BaseChatModel,
+        model: MemoryModelLike,
         index: MemoryIndex | None = None,
         embedder: MemoryEmbedder | None = None,
         entities: MemoryEntityResolver | None = None,

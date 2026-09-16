@@ -4,6 +4,8 @@ TypeScript client for the HarborRAG API. The backend owns the contract:
 generated wire types come from `openapi.json` (exported by `make openapi`).
 The runtime includes small typed chat helpers for the JSON and SSE contracts,
 alongside the existing operational API methods.
+The package exports the generated `paths`, `components`, and `operations` types;
+building copies their declaration into the published package.
 
 ## Regenerate
 
@@ -106,6 +108,9 @@ Chat helpers use `/v1/chat/completions` directly.
 npm test
 npm run build
 ```
+
+Run the regeneration steps first in a fresh checkout. The tests also build and
+pack a temporary npm archive and typecheck its exported declarations.
 
 The no-network parser and request tests use Node 22.15+ native type stripping and
 the built-in test runner. They cover split UTF-8 and CRLF, terminal errors, truncated

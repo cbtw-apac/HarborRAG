@@ -92,6 +92,40 @@ Implement the family's Harbor contract and plugin/config pattern. Repository req
 
 Use `repositories/`, not a new `stores/` family. Do not return raw provider responses by default.
 
+### Selecting a storage provider in runtime
+
+Runtime services consume structural contracts in `harborrag_core.ports.storage`,
+`artifacts`, and `document_release`. A replacement does not need to inherit an
+adapter class. Its factory must return a fresh resource; runtime owns connection
+and shutdown. Object stores implement `ensure_buckets`, which may be a no-op for
+backends with implicit namespaces.
+
+Register custom storage factories from your entry-point plugin's `register()`:
+
+```python
+from harborrag_runtime.composition.storage_providers import storage_providers
+
+
+class Plugin:
+    capabilities = {"immutable_artifacts": True}
+
+    def register(self):
+        storage_providers.register_object_store("example", create_object_store)
+```
+
+Here `create_object_store(settings)` is a stable module-level factory supplied by
+your plugin. Configure `HARBORRAG_OBJECT_STORE_PROVIDER=example` and load the plugin
+before composition, either explicitly with `discover_runtime_plugins()` or with
+the SDK's `discover_plugins=True`. Use `register_vector_repository` for vectors;
+`register_graph(name, GraphProvider(knowledge=..., topology=...))` selects both graph
+paths. Topology is optional and fails clearly when requested from an unsupported
+provider. Registrations cannot override built-in names or conflicting factories.
+
+S3, Qdrant, and FalkorDB remain the defaults. For local object storage, select
+`filesystem` and set `HARBORRAG_OBJECT_STORE_ROOT`; `memory` is useful for tests.
+Provider plugins should be importable in every API/worker process that composes
+their storage resources.
+
 ## Engine stages
 
 Put provider-independent RAG orchestration in `harborrag-engine`:

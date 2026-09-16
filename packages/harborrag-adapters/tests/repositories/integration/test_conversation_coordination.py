@@ -106,6 +106,8 @@ async def test_recent_complete_messages_skips_partial_and_tool_turns(
         "u-3",
         "a-3",
     ]
+    turns = await repo.recent(identity, limit=3)
+    assert [turn.assistant_content for turn in turns] == ["answer 1", "answer 2", "answer 3"]
 
 
 @pytest.mark.asyncio

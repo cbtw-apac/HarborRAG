@@ -6,11 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from langchain_core.language_models import BaseChatModel
-
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryScope, MemoryType
 
+from .model import MemoryModelLike
 from .prompting import generate_text, render_transcript
 from .prompts import NO_SUMMARY_PLACEHOLDER, SUMMARY_SYSTEM_PROMPT, SUMMARY_USER_TEMPLATE
 
@@ -42,7 +41,7 @@ def recall_owner(owner: MemoryOwner) -> MemoryOwner:
 
 
 async def summarize(
-    model: BaseChatModel,
+    model: MemoryModelLike,
     *,
     prior: str | None,
     messages: Sequence[ConversationMessage],

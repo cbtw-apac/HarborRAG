@@ -151,8 +151,9 @@ class ConversationMessage:
 def turns_from_messages(messages: Iterable[ConversationMessage]) -> tuple[ConversationTurn, ...]:
     """Derive completed user/assistant turns from oldest-first messages.
 
-    A turn is a user message followed by the next assistant message. Tool and
-    system messages are skipped; a user message with no assistant reply yet
+    A turn is a user message followed by the next completed assistant reply.
+    Partial, blank, and tool-call answers are skipped, as are tool and system
+    messages; a user message with no completed assistant reply yet
     (or displaced by a later user message) does not form a turn, and an
     assistant message without a preceding user message is ignored.
     """
@@ -161,8 +162,10 @@ def turns_from_messages(messages: Iterable[ConversationMessage]) -> tuple[Conver
     pending_user: str | None = None
     for message in messages:
         if message.role == "user":
-            pending_user = message.content
-        elif message.role == "assistant" and pending_user is not None:
+            pending_user = (
+                message.content if message.content.strip() and not message.partial else None
+            )
+        elif pending_user is not None and is_complete_reply(message):
             turns.append(ConversationTurn(pending_user, message.content))
             pending_user = None
     return tuple(turns)

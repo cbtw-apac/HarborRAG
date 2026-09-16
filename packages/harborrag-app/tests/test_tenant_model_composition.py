@@ -18,7 +18,6 @@ from harborrag_app.workflow_control.composition.factories import AppServiceFacto
 from harborrag_app.workflow_control.composition.resources import AppResources
 from harborrag_app.workflow_control.composition.tenant_models import tenant_model_sources
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 
 _LOGGER = "harborrag.app.workflow_control.composition.tenant_models"
 
@@ -94,7 +93,6 @@ def test_the_sdk_is_told_about_tenant_catalogs_when_they_are_wired() -> None:
     settings = RuntimeSettings(chat_tenant_catalogs_enabled=True)
     resources = AppResources(
         settings,
-        runtime_config=TemporalRuntimeConfig.from_settings(settings),
         factories=AppServiceFactories(
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),
@@ -111,7 +109,6 @@ def test_the_sdk_is_left_alone_when_no_catalogs_are_wired() -> None:
     settings = RuntimeSettings()
     resources = AppResources(
         settings,
-        runtime_config=TemporalRuntimeConfig.from_settings(settings),
         factories=AppServiceFactories(
             retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
         ),

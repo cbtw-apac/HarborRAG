@@ -69,6 +69,9 @@ class HarborRAG:
         self.memory = MemoryFacade(self)
         self.knowledge = KnowledgeFacade(self)
         self._executor: IngestionExecutor | None = None
+        self._executor_started = False
+        self._plugins_discovered = False
+        self._lifecycle_lock = asyncio.Lock()
         self._retrieval: RuntimeRetrievalService | None = None
         self._executor_factory = executor_factory
         self._retrieval_factory = retrieval_factory
@@ -96,17 +99,29 @@ class HarborRAG:
         await self.aclose()
 
     async def start(self) -> None:
-        if self._executor is not None:
-            return
-        if self.config.discover_plugins:
-            from ..plugins import discover_runtime_plugins
-
-            discover_runtime_plugins()
-        self._executor = self._executor_factory(
-            self.config.execution_mode,
-            self.config.runtime,
-        )
-        await self._executor.start()
+        async with self._lifecycle_lock:
+            if self._executor_started:
+                return
+            # Retain ownership when a previous startup's cleanup failed, and
+            # finish that cleanup before constructing a replacement.
+            await self._close_executor()
+            self._discover_plugins()
+            self._executor = self._executor_factory(
+                self.config.execution_mode,
+                self.config.runtime,
+            )
+            try:
+                await self._executor.start()
+            except BaseException as startup_error:
+                try:
+                    await self._close_executor()
+                except BaseException as cleanup_error:
+                    raise BaseExceptionGroup(
+                        "HarborRAG startup and cleanup failed",
+                        [startup_error, cleanup_error],
+                    ) from None
+                raise
+            self._executor_started = True
 
     async def _ingestion_run(self, request: IngestionRequest) -> IngestionResult:
         await self.start()
@@ -147,12 +162,18 @@ class HarborRAG:
         return cast("DurableIngestionExecutor", self._executor)
 
     async def _retrieval_service(self) -> RuntimeRetrievalService:
-        if self._retrieval is not None:
-            return self._retrieval
         async with self._retrieval_lock:
             if self._retrieval is None:
+                self._discover_plugins()
                 self._retrieval = await self._retrieval_factory(self.config.runtime)
-        return self._retrieval
+            return self._retrieval
+
+    def _discover_plugins(self) -> None:
+        if self.config.discover_plugins and not self._plugins_discovered:
+            from ..plugins import discover_runtime_plugins
+
+            discover_runtime_plugins()
+            self._plugins_discovered = True
 
     def configure_tenant_models(self, sources: TenantModelSources) -> None:
         """Let chat resolve each tenant's own models, once, at composition.
@@ -188,26 +209,29 @@ class HarborRAG:
         return self._chat_runtime.stream(request, prompt=prompt)
 
     async def aclose(self) -> None:
-        close_operations = []
-        close_operations.append(self._chat_runtime.aclose())
-        close_operations.append(self._memory_runtime.aclose())
-        if self._retrieval is not None:
-            close_operations.append(self._retrieval.aclose())
-            self._retrieval = None
+        async with self._lifecycle_lock:
+            results = await asyncio.gather(
+                self._chat_runtime.aclose(),
+                self._memory_runtime.aclose(),
+                self._close_retrieval(),
+                self._close_executor(),
+                return_exceptions=True,
+            )
+            failures = [result for result in results if isinstance(result, BaseException)]
+            if failures:
+                raise BaseExceptionGroup("HarborRAG resource close failed", failures)
+
+    async def _close_retrieval(self) -> None:
+        async with self._retrieval_lock:
+            if self._retrieval is not None:
+                await self._retrieval.aclose()
+                self._retrieval = None
+
+    async def _close_executor(self) -> None:
+        self._executor_started = False
         if self._executor is not None:
-            close_operations.append(self._executor.aclose())
+            await self._executor.aclose()
             self._executor = None
-        results = await asyncio.gather(*close_operations, return_exceptions=True)
-        errors = [result for result in results if isinstance(result, Exception)]
-        fatal = [
-            result
-            for result in results
-            if isinstance(result, BaseException) and not isinstance(result, Exception)
-        ]
-        if fatal:
-            raise BaseExceptionGroup("HarborRAG resource close failed", fatal)
-        if errors:
-            raise ExceptionGroup("HarborRAG resource close failed", errors)
 
 
 __all__ = [

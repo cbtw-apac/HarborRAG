@@ -15,14 +15,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import MemoryType
 
-from .prompting import generate_text, render_transcript
+from .model import MemoryModelLike
+from .prompting import generate_structured, generate_text, render_transcript
 from .prompts import (
     CONDENSE_SYSTEM_PROMPT,
     CONDENSE_TYPED_SYSTEM_PROMPT,
@@ -85,7 +84,7 @@ class CondenseRequest(BaseModel):
 
 
 async def condense_question(
-    model: BaseChatModel,
+    model: MemoryModelLike,
     *,
     question: str,
     summary: str | None,
@@ -108,7 +107,7 @@ async def condense_question(
 
 
 async def _condense_typed(
-    model: BaseChatModel,
+    model: MemoryModelLike,
     *,
     question: str,
     user: str,
@@ -116,8 +115,8 @@ async def _condense_typed(
     """Rewrite and hint in one structured call, or ``None`` to take the plain path."""
 
     try:
-        payload = await model.with_structured_output(CondenseRequest).ainvoke(
-            [SystemMessage(content=CONDENSE_TYPED_SYSTEM_PROMPT), HumanMessage(content=user)]
+        payload = await generate_structured(
+            model, schema=CondenseRequest, system=CONDENSE_TYPED_SYSTEM_PROMPT, user=user
         )
         request = as_request(payload)
     except Exception:

@@ -13,6 +13,7 @@ import type { HarborClientOptions } from "./options.js";
 export { HarborApiRequestError, HarborChatStreamError } from "./errors.js";
 export type { HarborApiError } from "./errors.js";
 export type { HarborClientOptions, HarborRequestOptions } from "./options.js";
+export type { paths, components, operations } from "./schema.js";
 export type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -38,7 +39,7 @@ export function createHarborClient(options: HarborClientOptions) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
 
     const response = await doFetch(
-      `${options.baseUrl}/api/v1${path}`,
+      `${options.baseUrl.replace(/\/+$/, "")}/api/v1${path}`,
       {
         method,
         headers,

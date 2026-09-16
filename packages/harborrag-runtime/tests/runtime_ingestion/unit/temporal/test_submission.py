@@ -8,6 +8,10 @@ import pytest
 
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.execution.source_submission import (
+    SourceSubmissionDefaults,
+    prepare_source_submission,
+)
 from harborrag_runtime.temporal.schemas import SourceQuery
 from harborrag_runtime.temporal.submission import (
     SourceSubmission,
@@ -275,3 +279,23 @@ def test_explicit_batching_overrides_the_configured_ingestion_defaults(
 
     assert source.batch_size == 200
     assert source.document_concurrency == 8
+
+
+def test_neutral_preparation_uses_injected_defaults_without_reading_temporal_config(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    invalid_temporal = tmp_path / "temporal.yaml"
+    invalid_temporal.write_text("not: a temporal configuration", encoding="utf-8")
+    settings = settings.model_copy(update={"temporal_config_path": invalid_temporal})
+
+    source = prepare_source_submission(
+        settings,
+        _submission(),
+        environment={"JIRA_BASE_URL": "https://jira.example.test", "JIRA_PROJECT_KEYS": "DOCS"},
+        defaults=SourceSubmissionDefaults(batch_size=12, document_concurrency=3),
+    )
+
+    assert source.batch_size == 12
+    assert source.document_concurrency == 3
+    assert not hasattr(source, "workflow_options")

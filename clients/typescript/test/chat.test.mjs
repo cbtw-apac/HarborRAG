@@ -165,7 +165,7 @@ test("breaking iteration cancels the response body", async () => {
 });
 
 test("operational helpers keep the existing api/v1 route prefix", async () => {
-  const api = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async (url) => {
+  const api = createHarborClient({ baseUrl: "https://example.test/", fetchImpl: async (url) => {
     assert.equal(url, "https://example.test/api/v1/health");
     return Response.json({ status: "ok" });
   } });

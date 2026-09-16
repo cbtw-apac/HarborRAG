@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "generate": "openapi-typescript ../../openapi.json -o src/schema.d.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-schema.mjs",
+    "prepack": "npm run build",
     "test": "node --experimental-strip-types --experimental-test-isolation=none --import ./test/register.mjs --test test/*.test.mjs"
   },
   "devDependencies": {

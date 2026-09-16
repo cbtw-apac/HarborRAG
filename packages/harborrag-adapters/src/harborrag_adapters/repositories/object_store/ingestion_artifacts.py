@@ -7,11 +7,11 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageAlreadyExistsError,
     HarborStorageNotFoundError,
 )
-from harborrag_adapters.repositories.object_store.base import HarborObjectStore
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import ArtifactReference
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.ports.storage import ObjectStorePort
 from harborrag_core.schemas.object_store import PutObjectRequest
 from harborrag_core.storage import StorageOperationContext
 
@@ -102,7 +102,7 @@ class IngestionArtifactLayout:
 class ImmutableArtifactWriter:
     """Write immutable artifacts and make identical activity retries a no-op."""
 
-    def __init__(self, store: HarborObjectStore) -> None:
+    def __init__(self, store: ObjectStorePort) -> None:
         self._store = store
 
     async def put(
@@ -166,7 +166,7 @@ class ImmutableArtifactWriter:
 class ImmutableArtifactReader:
     """Read complete immutable artifacts or one validated byte range."""
 
-    def __init__(self, store: HarborObjectStore) -> None:
+    def __init__(self, store: ObjectStorePort) -> None:
         self._store = store
 
     async def get(

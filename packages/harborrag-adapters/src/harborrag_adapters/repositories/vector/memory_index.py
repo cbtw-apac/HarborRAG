@@ -35,7 +35,6 @@ from harborrag_adapters.repositories.errors import (
     HarborVectorDimensionError,
     StorageErrorContext,
 )
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_adapters.repositories.vector.memory_index_mapping import (
     MEMORY_INDEX,
     match_of,
@@ -57,6 +56,7 @@ from harborrag_core.ports.memory import (
     MemoryOwner,
     MemoryQuery,
 )
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.storage import StorageFamily, StorageOperationContext
 
@@ -66,7 +66,7 @@ class QdrantMemoryIndex:
 
     def __init__(
         self,
-        repository: HarborVectorRepository,
+        repository: VectorRepositoryPort,
         *,
         dimensions: int,
         embedder: MemoryEmbedder | None = None,

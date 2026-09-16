@@ -7,8 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from langchain_core.language_models import BaseChatModel
-
+from harborrag_core.base import utc_now
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationMessage,
@@ -26,17 +25,20 @@ from harborrag_core.ports.memory import (
 )
 
 from ..errors import MemoryScopeError
-from ..langchain.converters import utc_now
 from .condenser import condense_question
 from .entities import unique_ids
+from .model import MemoryModelLike
 from .policy import MemoryPolicy
 from .recall import MemoryRecall
 from .result import MemoryContext
-from .summarizer import SummaryRecord, recall_owner, summarize
+from .summarizer import LAST_COVERED_KEY, SummaryRecord, recall_owner, summarize
 from .tokens import approximate_tokens
 from .trimming import TokenCounter, keep_boundary, total_tokens, trim_window
 
 logger = logging.getLogger(__name__)
+
+MAX_SUMMARY_CATCHUP_PAGES = 4
+"""Bound history reads and summary model calls per build; later turns resume."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +48,7 @@ class _WindowState:
     messages: tuple[ConversationMessage, ...]
     summary: str | None
     written: bool
+    record: Memory | None = None
 
 
 def _identity(owner: MemoryOwner) -> ConversationIdentity:
@@ -84,7 +87,7 @@ class MemoryContextBuilder:
         policy: MemoryPolicy,
         messages: ConversationMessageStore,
         memories: MemoryRepository | None = None,
-        model: BaseChatModel | None = None,
+        model: MemoryModelLike | None = None,
         index: MemoryIndex | None = None,
         embedder: MemoryEmbedder | None = None,
         token_counter: TokenCounter | None = None,
@@ -139,7 +142,7 @@ class MemoryContextBuilder:
                 summary_written=False,
             )
         stored = await self._load_summary(owner)
-        state = await self._summarize(owner, recent, stored)
+        state = await self._refresh_summary(owner, recent, stored)
         window = trim_window(
             state.messages,
             max_tokens=self._policy.recent_max_tokens,
@@ -203,23 +206,94 @@ class MemoryContextBuilder:
         valid = [memory for memory in found if memory.is_valid_at(now)]
         return max(valid, key=lambda memory: memory.updated_at) if valid else None
 
-    async def _summarize(
+    async def _refresh_summary(
         self,
         owner: MemoryOwner,
         recent: Sequence[ConversationMessage],
         stored: Memory | None,
     ) -> _WindowState:
+        """Catch up a summary whose frontier fell outside the recent window.
+
+        Each catch-up call covers at most one history page, so its message
+        count stays bounded even after an extended period without summaries.
+        At most four pages are processed per build. A remaining backlog keeps
+        the newest history window usable and resumes from the saved frontier
+        on a later turn.
+        """
+
+        raw_frontier = stored.metadata.get(LAST_COVERED_KEY) if stored is not None else None
+        frontier = raw_frontier if isinstance(raw_frontier, str) else None
+        if (
+            (stored is not None and frontier is None)
+            or (stored is None and len(recent) < self._policy.recent_max_messages)
+            or not recent
+            or any(message.message_id == frontier for message in recent)
+            or self._model is None
+            or self._memories is None
+        ):
+            return await self._summarize(owner, recent, stored)
+        written = False
+        visited = {frontier}
+        for _ in range(MAX_SUMMARY_CATCHUP_PAGES):
+            try:
+                pending = await self._messages.messages_after(
+                    _identity(owner),
+                    after_message_id=frontier,
+                    limit=min(self._policy.recent_max_messages, 1000),
+                )
+            except Exception:
+                logger.warning("loading unsummarized history failed", exc_info=True)
+                return _WindowState(tuple(recent), stored.content if stored else None, written)
+            if not pending:
+                return _WindowState((), stored.content if stored else None, written)
+            if pending[-1].message_id in visited:
+                logger.warning("unsummarized history cursor did not advance")
+                return _WindowState(tuple(recent), stored.content if stored else None, written)
+            last = next(
+                (
+                    i
+                    for i, message in enumerate(pending)
+                    if message.message_id == recent[-1].message_id
+                ),
+                None,
+            )
+            if last is not None:
+                state = await self._summarize(owner, pending[: last + 1], stored)
+                return _WindowState(state.messages, state.summary, written or state.written)
+            state = await self._summarize(owner, pending, stored, force=True)
+            if state.record is None:
+                return _WindowState(tuple(recent), state.summary, written)
+            stored = state.record
+            frontier = pending[-1].message_id
+            visited.add(frontier)
+            written = True
+        return _WindowState(tuple(recent), stored.content if stored else None, written)
+
+    async def _summarize(
+        self,
+        owner: MemoryOwner,
+        recent: Sequence[ConversationMessage],
+        stored: Memory | None,
+        *,
+        force: bool = False,
+    ) -> _WindowState:
         """Refresh the rolling summary when the window outgrew its budget."""
 
         prior = stored.content if stored is not None else None
+        if stored is not None:
+            frontier = stored.metadata.get(LAST_COVERED_KEY)
+            for index, message in enumerate(recent):
+                if message.message_id == frontier:
+                    recent = recent[index + 1 :]
+                    break
         unchanged = _WindowState(messages=tuple(recent), summary=prior, written=False)
         if self._model is None or self._memories is None:
             return unchanged
         policy = self._policy
         budget = policy.summary_trigger_fraction * policy.recent_max_tokens
-        if total_tokens(recent, self._count) <= budget:
+        if not force and total_tokens(recent, self._count) <= budget:
             return unchanged
-        boundary = keep_boundary(recent, policy.summary_keep_messages)
+        boundary = len(recent) if force else keep_boundary(recent, policy.summary_keep_messages)
         covered = tuple(recent[:boundary])
         if not covered:
             return unchanged
@@ -227,21 +301,24 @@ class MemoryContextBuilder:
             summary = await summarize(self._model, prior=prior, messages=covered)
             if not summary:
                 return unchanged
-            await self._memories.save(
-                SummaryRecord(
-                    owner=recall_owner(owner),
-                    summary=summary,
-                    covered=covered,
-                    now=self._clock(),
-                ).to_memory()
-            )
+            record = SummaryRecord(
+                # Session ownership excludes credential/project context. Keep
+                # the original provenance when refreshing the existing row.
+                owner=stored.owner if stored is not None else recall_owner(owner),
+                summary=summary,
+                covered=covered,
+                now=self._clock(),
+            ).to_memory()
+            await self._memories.save(record)
         except Exception:
             logger.warning(
                 "refreshing the rolling session summary failed; keeping the prior summary",
                 exc_info=True,
             )
             return unchanged
-        return _WindowState(messages=tuple(recent[boundary:]), summary=summary, written=True)
+        return _WindowState(
+            messages=tuple(recent[boundary:]), summary=summary, written=True, record=record
+        )
 
     async def _standalone(
         self,

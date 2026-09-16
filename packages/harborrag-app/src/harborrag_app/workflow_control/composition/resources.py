@@ -10,17 +10,16 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
+from harborrag_runtime.ingestion_contracts import IngestionGateway
 from harborrag_runtime.sdk import HarborRAG
 
 from .tenant_models import tenant_model_sources
 
 if TYPE_CHECKING:
     from harborrag_core.ports.events import EventBusPort
-    from harborrag_runtime.temporal.client import IngestionTemporalClient
 
     from ..ingestion.ports import PublicTaskStore
     from .factories import AppServiceFactories, TaskRegistry
@@ -33,18 +32,16 @@ class AppResources:
         self,
         settings: RuntimeSettings,
         *,
-        runtime_config: TemporalRuntimeConfig,
         factories: AppServiceFactories,
         composition: object | None = None,
     ) -> None:
         self._settings = settings
-        self._runtime_config = runtime_config
         self._factories = factories
         # Resolved once here rather than per SDK build: whether a tenant may
         # bring its own chat models is a property of this process, not of a
         # request. None keeps the single process-wide chat client.
         self._tenant_models = tenant_model_sources(composition, settings)
-        self._client: IngestionTemporalClient | None = None
+        self._client: IngestionGateway | None = None
         self._retrieval_runtime: HarborRAG | None = None
         self._task_registry: TaskRegistry | None = None
         self._projection_admin: ProjectionAdministrationService | None = None
@@ -52,12 +49,12 @@ class AppResources:
         self._client_lock = asyncio.Lock()
         self._task_registry_lock = asyncio.Lock()
 
-    async def runtime_client(self) -> IngestionTemporalClient:
+    async def runtime_client(self) -> IngestionGateway:
         if self._client is not None:
             return self._client
         async with self._client_lock:
             if self._client is None:
-                self._client = await self._factories.client(self._runtime_config)
+                self._client = await self._factories.client(self._settings)
         return self._client
 
     def runtime_sdk(self) -> HarborRAG:

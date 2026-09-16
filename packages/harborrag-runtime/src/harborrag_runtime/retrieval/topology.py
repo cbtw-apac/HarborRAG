@@ -6,10 +6,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field, replace
 
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorIndexRecord, VectorSearchQuery, VectorSearchResult
 from harborrag_core.ingestion import DocumentIdentityBuilder
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 from harborrag_core.topology.search import (
@@ -20,6 +20,7 @@ from harborrag_core.topology.search import (
     TopologySearchPort,
 )
 from harborrag_engine.retrieval import ActiveVersionCandidateValidator
+from harborrag_engine.retrieval.fusion import fuse_candidates as fuse_candidates
 from harborrag_engine.topology.retrieval import LocalTopologySearch
 
 from .contracts import RetrievalOptions
@@ -52,7 +53,7 @@ class TopologyRetrieval:
     def __init__(
         self,
         repository: TopologySearchPort | None,
-        vectors: HarborVectorRepository,
+        vectors: VectorRepositoryPort,
         validator: ActiveVersionCandidateValidator,
         *,
         policy: TopologyRetrievalPolicy | None = None,
@@ -240,34 +241,6 @@ def _candidate(record: VectorIndexRecord) -> VectorSearchResult:
 
 def _fallback(batch: TopologyCandidates, reason: str) -> TopologyCandidates:
     return replace(batch, diagnostics=replace(batch.diagnostics, fallback=reason))
-
-
-def fuse_candidates(
-    flat: tuple[VectorSearchResult, ...],
-    semantic: tuple[VectorSearchResult, ...],
-    *,
-    semantic_weight: float = 0.5,
-    rrf_constant: int = 60,
-) -> tuple[VectorSearchResult, ...]:
-    if not semantic:
-        return flat
-    scores: dict[str, float] = {}
-    items: dict[str, VectorSearchResult] = {}
-    for weight, ranking in ((1.0 - semantic_weight, flat), (semantic_weight, semantic)):
-        seen: set[str] = set()
-        for rank, item in enumerate(ranking, 1):
-            identity = str(item.payload.get("chunk_id", item.id))
-            if identity in seen:
-                continue
-            seen.add(identity)
-            scores[identity] = scores.get(identity, 0.0) + weight / (rrf_constant + rank)
-            items.setdefault(identity, item)
-    return tuple(
-        items[identity].model_copy(
-            update={"score": min(1.0, score * (rrf_constant + 1)), "raw_score": score}
-        )
-        for identity, score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))
-    )
 
 
 def _ranks(

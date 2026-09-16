@@ -14,6 +14,7 @@ import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
+from harborrag_core.base import utc_now
 from harborrag_core.ports.memory import (
     Memory,
     MemoryEmbedder,
@@ -25,7 +26,6 @@ from harborrag_core.ports.memory import (
     MemoryType,
 )
 
-from ..langchain.converters import utc_now
 from .entities import unique_ids
 from .policy import MemoryPolicy
 from .ranking import (

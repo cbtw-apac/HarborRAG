@@ -88,6 +88,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
     graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
+    object_store_provider: str = Field(default="s3", min_length=1)
+    object_store_root: Path = Path(".harborrag/objects")
+    vector_provider: str = Field(default="qdrant", min_length=1)
+    graph_provider: str = Field(default="falkordb", min_length=1)
     object_store_endpoint_url: str | None = "http://localhost:9000"
     object_store_allow_insecure_remote: bool = False
     object_store_region: str = "us-east-1"

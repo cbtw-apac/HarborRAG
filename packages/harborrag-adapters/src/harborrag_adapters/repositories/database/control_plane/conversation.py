@@ -421,36 +421,8 @@ class SqlConversationMemoryRepository:
         *,
         limit: int = 2,
     ) -> tuple[ConversationTurn, ...]:
-        _require_positive(limit)
-        statement = (
-            sa.select(ConversationMessageRow)
-            .where(
-                *_identity_filter(identity),
-                ConversationMessageRow.role.in_(("user", "assistant")),
-            )
-            .order_by(*_NEWEST_FIRST)
-        )
-        collected: list[ConversationMessage] = []
-        async with self.sessions() as session:
-            result = await session.stream_scalars(statement)
-            try:
-                pairs = 0
-                awaiting_user = False
-                async for row in result:
-                    collected.append(_row_to_message(row))
-                    # Newest-first twin of turns_from_messages: an assistant
-                    # message completes a pair with the nearest earlier user.
-                    if row.role == "assistant":
-                        awaiting_user = True
-                    elif awaiting_user:
-                        awaiting_user = False
-                        pairs += 1
-                        if pairs >= limit:
-                            break
-            finally:
-                await result.close()
-        collected.reverse()
-        return turns_from_messages(collected)[-limit:]
+        messages = await self.recent_complete_messages(identity, limit=limit)
+        return turns_from_messages(messages)
 
     async def append(
         self,

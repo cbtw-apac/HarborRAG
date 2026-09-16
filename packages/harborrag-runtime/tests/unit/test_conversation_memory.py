@@ -175,8 +175,10 @@ async def test_in_memory_messages_round_trip_and_derive_turns() -> None:
     assert [m.role for m in stored[4:]] == ["user", "assistant"]
     assert stored[4].message_id.startswith("msg-")
     assert await memory.recent_messages(identity, limit=1) == stored[-1:]
+    # The blank assistant stub stays in raw history but does not displace
+    # the completed answer in the derived conversation-turn view.
     assert await memory.recent(identity, limit=5) == (
-        ConversationTurn("q-1", ""),
+        ConversationTurn("q-1", "a-1"),
         ConversationTurn("q-2", "a-2"),
     )
     await memory.clear_messages(identity)
