@@ -99,9 +99,19 @@ class KnowledgeReferenceStore:
             return entry.value
 
     def _discard_expired(self, now: float) -> None:
+        """Drop the expired prefix of the store.
+
+        Every entry is issued with the same TTL and re-issuing an existing key
+        returns the current handle without extending it, so insertion order is
+        expiry order and the first live entry ends the sweep. This ran on every
+        ``issue`` and scanned all of them, which at the 100,000-entry ceiling
+        meant a full scan under the lock per tool call.
+        """
+
         for handle, entry in tuple(self._values.items()):
-            if entry.expires_at <= now:
-                self._discard(handle)
+            if entry.expires_at > now:
+                return
+            self._discard(handle)
 
     def _discard(self, handle: str) -> None:
         entry = self._values.pop(handle, None)

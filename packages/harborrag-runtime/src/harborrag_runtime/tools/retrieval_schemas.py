@@ -71,6 +71,11 @@ def vector_search_schema(
                 "minimum": 0.0,
                 "maximum": 1.0,
                 "default": 0.0,
+                "description": (
+                    "Drop results whose relevance is below this. Relevance is "
+                    "measured similarity, not the rank-fusion score, whose top "
+                    "hit is near 1.0 however poor the match."
+                ),
             },
         },
         "additionalProperties": False,

@@ -8,7 +8,7 @@ from typing import Any
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.ingestion import GraphNodeRecord, ReadableSource
-from harborrag_runtime.sdk import EvidenceReadItem, EvidenceReadSelector
+from harborrag_runtime.reader_contracts import EvidenceReadItem, EvidenceReadSelector
 
 from .reader_catalog import CONTRACT_REVISION
 from .retrieval_inputs import optional_text, text

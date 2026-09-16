@@ -9,8 +9,13 @@ from typing import Any
 
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
-from harborrag_runtime.reader_contracts import DOCUMENT_CONTEXT_LIMIT
-from harborrag_runtime.sdk import (
+
+# From their defining module, not from the SDK facade: importing a stateless
+# tool should not drag in HarborRAG, chat, memory and execution. The facade
+# re-exports these, so going through it also made a cycle inevitable the moment
+# the SDK referenced tools at runtime.
+from harborrag_runtime.reader_contracts import (
+    DOCUMENT_CONTEXT_LIMIT,
     DocumentContextRequest,
     DocumentContextResponse,
     EvidenceReadRequest,

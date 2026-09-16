@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.contracts import RetrievalLane, RetrievalMode, RetrievalRequest
 from harborrag_runtime.tools.base import MAX_TOOL_RESULTS
 
@@ -41,10 +42,25 @@ _ANNOTATIONS: dict[str, object] = {
 }
 
 
+def _quality(result: RetrievalResult) -> float:
+    """The number a threshold may be compared against.
+
+    ``score`` is rank-fusion arithmetic on the hybrid lane, so its top hit sits
+    near 1.0 however poor the match -- the settings and the output schema both
+    say so, and thresholding it anyway meant a request for high-quality results
+    returned the top hit regardless of quality while dropping good ones further
+    down. ``relevance`` is the measured similarity. A lane that cannot measure
+    one reports ``None``, and for those ``score`` is still the only number
+    there is.
+    """
+
+    return result.score if result.relevance is None else result.relevance
+
+
 def _results(
     response: RetrievalResponse, threshold: float = 0.0, *, include_content: bool = True
 ) -> list[dict[str, object]]:
-    results = [asdict(result) for result in response.results if result.score >= threshold]
+    results = [asdict(result) for result in response.results if _quality(result) >= threshold]
     if not include_content:
         for result in results:
             result.pop("text", None)

@@ -1,8 +1,10 @@
 """Runtime process settings from HARBORRAG_* env vars (ST8).
 
-Imported lazily by CompositionRoot.production() only — pydantic-settings is
-part of the [production] extra, and the bare CLI install must keep working
-without it.
+pydantic-settings is a required dependency of this package and this module is
+imported eagerly, by ``execution`` and by ``sdk.configuration`` among others.
+The docstring used to claim the opposite -- an optional extra imported lazily
+by ``CompositionRoot.production()`` -- which misdescribed the dependency
+boundary to anyone deciding where a new import could go.
 """
 
 from __future__ import annotations
