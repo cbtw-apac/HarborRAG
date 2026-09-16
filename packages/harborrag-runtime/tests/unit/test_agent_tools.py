@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_engine.agent.execution import ChatAndToolExecutor
+from harborrag_engine.agent.schemas import AgentRunOptions
 from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.sdk import RetrievalLane
@@ -33,6 +35,10 @@ class _Retrieval:
 class _Runtime:
     retrieval: _Retrieval
     graph: object | None = None
+
+
+def _options() -> AgentRunOptions:
+    return AgentRunOptions(tenant_id="ACME", principal_id="svc-1", session_id="session-1")
 
 
 @pytest.mark.asyncio
@@ -211,3 +217,49 @@ async def test_agent_transport_bounds_the_number_of_results() -> None:
     )
 
     assert response == {"ok": False, "error": "Agent result budget exceeded."}
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_stays_callable_through_the_agent_loop() -> None:
+    """A tenant-free tool must not be handed a tenant it cannot accept.
+
+    ``describe_graph`` is the one catalog tool with no ``tenant_id`` property,
+    and it tells the model to call it with no arguments. While the engine bound
+    every call to a tenant unconditionally, the resulting key failed the tool's
+    own ``additionalProperties: false`` and the tool could never run.
+    """
+
+    provider = RuntimeAgentToolProvider(_Runtime(_Retrieval()))  # type: ignore[arg-type]
+    executor = ChatAndToolExecutor(object(), provider, memory=None)  # type: ignore[arg-type]
+    specs = {spec.name: spec for spec in executor.available_specs("ACME", graph_search=True)}
+
+    scoped = executor._scoped_arguments(specs["describe_graph"], {}, _options())
+    response = await provider.call_tool("describe_graph", scoped)
+
+    assert scoped == {}
+    assert response["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_schema_rejection_never_echoes_the_models_own_arguments() -> None:
+    """The rejection has to explain the constraint, not quote the payload.
+
+    jsonschema renders a combinator failure as ``repr(instance)``. Forwarding
+    that verbatim handed back up to the whole argument budget, and the engine
+    then truncated the explanation off the end -- leaving the model with
+    kilobytes of its own request and no diagnosis.
+    """
+
+    provider = RuntimeAgentToolProvider(_Runtime(_Retrieval()))  # type: ignore[arg-type]
+    padding = "x" * 60_000
+
+    response = await provider.call_tool(
+        "vector_search",
+        {"tenant_id": "ACME", "query": "q", "filters": {"tenant_id": "ACME", "note": padding}},
+    )
+
+    error = str(response["error"])
+    assert response["ok"] is False
+    assert padding not in error
+    assert len(error) < 500
+    assert "filters" in error

@@ -8,7 +8,8 @@ the actual calls out to the chat model and the tool provider.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+import logging
+from collections.abc import Mapping, Sequence
 
 from harborrag_core.models.chat import (
     HarborChatMessage,
@@ -30,6 +31,8 @@ from .guard import ExecutionGuard, digest_arguments
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
 from .schemas import AgentRunOptions
 from .tool_execution import VECTOR_SEARCH_TOOL, bounded_tool_result_content
+
+logger = logging.getLogger("harborrag.engine.agent.execution")
 
 _BLOCKED_TOOL_NAMES = frozenset({"agent", "chat"})
 _GRAPH_TOOL_PREFIX = "graph_"
@@ -110,12 +113,12 @@ class ChatAndToolExecutor:
         *,
         step: int,
         options: AgentRunOptions,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
         guard: ExecutionGuard,
     ) -> tuple[tuple[HarborChatMessage, AgentToolExecution], ...]:
         coro = asyncio.gather(
             *(
-                self._execute(call, step=step, options=options, allowed_names=allowed_names)
+                self._execute(call, step=step, options=options, allowed_tools=allowed_tools)
                 for call in calls
             )
         )
@@ -160,14 +163,14 @@ class ChatAndToolExecutor:
         *,
         step: int,
         options: AgentRunOptions,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> tuple[HarborChatMessage, AgentToolExecution]:
         name = call.function.name
         arguments = call.function.parsed_arguments
         digest = digest_arguments(
             arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
         )
-        result = await self._invoke(name, arguments, options=options, allowed_names=allowed_names)
+        result = await self._invoke(name, arguments, options=options, allowed_tools=allowed_tools)
         evidence = evidence_references(name, result)
         content = bounded_tool_result_content(
             tool_result_with_citation_guide(name, result, evidence)
@@ -190,34 +193,47 @@ class ChatAndToolExecutor:
         arguments: object,
         *,
         options: AgentRunOptions,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> dict[str, object]:
         """Run one tool call, or explain why it can't run, without ever raising."""
 
         if not isinstance(arguments, dict):
             return {"ok": False, "error": "invalid tool arguments"}
-        if name not in allowed_names:
+        spec = allowed_tools.get(name)
+        if spec is None:
             return {"ok": False, "error": "tool is not available to this agent"}
         try:
             return await self._tools.call_tool(
                 name,
-                self._scoped_arguments(name, arguments, options),
+                self._scoped_arguments(spec, arguments, options),
                 principal_id=options.principal_id,
             )
         except Exception:  # noqa: BLE001 - tool failures become model-visible data
+            logger.exception("agent tool %r raised out of call_tool", name)
             return {"ok": False, "error": "tool call failed"}
 
     @staticmethod
     def _scoped_arguments(
-        name: str,
+        spec: AgentToolSpec,
         arguments: dict[str, object],
         options: AgentRunOptions,
     ) -> dict[str, object]:
-        """Bind a tool call to its caller's tenant, never trusting the model for it."""
+        """Bind a tool call to its caller's tenant, never trusting the model for it.
+
+        Only tools that *declare* ``tenant_id`` are bound to one. A tool whose
+        schema has no such property is either tenant-free (``describe_graph``)
+        or already bound server-side to a richer owner than a tenant (the
+        memory tools, whose owner arrives with the run); injecting into either
+        sends a key the schema forbids, so the call could never be made at all.
+        Where the property *is* declared the write is unconditional, so a
+        model-supplied tenant is overwritten rather than honoured.
+        """
 
         scoped = dict(arguments)
-        scoped["tenant_id"] = options.tenant_id
-        if name == VECTOR_SEARCH_TOOL and not options.graph_search:
+        properties = spec.input_schema.get("properties")
+        if isinstance(properties, dict) and "tenant_id" in properties:
+            scoped["tenant_id"] = options.tenant_id
+        if spec.name == VECTOR_SEARCH_TOOL and not options.graph_search:
             scoped["observe_graph"] = False
             scoped["mode"] = "flat"
         return scoped

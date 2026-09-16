@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
 
 from harborrag_core.invariants import require
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatTool
@@ -27,7 +28,7 @@ from .execution import ChatAndToolExecutor
 from .guard import ExecutionGuard, digest_arguments
 from .helpers import add_usage
 from .loop_state import LoopState, RunContext, StepOutcome
-from .protocols import AgentChatModel, AgentToolProvider
+from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
 from .run_lifecycle import AgentRunLifecycle
 from .schemas import AgentRunOptions, AgentRunResult
 from .synthesis import synthesis_instruction
@@ -80,14 +81,14 @@ class AgentLoopRunner:
         options = context.options
         specs = self._executor.available_specs(options.tenant_id, graph_search=options.graph_search)
         tool_definitions = tuple(tool_definition(spec, options.graph_search) for spec in specs)
-        allowed_names = {spec.name for spec in specs}
+        allowed_tools = {spec.name: spec for spec in specs}
 
         await emit(
             context.events, AgentEvent("run.started", context.identity.run_id, {"step": state.step})
         )
         try:
             stop_reason, final_response, calls_made = await self._run_until_stop(
-                context, state, tool_definitions, allowed_names
+                context, state, tool_definitions, allowed_tools
             )
             final_response, calls_made = await self._ensure_final_response(
                 context, state, stop_reason, final_response, calls_made
@@ -111,13 +112,13 @@ class AgentLoopRunner:
         context: RunContext,
         state: LoopState,
         tool_definitions: tuple[HarborChatTool, ...],
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> tuple[AgentStopReason, HarborChatResponse | None, int]:
         """Run steps until one reports a stop reason, or the step budget runs out."""
 
         calls_made = state.step - 1
         while state.step <= context.options.max_steps:
-            outcome = await self._run_step(context, state, tool_definitions, allowed_names)
+            outcome = await self._run_step(context, state, tool_definitions, allowed_tools)
             calls_made += outcome.calls_made
             if outcome.stop_reason is not None:
                 return outcome.stop_reason, outcome.final_response, calls_made
@@ -178,7 +179,7 @@ class AgentLoopRunner:
         context: RunContext,
         state: LoopState,
         tool_definitions: tuple[HarborChatTool, ...],
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> StepOutcome:
         await emit(
             context.events,
@@ -203,7 +204,7 @@ class AgentLoopRunner:
                 calls_made=1, stop_reason=AgentStopReason.FINAL_ANSWER, final_response=response
             )
 
-        return await self._dispatch_tool_calls(context, state, response, allowed_names)
+        return await self._dispatch_tool_calls(context, state, response, allowed_tools)
 
     async def _request_turn(
         self,
@@ -235,7 +236,7 @@ class AgentLoopRunner:
         context: RunContext,
         state: LoopState,
         response: HarborChatResponse,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> StepOutcome:
         run_id = context.identity.run_id
         step = state.step
@@ -273,7 +274,7 @@ class AgentLoopRunner:
                 accepted,
                 step=step,
                 options=context.options,
-                allowed_names=allowed_names,
+                allowed_tools=allowed_tools,
                 guard=guard,
             )
         except TimeoutError:

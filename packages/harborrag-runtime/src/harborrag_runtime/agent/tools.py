@@ -13,7 +13,7 @@ from harborrag_runtime.agent.memory_tool_specs import (
     SEARCH_MEMORY_TOOL,
 )
 from harborrag_runtime.agent.memory_tools import AgentMemoryTools
-from harborrag_runtime.tools.base import BaseTool
+from harborrag_runtime.tools.base import BaseTool, ToolSpec
 from harborrag_runtime.tools.budgets import ToolBudget, result_count
 from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
 from harborrag_runtime.tools.references import KnowledgeReferenceStore
@@ -49,18 +49,21 @@ class RuntimeAgentToolProvider:
     # because ``resolve`` re-binds every read to its own tenant and principal.
     # The MCP transport holds one for the whole server for the same reason.
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
-    # Defaults match ``McpToolPolicy``; the MCP transport can narrow them per
-    # tenant through its configuration layer, the agent loop uses the ceiling.
+    # ``McpToolPolicy`` *is* this budget with an MCP label, so the two
+    # transports cannot drift: MCP narrows these per tenant through its
+    # configuration layer, the agent loop runs at the shared ceiling.
     budget: ToolBudget = field(
         default_factory=lambda: ToolBudget(label="Agent", detail_in_errors=True)
     )
     _tools: dict[str, BaseTool] = field(init=False, repr=False)
+    _memory_specs: dict[str, ToolSpec] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._tools = {
             tool.spec.name: tool
             for tool in build_reader_tool_catalog(self.runtime, self.references)
         }
+        self._memory_specs = {spec.name: spec for spec in MEMORY_AGENT_TOOL_SPECS}
 
     def list_tools(self, tenant_id: str | None = None) -> list[AgentToolSpec]:
         del tenant_id
@@ -105,29 +108,35 @@ class RuntimeAgentToolProvider:
     ) -> dict[str, object]:
         values = dict(arguments or {})
         try:
-            memory = await self._memory_operation(name, values)
-            if memory is not None:
-                # Bounded like any other result: whatever a tool returns is
-                # appended to model context, and the memory tools are no
-                # cheaper to over-read than the retrieval ones.
-                self.budget.check_output(memory)
-                return memory
-            # Owner fields for the memory tools never come from ``values``, so
-            # their dispatch happens before the model-supplied tenant is read.
-            tool = self._tools.get(name)
-            if tool is None:
+            spec = self._spec_for(name)
+            if spec is None:
                 return {"ok": False, "error": "agent tool is not available"}
-            # The same ceilings the MCP transport applies to this same catalog.
+            # The same ceilings the MCP transport applies to this same catalog,
+            # and applied to every tool it dispatches rather than to the
+            # retrieval ones only: the memory schemas carry the length and
+            # additionalProperties bounds the model was shown, so skipping them
+            # for memory would advertise a contract nothing enforced.
+            #
             # Each tool's own hand-written guards bound individual arguments;
             # only this validates the call against the schema the model was
-            # shown, and only this bounds what a result may cost in context.
-            # Output *schema* validation stays with MCP: the agent catalog also
-            # carries the memory tools, which declare no output schema.
-            self.budget.check_call(tool.spec, values)
-            result = await tool.call(values, principal_id=principal_id)
+            # shown. Output *schema* validation stays with MCP: the memory tools
+            # declare none.
+            self.budget.check_call(spec, values)
+            result = await self._dispatch(name, values, principal_id=principal_id)
+            if result is None:
+                return {"ok": False, "error": "agent tool is not available"}
             self.budget.check_results(result_count(result))
+            # The engine truncates every result to MAX_TOOL_RESULT_CHARS before
+            # it reaches model context, so this is not the context bound; it is
+            # the ceiling on what one tool may hand back at all, which keeps a
+            # runaway payload from being serialized and truncated needlessly.
             self.budget.check_output(result)
             return result
+        except PermissionError as exc:
+            # A disabled capability is a contract the model can read and work
+            # around, so it reaches the loop as an ordinary tool error rather
+            # than the opaque generic failure below.
+            return {"ok": False, "error": str(exc)}
         except (TypeError, ValueError) as exc:
             # A budget or schema rejection reaches the model as an ordinary tool
             # error, so the loop can narrow its request and continue.
@@ -136,23 +145,54 @@ class RuntimeAgentToolProvider:
             logger.exception("agent retrieval tool %r raised during call_tool", name)
             return {"ok": False, "error": "agent retrieval tool failed"}
 
+    def _spec_for(self, name: str) -> ToolSpec | None:
+        """The spec ``name`` dispatches to, or ``None`` when it is unavailable.
+
+        A memory tool named while the feature is off resolves to nothing, so it
+        answers exactly like an unknown tool and switching the flag off cannot
+        be detected as a different kind of failure.
+        """
+
+        tool = self._tools.get(name)
+        if tool is not None:
+            return tool.spec
+        if self._memory_available():
+            return self._memory_specs.get(name)
+        return None
+
+    async def _dispatch(
+        self,
+        name: str,
+        values: dict[str, object],
+        *,
+        principal_id: str,
+    ) -> dict[str, object] | None:
+        """Run the validated call, or ``None`` when the tool went away."""
+
+        memory = await self._memory_operation(name, values)
+        if memory is not None:
+            return memory
+        tool = self._tools.get(name)
+        if tool is None:
+            return None
+        return await tool.call(values, principal_id=principal_id)
+
     async def _memory_operation(
         self,
         name: str,
         values: dict[str, object],
     ) -> dict[str, object] | None:
-        """Run one memory tool, or ``None`` when ``name`` is not one of them.
+        """Run one memory tool, or ``None`` when it is not one or is unavailable.
 
-        A memory tool named while the feature is off answers exactly like an
-        unknown tool, so switching the flag off cannot be detected as a
-        different kind of failure.
+        Availability is already decided by ``_spec_for``; returning ``None``
+        here lets the caller answer exactly like an unknown tool.
         """
 
         if name not in {SEARCH_MEMORY_TOOL, MANAGE_MEMORY_TOOL}:
             return None
         tools = await self._memory_tools()
         if tools is None:
-            return {"ok": False, "error": "agent tool is not available"}
+            return None
         if name == SEARCH_MEMORY_TOOL:
             return await tools.search(values)
         return await tools.manage(values)

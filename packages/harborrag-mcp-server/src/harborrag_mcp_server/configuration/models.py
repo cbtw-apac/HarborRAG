@@ -8,13 +8,19 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from harborrag_runtime.tools.base import MAX_TOOL_RESULTS
+from harborrag_runtime.tools.budgets import MAX_ARGUMENT_BYTES, MAX_OUTPUT_BYTES
+
 
 class PolicyConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    max_results: int = Field(default=20, ge=1, le=20)
-    max_argument_bytes: int = Field(default=64 * 1024, ge=1, le=64 * 1024)
-    max_output_bytes: int = Field(default=1024 * 1024, ge=1, le=1024 * 1024)
+    # Derived from the shared ceilings rather than restated: the advertised
+    # input-schema maxima come from the same constants, so a literal here
+    # would let the schema a client is shown drift from what is enforced.
+    max_results: int = Field(default=MAX_TOOL_RESULTS, ge=1, le=MAX_TOOL_RESULTS)
+    max_argument_bytes: int = Field(default=MAX_ARGUMENT_BYTES, ge=1, le=MAX_ARGUMENT_BYTES)
+    max_output_bytes: int = Field(default=MAX_OUTPUT_BYTES, ge=1, le=MAX_OUTPUT_BYTES)
     allow_ingestion: bool = False
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pytest
 
@@ -15,7 +15,9 @@ from harborrag_core.ports.memory import (
     visible_to,
 )
 from harborrag_engine.agent.execution import ChatAndToolExecutor
+from harborrag_engine.agent.schemas import AgentRunOptions
 from harborrag_runtime.agent.memory_tool_specs import manage_memory_schema, search_memory_schema
+from harborrag_runtime.agent.memory_tools import AgentMemoryTools
 from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import RuntimeMemoryContextService
@@ -28,6 +30,10 @@ OWNER = MemoryOwner(
     session_id="session-1",
 )
 OTHER = MemoryOwner(tenant_id="ACME", principal_id="svc-2", user_id="intruder")
+
+
+def _options() -> AgentRunOptions:
+    return AgentRunOptions(tenant_id="ACME", principal_id="svc-1", session_id="session-1")
 
 
 class _Memories:
@@ -188,19 +194,45 @@ async def test_a_memory_tool_is_unavailable_while_the_setting_is_off() -> None:
     ["tenant_id", "user_id", "session_id", "principal_id", "project_id", "run_id", "owner"],
 )
 async def test_owner_fields_supplied_by_the_model_are_rejected(field: str) -> None:
+    """An owner field the model supplies is refused, and the refusal names it.
+
+    The wording is deliberately not asserted: the memory schemas declare
+    ``additionalProperties: false``, so the shared tool budget now rejects the
+    call against the schema the model was shown before the tool's own
+    ``reject_owner_fields`` guard runs. Both refuse; only the phrasing differs.
+    """
+
     provider = _provider(_Memories())
 
     search = await provider.call_tool("search_memory", {"query": "metric", field: "elsewhere"})
     manage = await provider.call_tool("manage_memory", {"content": "a fact", field: "elsewhere"})
 
-    assert search == {
-        "ok": False,
-        "error": f"{field} is bound by the server and must not be supplied",
-    }
-    assert manage == {
-        "ok": False,
-        "error": f"{field} is bound by the server and must not be supplied",
-    }
+    for response in (search, manage):
+        assert response["ok"] is False
+        assert field in str(response["error"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["tenant_id", "user_id", "session_id", "owner"])
+async def test_owner_fields_are_still_refused_beneath_the_schema(field: str) -> None:
+    """The tool's own owner guard stands on its own, without schema validation.
+
+    ``check_call`` is the outer gate, but a caller reaching ``AgentMemoryTools``
+    directly bypasses it, so the guard underneath has to refuse too.
+    """
+
+    tools = AgentMemoryTools(
+        owner=OWNER,
+        memories=_Memories(),  # type: ignore[arg-type]
+        policy=RuntimeMemoryContextService(
+            RuntimeSettings(), embedder_builder=_no_embedder
+        ).policy,
+    )
+
+    with pytest.raises(ValueError, match=f"{field} is bound by the server"):
+        await tools.search({"query": "metric", field: "elsewhere"})
+    with pytest.raises(ValueError, match=f"{field} is bound by the server"):
+        await tools.manage({"content": "a fact", field: "elsewhere"})
 
 
 @pytest.mark.asyncio
@@ -266,7 +298,8 @@ async def test_manage_memory_rejects_an_out_of_range_importance() -> None:
         {"content": "uses UTC", "importance": 4},
     )
 
-    assert response == {"ok": False, "error": "importance must be between 0 and 1"}
+    assert response["ok"] is False
+    assert "importance" in str(response["error"])
 
 
 def test_tenant_scope_is_readable_but_not_writable() -> None:
@@ -296,10 +329,9 @@ async def test_manage_memory_refuses_a_tenant_wide_write() -> None:
         {"content": "the company is metric", "scope": "tenant"},
     )
 
-    assert response == {
-        "ok": False,
-        "error": "scope must be one of ['project', 'user', 'session']",
-    }
+    assert response["ok"] is False
+    assert "scope" in str(response["error"])
+    assert memories.rows == {}
     assert memories.rows == {}
 
 
@@ -314,3 +346,70 @@ async def test_search_memory_can_recall_a_tenant_wide_fact() -> None:
     )
 
     assert [item["memory_id"] for item in response["memories"]] == ["mem-1"]  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_search_memory_survives_the_engines_tenant_binding() -> None:
+    """The engine must not inject a tenant into a tool whose schema forbids one.
+
+    The memory tools are bound to a full owner server-side and declare no
+    ``tenant_id`` property, so an unconditional injection made every call fail
+    ``additionalProperties: false`` -- long-term recall was unreachable through
+    the agent loop even though the provider answered it correctly.
+    """
+
+    memories = _Memories()
+    await memories.save(_stored("mem-1", "prefers metric units"))
+    provider = _provider(memories)
+    executor = ChatAndToolExecutor(object(), provider, memory=None)  # type: ignore[arg-type]
+    specs = {spec.name: spec for spec in executor.available_specs("ACME", graph_search=False)}
+
+    scoped = executor._scoped_arguments(specs["search_memory"], {"query": "metric"}, _options())
+
+    assert "tenant_id" not in scoped
+    response = await provider.call_tool("search_memory", scoped)
+    assert response["ok"] is True
+    assert [memory["content"] for memory in response["memories"]] == ["prefers metric units"]
+
+
+def test_a_tool_that_declares_a_tenant_still_has_it_overwritten() -> None:
+    """Binding stays unconditional wherever the schema declares the field."""
+
+    provider = _provider(_Memories())
+    executor = ChatAndToolExecutor(object(), provider, memory=None)  # type: ignore[arg-type]
+    specs = {spec.name: spec for spec in executor.available_specs("ACME", graph_search=False)}
+
+    scoped = executor._scoped_arguments(
+        specs["vector_search"],
+        {"query": "x", "tenant_id": "SOMEONE-ELSE"},
+        _options(),
+    )
+
+    assert scoped["tenant_id"] == "ACME"
+
+
+@pytest.mark.asyncio
+async def test_memory_tool_arguments_are_bounded_like_every_other_tool() -> None:
+    """The memory schemas' own bounds are enforced, not merely advertised."""
+
+    provider = _provider(_Memories())
+
+    oversized = await provider.call_tool("search_memory", {"query": "everything" * 10_000})
+    unknown = await provider.call_tool("search_memory", {"query": "topic", "bogus": 1})
+
+    assert oversized["ok"] is False
+    assert unknown["ok"] is False
+    assert "bogus" in str(unknown["error"])
+
+
+@pytest.mark.asyncio
+async def test_recalled_memories_are_counted_against_the_result_budget() -> None:
+    memories = _Memories()
+    for index in range(4):
+        await memories.save(_stored(f"mem-{index}", f"metric fact {index}"))
+    provider = _provider(memories)
+    provider.budget = replace(provider.budget, max_results=2)
+
+    response = await provider.call_tool("search_memory", {"query": "metric", "limit": 4})
+
+    assert response == {"ok": False, "error": "Agent result budget exceeded."}

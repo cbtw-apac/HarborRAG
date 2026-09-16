@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any
 
-from jsonschema.exceptions import SchemaError, ValidationError
+from jsonschema.exceptions import SchemaError, ValidationError, best_match
+from jsonschema.protocols import Validator
 from jsonschema.validators import validator_for
 
 from harborrag_runtime.tools.base import MAX_TOOL_RESULTS, ToolSpec
@@ -31,7 +34,56 @@ _COUNTED_LIST_FIELDS = (
     "triplets",
     "paths",
     "nodes",
+    "memories",
 )
+
+# jsonschema renders a combinator failure as ``repr(instance)``, so quoting
+# ``exc.message`` for one would hand a model back its own arguments -- up to the
+# whole argument budget. The constraint that failed is in the *schema*, which is
+# bounded by us, so report that instead of the value.
+MAX_ARGUMENT_BYTES = 64 * 1024
+"""Largest serialized argument payload any transport accepts for one call."""
+
+MAX_OUTPUT_BYTES = 1024 * 1024
+"""Largest serialized result any transport accepts from one call."""
+
+_COMBINATOR_VALIDATORS = frozenset({"not", "anyOf", "oneOf", "allOf"})
+_MAX_DETAIL_CHARS = 200
+
+
+@lru_cache(maxsize=512)
+def _compiled(schema_key: str) -> Validator:
+    """Compile and metaschema-check one schema, keyed by its canonical text.
+
+    ``check_schema`` dominates validation cost (milliseconds on the larger
+    output schemas) and a tool's schema is fixed for as long as its resolved
+    configuration is. Keying on the canonical serialization rather than object
+    identity keeps this correct for MCP, whose configuration layer rewrites a
+    fresh schema dict per call: an actually-different schema is a different key.
+    """
+
+    schema: Any = json.loads(schema_key)
+    validator_type = validator_for(schema)
+    validator_type.check_schema(schema)
+    return validator_type(schema)
+
+
+def _validator(schema: dict[str, object]) -> Validator:
+    return _compiled(json.dumps(schema, sort_keys=True, separators=(",", ":")))
+
+
+def _validation_detail(error: ValidationError) -> str:
+    """One short, argument-free sentence a model can self-correct from."""
+
+    best = best_match([error]) or error
+    if best.validator in _COMBINATOR_VALIDATORS:
+        constraint = json.dumps(best.validator_value, separators=(",", ":"))
+        detail = f"does not satisfy {best.validator}: {constraint}"
+    else:
+        detail = best.message
+    if len(detail) > _MAX_DETAIL_CHARS:
+        detail = f"{detail[:_MAX_DETAIL_CHARS]}..."
+    return f"{best.json_path}: {detail}"
 
 
 def result_count(result: dict[str, object]) -> int:
@@ -71,8 +123,8 @@ class ToolBudget:
     # minimum of 1" is worth far more to it than "arguments do not match".
     detail_in_errors: bool = False
     max_results: int = MAX_TOOL_RESULTS
-    max_argument_bytes: int = 64 * 1024
-    max_output_bytes: int = 1024 * 1024
+    max_argument_bytes: int = MAX_ARGUMENT_BYTES
+    max_output_bytes: int = MAX_OUTPUT_BYTES
     allow_ingestion: bool = False
 
     def check_call(self, spec: ToolSpec, arguments: dict[str, object]) -> None:
@@ -84,15 +136,15 @@ class ToolBudget:
         if size > self.max_argument_bytes:
             raise ValueError(f"{self.label} argument budget exceeded.")
         try:
-            validator_type = validator_for(spec.input_schema)
-            validator_type.check_schema(spec.input_schema)
-            validator_type(spec.input_schema).validate(json.loads(serialized))
+            validator = _validator(spec.input_schema)
         except SchemaError as exc:
             raise RuntimeError(f"{self.label} tool has an invalid input schema.") from exc
+        try:
+            validator.validate(json.loads(serialized))
         except ValidationError as exc:
             message = f"{self.label} arguments do not match the tool schema."
             if self.detail_in_errors:
-                message = f"{message} {exc.json_path}: {exc.message}"
+                message = f"{message} {_validation_detail(exc)}"
             raise ValueError(message) from exc
 
     def check_results(self, count: int) -> None:
@@ -118,15 +170,15 @@ class ToolBudget:
 
         if schema is None:
             raise RuntimeError(f"{self.label} tool has no output schema.")
+        serialized, _ = _serialized_size(result, self.label, "output")
         try:
-            serialized = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-            validator_type = validator_for(schema)
-            validator_type.check_schema(schema)
-            validator_type(schema).validate(json.loads(serialized))
+            validator = _validator(schema)
         except SchemaError as exc:
             raise RuntimeError(f"{self.label} tool has an invalid output schema.") from exc
+        try:
+            validator.validate(json.loads(serialized))
         except ValidationError as exc:
             raise RuntimeError(f"{self.label} tool returned an invalid output.") from exc
 
 
-__all__ = ["ToolBudget", "result_count"]
+__all__ = ["MAX_ARGUMENT_BYTES", "MAX_OUTPUT_BYTES", "ToolBudget", "result_count"]
