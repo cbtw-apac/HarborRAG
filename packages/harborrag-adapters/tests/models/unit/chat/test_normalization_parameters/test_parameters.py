@@ -141,6 +141,18 @@ def test_litellm_parameter_rendering_merges_headers_and_options() -> None:
         )
 
 
+def test_reasoning_opt_out_is_sent_only_when_the_deployment_supports_it() -> None:
+    request = HarborChatRequest(
+        messages=(HarborChatMessage.user("x"),),
+        reasoning_effort="none",
+    )
+    unsupported = deployment(capabilities={"tools": True})
+    supported = deployment(capabilities={"tools": True, "reasoning_effort": True})
+
+    assert "reasoning_effort" not in build_litellm_parameters(unsupported, request, timeout=1)
+    assert build_litellm_parameters(supported, request, timeout=1)["reasoning_effort"] == "none"
+
+
 def test_azure_parameter_model_uses_deployment_name() -> None:
     azure = deployment(
         provider=HarborProvider.AZURE_OPENAI,

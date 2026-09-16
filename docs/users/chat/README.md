@@ -93,6 +93,14 @@ instructs the model to cite only sources it uses.
 Results without a relevance score are retained. Prompt budgets can exclude
 whole passages and older pairs from the three-exchange window.
 
+Use RAG mode for a focused question that can be answered from the first ranked
+passages. Use agent mode with `graph_search: true` when the question spans
+multiple documents or stages and may need focused follow-up searches. A broad
+workflow question can rank several chunks from its first matching document
+before later-stage evidence; the agent can search those missing stages within
+its bounded tool loop. Both modes remain subject to the same permission and
+active-version checks.
+
 Both modes use the `chat` family in `config/models.yaml`. HTTP and CLI use
 the server-owned `default` prompt; callers cannot supply prompt paths.
 See [Chat models](models.md) for catalogs and tenant model selection.

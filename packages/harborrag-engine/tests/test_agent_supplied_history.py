@@ -116,3 +116,10 @@ def test_summary_is_appended_after_the_loop_instructions() -> None:
 
     assert text.index("Use the available tools") < text.index("Summary of earlier turns")
     assert text.rstrip().endswith("Release owner is Platform.")
+
+
+def test_loop_instructions_stop_at_a_requested_evidence_gap() -> None:
+    text = agent_instructions(None)
+
+    assert "report the evidence gap and stop" in text
+    assert "Offer a hypothesis only when the user explicitly requests one" in text

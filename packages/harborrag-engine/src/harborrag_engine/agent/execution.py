@@ -83,6 +83,12 @@ class ChatAndToolExecutor:
             logical_model=options.logical_model,
             tools=tools,
             parallel_tool_calls=True if tools else None,
+            # Some reasoning models default to a non-zero effort, while their
+            # Chat Completions endpoint rejects reasoning and function tools
+            # together. Agent turns need tools more than hidden reasoning, so
+            # explicitly opt out while tools are present. Tool-free synthesis
+            # leaves the model's normal default intact.
+            reasoning_effort="none" if tools else None,
             max_completion_tokens=completion_token_limit,
             metadata=HarborChatMetadata(
                 tenant_id=options.tenant_id,

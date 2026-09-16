@@ -33,6 +33,12 @@ Graph execution defaults off in agent mode; enable `graph_search` to
 permit graph search and composed graph evidence tools. The public agent does
 not expose memory search or mutation tools.
 
+Prefer this mode for cross-document or multi-stage questions. The agent can
+start with vector search, carry a returned chunk or entity identifier into a
+focused graph-capable search, and disclose a missing evidence stage instead of
+silently completing the chain. Focused single-passage questions usually need
+only RAG mode.
+
 `max_steps` defaults to 4 and accepts 1–8. The model can issue parallel
 read-only tool calls within a step. The engine also enforces elapsed-time,
 token, and repeated-call limits. A guarded stop normally gets one final

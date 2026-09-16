@@ -71,3 +71,17 @@ def test_advance_chat_examples_declare_reasoning_capability(
     deployment = chat.models[chat.default_model].deployments[0]
     assert deployment.capabilities.reasoning is True
     assert deployment.capabilities.reasoning_content is False
+
+
+@pytest.mark.parametrize("path", EXAMPLE_FILES, ids=lambda path: path.name)
+def test_tool_enabled_examples_support_agent_parallel_calls(
+    path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Agent execution requests parallel calls whenever tools are available."""
+
+    _load_environment(monkeypatch)
+    chat = HarborChatClientConfig.from_file(path)
+    for logical_model in chat.models.values():
+        for deployment in logical_model.deployments:
+            if deployment.capabilities.tools:
+                assert deployment.capabilities.parallel_tools is True

@@ -111,6 +111,10 @@ Qdrant retrieval, FalkorDB traversal, and Temporal runtime state:
 python packages/harborrag-runtime/tests/runtime_ingestion/smoke/ingestion_flow.py
 ```
 
+For deployed chat quality, controlled model grounding, release gates, and the
+permission-snapshot ingestion decision, see the
+[chat release evaluation](chat-release-evaluation.md).
+
 Repository stack and runner:
 
 ```bash

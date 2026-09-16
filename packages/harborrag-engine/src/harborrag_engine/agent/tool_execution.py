@@ -35,6 +35,9 @@ MAX_TOOL_CALLS_PER_TURN = 8
 MAX_TOOL_RESULT_CHARS = 16_000
 _MAX_TOOL_RESULT_DEPTH = 8
 _MAX_TOOL_RESULT_ITEMS = 128
+_PROVIDER_REJECTED_TOP_LEVEL_SCHEMA_KEYS = frozenset(
+    {"oneOf", "anyOf", "allOf", "enum", "const", "not"}
+)
 
 
 def rejected_execution(
@@ -207,6 +210,14 @@ def _bounded_sequence(
 
 def tool_definition(spec: AgentToolSpec, graph_search: bool) -> HarborChatTool:
     schema = json.loads(json.dumps(spec.input_schema))
+    # OpenAI-compatible function tools require a top-level object and reject
+    # combinators at that level. The shared MCP schemas keep their richer JSON
+    # Schema constraints; agent calls drop only the provider-rejected top-level
+    # keywords. Tool implementations validate the same constraints again at
+    # execution, so malformed calls still fail closed.
+    if schema.get("type") == "object":
+        for key in _PROVIDER_REJECTED_TOP_LEVEL_SCHEMA_KEYS:
+            schema.pop(key, None)
     if spec.name == VECTOR_SEARCH_TOOL and not graph_search:
         properties = schema.get("properties")
         if isinstance(properties, dict):
