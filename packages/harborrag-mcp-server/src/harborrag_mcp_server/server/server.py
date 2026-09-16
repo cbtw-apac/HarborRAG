@@ -11,6 +11,7 @@ from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
 from harborrag_runtime.tools.base import BaseTool, ToolSpec
+from harborrag_runtime.tools.budgets import result_count
 from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
 from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
@@ -26,34 +27,6 @@ _default_policy = McpToolPolicy()
 _default_audit_log = McpAuditLog(
     path=Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
 )
-
-
-def _result_count(result: dict[str, object]) -> int:
-    """Best-effort item count for a tool result, for policy budget checks.
-
-    Tools that return a `results` list (e.g. retrieval) are counted by list
-    length; single-payload tools (e.g. health checks) count as one result.
-    """
-    for field_name in (
-        "results",
-        "items",
-        "chunks",
-        "sources",
-        "documents",
-        "candidates",
-        "triplets",
-        "paths",
-        "nodes",
-    ):
-        results = result.get(field_name)
-        if isinstance(results, list):
-            return len(results)
-    data = result.get("data")
-    if isinstance(data, dict):
-        counts = [len(value) for value in data.values() if isinstance(value, list)]
-        if counts:
-            return max(counts)
-    return 1
 
 
 @dataclass(slots=True)
@@ -126,7 +99,7 @@ class McpServer(BaseMcpServer):
                 policy.check_call(spec, payload)
                 result = await tool.call(payload, principal_id=principal_id)
                 policy.check_output_schema(result, spec.output_schema)
-                policy.check_results(_result_count(result))
+                policy.check_results(result_count(result))
                 policy.check_output(result)
                 reported_error = result.get("ok") is False or result.get("status") == "error"
                 self.audit.finish(

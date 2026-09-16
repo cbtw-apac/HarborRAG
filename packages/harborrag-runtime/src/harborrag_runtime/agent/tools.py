@@ -14,6 +14,7 @@ from harborrag_runtime.agent.memory_tool_specs import (
 )
 from harborrag_runtime.agent.memory_tools import AgentMemoryTools
 from harborrag_runtime.tools.base import BaseTool
+from harborrag_runtime.tools.budgets import ToolBudget, result_count
 from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
 from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
@@ -48,6 +49,11 @@ class RuntimeAgentToolProvider:
     # because ``resolve`` re-binds every read to its own tenant and principal.
     # The MCP transport holds one for the whole server for the same reason.
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
+    # Defaults match ``McpToolPolicy``; the MCP transport can narrow them per
+    # tenant through its configuration layer, the agent loop uses the ceiling.
+    budget: ToolBudget = field(
+        default_factory=lambda: ToolBudget(label="Agent", detail_in_errors=True)
+    )
     _tools: dict[str, BaseTool] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -101,14 +107,30 @@ class RuntimeAgentToolProvider:
         try:
             memory = await self._memory_operation(name, values)
             if memory is not None:
+                # Bounded like any other result: whatever a tool returns is
+                # appended to model context, and the memory tools are no
+                # cheaper to over-read than the retrieval ones.
+                self.budget.check_output(memory)
                 return memory
             # Owner fields for the memory tools never come from ``values``, so
             # their dispatch happens before the model-supplied tenant is read.
             tool = self._tools.get(name)
             if tool is None:
                 return {"ok": False, "error": "agent tool is not available"}
-            return await tool.call(values, principal_id=principal_id)
+            # The same ceilings the MCP transport applies to this same catalog.
+            # Each tool's own hand-written guards bound individual arguments;
+            # only this validates the call against the schema the model was
+            # shown, and only this bounds what a result may cost in context.
+            # Output *schema* validation stays with MCP: the agent catalog also
+            # carries the memory tools, which declare no output schema.
+            self.budget.check_call(tool.spec, values)
+            result = await tool.call(values, principal_id=principal_id)
+            self.budget.check_results(result_count(result))
+            self.budget.check_output(result)
+            return result
         except (TypeError, ValueError) as exc:
+            # A budget or schema rejection reaches the model as an ordinary tool
+            # error, so the loop can narrow its request and continue.
             return {"ok": False, "error": str(exc)}
         except Exception:
             logger.exception("agent retrieval tool %r raised during call_tool", name)

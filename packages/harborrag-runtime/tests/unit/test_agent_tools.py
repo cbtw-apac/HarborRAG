@@ -10,6 +10,7 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.tools.budgets import ToolBudget
 from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
 from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
@@ -75,7 +76,16 @@ async def test_agent_tools_reject_invalid_or_unknown_calls() -> None:
     )
     unknown = await provider.call_tool("write_index", {"tenant_id": "ACME"})
 
-    assert invalid == {"ok": False, "error": "top_k must be between 1 and 20"}
+    # The schema the model was shown is now checked before dispatch, so the
+    # rejection names the path, the value and the bound rather than repeating a
+    # tool's hand-written sentence. Both reach the model as ordinary tool
+    # errors, which is what lets the loop correct itself and continue.
+    assert invalid == {
+        "ok": False,
+        "error": (
+            "Agent arguments do not match the tool schema. $.top_k: 0 is less than the minimum of 1"
+        ),
+    }
     assert unknown == {"ok": False, "error": "agent tool is not available"}
 
 
@@ -140,3 +150,64 @@ async def test_compact_vector_hits_do_not_return_content_and_report_unknown_retr
     assert result["results"][0]["id"] == "chunk-1"
     assert result["cost"]["amount_usd"] is None
     assert result["cost"]["complete"] is False
+
+
+@pytest.mark.asyncio
+async def test_agent_transport_bounds_what_a_tool_result_may_cost_in_context() -> None:
+    """The agent applies the same ceilings MCP applies to this same catalog.
+
+    MCP rejects an oversized payload outright. On the agent path there is no
+    request to reject: whatever a tool returns is appended to model context and
+    paid for, so without a ceiling a single call can swallow the token budget.
+    The rejection arrives as an ordinary tool error, which is what lets the loop
+    narrow its request instead of dying.
+    """
+
+    class _HugeRetrieval:
+        async def search(self, request):
+            del request
+            return RetrievalResponse(
+                request_id="retrieval-1",
+                lane=RetrievalLane.HYBRID,
+                results=tuple(
+                    RetrievalResult(f"chunk-{index}", "x" * 4096, 0.9, {}) for index in range(20)
+                ),
+                diagnostics={"lane": "hybrid"},
+            )
+
+    provider = RuntimeAgentToolProvider(
+        _Runtime(_HugeRetrieval()),  # type: ignore[arg-type]
+        budget=ToolBudget(label="Agent", max_output_bytes=2048),
+    )
+
+    response = await provider.call_tool(
+        "vector_search", {"tenant_id": "ACME", "query": "everything", "top_k": 20}
+    )
+
+    assert response == {"ok": False, "error": "Agent output budget exceeded."}
+
+
+@pytest.mark.asyncio
+async def test_agent_transport_bounds_the_number_of_results() -> None:
+    class _ManyRetrieval:
+        async def search(self, request):
+            del request
+            return RetrievalResponse(
+                request_id="retrieval-1",
+                lane=RetrievalLane.HYBRID,
+                results=tuple(
+                    RetrievalResult(f"chunk-{index}", "evidence", 0.9, {}) for index in range(8)
+                ),
+                diagnostics={"lane": "hybrid"},
+            )
+
+    provider = RuntimeAgentToolProvider(
+        _Runtime(_ManyRetrieval()),  # type: ignore[arg-type]
+        budget=ToolBudget(label="Agent", max_results=4),
+    )
+
+    response = await provider.call_tool(
+        "vector_search", {"tenant_id": "ACME", "query": "everything"}
+    )
+
+    assert response == {"ok": False, "error": "Agent result budget exceeded."}
