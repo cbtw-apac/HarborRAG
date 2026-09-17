@@ -177,8 +177,10 @@ Prefer to bring things up one at a time?
 | `dev.sh up --no-worker` | everything except the worker |
 | `dev.sh down` | stop everything; `--volumes` also discards the data |
 
-Add `--build` to `up`, `worker`, or `api` after changing source, dependencies, or baked
-worker configuration.
+Add `--build` to `up`, `worker`, or `api` after changing source or dependencies. The
+`config/` directory is mounted read-only into the worker and the API, so a change to
+`models.yaml`, `connectors.yaml`, `parsers.yaml` or `temporal.yaml` needs only
+`dev.sh worker` or `dev.sh api` to restart.
 
 **If `up` fails with `required variable HARBORRAG_SECRETS_ENCRYPTION_KEY is missing a
 value`**, go back to step 5 - Compose treats an empty value as unset.
