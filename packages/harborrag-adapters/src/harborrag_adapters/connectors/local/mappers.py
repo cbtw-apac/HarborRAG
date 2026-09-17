@@ -9,6 +9,7 @@ from harborrag_core.domain.source import SourceRecord
 
 from .filesystem_paths import (
     guess_mime_type,
+    local_record_id,
     relative_path,
     stat_datetime,
 )
@@ -41,7 +42,7 @@ def build_source_record(
     mime_type = guess_mime_type(path)
 
     return SourceRecord(
-        id=relative,
+        id=local_record_id(relative),
         source_type=mime_type,
         locator=relative,
         updated_at=stat_datetime(stat.st_mtime),
@@ -76,7 +77,7 @@ def build_document_metadata(
     stat = stat_result or path.stat()
     relative = relative_path(path, root_path)
     return LocalFileMetadata(
-        record_id=relative,
+        record_id=local_record_id(relative),
         title=path.name,
         checksum=checksum,
         created_at=stat_datetime(stat.st_ctime),

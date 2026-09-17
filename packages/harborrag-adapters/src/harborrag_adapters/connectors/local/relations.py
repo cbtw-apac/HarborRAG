@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from .filesystem_paths import local_record_id
+
 _MARKDOWN_LINK = re.compile(r"!?\[[^\]]*]\(([^)\s]+)(?:\s+['\"][^'\"]*['\"])?\)")
 _HTML_LINK = re.compile(
     r"""(?:href|src)\s*=\s*["']([^"']+)["']""",
@@ -32,7 +34,8 @@ class LocalDocumentRelationResolver:
         for raw_target in (*_MARKDOWN_LINK.findall(text), *_HTML_LINK.findall(text)):
             resolved = self._resolve(source_path, raw_target)
             if resolved is not None:
-                targets[resolved.relative_to(self._root_path).as_posix()] = raw_target
+                relative = resolved.relative_to(self._root_path).as_posix()
+                targets[local_record_id(relative)] = raw_target
         return [
             {
                 "predicate": "links_to",
