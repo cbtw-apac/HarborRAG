@@ -412,8 +412,10 @@ Start pieces individually when you only need part of the stack:
 | `dev.sh up --no-worker` | everything except the worker |
 | `dev.sh down` | stop everything (add `--volumes` to discard data) |
 
-Add `--build` to `up`, `worker`, or `api` after changing source, dependencies, or baked
-worker configuration. A missing image is built automatically on first start.
+Add `--build` to `up`, `worker`, or `api` after changing source or dependencies. The
+`config/` directory is mounted read-only into the worker and the API, so a change to
+`models.yaml`, `connectors.yaml`, `parsers.yaml` or `temporal.yaml` needs only
+`dev.sh worker` or `dev.sh api` to restart. A missing image is built automatically on first start.
 
 ### Verify it came up
 
