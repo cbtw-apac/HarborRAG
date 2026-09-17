@@ -93,6 +93,15 @@ Store populated values in the ignored `env/.env.models` file or an external
 secret manager. HarborRAG's configuration loader does not search `.env` files;
 the deployment scripts and Compose services explicitly inject that file.
 
+### Provider endpoint policy (`security` block of `chat`, `embed` and `rerank`)
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `require_https_for_remote_endpoints` | `true` | Reject a plain-HTTP `api_base` unless its host is local. Local means `localhost`, a loopback IP, or a container-runtime alias for the host machine: `host.docker.internal`, `gateway.docker.internal`, `host.lima.internal`, `host.containers.internal`. A model server on the developer's machine (Ollama, LM Studio, a LiteLLM proxy) reached from a container therefore needs no change. |
+| `allowed_base_url_hosts` | unset | Optional allowlist of hostnames an `api_base` may point at. When set, every deployment's host must appear in it, local aliases included. |
+
+To reach a plain-HTTP model server on another machine, set `require_https_for_remote_endpoints: false` and list the host in `allowed_base_url_hosts`. The validation error names both keys.
+
 ## MCP runtime environment
 
 The MCP server keeps transport/tool policy separate from model policy:
