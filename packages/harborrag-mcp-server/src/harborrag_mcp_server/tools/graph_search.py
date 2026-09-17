@@ -24,6 +24,7 @@ from harborrag_core.retrieval import (
     compact_triplet,
 )
 from harborrag_mcp_server.policy import McpToolPolicy
+from harborrag_mcp_server.tools.backend_errors import classify_backend_error
 from harborrag_runtime.agent.tool_specs import (
     GRAPH_PATH_DESCRIPTION,
     GRAPH_SUBGRAPH_DESCRIPTION,
@@ -95,9 +96,14 @@ class GraphTripletSearchTool(BaseMcpTool):
             return {"ok": False, "error": "graph retrieval backend is not configured"}
         try:
             response = await self.runtime.graph.search_triplets(request)
-        except Exception:
+        except Exception as exc:
             logger.exception("graph_triplet_search backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
+
+            return {
+                "ok": False,
+                "error": "graph retrieval backend failed",
+                **classify_backend_error(exc, default_component="graph_retrieval"),
+            }
         return {
             "ok": True,
             "triplets": [compact_triplet(item) for item in response.triplets],
@@ -148,9 +154,14 @@ class GraphPathSearchTool(BaseMcpTool):
             return {"ok": False, "error": "graph retrieval backend is not configured"}
         try:
             response = await self.runtime.graph.find_paths(request)
-        except Exception:
+        except Exception as exc:
             logger.exception("graph_path_search backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
+
+            return {
+                "ok": False,
+                "error": "graph retrieval backend failed",
+                **classify_backend_error(exc, default_component="graph_retrieval"),
+            }
         return {
             "ok": True,
             "paths": [compact_path(item) for item in response.paths],
@@ -203,9 +214,14 @@ class GraphSubgraphSearchTool(BaseMcpTool):
             return {"ok": False, "error": "graph retrieval backend is not configured"}
         try:
             response = await self.runtime.graph.expand_subgraph(request)
-        except Exception:
+        except Exception as exc:
             logger.exception("graph_subgraph_search backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
+
+            return {
+                "ok": False,
+                "error": "graph retrieval backend failed",
+                **classify_backend_error(exc, default_component="graph_retrieval"),
+            }
         return {
             "ok": True,
             "nodes": [compact_node(item) for item in response.nodes],
