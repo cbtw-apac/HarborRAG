@@ -57,4 +57,5 @@ def test_adf_rowspan_and_colspan():
     assert "| H1 | H2 |" in md
     assert "| --- | --- |" in md
     assert "| A | B |" in md
-    assert "| C |" in md
+    # C is in the second column; the first is a blank placeholder for A's rowspan
+    assert "|  | C |" in md

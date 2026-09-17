@@ -51,21 +51,25 @@ def html_to_markdown(html: str | bytes) -> str:
 def _render_table(table: Tag) -> str:
     # Collect rows
     rows: list[list[str]] = []
+    row_has_th: list[bool] = []
     for tr in table.find_all("tr"):
         cells = []
+        has_th = False
         for cell in tr.find_all(["th", "td"]):
             text = _cell_text(cell)
             cells.append(_escape_cell(text))
+            if cell.name == "th":
+                has_th = True
         if cells:
             rows.append(cells)
+            row_has_th.append(has_th)
     if not rows:
         return ""
     # Ensure rectangular grid
     max_cols = max(len(r) for r in rows)
     norm = [r + [""] * (max_cols - len(r)) for r in rows]
-    # If first row is header-like (contains <th>) use it, else synthesize
-    first_row = table.find_all("tr")[0]
-    has_th = bool(first_row.find_all("th"))
+    # If first emitted row is header-like (contains <th>) use it, else synthesize
+    has_th = row_has_th[0]
     if has_th:
         header = norm[0]
         data = norm[1:]

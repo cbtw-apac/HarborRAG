@@ -277,28 +277,58 @@ def _adf_table_to_markdown(table_node: dict[str, Any]) -> str:
 
 
 def _extract_adf_table_rows(table_node: dict[str, Any]) -> tuple[list[list[str]], int | None]:
-    """Return normalized rows and header_row index (or None)."""
+    """Return normalized rows and header_row index (or None).
+
+    Accounts for `attrs.rowspan`/`attrs.colspan` on each cell so that a
+    merged cell occupies its full grid footprint: spanned columns get a
+    blank placeholder and rows covered by a rowspan skip the occupied
+    column, keeping later cells aligned under the correct header.
+    """
     rows: list[list[str]] = []
     header_row: int | None = None
+    row_spans: dict[int, int] = {}
     for row in table_node.get("content", []) or []:
         if not isinstance(row, dict) or row.get("type") != "tableRow":
             continue
-        cells: list[str] = []
-        for cell in row.get("content", []) or []:
-            if not isinstance(cell, dict):
+        cell_nodes = [c for c in row.get("content", []) or [] if isinstance(c, dict)]
+        out_row: list[str] = []
+        col = 0
+        idx = 0
+        row_has_header = False
+        while idx < len(cell_nodes) or col in row_spans:
+            if row_spans.get(col, 0) > 0:
+                out_row.append("")
+                row_spans[col] -= 1
+                if row_spans[col] <= 0:
+                    del row_spans[col]
+                col += 1
                 continue
+            cell = cell_nodes[idx]
+            idx += 1
+            attrs = cell.get("attrs") or {}
+            try:
+                colspan = max(1, int(attrs.get("colspan") or 1))
+            except (TypeError, ValueError):
+                colspan = 1
+            try:
+                rowspan = max(1, int(attrs.get("rowspan") or 1))
+            except (TypeError, ValueError):
+                rowspan = 1
             parts: list[str] = []
             for child in cell.get("content", []) or []:
                 parts.extend(_walk_adf(child))
             cell_text = compact_text("".join(parts))
-            cells.append(_escape_table_cell(cell_text))
-        if cells:
-            rows.append(cells)
-            if header_row is None and any(
-                (cell_node.get("type") == "tableHeader")
-                for cell_node in row.get("content", [])
-                if isinstance(cell_node, dict)
-            ):
+            if cell.get("type") == "tableHeader":
+                row_has_header = True
+            out_row.append(_escape_table_cell(cell_text))
+            out_row.extend([""] * (colspan - 1))
+            if rowspan > 1:
+                for spanned_col in range(col, col + colspan):
+                    row_spans[spanned_col] = rowspan - 1
+            col += colspan
+        if out_row:
+            rows.append(out_row)
+            if header_row is None and row_has_header:
                 header_row = len(rows) - 1
     return rows, header_row
 
