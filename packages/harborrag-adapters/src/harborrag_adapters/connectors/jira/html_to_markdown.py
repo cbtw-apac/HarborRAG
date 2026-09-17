@@ -80,14 +80,34 @@ def _render_table(table: Tag) -> str:
 
 
 def _cell_text(cell: Tag) -> str:
-    # prefer textual content; preserve internal newlines between block children
+    # prefer textual content; preserve explicit <br> boundaries as newlines
     parts: list[str] = []
     for child in cell.children:
+        # If this child is an explicit <br> tag, preserve a newline marker.
+        name = getattr(child, "name", "")
+        if isinstance(name, str) and name.lower() == "br":
+            parts.append("\n")
+            continue
         if hasattr(child, "get_text"):
             parts.append(str(child.get_text(" ", strip=True)))
         else:
             parts.append(str(child).strip())
-    return " ".join(p for p in (p.strip() for p in parts) if p)
+
+    # Build a string preserving newline tokens while compacting other whitespace
+    out = ""
+    for p in parts:
+        if p == "\n":
+            if not out.endswith("\n"):
+                out += "\n"
+            continue
+        chunk = p.strip()
+        if not chunk:
+            continue
+        if not out or out.endswith("\n"):
+            out += chunk
+        else:
+            out += " " + chunk
+    return out
 
 
 def _escape_cell(value: str) -> str:
