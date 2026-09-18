@@ -99,9 +99,13 @@ def test_mcp_image_installs_its_declared_runtime_stack() -> None:
     dockerfile = DOCKERFILES["mcp"].read_text(encoding="utf-8")
     install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
-    assert "-e 'packages/harborrag-mcp-server[mcp]'" in install_block
+    # ``[reader]``, not ``[mcp]``: the ``mcp`` extra is empty, so it pulled nothing,
+    # while ``reader`` is what brings in the runtime layer the server actually serves
+    # from. The image also drops harborrag-memory, which contract 13 forbids MCP.
+    assert "-e 'packages/harborrag-mcp-server[reader]'" in install_block
     assert "-e packages/harborrag-app" not in install_block
-    assert "-e packages/harborrag-runtime" in install_block
+    assert "-e packages/harborrag-memory" not in install_block
+    assert "-e 'packages/harborrag-runtime[reader]'" in install_block
     assert "COPY config ./config" in dockerfile
     assert 'ENTRYPOINT ["python", "-m", "harborrag_mcp_server"]' in dockerfile
 

@@ -9,6 +9,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
+    "harborrag-engine==2.0.0a1",
     "harborrag-memory==2.0.0a1",
     "pydantic>=2.13,<3",
     "python-dotenv>=1,<2",

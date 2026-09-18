@@ -7,8 +7,8 @@ Allowed direction (lower layers never import higher ones):
     harborrag_memory    -> core
     harborrag_engine    -> core
     harborrag_runtime   -> core, adapters, engine, memory
-    harborrag_app       -> core, runtime
-    harborrag_mcp_server -> core, runtime
+    harborrag_app       -> core, runtime, engine
+    harborrag_mcp_server -> core, runtime, engine
     harborrag           -> any harborrag package (public facade)
 
 Package ``src/`` trees are checked. Cross-package integration tests may compose
@@ -52,8 +52,16 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
         "harborrag_engine",
         "harborrag_memory",
     },
-    "harborrag_app": {"harborrag_core", "harborrag_runtime"},
-    "harborrag_mcp_server": {"harborrag_core", "harborrag_runtime"},
+    # The transports read the shared tool layer directly. ``harborrag_engine``
+    # imports only ``harborrag_core``, so this inverts nothing: it names a
+    # sibling of adapters and memory, not a higher layer. ``.importlinter``
+    # already permits it -- neither transport's forbidden list mentions engine,
+    # and contract 13 enumerates MCP's forbidden runtime layers precisely --
+    # and ``harborrag-mcp-server`` declares the dependency in its metadata.
+    # Routing these through ``harborrag_runtime`` instead would push engine's
+    # tool-budget constants through a package that has no other use for them.
+    "harborrag_app": {"harborrag_core", "harborrag_runtime", "harborrag_engine"},
+    "harborrag_mcp_server": {"harborrag_core", "harborrag_runtime", "harborrag_engine"},
     "harborrag": {
         "harborrag_core",
         "harborrag_adapters",

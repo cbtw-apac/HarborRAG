@@ -1843,8 +1843,8 @@ name = "harborrag"
 version = "2.0.0a1"
 source = { editable = "packages/harborrag" }
 dependencies = [
+    { name = "harborrag-app" },
     { name = "harborrag-core" },
-    { name = "harborrag-mcp-server" },
     { name = "harborrag-runtime" },
 ]
 
@@ -1867,7 +1867,6 @@ falkordb = [
 ]
 local = [
     { name = "harborrag-adapters", extra = ["chunking", "control-plane", "falkordb", "llm", "parsers", "pdf-docling", "qdrant", "s3", "tables"] },
-    { name = "harborrag-app" },
 ]
 mcp = [
     { name = "harborrag-mcp-server", extra = ["reader"] },
@@ -1905,12 +1904,11 @@ requires-dist = [
     { name = "harborrag-adapters", extras = ["qdrant"], marker = "extra == 'qdrant'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["redis"], marker = "extra == 'redis'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["s3"], marker = "extra == 's3'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-app", editable = "packages/harborrag-app" },
     { name = "harborrag-app", marker = "extra == 'cli'", editable = "packages/harborrag-app" },
-    { name = "harborrag-app", marker = "extra == 'local'", editable = "packages/harborrag-app" },
     { name = "harborrag-app", extras = ["api"], marker = "extra == 'all'", editable = "packages/harborrag-app" },
     { name = "harborrag-app", extras = ["api"], marker = "extra == 'server'", editable = "packages/harborrag-app" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
-    { name = "harborrag-mcp-server", editable = "packages/harborrag-mcp-server" },
     { name = "harborrag-mcp-server", extras = ["mcp"], marker = "extra == 'all'", editable = "packages/harborrag-mcp-server" },
     { name = "harborrag-mcp-server", extras = ["reader"], marker = "extra == 'mcp'", editable = "packages/harborrag-mcp-server" },
     { name = "harborrag-memory", marker = "extra == 'all'", editable = "packages/harborrag-memory" },
@@ -2194,6 +2192,7 @@ version = "2.0.0a1"
 source = { editable = "packages/harborrag-app" }
 dependencies = [
     { name = "harborrag-core" },
+    { name = "harborrag-engine" },
     { name = "harborrag-memory" },
     { name = "harborrag-runtime" },
     { name = "pydantic" },
@@ -2227,6 +2226,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
     { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "harborrag-memory", editable = "packages/harborrag-memory" },
     { name = "harborrag-runtime", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["temporal"], marker = "extra == 'durable'", editable = "packages/harborrag-runtime" },

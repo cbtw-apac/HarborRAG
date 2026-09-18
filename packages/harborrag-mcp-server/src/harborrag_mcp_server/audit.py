@@ -62,7 +62,7 @@ class McpAuditLog:
         )
         return invocation_id
 
-    def finish(
+    def finish(  # noqa: PLR0913 - one audit line names who, where, what and how it ended
         self,
         invocation_id: str,
         tool: str,
@@ -72,6 +72,12 @@ class McpAuditLog:
         error_type: str | None = None,
         tenant_id: str | None = None,
     ) -> None:
+        """Close the attempt ``start`` opened, under the same principal and tenant.
+
+        Every parameter is an independent fact the trail has to carry: collapsing
+        them into one object would hide which of them a caller actually knew.
+        """
+
         event: dict[str, object] = {
             "invocation_id": invocation_id,
             "tool": _bounded(tool),
