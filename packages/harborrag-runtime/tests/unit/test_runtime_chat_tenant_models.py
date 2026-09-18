@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from tenant_chat_fixtures import (
+    SHARED_MODEL_CONFIG,
     FakeCatalog,
     FakeSecrets,
     FakeTenantChatClient,
@@ -61,7 +62,7 @@ def _service(
         return client
 
     service = RuntimeChatService(
-        RuntimeSettings(),
+        RuntimeSettings(model_config_path=SHARED_MODEL_CONFIG),
         client_builder=lambda _settings: process_wide,
         shared_config_loader=_shared_config,
     )

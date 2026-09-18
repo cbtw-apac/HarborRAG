@@ -117,7 +117,9 @@ def result_data(
         {
             "document_id": reference.document_id,
             "chunk_id": reference.chunk_id,
-            "score": reference.score,
+            # The published completion contract has always exposed a numeric
+            # score. A non-ranked agent evidence reference uses zero.
+            "score": reference.score if reference.score is not None else 0.0,
             "tool": reference.tool,
             "document_title": reference.document_title,
             "section_path": list(reference.section_path),

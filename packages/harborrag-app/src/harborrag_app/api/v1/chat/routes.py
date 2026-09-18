@@ -308,6 +308,8 @@ def _scope_refusal(request: CompletionRequest, message: str) -> ChatCompletionRe
         refusal_reason="out_of_scope",
         finish_reason="out_of_scope",
         usage=ChatUsageResponse(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        retry_count=0,
+        fallback_count=0,
         session_id=request.session_id,
         mode=request.mode,
         project_id=request.project_id,

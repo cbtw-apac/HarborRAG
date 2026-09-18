@@ -13,6 +13,7 @@ from dataclasses import replace
 
 import pytest
 from tenant_chat_fixtures import (
+    SHARED_MODEL_CONFIG,
     FakeCatalog,
     FakeSecrets,
     FakeTenantChatClient,
@@ -42,7 +43,9 @@ def _clients(
         return client
 
     clients = TenantChatClients(
-        settings or RuntimeSettings(),
+        (settings or RuntimeSettings()).model_copy(
+            update={"model_config_path": SHARED_MODEL_CONFIG}
+        ),
         TenantModelSources(catalog=catalog, secrets=secrets),
         builder=build,  # type: ignore[arg-type]
     )
@@ -174,7 +177,7 @@ async def test_a_client_the_builder_rejects_falls_back_with_an_error_log(
         raise RuntimeError("provider 'anthropic' is not allowed")
 
     clients = TenantChatClients(
-        RuntimeSettings(),
+        RuntimeSettings(model_config_path=SHARED_MODEL_CONFIG),
         TenantModelSources(catalog=catalog, secrets=FakeSecrets()),
         builder=refuse,  # type: ignore[arg-type]
     )
@@ -199,7 +202,7 @@ async def test_the_config_layer_itself_accepts_any_registered_provider() -> None
     config = await build_tenant_chat_config(
         catalog,
         secrets=FakeSecrets(),  # type: ignore[arg-type]
-        shared_config_path=RuntimeSettings().model_config_path,
+        shared_config_path=SHARED_MODEL_CONFIG,
     )
 
     assert config.default_model == "tenant-primary"

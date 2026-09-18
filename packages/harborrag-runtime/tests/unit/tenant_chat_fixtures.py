@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatResponse,
@@ -12,6 +14,8 @@ from harborrag_core.ports.model_catalog import (
     TenantModelDefinition,
     TenantModelDeployment,
 )
+
+SHARED_MODEL_CONFIG = Path(__file__).resolve().parent / "fixtures/chat_models.yaml"
 
 
 class FakeTenantChatClient:
@@ -148,6 +152,7 @@ __all__ = [
     "FakeCatalog",
     "FakeSecrets",
     "FakeTenantChatClient",
+    "SHARED_MODEL_CONFIG",
     "empty_catalog",
     "tenant_catalog",
     "tenant_deployment",

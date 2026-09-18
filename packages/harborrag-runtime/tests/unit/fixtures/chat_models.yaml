@@ -1,0 +1,10 @@
+chat:
+  default_model: primary
+  security:
+    allowed_providers: [openai]
+  models:
+    primary:
+      deployments:
+        - name: shared
+          provider: openai
+          model: gpt-4o-mini

@@ -12,10 +12,10 @@ some other caller (CLI, MCP) skips a route-level check entirely.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, get_args
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, JsonValue, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
@@ -45,7 +45,16 @@ class SourceUpdateInput(ApiModel):
     # annotation and no runtime check, so an unvalidated str was written
     # straight through: PATCH {"status": "banana"} persisted, and any scheduler
     # keyed on active/paused/error then mishandled the row.
-    status: SourceStatus | None = None
+    # Keep the published request schema as a string; validate known values at
+    # runtime so malformed statuses cannot reach the scheduler.
+    status: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is not None and value not in get_args(SourceStatus):
+            raise ValueError("status must be active, paused, or error")
+        return value
 
     @model_validator(mode="after")
     def reject_explicit_null_config(self) -> SourceUpdateInput:

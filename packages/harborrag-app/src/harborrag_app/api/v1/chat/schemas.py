@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, JsonValue, StringConstraints, model_validator
@@ -104,7 +105,7 @@ class ChatMessageResponse(ApiModel):
 class ChatCitation(ApiModel):
     document_id: str
     chunk_id: str
-    score: float | None
+    score: float
     tool: str | None = Field(default=None, exclude_if=lambda value: value is None)
     document_title: str | None = Field(default=None, exclude_if=lambda value: value is None)
     section_path: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
@@ -159,8 +160,8 @@ class ChatCompletionResponse(ApiModel):
     usage: ChatUsageResponse
     cost: ModelCost = Field(default_factory=ModelCost)
     latency_ms: float | None = Field(default=None, ge=0)
-    retry_count: int = Field(default=0, ge=0)
-    fallback_count: int = Field(default=0, ge=0)
+    retry_count: int = Field(..., ge=0)
+    fallback_count: int = Field(..., ge=0)
     citations: tuple[ChatCitation, ...] = ()
     citation_validation: AgentCitationValidation | None = Field(
         default=None, exclude_if=lambda value: value is None
@@ -178,6 +179,15 @@ class ChatCompletionResponse(ApiModel):
     # False when the answer was produced but could not be saved to conversation
     # memory (the next prompt will not recall this turn). Never a 5xx.
     memory_persisted: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_accounting(cls, value: object) -> object:
+        # Older service results do not carry retry/fallback accounting. The
+        # public response always includes the counters required by its schema.
+        if isinstance(value, Mapping):
+            return {"retry_count": 0, "fallback_count": 0, **value}
+        return value
 
     @model_validator(mode="after")
     def validate_refusal(self) -> ChatCompletionResponse:
