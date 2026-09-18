@@ -276,6 +276,53 @@ def _adf_table_to_markdown(table_node: dict[str, Any]) -> str:
     return _format_md_table(rows, header_row)
 
 
+def _parse_span(attrs: dict[str, Any], key: str) -> int:
+    try:
+        return max(1, int(attrs.get(key) or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _extract_adf_table_row(
+    row: dict[str, Any], row_spans: dict[int, int]
+) -> tuple[list[str], bool]:
+    """Render one ADF tableRow into a grid-aligned list of cell strings.
+
+    `row_spans` (column index -> remaining rows to blank-fill) is mutated in
+    place so a cell's rowspan carries a blank placeholder into later rows.
+    """
+    cell_nodes = [c for c in row.get("content", []) or [] if isinstance(c, dict)]
+    out_row: list[str] = []
+    col = 0
+    idx = 0
+    row_has_header = False
+    while idx < len(cell_nodes) or col in row_spans:
+        if row_spans.get(col, 0) > 0:
+            out_row.append("")
+            row_spans[col] -= 1
+            if row_spans[col] <= 0:
+                del row_spans[col]
+            col += 1
+            continue
+        cell = cell_nodes[idx]
+        idx += 1
+        attrs = cell.get("attrs") or {}
+        colspan = _parse_span(attrs, "colspan")
+        rowspan = _parse_span(attrs, "rowspan")
+        parts: list[str] = []
+        for child in cell.get("content", []) or []:
+            parts.extend(_walk_adf(child))
+        if cell.get("type") == "tableHeader":
+            row_has_header = True
+        out_row.append(_escape_table_cell(compact_text("".join(parts))))
+        out_row.extend([""] * (colspan - 1))
+        if rowspan > 1:
+            for spanned_col in range(col, col + colspan):
+                row_spans[spanned_col] = rowspan - 1
+        col += colspan
+    return out_row, row_has_header
+
+
 def _extract_adf_table_rows(table_node: dict[str, Any]) -> tuple[list[list[str]], int | None]:
     """Return normalized rows and header_row index (or None).
 
@@ -290,42 +337,7 @@ def _extract_adf_table_rows(table_node: dict[str, Any]) -> tuple[list[list[str]]
     for row in table_node.get("content", []) or []:
         if not isinstance(row, dict) or row.get("type") != "tableRow":
             continue
-        cell_nodes = [c for c in row.get("content", []) or [] if isinstance(c, dict)]
-        out_row: list[str] = []
-        col = 0
-        idx = 0
-        row_has_header = False
-        while idx < len(cell_nodes) or col in row_spans:
-            if row_spans.get(col, 0) > 0:
-                out_row.append("")
-                row_spans[col] -= 1
-                if row_spans[col] <= 0:
-                    del row_spans[col]
-                col += 1
-                continue
-            cell = cell_nodes[idx]
-            idx += 1
-            attrs = cell.get("attrs") or {}
-            try:
-                colspan = max(1, int(attrs.get("colspan") or 1))
-            except (TypeError, ValueError):
-                colspan = 1
-            try:
-                rowspan = max(1, int(attrs.get("rowspan") or 1))
-            except (TypeError, ValueError):
-                rowspan = 1
-            parts: list[str] = []
-            for child in cell.get("content", []) or []:
-                parts.extend(_walk_adf(child))
-            cell_text = compact_text("".join(parts))
-            if cell.get("type") == "tableHeader":
-                row_has_header = True
-            out_row.append(_escape_table_cell(cell_text))
-            out_row.extend([""] * (colspan - 1))
-            if rowspan > 1:
-                for spanned_col in range(col, col + colspan):
-                    row_spans[spanned_col] = rowspan - 1
-            col += colspan
+        out_row, row_has_header = _extract_adf_table_row(row, row_spans)
         if out_row:
             rows.append(out_row)
             if header_row is None and row_has_header:
