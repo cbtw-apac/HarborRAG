@@ -14,7 +14,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
+from chat_service_fixtures import (
+    FakeChatFacade,
+    FakeRetrievalFacade,
+    FakeRuntime,
+    fake_runtime_config,
+)
 from test_agent_service import _Chat
 from workflow_control_fixtures import FakeComposition
 
@@ -79,7 +84,7 @@ async def test_another_user_on_the_same_credential_does_not_see_that_session() -
 
 @pytest.mark.asyncio
 async def test_an_agent_session_created_for_a_user_is_found_on_that_user_s_run() -> None:
-    service = _service(SimpleNamespace(chat=_Chat()))
+    service = _service(SimpleNamespace(chat=_Chat(), config=fake_runtime_config()))
 
     created = await service.create_agent_session(
         tenant_id=TENANT,

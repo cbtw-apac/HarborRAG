@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
+from types import SimpleNamespace
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.retrieval import RetrievalResult
@@ -285,6 +286,28 @@ class FakeMemoryFacade:
         return ()
 
 
+def fake_runtime_config(
+    *,
+    corpus_access_mode: str = "source_acl",
+    corpus_shared_tenant_id: str | None = None,
+) -> SimpleNamespace:
+    """The slice of ``RuntimeSettings`` the agent surface reads off the runtime.
+
+    The agent service resolves a run's corpus mode from
+    ``runtime.config.runtime``, so any double standing in for the runtime has to
+    carry it. The defaults mirror ``RuntimeSettings``: a tenant is
+    ``source_acl`` unless it is *the* shared one, and there is no shared tenant
+    unless a deployment names one.
+    """
+
+    return SimpleNamespace(
+        runtime=SimpleNamespace(
+            corpus_access_mode=corpus_access_mode,
+            corpus_shared_tenant_id=corpus_shared_tenant_id,
+        )
+    )
+
+
 class FakeRuntime:
     def __init__(
         self,
@@ -292,10 +315,12 @@ class FakeRuntime:
         retrieval: FakeRetrievalFacade | None = None,
         *,
         memory: FakeMemoryFacade | None = None,
+        config: SimpleNamespace | None = None,
     ) -> None:
         self.chat = chat
         self.retrieval = retrieval or FakeRetrievalFacade()
         self.memory = memory or FakeMemoryFacade()
+        self.config = config or fake_runtime_config()
 
     async def aclose(self) -> None:
         return None

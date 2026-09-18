@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from types import SimpleNamespace
 
 import pytest
-from chat_service_fixtures import FakeMemoryFacade
+from chat_service_fixtures import FakeMemoryFacade, fake_runtime_config
 from test_agent_service import _Chat
 from test_memory_extraction_queue import FakeMemories
 
@@ -53,7 +53,7 @@ def _service(
     facade: FakeMemoryFacade,
     queue: MemoryExtractionQueue | None,
 ) -> AgentApplicationService:
-    runtime = SimpleNamespace(chat=_Chat(), memory=facade)
+    runtime = SimpleNamespace(chat=_Chat(), memory=facade, config=fake_runtime_config())
     return AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         memory=memory,
@@ -64,7 +64,7 @@ def _service(
 
 
 def _queue(facade: FakeMemoryFacade) -> MemoryExtractionQueue:
-    runtime = SimpleNamespace(memory=facade)
+    runtime = SimpleNamespace(memory=facade, config=fake_runtime_config())
     return MemoryExtractionQueue(
         runtime_provider=lambda: runtime,  # type: ignore[arg-type]
         memories=FakeMemories(),  # type: ignore[arg-type]

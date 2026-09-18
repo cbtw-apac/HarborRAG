@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from chat_service_fixtures import fake_runtime_config
 
 from harborrag_app.workflow_control.agent import (
     AgentApplicationService,
@@ -81,7 +82,7 @@ def test_agent_service_derives_run_timeout_from_the_transport_deadline() -> None
 @pytest.mark.asyncio
 async def test_agent_service_uses_created_session_and_recalls_it_on_follow_up() -> None:
     chat = _Chat()
-    runtime = SimpleNamespace(chat=chat)
+    runtime = SimpleNamespace(chat=chat, config=fake_runtime_config())
     memory = InMemoryConversationMemory()
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
@@ -124,7 +125,7 @@ async def test_agent_service_uses_created_session_and_recalls_it_on_follow_up() 
 @pytest.mark.asyncio
 async def test_agent_service_resumes_a_running_checkpoint() -> None:
     chat = _Chat()
-    runtime = SimpleNamespace(chat=chat)
+    runtime = SimpleNamespace(chat=chat, config=fake_runtime_config())
     memory = InMemoryConversationMemory()
     runs = InMemoryAgentRunRepository()
     session_id = "session-1"
@@ -183,7 +184,7 @@ async def test_explicit_model_selection_survives_a_failed_run_and_resume() -> No
     await memory.create(identity)
     runs = InMemoryAgentRunRepository()
     service = AgentApplicationService(
-        lambda: SimpleNamespace(chat=chat),
+        lambda: SimpleNamespace(chat=chat, config=fake_runtime_config()),
         memory=memory,
         runs=runs,
     )
@@ -216,7 +217,7 @@ async def test_explicit_model_selection_survives_a_failed_run_and_resume() -> No
 @pytest.mark.asyncio
 async def test_agent_service_resume_of_unknown_run_raises_not_found() -> None:
     chat = _Chat()
-    runtime = SimpleNamespace(chat=chat)
+    runtime = SimpleNamespace(chat=chat, config=fake_runtime_config())
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         memory=InMemoryConversationMemory(),
@@ -239,7 +240,7 @@ async def test_agent_service_resume_refuses_a_second_user_of_the_same_principal(
     run id gets the not-found error the transport maps to 404 -- never the
     owner's conversation replayed into the model."""
 
-    runtime = SimpleNamespace(chat=_Chat())
+    runtime = SimpleNamespace(chat=_Chat(), config=fake_runtime_config())
     memory = InMemoryConversationMemory()
     runs = InMemoryAgentRunRepository()
     session_id, tenant_id, principal_id = "session-1", "ACME", "shared-principal"
@@ -280,7 +281,7 @@ async def test_agent_service_resume_refuses_a_second_user_of_the_same_principal(
 @pytest.mark.asyncio
 async def test_agent_service_stream_yields_events_then_result() -> None:
     chat = _Chat()
-    runtime = SimpleNamespace(chat=chat)
+    runtime = SimpleNamespace(chat=chat, config=fake_runtime_config())
     memory = InMemoryConversationMemory()
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
@@ -319,7 +320,7 @@ async def test_agent_stream_error_carries_the_type_the_transport_branches_on() -
     ``test_chat_stream_error_frame_names_a_scope_failure``; this is its agent twin.
     """
 
-    runtime = SimpleNamespace(chat=_Chat())
+    runtime = SimpleNamespace(chat=_Chat(), config=fake_runtime_config())
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         memory=InMemoryConversationMemory(),
@@ -357,7 +358,7 @@ async def test_agent_service_stream_cancels_the_background_run_on_early_close() 
                 raise
             raise AssertionError("release must never be set in this test")
 
-    runtime = SimpleNamespace(chat=_BlockingChat())
+    runtime = SimpleNamespace(chat=_BlockingChat(), config=fake_runtime_config())
     memory = InMemoryConversationMemory()
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
@@ -391,7 +392,7 @@ async def test_agent_service_accepts_a_chat_conversation_for_either_delivery_mod
     """The stored creation kind does not prevent switching execution mode."""
 
     chat = _Chat()
-    runtime = SimpleNamespace(chat=chat)
+    runtime = SimpleNamespace(chat=chat, config=fake_runtime_config())
     memory = InMemoryConversationMemory()
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]

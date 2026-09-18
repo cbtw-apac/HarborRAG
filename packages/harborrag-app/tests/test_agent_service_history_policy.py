@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from chat_service_fixtures import FakeMemoryFacade
+from chat_service_fixtures import FakeMemoryFacade, fake_runtime_config
 from test_agent_service import _Chat
 
 from harborrag_app.workflow_control.agent import AgentApplicationService, AgentExecutionOptions
@@ -61,7 +61,9 @@ async def _service(
 ) -> tuple[AgentApplicationService, InMemoryConversationMemory]:
     store = memory or InMemoryConversationMemory()
     await store.create(IDENTITY, kind="agent")
-    runtime = SimpleNamespace(chat=chat, memory=memory_facade or FakeMemoryFacade())
+    runtime = SimpleNamespace(
+        chat=chat, memory=memory_facade or FakeMemoryFacade(), config=fake_runtime_config()
+    )
     service = AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         memory=store,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from chat_service_fixtures import FakeUsageRepository
+from chat_service_fixtures import FakeUsageRepository, fake_runtime_config
 from test_agent_service import _Chat
 from test_chat_service_project_memory import FakeProjects, _project
 
@@ -23,7 +23,7 @@ def _service(
     projects: FakeProjects | None = None,
     usage: FakeUsageRepository | None = None,
 ) -> AgentApplicationService:
-    runtime = SimpleNamespace(chat=_Chat())
+    runtime = SimpleNamespace(chat=_Chat(), config=fake_runtime_config())
     return AgentApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         memory=memory,
