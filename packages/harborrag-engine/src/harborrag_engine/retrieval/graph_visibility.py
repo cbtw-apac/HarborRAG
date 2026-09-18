@@ -58,6 +58,8 @@ async def graph_access_scope(
 
     if authorizer is None:
         return None
+    if context.access.corpus_mode == "tenant_shared":
+        return GraphAccessScope(tenant_shared=True)
     document_ids, source_scope_ids = await asyncio.gather(
         authorizer.allowed_document_ids(
             str(context.tenant_id), access=context.access, limit=10_000

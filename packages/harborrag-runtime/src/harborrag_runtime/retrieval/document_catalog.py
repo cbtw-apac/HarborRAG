@@ -75,12 +75,22 @@ class DocumentCatalogReader:
             raise HarborCapabilityError("document catalog is not configured")
         # The existing permission port has a strict 10,000-document enumeration
         # budget and fails explicitly when exceeded. Only one page reads artifacts.
-        document_ids = await topology.allowed_document_ids(
-            str(request.access.tenant_id), access=request.access, limit=10_000
-        )
-        candidates = sorted(
-            item for item in document_ids if item > (request.after_document_id or "")
-        )
+        if request.access.corpus_mode == "tenant_shared":
+            candidates = list(
+                await topology.published_document_page(
+                    str(request.access.tenant_id),
+                    access=request.access,
+                    after=request.after_document_id or "",
+                    limit=request.limit + 1,
+                )
+            )
+        else:
+            document_ids = await topology.allowed_document_ids(
+                str(request.access.tenant_id), access=request.access, limit=10_000
+            )
+            candidates = sorted(
+                item for item in document_ids if item > (request.after_document_id or "")
+            )
         page = candidates[: request.limit]
         documents: list[DocumentMetadata] = []
         for document_id in page:

@@ -43,7 +43,9 @@ class SourceCatalogReader:
         )
         publication = (
             select(
+                DOCUMENTS.c.tenant_id,
                 DOCUMENTS.c.source_scope_id,
+                func.min(DOCUMENTS.c.connector_type).label("connector_type"),
                 func.count(DOCUMENTS.c.document_id).label("active_document_count"),
                 func.max(DOCUMENT_VERSIONS.c.activated_at).label("last_successful_ingestion_at"),
             )
@@ -52,10 +54,66 @@ class SourceCatalogReader:
                 DOCUMENT_VERSIONS.c.document_version_id == DOCUMENTS.c.active_document_version_id,
             )
             .where(DOCUMENTS.c.active_document_version_id.is_not(None))
-            .group_by(DOCUMENTS.c.source_scope_id)
+            .group_by(DOCUMENTS.c.tenant_id, DOCUMENTS.c.source_scope_id)
             .subquery("source_publication")
         )
         permission = PERMISSION_SNAPSHOTS.alias("source_catalog_acl")
+        shared = (
+            request.access is not None
+            and str(request.access.tenant_id) == request.tenant_id
+            and request.access.corpus_mode == "tenant_shared"
+        )
+        if shared:
+            statement = (
+                select(
+                    publication.c.source_scope_id,
+                    publication.c.connector_type,
+                    latest.c.status,
+                    latest.c.started_at,
+                    latest.c.completed_at,
+                    successful.c.last_successful_source_check_at,
+                    publication.c.last_successful_ingestion_at,
+                    publication.c.active_document_count,
+                )
+                .outerjoin(
+                    latest_sequence,
+                    latest_sequence.c.source_scope_id == publication.c.source_scope_id,
+                )
+                .outerjoin(
+                    latest,
+                    and_(
+                        latest.c.source_scope_id == latest_sequence.c.source_scope_id,
+                        latest.c.scan_sequence == latest_sequence.c.scan_sequence,
+                    ),
+                )
+                .outerjoin(
+                    successful, successful.c.source_scope_id == publication.c.source_scope_id
+                )
+                .where(publication.c.tenant_id == request.tenant_id)
+            )
+            if request.source_scope_ids:
+                statement = statement.where(
+                    publication.c.source_scope_id.in_(request.source_scope_ids)
+                )
+            if request.connector_types:
+                statement = statement.where(
+                    publication.c.connector_type.in_(request.connector_types)
+                )
+            if request.after_source_scope_id is not None:
+                statement = statement.where(
+                    publication.c.source_scope_id > request.after_source_scope_id
+                )
+            async with self._client.sessions() as session:
+                rows = (
+                    (
+                        await session.execute(
+                            statement.order_by(publication.c.source_scope_id).limit(bound)
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            return tuple(_source_from_row(row) for row in rows)
         statement = (
             select(
                 SOURCE_SCOPES.c.source_scope_id,
@@ -66,14 +124,6 @@ class SourceCatalogReader:
                 successful.c.last_successful_source_check_at,
                 publication.c.last_successful_ingestion_at,
                 publication.c.active_document_count,
-            )
-            .join(
-                permission,
-                and_(
-                    permission.c.tenant_id == SOURCE_SCOPES.c.tenant_id,
-                    permission.c.resource_kind == "source",
-                    permission.c.resource_id == SOURCE_SCOPES.c.source_scope_id,
-                ),
             )
             .outerjoin(
                 latest_sequence,
@@ -89,13 +139,23 @@ class SourceCatalogReader:
             .outerjoin(successful, successful.c.source_scope_id == SOURCE_SCOPES.c.source_scope_id)
             .outerjoin(
                 publication,
-                publication.c.source_scope_id == SOURCE_SCOPES.c.source_scope_id,
+                and_(
+                    publication.c.tenant_id == SOURCE_SCOPES.c.tenant_id,
+                    publication.c.source_scope_id == SOURCE_SCOPES.c.source_scope_id,
+                ),
             )
             .where(
                 SOURCE_SCOPES.c.tenant_id == request.tenant_id,
-                readable_snapshot(permission, request.access),
             )
         )
+        statement = statement.join(
+            permission,
+            and_(
+                permission.c.tenant_id == SOURCE_SCOPES.c.tenant_id,
+                permission.c.resource_kind == "source",
+                permission.c.resource_id == SOURCE_SCOPES.c.source_scope_id,
+            ),
+        ).where(readable_snapshot(permission, request.access))
         if request.source_scope_ids:
             statement = statement.where(
                 SOURCE_SCOPES.c.source_scope_id.in_(request.source_scope_ids)

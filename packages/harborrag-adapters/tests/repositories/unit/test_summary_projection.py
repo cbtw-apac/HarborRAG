@@ -247,6 +247,34 @@ async def test_status_runnable_reconcile_and_fenced_finish_paths(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_permission_block_waits_for_refresh_even_when_revision_is_unchanged(tmp_path):
+    async with make_control_plane(tmp_path) as control:
+        version = await prepare(control)
+        lease = await control.summaries.claim("DEFAULT")
+        assert lease is not None
+        await control.summaries.finish(
+            lease, error_code="SUMMARY_PERMISSION_SNAPSHOT_MISSING", blocked=True
+        )
+        assert await control.summaries.runnable_scopes("DEFAULT") == ()
+        assert await control.summaries.claim("DEFAULT") is None
+        now = utc_now()
+        await control.topology.set_permissions(
+            ResolvedPermissionSnapshot(
+                tenant_id="DEFAULT",
+                resource_kind="document",
+                resource_id=str(version.document_id),
+                revision="acl-1",
+                resolved_at=now,
+                expires_at=now + timedelta(hours=2),
+                known=True,
+                processing_allowed=True,
+                public=True,
+            )
+        )
+        assert (await control.summaries.runnable_scopes("DEFAULT"))[0][0] == ("scope-engineering")
+
+
+@pytest.mark.asyncio
 async def test_prohibited_tenant_and_removed_policy_do_not_dispatch(tmp_path):
     async with make_control_plane(tmp_path) as control:
         await prepare(control)

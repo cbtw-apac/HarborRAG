@@ -4,7 +4,7 @@ import asyncio
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
 from harborrag_core.invariants import HarborInvariantError
@@ -42,8 +42,12 @@ class McpServer(BaseMcpServer):
     configuration: McpConfigurationStore | None = None
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
     invoker: ToolInvoker | None = None
+    corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
+    shared_tenant_id: str | None = None
 
     def __post_init__(self) -> None:
+        if self.corpus_mode == "tenant_shared" and not self.shared_tenant_id:
+            raise ValueError("shared corpus mode requires an explicit tenant")
         if (
             self.invoker is not None
             and self.tools is not None
@@ -76,12 +80,13 @@ class McpServer(BaseMcpServer):
             if self.configuration.resolve(tool.spec.name, tenant_id).enabled
         ]
 
-    async def call_tool(
+    async def call_tool(  # noqa: C901 - audit and policy checks share one boundary
         self,
         name: str,
         arguments: dict[str, object] | None = None,
         *,
         principal_id: str = "in-process",
+        context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
         payload = dict(arguments or {})
         tenant_value = payload.get("tenant_id")
@@ -92,6 +97,11 @@ class McpServer(BaseMcpServer):
             payload["tenant_id"] = tenant_value.strip()
         audited_tenant = payload.get("tenant_id")
         tenant_id = audited_tenant if isinstance(audited_tenant, str) else None
+        if context is not None:
+            principal_id = context.access.principal_id
+            if tenant_id is not None and tenant_id != str(context.access.tenant_id):
+                raise PermissionError("reader tool tenant does not match authenticated context")
+            tenant_id = str(context.access.tenant_id)
         # Off the event loop: each durable audit event opens, writes and
         # fsyncs under a lock, twice per call, and this dispatch runs inline in
         # the transport's loop.
@@ -118,13 +128,17 @@ class McpServer(BaseMcpServer):
                 defaults = configured.defaults
                 spec = self.configuration.tool_spec(spec, tenant_id)
                 policy = self.configuration.policy()
-            context = ToolInvocationContext(
-                access=AccessContext(
-                    principal_id=principal_id,
-                    tenant_id=TenantId(tenant_id or "local"),
-                ),
-                invocation_id=invocation_id,
-            )
+            if context is None:
+                context = ToolInvocationContext(
+                    access=AccessContext(
+                        principal_id=principal_id,
+                        tenant_id=TenantId(tenant_id or "local"),
+                        corpus_mode=(
+                            self.corpus_mode if tenant_id == self.shared_tenant_id else "source_acl"
+                        ),
+                    ),
+                )
+            context = ToolInvocationContext(access=context.access, invocation_id=invocation_id)
             invoker = self.invoker
             if invoker is None:
                 raise HarborInvariantError("MCP tool invoker is not configured")

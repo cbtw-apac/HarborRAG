@@ -56,6 +56,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     )
+    corpus_access_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
+    corpus_shared_tenant_id: str | None = None
+    summary_processing_allowed: bool = False
+    summary_processing_revision: str = Field(default="v1", min_length=1, max_length=128)
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
     control_db_pool_size: int = Field(default=5, ge=1, le=100)
     control_db_max_overflow: int = Field(default=10, ge=0, le=200)
@@ -176,6 +180,19 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
+        if self.corpus_access_mode == "tenant_shared" and not self.corpus_shared_tenant_id:
+            raise ValueError(
+                "HARBORRAG_CORPUS_SHARED_TENANT_ID is required for tenant_shared access"
+            )
+        if self.summary_processing_allowed and self.corpus_access_mode != "tenant_shared":
+            raise ValueError(
+                "shared summary processing requires HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared"
+            )
+        if (
+            self.summary_processing_allowed
+            and self.corpus_shared_tenant_id != self.ingestion_tenant_id
+        ):
+            raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")
         if self.env == "prod" and is_sqlite_control_db:

@@ -58,6 +58,10 @@ class ObjectStorePort(StorageLifecyclePort, Protocol):
         """Provision logical namespaces; implicit-namespace backends may do nothing."""
         ...
 
+    async def validate_buckets(self, buckets: tuple[str, ...]) -> None:
+        """Check read prerequisites without provisioning storage."""
+        ...
+
     async def put(
         self, request: PutObjectRequest, *, context: StorageOperationContext
     ) -> ObjectReference: ...

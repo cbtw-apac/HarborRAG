@@ -2283,6 +2283,7 @@ dependencies = [
     { name = "harborrag-runtime" },
     { name = "jsonschema" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
@@ -2300,6 +2301,7 @@ requires-dist = [
     { name = "harborrag-runtime", extras = ["reader"], marker = "extra == 'reader'", editable = "packages/harborrag-runtime" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "pydantic", specifier = ">=2.12,<3" },
+    { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
 ]
 provides-extras = ["mcp", "reader"]

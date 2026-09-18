@@ -339,8 +339,8 @@ manager. The checked-in Compose worker explicitly loads `env/.env.connector`,
 `env/.env.parser`, and `env/.env.models`; the API and MCP launchers load the files listed
 in the table above.
 
-**Overriding paths.** Both scripts read the same environment-file variables, so you can
-keep secrets outside the checkout:
+**Overriding paths.** The checkout launchers accept environment-file path
+overrides, so you can keep secrets outside the checkout:
 
 ```bash
 DATABASE_ENV_FILE=/etc/harborrag/database.env \
@@ -349,8 +349,9 @@ MODEL_ENV_FILE=/etc/harborrag/models.env \
 ```
 
 `dev.sh` accepts `DATABASE_ENV_FILE`, `TEMPORAL_ENV_FILE`, `CONNECTOR_ENV_FILE`,
-`PARSER_ENV_FILE`, `MODEL_ENV_FILE`, `API_ENV_FILE`, and `MCP_ENV_FILE`. `mcp.sh` accepts
-`DATABASE_ENV_FILE`, `MODEL_ENV_FILE`, `API_ENV_FILE`, and `MCP_ENV_FILE`.
+`PARSER_ENV_FILE`, `MODEL_ENV_FILE`, `API_ENV_FILE`, and `MCP_ENV_FILE`. The MCP checkout
+wrapper accepts `DATABASE_ENV_FILE`, `MODEL_ENV_FILE`, and `MCP_ENV_FILE`; the installed
+`harborrag-mcp` command accepts `--env-file` and direct `HARBORRAG_*` settings.
 
 **Doing it by hand.** `bootstrap` is `cp` plus `chmod` plus token generation. The manual
 equivalent:

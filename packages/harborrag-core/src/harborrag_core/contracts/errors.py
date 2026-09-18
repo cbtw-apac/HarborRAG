@@ -68,6 +68,10 @@ class HarborUnavailableError(HarborError):
     """A required backing service is not configured or reachable."""
 
 
+class HarborAuthorizationUnavailableError(HarborUnavailableError):
+    """The server could not verify the current reader authorization decision."""
+
+
 class HarborValidationError(HarborError):
     """Request payload failed domain validation."""
 

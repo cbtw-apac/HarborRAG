@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from harborrag_core.contracts.tools import ToolSpec
+from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
+from harborrag_core.contracts.tools import ToolInvocationContext, ToolSpec
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.security import AccessContext
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 from harborrag_mcp_server.server.http_auth import authorize_claimed_tenant
@@ -142,7 +146,17 @@ def _runtime_lifespan(
             await runtime.start()
             yield
         finally:
-            await runtime.aclose()
+            close_task = asyncio.create_task(runtime.aclose())
+            try:
+                await asyncio.shield(close_task)
+            except asyncio.CancelledError:
+                # Ctrl-C cancels the server task while aiobotocore is still
+                # closing its session; let the owner finish before exiting.
+                await close_task
+                raise
+            # aiobotocore closes its aiohttp session during aclose(), while the
+            # underlying transport releases on a later event-loop turn.
+            await asyncio.sleep(0.25)
 
     return lifespan
 
@@ -153,7 +167,9 @@ def _tool_handler(
 ) -> Any:
     async def invoke(**arguments: object) -> dict[str, object]:
         try:
-            principal_id = _request_principal_id(arguments.get("tenant_id"))
+            context = _request_context(
+                arguments.get("tenant_id"), server.corpus_mode, server.shared_tenant_id
+            )
         except PermissionError as exc:
             # Resolving the principal as a call argument put it *before*
             # ``call_tool``, so a token probing another tenant or holding the
@@ -169,11 +185,14 @@ def _tool_handler(
                 error_type=type(exc).__name__,
             )
             raise
-        result = await server.call_tool(
-            tool_name,
-            arguments,
-            principal_id=principal_id,
-        )
+        try:
+            result = await server.call_tool(tool_name, arguments, context=context)
+        except HarborAuthorizationUnavailableError as exc:
+            from fastmcp.exceptions import ToolError
+
+            raise ToolError(
+                "AUTHORIZATION_UNAVAILABLE: The server could not verify data access. Retry later."
+            ) from exc
         if tool_reported_error(result):
             from fastmcp.exceptions import ToolError
 
@@ -224,6 +243,38 @@ def _request_principal_id(tenant_id: object | None = None) -> str:
     if token.client_id:
         return token.client_id
     return "authenticated-unknown"
+
+
+def _request_context(
+    tenant_id: object | None,
+    corpus_mode: Literal["source_acl", "tenant_shared"],
+    shared_tenant_id: str | None,
+) -> ToolInvocationContext:
+    from fastmcp.server.dependencies import get_access_token
+
+    token = get_access_token()
+    principal = _request_principal_id(tenant_id)
+    if token is None:
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise PermissionError("local tool calls require an explicit tenant")
+        bound_tenant = tenant_id.strip()
+    else:
+        from harborrag_mcp_server.server.http_auth import allowed_tenants
+
+        grants = allowed_tenants(token.claims or {})
+        if len(grants) == 1 and "*" not in grants:
+            bound_tenant = next(iter(grants))
+        elif isinstance(tenant_id, str) and tenant_id.strip():
+            bound_tenant = tenant_id.strip()
+        else:
+            raise PermissionError("token must bind one tenant or the call must specify a tenant")
+    return ToolInvocationContext(
+        access=AccessContext(
+            principal_id=principal,
+            tenant_id=TenantId(bound_tenant),
+            corpus_mode=corpus_mode if bound_tenant == shared_tenant_id else "source_acl",
+        )
+    )
 
 
 __all__ = [

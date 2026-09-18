@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, cast
 
 from harborrag_core.contracts.tools import ToolInvocationContext, ToolSpec
 from harborrag_core.schemas.ids import TenantId
@@ -26,6 +26,7 @@ class ReaderAgentToolProvider:
 
     invoker: ToolInvoker
     tenant_id: str | None = None
+    corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
     budget: ToolBudget = field(
         default_factory=lambda: ToolBudget(label="Agent", detail_in_errors=True)
     )
@@ -90,7 +91,11 @@ class ReaderAgentToolProvider:
         if self.tenant_id is not None and tenant != self.tenant_id:
             raise PermissionError("reader tool tenant does not match authenticated context")
         context = ToolInvocationContext(
-            AccessContext(principal_id=principal_id, tenant_id=TenantId(self.tenant_id or tenant))
+            AccessContext(
+                principal_id=principal_id,
+                tenant_id=TenantId(self.tenant_id or tenant),
+                corpus_mode=self.corpus_mode,
+            )
         )
         return await self.invoker.invoke(name, values, context=context, budget=self.budget)
 

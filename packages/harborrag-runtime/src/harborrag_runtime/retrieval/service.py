@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from time import perf_counter
 from typing import TYPE_CHECKING
@@ -352,10 +351,12 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     async def aclose(self) -> None:
         if self._closed:
             return
-        results = await asyncio.gather(
-            *(close() for close in reversed(self._close_resources)),
-            return_exceptions=True,
-        )
+        results: list[BaseException] = []
+        for close in reversed(self._close_resources):
+            try:
+                await close()
+            except BaseException as error:
+                results.append(error)
         errors = [result for result in results if isinstance(result, Exception)]
         fatal = [
             result

@@ -12,6 +12,7 @@ from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClie
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.security.context import AccessContext
+from harborrag_core.summaries import SUMMARY_PERMISSION_BLOCKERS
 from harborrag_core.topology.permissions import (
     PermissionCoverageCounts,
     PermissionCoverageReport,
@@ -21,6 +22,7 @@ from harborrag_core.topology.permissions import (
 
 from ..schema import DOCUMENTS
 from ..summary_intent import invalidate_summary_scope, lock_summary_tenant
+from ..summary_schema import SUMMARY_SCOPES
 from .authorization import authorized_documents, readable_snapshot
 from .configuration import lock_indexing_config
 from .policy_schema import PERMISSION_GRANTS, PERMISSION_HISTORY, PERMISSION_SNAPSHOTS
@@ -125,6 +127,30 @@ async def permission_dependencies(
 class TopologyPermissionOperations:
     _client: SQLAlchemyDBClient
 
+    async def published_document_page(
+        self, tenant_id: str, *, access: AccessContext, after: str, limit: int
+    ) -> tuple[str, ...]:
+        if access.corpus_mode != "tenant_shared" or str(access.tenant_id) != tenant_id:
+            raise PermissionError("tenant-wide publication requires a shared reader policy")
+        async with self._client.sessions() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(DOCUMENTS.c.document_id)
+                        .where(
+                            DOCUMENTS.c.tenant_id == tenant_id,
+                            DOCUMENTS.c.active_document_version_id.is_not(None),
+                            DOCUMENTS.c.document_id > after,
+                        )
+                        .order_by(DOCUMENTS.c.document_id)
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return tuple(str(value) for value in rows)
+
     async def set_permissions(self, snapshot: ResolvedPermissionSnapshot) -> None:
         async with topology_transaction(self._client) as session:
             await lock_summary_tenant(session, snapshot.tenant_id)
@@ -196,7 +222,12 @@ class TopologyPermissionOperations:
                 )
             )
             principals = set(snapshot.allowed_principal_ids) | set(snapshot.denied_principal_ids)
-            if previous is None or previous["revision"] != snapshot.revision:
+            changed_revision = previous is None or previous["revision"] != snapshot.revision
+            changed_validity = previous is not None and (
+                previous["resolved_at"] != snapshot.resolved_at
+                or previous["expires_at"] != snapshot.expires_at
+            )
+            if changed_revision or changed_validity:
                 scope_id = (
                     snapshot.resource_id
                     if snapshot.resource_kind == "source"
@@ -210,7 +241,18 @@ class TopologyPermissionOperations:
                     ).scalar_one_or_none()
                 )
                 if scope_id is not None:
-                    await invalidate_summary_scope(session, snapshot.tenant_id, scope_id)
+                    blocked_permission = (
+                        await session.execute(
+                            select(SUMMARY_SCOPES.c.execution).where(
+                                SUMMARY_SCOPES.c.tenant_id == snapshot.tenant_id,
+                                SUMMARY_SCOPES.c.source_scope_id == scope_id,
+                                SUMMARY_SCOPES.c.execution == "blocked",
+                                SUMMARY_SCOPES.c.error_code.in_(SUMMARY_PERMISSION_BLOCKERS),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if changed_revision or blocked_permission is not None:
+                        await invalidate_summary_scope(session, snapshot.tenant_id, scope_id)
             if principals:
                 await session.execute(
                     insert(PERMISSION_GRANTS),
@@ -302,19 +344,33 @@ class TopologyPermissionOperations:
 
         if access is None:
             return ()
+        if str(access.tenant_id) != tenant_id:
+            return ()
         bound = max(1, min(limit, 10000))
         source = PERMISSION_SNAPSHOTS.alias("readable_source_acl")
         async with self._client.sessions() as session:
             values = (
                 (
                     await session.execute(
-                        select(source.c.resource_id)
-                        .where(
-                            source.c.tenant_id == tenant_id,
-                            source.c.resource_kind == "source",
-                            readable_snapshot(source, access),
+                        (
+                            select(DOCUMENTS.c.source_scope_id)
+                            .where(
+                                DOCUMENTS.c.tenant_id == tenant_id,
+                                DOCUMENTS.c.active_document_version_id.is_not(None),
+                            )
+                            .distinct()
+                            if access.corpus_mode == "tenant_shared"
+                            else select(source.c.resource_id).where(
+                                source.c.tenant_id == tenant_id,
+                                source.c.resource_kind == "source",
+                                readable_snapshot(source, access),
+                            )
                         )
-                        .order_by(source.c.resource_id)
+                        .order_by(
+                            "source_scope_id"
+                            if access.corpus_mode == "tenant_shared"
+                            else source.c.resource_id
+                        )
                         .limit(bound + 1)
                     )
                 )
@@ -355,16 +411,28 @@ class TopologyPermissionOperations:
 
         if not source_scope_ids or access is None:
             return set()
+        if str(access.tenant_id) != tenant_id:
+            return set()
         source = PERMISSION_SNAPSHOTS.alias("requested_source_acl")
         async with self._client.sessions() as session:
             rows = (
                 (
                     await session.execute(
-                        select(source.c.resource_id).where(
-                            source.c.tenant_id == tenant_id,
-                            source.c.resource_kind == "source",
-                            source.c.resource_id.in_(source_scope_ids),
-                            readable_snapshot(source, access),
+                        (
+                            select(DOCUMENTS.c.source_scope_id)
+                            .where(
+                                DOCUMENTS.c.tenant_id == tenant_id,
+                                DOCUMENTS.c.active_document_version_id.is_not(None),
+                                DOCUMENTS.c.source_scope_id.in_(source_scope_ids),
+                            )
+                            .distinct()
+                            if access.corpus_mode == "tenant_shared"
+                            else select(source.c.resource_id).where(
+                                source.c.tenant_id == tenant_id,
+                                source.c.resource_kind == "source",
+                                source.c.resource_id.in_(source_scope_ids),
+                                readable_snapshot(source, access),
+                            )
                         )
                     )
                 )

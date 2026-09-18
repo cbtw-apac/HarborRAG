@@ -54,7 +54,7 @@ executor, and it does not provision object-store buckets:
 uv sync --package harborrag-mcp-server --extra reader
 ```
 
-Run the standard stdio transport:
+Run the standard stdio transport from a checkout:
 
 ```bash
 scripts/deployment/mcp.sh
@@ -72,8 +72,11 @@ database/model environment files, and connectivity to the configured data
 services. The image entrypoint is `python -m harborrag_mcp_server`, so MCP
 arguments such as `--check` or `--transport http` are forwarded directly.
 
-The launcher loads the protected database, model, API, and MCP environment files,
-constructs the reader application, and communicates over stdin/stdout.
+`harborrag-mcp` is the canonical installed command. It accepts `--env-file`
+for deployment settings; the checkout script only selects Python and passes
+`--local-stack-root` to translate local database/model/MCP env files. Neither
+path loads API settings or executes env files as shell code. The command
+constructs the reader application and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
 MCP handshake and print the thirteen advertised tool names without connecting to
