@@ -30,9 +30,9 @@ from ..contracts import (
 )
 from ..execution import IngestionExecutor, build_ingestion_executor
 from ..execution.contracts import DurableIngestionExecutor
+from ..memory import MemoryFacade
 from .configuration import HarborRAGConfig
 from .facades import GraphFacade, IngestionFacade, KnowledgeFacade, RetrievalFacade
-from .memory_facade import MemoryFacade
 
 if TYPE_CHECKING:
     from ..config.settings import RuntimeSettings

@@ -174,13 +174,23 @@ async def _tenant_readable(
     Deriving this from the batch made the answer depend on batch composition: a
     batch holding only tenant-scoped nodes produced empty allowlists and denied
     them to a fully authorized reader, while a single readable document
-    alongside them unlocked every one. ``limit=1`` because this asks only
-    whether any grant exists.
+    alongside them unlocked every one.
+
+    ``limit`` on these ports is an enumeration *budget*, not a truncation: a
+    reader with more readable resources than the budget gets a
+    ``HarborConflictError`` rather than a short list. Asking with ``limit=1``
+    therefore failed every reader holding two grants. Enumerate under the same
+    default budget :func:`graph_access_scope` already spends on this request,
+    so this probe can add no failure the request would not already have had,
+    and mirror its ``tenant_shared`` short-circuit: in that mode the whole
+    tenant is readable by construction and no allowlist is consulted at all.
     """
 
+    if context.access.corpus_mode == "tenant_shared":
+        return True
     documents, sources = await asyncio.gather(
-        authorizer.allowed_document_ids(str(context.tenant_id), access=context.access, limit=1),
-        authorizer.allowed_source_scope_ids(str(context.tenant_id), access=context.access, limit=1),
+        authorizer.allowed_document_ids(str(context.tenant_id), access=context.access),
+        authorizer.allowed_source_scope_ids(str(context.tenant_id), access=context.access),
     )
     return bool(documents or sources)
 

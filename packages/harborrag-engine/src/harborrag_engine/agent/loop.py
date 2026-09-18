@@ -280,6 +280,17 @@ class AgentLoopRunner:
                 context, state, response, rejected, "tool call timed out"
             )
             return StepOutcome(calls_made=1, stop_reason=AgentStopReason.TIMEOUT)
+        except asyncio.CancelledError:
+            # ``CancelledError`` is a ``BaseException``, so neither handler
+            # around it catches one, and the shielded checkpoint in ``execute``
+            # then persisted a transcript ending on an assistant message whose
+            # tool calls had no replies. A resume -- which a CANCELLED run is
+            # now eligible for -- replayed that dangling ``tool_call_id`` into a
+            # provider rejection no retry could clear. Stage the replies
+            # synchronously: the checkpoint reads ``state.conversation``, and an
+            # ``await`` here could be cancelled again before the appends landed.
+            self._stage_turn_replies(state, response, rejected, "tool call cancelled")
+            raise
         except Exception:
             await self._record_turn_replies(context, state, response, rejected, "tool call failed")
             raise
@@ -317,20 +328,38 @@ class AgentLoopRunner:
         any later resume still see a well-formed conversation.
         """
 
+        for execution in self._stage_turn_replies(state, response, replies, fallback_error):
+            await self._announce_tool_result(context, state, execution)
+
+    @staticmethod
+    def _stage_turn_replies(
+        state: LoopState,
+        response: HarborChatResponse,
+        replies: dict[str, tuple[HarborChatMessage, AgentToolExecution]],
+        fallback_error: str,
+    ) -> tuple[AgentToolExecution, ...]:
+        """Append every reply to the run state without awaiting anything.
+
+        Staging is deliberately synchronous so a cancellation arriving mid-turn
+        cannot leave the conversation holding some of a turn's replies and not
+        the rest; the events that follow are advisory and may be lost.
+        """
+
+        staged: list[AgentToolExecution] = []
         for message, execution in turn_replies(
             response.tool_calls, step=state.step, replies=replies, fallback_error=fallback_error
         ):
-            await self._record_tool_result(context, state, message, execution)
+            state.conversation.append(message)
+            state.executions.append(execution)
+            staged.append(execution)
+        return tuple(staged)
 
-    async def _record_tool_result(
+    async def _announce_tool_result(
         self,
         context: RunContext,
         state: LoopState,
-        message: HarborChatMessage,
         execution: AgentToolExecution,
     ) -> None:
-        state.conversation.append(message)
-        state.executions.append(execution)
         await emit(
             context.events,
             AgentEvent(

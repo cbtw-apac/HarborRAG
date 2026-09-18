@@ -405,7 +405,9 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
     )
     monkeypatch.setattr(dependencies, "get_access_token", lambda: intruder)
     server = McpServer(audit=McpAuditLog())
-    handler = _tool_handler(server, "describe_graph")
+    # A tenant-scoped tool: ``describe_graph`` declares no tenant and is never
+    # bound to one, so it cannot express this refusal.
+    handler = _tool_handler(server, "list_sources")
 
     with pytest.raises(PermissionError):
         await handler(tenant_id="someone-else")
@@ -418,6 +420,61 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
     assert entries[-1]["error_type"] == "PermissionError"
     assert entries[-1]["outcome"] == "error"
     assert all(entry["principal_id"] == "reader-1" for entry in entries)
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_needs_no_tenant_on_the_default_transports(monkeypatch) -> None:
+    """The one tool that declares no tenant must not be refused for lacking one.
+
+    ``describe_graph`` is advertised as the call to make first, with no
+    arguments, and its schema forbids a ``tenant_id`` -- so a client could not
+    supply one even to work around a demand for it. Requiring a bound tenant
+    refused it outright on stdio (no token) and under the wildcard grant the
+    local HTTP transport mints, leaving it reachable only from an API key
+    carrying exactly one concrete tenant.
+    """
+
+    from types import SimpleNamespace
+
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.server import _tool_handler
+
+    handler = _tool_handler(McpServer(audit=McpAuditLog()), "describe_graph")
+
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: None)
+    assert (await handler())["versions"]
+
+    wildcard = SimpleNamespace(
+        claims={"sub": "reader-1", "role": "reader", "tenants": ["*"]}, client_id="client"
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: wildcard)
+    assert (await handler())["versions"]
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_free_tool_still_refuses_a_token_without_a_read_role(monkeypatch) -> None:
+    """Skipping the tenant binding must not skip authorizing the principal."""
+
+    from types import SimpleNamespace
+
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.server import _tool_handler
+
+    writer = SimpleNamespace(
+        claims={"sub": "writer-1", "role": "writer", "tenants": ["*"]}, client_id="client"
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: writer)
+    server = McpServer(audit=McpAuditLog())
+    handler = _tool_handler(server, "describe_graph")
+
+    with pytest.raises(PermissionError):
+        await handler()
+
+    assert server.audit.entries[-1]["error_type"] == "PermissionError"
 
 
 @pytest.mark.asyncio

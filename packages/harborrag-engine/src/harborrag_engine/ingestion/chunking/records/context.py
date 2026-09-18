@@ -9,6 +9,7 @@ from harborrag_core.chunking import (
 )
 from harborrag_core.schemas.ids import ChunkId
 
+from ..anchors import section_anchors
 from ..identity import ChunkIdentity, ChunkIdentityBuilder
 from ..schemas import ChunkCandidate, ChunkingRequest
 
@@ -28,7 +29,7 @@ class ChunkContextBuilder:
         next_: ChunkIdentity | None,
     ) -> ChunkHierarchy:
         parent_path = candidate.structural_path[:-1]
-        section_anchors = self._section_anchors(candidate)
+        anchors = section_anchors(candidate)
         return ChunkHierarchy(
             document_title=request.document.title.strip() or None,
             section_path=candidate.structural_path,
@@ -37,7 +38,7 @@ class ChunkContextBuilder:
                 self._identity.section_id(
                     document_id=request.document.id,
                     section_path=parent_path,
-                    stable_source_anchors=section_anchors[:-1],
+                    stable_source_anchors=anchors[:-1],
                 )
                 if parent_path
                 else None
@@ -133,7 +134,7 @@ class ChunkContextBuilder:
         candidate: ChunkCandidate,
     ) -> tuple[str, ...]:
         section_path = candidate.structural_path
-        anchors = self._section_anchors(candidate)
+        anchors = section_anchors(candidate)
         return tuple(
             self._identity.section_id(
                 document_id=document_id,
@@ -142,15 +143,6 @@ class ChunkContextBuilder:
             )
             for depth in range(1, len(section_path))
         )
-
-    @staticmethod
-    def _section_anchors(candidate: ChunkCandidate) -> tuple[str, ...]:
-        values = candidate.metadata.get("heading_element_ids")
-        if not isinstance(values, (list, tuple)):
-            return ()
-        anchors = tuple(str(value).strip() for value in values)
-        # Connector-supplied tab paths can add labels without source heading IDs.
-        return anchors if len(anchors) == len(candidate.structural_path) and all(anchors) else ()
 
     @staticmethod
     def parent_title(metadata: Mapping[str, object]) -> str | None:

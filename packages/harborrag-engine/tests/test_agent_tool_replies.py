@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -82,6 +83,42 @@ async def test_tool_phase_exception_replies_to_calls_before_failing_the_run() ->
     assert persisted.failure_retryable is False
     _assert_no_dangling_tool_calls(persisted.messages)
     assert json.loads(persisted.messages[-1].content) == {"error": "tool call failed", "ok": False}
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_run_mid_tool_call_leaves_no_dangling_tool_call() -> None:
+    """A CANCELLED checkpoint has to stay resumable, so it may dangle nothing.
+
+    ``CancelledError`` is a ``BaseException``: it matched neither the timeout
+    handler nor the broad one, so the shielded cancellation checkpoint saved an
+    assistant message whose tool calls had no replies. Resuming that run
+    replayed a ``tool_call_id`` the provider rejects for good.
+    """
+
+    entered = asyncio.Event()
+
+    class BlockingTools(Tools):
+        async def call_tool(self, name, arguments=None, *, principal_id="in-process"):
+            entered.set()
+            await asyncio.Event().wait()
+
+    chat = Chat([many_tool_calls_response(3)])
+    runs = Runs()
+    service = AgentService(chat, BlockingTools(), runs=runs)
+
+    task = asyncio.create_task(service.run([HarborChatMessage.user("question")], _OPTIONS))
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    persisted = next(iter(runs.checkpoints.values()))
+    assert persisted.status is AgentRunStatus.CANCELLED
+    _assert_no_dangling_tool_calls(persisted.messages)
+    assert json.loads(persisted.messages[-1].content) == {
+        "error": "tool call cancelled",
+        "ok": False,
+    }
 
 
 @pytest.mark.asyncio

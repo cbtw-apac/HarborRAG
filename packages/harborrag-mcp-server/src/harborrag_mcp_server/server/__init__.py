@@ -165,11 +165,27 @@ def _tool_handler(
     server: McpServer,
     tool_name: str,
 ) -> Any:
+    tenant_scoped = _declares_tenant(server, tool_name)
+
     async def invoke(**arguments: object) -> dict[str, object]:
+        context: ToolInvocationContext | None = None
+        principal = "in-process"
         try:
-            context = _request_context(
-                arguments.get("tenant_id"), server.corpus_mode, server.shared_tenant_id
-            )
+            if tenant_scoped:
+                context = _request_context(
+                    arguments.get("tenant_id"), server.corpus_mode, server.shared_tenant_id
+                )
+                principal = context.access.principal_id
+            else:
+                # ``describe_graph`` returns the static graph contract and
+                # declares no ``tenant_id`` (its schema forbids one, so a client
+                # cannot supply it either). Demanding a bound tenant refused it
+                # on stdio, which has no token, and under a wildcard grant --
+                # the two default transports -- for a call that reads no
+                # tenant's data. Authorize the principal, leave the tenant
+                # unbound, and let ``call_tool`` resolve the local context, as
+                # the agent transport already does for the same schema.
+                principal = _request_principal_id()
         except PermissionError as exc:
             # Resolving the principal as a call argument put it *before*
             # ``call_tool``, so a token probing another tenant or holding the
@@ -186,7 +202,9 @@ def _tool_handler(
             )
             raise
         try:
-            result = await server.call_tool(tool_name, arguments, context=context)
+            result = await server.call_tool(
+                tool_name, arguments, principal_id=principal, context=context
+            )
         except HarborAuthorizationUnavailableError as exc:
             from fastmcp.exceptions import ToolError
 
@@ -202,6 +220,20 @@ def _tool_handler(
 
     invoke.__name__ = tool_name
     return invoke
+
+
+def _declares_tenant(server: McpServer, tool_name: str) -> bool:
+    """Whether ``tool_name`` binds to a tenant, read from its own input schema.
+
+    Fail closed: a tool whose spec cannot be resolved is treated as scoped, so
+    a lookup miss can only ever refuse a call, never widen one.
+    """
+
+    spec = next((item for item in server.list_tools() if item.name == tool_name), None)
+    if spec is None:
+        return True
+    properties = spec.input_schema.get("properties")
+    return not isinstance(properties, dict) or "tenant_id" in properties
 
 
 def _token_subject() -> str:
