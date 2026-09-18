@@ -138,16 +138,16 @@ class SummaryProjectionService:
             raise
         except Exception as error:
             blocked, code = _summary_failure(error)
-            logger.warning(
-                "Summary projection attempt failed",
-                exc_info=True,
-                extra={
-                    "tenant_id": lease.tenant_id,
-                    "source_scope_id": lease.source_scope_id,
-                    "error_code": code,
-                    "blocked": blocked,
-                },
-            )
+            details = {
+                "tenant_id": lease.tenant_id,
+                "source_scope_id": lease.source_scope_id,
+                "error_code": code,
+                "blocked": blocked,
+            }
+            if blocked:
+                logger.info("Summary projection blocked", extra=details)
+            else:
+                logger.warning("Summary projection attempt failed", exc_info=True, extra=details)
             await self.repository.finish(lease, error_code=code[:128], blocked=blocked)
             return "blocked" if blocked else "failed"
 
@@ -299,7 +299,11 @@ def _summary_failure(error: BaseException) -> tuple[bool, str]:
     failures = tuple(cause for cause in leaves if not isinstance(cause, blocked_types))
     cause = failures[0] if failures else leaves[0]
     blocked = not failures
-    code = str(cause) if isinstance(cause, SummaryBudgetDeferred) else type(cause).__name__
+    code = (
+        str(cause)
+        if isinstance(cause, (SummaryBudgetDeferred, HarborConflictError))
+        else type(cause).__name__
+    )
     return blocked, code
 
 

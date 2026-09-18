@@ -5,6 +5,7 @@ import inspect
 from collections.abc import Mapping
 from typing import Any
 
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
 try:
@@ -30,7 +31,7 @@ class FalkorDBClient(AsyncLifecycle):
         operation_timeout_seconds: float,
     ) -> None:
         if FalkorDB is None:
-            raise ImportError("FalkorDB is not installed")
+            raise MissingOptionalDependencyError("FalkorDB")
         self._connection = {
             "host": host,
             "port": port,

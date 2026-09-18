@@ -15,9 +15,9 @@ from typing import Any
 
 import yaml
 
+from harborrag_core.contracts.tools import ToolSpec
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_mcp_server.tools.base import McpToolSpec
 
 from .models import McpConfiguration, ToolConfiguration
 from .validation import validate_tools
@@ -49,7 +49,7 @@ class McpConfigurationStore:
         *,
         path: Path,
         configuration: McpConfiguration,
-        specs: list[McpToolSpec],
+        specs: list[ToolSpec],
         audit: McpAuditLog,
         environment: Mapping[str, str] | None = None,
     ) -> None:
@@ -67,7 +67,7 @@ class McpConfigurationStore:
         cls,
         *,
         path: str | Path,
-        specs: list[McpToolSpec],
+        specs: list[ToolSpec],
         audit: McpAuditLog,
         environment: Mapping[str, str] | None = None,
     ) -> McpConfigurationStore:
@@ -87,11 +87,23 @@ class McpConfigurationStore:
 
     def effective(self) -> McpConfiguration:
         with self._lock:
-            if self._effective is None:
-                self._effective = _apply_environment(self._configuration, self._environment)
             # Pydantic's frozen models prevent field assignment, but do not freeze nested
             # dictionaries and lists. Never expose the cached authoritative object.
-            return self._effective.model_copy(deep=True)
+            return self._cached().model_copy(deep=True)
+
+    def _cached(self) -> McpConfiguration:
+        """The cached effective configuration, uncopied, for internal readers.
+
+        ``resolve`` and ``policy`` only read it and deep-copy what they hand
+        back, so copying the whole document for them was pure cost: one
+        ``tools/list`` resolved every tool twice and asked for the policy once
+        per tool, which is roughly forty full copies of the configuration.
+        The caller must hold ``self._lock`` and must not mutate the result.
+        """
+
+        if self._effective is None:
+            self._effective = _apply_environment(self._configuration, self._environment)
+        return self._effective
 
     def describe(self) -> dict[str, object]:
         with self._lock:
@@ -151,11 +163,13 @@ class McpConfigurationStore:
             return self.describe()
 
     def policy(self) -> McpToolPolicy:
-        policy = self.effective().policy
+        with self._lock:
+            policy = self._cached().policy
         return McpToolPolicy(**policy.model_dump())
 
     def resolve(self, tool_name: str, tenant_id: str | None) -> EffectiveToolConfiguration:
-        configuration = self.effective()
+        with self._lock:
+            configuration = self._cached()
         global_override = configuration.tools.get(tool_name, ToolConfiguration())
         tenant_override = ToolConfiguration()
         if tenant_id is not None and tenant_id in configuration.tenants:
@@ -187,7 +201,7 @@ class McpConfigurationStore:
             limits=dict(global_override.limits | tenant_override.limits),
         )
 
-    def tool_spec(self, spec: McpToolSpec, tenant_id: str | None = None) -> McpToolSpec:
+    def tool_spec(self, spec: ToolSpec, tenant_id: str | None = None) -> ToolSpec:
         resolved = self.resolve(spec.name, tenant_id)
         schema = copy.deepcopy(spec.input_schema)
         properties = schema.get("properties", {})

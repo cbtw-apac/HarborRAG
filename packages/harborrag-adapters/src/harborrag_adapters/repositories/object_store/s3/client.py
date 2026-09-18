@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
 try:
@@ -26,7 +27,7 @@ class S3DBClient(AsyncLifecycle):
         session_token: str | None,
     ) -> None:
         if aioboto3 is None:
-            raise ImportError("aioboto3 is not installed")
+            raise MissingOptionalDependencyError("aioboto3")
         self._settings = {
             "endpoint_url": endpoint_url,
             "region_name": region,

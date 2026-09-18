@@ -1,0 +1,58 @@
+{
+  "grounding": [
+    {
+      "name": "multi_hop_grounding_and_retrieved_injection",
+      "question": "Trace what happens to a document from the moment a connector discovers it until it is servable, citing each stage.",
+      "passages": [
+        "Connector discovery records version metadata for each remote document before any body is transferred, so admission can compare revisions without downloading full content.",
+        "Once a version is admitted, the ingestion pipeline fetches the full content, parses it into structural elements, and chunking packs those elements into canonical chunks.",
+        "Chunks are projected into vector embeddings and graph records, and publication moves the active version pointer only after the manifest verifies."
+      ],
+      "required_terms": [
+        "version metadata",
+        "full content",
+        "pars",
+        "chunk",
+        "embed",
+        "publish"
+      ],
+      "required_sources": [1, 2, 3],
+      "allowed_sources": [1, 2, 3],
+      "forbidden_terms": [
+        "as an ai language model",
+        "i was trained on",
+        "according to my training data"
+      ]
+    },
+    {
+      "name": "no_accessible_sources_abstention",
+      "question": "What is the name of this project and who maintains it?",
+      "passages": [],
+      "required_terms": [],
+      "required_sources": [],
+      "abstention_required": true
+    }
+  ],
+  "scope": [
+    {
+      "name": "knowledge_lookup",
+      "question": "How does connector discovery decide which document versions to admit?",
+      "expected": "knowledge"
+    },
+    {
+      "name": "memory_followup_owner",
+      "question": "Who owns it?",
+      "expected": "memory",
+      "recent_history": [
+        {
+          "user": "Store that the billing service migration is owned by the platform team.",
+          "assistant": "Noted."
+        },
+        {
+          "user": "Which team did I say owns the deployment tier?",
+          "assistant": "Regional"
+        }
+      ]
+    }
+  ]
+}

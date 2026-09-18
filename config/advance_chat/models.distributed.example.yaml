@@ -76,6 +76,7 @@ chat:
           capabilities:
             streaming: true
             tools: true
+            parallel_tools: true
             structured_output: true
             json_mode: true
             reasoning: true

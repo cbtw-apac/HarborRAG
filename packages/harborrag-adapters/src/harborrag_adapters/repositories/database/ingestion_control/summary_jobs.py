@@ -7,6 +7,7 @@ from sqlalchemy import or_, select, true, update
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.summaries import (
+    SUMMARY_PERMISSION_BLOCKERS,
     SummaryBinding,
     SummaryLease,
     SummaryPolicy,
@@ -244,13 +245,21 @@ class SummaryJobOperations(SummaryAuthority):
             )
             if row["policy"] is None:
                 execution = "idle"
+            if changed:
+                retry_at = utc_now() + timedelta(seconds=1)
+            elif error_code in SUMMARY_PERMISSION_BLOCKERS:
+                # A permission import/refresh invalidates the scope and wakes it.
+                # Low-frequency reconciliation can still recover missed events.
+                retry_at = utc_now() + timedelta(days=1)
+            else:
+                retry_at = utc_now() + timedelta(seconds=3600 if blocked else 30)
             await session.execute(
                 update(SUMMARY_SCOPES)
                 .where(*self._scope(lease))
                 .values(
                     execution=execution,
                     lease_until=None,
-                    available_at=utc_now() + timedelta(seconds=1 if changed else 30),
+                    available_at=retry_at,
                     dirty_since=row["dirty_since"] if changed or error_code else None,
                     error_code=error_code,
                 )

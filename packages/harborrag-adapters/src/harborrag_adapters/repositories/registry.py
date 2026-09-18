@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageConfigurationError,
+    MissingOptionalDependencyError,
     StorageErrorContext,
 )
 from harborrag_adapters.repositories.plugin import (
@@ -62,10 +63,13 @@ class ProviderMap[ProductT]:
         try:
             return plugin.create(config, dependencies or RepositoryDependencies())
         except ImportError as exc:
-            # Providers perform explicit optional-dependency checks and use this
-            # exact message. Re-raise every other ImportError so constructor bugs
-            # retain their original traceback instead of masquerading as extras.
-            if re.fullmatch(r"[A-Za-z0-9_.-]+ is not installed", str(exc).strip()) is None:
+            # A provider signals a missing extra by type. The message check
+            # remains for any provider still raising a plain ImportError, and
+            # every other ImportError is re-raised so a constructor bug keeps
+            # its original traceback instead of masquerading as a missing extra.
+            if not isinstance(exc, MissingOptionalDependencyError) and (
+                re.fullmatch(r"[A-Za-z0-9_.-]+ is not installed", str(exc).strip()) is None
+            ):
                 raise
             extra = plugin.optional_dependency or plugin.name
             raise HarborStorageConfigurationError(

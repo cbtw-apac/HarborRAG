@@ -1,8 +1,10 @@
 """Runtime process settings from HARBORRAG_* env vars (ST8).
 
-Imported lazily by CompositionRoot.production() only — pydantic-settings is
-part of the [production] extra, and the bare CLI install must keep working
-without it.
+pydantic-settings is a required dependency of this package and this module is
+imported eagerly, by ``execution`` and by ``sdk.configuration`` among others.
+The docstring used to claim the opposite -- an optional extra imported lazily
+by ``CompositionRoot.production()`` -- which misdescribed the dependency
+boundary to anyone deciding where a new import could go.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
+
+from .memory_settings import MemorySettingsMixin
 
 _REDIS_TRANSPORT = RemoteTransportPolicy(
     service="Redis",
@@ -40,7 +44,7 @@ def is_blank_secret(value: SecretStr | None) -> bool:
     return value is None or not value.get_secret_value().strip()
 
 
-class RuntimeSettings(BaseSettings):
+class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     """Environment-driven settings for runtime composition."""
 
     model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
@@ -52,6 +56,10 @@ class RuntimeSettings(BaseSettings):
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     )
+    corpus_access_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
+    corpus_shared_tenant_id: str | None = None
+    summary_processing_allowed: bool = False
+    summary_processing_revision: str = Field(default="v1", min_length=1, max_length=128)
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
     control_db_pool_size: int = Field(default=5, ge=1, le=100)
     control_db_max_overflow: int = Field(default=10, ge=0, le=200)
@@ -86,6 +94,10 @@ class RuntimeSettings(BaseSettings):
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
     graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
+    object_store_provider: str = Field(default="s3", min_length=1)
+    object_store_root: Path = Path(".harborrag/objects")
+    vector_provider: str = Field(default="qdrant", min_length=1)
+    graph_provider: str = Field(default="falkordb", min_length=1)
     object_store_endpoint_url: str | None = "http://localhost:9000"
     object_store_allow_insecure_remote: bool = False
     object_store_region: str = "us-east-1"
@@ -120,6 +132,26 @@ class RuntimeSettings(BaseSettings):
     retrieval_dense_weight: float = Field(default=0.7, ge=0, le=1)
     chat_retrieval_top_k: int = Field(default=5, ge=1, le=50)
     chat_retrieval_graph_search: bool = False
+    # Lowest ``RetrievalResult.relevance`` a chunk may have and still be shown
+    # to the chat model or reported as a citation. Retrieval returns its top-k
+    # whatever the quality, so without a floor an off-topic question is
+    # answered beside five unrelated documents and cites all of them.
+    #
+    # Zero -- the default -- keeps every result, so no existing deployment
+    # changes behaviour on upgrade. The useful range depends on the embedding
+    # model: scores are normalized cosines, ``(cos + 1) / 2``, so unrelated
+    # text lands near 0.5 and a floor is worth setting only after measuring
+    # the corpus. Never threshold ``score`` instead; on the hybrid lane it is
+    # rank arithmetic and its top hit is near 1.0 however poor the match.
+    chat_retrieval_min_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Off by default: a tenant catalog moves chat credentials out of the
+    # process environment and into the control database, and gives every
+    # configured tenant its own client (its own connection pool). Existing
+    # deployments keep the single process-wide client until they opt in.
+    chat_tenant_catalogs_enabled: bool = False
+    # Upper bound on cached per-tenant chat clients; each holds a connection
+    # pool, so the least recently used one is disposed rather than kept.
+    chat_tenant_client_cache_size: int = Field(default=32, ge=1, le=1_024)
     topology_operation_seconds: float = Field(default=120, gt=0, le=3600)
     topology_job_seconds: float = Field(default=3600, gt=0, le=86400)
     topology_lease_seconds: int = Field(default=300, ge=3, le=3600)
@@ -148,6 +180,19 @@ class RuntimeSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
+        if self.corpus_access_mode == "tenant_shared" and not self.corpus_shared_tenant_id:
+            raise ValueError(
+                "HARBORRAG_CORPUS_SHARED_TENANT_ID is required for tenant_shared access"
+            )
+        if self.summary_processing_allowed and self.corpus_access_mode != "tenant_shared":
+            raise ValueError(
+                "shared summary processing requires HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared"
+            )
+        if (
+            self.summary_processing_allowed
+            and self.corpus_shared_tenant_id != self.ingestion_tenant_id
+        ):
+            raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")
         if self.env == "prod" and is_sqlite_control_db:

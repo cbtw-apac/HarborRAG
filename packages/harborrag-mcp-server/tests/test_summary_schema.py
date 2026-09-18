@@ -4,7 +4,7 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
 from harborrag_core.summary_cards import SummaryCard, SummaryView
-from harborrag_mcp_server.tools.output_schemas import NODE_SCHEMA
+from harborrag_engine.tools.output_schemas import NODE_SCHEMA
 
 
 def test_summary_card_is_validated_inside_node_schema():

@@ -4,15 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from harborrag_adapters.repositories.database import (
-    IngestionControlPlaneDatabase,
-)
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
-from harborrag_adapters.repositories.object_store import (
-    CanonicalDocumentArtifactRepository,
-    ChunkArtifactReader,
-    ProjectionArtifactRepository,
-)
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
@@ -24,6 +16,12 @@ from harborrag_core.ingestion import (
     RawDocumentReference,
     RepresentationSet,
 )
+from harborrag_core.ports.artifacts import (
+    CanonicalDocumentArtifactPort,
+    ChunkArtifactReaderPort,
+    ProjectionArtifactPort,
+)
+from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
@@ -40,10 +38,10 @@ class DocumentVersionLifecycle:
     def __init__(
         self,
         *,
-        control: IngestionControlPlaneDatabase,
-        canonical_artifacts: CanonicalDocumentArtifactRepository,
-        chunk_reader: ChunkArtifactReader,
-        projection_artifacts: ProjectionArtifactRepository,
+        control: DocumentControlPort,
+        canonical_artifacts: CanonicalDocumentArtifactPort,
+        chunk_reader: ChunkArtifactReaderPort,
+        projection_artifacts: ProjectionArtifactPort,
     ) -> None:
         self._control = control
         self._canonical_artifacts = canonical_artifacts

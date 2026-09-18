@@ -24,7 +24,7 @@ summarization:
 
 tenants:
   - tenant_id: DEFAULT
-    mode: llm  
+    mode: llm
     budget:
       max_concurrency: 2
       daily_token_cap: 200000000

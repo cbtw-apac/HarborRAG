@@ -15,8 +15,6 @@ from harborrag_adapters.models.chat import (
 )
 from harborrag_adapters.models.runtime import ResourceOwnership
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
-from harborrag_adapters.repositories.graph.falkordb.topology import FalkorTopologyRepository
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     ChunkArtifactReader,
@@ -30,10 +28,11 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import ExtractionProfile
 from harborrag_core.topology.permissions import DerivedArtifactRecord
 from harborrag_runtime.composition.resources import (
-    build_graph_config,
     build_ingestion_control,
     build_object_store,
+    build_topology_repository,
 )
+from harborrag_runtime.composition.storage_providers import RuntimeTopologyPort
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.observability import build_model_telemetry
@@ -60,6 +59,8 @@ async def connect_topology_authority(
     migrate: bool = True,
 ) -> AsyncIterator[IngestionControlPlaneDatabase]:
     if migrate:
+        from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+
         await asyncio.to_thread(run_migrations, settings.control_db_url.get_secret_value())
     control = build_ingestion_control(settings)
     try:
@@ -74,7 +75,7 @@ class TopologyRuntime:
     settings: RuntimeSettings
     control: IngestionControlPlaneDatabase
     service: TopologyEnrichmentService
-    projection: FalkorTopologyRepository
+    projection: RuntimeTopologyPort
     artifacts: ExtractionArtifacts
     artifact_reader: ImmutableArtifactReader
     artifact_writer: ImmutableArtifactWriter
@@ -106,7 +107,7 @@ async def connect_topology_runtime(
         await store.connect()
         if provision_graph:
             await store.ensure_buckets((ARTIFACT_BUCKET,))
-        graph = FalkorTopologyRepository(build_graph_config(settings))
+        graph = build_topology_repository(settings)
         stack.push_async_callback(graph.close)
         await graph.connect(provision=provision_graph)
         reader = ImmutableArtifactReader(store)

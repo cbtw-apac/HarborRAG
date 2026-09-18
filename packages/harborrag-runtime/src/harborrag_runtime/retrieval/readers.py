@@ -6,15 +6,13 @@ import asyncio
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborCapabilityError
-from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, SourceCatalogQuery
-from harborrag_core.retrieval import GraphNodeResolutionQuery
-from harborrag_core.security import AccessContext
-from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.retrieval import graph_access_scope
-
-from ..contracts import (
+from harborrag_core.contracts.reader import (
     DocumentContextRequest,
     DocumentContextResponse,
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
     EvidenceReadRequest,
     EvidenceReadResponse,
     GraphNodeResolveRequest,
@@ -22,6 +20,13 @@ from ..contracts import (
     SourceListRequest,
     SourceListResponse,
 )
+from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, SourceCatalogQuery
+from harborrag_core.retrieval import GraphNodeResolutionQuery
+from harborrag_core.security import AccessContext
+from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.retrieval import graph_access_scope
+
+from .document_catalog import DocumentCatalogReader
 from .document_context import DocumentContextReader
 from .immutable_evidence import ImmutableEvidenceReader
 from .reader_resources import ReaderResources
@@ -38,6 +43,20 @@ class ReaderRetrieval:
         self._resources = resources
         self._evidence = ImmutableEvidenceReader(resources)
         self._documents = DocumentContextReader(resources)
+        self._catalog = DocumentCatalogReader(resources)
+
+    async def document_metadata(self, request: DocumentMetadataRequest) -> DocumentMetadataResponse:
+        request_id = f"document-{uuid4().hex}"
+        context = _context(request.access, request_id, "document-metadata")
+        async with asyncio.timeout(_READ_DEADLINE_SECONDS):
+            document = await self._catalog.metadata(request.document_id, request.access, context)
+        return DocumentMetadataResponse(request_id, document)
+
+    async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
+        request_id = f"documents-{uuid4().hex}"
+        context = _context(request.access, request_id, "document-list")
+        async with asyncio.timeout(_READ_DEADLINE_SECONDS):
+            return await self._catalog.list_documents(request, request_id, context)
 
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
         request_id = f"evidence-{uuid4().hex}"

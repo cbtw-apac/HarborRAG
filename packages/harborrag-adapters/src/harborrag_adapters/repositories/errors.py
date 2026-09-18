@@ -22,6 +22,22 @@ class StorageErrorContext:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+class MissingOptionalDependencyError(ImportError):
+    """A provider needs an optional extra that is not installed.
+
+    Providers used to signal this by raising ``ImportError`` with an exact
+    wording that the registry matched with a regular expression. A provider
+    that worded it differently, or an ``ImportError`` raised by a transitive
+    import, fell through as a bare traceback instead of the configuration
+    error naming the extra. The message is still formatted the same way so
+    existing tests and log lines are unchanged.
+    """
+
+    def __init__(self, distribution: str) -> None:
+        super().__init__(f"{distribution} is not installed")
+        self.distribution = distribution
+
+
 class HarborStorageError(RuntimeError):
     """Stable base exception. Provider details remain available through chaining."""
 

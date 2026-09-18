@@ -114,7 +114,19 @@ class ActivityRepositoryPort(Protocol):
 
 
 class SettingsRepositoryPort(Protocol):
-    """Single-document workspace settings (plan §5.5)."""
+    """Single-document workspace settings (plan §5.5).
+
+    NOT tenant-scoped, despite ``SettingsRepositoryProvider`` below being a
+    ``TenantScopedRepositoryProvider`` and ``WorkspaceSettings`` carrying a
+    ``tenant_id``. Neither method takes a scope and the SQL adapter addresses
+    one fixed row, so in a multi-tenant deployment every tenant reads and
+    overwrites the same document.
+
+    Closing this needs a unique constraint on ``workspace_settings.tenant_id``
+    and a migration to split the existing row, so it is a schema decision
+    rather than a code change. Until then, treat the document as workspace-wide
+    and do not store anything tenant-specific in it.
+    """
 
     async def get(self) -> WorkspaceSettings:
         """The settings document (empty document if never written)."""
@@ -161,15 +173,15 @@ class MemberRepositoryPort(Protocol):
 class PendingEffectRepositoryPort(Protocol):
     """Durable retry queue for control-plane side effects (ML2 recoverability hardening).
 
-    A row is enqueued only when a secondary effect -- secret retirement or
-    audit logging -- fails after the primary write it depends on has already
-    committed. It is never a step on the happy path. The recovery drain
+    Secret retirement and audit logging enqueue failed post-commit effects.
+    Erasure enqueues intent before deleting canonical identifiers, retaining
+    the keys needed to recover interrupted work across stores. The recovery drain
     retries each pending row and calls ``complete`` once the retry succeeds;
     a row that keeps failing simply stays pending for the next drain pass.
     """
 
     async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
-        """Durably record a failed side effect for later retry."""
+        """Durably record replayable work before its recovery identifiers are lost."""
 
     async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
         """Oldest-first pending effects, for the recovery drain."""

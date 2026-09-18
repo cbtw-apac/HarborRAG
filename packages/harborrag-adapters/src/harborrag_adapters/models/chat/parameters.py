@@ -219,7 +219,11 @@ def build_litellm_parameters(
         "stop": list(request.stop) if isinstance(request.stop, tuple) else request.stop,
         "seed": request.seed,
         "user": request.metadata.user_id,
-        "reasoning_effort": request.reasoning_effort,
+        "reasoning_effort": (
+            request.reasoning_effort
+            if request.reasoning_effort != "none" or deployment.capabilities.reasoning_effort
+            else None
+        ),
     }
     parameters.update({name: value for name, value in optionals.items() if value is not None})
     if request.tools:

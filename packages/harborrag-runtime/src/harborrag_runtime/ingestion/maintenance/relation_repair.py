@@ -10,10 +10,6 @@ from typing import Protocol
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
-from harborrag_adapters.repositories.object_store import (
-    CanonicalDocumentArtifactRepository,
-    ChunkArtifactReader,
-)
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
@@ -22,6 +18,7 @@ from harborrag_core.ingestion import (
     ProcessingProfile,
 )
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.artifacts import CanonicalDocumentArtifactPort, ChunkArtifactReaderPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     GraphDocumentTarget,
@@ -68,8 +65,8 @@ class GraphRelationRepairService:
         self,
         *,
         control: IngestionControlPlaneDatabase,
-        canonical_artifacts: CanonicalDocumentArtifactRepository,
-        chunk_reader: ChunkArtifactReader,
+        canonical_artifacts: CanonicalDocumentArtifactPort,
+        chunk_reader: ChunkArtifactReaderPort,
         graph_store: KnowledgeGraphRepositoryPort,
         max_concurrency: int = 8,
     ) -> None:

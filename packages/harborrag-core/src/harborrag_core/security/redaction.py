@@ -4,8 +4,11 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+# Kept in step with ``SENSITIVE_FIELD_TOKENS``: this matches free text rather
+# than field names, so it stays a pattern, but a name the set knows and this
+# does not is a credential that reaches a log.
 _SENSITIVE_KEY_PATTERN = re.compile(
-    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)|secret|password|credential|authorization"
+    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)|secret|passwd|password|credential|authorization"
 )
 
 # The unquoted branch stops before either a delimiter (",", ";", "&", "}", "]",
@@ -15,12 +18,24 @@ _SENSITIVE_KEY_PATTERN = re.compile(
 _UNQUOTED_VALUE = r"(?:(?!\s+[\w.-]+\s*[:=]).)+?(?=[,;&}\]\r\n]|\s+[\w.-]+\s*[:=]|$)"
 _VALUE = rf'(?:"[^"]*"|\'[^\']*\'|{_UNQUOTED_VALUE})'
 
+# Authorization carries a scheme before the credential ("Bearer x", "Basic y"),
+# and the generic value branch below stops at what looks like the next "key="
+# pair -- which base64 padding does. So it gets its own branch that consumes to
+# a real delimiter, placed first. Previously only the "Bearer" form was handled
+# at all, so a Basic credential went to the log intact.
+_AUTHORIZATION_VALUE = r"(?:\"[^\"]*\"|'[^']*'|[^,;&}\]\r\n]+)"
+
 _LABELED_PATTERNS = [
+    re.compile(r"(?i)(authorization)['\"]?\s*[:=]\s*" + _AUTHORIZATION_VALUE),
     re.compile(
-        r"(?i)(api[_-]?key|access[_-]?key|token|secret|password|credential)"
-        r"[\w-]*['\"]?\s*[:=]\s*" + _VALUE
+        # The key group spans its whole name so the replacement preserves it:
+        # redacting "api_key_id" must not rewrite the key to "api_key".
+        # ``token`` carries the same lookahead as _SENSITIVE_KEY_PATTERN so a
+        # token *count* ("tokens=5") is left alone.
+        r"(?i)((?:api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)"
+        r"|secret|passwd|password|credential)[\w-]*)"
+        r"['\"]?\s*[:=]\s*" + _VALUE
     ),
-    re.compile(r"(?i)(authorization)['\"]?\s*:\s*['\"]?\s*bearer\s+" r"([^\s,'\";}\]]+)"),
 ]
 
 _TOKEN_PATTERNS = [

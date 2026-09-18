@@ -11,12 +11,12 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Protocol
 
-from harborrag_adapters.repositories.object_store import ChunkArtifactReader
 from harborrag_adapters.topology.artifacts import ExtractionArtifacts
 from harborrag_core.chunking import ChunkRecord, RecordKind
 from harborrag_core.chunking.identity import encoded_identifier
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import DocumentVersionSnapshot
+from harborrag_core.ports.artifacts import ChunkArtifactReaderPort
 from harborrag_core.ports.topology import TopologyEnrichmentRepositoryPort
 from harborrag_core.ports.topology_extraction import EntityExtractionPort, UsageAwareExtractionPort
 from harborrag_core.ports.topology_projection import TopologyProjectionPort
@@ -61,7 +61,7 @@ class TopologyRunResult:
 class TopologyResources:
     repository: TopologyEnrichmentRepositoryPort
     versions: VersionReader
-    chunks: ChunkArtifactReader
+    chunks: ChunkArtifactReaderPort
     artifacts: ExtractionArtifacts
     projection: TopologyProjectionPort
     extractor: ExtractorFactory
