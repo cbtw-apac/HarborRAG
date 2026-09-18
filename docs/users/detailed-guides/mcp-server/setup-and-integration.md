@@ -145,6 +145,14 @@ The key's `tenant_id` must match each tool call's `tenant_id`; a caller cannot
 select another tenant. Both HTTP modes bind to loopback; put TLS and any remote
 access at a reverse proxy.
 
+The local `HARBORRAG_MCP_BEARER_TOKEN` authenticates a connection but does not
+grant corpus access by itself. To use it for an intentionally shared corpus,
+also set `HARBORRAG_MCP_READER_TENANT_ID`,
+`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID` to the target tenant. Restart the MCP
+process after changing these environment settings; an already-running server
+keeps its previous access policy.
+
 Background summaries use a separate approval. For a shared `DEFAULT` corpus,
 set `HARBORRAG_INGESTION_TENANT_ID=DEFAULT` and
 `HARBORRAG_SUMMARY_PROCESSING_ALLOWED=true`; bump
