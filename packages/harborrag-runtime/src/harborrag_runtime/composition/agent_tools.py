@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 from harborrag_core.contracts.tools import ToolSpec
 from harborrag_engine.agent.protocols import AgentToolSpec
@@ -15,7 +15,6 @@ from harborrag_engine.tools.references import KnowledgeReferenceStore
 
 if TYPE_CHECKING:
     from harborrag_core.ports.memory import MemoryIndex, MemoryOwner, MemoryRepository
-    from harborrag_core.ports.reader import ReaderServices
     from harborrag_runtime.sdk import HarborRAG
 
 
@@ -41,7 +40,7 @@ class RuntimeAgentToolProvider:
         if self.reader_invoker is None and self.runtime is None:
             raise ValueError("agent reader tools require an injected invoker or a runtime")
         invoker = self.reader_invoker or ToolInvoker(
-            build_reader_tool_catalog(cast("ReaderServices", self.runtime), self.references),
+            build_reader_tool_catalog(self.runtime, self.references),
             budget=self.budget,
         )
         extensions: tuple[ToolSpec, ...] = ()

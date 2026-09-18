@@ -30,7 +30,6 @@ from harborrag_core.models.chat import HarborChatMessage
 from harborrag_core.ports.control_plane import ProjectRepositoryPort
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
-from harborrag_core.ports.reader import ReaderServices
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_runtime.agent import (
@@ -139,7 +138,7 @@ class AgentApplicationService:
         from harborrag_runtime.observability.tool_audit import build_tool_execution_audit
 
         reader_invoker = ToolInvoker(
-            build_reader_tool_catalog(cast("ReaderServices", runtime), self._references),
+            build_reader_tool_catalog(runtime, self._references),
             audit=build_tool_execution_audit(),
         )
         return AgentService(

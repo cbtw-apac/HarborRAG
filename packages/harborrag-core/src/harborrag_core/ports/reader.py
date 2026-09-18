@@ -39,6 +39,18 @@ class KnowledgeReader(Protocol):
 
 
 class ReaderServices(Protocol):
-    retrieval: RetrievalReader
-    graph: GraphReader
-    knowledge: KnowledgeReader
+    """The three reader ports a tool catalog is built over.
+
+    Read-only properties, not mutable attributes: a mutable protocol member is
+    invariant, so a provider exposing a *narrower* ``graph`` -- a concrete
+    façade rather than the bare port -- failed to satisfy it even though every
+    method matched. Nothing assigns through this protocol; declaring the
+    members read-only says so and makes them covariant.
+    """
+
+    @property
+    def retrieval(self) -> RetrievalReader: ...
+    @property
+    def graph(self) -> GraphReader: ...
+    @property
+    def knowledge(self) -> KnowledgeReader: ...
