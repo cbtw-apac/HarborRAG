@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harborrag_runtime.tools.budgets import ToolBudget
+from harborrag_engine.tools.budgets import ToolBudget
 
 
 @dataclass(frozen=True, slots=True)

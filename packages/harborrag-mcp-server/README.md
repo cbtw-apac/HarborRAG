@@ -17,12 +17,11 @@ audit.py                    JSONL audit writer
 defaults/mcp.yaml           packaged fallback configuration
 ```
 
-The tools themselves are not owned here. Every tool implementation, argument
-schema, and output schema lives in `harborrag_runtime.tools` and is shared with
-the agent transport, so the two surfaces cannot drift apart; this package owns
-only what is genuinely MCP -- the transport, the policy ceilings applied before
-dispatch, and the audit boundary. `build_reader_tool_catalog` is what the server
-registers, and `BaseTool` / `ToolSpec` are the contracts it dispatches against.
+The 13 reader tool implementations, schemas, catalog, and checked dispatcher live
+in `harborrag_engine.tools`. Generic contracts live in `harborrag_core`.
+`harborrag_runtime.composition.readers` connects the reader backends and owns
+their lifecycle. MCP adapts authentication, registration, configuration, and
+protocol responses; the optional agent uses the same dispatcher.
 
 ## Team deliverables
 
@@ -34,6 +33,10 @@ registers, and `BaseTool` / `ToolSpec` are the contracts it dispatches against.
   REST API's `/v1/chat/completions` and `/v1/agent/completions` endpoints.
 - Every attempt and outcome is durably audited with a principal identifier and
   arguments digest; raw arguments and tokens are never recorded.
+- Shared reader execution outcomes are recorded separately by the runtime at
+  `~/.harborrag/tool-execution-audit.jsonl`; set
+  `HARBORRAG_TOOL_EXECUTION_AUDIT_PATH` to choose another path. The invocation
+  identifier correlates execution records with MCP transport records.
 - Declared input schemas plus argument, result-count, and serialized-output
   budgets are enforced.
 - Ingestion-capability tools fail closed until explicitly enabled.
@@ -42,17 +45,13 @@ registers, and `BaseTool` / `ToolSpec` are the contracts it dispatches against.
 - Service-level tools must never expose raw database/provider access or place
   retrieved document text in descriptions.
 
-Install dependencies before running the launcher. The stdio and HTTP transports
-both configure the durable conversation memory, which runs control-plane
-database migrations via Alembic/asyncpg on startup; the retrieval tools call
-embedding providers through LiteLLM, read/write documents through the S3/MinIO
-object store, and query the Qdrant and FalkorDB backends. The `mcp` extra
-alone is not enough:
+Install the reader profile before running the launcher. Reader serving connects
+the configured database, object store, vector store, graph store, and embedding
+client. It does not start conversation memory, chat, an agent, or an ingestion
+executor, and it does not provision object-store buckets:
 
 ```bash
-uv sync --package harborrag-mcp-server --extra mcp \
-    --package harborrag-adapters --extra control-plane --extra postgres \
-    --extra llm --extra s3 --extra qdrant --extra falkordb
+uv sync --package harborrag-mcp-server --extra reader
 ```
 
 Run the standard stdio transport:
@@ -74,7 +73,7 @@ services. The image entrypoint is `python -m harborrag_mcp_server`, so MCP
 arguments such as `--check` or `--transport http` are forwarded directly.
 
 The launcher loads the protected database, model, API, and MCP environment files,
-constructs the shared `HarborRAG` runtime, and communicates over stdin/stdout.
+constructs the reader application, and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
 MCP handshake and print the thirteen advertised tool names without connecting to

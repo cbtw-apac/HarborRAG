@@ -30,13 +30,13 @@ from ..contracts import (
 )
 from ..execution import IngestionExecutor, build_ingestion_executor
 from ..execution.contracts import DurableIngestionExecutor
-from ..memory.context_service import RuntimeMemoryContextService
-from ..memory.facade import MemoryFacade
 from .configuration import HarborRAGConfig
 from .facades import GraphFacade, IngestionFacade, KnowledgeFacade, RetrievalFacade
+from .memory_facade import MemoryFacade
 
 if TYPE_CHECKING:
     from ..config.settings import RuntimeSettings
+    from ..memory.context_service import RuntimeMemoryContextService
     from ..retrieval import RuntimeRetrievalService
 
 type ExecutorFactory = Callable[[ExecutionMode, "RuntimeSettings"], IngestionExecutor]
@@ -75,15 +75,12 @@ class HarborRAG:
         self._retrieval: RuntimeRetrievalService | None = None
         self._executor_factory = executor_factory
         self._retrieval_factory = retrieval_factory
-        self._chat_runtime = chat_runtime_factory(config.runtime)
+        self._chat_runtime_factory = chat_runtime_factory
+        self._chat_runtime: RuntimeChatService | None = None
         # The memory layer borrows retrieval lazily so entity anchoring can read
         # the tenant's knowledge graph without opening a graph client for
         # deployments that never resolve a mention.
-        self._memory_runtime = RuntimeMemoryContextService(
-            config.runtime,
-            retrieval_provider=self._retrieval_service,
-            index_provider=self._retrieval_service,
-        )
+        self._memory_runtime: RuntimeMemoryContextService | None = None
         self._retrieval_lock = asyncio.Lock()
 
     @classmethod
@@ -184,10 +181,10 @@ class HarborRAG:
         chat client it has always had.
         """
 
-        self._chat_runtime.configure_tenant_models(sources)
+        self._chat_service().configure_tenant_models(sources)
 
     async def _chat_validate_model(self, model: str | None, *, tenant_id: str | None) -> None:
-        await self._chat_runtime.validate_model(model, tenant_id=tenant_id)
+        await self._chat_service().validate_model(model, tenant_id=tenant_id)
 
     async def _chat_complete(
         self,
@@ -195,9 +192,17 @@ class HarborRAG:
         *,
         prompt: ChatPrompt | None = None,
     ) -> HarborChatResponse:
-        return await self._chat_runtime.complete(request, prompt=prompt)
+        return await self._chat_service().complete(request, prompt=prompt)
 
     def _memory_context_service(self) -> RuntimeMemoryContextService:
+        if self._memory_runtime is None:
+            from ..memory.context_service import RuntimeMemoryContextService
+
+            self._memory_runtime = RuntimeMemoryContextService(
+                self.config.runtime,
+                retrieval_provider=self._retrieval_service,
+                index_provider=self._retrieval_service,
+            )
         return self._memory_runtime
 
     def _chat_stream(
@@ -206,13 +211,18 @@ class HarborRAG:
         *,
         prompt: ChatPrompt | None = None,
     ) -> AsyncIterator[HarborChatStreamChunk]:
-        return self._chat_runtime.stream(request, prompt=prompt)
+        return self._chat_service().stream(request, prompt=prompt)
+
+    def _chat_service(self) -> RuntimeChatService:
+        if self._chat_runtime is None:
+            self._chat_runtime = self._chat_runtime_factory(self.config.runtime)
+        return self._chat_runtime
 
     async def aclose(self) -> None:
         async with self._lifecycle_lock:
             results = await asyncio.gather(
-                self._chat_runtime.aclose(),
-                self._memory_runtime.aclose(),
+                *([self._chat_runtime.aclose()] if self._chat_runtime is not None else []),
+                *([self._memory_runtime.aclose()] if self._memory_runtime is not None else []),
                 self._close_retrieval(),
                 self._close_executor(),
                 return_exceptions=True,

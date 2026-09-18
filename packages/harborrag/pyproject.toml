@@ -14,7 +14,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "harborrag-app==2.0.0a1",
+    "harborrag-mcp-server==2.0.0a1",
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
 ]
@@ -27,16 +27,17 @@ Issues = "https://github.com/cbtw-apac/HarborRAG/issues"
 [project.optional-dependencies]
 local = [
     "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,pdf-docling,qdrant,s3,tables]==2.0.0a1",
+    "harborrag-app==2.0.0a1",
 ]
 chat = ["harborrag-adapters[llm]==2.0.0a1"]
 cli = ["harborrag-app==2.0.0a1"]
 memory = ["harborrag-memory==2.0.0a1"]
 server = [
     "harborrag-app[api]==2.0.0a1",
-    "harborrag-runtime[production,temporal]==2.0.0a1",
+    "harborrag-runtime[reader]==2.0.0a1",
 ]
 temporal = ["harborrag-runtime[temporal]==2.0.0a1"]
-mcp = ["harborrag-mcp-server[mcp]==2.0.0a1"]
+mcp = ["harborrag-mcp-server[reader]==2.0.0a1"]
 qdrant = ["harborrag-adapters[qdrant]==2.0.0a1"]
 falkordb = ["harborrag-adapters[falkordb]==2.0.0a1"]
 postgres = ["harborrag-adapters[control-plane,postgres]==2.0.0a1"]

@@ -7,8 +7,8 @@ import time
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalResult
-from harborrag_runtime.tools.references import KnowledgeReferenceStore
-from harborrag_runtime.tools.vector_search import _quality, _results
+from harborrag_engine.tools.references import KnowledgeReferenceStore
+from harborrag_engine.tools.vector_search import _quality, _results
 
 pytestmark = [pytest.mark.unit]
 

@@ -16,9 +16,9 @@ from harborrag_core.ports.memory import (
 )
 from harborrag_engine.agent.execution import ChatAndToolExecutor
 from harborrag_engine.agent.schemas import AgentRunOptions
-from harborrag_runtime.agent.memory_tool_specs import manage_memory_schema, search_memory_schema
-from harborrag_runtime.agent.memory_tools import AgentMemoryTools
-from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
+from harborrag_memory.tools.memory_tool_specs import manage_memory_schema, search_memory_schema
+from harborrag_memory.tools.memory_tools import AgentMemoryTools
+from harborrag_runtime.composition.agent_tools import RuntimeAgentToolProvider
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import RuntimeMemoryContextService
 

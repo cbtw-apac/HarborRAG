@@ -15,9 +15,9 @@ from typing import Any
 
 import yaml
 
+from harborrag_core.contracts.tools import ToolSpec
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
-from harborrag_runtime.tools.base import ToolSpec
 
 from .models import McpConfiguration, ToolConfiguration
 from .validation import validate_tools

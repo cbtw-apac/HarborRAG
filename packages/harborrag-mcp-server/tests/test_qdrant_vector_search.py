@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
+from harborrag_engine.tools.vector_search import VectorSearchTool
 from harborrag_runtime.sdk import RetrievalLane
-from harborrag_runtime.tools.vector_search import VectorSearchTool
 
 _DEFAULT_QDRANT_URL = "http://127.0.0.1:6333"
 SMOKE_DIMENSION = 8

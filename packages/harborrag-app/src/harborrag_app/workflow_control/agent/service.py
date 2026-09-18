@@ -31,6 +31,7 @@ from harborrag_core.ports.control_plane import ProjectRepositoryPort
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
+from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_runtime.agent import (
     AgentEvent,
     AgentEventSink,
@@ -38,10 +39,9 @@ from harborrag_runtime.agent import (
     AgentRunResult,
     AgentService,
 )
-from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
+from harborrag_runtime.composition.agent_tools import RuntimeAgentToolProvider
 from harborrag_runtime.memory import MemoryContext
 from harborrag_runtime.sdk import HarborRAG
-from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
 from .options import AgentExecutionOptions
 from .support import DefaultPromptChat, agent_timeout_seconds, result_data, run_options
@@ -133,6 +133,14 @@ class AgentApplicationService:
         """
 
         runtime = self._runtime_provider()
+        from harborrag_engine.tools.catalog import build_reader_tool_catalog
+        from harborrag_engine.tools.dispatcher import ToolInvoker
+        from harborrag_runtime.observability.tool_audit import build_tool_execution_audit
+
+        reader_invoker = ToolInvoker(
+            build_reader_tool_catalog(runtime, self._references),
+            audit=build_tool_execution_audit(),
+        )
         return AgentService(
             DefaultPromptChat(runtime.chat, model),
             RuntimeAgentToolProvider(
@@ -145,6 +153,8 @@ class AgentApplicationService:
                 # run read and write long-term memory explicitly.
                 memory_tools_enabled=self._memory_tools,
                 references=self._references,
+                reader_invoker=reader_invoker,
+                tenant_id=identity.tenant_id,
             ),
             memory=self._memory,
             runs=self._runs,

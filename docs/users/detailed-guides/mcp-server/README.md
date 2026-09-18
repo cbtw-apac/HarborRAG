@@ -126,16 +126,21 @@ print(list_tools())
 ```python
 # Server instance: returns ToolSpec objects with .name and .input_schema.
 from harborrag_mcp_server.server import McpServer
-from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
+from harborrag_runtime.composition.readers import open_reader_application
+from harborrag_runtime.config.settings import RuntimeSettings
 
-server = McpServer(runtime=HarborRAG(HarborRAGConfig()))
+application = open_reader_application(RuntimeSettings())
+server = McpServer(invoker=application.invoker, references=application.references)
+await application.start()
 for spec in server.list_tools():
     print(spec.name, spec.input_schema)
 
 result = await server.call_tool(
     "vector_search",
     {"query": "publication policy", "tenant_id": "default"},
+    principal_id="reader-principal",
 )
+await application.aclose()
 ```
 
 An unknown tool name raises `ValueError`.

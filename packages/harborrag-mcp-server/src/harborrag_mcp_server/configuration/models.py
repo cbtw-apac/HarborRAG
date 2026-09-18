@@ -8,8 +8,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from harborrag_runtime.tools.base import MAX_TOOL_RESULTS
-from harborrag_runtime.tools.budgets import MAX_ARGUMENT_BYTES, MAX_OUTPUT_BYTES
+from harborrag_core.contracts.tools import MAX_TOOL_RESULTS
+from harborrag_engine.tools.budgets import MAX_ARGUMENT_BYTES, MAX_OUTPUT_BYTES
 
 
 class PolicyConfiguration(BaseModel):

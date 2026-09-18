@@ -15,6 +15,11 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
     ReadableSource,
 )
+from harborrag_engine.tools.reader_catalog import (
+    FETCH_EVIDENCE_SPEC,
+    GET_DOCUMENT_CONTEXT_SPEC,
+    LIST_SOURCES_SPEC,
+)
 from harborrag_mcp_server.server import McpServer, create_mcp_server
 from harborrag_runtime.reader_contracts import (
     DOCUMENT_CONTEXT_LIMIT,
@@ -32,11 +37,6 @@ from harborrag_runtime.sdk import (
     RetrievalLane,
     RetrievalResponse,
     SourceListResponse,
-)
-from harborrag_runtime.tools.reader_catalog import (
-    FETCH_EVIDENCE_SPEC,
-    GET_DOCUMENT_CONTEXT_SPEC,
-    LIST_SOURCES_SPEC,
 )
 
 

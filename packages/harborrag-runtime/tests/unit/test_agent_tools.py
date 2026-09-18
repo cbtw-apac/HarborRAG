@@ -9,13 +9,43 @@ import pytest
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_engine.agent.execution import ChatAndToolExecutor
 from harborrag_engine.agent.schemas import AgentRunOptions
-from harborrag_runtime.agent.memory_tool_specs import MEMORY_AGENT_TOOL_SPECS
-from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
+from harborrag_engine.tools.budgets import ToolBudget
+from harborrag_engine.tools.catalog import build_reader_tool_catalog
+from harborrag_engine.tools.references import KnowledgeReferenceStore
+from harborrag_memory.tools.memory_tool_specs import MEMORY_AGENT_TOOL_SPECS
+from harborrag_runtime.composition.agent_tools import RuntimeAgentToolProvider
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.sdk import RetrievalLane
-from harborrag_runtime.tools.budgets import ToolBudget
-from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
-from harborrag_runtime.tools.references import KnowledgeReferenceStore
+
+
+def _metadata() -> dict[str, object]:
+    return {
+        "document_id": "doc",
+        "document_version_id": "v1",
+        "record_kind": "chunk",
+        "chunk_kind": "text",
+        "connector_type": "test",
+        "citation_locator": {},
+        "quality_score": None,
+        "retrieval_source": "dense",
+        "document_title": None,
+        "section_path": [],
+    }
+
+
+def _diagnostics() -> dict[str, object]:
+    return {
+        "candidate_hits": 1,
+        "stale_candidates": 0,
+        "unpublished_candidates": 0,
+        "malformed_candidates": 0,
+        "search_window": 1,
+        "graph_nodes": 0,
+        "graph_relations": 0,
+        "graph_truncated": False,
+        "duration_ms": 0.0,
+        "graph_documents": [],
+    }
 
 
 class _Retrieval:
@@ -27,8 +57,8 @@ class _Retrieval:
         return RetrievalResponse(
             request_id="retrieval-1",
             lane=RetrievalLane.HYBRID,
-            results=(RetrievalResult("chunk-1", "evidence", 0.91, {"source": "doc"}),),
-            diagnostics={"lane": "hybrid"},
+            results=(RetrievalResult("chunk-1", "evidence", 0.91, _metadata()),),
+            diagnostics=_diagnostics(),
         )
 
 
@@ -64,7 +94,7 @@ async def test_vector_tool_enforces_access_identity_and_returns_evidence() -> No
             "id": "chunk-1",
             "text": "evidence",
             "score": 0.91,
-            "metadata": {"source": "doc"},
+            "metadata": _metadata(),
             "relevance": None,
         }
     ]
@@ -179,7 +209,7 @@ async def test_agent_transport_bounds_what_a_tool_result_may_cost_in_context() -
                 results=tuple(
                     RetrievalResult(f"chunk-{index}", "x" * 4096, 0.9, {}) for index in range(20)
                 ),
-                diagnostics={"lane": "hybrid"},
+                diagnostics=_diagnostics(),
             )
 
     provider = RuntimeAgentToolProvider(
@@ -205,7 +235,7 @@ async def test_agent_transport_bounds_the_number_of_results() -> None:
                 results=tuple(
                     RetrievalResult(f"chunk-{index}", "evidence", 0.9, {}) for index in range(8)
                 ),
-                diagnostics={"lane": "hybrid"},
+                diagnostics=_diagnostics(),
             )
 
     provider = RuntimeAgentToolProvider(

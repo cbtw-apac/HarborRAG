@@ -6,8 +6,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from harborrag_core.models.chat import HarborChatRequest, HarborChatResponse, HarborChatStreamChunk
-
-from .prompts import ChatPrompt
+from harborrag_engine.chat.prompts import ChatPrompt
 
 if TYPE_CHECKING:
     from harborrag_runtime.sdk import HarborRAG

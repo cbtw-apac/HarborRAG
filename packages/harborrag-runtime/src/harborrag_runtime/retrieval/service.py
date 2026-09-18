@@ -9,6 +9,13 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
+from harborrag_core.contracts.reader import (
+    EntityResolveResponse,
+    EvidenceFetchResponse,
+    RelationSearchResponse,
+    SemanticPathRequest,
+    SemanticPathResponse,
+)
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
@@ -21,13 +28,6 @@ from harborrag_engine.retrieval import (
     RetrievalLane,
 )
 
-from ..contracts import (
-    EntityResolveResponse,
-    EvidenceFetchResponse,
-    RelationSearchResponse,
-    SemanticPathRequest,
-    SemanticPathResponse,
-)
 from .contracts import (
     CloseOperation,
     RetrievalDiagnostics,

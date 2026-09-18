@@ -17,8 +17,7 @@ from harborrag_core.ingestion.projection_contracts import (
     ONTOLOGY_SCHEMA_VERSION,
     SEMANTIC_SCHEMA_VERSION,
 )
-from harborrag_runtime.tools.describe_graph import DescribeGraphTool
-from harborrag_runtime.tools.describe_graph import DescribeGraphTool as RuntimeDescribeGraphTool
+from harborrag_engine.tools.describe_graph import DescribeGraphTool
 
 
 @pytest.mark.asyncio
@@ -47,16 +46,12 @@ async def test_describe_graph_output_matches_its_advertised_schema() -> None:
 
 
 def test_describe_graph_advertises_read_only_annotations() -> None:
-    assert DescribeGraphTool.spec.annotations == {
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    }
-
-
-def test_describe_graph_is_shared_with_the_runtime() -> None:
-    assert DescribeGraphTool is RuntimeDescribeGraphTool
+    behavior = DescribeGraphTool.spec.behavior
+    assert behavior is not None
+    assert behavior.read_only is True
+    assert behavior.destructive is False
+    assert behavior.idempotent is True
+    assert behavior.open_world is False
 
 
 @pytest.mark.asyncio

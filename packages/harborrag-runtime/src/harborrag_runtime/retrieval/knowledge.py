@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborCapabilityError
+from harborrag_core.contracts.reader import (
+    EntityResolveResponse,
+    EvidenceFetchResponse,
+    RelationSearchResponse,
+    SemanticPathRequest,
+    SemanticPathResponse,
+)
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.ingestion import DocumentIdentityBuilder
@@ -18,13 +25,6 @@ from harborrag_core.topology.records import CanonicalAssertion, CanonicalMention
 from harborrag_core.topology.search import TopologySearchPort
 from harborrag_engine.retrieval import ActiveVersionCandidateValidator
 
-from ..contracts import (
-    EntityResolveResponse,
-    EvidenceFetchResponse,
-    RelationSearchResponse,
-    SemanticPathRequest,
-    SemanticPathResponse,
-)
 from .permissions import RetrievalPermissions
 from .validation import required_text
 

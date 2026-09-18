@@ -106,7 +106,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Long-term memory extraction runs on a bounded in-process worker pool
     # owned by this process, so it starts with the app and is drained -- not
     # cancelled -- on shutdown, letting queued exchanges finish.
-    await service.start_memory_extraction()
+    owns_memory_extraction = getattr(service, "has_memory_extraction", False)
+    if owns_memory_extraction:
+        await service.start_memory_extraction()
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(
@@ -125,7 +127,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             return_exceptions=True,
         )
         logger.info("Closing the application service")
-        await service.drain_memory_extraction()
+        if owns_memory_extraction:
+            await service.drain_memory_extraction()
         try:
             close = getattr(service, "aclose", None)
             if close is not None:

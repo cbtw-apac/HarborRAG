@@ -29,6 +29,8 @@ MODULES = {
     "harborrag-memory": ["harborrag_memory", "harborrag_memory.context"],
     "harborrag-engine": [
         "harborrag_engine",
+        "harborrag_engine.agent.tools",
+        "harborrag_engine.chat.prompts",
         "harborrag_engine.config",
         "harborrag_engine.retrieval.pipeline",
     ],
@@ -36,7 +38,7 @@ MODULES = {
         "harborrag_runtime",
         "harborrag_runtime.sdk",
         "harborrag_runtime.config.settings",
-        "harborrag_runtime.agent.tools",
+        "harborrag_runtime.composition.agent_tools",
         "harborrag_runtime.topology.summary_operations",
     ],
     "harborrag-app": [
@@ -52,6 +54,7 @@ SMOKE = """
 import importlib
 import importlib.metadata
 import importlib.resources
+import importlib.util
 import json
 import pathlib
 import sys
@@ -72,6 +75,11 @@ if package == 'harborrag-mcp-server':
     root = importlib.resources.files('harborrag_mcp_server')
     assert root.joinpath('defaults/mcp.yaml').read_text()
     assert root.joinpath('server/static/status.html').read_text()
+if package == 'harborrag-engine':
+    root = importlib.resources.files('harborrag_engine.chat.prompts.templates')
+    assert root.joinpath('default.md').read_text().strip()
+if package == 'harborrag-runtime':
+    assert importlib.util.find_spec('harborrag_runtime.tools') is None
 print(f'{package}: bare installed-wheel imports and resources passed')
 """
 

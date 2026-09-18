@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Protocol
 
+from harborrag_core.contracts.reader import RetrievalLane
 from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
@@ -42,14 +42,6 @@ def _next_window(window: int, *, accepted: int, wanted: int) -> int:
     if accepted > 0:
         projected = max(projected, int(window * wanted / accepted * _WIDENING_MARGIN) + 1)
     return min(_MAXIMUM_WINDOW, projected)
-
-
-class RetrievalLane(StrEnum):
-    """Select the retrieval representation used to rank candidates."""
-
-    DENSE = "dense"
-    SPARSE = "sparse"
-    HYBRID = "hybrid"
 
 
 class ProjectionSearchRepository(Protocol):

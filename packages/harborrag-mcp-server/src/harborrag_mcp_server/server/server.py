@@ -6,19 +6,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.security import AccessContext
+from harborrag_engine.tools.catalog import build_reader_tool_catalog
+from harborrag_engine.tools.dispatcher import ToolInvoker
+from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
-from harborrag_runtime.memory import ConversationRepository, InMemoryConversationMemory
-from harborrag_runtime.tools.base import BaseTool, ToolSpec
-from harborrag_runtime.tools.budgets import result_count
-from harborrag_runtime.tools.catalog_factory import build_reader_tool_catalog
-from harborrag_runtime.tools.references import KnowledgeReferenceStore
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.reader import ReaderServices
     from harborrag_mcp_server.configuration import McpConfigurationStore
-    from harborrag_runtime.sdk import HarborRAG
 
 # Shared, process-wide default policy/audit singletons. The module-level
 # call_tool/list_tools facade constructs a fresh McpServer per invocation, so
@@ -34,17 +35,27 @@ _default_audit_log = McpAuditLog(
 class McpServer(BaseMcpServer):
     """In-process MCP transport enforcing policy and audit boundaries."""
 
-    runtime: HarborRAG | None = None
-    memory: ConversationRepository = field(default_factory=InMemoryConversationMemory)
+    runtime: ReaderServices | None = None
     tools: list[BaseTool] | None = None
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
     configuration: McpConfigurationStore | None = None
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
+    invoker: ToolInvoker | None = None
 
     def __post_init__(self) -> None:
+        if (
+            self.invoker is not None
+            and self.tools is not None
+            and self.tools is not self.invoker.tools
+        ):
+            raise HarborInvariantError("MCP discovery and invocation must share one tool catalog")
+        if self.tools is None and self.invoker is not None:
+            self.tools = self.invoker.tools
         if self.tools is None:
             self.tools = build_reader_tool_catalog(self.runtime, self.references)
+        if self.invoker is None:
+            self.invoker = ToolInvoker(self.tools)
         missing_output_schema = [
             tool.spec.name for tool in self.tools if tool.spec.output_schema is None
         ]
@@ -94,37 +105,43 @@ class McpServer(BaseMcpServer):
         try:
             if self.tools is None:
                 raise HarborInvariantError("self.tools must not be None here")
-            for tool in self.tools:
-                if tool.spec.name != name:
-                    continue
-                policy = self.policy
-                spec = tool.spec
-                if self.configuration is not None:
-                    tenant_value = payload.get("tenant_id")
-                    tenant_id = tenant_value if isinstance(tenant_value, str) else None
-                    configured = self.configuration.resolve(name, tenant_id)
-                    if not configured.enabled:
-                        raise PermissionError(f"MCP tool {name} is disabled")
-                    payload = {**configured.defaults, **payload}
-                    spec = self.configuration.tool_spec(spec, tenant_id)
-                    policy = self.configuration.policy()
-                policy.check_call(spec, payload)
-                result = await tool.call(payload, principal_id=principal_id)
-                policy.check_output_schema(result, spec.output_schema)
-                policy.check_results(result_count(result))
-                policy.check_output(result)
-                reported_error = tool_reported_error(result)
-                await asyncio.to_thread(
-                    self.audit.finish,
-                    invocation_id,
-                    name,
+            tool = next((item for item in self.tools if item.spec.name == name), None)
+            if tool is None:
+                raise ValueError(f"Unknown MCP tool: {name}")
+            policy = self.policy
+            spec = tool.spec
+            defaults: dict[str, object] | None = None
+            if self.configuration is not None:
+                configured = self.configuration.resolve(name, tenant_id)
+                if not configured.enabled:
+                    raise PermissionError(f"MCP tool {name} is disabled")
+                defaults = configured.defaults
+                spec = self.configuration.tool_spec(spec, tenant_id)
+                policy = self.configuration.policy()
+            context = ToolInvocationContext(
+                access=AccessContext(
                     principal_id=principal_id,
-                    outcome="error" if reported_error else "success",
-                    error_type="ToolReportedError" if reported_error else None,
-                    tenant_id=tenant_id,
-                )
-                return result
-            raise ValueError(f"Unknown MCP tool: {name}")
+                    tenant_id=TenantId(tenant_id or "local"),
+                ),
+                invocation_id=invocation_id,
+            )
+            invoker = self.invoker
+            if invoker is None:
+                raise HarborInvariantError("MCP tool invoker is not configured")
+            result = await invoker.invoke(
+                name, payload, context=context, budget=policy, spec=spec, defaults=defaults
+            )
+            reported_error = tool_reported_error(result)
+            await asyncio.to_thread(
+                self.audit.finish,
+                invocation_id,
+                name,
+                principal_id=principal_id,
+                outcome="error" if reported_error else "success",
+                error_type="ToolReportedError" if reported_error else None,
+                tenant_id=tenant_id,
+            )
+            return result
         except BaseException as exc:
             self.audit.finish(
                 invocation_id,

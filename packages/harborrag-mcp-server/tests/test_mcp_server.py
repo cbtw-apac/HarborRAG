@@ -8,11 +8,10 @@ from pathlib import Path
 import pytest
 from catalog_support import EXPECTED_READER_TOOLS
 
+from harborrag_engine.tools.base import BaseTool, ToolSpec
 from harborrag_mcp_server.server import call_tool, create_mcp_server, list_tools
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_runtime.memory import InMemoryConversationMemory
-from harborrag_runtime.tools.base import BaseTool, ToolSpec
 
 
 def test_package_exposes_the_mcp_server_namespace() -> None:
@@ -60,7 +59,6 @@ def test_module_runs_stdio_when_launched_with_a_pipe(monkeypatch) -> None:
             calls.append((transport, show_banner))
 
     monkeypatch.setattr(cli.sys, "stdin", PipedInput())
-    monkeypatch.setattr(cli, "_configured_memory", lambda _settings: InMemoryConversationMemory())
     monkeypatch.setattr(cli, "create_mcp_server", lambda **kwargs: FakeTransport())
 
     assert cli.main([]) == 0

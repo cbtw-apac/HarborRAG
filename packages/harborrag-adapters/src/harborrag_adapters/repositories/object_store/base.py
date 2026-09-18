@@ -21,6 +21,11 @@ class HarborObjectStore(RepositoryLifecycle):
 
         del buckets
 
+    async def validate_buckets(self, buckets: tuple[str, ...]) -> None:
+        """Check read prerequisites without creating storage."""
+
+        del buckets
+
     @property
     @abstractmethod
     def capabilities(self) -> ObjectStoreCapabilities:

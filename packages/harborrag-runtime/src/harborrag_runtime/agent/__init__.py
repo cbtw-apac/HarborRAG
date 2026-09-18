@@ -1,4 +1,4 @@
-"""Runtime agent orchestration and retrieval-tool adapters."""
+"""Runtime checkpoint repositories and engine agent compatibility exports."""
 
 from harborrag_engine.agent import (
     AgentCheckpoint,

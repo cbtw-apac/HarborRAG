@@ -132,7 +132,7 @@ mcp_python="$(python_executable)"
 "${mcp_python}" -c \
     "import importlib.util, sys; sys.exit(any(importlib.util.find_spec(name) is None for name in ('fastmcp', 'harborrag_mcp_server', 'harborrag_runtime', 'alembic', 'asyncpg', 'litellm', 'aioboto3', 'qdrant_client', 'falkordb')))" \
     >/dev/null 2>&1 ||
-    fail "MCP dependencies are missing. Run 'uv sync --package harborrag-mcp-server --extra mcp --package harborrag-adapters --extra control-plane --extra postgres --extra llm --extra s3 --extra qdrant --extra falkordb'."
+    fail "MCP dependencies are missing. Run 'uv sync --package harborrag-mcp-server --extra reader'."
 
 [[ -n "${POSTGRES_USER:-}" && -n "${POSTGRES_PASSWORD:-}" && -n "${POSTGRES_DB:-}" ]] ||
     fail "Database environment must define POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB."

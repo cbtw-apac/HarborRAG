@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from harborrag_core.contracts.tools import ToolSpec
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
@@ -15,7 +16,7 @@ from harborrag_mcp_server.server.server import McpServer
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
 
-    from harborrag_runtime.sdk import HarborRAG
+    from harborrag_runtime.composition.readers import ReaderApplication
 
 
 _SERVER_INSTRUCTIONS = (
@@ -50,7 +51,7 @@ async def call_tool(
 def create_mcp_server(
     *,
     registry: McpServer | None = None,
-    runtime: HarborRAG | None = None,
+    runtime: ReaderApplication | None = None,
     auth: AuthProvider | None = None,
     allow_unauthenticated_local: bool = False,
     manage_runtime_lifecycle: bool = False,
@@ -68,12 +69,12 @@ def create_mcp_server(
         from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError(
-            "FastMCP transport is not installed; install harborrag-mcp-server[mcp]"
+            "FastMCP transport is not installed; install harborrag-mcp-server"
         ) from exc
 
     audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
     facade = registry or McpServer(
-        runtime=runtime,
+        invoker=runtime.invoker if runtime is not None else None,
         audit=McpAuditLog(path=audit_path),
     )
     lifespan = None
@@ -100,15 +101,14 @@ def create_mcp_server(
     # disabled is still advertised and then refused at call time with a
     # PermissionError naming it. Global enabled: false is honoured here.
     for spec in facade.list_tools():
+        annotations = _mcp_annotations(spec)
         transport.add_tool(
             FunctionTool(
                 name=spec.name,
                 description=spec.description,
                 parameters=spec.input_schema,
                 output_schema=spec.output_schema,
-                annotations=(
-                    ToolAnnotations(**spec.annotations) if spec.annotations is not None else None
-                ),
+                annotations=(ToolAnnotations(**annotations) if annotations is not None else None),
                 fn=_tool_handler(facade, spec.name),
                 return_type=dict,
                 run_in_thread=False,
@@ -117,22 +117,32 @@ def create_mcp_server(
     return transport
 
 
+def _mcp_annotations(spec: ToolSpec) -> dict[str, Any] | None:
+    if spec.annotations is not None:
+        return spec.annotations
+    behavior = spec.behavior
+    if behavior is None:
+        return None
+    return {
+        "readOnlyHint": behavior.read_only,
+        "destructiveHint": behavior.destructive,
+        "idempotentHint": behavior.idempotent,
+        "openWorldHint": behavior.open_world,
+    }
+
+
 def _runtime_lifespan(
-    runtime: HarborRAG,
+    runtime: ReaderApplication,
     registry: McpServer,
 ) -> Any:
     @asynccontextmanager
     async def lifespan(server: object) -> AsyncIterator[None]:
         del server
         try:
+            await runtime.start()
             yield
         finally:
-            try:
-                await runtime.aclose()
-            finally:
-                close_memory = getattr(registry.memory, "aclose", None)
-                if close_memory is not None:
-                    await close_memory()
+            await runtime.aclose()
 
     return lifespan
 

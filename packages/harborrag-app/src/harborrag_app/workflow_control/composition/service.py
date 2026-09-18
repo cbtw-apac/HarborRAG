@@ -101,10 +101,14 @@ class AppService(
         locks = SessionLocks(memory)
         # Extraction costs a model call, so it runs off the request path; the
         # API lifespan starts and drains the pool (the CLI never starts it).
-        self._extraction: MemoryExtractionQueue | None = MemoryExtractionQueue(
-            runtime_provider=self._resources.runtime_sdk,
-            memories=memories,
-            index=index,
+        self._extraction: MemoryExtractionQueue | None = (
+            MemoryExtractionQueue(
+                runtime_provider=self._resources.runtime_sdk,
+                memories=memories,
+                index=index,
+            )
+            if self._settings.memory_extraction_enabled and memories is not None
+            else None
         )
         self._memory_admin = MemoryAdministrationService(
             conversations=memory,

@@ -9,6 +9,8 @@ license-files = ["LICENSE"]
 dependencies = [
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
+    "harborrag-engine==2.0.0a1",
+    "fastmcp>=3.4,<4",
     "jsonschema>=4.26,<5",
     "pydantic>=2.12,<3",
     "pyyaml>=6.0.2,<7",
@@ -18,7 +20,8 @@ dependencies = [
 harborrag-mcp = "harborrag_mcp_server.__main__:main"
 
 [project.optional-dependencies]
-mcp = ["fastmcp>=3.4,<4"]
+mcp = []
+reader = ["harborrag-runtime[reader]==2.0.0a1"]
 
 [build-system]
 requires = ["hatchling"]

@@ -665,5 +665,6 @@ async def test_sdk_close_surfaces_fatal_resource_failures() -> None:
         chat_runtime_factory=Mock(return_value=chat),
     )
 
+    harbor._chat_service()
     with pytest.raises(BaseExceptionGroup, match="resource close failed"):
         await harbor.aclose()

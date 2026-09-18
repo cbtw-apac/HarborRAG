@@ -8,7 +8,7 @@ from typing import Any
 from jsonschema.exceptions import ValidationError
 from jsonschema.validators import validator_for
 
-from harborrag_runtime.tools.base import ToolSpec
+from harborrag_core.contracts.tools import ToolSpec
 
 from .models import McpConfiguration, ToolConfiguration
 

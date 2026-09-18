@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from ..contracts import (
+from harborrag_core.contracts.reader import (
     DocumentContextRequest,
     DocumentContextResponse,
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
     EvidenceReadRequest,
     EvidenceReadResponse,
     GraphNodeResolveRequest,
@@ -12,12 +16,7 @@ from ..contracts import (
     SourceListRequest,
     SourceListResponse,
 )
-from ..reader_contracts import (
-    DocumentListRequest,
-    DocumentListResponse,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
-)
+
 from .readers import ReaderRetrieval
 
 

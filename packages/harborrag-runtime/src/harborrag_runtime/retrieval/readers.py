@@ -6,15 +6,13 @@ import asyncio
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborCapabilityError
-from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, SourceCatalogQuery
-from harborrag_core.retrieval import GraphNodeResolutionQuery
-from harborrag_core.security import AccessContext
-from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.retrieval import graph_access_scope
-
-from ..contracts import (
+from harborrag_core.contracts.reader import (
     DocumentContextRequest,
     DocumentContextResponse,
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadataRequest,
+    DocumentMetadataResponse,
     EvidenceReadRequest,
     EvidenceReadResponse,
     GraphNodeResolveRequest,
@@ -22,12 +20,12 @@ from ..contracts import (
     SourceListRequest,
     SourceListResponse,
 )
-from ..reader_contracts import (
-    DocumentListRequest,
-    DocumentListResponse,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
-)
+from harborrag_core.ingestion import GraphNodeRecord, GraphOwnershipScope, SourceCatalogQuery
+from harborrag_core.retrieval import GraphNodeResolutionQuery
+from harborrag_core.security import AccessContext
+from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.retrieval import graph_access_scope
+
 from .document_catalog import DocumentCatalogReader
 from .document_context import DocumentContextReader
 from .immutable_evidence import ImmutableEvidenceReader

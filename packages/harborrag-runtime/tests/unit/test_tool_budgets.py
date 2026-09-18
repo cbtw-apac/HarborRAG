@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_runtime.tools.base import ToolSpec
-from harborrag_runtime.tools.budgets import ToolBudget, result_count
+from harborrag_engine.tools.base import ToolSpec
+from harborrag_engine.tools.budgets import ToolBudget, result_count
 
 _SCHEMA: dict[str, object] = {
     "type": "object",
@@ -103,7 +103,7 @@ def test_results_are_counted_from_whichever_list_a_tool_returns() -> None:
 def test_a_compiled_schema_is_reused_across_calls() -> None:
     """check_schema dominates the cost, so it must not run per call."""
 
-    from harborrag_runtime.tools.budgets import _compiled, _validator
+    from harborrag_engine.tools.budgets import _compiled, _validator
 
     _compiled.cache_clear()
     spec = _spec()

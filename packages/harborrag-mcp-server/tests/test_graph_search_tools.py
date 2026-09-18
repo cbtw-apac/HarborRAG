@@ -13,15 +13,15 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import GraphPath, GraphTriplet
+from harborrag_engine.tools.graph_search import (
+    GraphPathSearchTool,
+    GraphSubgraphSearchTool,
+    GraphTripletSearchTool,
+)
 from harborrag_runtime.sdk import (
     GraphPathResponse,
     GraphSubgraphResponse,
     GraphTripletResponse,
-)
-from harborrag_runtime.tools.graph_search import (
-    GraphPathSearchTool,
-    GraphSubgraphSearchTool,
-    GraphTripletSearchTool,
 )
 
 
@@ -314,18 +314,3 @@ async def test_graph_tool_success_and_failure_outputs_match_output_schema() -> N
 
         failure = await tool_cls().call(failure_arguments, principal_id="reader-1")
         validator.validate(failure)
-
-
-def test_mcp_and_agent_tool_schemas_are_the_same_definition() -> None:
-    from harborrag_runtime.agent.tool_specs import RUNTIME_AGENT_TOOL_SPECS
-
-    agent_specs = {spec.name: spec for spec in RUNTIME_AGENT_TOOL_SPECS}
-    for tool in (
-        GraphTripletSearchTool,
-        GraphPathSearchTool,
-        GraphSubgraphSearchTool,
-    ):
-        agent = agent_specs[tool.spec.name]
-        assert tool.spec.description == agent.description
-        assert tool.spec.input_schema["required"] == agent.input_schema["required"]
-        assert set(tool.spec.input_schema["properties"]) == set(agent.input_schema["properties"])

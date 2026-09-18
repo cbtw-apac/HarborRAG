@@ -162,10 +162,12 @@ become a core, adapter, or engine dependency.
 
 ## Application and MCP surfaces
 
-CLI and HTTP code should call `BaseAppService`; MCP tools should call runtime/service interfaces. Neither surface should construct raw provider clients in handlers.
+CLI and HTTP code should call `BaseAppService`; MCP should register engine
+reader tools bound to runtime reader services. Neither surface should construct
+raw provider clients in handlers.
 
 Stored chat prompts belong under
-`harborrag_runtime/chat/prompts/templates/`. To add a public prompt, add its
+`harborrag_engine/chat/prompts/templates/`. To add a public prompt, add its
 UTF-8 Markdown template, add a stable name and filename mapping to
 `ChatPrompt`/`PromptCatalog`, and test selection through every transport that
 exposes it. Keep model selection, credentials, endpoints, tenant data, and

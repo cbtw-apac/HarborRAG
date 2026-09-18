@@ -9,7 +9,7 @@ for HarborRAG ingestion. Framework-independent domain types and ports live in
 ```text
 src/harborrag_runtime/
   __init__.py       # lazy public facade
-  contracts.py      # stable SDK request/response value objects
+  contracts.py      # SDK compatibility exports and ingestion contracts
   ingestion_contracts.py # provider-neutral durable ingestion gateway and DTOs
   source_query.py   # provider-neutral source filtering contracts
   document_stage_catalog.py # sandbox-safe document stage metadata
@@ -22,9 +22,11 @@ src/harborrag_runtime/
   sdk/
     __init__.py     # stable SDK facade
     runtime.py      # SDK lifecycle and service orchestration
-    facades.py      # narrow ingestion/retrieval/graph facades
+    facades.py      # ingestion facade and reader facade compatibility exports
     configuration.py
   composition/
+    readers.py      # MCP reader-only service and tool composition
+    agent_tools.py  # optional reader/memory service binding for engine agent tools
     control_plane.py # production repository assembly
     resources.py     # storage/control resource factories
     storage_providers.py # registered storage factories selected by runtime settings
@@ -37,6 +39,7 @@ src/harborrag_runtime/
     direct.py       # inline execution strategy
     temporal.py     # durable execution strategy
   retrieval/
+    facades.py      # reader-port implementations without the SDK owner
     contracts.py    # retrieval ports, policy, and reports
     composition.py  # retrieval resource assembly and lifecycle ownership
     service.py      # authoritative retrieval use case
@@ -50,7 +53,8 @@ src/harborrag_runtime/
     prompts/        # packaged system prompt templates
   agent/
     __init__.py     # bounded multi-step agent service
-    tool_specs.py   # shared tool schemas, also used by the MCP surface
+    tools.py        # thin optional agent adapter over the shared tool invoker
+  observability/    # telemetry shared by reader and ingestion compositions
   events/           # runtime event contracts and publication
   config/
     settings.py     # HARBORRAG_* process settings

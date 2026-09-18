@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from harborrag_core.contracts.errors import HarborCapabilityError
-from harborrag_core.security import AccessContext
-from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.reader_contracts import (
+from harborrag_core.contracts.reader import (
     DocumentListRequest,
     DocumentListResponse,
     DocumentMetadata,
 )
+from harborrag_core.security import AccessContext
+from harborrag_core.storage import StorageOperationContext
 
 from .reader_resources import ReaderResources
 

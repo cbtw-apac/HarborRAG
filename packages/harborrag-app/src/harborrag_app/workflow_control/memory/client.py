@@ -33,6 +33,10 @@ class MemoryAdminClientMixin:
     _conversation_directory: ConversationDirectoryService
     _extraction: MemoryExtractionQueue | None
 
+    @property
+    def has_memory_extraction(self) -> bool:
+        return self._extraction is not None
+
     async def start_memory_extraction(self) -> None:
         """Start the background extraction workers (API lifespan only)."""
 

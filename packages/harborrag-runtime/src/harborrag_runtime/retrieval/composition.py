@@ -9,7 +9,6 @@ from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClient
 from harborrag_adapters.models.runtime import ResourceOwnership
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
-    RAW_BUCKET,
     ChunkArtifactReader,
     ImmutableArtifactReader,
 )
@@ -25,7 +24,7 @@ from ..composition.resources import (
 )
 from ..config.graph_build import GraphBuildConfig
 from ..config.settings import RuntimeSettings
-from ..ingestion.observability import IngestionTelemetry, build_model_telemetry
+from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
 from .contextual import ContextualEvidenceSearch
 from .contracts import RetrievalPolicy, RetrievalResources
@@ -73,7 +72,7 @@ async def connect_retrieval_service(
         ):
             await resource.connect()
             connected.append(resource.close)
-        await object_store.ensure_buckets((RAW_BUCKET, ARTIFACT_BUCKET))
+        await object_store.validate_buckets((ARTIFACT_BUCKET,))
     except BaseException:
         await asyncio.gather(
             *(close() for close in reversed(connected)),

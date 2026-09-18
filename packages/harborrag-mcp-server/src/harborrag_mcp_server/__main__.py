@@ -23,9 +23,6 @@ from harborrag_mcp_server.server.http import (
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
-    from harborrag_core.ports.conversation import ConversationRepository
-    from harborrag_runtime.config.settings import RuntimeSettings
-
 
 class _TerminalStream(Protocol):
     def isatty(self) -> bool: ...
@@ -58,12 +55,6 @@ def _configure_registry(registry: McpServer, path: str) -> McpConfigurationStore
     )
     registry.configuration = store
     return store
-
-
-def _configured_memory(settings: RuntimeSettings) -> ConversationRepository:
-    from harborrag_runtime.memory import build_database_conversation_memory
-
-    return build_database_conversation_memory(settings)
 
 
 async def _check_protocol(transport: FastMCP[Any]) -> list[str]:
@@ -149,13 +140,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         auth = create_local_token_verifier(bearer_token)
     else:
         auth = None
+    from harborrag_runtime.composition.readers import open_reader_application
     from harborrag_runtime.config.settings import RuntimeSettings
-    from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
     settings = RuntimeSettings()
-    runtime = HarborRAG(HarborRAGConfig(runtime=settings))
-    memory = _configured_memory(settings)
-    registry = McpServer(runtime=runtime, memory=memory)
+    runtime = open_reader_application(settings)
+    registry = McpServer(invoker=runtime.invoker, references=runtime.references)
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(
         "FastMCP[Any]",

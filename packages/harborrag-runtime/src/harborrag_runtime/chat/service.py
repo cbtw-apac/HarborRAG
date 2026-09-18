@@ -16,15 +16,14 @@ from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.models.chat import (
-    HarborChatMessage,
     HarborChatRequest,
     HarborChatResponse,
     HarborChatStreamChunk,
 )
 from harborrag_core.ports.model_clients import AsyncHarborChatClientProtocol
+from harborrag_engine.chat.prompts import ChatPrompt, PromptCatalog, apply_prompt
 from harborrag_runtime.config.settings import RuntimeSettings
 
-from .prompts import ChatPrompt, PromptCatalog
 from .tenant_clients import TenantChatClients, TenantChatResolution, TenantClientBuilder
 from .tenant_models import TenantModelSources
 
@@ -116,7 +115,7 @@ class RuntimeChatService:
         *,
         prompt: ChatPrompt | None = None,
     ) -> HarborChatResponse:
-        prepared = self._apply_prompt(request, prompt)
+        prepared = apply_prompt(request, prompt, self._prompts)
         client = await self._client_for(request)
         return await client.achat(request=prepared)
 
@@ -126,7 +125,7 @@ class RuntimeChatService:
         *,
         prompt: ChatPrompt | None = None,
     ) -> AsyncIterator[HarborChatStreamChunk]:
-        prepared = self._apply_prompt(request, prompt)
+        prepared = apply_prompt(request, prompt, self._prompts)
         client = await self._client_for(request)
         async for chunk in client.astream(request=prepared):
             yield chunk
@@ -146,16 +145,6 @@ class RuntimeChatService:
             client, self._client = self._client, None
             if client is not None:
                 await client.aclose()
-
-    def _apply_prompt(
-        self,
-        request: HarborChatRequest,
-        prompt: ChatPrompt | None,
-    ) -> HarborChatRequest:
-        if prompt is None:
-            return request
-        system_message = HarborChatMessage.system(self._prompts.resolve(prompt))
-        return request.model_copy(update={"messages": (system_message, *request.messages)})
 
     async def _client_for(self, request: HarborChatRequest) -> AsyncHarborChatClientProtocol:
         resolution = await self._resolution(request.metadata.tenant_id)

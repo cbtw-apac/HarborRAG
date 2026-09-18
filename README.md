@@ -201,15 +201,15 @@ pip install "harborrag[all]"          # everything
 pip install "harborrag[cli,qdrant]"   # or just what you need
 ```
 
-A bare `pip install harborrag` gives you the framework and the `harborrag` command but no
-provider clients - no vector store, no graph store, no model client - so add at least one
-extra; `harborrag doctor` names whatever is missing.
+A bare `pip install harborrag` installs the MCP transport and the lazy public facade.
+Install `harborrag[mcp]` for the reader backend providers, or add `cli` for the
+application command.
 
 | Extra | Install it when you want |
 | --- | --- |
-| `local` | local end-to-end ingestion and retrieval, including the `harborrag` command |
+| `local` | local end-to-end ingestion and retrieval |
 | `chat` | chat completion, embeddings, or reranking |
-| `cli` | nothing new - the bare install already includes the `harborrag` command |
+| `cli` | the `harborrag` application command |
 | `server` | the HTTP control-plane API |
 | `mcp` | MCP retrieval tools in an IDE or agent |
 | `temporal` | durable ingestion (`submit`/`pause`/`resume`/`cancel`) |
@@ -552,9 +552,9 @@ More: [CLI reference](docs/users/cli-reference/README.md) ·
 
 ## Connect an MCP client
 
-HarborRAG exposes **four** audited, tenant-scoped retrieval tools over MCP:
-`vector_search`, `graph_triplet_search`, `graph_path_search`, and
-`graph_subgraph_search`. Every call requires an explicit tenant, passes JSON-schema and
+HarborRAG exposes **thirteen** audited reader tools over MCP, including
+`vector_search`, evidence and document reads, source discovery, and graph search.
+Tenant-scoped calls require an explicit tenant, pass JSON-schema and
 budget validation, and is recorded in an owner-only audit log that stores argument digests
 rather than raw query text.
 

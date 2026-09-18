@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from harborrag_runtime.tools.base import ToolSpec
+from harborrag_core.contracts.tools import ToolSpec
 
 
 class BaseMcpServer(ABC):
