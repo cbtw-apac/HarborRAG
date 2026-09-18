@@ -89,9 +89,12 @@ def test_openapi_explains_modes_header_and_canonical_resume(client):
     assert "409" in resume["responses"]
     agent = schema["components"]["schemas"]["AgentCompletionResponse"]
     agent_completion = schema["paths"]["/v1/agent/completions"]["post"]
-    assert agent_completion["responses"]["200"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ChatCompletionResponse"
-    }
+    agent_response = {"$ref": "#/components/schemas/AgentCompletionResponse"}
+    assert (
+        agent_completion["responses"]["200"]["content"]["application/json"]["schema"]
+        == agent_response
+    )
+    assert resume["responses"]["200"]["content"]["application/json"]["schema"] == agent_response
     assert {"mode", "citations", "citation_validation", "cost"} <= agent["properties"].keys()
     assert {"run_id", "stop_reason", "turns", "tool_calls"} <= set(agent["required"])
 
@@ -201,6 +204,6 @@ def test_display_delta_does_not_expose_reasoning_or_provider_fields():
 
 def test_response_text_preserves_source_indentation_and_streamed_whitespace():
     content = "  indented source\n    next line\n"
-    citation = ChatCitation(document_id="doc", chunk_id="chunk", score=None, content=content)
+    citation = ChatCitation(document_id="doc", chunk_id="chunk", score=0.0, content=content)
     message = ChatMessageResponse(role="assistant", content=content)
     assert citation.content == message.content == content

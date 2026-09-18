@@ -40,6 +40,12 @@ class BaseAppService(ABC):
         del limit
         return 0
 
+    async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
+        """Recover durable control-plane effects where the service supports it."""
+
+        del limit
+        return 0
+
     async def sync_ingestion_progress(self) -> int:
         """One progress-bridge poll tick where the concrete service supports it."""
 
