@@ -8,6 +8,10 @@ from typing import cast
 from .errors import InvalidChunkingPlanError
 from .table.policy import TableChunkingPolicy
 
+# Routes are navigational: they summarise a document or section rather than
+# carrying its text, so they hold to one budget instead of the profile's.
+ROUTE_MAXIMUM_TOKENS = 512
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkingPlan:
@@ -141,17 +145,17 @@ def default_chunking_profiles() -> dict[str, ChunkingProfile]:
         "canonical": ChunkingProfile(
             name="canonical",
             strategy="canonical",
-            limits=ChunkingLimits(120, 700, 1100, 0),
+            limits=ChunkingLimits(120, 700, 1100, 0, soft_maximum_tokens=900),
         ),
         "jira": ChunkingProfile(
             name="jira",
             strategy="jira",
-            limits=ChunkingLimits(80, 600, 1000, 40),
+            limits=ChunkingLimits(80, 600, 1000, 40, soft_maximum_tokens=800),
         ),
         "confluence": ChunkingProfile(
             name="confluence",
             strategy="confluence",
-            limits=ChunkingLimits(120, 750, 1200, 0),
+            limits=ChunkingLimits(120, 750, 1200, 0, soft_maximum_tokens=950),
         ),
     }
 

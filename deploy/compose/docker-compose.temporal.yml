@@ -187,6 +187,7 @@ services:
       HARBORRAG_TEMPORAL_CONFIG_PATH: /app/config/temporal.yaml
       HARBORRAG_CONNECTOR_CONFIG_PATH: /app/config/connectors.yaml
       HARBORRAG_PARSER_CONFIG_PATH: /app/config/parsers.yaml
+      HARBORRAG_CHUNKING_CONFIG_PATH: /app/config/chunking.yaml
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
       HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml
       LOCAL_SOURCE_PATH: /data/sources
@@ -213,6 +214,9 @@ services:
       # resilience tests need only a worker restart, not an image rebuild.
       - ../../config/temporal.yaml:/app/config/temporal.yaml:ro
       # Other runtime configuration remains baked into the worker image.
+      # parsers.yaml and chunking.yaml feed the processing identity the API
+      # stamps on submissions, so editing them on the host requires a worker
+      # image rebuild -- otherwise submission and execution disagree.
       - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
       # scripts/deployment/dev.sh sets this from LOCAL_SOURCE_PATH in
       # env/.env.connector. The fallback only applies to a hand-run compose.

@@ -102,6 +102,31 @@ def test_plan_soft_maximum_limits_peer_merging_below_hard_maximum() -> None:
     assert result.manifest.validation.valid
 
 
+def test_profile_soft_maximum_limits_peer_merging_below_the_hard_maximum() -> None:
+    """The soft ceiling must bind through the profile, not only a per-run plan.
+
+    With no soft ceiling it collapses to the hard maximum and the undersized
+    peer is absorbed; the whole point of the middle tier is that it is not.
+    """
+
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "aaaaaa"),
+            DocumentElement("p2", "paragraph", "b"),
+        ]
+    )
+
+    bounded = make_service(make_profile(minimum=3, target=6, maximum=10, soft=7)).chunk(
+        make_request(document)
+    )
+    collapsed = make_service(make_profile(minimum=3, target=6, maximum=10)).chunk(
+        make_request(document)
+    )
+
+    assert [record.content for record in bounded.chunks] == ["aaaaaa", "b"]
+    assert [record.content for record in collapsed.chunks] == ["aaaaaa\n\nb"]
+
+
 def test_oversized_units_get_unique_parts_below_the_hard_maximum() -> None:
     profile = make_profile(target=3, maximum=4)
     document = make_document([DocumentElement("p1", "paragraph", "abcdefghij")])

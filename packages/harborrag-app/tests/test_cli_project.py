@@ -56,6 +56,7 @@ def test_activation_applies_the_documented_precedence(tmp_path: Path, monkeypatc
         "OPENAI_API_KEY",
         "HARBORRAG_ENV",
         "HARBORRAG_CONNECTOR_CONFIG_PATH",
+        "HARBORRAG_CHUNKING_CONFIG_PATH",
         "HARBORRAG_QDRANT_PREFER_GRPC",
         "HARBORRAG_PROJECT",
     ):
@@ -72,6 +73,11 @@ def test_activation_applies_the_documented_precedence(tmp_path: Path, monkeypatc
     assert os.environ["HARBORRAG_CONNECTOR_CONFIG_PATH"] == str(
         (root / "config/connectors.yaml").resolve()
     )  # yaml paths made absolute
+    # Every catalog a scaffolded project ships must resolve against its root,
+    # or running the CLI from elsewhere silently picks up a different file.
+    assert os.environ["HARBORRAG_CHUNKING_CONFIG_PATH"] == str(
+        (root / "config/chunking.yaml").resolve()
+    )
     assert os.environ["HARBORRAG_QDRANT_PREFER_GRPC"] == "false"  # booleans lower-cased
 
 

@@ -93,6 +93,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     connector_config_path: Path = Path("config/connectors.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
+    # Optional: absent means the built-in canonical/jira/confluence policies.
+    chunking_config_path: Path = Path("config/chunking.yaml")
     graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
     object_store_provider: str = Field(default="s3", min_length=1)
     object_store_root: Path = Path(".harborrag/objects")

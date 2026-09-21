@@ -1,3 +1,10 @@
+from harborrag_runtime.config.chunking import (
+    CHUNKING_CONFIG_VERSION,
+    ChunkingFileConfig,
+    ChunkingLimitsConfig,
+    ChunkingProfileConfig,
+)
+from harborrag_runtime.config.chunking_loading import load_chunking_config
 from harborrag_runtime.config.connectors import (
     CONNECTOR_CONFIG_VERSION,
     ConnectorCatalog,
@@ -7,6 +14,7 @@ from harborrag_runtime.config.connectors import (
     load_connector_catalog,
 )
 from harborrag_runtime.config.errors import (
+    ChunkingConfigurationError,
     ConfigurationError,
     GraphBuildConfigurationError,
     TemporalConfigurationError,
@@ -47,7 +55,12 @@ from harborrag_runtime.temporal_models import (
 
 __all__ = [
     "ActivityRetryConfig",
+    "CHUNKING_CONFIG_VERSION",
     "CONNECTOR_CONFIG_VERSION",
+    "ChunkingConfigurationError",
+    "ChunkingFileConfig",
+    "ChunkingLimitsConfig",
+    "ChunkingProfileConfig",
     "ConfigurationError",
     "ConnectorCatalog",
     "ConnectorConfigurationError",
@@ -77,6 +90,7 @@ __all__ = [
     "WorkerConfig",
     "connector_fingerprint",
     "describe_model_catalog",
+    "load_chunking_config",
     "load_connector_catalog",
     "load_graph_build_config",
     "load_parser_catalog",

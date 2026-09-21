@@ -38,6 +38,7 @@ _PATH_KEYS = frozenset(
         "connector_config_path",
         "parser_config_path",
         "model_config_path",
+        "chunking_config_path",
     }
 )
 

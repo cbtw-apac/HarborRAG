@@ -14,8 +14,16 @@ from harborrag_app.scaffold import (
     build_scaffold,
     write_scaffold,
 )
-from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
+from harborrag_runtime.config import (
+    load_chunking_config,
+    load_connector_catalog,
+    load_parser_catalog,
+)
 from harborrag_runtime.config.temporal_loading import load_temporal_config
+from harborrag_runtime.ingestion.chunking_profile import (
+    chunk_strategy_fingerprint,
+    default_chunking_config,
+)
 
 EXPECTED_FILES = {
     "harborrag.yaml",
@@ -24,6 +32,7 @@ EXPECTED_FILES = {
     "docker-compose.yml",
     "config/connectors.yaml",
     "config/models.yaml",
+    "config/chunking.yaml",
     "config/parsers.yaml",
     "config/temporal.yaml",
 }
@@ -64,6 +73,10 @@ def test_rendered_catalogs_load_through_the_runtime(
     catalog = load_connector_catalog(tmp_path / "config/connectors.yaml")
     assert tuple(catalog.names(enabled_only=True)) == ("workspace",)
     load_parser_catalog(tmp_path / "config/parsers.yaml")
+    chunking = load_chunking_config(tmp_path / "config/chunking.yaml")
+    assert chunk_strategy_fingerprint(chunking) == chunk_strategy_fingerprint(
+        default_chunking_config()
+    )
     load_temporal_config(tmp_path / "config/temporal.yaml")
     chat = HarborChatClientConfig.from_file(tmp_path / "config/models.yaml")
     embed = HarborEmbedClientConfig.from_file(tmp_path / "config/models.yaml")
@@ -71,6 +84,17 @@ def test_rendered_catalogs_load_through_the_runtime(
     assert embed.default_model == "primary"
     compose = yaml.safe_load((tmp_path / "docker-compose.yml").read_text())
     assert set(compose["services"]) == {"qdrant", "falkordb", "minio"}
+
+
+def test_chunking_template_matches_the_repository_policy() -> None:
+    """A scaffolded project must start on the same chunking policy as the repo."""
+
+    repo_root = Path(__file__).resolve().parents[3]
+    template = (
+        repo_root / "packages/harborrag-app/src/harborrag_app/scaffold/templates/chunking.yaml.tmpl"
+    )
+
+    assert template.read_bytes() == (repo_root / "config/chunking.yaml").read_bytes()
 
 
 def test_dotenv_carries_generated_secrets_and_the_provider_key() -> None:

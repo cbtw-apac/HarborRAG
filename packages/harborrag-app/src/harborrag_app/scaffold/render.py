@@ -22,6 +22,7 @@ _FILES: tuple[tuple[str, str], ...] = (
     (ENV_FILE, "dotenv.tmpl"),
     (".gitignore", "gitignore.tmpl"),
     ("docker-compose.yml", "compose.yml.tmpl"),
+    ("config/chunking.yaml", "chunking.yaml.tmpl"),
     ("config/connectors.yaml", "connectors.yaml.tmpl"),
     ("config/models.yaml", "models.yaml.tmpl"),
     ("config/parsers.yaml", "parsers.yaml.tmpl"),

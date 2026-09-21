@@ -198,3 +198,104 @@ def test_produces_evidence_agrees_with_what_segmentation_emits() -> None:
     for document, expected in ((heading_only, 0), (with_prose, 1)):
         statistics = service.chunk(make_request(document)).statistics
         assert statistics.evidence_chunk_count == expected
+
+
+def test_heading_rich_document_still_produces_an_admissible_route() -> None:
+    """Route content is bounded, so a document with many sections stays ingestible.
+
+    `Major headings` grows with every top-level section. Left unbounded it
+    crosses the route budget and fails validation, which loses the whole
+    document rather than degrading its route.
+    """
+
+    elements: list[DocumentElement] = []
+    for index in range(40):
+        elements.append(
+            DocumentElement(
+                f"h{index}", "heading", f"Operational Section {index:02d}", {"level": 1}
+            )
+        )
+        elements.append(DocumentElement(f"p{index}", "paragraph", f"Body text {index}."))
+    document = make_document(elements, source="confluence", record_id="95518771")
+
+    result = make_service(
+        make_profile(name="confluence", strategy="confluence", target=100, maximum=120),
+        create_route_chunks=True,
+    ).chunk(make_request(document))
+
+    route = result.chunks[0]
+    assert route.record_kind == RecordKind.ROUTE
+    assert route.token_count <= 512
+    # The identifying fields must survive the trim, not be crowded out by headings.
+    assert "Title: HarborRAG" in route.content
+
+
+def test_metadata_heavy_route_is_trimmed_to_the_budget_and_stays_identifying() -> None:
+    """Bounding each field is not enough: many bounded fields still overflow.
+
+    The assembled route gets a final trim, which must keep the leading
+    identifying line rather than returning something blank or arbitrary.
+    """
+
+    filler = "x" * 400
+    document = make_document(
+        [
+            DocumentElement("h1", "heading", "Overview", {"level": 1}),
+            DocumentElement("p1", "paragraph", "Body text for the overview section."),
+        ],
+        source="confluence",
+        record_id=filler,
+        extra={
+            "space_id": filler,
+            "space_key": filler,
+            "project_id": filler,
+            "project_key": filler,
+            "issue_key": filler,
+            "filename": filler,
+            "relative_path": filler,
+            "labels": [filler],
+        },
+    )
+
+    result = make_service(
+        make_profile(name="confluence", strategy="confluence", target=100, maximum=120),
+        create_route_chunks=True,
+    ).chunk(make_request(document))
+
+    route = result.chunks[0]
+    assert route.record_kind == RecordKind.ROUTE
+    assert route.token_count <= 512
+    assert route.content.strip()
+    assert route.content.startswith("Title: HarborRAG")
+
+
+def test_long_titled_sections_keep_distinct_route_identities() -> None:
+    """Trimming must not collapse two sections onto one identity."""
+
+    document = make_document(
+        [
+            DocumentElement("h1", "heading", "First Section", {"level": 1}),
+            DocumentElement("p1", "paragraph", "Body of the first section."),
+            DocumentElement("h2", "heading", "Second Section", {"level": 1}),
+            DocumentElement("p2", "paragraph", "Body of the second section."),
+        ],
+    )
+    document.title = "T" * 2000
+
+    result = make_service(
+        make_profile(target=100, maximum=120),
+        create_route_chunks=True,
+    ).chunk(make_request(document))
+
+    section_routes = [
+        record
+        for record in result.chunks
+        if record.record_kind == RecordKind.ROUTE
+        and record.metadata.get("route_level") == "section"
+    ]
+    assert len(section_routes) == 2
+    assert all(record.content.strip() for record in section_routes)
+    assert all((record.token_count or 0) <= 512 for record in section_routes)
+    assert len({record.logical_chunk_id for record in section_routes}) == 2
+    assert len({record.chunk_id for record in section_routes}) == 2
+    assert result.manifest.validation.valid

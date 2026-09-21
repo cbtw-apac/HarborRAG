@@ -1,0 +1,59 @@
+# Deterministic chunking policy.
+#
+# WARNING: every value below feeds the chunk-strategy fingerprint that forms
+# part of a document's processing identity. Changing any of them invalidates
+# already-ingested documents and forces a full re-chunk of the corpus. Treat
+# edits here as a migration, not a tweak.
+#
+# Chunking receives a canonical document, so media-type routing belongs to
+# parsing and normalization. Only Confluence and Jira have maintained source
+# policies; every other source falls back to `canonical`.
+#
+# Path: HARBORRAG_CHUNKING_CONFIG_PATH (or `runtime.chunking_config_path` in
+# harborrag.yaml). If the file is absent the runtime uses these same values
+# from its built-in defaults.
+
+configuration_version: canonical-source-policies
+default_profile: canonical
+
+# Emit one route chunk per document alongside the evidence chunks.
+create_route_chunks: true
+
+# Each profile has three ceilings. Packing aims at `target_tokens`. A chunk
+# still under `minimum_tokens` may keep absorbing units up to
+# `soft_maximum_tokens`, and `maximum_tokens` is the hard limit no chunk may
+# cross. `overlap_tokens` applies only where an oversized unit must be
+# force-split; it is not a sliding window over ordinary chunks.
+profiles:
+  # Source-neutral fallback, also used for independently parsed attachments.
+  canonical:
+    strategy: canonical
+    limits:
+      minimum_tokens: 120
+      target_tokens: 700
+      soft_maximum_tokens: 900
+      maximum_tokens: 1100
+      overlap_tokens: 0
+
+  jira:
+    strategy: jira
+    limits:
+      minimum_tokens: 80
+      target_tokens: 600
+      soft_maximum_tokens: 800
+      maximum_tokens: 1000
+      overlap_tokens: 40
+
+  confluence:
+    strategy: confluence
+    limits:
+      minimum_tokens: 120
+      target_tokens: 750
+      soft_maximum_tokens: 950
+      maximum_tokens: 1200
+      overlap_tokens: 0
+
+# Connector type -> profile name. Unlisted sources use `default_profile`.
+source_profiles:
+  confluence: confluence
+  jira: jira

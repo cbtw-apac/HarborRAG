@@ -12,13 +12,18 @@ from pydantic import ValidationError
 
 from harborrag_app.workflow_control.errors import public_error_message
 from harborrag_core.contracts.errors import HarborConfigurationError
-from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
+from harborrag_runtime.config import (
+    ConnectorCatalog,
+    describe_model_catalog,
+    load_chunking_config,
+)
 
 from .checks import Check
 
 logger = logging.getLogger("harborrag.app.cli.doctor.environment")
 
 _MODELS_HINT = "Set the provider key in .env (it is referenced as ${VAR} in config/models.yaml)."
+_CHUNKING_HINT = "Fix config/chunking.yaml, or delete it to use the built-in policies."
 
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -129,6 +134,21 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
     return Check(
         "connector credentials", "environment", "ok", f"{remote} remote connector(s) configured"
     )
+
+
+def chunking_check(path: Path) -> Check:
+    """Report the chunking policy in force. The file is optional."""
+
+    if not path.is_file():
+        return Check("chunking policy", "config", "ok", "built-in defaults")
+    try:
+        config = load_chunking_config(path)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Chunking policy %s could not be loaded", path, exc_info=True)
+        detail = f"{path}: {check_error_detail(exc)}"
+        return Check("chunking policy", "config", "fail", detail, hint=_CHUNKING_HINT)
+    profiles = ", ".join(sorted(config.profiles))
+    return Check("chunking policy", "config", "ok", f"{path}: {profiles}")
 
 
 def models_check(path: Path) -> Check:

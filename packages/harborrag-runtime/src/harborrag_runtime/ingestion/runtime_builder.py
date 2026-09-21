@@ -55,7 +55,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
-from .chunking_profile import default_chunking_config
+from .chunking_profile import default_chunking_config, resolve_chunking_config
 from .composition import IngestionRuntime
 from .document.dependencies import DocumentReleaseDependencies
 from .document.normalizers import (
@@ -90,7 +90,7 @@ class IngestionRuntimeBuilder:
         self._normalizer_builder = (
             normalizer_builder or default_source_document_normalizer_builder()
         )
-        self._chunking_config = chunking_config
+        self._chunking_config = chunking_config or resolve_chunking_config(settings)
         self._chunking_strategies = tuple(chunking_strategies)
 
     def build(self) -> IngestionRuntime:

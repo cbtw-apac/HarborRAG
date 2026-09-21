@@ -23,8 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `harborrag` command ships with every install of `harborrag`, including the bare one;
   `harborrag[local]` adds the clients the local stack needs.
 
+### Fixed
+
+- Documents with many top-level sections no longer fail ingestion. Route chunks are
+  validated against a fixed 512-token budget, but `Major headings`, `Labels`, the title
+  and the section path were assembled unbounded, so a document with roughly 40+ sections
+  raised `ChunkValidationError` and produced nothing. Route fields are now individually
+  bounded and the assembled route is trimmed to the budget.
+
 ### Changed
 
+- Chunking profiles carry a distinct `soft_maximum_tokens` again (900/800/950 for
+  canonical/Jira/Confluence). The tier existed in the packer and peer merger but every
+  profile omitted it, collapsing it onto the hard maximum. Chunk identities change, so
+  existing corpora must be re-ingested.
+- Chunking profiles now live in `config/chunking.yaml`
+  (`HARBORRAG_CHUNKING_CONFIG_PATH`) instead of being hardcoded. The file is
+  optional and the shipped one reproduces the previous built-in policy exactly,
+  so processing identities and already-ingested corpora are unaffected.
 - `ingest start --wait` and `ingest watch` render an inline progress block instead of a
   full-screen dashboard; `watch --events` streams NDJSON.
 - Direct-mode commands (`ingest run`, `retrieve`, `chat`, `doctor`) no longer import the

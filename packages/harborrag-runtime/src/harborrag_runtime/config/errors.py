@@ -16,3 +16,7 @@ class TemporalConfigurationError(ConfigurationError):
 
 class GraphBuildConfigurationError(ConfigurationError):
     """Raised when graph-build policy is invalid or unreadable."""
+
+
+class ChunkingConfigurationError(ConfigurationError):
+    """Raised when the chunking policy is invalid or unreadable."""

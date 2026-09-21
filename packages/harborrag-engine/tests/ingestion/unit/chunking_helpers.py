@@ -79,11 +79,12 @@ def make_profile(
     target: int = 20,
     maximum: int = 25,
     overlap: int = 0,
+    soft: int | None = None,
 ) -> ChunkingProfile:
     return ChunkingProfile(
         name=name,
         strategy=strategy,
-        limits=ChunkingLimits(minimum, target, maximum, overlap),
+        limits=ChunkingLimits(minimum, target, maximum, overlap, soft_maximum_tokens=soft),
     )
 
 

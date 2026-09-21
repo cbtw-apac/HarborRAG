@@ -20,6 +20,7 @@ from . import probes
 from .checks import Check, DoctorReport
 from .environment import (
     check_error_detail,
+    chunking_check,
     credentials_check,
     models_check,
     packages_check,
@@ -117,6 +118,7 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
         checks.append(Check("parsers catalog", "config", "ok", str(settings.parser_config_path)))
     except Exception as exc:  # noqa: BLE001
         checks.append(Check("parsers catalog", "config", "fail", str(exc), hint=_INIT_HINT))
+    checks.append(chunking_check(settings.chunking_config_path))
     checks.append(models_check(settings.model_config_path))
     if catalog is not None:
         checks.extend(source_path_checks(catalog))

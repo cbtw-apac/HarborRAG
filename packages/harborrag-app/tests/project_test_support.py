@@ -12,6 +12,7 @@ def scaffold(root: Path) -> Path:
     (root / "harborrag.yaml").write_text(
         "execution_mode: direct\nruntime:\n  env: dev\n"
         "  connector_config_path: config/connectors.yaml\n"
+        "  chunking_config_path: config/chunking.yaml\n"
         "  qdrant_prefer_grpc: false\n",
         encoding="utf-8",
     )

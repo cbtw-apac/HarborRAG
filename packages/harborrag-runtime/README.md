@@ -155,6 +155,7 @@ settings:
 export HARBORRAG_TEMPORAL_CONFIG_PATH=config/temporal.yaml
 export HARBORRAG_CONNECTOR_CONFIG_PATH=config/connectors.yaml
 export HARBORRAG_PARSER_CONFIG_PATH=config/parsers.yaml
+export HARBORRAG_CHUNKING_CONFIG_PATH=config/chunking.yaml
 export HARBORRAG_MODEL_CONFIG_PATH=config/models.yaml
 python -m harborrag_runtime.temporal.worker
 ```
@@ -253,11 +254,21 @@ For the PostgreSQL-backed local server and worker profile, see
 ## File configuration
 
 ```python
-from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
+from harborrag_runtime.config import (
+    load_chunking_config,
+    load_connector_catalog,
+    load_parser_catalog,
+)
 
 connectors = load_connector_catalog("config/connectors.yaml").build_enabled()
 parsers = load_parser_catalog("config/parsers.yaml").build_harbor_parser()
+chunking = load_chunking_config("config/chunking.yaml")
 ```
+
+`config/chunking.yaml` is optional: when it is absent the runtime uses the
+built-in canonical/Jira/Confluence policies, which the shipped file reproduces
+exactly. Its values feed the chunk-strategy fingerprint that forms part of a
+document's processing identity, so editing them re-chunks the whole corpus.
 
 ## Tests
 

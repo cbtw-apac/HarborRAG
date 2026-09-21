@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from harborrag_core.contracts.chunking import SplitBoundaryKind, TokenCounter
 from harborrag_core.ingestion import UnsupportedDocumentError
 
+from ..config import ROUTE_MAXIMUM_TOKENS
 from ..schemas import ChunkCandidate, ChunkingRequest, ChunkUnit
 from .segmentation import element_span
 
@@ -18,6 +19,10 @@ _ROUTE_METADATA_FIELDS = (
     "filename",
     "relative_path",
 )
+
+# Each free-form field is bounded before assembly so that no single one can
+# crowd the others out of the route budget.
+_FIELD_CHARACTERS = 320
 
 
 class RouteChunkPlanner:
@@ -119,11 +124,13 @@ class RouteChunkPlanner:
         evidence: ChunkCandidate,
     ) -> ChunkCandidate:
         path = evidence.structural_path
-        content = "\n".join(
-            (
-                f"Document: {request.document.title.strip()}",
-                f"Section: {' > '.join(path)}",
-                f"Extract: {' '.join(evidence.content.split())[:320]}",
+        content = self._fit(
+            "\n".join(
+                (
+                    f"Document: {request.document.title.strip()[:_FIELD_CHARACTERS]}",
+                    f"Section: {' > '.join(path)[:_FIELD_CHARACTERS]}",
+                    f"Extract: {' '.join(evidence.content.split())[:_FIELD_CHARACTERS]}",
+                )
             )
         )
         return ChunkCandidate(
@@ -138,21 +145,41 @@ class RouteChunkPlanner:
             metadata={**evidence.metadata, "route_level": "section"},
         )
 
-    @staticmethod
+    def _fit(self, content: str) -> str:
+        """Trim assembled route content to the route budget.
+
+        Routes are validated against a hard ceiling, and a route that crosses it
+        fails the whole document rather than degrading. Bounding each field is
+        not enough on its own -- a long title plus many metadata fields can
+        still cross it -- so the assembled text gets a final deterministic trim.
+        """
+
+        if self._token_counter.count(content) <= ROUTE_MAXIMUM_TOKENS:
+            return content
+        low, high = 1, len(content)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if self._token_counter.count(content[:middle]) <= ROUTE_MAXIMUM_TOKENS:
+                low = middle
+            else:
+                high = middle - 1
+        return content[:low].rstrip()
+
     def _content(
+        self,
         request: ChunkingRequest,
         evidence: tuple[ChunkCandidate, ...],
     ) -> str:
         document = request.document
-        values: list[str] = [f"Title: {document.title.strip()}"]
+        values: list[str] = [f"Title: {document.title.strip()[:_FIELD_CHARACTERS]}"]
         record_id = document.provenance.record_id
         if record_id:
-            values.append(f"Source ID: {record_id}")
+            values.append(f"Source ID: {record_id[:_FIELD_CHARACTERS]}")
         for field in _ROUTE_METADATA_FIELDS:
             value = document.provenance.extra.get(field)
             rendered = _render_value(value)
             if rendered:
-                values.append(f"{field.replace('_', ' ').title()}: {rendered}")
+                values.append(f"{field.replace('_', ' ').title()}: {rendered[:_FIELD_CHARACTERS]}")
         labels = tuple(
             dict.fromkeys(
                 (
@@ -162,19 +189,19 @@ class RouteChunkPlanner:
             )
         )
         if labels:
-            values.append(f"Labels: {', '.join(labels)}")
+            values.append(f"Labels: {', '.join(labels)[:_FIELD_CHARACTERS]}")
         headings = tuple(
             dict.fromkeys(
                 candidate.structural_path[0] for candidate in evidence if candidate.structural_path
             )
         )
         if headings:
-            values.append(f"Major headings: {', '.join(headings)}")
+            values.append(f"Major headings: {', '.join(headings)[:_FIELD_CHARACTERS]}")
         if evidence:
             extract = " ".join(evidence[0].content.split())
             if extract:
-                values.append(f"Extract: {extract[:320]}")
-        return "\n".join(values)
+                values.append(f"Extract: {extract[:_FIELD_CHARACTERS]}")
+        return self._fit("\n".join(values))
 
 
 def _string_values(value: object) -> tuple[str, ...]:
