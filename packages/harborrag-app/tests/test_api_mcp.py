@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 
 
@@ -50,6 +52,35 @@ def test_mcp_clients_reports_usage_by_client(client: TestClient) -> None:
     assert payload["clients"] == [
         {"client": "dev", "query_count": 3, "last_seen_at": "2026-09-17T12:00:00Z"}
     ]
+
+
+def test_mcp_clients_rejects_a_tenant_scoped_caller(monkeypatch) -> None:
+    """McpClientUsage has no tenant dimension -- a tenant-scoped admin must not see it,
+    even though "admin" alone would clear the role bar."""
+    service = MockAppService()
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="scoped-admin", role="admin", tenant_ids=frozenset({"tenant-a"})
+    )
+    with TestClient(app) as scoped_client:
+        response = scoped_client.get("/v1/mcp/clients")
+
+    assert response.status_code == 403
+
+
+def test_mcp_clients_rejects_a_global_reader_below_the_role_bar(monkeypatch) -> None:
+    """Global tenant scope alone is not enough -- role must also clear "admin"."""
+    service = MockAppService()
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="global-reader", role="reader", tenant_ids=frozenset({"*"})
+    )
+    with TestClient(app) as scoped_client:
+        response = scoped_client.get("/v1/mcp/clients")
+
+    assert response.status_code == 403
 
 
 def test_mcp_tools_reports_usage_by_tool(client: TestClient) -> None:
@@ -100,6 +131,20 @@ def test_mcp_queries_rejects_an_invalid_range_format(client: TestClient) -> None
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "harbor_validation_error"
+
+
+def test_mcp_queries_rejects_a_tenant_scoped_caller(monkeypatch) -> None:
+    """McpUsageEntry has no tenant dimension either -- see the /clients tests above."""
+    service = MockAppService()
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="scoped-admin", role="admin", tenant_ids=frozenset({"tenant-a"})
+    )
+    with TestClient(app) as scoped_client:
+        response = scoped_client.get("/v1/mcp/queries")
+
+    assert response.status_code == 403
 
 
 def test_mcp_config_reports_real_values(client: TestClient) -> None:

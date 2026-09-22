@@ -134,6 +134,36 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
     return dependency
 
 
+def authorize_global_scope(principal: Principal) -> None:
+    """Reject a principal scoped to specific tenants.
+
+    For data with no tenant dimension at all (e.g. platform-wide MCP
+    telemetry): a tenant-scoped caller must not see it no matter their role,
+    since there is no tenant filter to apply on their behalf.
+    """
+
+    if "*" not in principal.tenant_ids:
+        raise HarborAuthError("requires operator-wide (all-tenant) access", forbidden=True)
+
+
+def require_operator_role(minimum: Role) -> Callable[..., Principal]:
+    """Dependency factory enforcing a minimum role AND unrestricted tenant scope.
+
+    Use for routes backed by data that has no tenant dimension to filter
+    on -- ``require_role`` alone would let a tenant-scoped caller through
+    since role rank says nothing about tenant scope.
+    """
+
+    def dependency(
+        principal: Annotated[Principal, Depends(get_principal)],
+    ) -> Principal:
+        authorize_role(principal, minimum)
+        authorize_global_scope(principal)
+        return principal
+
+    return dependency
+
+
 def authorize_tenant(principal: Principal, tenant_id: str) -> None:
     """Reject cross-tenant access even when the caller has a high global role."""
 

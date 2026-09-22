@@ -75,8 +75,8 @@ class FakeRoutingRuleRepository:
         return list(self.rules)
 
     async def list(self) -> list[RoutingRule]:
-        """Every rule, in insertion order."""
-        return list(self.rules)
+        """Every rule, ordered by family then id -- mirrors the SQL adapter's order."""
+        return sorted(self.rules, key=lambda rule: (rule.family, rule.id))
 
 
 @dataclass(slots=True)

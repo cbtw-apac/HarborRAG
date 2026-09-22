@@ -1,9 +1,12 @@
 """MCP telemetry endpoints: status, usage by client/tool, recent queries, and config.
 
-Read-only, role ``reader`` throughout (ML4-P3 plan §5.5): this slice reports
-usage recorded by harborrag-mcp-server via the runtime bridge
+Read-only throughout (ML4-P3 plan §5.5): this slice reports usage recorded
+by harborrag-mcp-server via the runtime bridge
 (``harborrag_runtime.mcp_telemetry``); it does not itself talk to the MCP
-server process.
+server process. ``role reader`` everywhere except ``/clients`` and
+``/queries``: those two surface a per-caller ``client`` identifier over data
+that has no tenant dimension at all, so they require operator-wide scope
+(``require_operator_role``), not just role rank.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.dependencies import require_operator_role, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
@@ -55,7 +58,9 @@ async def mcp_status(
 @router.get("/clients", response_model=McpClientListResponse)
 async def mcp_clients(
     service: McpTelemetryServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    # McpClientUsage has no tenant dimension: it is platform-wide, so this
+    # route requires operator-wide scope, not just the "reader" role.
+    principal: Annotated[Principal, Depends(require_operator_role("admin"))],
 ) -> McpClientListResponse:
     del principal
     response = await service.mcp_usage_by_client()
@@ -79,7 +84,8 @@ async def mcp_tools(
 @router.get("/queries", response_model=McpQueryListResponse)
 async def mcp_queries(
     service: McpTelemetryServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    # McpUsageEntry has no tenant dimension either -- see mcp_clients above.
+    principal: Annotated[Principal, Depends(require_operator_role("admin"))],
     range: RangeQuery = "24h",  # noqa: A002 - matches the public query parameter name
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> McpQueryListResponse:

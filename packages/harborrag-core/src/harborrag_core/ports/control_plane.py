@@ -176,7 +176,10 @@ class RoutingRuleRepositoryPort(Protocol):
         """Atomically replace the entire routing table with ``rules``."""
 
     async def list(self) -> list[RoutingRule]:
-        """Every routing rule, ordered by family then insertion."""
+        """Every routing rule, ordered by family then id (not insertion order:
+        ``id`` is an opaque generated string, so this is a stable sort key,
+        not a meaningful sequence -- callers must not read priority or
+        precedence from list position; use ``RoutingRule.priority`` instead."""
 
 
 class MemberRepositoryPort(Protocol):
