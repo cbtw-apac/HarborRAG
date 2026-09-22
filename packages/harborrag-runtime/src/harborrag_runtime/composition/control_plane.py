@@ -14,6 +14,8 @@ from harborrag_core.ports.control_plane import (
     GraphConflictRepositoryPort,
     JobRepositoryPort,
     LeaseRepositoryPort,
+    McpConfigSnapshotPort,
+    McpQueryLogRepositoryPort,
     MemberRepositoryPort,
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
@@ -62,6 +64,8 @@ class ControlPlaneRepositories:
     graph_conflicts: GraphConflictRepositoryPort
     provider_probe: ProviderProbePort
     provider_cost: ProviderCostTrackerPort
+    mcp_query_log: McpQueryLogRepositoryPort
+    mcp_config_snapshot: McpConfigSnapshotPort
 
 
 @dataclass(slots=True)
@@ -111,6 +115,12 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.leases import (
             SqlLeaseRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.mcp_config_snapshot import (
+            SqlMcpConfigSnapshotRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.mcp_query_log import (
+            SqlMcpQueryLogRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.migrations import (
             run_migrations,
@@ -203,6 +213,8 @@ class CompositionRoot:
             graph_conflicts=SqlGraphConflictRepository(sessions),
             provider_probe=LiteLLMProviderProbe(secrets=secrets_repository),
             provider_cost=InMemoryProviderCostTracker(),
+            mcp_query_log=SqlMcpQueryLogRepository(sessions),
+            mcp_config_snapshot=SqlMcpConfigSnapshotRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,

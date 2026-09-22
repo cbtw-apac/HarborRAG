@@ -8,12 +8,19 @@ never on the adapter classes.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
+from harborrag_core.domain.mcp_usage import (
+    McpClientUsage,
+    McpConfigSnapshot,
+    McpToolUsage,
+    McpUsageEntry,
+)
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
@@ -263,6 +270,47 @@ class GraphConflictRepositoryPort(Protocol):
         Raises ``HarborNotFoundError`` if missing within ``tenant_ids``,
         ``HarborConflictError`` if already resolved.
         """
+
+
+class McpQueryLogRepositoryPort(Protocol):
+    """Read-side MCP telemetry written by harborrag-mcp-server (plan §5.5/§6, ML4-P3).
+
+    Not tenant-scoped: MCP tool calls are not reliably tenant-attributed at
+    the transport boundary, and this is an operator-facing usage view, not a
+    per-workspace resource. ``record`` is the only write path -- rows are
+    never mutated or deleted.
+    """
+
+    async def record(self, entry: McpUsageEntry) -> None:
+        """Durably record one completed MCP tool invocation."""
+
+    async def usage_by_client(self) -> list[McpClientUsage]:
+        """Every distinct client, with its total query count and last-seen time."""
+
+    async def usage_by_tool(self) -> list[McpToolUsage]:
+        """Every distinct tool, with its call count and average latency."""
+
+    async def list_since(self, *, since: datetime, limit: int) -> list[McpUsageEntry]:
+        """Entries at or after ``since``, newest first, capped at ``limit``."""
+
+    async def ping(self) -> bool:
+        """Best-effort reachability check for ``/mcp/status``: True if the store answers."""
+
+
+class McpConfigSnapshotPort(Protocol):
+    """Single-document read model for the MCP server's live effective configuration.
+
+    Published by harborrag-mcp-server (the only writer) through the same
+    control-plane DB bridge as ``McpQueryLogRepositoryPort``, since the
+    layering rules forbid harborrag-app from importing harborrag-mcp-server
+    directly to read it out of the running process.
+    """
+
+    async def get(self) -> McpConfigSnapshot | None:
+        """The most recently published snapshot, or None if never published."""
+
+    async def put(self, snapshot: McpConfigSnapshot) -> McpConfigSnapshot:
+        """Replace the published snapshot and return it."""
 
 
 TRepository_co = TypeVar("TRepository_co", covariant=True)

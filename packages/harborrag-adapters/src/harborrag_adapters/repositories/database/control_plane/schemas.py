@@ -267,6 +267,27 @@ class McpQueryLogRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
+class McpConfigSnapshotRow(Base):
+    """mcp_config_snapshot: single-document effective MCP config, written by harborrag-mcp-server.
+
+    One fixed row (id=1), replaced wholesale on every publish -- mirrors
+    ``WorkspaceSettingsRow``'s single-document shape, kept as its own table
+    (rather than folded into workspace_settings) so an MCP publish can never
+    clobber unrelated workspace settings.
+    """
+
+    __tablename__ = "mcp_config_snapshot"
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    policy_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, nullable=False)
+    disabled_tools_json: Mapped[list[str]] = mapped_column(JSONVariant, nullable=False)
+    enabled_tool_count: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    total_tool_count: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    revision: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    restart_required: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+
 class GraphConflictRow(Base):
     """graph_conflicts: queued knowledge-graph disagreements awaiting resolution (M4 §5.5).
 

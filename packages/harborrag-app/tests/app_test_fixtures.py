@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 
 from app_test_agent import AgentServiceFixture
 from app_test_chat import ChatServiceFixture
@@ -13,6 +14,12 @@ from app_test_graph_records import (
     retrieval_payload,
 )
 from app_test_ingestion import IngestionServiceFixture
+from app_test_mcp_records import (
+    mcp_client_usage,
+    mcp_config_snapshot,
+    mcp_tool_usage,
+    mcp_usage_entry,
+)
 from app_test_provider_records import provider as default_provider
 from app_test_provider_records import routing_rule as default_routing_rule
 from app_test_providers_fixture import ProviderServiceFixture
@@ -21,6 +28,7 @@ from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
+from harborrag_core.domain.mcp_usage import McpConfigSnapshot, McpUsageEntry
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -58,6 +66,9 @@ class MockAppService(
         self.provider_delete_calls: list[dict[str, object]] = []
         self.provider_test_calls: list[dict[str, object]] = []
         self.routing_replace_calls: list[dict[str, object]] = []
+        self.mcp_healthy: bool = True
+        self.mcp_query_entries: list[McpUsageEntry] = [mcp_usage_entry()]
+        self.mcp_config_value: McpConfigSnapshot | None = mcp_config_snapshot()
 
     async def create_chat_session(
         self,
@@ -333,3 +344,21 @@ class MockAppService(
                 },
             },
         )
+
+    async def mcp_status(self) -> AppResponse:
+        return AppResponse(True, {"reachable": self.mcp_healthy, "healthy": self.mcp_healthy})
+
+    async def mcp_usage_by_client(self) -> AppResponse:
+        return AppResponse(True, {"clients": [mcp_client_usage()]})
+
+    async def mcp_usage_by_tool(self) -> AppResponse:
+        return AppResponse(True, {"tools": [mcp_tool_usage()]})
+
+    async def mcp_queries(self, *, since: datetime, limit: int) -> AppResponse:
+        entries = [e for e in self.mcp_query_entries if e.created_at >= since][:limit]
+        return AppResponse(True, {"entries": entries})
+
+    async def mcp_config(self) -> AppResponse:
+        if self.mcp_config_value is None:
+            return AppResponse(False, {"error_type": "HarborCapabilityError"})
+        return AppResponse(True, {"config": self.mcp_config_value})

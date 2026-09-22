@@ -22,6 +22,12 @@ from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.testing.control_plane_fakes_graph_conflicts import (
     FakeGraphConflictRepository as FakeGraphConflictRepository,
 )
+from harborrag_core.testing.control_plane_fakes_mcp import (
+    FakeMcpConfigSnapshotRepository as FakeMcpConfigSnapshotRepository,
+)
+from harborrag_core.testing.control_plane_fakes_mcp import (
+    FakeMcpQueryLogRepository as FakeMcpQueryLogRepository,
+)
 from harborrag_core.testing.control_plane_fakes_providers import (
     FakeProviderCostTracker as FakeProviderCostTracker,
 )

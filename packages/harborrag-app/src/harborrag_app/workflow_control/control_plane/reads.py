@@ -6,6 +6,8 @@ mixed into AppService, which supplies the concrete _control_plane().
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.graph_conflict import ConflictStatus
 from harborrag_runtime.composition import ControlPlaneRepositories
@@ -127,3 +129,42 @@ class ControlPlaneReadsMixin:
                 "providers": dict(totals),
             },
         )
+
+    async def mcp_status(self) -> AppResponse:
+        """Whether the control-plane DB backing MCP telemetry is reachable and healthy.
+
+        Never raises: an unreachable store is the status this endpoint exists
+        to report, not a 500.
+        """
+        try:
+            healthy = await self._control_plane().mcp_query_log.ping()
+        except Exception:  # noqa: BLE001 - reachability failure is the reported status
+            healthy = False
+        return AppResponse(True, {"reachable": healthy, "healthy": healthy})
+
+    async def mcp_usage_by_client(self) -> AppResponse:
+        """Every distinct MCP caller, with its total query count and last-seen time."""
+        clients = await self._control_plane().mcp_query_log.usage_by_client()
+        return AppResponse(True, {"clients": clients})
+
+    async def mcp_usage_by_tool(self) -> AppResponse:
+        """Every distinct MCP tool, with its call count and average latency."""
+        tools = await self._control_plane().mcp_query_log.usage_by_tool()
+        return AppResponse(True, {"tools": tools})
+
+    async def mcp_queries(self, *, since: datetime, limit: int) -> AppResponse:
+        """MCP usage entries at or after ``since``, newest first, capped at ``limit``."""
+        entries = await self._control_plane().mcp_query_log.list_since(since=since, limit=limit)
+        return AppResponse(True, {"entries": entries})
+
+    async def mcp_config(self) -> AppResponse:
+        """The MCP server's last-published effective configuration.
+
+        Not yet available (as ``HarborCapabilityError``, mapped to 501) until
+        an MCP server process has started at least once and published a
+        snapshot through the runtime bridge.
+        """
+        snapshot = await self._control_plane().mcp_config_snapshot.get()
+        if snapshot is None:
+            return AppResponse(False, {"error_type": "HarborCapabilityError"})
+        return AppResponse(True, {"config": snapshot})

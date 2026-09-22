@@ -6,6 +6,7 @@ from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.graph_conflict import GraphConflict
 from harborrag_core.domain.job import Job
+from harborrag_core.domain.mcp_usage import McpConfigSnapshot, McpUsageEntry
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.routing_rule import RoutingRule
@@ -24,6 +25,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
+    FakeMcpConfigSnapshotRepository,
+    FakeMcpQueryLogRepository,
     FakeMemberRepository,
     FakePendingEffectRepository,
     FakeProjectRepository,
@@ -56,6 +59,8 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
     routing_rules: list[RoutingRule] | None = None,
     provider_probe: ProviderProbePort | None = None,
     provider_cost: ProviderCostTrackerPort | None = None,
+    mcp_query_log_entries: list[McpUsageEntry] | None = None,
+    mcp_config_snapshot: McpConfigSnapshot | None = None,
 ) -> AppService:
     """Build a service with test-only, seedable control-plane repositories.
 
@@ -85,6 +90,8 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
         ),
         provider_probe=provider_probe or FakeProviderProbe(),
         provider_cost=provider_cost or FakeProviderCostTracker(),
+        mcp_query_log=FakeMcpQueryLogRepository(list(mcp_query_log_entries or [])),
+        mcp_config_snapshot=FakeMcpConfigSnapshotRepository(mcp_config_snapshot),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

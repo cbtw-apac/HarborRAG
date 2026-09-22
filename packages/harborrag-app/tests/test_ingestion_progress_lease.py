@@ -29,6 +29,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
+    FakeMcpConfigSnapshotRepository,
+    FakeMcpQueryLogRepository,
     FakeMemberRepository,
     FakePendingEffectRepository,
     FakeProjectRepository,
@@ -108,6 +110,8 @@ def _build_service(
         graph_conflicts=FakeGraphConflictRepository(),
         provider_probe=FakeProviderProbe(),
         provider_cost=FakeProviderCostTracker(),
+        mcp_query_log=FakeMcpQueryLogRepository(),
+        mcp_config_snapshot=FakeMcpConfigSnapshotRepository(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

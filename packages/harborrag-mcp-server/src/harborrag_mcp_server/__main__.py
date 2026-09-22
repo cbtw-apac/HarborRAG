@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from collections.abc import Sequence
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 
     from harborrag_core.ports.conversation import ConversationRepository
     from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_runtime.mcp_telemetry import McpTelemetryBridge
 
 
 class _TerminalStream(Protocol):
@@ -64,6 +66,28 @@ def _configured_memory(settings: RuntimeSettings) -> ConversationRepository:
     from harborrag_runtime.memory import build_database_conversation_memory
 
     return build_database_conversation_memory(settings)
+
+
+def _configured_telemetry(settings: RuntimeSettings) -> McpTelemetryBridge:
+    from harborrag_runtime.mcp_telemetry import build_mcp_telemetry_bridge
+
+    return build_mcp_telemetry_bridge(settings)
+
+
+async def _publish_initial_config_snapshot(
+    registry: McpServer,
+    configuration: McpConfigurationStore,
+) -> None:
+    if registry.telemetry is None:
+        return
+    from harborrag_mcp_server.telemetry import build_config_snapshot
+
+    try:
+        await registry.telemetry.publish_config(build_config_snapshot(registry, configuration))
+    except Exception:  # noqa: BLE001 - startup telemetry must never block the server
+        logging.getLogger("harborrag.mcp.server").warning(
+            "Failed to publish initial MCP configuration snapshot", exc_info=True
+        )
 
 
 async def _check_protocol(transport: FastMCP[Any]) -> list[str]:
@@ -155,8 +179,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = RuntimeSettings()
     runtime = HarborRAG(HarborRAGConfig(runtime=settings))
     memory = _configured_memory(settings)
-    registry = McpServer(runtime=runtime, memory=memory)
+    telemetry = _configured_telemetry(settings)
+    registry = McpServer(runtime=runtime, memory=memory, telemetry=telemetry)
     configuration = _configure_registry(registry, arguments.config)
+    asyncio.run(_publish_initial_config_snapshot(registry, configuration))
     transport = cast(
         "FastMCP[Any]",
         create_mcp_server(

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
+import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,7 +19,10 @@ from harborrag_runtime.memory import ConversationRepository, InMemoryConversatio
 
 if TYPE_CHECKING:
     from harborrag_mcp_server.configuration import McpConfigurationStore
+    from harborrag_runtime.mcp_telemetry import McpTelemetryBridge
     from harborrag_runtime.sdk import HarborRAG
+
+logger = logging.getLogger("harborrag.mcp.server")
 
 # Shared, process-wide default policy/audit singletons. The module-level
 # call_tool/list_tools facade constructs a fresh McpServer per invocation, so
@@ -66,6 +72,7 @@ class McpServer(BaseMcpServer):
     audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
     configuration: McpConfigurationStore | None = None
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
+    telemetry: McpTelemetryBridge | None = None
 
     def __post_init__(self) -> None:
         if self.tools is None:
@@ -105,6 +112,7 @@ class McpServer(BaseMcpServer):
             # select global policy here and a tenant override in the tool layer.
             payload["tenant_id"] = tenant_value.strip()
         invocation_id = self.audit.start(name, payload, principal_id=principal_id)
+        started_at = time.monotonic()
         try:
             if self.tools is None:
                 raise HarborInvariantError("self.tools must not be None here")
@@ -135,6 +143,7 @@ class McpServer(BaseMcpServer):
                     outcome="error" if reported_error else "success",
                     error_type="ToolReportedError" if reported_error else None,
                 )
+                await self._record_usage(name, principal_id, started_at)
                 return result
             raise ValueError(f"Unknown MCP tool: {name}")
         except BaseException as exc:
@@ -145,4 +154,26 @@ class McpServer(BaseMcpServer):
                 outcome="error",
                 error_type=type(exc).__name__,
             )
+            await self._record_usage(name, principal_id, started_at)
             raise
+
+    async def _record_usage(self, tool: str, principal_id: str, started_at: float) -> None:
+        """Best-effort telemetry write: never let a persistence hiccup fail a tool call.
+
+        ``client`` is ``principal_id`` -- the caller's authenticated account id,
+        used as a stand-in for true MCP client identity (see McpUsageEntry's
+        docstring). Latency is measured end-to-end around the tool call, not
+        just the audit bookkeeping either side of it.
+        """
+        if self.telemetry is None:
+            return
+        latency_ms = max(0, round((time.monotonic() - started_at) * 1000))
+        try:
+            await self.telemetry.record_usage(
+                tool=tool,
+                client=principal_id,
+                latency_ms=latency_ms,
+                created_at=datetime.now(UTC),
+            )
+        except Exception:  # noqa: BLE001 - telemetry must never break a tool call
+            logger.warning("Failed to record MCP usage telemetry tool=%s", tool, exc_info=True)
