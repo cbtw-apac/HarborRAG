@@ -50,7 +50,11 @@ class LiteLLMProviderProbe:
             raise HarborValidationError(
                 "provider config must set a non-empty 'model' field to test the connection"
             )
-        api_key = await self.secrets.resolve(provider.secret_ref) if provider.secret_ref else None
+        api_key = (
+            await self.secrets.resolve(provider.secret_ref, tenant_id=provider.tenant_id)
+            if provider.secret_ref
+            else None
+        )
         api_base = provider.config.get("api_base")
         started = time.perf_counter()
         try:

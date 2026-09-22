@@ -27,7 +27,7 @@ class _RecordingCompletion:
 @pytest.mark.asyncio
 async def test_probe_resolves_the_secret_and_calls_completion_with_it() -> None:
     secrets = FakeSecrets()
-    ref = await secrets.put("sk-real-value")
+    ref = await secrets.put("sk-real-value", tenant_id="ACME")
     provider = Provider(
         id="prov_1",
         tenant_id="ACME",
