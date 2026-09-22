@@ -20,10 +20,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=2048]
-      # The excluded file asserts that redact_mapping() masks a private-key
-      # marker; it holds the literal header string and no key material.
+      # The excluded files assert that config validation/redaction rejects a
+      # raw private-key marker; each holds the literal header string and no
+      # key material.
       - id: detect-private-key
-        exclude: ^packages/harborrag-core/tests/test_core_contracts_domain_security\.py$
+        exclude: ^packages/harborrag-core/tests/(test_core_contracts_domain_security|test_security_field_names)\.py$
 
   - repo: local
     hooks:

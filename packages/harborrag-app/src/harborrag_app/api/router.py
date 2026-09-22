@@ -12,7 +12,9 @@ from harborrag_app.api.v1.chat import router as chat_router
 from harborrag_app.api.v1.connections import router as connections_router
 from harborrag_app.api.v1.graph import router as graph_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
+from harborrag_app.api.v1.mcp import router as mcp_router
 from harborrag_app.api.v1.memory import router as memory_router
+from harborrag_app.api.v1.providers import router as providers_router
 from harborrag_app.api.v1.retrieval import router as retrieval_router
 
 OPERATIONAL_PREFIX = "/api/v1"
@@ -30,6 +32,8 @@ def register_routes(app: FastAPI) -> None:
         connections_router,
         retrieval_router,
         graph_router,
+        providers_router,
+        mcp_router,
         chat_router,
         agent_router,
         memory_router,

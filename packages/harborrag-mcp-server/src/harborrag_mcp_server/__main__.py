@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from collections.abc import Sequence
@@ -26,6 +27,9 @@ from harborrag_mcp_server.server.http import (
 if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.auth import TokenVerifier
+
+    from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_runtime.mcp_telemetry import McpTelemetryBridge
 
 
 class _TerminalStream(Protocol):
@@ -59,6 +63,20 @@ def _configure_registry(registry: McpServer, path: str) -> McpConfigurationStore
     )
     registry.configuration = store
     return store
+
+
+def _configured_telemetry(settings: RuntimeSettings) -> McpTelemetryBridge | None:
+    """Build optional telemetry without making the MCP server depend on its DB."""
+    from harborrag_runtime.mcp_telemetry import build_mcp_telemetry_bridge
+
+    try:
+        return build_mcp_telemetry_bridge(settings)
+    except Exception:  # noqa: BLE001 - telemetry is optional for MCP availability
+        logging.getLogger("harborrag.mcp.server").warning(
+            "MCP telemetry is unavailable; continuing without control-plane telemetry",
+            exc_info=True,
+        )
+        return None
 
 
 async def _check_protocol(transport: FastMCP[Any]) -> list[str]:
@@ -201,11 +219,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     settings = RuntimeSettings()
     runtime = open_reader_application(settings)
+    telemetry = _configured_telemetry(settings)
     registry = McpServer(
         invoker=runtime.invoker,
         references=runtime.references,
         corpus_mode=settings.corpus_access_mode,
         shared_tenant_id=settings.corpus_shared_tenant_id,
+        telemetry=telemetry,
     )
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(

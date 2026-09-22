@@ -40,6 +40,7 @@ EXPECTED_TABLES = {
     "workspace_settings",
     "members",
     "mcp_query_log",
+    "mcp_config_snapshot",
     "conversation_memory_legacy",
     "conversation_messages",
     "conversation_sessions",

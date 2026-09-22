@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -10,11 +11,13 @@ import sqlalchemy as sa
 from harborrag_adapters.repositories.database.control_plane.schemas import (
     MemberRow,
     ProviderRow,
+    RoutingRuleRow,
     WorkspaceSettingsRow,
 )
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.member import Member, Role
 from harborrag_core.domain.provider import Provider, ProviderFamily
+from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
 
 from .mapping import utc_now
@@ -59,13 +62,22 @@ class SqlSettingsRepository:
 
 @dataclass(slots=True)
 class SqlProviderRepository:
-    """ProviderRepositoryPort over the providers table."""
+    """ProviderRepositoryPort over the providers table.
+
+    Delete is a soft delete: ``routing_rules.provider_id`` is a DB foreign
+    key to ``providers.id``, so a hard-deleted, still-referenced provider
+    would either violate that constraint or leave a dangling reference,
+    depending on the backend. Instead ``delete`` sets ``deleted_at`` and
+    every other method here treats a tombstoned row as absent.
+    """
 
     sessions: SessionFactory
 
     async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
-        """Providers visible to ``tenant_ids`` (None: unrestricted), ordered by id."""
-        statement = sa.select(ProviderRow).order_by(ProviderRow.id)
+        """Non-deleted providers visible to ``tenant_ids`` (None: unrestricted), ordered by id."""
+        statement = (
+            sa.select(ProviderRow).where(ProviderRow.deleted_at.is_(None)).order_by(ProviderRow.id)
+        )
         if tenant_ids is not None:
             statement = statement.where(ProviderRow.tenant_id.in_(tenant_ids))
         async with self.sessions() as session:
@@ -73,10 +85,14 @@ class SqlProviderRepository:
             return [self._to_domain(row) for row in rows]
 
     async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
-        """One provider by id within ``tenant_ids``, or None."""
+        """One non-deleted provider by id within ``tenant_ids``, or None."""
         async with self.sessions() as session:
             row = await session.get(ProviderRow, provider_id)
-            if row is None or (tenant_ids is not None and row.tenant_id not in tenant_ids):
+            if (
+                row is None
+                or row.deleted_at is not None
+                or (tenant_ids is not None and row.tenant_id not in tenant_ids)
+            ):
                 return None
             return self._to_domain(row)
 
@@ -93,14 +109,19 @@ class SqlProviderRepository:
             row.family = provider.family
             row.config_json = dict(provider.config)
             row.secret_ref = provider.secret_ref
+            row.deleted_at = provider.deleted_at
             # The tenant model-catalog fingerprint is (count, max(updated_at));
             # skipping this on an in-place edit would leave stale catalogs cached.
             row.updated_at = utc_now()
         return provider
 
     async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:
-        """Delete the provider row within ``tenant_ids``."""
-        statement = sa.delete(ProviderRow).where(ProviderRow.id == provider_id)
+        """Tombstone the provider row within ``tenant_ids``; the row is kept, not removed."""
+        statement = (
+            sa.update(ProviderRow)
+            .where(ProviderRow.id == provider_id, ProviderRow.deleted_at.is_(None))
+            .values(deleted_at=utc_now())
+        )
         if tenant_ids is not None:
             statement = statement.where(ProviderRow.tenant_id.in_(tenant_ids))
         async with self.sessions.begin() as session:
@@ -116,6 +137,47 @@ class SqlProviderRepository:
             family=cast(ProviderFamily, row.family),
             config=dict(row.config_json),
             secret_ref=row.secret_ref,
+            deleted_at=row.deleted_at,
+        )
+
+
+@dataclass(slots=True)
+class SqlRoutingRuleRepository:
+    """RoutingRuleRepositoryPort over the routing_rules table (workspace-wide, no tenant scope)."""
+
+    sessions: SessionFactory
+
+    async def replace(self, rules: Sequence[RoutingRule]) -> list[RoutingRule]:
+        """Delete every existing rule and insert ``rules`` in one transaction."""
+        async with self.sessions.begin() as session:
+            await session.execute(sa.delete(RoutingRuleRow))
+            for rule in rules:
+                session.add(
+                    RoutingRuleRow(
+                        id=rule.id,
+                        family=rule.family,
+                        provider_id=rule.provider_id,
+                        rule_json={"priority": rule.priority},
+                        created_at=utc_now(),
+                    )
+                )
+        return list(rules)
+
+    async def list(self) -> list[RoutingRule]:
+        """Every rule, ordered by family then id."""
+        statement = sa.select(RoutingRuleRow).order_by(RoutingRuleRow.family, RoutingRuleRow.id)
+        async with self.sessions() as session:
+            rows = await session.scalars(statement)
+            return [self._to_domain(row) for row in rows]
+
+    @staticmethod
+    def _to_domain(row: RoutingRuleRow) -> RoutingRule:
+        """Map a routing_rules row to the RoutingRule aggregate."""
+        return RoutingRule(
+            id=row.id,
+            family=cast(ProviderFamily, row.family),
+            provider_id=row.provider_id,
+            priority=int(row.rule_json.get("priority", 0)),
         )
 
 

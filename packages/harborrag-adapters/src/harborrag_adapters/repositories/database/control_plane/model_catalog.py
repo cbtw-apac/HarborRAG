@@ -79,8 +79,12 @@ def _fingerprint_statement(tenant_id: str) -> sa.Select[tuple[object, ...]]:
     because a delete can move `max(updated_at)` *backwards*: without it,
     deleting the newest row and inserting a different one in the same instant
     would reproduce the previous stamp.
+
+    Soft-deleted providers (`deleted_at` set) are excluded, matching
+    `SqlProviderRepository.list`/`get`: a delete must change this fingerprint,
+    not just count towards it invisibly.
     """
-    scope = ProviderRow.tenant_id == tenant_id
+    scope = sa.and_(ProviderRow.tenant_id == tenant_id, ProviderRow.deleted_at.is_(None))
     rules = sa.join(RoutingRuleRow, ProviderRow, RoutingRuleRow.provider_id == ProviderRow.id)
     return sa.select(
         sa.select(sa.func.count()).select_from(ProviderRow).where(scope).scalar_subquery(),
@@ -150,6 +154,7 @@ class SqlTenantModelCatalog:
                     .where(
                         ProviderRow.tenant_id == tenant_id,
                         ProviderRow.family == CHAT_FAMILY,
+                        ProviderRow.deleted_at.is_(None),
                     )
                     .order_by(ProviderRow.id)
                 )

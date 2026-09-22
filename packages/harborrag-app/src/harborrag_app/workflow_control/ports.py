@@ -15,10 +15,11 @@ from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 from .agent import AgentExecutionOptions
 from .chat.options import ChatExecutionOptions
 from .memory import MemoryAccess
+from .provider_ports import ProviderPort
 from .schemas import AppResponse
 
 
-class BaseAppService(ABC):
+class BaseAppService(ProviderPort, ABC):
     """Application facade shared by the HTTP and CLI transports."""
 
     @abstractmethod

@@ -14,16 +14,21 @@ from harborrag_core.ports.control_plane import (
     GraphConflictRepositoryPort,
     JobRepositoryPort,
     LeaseRepositoryPort,
+    McpConfigSnapshotPort,
+    McpQueryLogRepositoryPort,
     MemberRepositoryPort,
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
+    RoutingRuleRepositoryPort,
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryRepository
 from harborrag_core.ports.model_catalog import TenantModelCatalogPort
+from harborrag_core.ports.provider_cost import ProviderCostTrackerPort
+from harborrag_core.ports.provider_probe import ProviderProbePort
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.config import EngineConfig
@@ -52,6 +57,7 @@ class ControlPlaneRepositories:
     activity: ActivityRepositoryPort
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
+    routing_rules: RoutingRuleRepositoryPort
     members: MemberRepositoryPort
     conversation_memory: ConversationHistoryRepository
     agent_runs: AgentRunRepository
@@ -59,6 +65,10 @@ class ControlPlaneRepositories:
     pending_effects: PendingEffectRepositoryPort
     leases: LeaseRepositoryPort
     graph_conflicts: GraphConflictRepositoryPort
+    provider_probe: ProviderProbePort
+    provider_cost: ProviderCostTrackerPort
+    mcp_query_log: McpQueryLogRepositoryPort
+    mcp_config_snapshot: McpConfigSnapshotPort
     memories: MemoryRepository | None = None
     model_usage: ModelUsageRepository | None = None
     # Read side of a tenant's own chat models; None when this deployment does
@@ -92,6 +102,8 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
+        from harborrag_adapters.models.chat.probe import LiteLLMProviderProbe
+        from harborrag_adapters.models.runtime.provider_cost import InMemoryProviderCostTracker
         from harborrag_adapters.repositories.database.control_plane.agent_runs import (
             SqlAgentRunRepository,
         )
@@ -111,6 +123,12 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.leases import (
             SqlLeaseRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.mcp_config_snapshot import (
+            SqlMcpConfigSnapshotRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.mcp_query_log import (
+            SqlMcpQueryLogRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.memory import (
             SqlMemoryRepository,
@@ -137,6 +155,7 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.workspace import (
             SqlMemberRepository,
             SqlProviderRepository,
+            SqlRoutingRuleRepository,
             SqlSettingsRepository,
         )
         from harborrag_core.contracts.errors import HarborConfigurationError
@@ -193,6 +212,7 @@ class CompositionRoot:
                 "control database; set HARBORRAG_SECRETS_ENCRYPTION_KEY before pointing "
                 "this process at any persistent or shared database"
             )
+        secrets_repository = SqlSecretsRepository(sessions, encryption_key=secrets_key)
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
             sources=SqlSourceRepository(sessions),
@@ -200,13 +220,18 @@ class CompositionRoot:
             activity=SqlActivityRepository(sessions),
             settings=SqlSettingsRepository(sessions),
             providers=SqlProviderRepository(sessions),
+            routing_rules=SqlRoutingRuleRepository(sessions),
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
             agent_runs=SqlAgentRunRepository(sessions),
-            secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
+            secrets=secrets_repository,
             pending_effects=SqlPendingEffectRepository(sessions),
             leases=SqlLeaseRepository(sessions),
             graph_conflicts=SqlGraphConflictRepository(sessions),
+            provider_probe=LiteLLMProviderProbe(secrets=secrets_repository),
+            provider_cost=InMemoryProviderCostTracker(),
+            mcp_query_log=SqlMcpQueryLogRepository(sessions),
+            mcp_config_snapshot=SqlMcpConfigSnapshotRepository(sessions),
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
