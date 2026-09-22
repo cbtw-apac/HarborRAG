@@ -138,7 +138,7 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
         "transport": "streamable-http",
         "mcp_path": "/mcp",
         "authentication": "bearer",
-        "tool_count": 9,
+        "tool_count": 13,
     }
     assert unauthenticated.status_code == 401
     assert authenticated.status_code == 200

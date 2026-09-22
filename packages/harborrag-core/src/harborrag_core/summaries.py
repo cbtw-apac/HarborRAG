@@ -12,11 +12,20 @@ from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.permissions import PermissionDependency
 
 SUMMARY_REVISION = "summary-projection-v1"
+SUMMARY_PERMISSION_BLOCKERS = frozenset(
+    {
+        "SUMMARY_PERMISSION_SNAPSHOT_MISSING",
+        "SUMMARY_PERMISSION_SNAPSHOT_UNKNOWN",
+        "SUMMARY_PERMISSION_SNAPSHOT_EXPIRED",
+        "SUMMARY_PROCESSING_DISALLOWED",
+    }
+)
 SummaryKind = Literal["Structure", "DocumentVersion", "SourceEntity", "DataSource", "Tenant"]
 
 
 class SummaryPolicy(StrictModel):
     revision: str = SUMMARY_REVISION
+    processing_policy_revision: str | None = None
     model_fingerprint: str = Field(min_length=1)
     max_fan_in: int = Field(default=8, ge=2, le=32)
     max_input_bytes: int = Field(default=24000, ge=2048, le=30000)

@@ -22,7 +22,8 @@ from workflow_control_fixtures import (
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.temporal.schemas import SourceIngestionInput
+from harborrag_runtime.execution.gateway import IngestionGatewayDescription
+from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 # --------------------------------------------------------------------------
 # Composition-level health
@@ -75,6 +76,48 @@ async def test_runtime_health_reports_a_ready_target() -> None:
     assert response.ok is True
     assert response.data["runtime"]["provider"] == "temporal"
     assert "target" in response.data["runtime"]
+
+
+@pytest.mark.asyncio
+async def test_application_can_use_an_alternative_ingestion_gateway() -> None:
+    client = FakeRuntimeClient()
+    configured = []
+
+    async def connect(settings: RuntimeSettings):
+        configured.append(settings)
+        return client
+
+    async def registry(_settings):
+        return FakeTaskRegistry()
+
+    settings = RuntimeSettings()
+    service = AppService(
+        FakeComposition({"runtime": {"ready": True}}),
+        settings=settings,
+        factories=AppServiceFactories(
+            client=connect,
+            ingestion_description=lambda _settings: IngestionGatewayDescription(
+                provider="alternative", health_timeout_seconds=1, details={"queue": "ingestion"}
+            ),
+            source_input_builder=source_input,
+            task_registry=registry,
+        ),
+    )
+
+    response = await service.start_ingestion(tenant_id="tenant-1", connector_name="docs")
+    health = await service.runtime_health()
+
+    assert response.ok
+    assert configured == [settings]
+    submitted = client.calls[0][1][0]
+    assert type(submitted) is PreparedSourceSubmission
+    assert not hasattr(submitted, "workflow_options")
+    assert health.data["runtime"] == {
+        "provider": "alternative",
+        "ready": True,
+        "queue": "ingestion",
+    }
+    await service.aclose()
 
 
 @pytest.mark.asyncio
@@ -132,7 +175,7 @@ async def test_start_ingestion_honours_explicit_identifiers_and_waiting() -> Non
 
     assert response.data["run"]["run_id"] == "run-explicit"
     request = client.calls[0][1][0]
-    assert isinstance(request, SourceIngestionInput)
+    assert isinstance(request, PreparedSourceSubmission)
     assert request.query.limit == 3
     assert response.data["result"]["processed"] == 2
     assert [name for name, _ in client.calls] == ["start_ingestion", "result"]
@@ -151,7 +194,7 @@ async def test_start_ingestion_honours_explicit_batching_overrides() -> None:
 
     assert response.ok is True
     request = client.calls[0][1][0]
-    assert isinstance(request, SourceIngestionInput)
+    assert isinstance(request, PreparedSourceSubmission)
     assert request.batch_size == 5
     assert request.document_concurrency == 5
 
@@ -163,7 +206,7 @@ async def test_start_ingestion_defaults_batching_when_unset() -> None:
     await service.start_ingestion(tenant_id="tenant-1", connector_name="local_file")
 
     request = client.calls[0][1][0]
-    assert isinstance(request, SourceIngestionInput)
+    assert isinstance(request, PreparedSourceSubmission)
     assert request.batch_size == 200
     assert request.document_concurrency == 8
 
@@ -184,7 +227,7 @@ async def test_start_persists_pending_task_before_temporal_submission() -> None:
         return client
 
     class OrderedRegistry(FakeTaskRegistry):
-        async def register(self, source: SourceIngestionInput) -> None:
+        async def register(self, source: PreparedSourceSubmission) -> None:
             events.append("postgres")
             await super().register(source)
 

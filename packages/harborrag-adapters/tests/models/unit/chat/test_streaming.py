@@ -5,8 +5,10 @@ from typing import Any
 
 import pytest
 
+from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import HarborChatMessage, StreamEventType
 from harborrag_core.models.errors import (
+    HarborChatCapabilityError,
     HarborChatConnectionError,
     HarborChatProviderError,
 )
@@ -16,6 +18,7 @@ from .chat_client_support import (
     FakeInvocation,
     FakeSyncStream,
     async_client,
+    response_dict,
     stream_chunk,
     sync_client,
 )
@@ -241,3 +244,38 @@ async def test_consumers_can_close_streams_early(base_config) -> None:
 
     assert sync_raw.closed
     assert async_raw.closed
+
+
+def _non_streaming_config(base_config: Any) -> Any:
+    logical = base_config.models["primary"]
+    deployment = logical.deployments[0].model_copy(
+        update={"capabilities": HarborChatCapabilities(streaming=False)}
+    )
+    return base_config.model_copy(
+        update={"models": {"primary": logical.model_copy(update={"deployments": (deployment,)})}}
+    )
+
+
+def test_stream_rejects_deployment_without_streaming_capability(base_config) -> None:
+    invocation = FakeInvocation(streams=[[stream_chunk("never")]])
+    client = sync_client(_non_streaming_config(base_config), backend=invocation)
+    with pytest.raises(HarborChatCapabilityError, match="streaming"):
+        client.stream([HarborChatMessage.user("hello")])
+    assert invocation.stream_calls == []
+    # Non-streaming chat on the same deployment is still allowed.
+    invocation = FakeInvocation([response_dict("ok")])
+    assert (
+        sync_client(_non_streaming_config(base_config), backend=invocation)
+        .chat([HarborChatMessage.user("hello")])
+        .text
+        == "ok"
+    )
+
+
+@pytest.mark.asyncio
+async def test_astream_rejects_deployment_without_streaming_capability(base_config) -> None:
+    invocation = FakeInvocation(async_streams=[[stream_chunk("never")]])
+    client = async_client(_non_streaming_config(base_config), backend=invocation)
+    with pytest.raises(HarborChatCapabilityError, match="streaming"):
+        client.astream([HarborChatMessage.user("hello")])
+    assert invocation.async_stream_calls == []

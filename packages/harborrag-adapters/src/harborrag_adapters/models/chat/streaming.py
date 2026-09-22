@@ -7,6 +7,9 @@ from typing import Any
 from harborrag_adapters.models.runtime.responses import (
     coerce_sdk_mapping as coerce_mapping,
 )
+from harborrag_adapters.models.runtime.responses import (
+    sdk_hidden_parameters,
+)
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatStreamChunk,
@@ -16,6 +19,7 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.errors import HarborChatProviderError, HarborModelError
 
 from .configs import HarborChatProviderConfig
+from .cost import normalize_response_cost, response_cost
 from .normalization import (
     normalize_chat_usage,
     normalize_finish_reason,
@@ -44,11 +48,13 @@ class ChatStreamNormalizer:
         self.provider_model = deployment.model
         self.finish_reason = FinishReason.UNKNOWN
         self.usage: HarborChatUsage | None = None
+        self.estimated_cost_usd: float | None = None
         self._tool_calls = StreamingToolCallAssembler()
         self._metadata_emitted = False
         self._metadata: dict[str, Any] = {}
         self._started_at = time.perf_counter()
         self._first_output_latency_ms: float | None = None
+        self._cost_response: dict[str, Any] | None = None
 
     def consume(self, raw: Any) -> tuple[HarborChatStreamChunk, ...]:
         """Normalize every event represented by one provider stream chunk."""
@@ -60,12 +66,29 @@ class ChatStreamNormalizer:
             self.response_id = str(data["id"])
         if data.get("model") is not None:
             self.provider_model = str(data["model"])
+        # LiteLLM attaches ``response_cost`` to the hidden params of the final
+        # chunk (when usage is streamed); keep the latest value for settlement.
+        cost = normalize_response_cost(sdk_hidden_parameters(raw, data))
+        if cost is not None:
+            self.estimated_cost_usd = cost
 
         events: list[HarborChatStreamChunk] = []
         events.extend(self._metadata_events(data))
         if data.get("usage") is not None:
             self.usage = normalize_chat_usage(data["usage"])
-            events.append(self._event(StreamEventType.USAGE, usage=self.usage))
+            self._cost_response = {
+                "model": self.provider_model,
+                "usage": data["usage"],
+                "choices": [],
+                "service_tier": self._metadata.get("service_tier"),
+            }
+            events.append(
+                self._event(
+                    StreamEventType.USAGE,
+                    usage=self.usage,
+                    estimated_cost_usd=self.estimated_cost_usd,
+                )
+            )
 
         events.extend(self._choice_events(data))
         return tuple(events)
@@ -111,6 +134,8 @@ class ChatStreamNormalizer:
     def complete(self) -> HarborChatStreamChunk:
         """Create the final event with assembled calls, usage, timing, and finish metadata."""
 
+        if self.estimated_cost_usd is None and self._cost_response is not None:
+            self.estimated_cost_usd = response_cost(self._cost_response, deployment=self.deployment)
         metadata = {
             **self._metadata,
             "finish_reason": self.finish_reason.value,
@@ -121,6 +146,7 @@ class ChatStreamNormalizer:
         return self._event(
             StreamEventType.COMPLETED,
             usage=self.usage,
+            estimated_cost_usd=self.estimated_cost_usd,
             tool_calls=self._tool_calls.completed_calls(),
             finish_reason=self.finish_reason.value,
             metadata=metadata,
@@ -132,6 +158,8 @@ class ChatStreamNormalizer:
         return self._event(
             StreamEventType.ERROR,
             error=error.to_dict(),
+            usage=self.usage,
+            estimated_cost_usd=self.estimated_cost_usd,
             metadata={"stream_duration_ms": self._elapsed_ms()},
         )
 

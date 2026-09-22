@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, Mapping
 
 from harborrag_core.domain.graph_conflict import ConflictAction
+from harborrag_core.ports.conversation import ConversationKind
 from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphSubgraphQuery,
@@ -13,6 +14,7 @@ from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from .agent import AgentExecutionOptions
 from .chat.options import ChatExecutionOptions
+from .memory import MemoryAccess
 from .provider_ports import ProviderPort
 from .schemas import AppResponse
 
@@ -39,17 +41,69 @@ class BaseAppService(ProviderPort, ABC):
         del limit
         return 0
 
+    async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
+        """Recover durable control-plane effects where the service supports it."""
+
+        del limit
+        return 0
+
     async def sync_ingestion_progress(self) -> int:
         """One progress-bridge poll tick where the concrete service supports it."""
 
         return 0
+
+    async def start_memory_extraction(self) -> None:
+        """Start background memory extraction where the service supports it."""
+
+        return None
+
+    async def drain_memory_extraction(self) -> None:
+        """Finish queued memory extraction where the service supports it."""
+
+        return None
 
     async def create_chat_session(
         self,
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
+        title: str | None = None,
+        kind: ConversationKind = "chat",
     ) -> AppResponse:
+        raise NotImplementedError
+
+    async def list_conversations(
+        self,
+        access: MemoryAccess,
+        *,
+        kind: ConversationKind | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> AppResponse:
+        """One page of the caller's own conversations, newest activity first."""
+
+        raise NotImplementedError
+
+    async def conversation_messages(
+        self,
+        access: MemoryAccess,
+        *,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> AppResponse:
+        """One page of one conversation's messages, oldest first."""
+
+        raise NotImplementedError
+
+    async def rename_conversation(self, access: MemoryAccess, *, title: str) -> AppResponse:
+        """Retitle one of the caller's conversations; blank clears the title."""
+
+        raise NotImplementedError
+
+    async def delete_conversation(self, access: MemoryAccess) -> AppResponse:
+        """Erase one conversation, its memories, and their vector points."""
+
         raise NotImplementedError
 
     async def chat_session_exists(
@@ -58,6 +112,7 @@ class BaseAppService(ProviderPort, ABC):
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> bool:
         raise NotImplementedError
 
@@ -66,6 +121,7 @@ class BaseAppService(ProviderPort, ABC):
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> AppResponse:
         raise NotImplementedError
 
@@ -88,8 +144,13 @@ class BaseAppService(ProviderPort, ABC):
         tenant_id: str,
         principal_id: str,
         options: ChatExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]:
-        """Stream one retrieval-grounded chat completion as ``{"kind": ...}`` events."""
+    ) -> AsyncGenerator[dict[str, object], None]:
+        """Stream one retrieval-grounded chat completion as ``{"kind": ...}`` events.
+
+        An ``AsyncGenerator`` rather than a bare iterator: the transport closes
+        the stream when its client goes away, and the implementation persists
+        the text it already delivered while handling that close.
+        """
 
         raise NotImplementedError
 

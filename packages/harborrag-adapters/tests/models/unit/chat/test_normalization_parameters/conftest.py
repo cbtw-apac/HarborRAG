@@ -29,6 +29,7 @@ def deployment(**updates: Any) -> HarborChatProviderConfig:
             structured_output=True,
             json_mode=True,
             tools=True,
+            parallel_tools=True,
             streaming=True,
         ),
     }

@@ -12,15 +12,15 @@ from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    RetryFailuresInput,
-    SourceIngestionInput,
-    SourceIngestionStatus,
+from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
+from harborrag_runtime.ingestion_contracts import (
+    IngestionExecutionReference,
+    IngestionExecutionStatus,
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
+    SourceSubmission,
 )
-from harborrag_runtime.temporal.submission import SourceSubmission
-from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
+from harborrag_runtime.source_query import ProcessingProfileInput
 
 
 class FakeRuntimeClient:
@@ -41,7 +41,7 @@ class FakeRuntimeClient:
 
     async def start_ingestion(self, request):
         self._record("start_ingestion", request)
-        return RuntimeWorkflowRef(request.task_id, "wf-1", "execution-1")
+        return IngestionExecutionReference(request.task_id, "wf-1", "execution-1")
 
     async def result(self, run_id: str):
         self._record("result", run_id)
@@ -49,7 +49,7 @@ class FakeRuntimeClient:
 
     async def get_status(self, run_id: str):
         self._record("get_status", run_id)
-        return SourceIngestionStatus(
+        return IngestionExecutionStatus(
             task_id=run_id,
             status="RUNNING",
             paused=False,
@@ -76,6 +76,7 @@ class FakeRuntimeClient:
 
 class FakeComposition:
     mode = "test"
+    control_plane = None
 
     def __init__(self, diagnostics: object) -> None:
         self._diagnostics = diagnostics
@@ -90,9 +91,9 @@ class FakeComposition:
 
 class FakeTaskRegistry:
     def __init__(self) -> None:
-        self.registered: list[SourceIngestionInput] = []
+        self.registered: list[PreparedSourceSubmission] = []
 
-    async def register(self, source: SourceIngestionInput) -> None:
+    async def register(self, source: PreparedSourceSubmission) -> None:
         self.registered.append(source)
 
     async def close(self) -> None:
@@ -129,8 +130,8 @@ def build_service(
 def source_input(
     _settings: RuntimeSettings,
     submission: SourceSubmission,
-) -> SourceIngestionInput:
-    return SourceIngestionInput(
+) -> PreparedSourceSubmission:
+    return PreparedSourceSubmission(
         task_id=submission.task_id,
         tenant_id=submission.tenant_id,
         connector_name=submission.connector_name,
@@ -157,15 +158,17 @@ def source_input(
 
 class FakeTemporalClient:
     def __init__(self) -> None:
-        self.started: list[SourceIngestionInput] = []
+        self.started: list[PreparedSourceSubmission] = []
         self.paused: list[str] = []
         self.resumed: list[str] = []
         self.cancelled: list[str] = []
-        self.retries: list[RetryFailuresInput] = []
+        self.retries: list[IngestionRetryRequest] = []
 
-    async def start_ingestion(self, source: SourceIngestionInput) -> RuntimeWorkflowRef:
+    async def start_ingestion(
+        self, source: PreparedSourceSubmission
+    ) -> IngestionExecutionReference:
         self.started.append(source)
-        return RuntimeWorkflowRef(source.task_id, "internal", "internal-run")
+        return IngestionExecutionReference(source.task_id, "internal", "internal-run")
 
     async def pause(self, task_id: str) -> None:
         self.paused.append(task_id)
@@ -178,17 +181,17 @@ class FakeTemporalClient:
 
     async def start_retry_failures(
         self,
-        request: RetryFailuresInput,
-    ) -> RuntimeWorkflowRef:
+        request: IngestionRetryRequest,
+    ) -> IngestionExecutionReference:
         self.retries.append(request)
-        return RuntimeWorkflowRef(request.retry_task_id, "internal", "internal-run")
+        return IngestionExecutionReference(request.retry_task_id, "internal", "internal-run")
 
 
 def public_ingestion_source_input(
     _settings: RuntimeSettings,
     submission: SourceSubmission,
-) -> SourceIngestionInput:
-    return SourceIngestionInput(
+) -> PreparedSourceSubmission:
+    return PreparedSourceSubmission(
         task_id=submission.task_id,
         tenant_id=submission.tenant_id,
         connector_name="harborrag-workspace",

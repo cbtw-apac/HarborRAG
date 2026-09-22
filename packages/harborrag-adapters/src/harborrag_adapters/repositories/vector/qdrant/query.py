@@ -15,12 +15,11 @@ from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query_mapping import (
-    fused_result,
+    fused_results,
     point_record,
     search_result,
     sparse_result,
     vectors,
-    weighted_rrf,
 )
 from harborrag_adapters.repositories.vector.qdrant.schema_mapping import (
     collection_spec_from_qdrant,
@@ -36,6 +35,9 @@ from harborrag_core.indexing import (
     VectorSearchResult,
 )
 from harborrag_core.storage import StorageFamily, StorageOperationContext
+
+_MAX_HYBRID_CANDIDATES = 1_000
+"""Most candidates per lane fusion will hold in memory at once."""
 
 qm: Any
 try:
@@ -179,8 +181,18 @@ class QdrantQueryExecutor:
                 f"collection schema {query.index_name!r} has no sparse vector lane",
                 context=self.error_context("hybrid_search", query.index_name, context=context),
             )
+        # Fusion needs both lanes in memory, so the candidate set is capped.
+        # A page beyond that cap cannot be answered: returning the empty slice
+        # it produces would report "no more results" for a page that was never
+        # looked at.
+        if query.offset + query.top_k > _MAX_HYBRID_CANDIDATES:
+            raise HarborStorageCapabilityError(
+                f"hybrid search cannot page beyond {_MAX_HYBRID_CANDIDATES} candidates; "
+                f"requested offset {query.offset} with top_k {query.top_k}",
+                context=self.error_context("hybrid_search", query.index_name, context=context),
+            )
         candidate_limit = min(
-            1000,
+            _MAX_HYBRID_CANDIDATES,
             max(query.top_k + query.offset, query.top_k * 4),
         )
         common = {
@@ -203,25 +215,12 @@ class QdrantQueryExecutor:
             using=spec.sparse_vector_name,
             **common,
         )
-        fused = weighted_rrf(
+        output = fused_results(
             dense_response.points,
             sparse_response.points,
-            dense_weight=query.dense_weight,
+            query=query,
+            spec=spec,
         )
-        output: list[VectorSearchResult] = []
-        for raw_score, point in fused:
-            score = min(1.0, raw_score * 61.0)
-            if query.score_threshold is not None and score < query.score_threshold:
-                continue
-            output.append(
-                fused_result(
-                    point,
-                    score=score,
-                    raw_score=raw_score,
-                    query=query,
-                    spec=spec,
-                )
-            )
         return output[query.offset : query.offset + query.top_k]
 
     async def sparse_search(

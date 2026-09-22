@@ -86,14 +86,13 @@ python -m pip install -e "packages/harborrag-adapters[control-plane]"
 python -m pip install -e packages/harborrag-engine
 python -m pip install -e "packages/harborrag-runtime[production]"
 python -m pip install -e "packages/harborrag-app[api]"
-python -m pip install -e packages/harborrag-mcp-server
+python -m pip install -e "packages/harborrag-mcp-server[reader]"
 python -m pip install -e packages/harborrag
 python -m pip install -e ".[dev]"
 ```
 
-`harborrag-memory` has no explicit step because `harborrag-runtime` requires it. Dropping
-the `[control-plane]`, `[production]`, and `[api]` extras yields a checkout that imports
-fine and then fails at the first control-plane, provider, or API call.
+`harborrag-memory` is optional. Install it explicitly for memory-enabled chat or
+agent deployments. The `[reader]` profile installs the MCP reader providers.
 
 ### What the checkout gives you
 
@@ -117,13 +116,9 @@ rest:
 pip install harborrag
 ```
 
-A bare install gives you the whole first-party framework - the facade plus
-`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`,
-`harborrag-runtime`, and the `harborrag` command from `harborrag-app` - along with
-SQLAlchemy and SQLite for the local control plane. It deliberately installs **no third-party
-provider clients**, so there is no vector store, no graph store, and no model client until
-you add an extra; `harborrag doctor` lists the missing ones and the extra that supplies
-them.
+A bare install includes the MCP transport and lazy public facade. The
+`mcp` extra adds its reader backend providers. The CLI and API are selected
+explicitly; the MCP reader profile does not install conversation memory.
 
 Everything at once:
 
@@ -138,13 +133,13 @@ Most extras add only the third-party clients their providers require. Four -
 
 | Install | Adds | Use it when |
 | --- | --- | --- |
-| `harborrag` | the full first-party framework and the `harborrag` command, plus SQLAlchemy/SQLite - no provider clients | you supply your own provider adapters |
+| `harborrag` | MCP transport and lazy public facade | you supply reader providers yourself |
 | `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables, **and the `harborrag` command** | the recommended install: `harborrag init` + `ingest run` |
 | `harborrag[chat]` | model client | chat completion, embeddings, reranking |
-| `harborrag[cli]` | nothing new - `harborrag-app` is already required by `harborrag` | explicitness only |
-| `harborrag[server]` | `harborrag-app[api]`, production and Temporal runtime | running the HTTP API |
-| `harborrag[mcp]` | `harborrag-mcp-server[mcp]` | exposing MCP tools to an IDE or agent |
-| `harborrag[memory]` | nothing new - `harborrag-memory` is already required by `harborrag-runtime` | explicitness only |
+| `harborrag[cli]` | `harborrag-app` | running the application CLI |
+| `harborrag[server]` | `harborrag-app[api]` and reader providers | running the HTTP API |
+| `harborrag[mcp]` | MCP reader providers | exposing MCP tools to an IDE or agent |
+| `harborrag[memory]` | `harborrag-memory` | enabling conversation memory |
 | `harborrag[temporal]` | Temporal client | durable orchestration: `submit`, `status`, `pause`, `resume`, `cancel` |
 | `harborrag[qdrant]` | `qdrant-client` | Qdrant vector storage |
 | `harborrag[falkordb]` | `falkordb` | FalkorDB graph storage |
@@ -187,7 +182,7 @@ narrower dependency tree:
 For example, an MCP-only deployment:
 
 ```bash
-pip install "harborrag-mcp-server[mcp]"
+pip install "harborrag-mcp-server[reader]"
 ```
 
 Each package ships its own README with usage details, published under the
@@ -197,8 +192,8 @@ package reference section of the documentation.
 
 | Command | Provided by | Available with |
 | --- | --- | --- |
-| `harborrag` | `harborrag-app` | every `harborrag` install, including the bare one |
-| `harborrag-mcp` | `harborrag-mcp-server` | `harborrag[mcp]`, `harborrag[all]` |
+| `harborrag` | `harborrag-app` | `harborrag[cli]` or `harborrag[server]` |
+| `harborrag-mcp` | `harborrag-mcp-server` | bare `harborrag`, `harborrag[mcp]`, or `harborrag[all]` |
 
 A PyPI install puts these on your `PATH`, so `harborrag --help` works directly.
 

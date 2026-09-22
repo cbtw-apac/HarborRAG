@@ -39,9 +39,10 @@ Prepare a protected environment file:
 scripts/deployment/dev.sh bootstrap     # creates all seven env/ files, mode 0600
 ```
 
-`bootstrap` is preferred over copying templates by hand: it creates every file the
-entrypoints require - including `env/.env.api`, which `mcp.sh` hard-requires - and mints
-the MCP bearer token.
+`bootstrap` is preferred over copying templates by hand: it creates the
+checkout environment files and mints the local MCP bearer token. MCP reads the
+database and model files, plus the MCP file when present; it does not load
+`env/.env.api`.
 
 **`HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty and blocks
 startup.** It encrypts stored connector credentials in the control database, and both the

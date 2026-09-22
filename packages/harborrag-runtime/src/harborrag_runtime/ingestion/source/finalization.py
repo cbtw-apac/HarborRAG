@@ -18,6 +18,10 @@ from .models import (
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
 
+# Comfortably under the smallest supported control-plane pool, so retirement
+# never competes with the rest of the task for connections.
+_MAX_CONCURRENT_RETIREMENTS = 4
+
 
 class SourceFinalizationService:
     """Repair relations, reconcile removals, and close a source task."""
@@ -122,6 +126,24 @@ class SourceFinalizationService:
             )
             raise
 
+    async def _retire_all(self, removals: tuple[str, ...]) -> None:
+        """Retire every removed document without exhausting the connection pool.
+
+        ``retire_removed`` opens a session per call, so gathering one task per
+        removal put the whole batch in flight at once. A scan that detected a
+        few hundred removals overran a pool sized ``control_db_pool_size +
+        control_db_max_overflow`` (15 by default), timed out, and marked the
+        task FAILED even though every document had already been published.
+        """
+
+        slots = asyncio.Semaphore(_MAX_CONCURRENT_RETIREMENTS)
+
+        async def retire(document_id: str) -> None:
+            async with slots:
+                await self._control.publisher.retire_removed(document_id=document_id)
+
+        await asyncio.gather(*(retire(document_id) for document_id in removals))
+
     async def _reconcile_removals(
         self,
         request: SourceIngestionRequest,
@@ -140,12 +162,7 @@ class SourceFinalizationService:
                     else frozenset()
                 ),
             )
-            await asyncio.gather(
-                *(
-                    self._control.publisher.retire_removed(document_id=document_id)
-                    for document_id in removals
-                )
-            )
+            await self._retire_all(removals)
             logger.info(
                 "Source removal reconciliation completed task_id=%s removals=%d",
                 request.task_id,

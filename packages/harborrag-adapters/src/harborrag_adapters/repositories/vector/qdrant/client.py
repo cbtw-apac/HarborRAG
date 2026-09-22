@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantDeployment
 
@@ -29,7 +30,7 @@ class QdrantDBClient(AsyncLifecycle):
         operation_timeout_seconds: float,
     ) -> None:
         if AsyncQdrantClient is None:
-            raise ImportError("qdrant-client is not installed")
+            raise MissingOptionalDependencyError("qdrant-client")
         self._deployment = deployment
         self._url = url
         self._path = path

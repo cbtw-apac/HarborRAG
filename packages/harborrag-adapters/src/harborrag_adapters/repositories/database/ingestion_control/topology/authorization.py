@@ -40,6 +40,15 @@ def readable_snapshot(snapshot: Any, access: AccessContext | None) -> Any:
 
 
 def authorized_documents(tenant_id: str, access: AccessContext | None) -> Any:
+    if access is None or str(access.tenant_id) != tenant_id:
+        return select(DOCUMENTS.c.document_id, DOCUMENTS.c.active_document_version_id).where(
+            false()
+        )
+    if access.corpus_mode == "tenant_shared":
+        return select(DOCUMENTS.c.document_id, DOCUMENTS.c.active_document_version_id).where(
+            DOCUMENTS.c.tenant_id == tenant_id,
+            DOCUMENTS.c.active_document_version_id.is_not(None),
+        )
     source = PERMISSION_SNAPSHOTS.alias("source_acl")
     document = PERMISSION_SNAPSHOTS.alias("document_acl")
     return (
@@ -105,6 +114,16 @@ def build_permissions_current(
             ),
         )
     )
+    if serving and access is not None and access.corpus_mode == "tenant_shared":
+        if str(access.tenant_id) != tenant_id:
+            return false()
+        # The accepted build remains version-bound to its published inputs.
+        # Shared readers use the tenant publication policy for serving, while
+        # build-time processing authorization remains an ingestion concern.
+        return and_(
+            ~stale_inputs,
+            exists(select(inputs.c.document_id).where(input_predicate)),
+        )
     return and_(
         ~stale_inputs,
         exists(select(inputs.c.document_id).where(input_predicate)),

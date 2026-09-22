@@ -7,8 +7,8 @@ from hashlib import sha256
 from uuid import UUID
 
 from harborrag_adapters.repositories.object_store import ImmutableArtifactReader
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.indexing import VectorDistance, VectorIndexRecord, VectorIndexSpec
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology import DocumentTopologyBuild
 from harborrag_core.topology.derived import DERIVED_VECTOR_PRODUCTS, ContextualManifest
@@ -19,7 +19,7 @@ from .derived_coverage import validate_derived_coverage
 
 @dataclass(frozen=True)
 class DerivedVectorProjection:
-    vectors: HarborVectorRepository
+    vectors: VectorRepositoryPort
     reader: ImmutableArtifactReader
 
     async def publish(

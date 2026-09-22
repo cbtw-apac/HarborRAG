@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from time import perf_counter
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
+from harborrag_core.contracts.reader import (
+    EntityResolveResponse,
+    EvidenceFetchResponse,
+    RelationSearchResponse,
+    SemanticPathRequest,
+    SemanticPathResponse,
+)
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
@@ -20,13 +27,6 @@ from harborrag_engine.retrieval import (
     RetrievalLane,
 )
 
-from ..contracts import (
-    EntityResolveResponse,
-    EvidenceFetchResponse,
-    RelationSearchResponse,
-    SemanticPathRequest,
-    SemanticPathResponse,
-)
 from .contracts import (
     CloseOperation,
     RetrievalDiagnostics,
@@ -36,6 +36,7 @@ from .contracts import (
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
+from .errors import no_indexed_content
 from .evidence import budget_diagnostics, build_evidence_bundle, select_evidence
 from .graph_observation import GraphObservation, GraphObserver
 from .graph_service import RuntimeGraphRetrievalMixin
@@ -50,6 +51,8 @@ from .validation import validate_retrieval_request
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.storage import VectorRepositoryPort
+
     from ..config.settings import RuntimeSettings
 
 
@@ -76,6 +79,10 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
         self._permissions = RetrievalPermissions(resources.topology_repository)
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
+        # Retained so the conversation-memory index can share this one connected
+        # Qdrant client instead of opening a second one; memory lives in its own
+        # logical collection, never the document/evidence one.
+        self._vector_repository = resources.vector_repository
         self._knowledge = KnowledgeRetrieval(
             resources.topology_repository,
             resources.vector_repository,
@@ -124,6 +131,18 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         self._closed = False
 
+    @property
+    def vector_repository(self) -> VectorRepositoryPort:
+        """The connected vector client, for sharing with the memory index."""
+
+        return self._vector_repository
+
+    @property
+    def embedding_dimensions(self) -> int:
+        """Dense vector width, so a second index matches this deployment."""
+
+        return self._policy.embedding_dimensions
+
     @classmethod
     async def connect(cls, settings: RuntimeSettings) -> RuntimeRetrievalService:
         from .composition import connect_retrieval_service
@@ -160,17 +179,24 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
             else None
         )
-        search = await self._search.search(
-            AuthoritativeSearchRequest(
-                lane=selected.lane,
-                top_k=top_k,
-                dense_vector=dense_vector,
-                sparse_vector=sparse_vector,
-                filters=await self._permissions.scope_filter(selected.filters, context),
-                dense_weight=self._policy.dense_weight,
-            ),
-            context=context,
-        )
+        try:
+            search = await self._search.search(
+                AuthoritativeSearchRequest(
+                    lane=selected.lane,
+                    top_k=top_k,
+                    dense_vector=dense_vector,
+                    sparse_vector=sparse_vector,
+                    filters=await self._permissions.scope_filter(selected.filters, context),
+                    dense_weight=self._policy.dense_weight,
+                ),
+                context=context,
+            )
+        except HarborStorageNotFoundError as exc:
+            logger.info(
+                "Retrieval found no index for the tenant",
+                extra={"request_id": request_id, "tenant_id": tenant_id},
+            )
+            raise no_indexed_content() from exc
         topology = await self._topology.prepare(
             query,
             await self._permissions.validate(search.candidates, context),
@@ -187,6 +213,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 search.candidates,
                 context=context,
                 request_id=request_id,
+                memory_seeds=selected.graph_seeds,
             )
             if selected.observe_graph and self._observer is not None
             else GraphObservation()
@@ -324,10 +351,12 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     async def aclose(self) -> None:
         if self._closed:
             return
-        results = await asyncio.gather(
-            *(close() for close in reversed(self._close_resources)),
-            return_exceptions=True,
-        )
+        results: list[BaseException] = []
+        for close in reversed(self._close_resources):
+            try:
+                await close()
+            except BaseException as error:
+                results.append(error)
         errors = [result for result in results if isinstance(result, Exception)]
         fatal = [
             result

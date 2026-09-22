@@ -5,84 +5,70 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import cast
 
+from harborrag_app.workflow_control.chat.prompting import history_messages
 from harborrag_app.workflow_control.errors import failure_response
+from harborrag_app.workflow_control.memory.context import recent_memory_context
+from harborrag_app.workflow_control.memory.extraction import (
+    MemoryExtractionQueue,
+)
+from harborrag_app.workflow_control.memory.identity import MemoryIdentity
+from harborrag_app.workflow_control.memory.locks import SessionLocks
+from harborrag_app.workflow_control.memory.projects import require_project
+from harborrag_app.workflow_control.memory.titles import conversation_title
 from harborrag_app.workflow_control.schemas import AppResponse
-from harborrag_core.contracts.errors import HarborConfigurationError, HarborNotFoundError
-from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest, HarborChatResponse
+from harborrag_core.contracts.errors import (
+    HarborConfigurationError,
+    HarborConflictError,
+    HarborNotFoundError,
+    HarborValidationError,
+)
+from harborrag_core.models.chat import HarborChatMessage
+from harborrag_core.ports.control_plane import ProjectRepositoryPort
+from harborrag_core.ports.conversation import ConversationHistoryRepository
+from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
+from harborrag_core.ports.usage import ModelUsageRepository
+from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_runtime.agent import (
     AgentEvent,
     AgentEventSink,
-    AgentRunOptions,
     AgentRunRepository,
     AgentRunResult,
     AgentService,
 )
-from harborrag_runtime.agent.tools import RuntimeAgentToolProvider
-from harborrag_runtime.chat import ChatFacade, ChatPrompt
-from harborrag_runtime.memory import ConversationIdentity, ConversationRepository
+from harborrag_runtime.composition.agent_tools import RuntimeAgentToolProvider
+from harborrag_runtime.memory import MemoryContext
 from harborrag_runtime.sdk import HarborRAG
 
 from .options import AgentExecutionOptions
+from .support import DefaultPromptChat, agent_timeout_seconds, result_data, run_options
+from .turn import record_run_usage
 
-_DEFAULT_AGENT_TIMEOUT_SECONDS = 120.0
-_DEFAULT_AGENT_TOKEN_BUDGET = 32_768
+# Re-exported for callers that historically imported the helpers from here.
+_run_options = run_options
+_result_data = result_data
 
 type RuntimeProvider = Callable[[], HarborRAG]
 
 logger = logging.getLogger("harborrag.app.workflow_control.agent")
 
 
-@dataclass(frozen=True, slots=True)
-class _DefaultPromptChat:
-    facade: ChatFacade
+def _error_event(failure: AppResponse) -> dict[str, object]:
+    """Describe a failure the way the transport can branch on it.
 
-    async def complete(self, request: HarborChatRequest) -> HarborChatResponse:
-        return await self.facade.complete(request, prompt=ChatPrompt.DEFAULT)
+    Mirrors the rag surface's ``chat.events.error_event``: without
+    ``error_type`` the transport's lookup table misses and every agent failure
+    reaches the caller as one "service unavailable" frame, so a busy
+    conversation turn and a lost lease become indistinguishable from an outage.
+    """
 
-
-def _run_options(
-    tenant_id: str,
-    principal_id: str,
-    options: AgentExecutionOptions,
-) -> AgentRunOptions:
-    return AgentRunOptions(
-        tenant_id=tenant_id,
-        principal_id=principal_id,
-        session_id=options.session_id,
-        graph_search=options.graph_search,
-        max_steps=options.max_steps,
-        timeout_seconds=_DEFAULT_AGENT_TIMEOUT_SECONDS,
-        max_total_tokens=_DEFAULT_AGENT_TOKEN_BUDGET,
-    )
-
-
-def _result_data(result: AgentRunResult, *, session_id: str) -> dict[str, object]:
-    response = result.response
     return {
-        "id": response.id,
-        "run_id": result.run_id,
-        "model": response.logical_model,
-        "provider": response.provider,
-        "provider_model": response.provider_model,
-        "message": {"role": "assistant", "content": response.text},
-        "finish_reason": str(response.finish_reason),
-        "stop_reason": result.stop_reason.value,
-        "usage": result.usage.model_dump(mode="json"),
-        "turns": result.turns,
-        "tool_call_count": len(result.executions),
-        "tool_calls": [
-            {
-                "step": execution.step,
-                "tool": execution.tool,
-                "ok": execution.ok,
-            }
-            for execution in result.executions
-        ],
-        "session_id": session_id,
+        "kind": "error",
+        "error": failure.error,
+        "error_type": str(failure.data["error_type"]),
     }
 
 
@@ -101,36 +87,90 @@ class _StreamItem:
 class AgentApplicationService:
     """Execute the shared engine agent over runtime-native retrieval tools."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - one keyword-only collaborator per injected port
         self,
         runtime_provider: RuntimeProvider,
         *,
-        memory: ConversationRepository,
+        memory: ConversationHistoryRepository,
         runs: AgentRunRepository,
+        projects: ProjectRepositoryPort | None = None,
+        memories: MemoryRepository | None = None,
+        index: MemoryIndex | None = None,
+        extraction: MemoryExtractionQueue | None = None,
+        locks: SessionLocks | None = None,
+        memory_tools: bool = False,
+        usage: ModelUsageRepository | None = None,
     ) -> None:
         self._runtime_provider = runtime_provider
         self._memory = memory
         self._runs = runs
+        self._projects = projects
+        self._memories = memories
+        self._index = index
+        self._extraction = extraction
+        self._usage = usage
+        # HARBORRAG_MEMORY_AGENT_TOOLS; off unless the deployment opted in.
+        self._memory_tools = memory_tools
+        # Serializes runs per session so the engine's ``recent -> append`` on
+        # conversation memory cannot interleave across concurrent requests.
+        self._locks = locks or SessionLocks(memory)
+        # Held for the service's lifetime, not per run: a tool cursor the model
+        # was handed on an earlier turn has to still resolve on a later one.
+        self._references = KnowledgeReferenceStore()
 
-    def _agent_service(self) -> AgentService:
+    def _agent_service(
+        self,
+        identity: MemoryIdentity,
+        *,
+        model: str | None = None,
+    ) -> AgentService:
+        """Compose the engine agent over tools bound to this run's caller.
+
+        The memory owner is handed to the tool provider here, from the
+        authenticated identity, which is what keeps the agent's memory tools
+        unable to read or write as anybody else: nothing the model emits can
+        reach it.
+        """
+
         runtime = self._runtime_provider()
+        from harborrag_engine.tools.catalog import build_reader_tool_catalog
+        from harborrag_engine.tools.dispatcher import ToolInvoker
+        from harborrag_runtime.observability.tool_audit import build_tool_execution_audit
+
+        reader_invoker = ToolInvoker(
+            build_reader_tool_catalog(runtime, self._references),
+            audit=build_tool_execution_audit(),
+        )
         return AgentService(
-            _DefaultPromptChat(runtime.chat),
-            RuntimeAgentToolProvider(runtime),
+            DefaultPromptChat(runtime.chat, model),
+            RuntimeAgentToolProvider(
+                runtime,
+                memories=self._memories,
+                index=self._index,
+                memory_owner=identity.owner(),
+                # HARBORRAG_MEMORY_AGENT_TOOLS. The conversation policy itself is
+                # exactly three recent pairs either way; these tools only let a
+                # run read and write long-term memory explicitly.
+                memory_tools_enabled=self._memory_tools,
+                references=self._references,
+                reader_invoker=reader_invoker,
+                tenant_id=identity.tenant_id,
+                corpus_mode=(
+                    runtime.config.runtime.corpus_access_mode
+                    if identity.tenant_id == runtime.config.runtime.corpus_shared_tenant_id
+                    else "source_acl"
+                ),
+            ),
             memory=self._memory,
             runs=self._runs,
         )
 
-    async def _require_session(
-        self,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        session_id: str,
-    ) -> None:
-        identity = ConversationIdentity(tenant_id, principal_id, session_id)
-        if not await self._memory.exists(identity):
+    async def _require_scope(self, identity: MemoryIdentity) -> None:
+        """Both the session and the optional project must exist for this caller."""
+
+        if not await self._memory.exists(identity.conversation()):
             raise HarborNotFoundError("Conversation session was not found")
+        await require_project(self._projects, identity.project_id, tenant_id=identity.tenant_id)
 
     async def _run_agent(
         self,
@@ -141,11 +181,39 @@ class AgentApplicationService:
         options: AgentExecutionOptions,
         events: AgentEventSink | None = None,
     ) -> AgentRunResult:
-        return await self._agent_service().run(
-            (HarborChatMessage.user(query),),
-            _run_options(tenant_id, principal_id, options),
-            events=events,
-        )
+        identity = _identity(tenant_id, principal_id, options)
+        async with self._locks.hold(identity.conversation()):
+            context = await self._context(identity, query)
+            result = await self._agent_service(identity, model=options.model).run(
+                (HarborChatMessage.user(query),),
+                run_options(
+                    tenant_id,
+                    principal_id,
+                    options,
+                    history=history_messages(context.messages),
+                    memory_summary=context.summary,
+                ),
+                events=events,
+            )
+            await record_run_usage(self._usage, identity, result)
+            await conversation_title(
+                self._memory, identity.conversation(), prompt=query, run_id=result.run_id
+            )
+        return result
+
+    async def _context(self, identity: MemoryIdentity, query: str) -> MemoryContext:
+        """Replay only the latest three complete user/assistant pairs."""
+
+        return await recent_memory_context(self._memory, identity, query)
+
+    async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
+        """Reject a model name this tenant may not use, before the run starts.
+
+        Same rule and same authority as the chat surface; a resumed run keeps
+        the model it started under and never revalidates.
+        """
+
+        await self._runtime_provider().chat.validate_model(model, tenant_id=tenant_id)
 
     async def complete(
         self,
@@ -155,14 +223,17 @@ class AgentApplicationService:
         principal_id: str,
         options: AgentExecutionOptions,
     ) -> AppResponse:
-        await self._require_session(
-            tenant_id=tenant_id, principal_id=principal_id, session_id=options.session_id
-        )
+        await self._require_scope(_identity(tenant_id, principal_id, options))
         try:
             result = await self._run_agent(
                 query, tenant_id=tenant_id, principal_id=principal_id, options=options
             )
-            return AppResponse(True, _result_data(result, session_id=options.session_id))
+            return AppResponse(
+                True, await self._project_result(result, options, tenant_id, principal_id)
+            )
+        except (HarborValidationError, HarborConflictError):
+            # A caller-supplied value the transport must report as a 422.
+            raise
         except Exception as exc:  # noqa: BLE001 - stable application envelope
             return failure_response(logger, exc, "run agent completion")
 
@@ -173,7 +244,7 @@ class AgentApplicationService:
         tenant_id: str,
         principal_id: str,
         options: AgentExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> AsyncGenerator[dict[str, object], None]:
         """Yield ``{"kind": ...}`` events: many ``event``, exactly one terminal
         ``result`` or ``error``. A transport adapts these into SSE frames.
 
@@ -187,12 +258,10 @@ class AgentApplicationService:
         """
 
         try:
-            await self._require_session(
-                tenant_id=tenant_id, principal_id=principal_id, session_id=options.session_id
-            )
+            await self._require_scope(_identity(tenant_id, principal_id, options))
         except Exception as exc:  # noqa: BLE001 - stable application envelope
             failure = failure_response(logger, exc, "prepare agent run stream")
-            yield {"kind": "error", "error": failure.error}
+            yield _error_event(failure)
             return
 
         queue: asyncio.Queue[_StreamItem] = asyncio.Queue()
@@ -232,7 +301,9 @@ class AgentApplicationService:
                     result = cast("AgentRunResult", item.payload)
                     yield {
                         "kind": "result",
-                        "result": _result_data(result, session_id=options.session_id),
+                        "result": await self._project_result(
+                            result, options, tenant_id, principal_id
+                        ),
                     }
                     return
                 failure = failure_response(
@@ -240,7 +311,7 @@ class AgentApplicationService:
                     cast("Exception", item.payload),
                     "run agent completion stream",
                 )
-                yield {"kind": "error", "error": failure.error}
+                yield _error_event(failure)
                 return
         finally:
             if not task.done():
@@ -256,12 +327,23 @@ class AgentApplicationService:
         principal_id: str,
         options: AgentExecutionOptions,
     ) -> AppResponse:
+        identity = _identity(tenant_id, principal_id, options)
         try:
-            result = await self._agent_service().resume(
-                run_id, _run_options(tenant_id, principal_id, options)
+            await self._require_scope(identity)
+            async with self._locks.hold(identity.conversation()):
+                result = await self._agent_service(identity).resume(
+                    run_id, run_options(tenant_id, principal_id, options)
+                )
+                # A resumed run spends real tokens too, so it is accounted for
+                # like a fresh one; the run_id ties both rows to the same run.
+                await record_run_usage(self._usage, identity, result)
+                await conversation_title(
+                    self._memory, identity.conversation(), run_id=result.run_id
+                )
+            return AppResponse(
+                True, await self._project_result(result, options, tenant_id, principal_id)
             )
-            return AppResponse(True, _result_data(result, session_id=options.session_id))
-        except (HarborNotFoundError, HarborConfigurationError):
+        except (HarborNotFoundError, HarborConfigurationError, HarborConflictError):
             # Known, mapped domain errors (unresumable/unknown run, no checkpoint
             # backend configured) propagate for the transport layer to translate
             # into the right status code, matching `complete()`'s session-not-found
@@ -270,5 +352,30 @@ class AgentApplicationService:
         except Exception as exc:  # noqa: BLE001 - stable application envelope
             return failure_response(logger, exc, "resume agent run")
 
+    async def _project_result(
+        self,
+        result: AgentRunResult,
+        options: AgentExecutionOptions,
+        tenant_id: str,
+        principal_id: str,
+    ) -> dict[str, object]:
+        identity = _identity(tenant_id, principal_id, options)
+        title = await conversation_title(self._memory, identity.conversation())
+        return {**_project(result, options), "title": title}
 
-__all__ = ["AgentApplicationService"]
+
+def _identity(tenant_id: str, principal_id: str, options: AgentExecutionOptions) -> MemoryIdentity:
+    return MemoryIdentity.build(
+        tenant_id=tenant_id,
+        principal_id=principal_id,
+        session_id=options.session_id,
+        user_id=options.user_id,
+        project_id=options.project_id,
+    )
+
+
+def _project(result: AgentRunResult, options: AgentExecutionOptions) -> dict[str, object]:
+    return result_data(result, session_id=options.session_id, project_id=options.project_id)
+
+
+__all__ = ["AgentApplicationService", "agent_timeout_seconds"]

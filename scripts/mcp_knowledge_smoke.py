@@ -9,8 +9,8 @@ import json
 from typing import Any
 
 from harborrag_mcp_server.server import McpServer
+from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
 
 def _arguments() -> argparse.Namespace:
@@ -27,11 +27,12 @@ def _arguments() -> argparse.Namespace:
 async def _run(arguments: argparse.Namespace) -> dict[str, object]:
     settings = RuntimeSettings()
     tenant = arguments.tenant or settings.ingestion_tenant_id
-    runtime = HarborRAG(HarborRAGConfig(runtime=settings))
-    server = McpServer(runtime=runtime)
+    runtime = open_reader_application(settings)
+    server = McpServer(invoker=runtime.invoker, references=runtime.references)
     identity = {"tenant_id": tenant}
     output: dict[str, object] = {}
     try:
+        await runtime.start()
         output["sources"] = await server.call_tool(
             "list_sources", identity, principal_id=arguments.principal
         )

@@ -80,11 +80,18 @@ class SourceRow(Base):
 
 
 class SecretRefRow(Base):
-    """secrets: refs + provenance, plus the Fernet-encrypted value itself."""
+    """secrets: refs + provenance, plus the Fernet-encrypted value itself.
+
+    ``tenant_id`` is part of every lookup: a ref is only resolvable by the
+    tenant that stored it, so a ref that escapes its tenant reveals nothing.
+    """
 
     __tablename__ = "secrets"
 
     ref: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     provider: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -201,7 +208,11 @@ class SingletonLeaseRow(Base):
 
 
 class ProviderRow(Base):
-    """providers: model provider registry; key material via secret_ref only."""
+    """providers: model provider registry; key material via secret_ref only.
+
+    ``updated_at`` exists so a per-tenant model catalog can be cache-validated
+    by a cheap aggregate; every writer MUST refresh it on every mutation.
+    """
 
     __tablename__ = "providers"
 
@@ -214,10 +225,15 @@ class ProviderRow(Base):
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class RoutingRuleRow(Base):
-    """routing_rules: model routing configuration (M4 fills semantics)."""
+    """routing_rules: model routing configuration (M4 fills semantics).
+
+    ``updated_at`` mirrors ProviderRow's: the tenant model-catalog fingerprint
+    covers these rows too, so every writer MUST refresh it on every mutation.
+    """
 
     __tablename__ = "routing_rules"
 
@@ -226,6 +242,7 @@ class RoutingRuleRow(Base):
     provider_id: Mapped[str] = mapped_column(sa.Text, sa.ForeignKey("providers.id"), nullable=False)
     rule_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class WorkspaceSettingsRow(Base):
@@ -275,6 +292,9 @@ class GraphConflictRow(Base):
     """
 
     __tablename__ = "graph_conflicts"
+    __table_args__ = (
+        sa.Index("ix_graph_conflicts_tenant_detected", "tenant_id", "detected_at", "id"),
+    )
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(sa.String(128), server_default="DEFAULT", nullable=False)
@@ -294,3 +314,5 @@ class GraphConflictRow(Base):
 # module still registers on Base.metadata whenever schemas.py is imported --
 # required for Alembic autogenerate and the metadata-drift test to see them.
 from . import schemas_agent_memory as _schemas_agent_memory  # noqa: E402, F401
+from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
+from . import schemas_usage as _schemas_usage  # noqa: E402, F401

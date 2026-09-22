@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from math import isfinite
 from typing import Any
 
@@ -15,7 +15,7 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.ports.agent_runs import AgentToolExecution
 
-from .guard import digest_arguments
+from .guard import call_digest
 from .protocols import AgentToolSpec
 
 VECTOR_SEARCH_TOOL = "vector_search"
@@ -35,6 +35,9 @@ MAX_TOOL_CALLS_PER_TURN = 8
 MAX_TOOL_RESULT_CHARS = 16_000
 _MAX_TOOL_RESULT_DEPTH = 8
 _MAX_TOOL_RESULT_ITEMS = 128
+_PROVIDER_REJECTED_TOP_LEVEL_SCHEMA_KEYS = frozenset(
+    {"oneOf", "anyOf", "allOf", "enum", "const", "not"}
+)
 
 
 def rejected_execution(
@@ -43,10 +46,7 @@ def rejected_execution(
     """Reply to a tool call that will never execute, without calling the tool."""
     result = {"ok": False, "error": error}
     content = bounded_tool_result_content(result)
-    arguments = call.function.parsed_arguments
-    digest = digest_arguments(
-        arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
-    )
+    digest = call_digest(call)
     return (
         HarborChatMessage.tool(content, tool_call_id=call.id, name=call.function.name),
         AgentToolExecution(
@@ -57,6 +57,37 @@ def rejected_execution(
             arguments_digest=digest,
         ),
     )
+
+
+def turn_replies(
+    tool_calls: Sequence[HarborToolCall],
+    *,
+    step: int,
+    replies: Mapping[str, tuple[HarborChatMessage, AgentToolExecution]],
+    fallback_error: str,
+) -> Iterator[tuple[HarborChatMessage, AgentToolExecution]]:
+    """Yield exactly one reply per issued tool call, in the model's order.
+
+    Admitted calls use their prepared reply from ``replies``; one with no
+    prepared reply (execution aborted before producing results) is answered
+    with a rejection carrying ``fallback_error``. Calls past
+    ``MAX_TOOL_CALLS_PER_TURN`` are rejected for the turn budget. Providers
+    reject a conversation whose assistant tool calls lack matching tool-role
+    messages, so no ``tool_call_id`` may ever be left dangling.
+    """
+
+    for index, call in enumerate(tool_calls):
+        if index >= MAX_TOOL_CALLS_PER_TURN:
+            yield rejected_execution(
+                call, step=step, error="tool call budget exceeded for this turn"
+            )
+            continue
+        prepared = replies.get(call.id)
+        yield (
+            prepared
+            if prepared is not None
+            else rejected_execution(call, step=step, error=fallback_error)
+        )
 
 
 def bounded_tool_result_content(result: dict[str, object]) -> str:
@@ -176,10 +207,22 @@ def _bounded_sequence(
 
 def tool_definition(spec: AgentToolSpec, graph_search: bool) -> HarborChatTool:
     schema = json.loads(json.dumps(spec.input_schema))
+    # OpenAI-compatible function tools require a top-level object and reject
+    # combinators at that level. The shared MCP schemas keep their richer JSON
+    # Schema constraints; agent calls drop only the provider-rejected top-level
+    # keywords. Tool implementations validate the same constraints again at
+    # execution, so malformed calls still fail closed.
+    if schema.get("type") == "object":
+        for key in _PROVIDER_REJECTED_TOP_LEVEL_SCHEMA_KEYS:
+            schema.pop(key, None)
     if spec.name == VECTOR_SEARCH_TOOL and not graph_search:
         properties = schema.get("properties")
         if isinstance(properties, dict):
             properties.pop("observe_graph", None)
+            mode = properties.get("mode")
+            if isinstance(mode, dict):
+                mode["enum"] = ["flat"]
+                mode["default"] = "flat"
     return HarborChatTool(
         function=HarborToolFunction(
             name=spec.name,
@@ -196,4 +239,5 @@ __all__ = [
     "bounded_tool_result_content",
     "rejected_execution",
     "tool_definition",
+    "turn_replies",
 ]

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.derived import DERIVED_VECTOR_PRODUCTS, ContextualManifest
 from harborrag_core.topology.permissions import DerivedArtifactRecord
@@ -20,7 +20,7 @@ _INDEX_PREFIXES = {
 class RetiredDerivedProjectionCleaner:
     """Remove only exact point IDs frozen in a retired build's canonical manifest."""
 
-    vectors: HarborVectorRepository
+    vectors: VectorRepositoryPort
 
     async def delete(
         self,

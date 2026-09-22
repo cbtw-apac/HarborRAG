@@ -25,6 +25,11 @@ from .topology.transactions import topology_transaction
 class SummaryAuthority:
     def __init__(self, client: SQLAlchemyDBClient) -> None:
         self._client = client
+        self._shared_processing: dict[str, str] = {}
+
+    def allow_shared_processing(self, tenant_id: str, revision: str) -> None:
+        """Opt a trusted worker/reader into an operator-approved processing basis."""
+        self._shared_processing[tenant_id] = revision
 
     @staticmethod
     def _scope(lease: SummaryLease) -> tuple[ColumnElement[bool], ...]:
@@ -106,15 +111,24 @@ class SummaryAuthority:
             raise HarborConflictError("summary source exceeds 10000-document manifest budget")
         return tuple(dict(row) for row in rows)
 
-    @staticmethod
     async def _snapshot(
-        session: AsyncSession, tenant_id: str, source_scope_id: str
+        self, session: AsyncSession, tenant_id: str, source_scope_id: str
     ) -> SummarySnapshot:
-        documents = await SummaryAuthority._documents(session, tenant_id, source_scope_id)
+        documents = await self._documents(session, tenant_id, source_scope_id)
         ids = tuple(row["document_id"] for row in documents)
         scopes: tuple[str, ...] = (source_scope_id,)
         if source_scope_id == "@tenant":
-            scopes = await SummaryAuthority._source_ids(session, tenant_id)
+            scopes = await self._source_ids(session, tenant_id)
+        if tenant_id in self._shared_processing:
+            return SummarySnapshot(
+                tenant_id=tenant_id,
+                source_scope_id=source_scope_id,
+                document_versions={
+                    row["document_id"]: row["active_document_version_id"] for row in documents
+                },
+                permission_dependencies=(),
+                membership_digest=digest([scopes, documents, self._shared_processing[tenant_id]]),
+            )
         rows = (
             (
                 await session.execute(
@@ -136,14 +150,14 @@ class SummaryAuthority:
         )
         permissions = tuple(ResolvedPermissionSnapshot.model_validate(value) for value in rows)
         now = utc_now()
-        if len(permissions) != len(ids) + len(scopes) or any(
-            not value.known
-            or not value.processing_allowed
-            or value.expires_at <= now
-            or value.resolved_at > now
-            for value in permissions
-        ):
-            raise HarborConflictError("summary_permissions_unavailable")
+        if len(permissions) != len(ids) + len(scopes):
+            raise HarborConflictError("SUMMARY_PERMISSION_SNAPSHOT_MISSING")
+        if any(not value.known for value in permissions):
+            raise HarborConflictError("SUMMARY_PERMISSION_SNAPSHOT_UNKNOWN")
+        if any(value.resolved_at > now or value.expires_at <= now for value in permissions):
+            raise HarborConflictError("SUMMARY_PERMISSION_SNAPSHOT_EXPIRED")
+        if any(not value.processing_allowed for value in permissions):
+            raise HarborConflictError("SUMMARY_PROCESSING_DISALLOWED")
         return SummarySnapshot(
             tenant_id=tenant_id,
             source_scope_id=source_scope_id,

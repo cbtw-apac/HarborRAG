@@ -29,6 +29,14 @@ def command(  # noqa: PLR0913 - explicit CLI flags are the public command contra
         str | None,
         typer.Option("--session", metavar="SESSION_ID", help="Conversation memory session key."),
     ] = None,
+    project_id: Annotated[
+        str | None,
+        typer.Option(
+            "--project",
+            metavar="PROJECT_ID",
+            help="Project the conversation is scoped to; must exist in the tenant.",
+        ),
+    ] = None,
     as_json: Annotated[
         bool,
         typer.Option("--json", help="Emit the stable machine-readable response envelope."),
@@ -42,6 +50,7 @@ def command(  # noqa: PLR0913 - explicit CLI flags are the public command contra
             message=message,
             tenant_id=tenant_id,
             session_id=session_id,
+            project_id=project_id,
         ),
         context=context,
         command="chat",
@@ -55,6 +64,7 @@ async def _complete(
     message: str,
     tenant_id: str,
     session_id: str | None,
+    project_id: str | None,
 ) -> AppResponse:
     if session_id is None:
         created = await service.create_chat_session(
@@ -71,5 +81,6 @@ async def _complete(
         options=ChatExecutionOptions(
             session_id=session_id,
             system=ChatPrompt.DEFAULT,
+            project_id=project_id,
         ),
     )

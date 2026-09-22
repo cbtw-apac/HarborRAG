@@ -135,8 +135,14 @@ def validate_chat_request(
     request: HarborChatRequest,
     config: HarborChatClientConfig,
     deployment: HarborChatProviderConfig,
+    *,
+    streaming: bool = False,
 ) -> None:
-    """Validate chat semantics, declared capabilities, and request security."""
+    """Validate chat semantics, declared capabilities, and request security.
+
+    ``streaming`` marks a call that will consume the response as a stream, so the
+    deployment must declare the ``streaming`` capability.
+    """
 
     unsupported = ((request.token_budget is not None, "token budgeting"),)
     for is_unsupported, feature in unsupported:
@@ -165,16 +171,42 @@ def validate_chat_request(
     for message in request.messages:
         if message.role is MessageRole.TOOL and message.tool_call_id is None:
             raise _invalid(request, deployment, "tool messages require tool_call_id")
+    _validate_tool_capabilities(request, deployment)
+    if streaming:
+        validate_stream_capability(request, deployment)
     _validate_request_security(request, config, deployment)
+
+
+def validate_stream_capability(
+    request: HarborChatRequest, deployment: HarborChatProviderConfig
+) -> None:
+    """Reject streaming against a deployment that does not declare ``streaming``."""
+
+    if not deployment.capabilities.streaming:
+        _raise_capability_error(request, deployment, "streaming")
 
 
 def _validate_reasoning_capability(
     request: HarborChatRequest, deployment: HarborChatProviderConfig
 ) -> None:
-    if request.reasoning_effort is None:
+    # ``none`` is an opt-out used by agent tool turns. It requires no
+    # reasoning feature from a deployment; providers that do not advertise
+    # the typed control omit it during parameter rendering.
+    if request.reasoning_effort in {None, "none"}:
         return
-    if not deployment.capabilities.reasoning_effort:
+    if not (deployment.capabilities.reasoning or deployment.capabilities.reasoning_effort):
         _raise_capability_error(request, deployment, "reasoning effort")
+
+
+def _validate_tool_capabilities(
+    request: HarborChatRequest, deployment: HarborChatProviderConfig
+) -> None:
+    if not request.tools:
+        return
+    if not deployment.capabilities.tools:
+        _raise_capability_error(request, deployment, "tool calling")
+    if request.parallel_tool_calls is True and not deployment.capabilities.parallel_tools:
+        _raise_capability_error(request, deployment, "parallel tool calls")
 
 
 def _validate_multimodal_capabilities(

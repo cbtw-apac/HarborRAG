@@ -5,6 +5,7 @@ from typing import Any, cast
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageCapabilityError,
+    MissingOptionalDependencyError,
 )
 from harborrag_adapters.repositories.policies.tenancy import ensure_tenant
 from harborrag_adapters.repositories.telemetry import (
@@ -58,7 +59,7 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         client: QdrantDBClient | None = None,
     ) -> None:
         if qm is None:
-            raise ImportError("qdrant-client is not installed")
+            raise MissingOptionalDependencyError("qdrant-client")
         self._config = config
         self._telemetry = RepositoryTelemetry(
             telemetry,
@@ -189,6 +190,10 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
         *,
         context: StorageOperationContext,
     ) -> None:
+        # Every other operation resolves the spec first, which is what turns an
+        # unknown index into HarborStorageNotFoundError instead of a raw
+        # provider 404 crossing the port.
+        await self._queries.require_spec(index_name, context)
         await self._database.raw.delete(
             collection_name=self._queries.collection_name(index_name, context),
             points_selector=qm.FilterSelector(

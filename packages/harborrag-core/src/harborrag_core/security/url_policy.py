@@ -43,7 +43,16 @@ class URLPolicy:
     resolver: Callable[[str, int], Iterable[str]] | None = None
 
     def validate(self, url: str) -> None:
-        parsed = urlparse(url)
+        # urlparse and .port both raise a bare ValueError on malformed input
+        # ("http://h:99999/", "http://[::1/"). Letting that escape breaks the
+        # contract callers compile against: one mapping URLPolicyError to a 400
+        # gets an unhandled 500, and one using `except URLPolicyError` as its
+        # deny path treats the URL as acceptable.
+        try:
+            parsed = urlparse(url)
+            port = parsed.port
+        except ValueError as exc:
+            raise URLPolicyError(f"URL is malformed: {exc}") from exc
         if parsed.scheme not in self.allowed_schemes:
             raise URLPolicyError(f"URL scheme is not allowed: {parsed.scheme}")
         hostname = parsed.hostname
@@ -66,7 +75,7 @@ class URLPolicy:
         # understood by the system resolver. This is a preflight policy only:
         # the HTTP transport must additionally compare the connected peer IP
         # with this policy to close the DNS-rebinding/TOCTOU window.
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        port = port or (443 if parsed.scheme == "https" else 80)
         addresses = tuple(self._resolve(normalized_hostname, port))
         if not addresses:
             raise URLPolicyError(f"URL host could not be resolved: {hostname}")

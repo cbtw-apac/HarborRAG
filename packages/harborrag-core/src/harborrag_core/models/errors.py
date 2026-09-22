@@ -3,21 +3,8 @@ from __future__ import annotations
 from typing import Any, Self, TypedDict, Unpack
 
 from harborrag_core.contracts.errors import HarborError
-from harborrag_core.security.field_names import canonical_field_name, canonical_field_tokens
+from harborrag_core.security.field_names import is_sensitive_field_name
 from harborrag_core.security.redaction import redact_secrets
-
-_SENSITIVE_KEYS = frozenset(
-    {
-        "access_key",
-        "access_token",
-        "api_key",
-        "authorization",
-        "credential",
-        "password",
-        "secret",
-        "token",
-    }
-)
 
 
 class ModelErrorDetails(TypedDict, total=False):
@@ -50,12 +37,8 @@ def _sanitize_diagnostic(value: Any) -> Any:
         sanitized: dict[str, Any] = {}
         for raw_key, item in value.items():
             key = str(raw_key)
-            normalized = canonical_field_name(key)
-            tokens = canonical_field_tokens(key)
             sanitized[key] = (
-                "<redacted>"
-                if normalized in _SENSITIVE_KEYS or tokens & _SENSITIVE_KEYS
-                else _sanitize_diagnostic(item)
+                "<redacted>" if is_sensitive_field_name(key) else _sanitize_diagnostic(item)
             )
         return sanitized
     if isinstance(value, (list, tuple)):

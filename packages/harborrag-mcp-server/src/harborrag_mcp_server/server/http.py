@@ -12,12 +12,17 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
+from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_mcp_server.configuration import (
     ConfigurationRevisionError,
     McpConfiguration,
     McpConfigurationStore,
 )
-from harborrag_mcp_server.server.http_auth import authorize_request_tenant, owner_only
+from harborrag_mcp_server.server.http_auth import (
+    Unauthorized,
+    authorize_request_tenant,
+    owner_only,
+)
 from harborrag_mcp_server.server.http_responses import (
     browser_security_headers,
     configuration_response,
@@ -50,6 +55,15 @@ def validate_local_http_settings(
     bearer_token: str | None,
 ) -> str:
     """Validate the deliberately local-only development HTTP boundary."""
+    validate_http_bind(host=host, port=port, path=path)
+    token = (bearer_token or "").strip()
+    if len(token.encode("utf-8")) < 32:
+        raise ValueError("HARBORRAG_MCP_BEARER_TOKEN must contain at least 32 UTF-8 bytes")
+    return token
+
+
+def validate_http_bind(*, host: str, port: int, path: str) -> None:
+    """Require loopback serving; remote deployments terminate TLS at a proxy."""
     if host not in _LOCAL_HOSTS:
         raise ValueError(
             "local MCP HTTP may bind only to 127.0.0.1, localhost, or ::1; "
@@ -61,13 +75,9 @@ def validate_local_http_settings(
         raise ValueError(
             "MCP HTTP path must start with '/', must not be '/', and must not end with '/'"
         )
-    token = (bearer_token or "").strip()
-    if len(token.encode("utf-8")) < 32:
-        raise ValueError("HARBORRAG_MCP_BEARER_TOKEN must contain at least 32 UTF-8 bytes")
-    return token
 
 
-def create_local_token_verifier(token: str) -> TokenVerifier:
+def create_local_token_verifier(token: str, *, tenant_id: str = "*") -> TokenVerifier:
     """Create the explicit static-token verifier used only on loopback."""
     from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
@@ -79,7 +89,7 @@ def create_local_token_verifier(token: str) -> TokenVerifier:
                     "client_id": "harborrag-local",
                     "sub": "harborrag-local",
                     "role": "owner",
-                    "tenants": ["*"],
+                    "tenants": [tenant_id],
                     "scopes": [_REQUIRED_SCOPE],
                 }
             },
@@ -243,7 +253,7 @@ def _list_tools_handler(
     return list_tools
 
 
-def _call_tool_handler(
+def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP outcomes
     registry: McpServer,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
@@ -267,8 +277,16 @@ def _call_tool_handler(
                 arguments,
                 principal_id=principal_id,
             )
+        except Unauthorized as exc:
+            # Carries its own status. Without this clause the generic handler
+            # below turned a cross-tenant call into "500 tool execution failed
+            # (Unauthorized)" -- an authorization decision reported as a server
+            # fault, which is both wrong and unactionable for the caller.
+            return error_response(exc.message, status_code=exc.status_code)
         except PermissionError as exc:
             return error_response(str(exc), status_code=403)
+        except HarborAuthorizationUnavailableError:
+            return error_response("AUTHORIZATION_UNAVAILABLE", status_code=503)
         except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             return error_response(str(exc), status_code=422)
         except Exception as exc:
