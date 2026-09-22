@@ -8,7 +8,8 @@ the actual calls out to the chat model and the tool provider.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+import logging
+from collections.abc import Mapping, Sequence
 
 from harborrag_core.models.chat import (
     HarborChatMessage,
@@ -19,15 +20,23 @@ from harborrag_core.models.chat import (
     HarborToolCall,
 )
 from harborrag_core.ports.agent_runs import AgentToolExecution
-from harborrag_engine.conversation import ConversationIdentity, ConversationMemory, ConversationTurn
+from harborrag_engine.conversation import (
+    ConversationIdentity,
+    ConversationMemory,
+    run_exchange_messages,
+)
 
-from .guard import ExecutionGuard, digest_arguments
+from .citations import evidence_references, tool_result_with_citation_guide
+from .guard import ExecutionGuard, call_digest
 from .protocols import AgentChatModel, AgentToolProvider, AgentToolSpec
 from .schemas import AgentRunOptions
 from .tool_execution import VECTOR_SEARCH_TOOL, bounded_tool_result_content
 
+logger = logging.getLogger("harborrag.engine.agent.execution")
+
 _BLOCKED_TOOL_NAMES = frozenset({"agent", "chat"})
 _GRAPH_TOOL_PREFIX = "graph_"
+_GRAPH_READER_TOOLS = frozenset({"resolve_graph_nodes", "composed_evidence_search"})
 
 
 class ChatAndToolExecutor:
@@ -55,7 +64,13 @@ class ChatAndToolExecutor:
             for spec in self._tools.list_tools(tenant_id)
             if spec.capability == "read"
             and spec.name not in _BLOCKED_TOOL_NAMES
-            and (graph_search or not spec.name.startswith(_GRAPH_TOOL_PREFIX))
+            and (
+                graph_search
+                or (
+                    not spec.name.startswith(_GRAPH_TOOL_PREFIX)
+                    and spec.name not in _GRAPH_READER_TOOLS
+                )
+            )
         ]
 
     async def complete(
@@ -69,11 +84,19 @@ class ChatAndToolExecutor:
     ) -> HarborChatResponse:
         request = HarborChatRequest(
             messages=tuple(messages),
+            logical_model=options.logical_model,
             tools=tools,
             parallel_tool_calls=True if tools else None,
+            # Some reasoning models default to a non-zero effort, while their
+            # Chat Completions endpoint rejects reasoning and function tools
+            # together. Agent turns need tools more than hidden reasoning, so
+            # explicitly opt out while tools are present. Tool-free synthesis
+            # leaves the model's normal default intact.
+            reasoning_effort="none" if tools else None,
             max_completion_tokens=completion_token_limit,
             metadata=HarborChatMetadata(
                 tenant_id=options.tenant_id,
+                user_id=options.owner_id,
                 conversation_id=options.session_id,
             ),
             sensitive=True,
@@ -90,12 +113,12 @@ class ChatAndToolExecutor:
         *,
         step: int,
         options: AgentRunOptions,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
         guard: ExecutionGuard,
     ) -> tuple[tuple[HarborChatMessage, AgentToolExecution], ...]:
         coro = asyncio.gather(
             *(
-                self._execute(call, step=step, options=options, allowed_names=allowed_names)
+                self._execute(call, step=step, options=options, allowed_tools=allowed_tools)
                 for call in calls
             )
         )
@@ -108,18 +131,31 @@ class ChatAndToolExecutor:
         self,
         identity: ConversationIdentity | None,
         current_user_message: HarborChatMessage | None,
-        response_text: str,
-    ) -> None:
+        final_response: HarborChatResponse,
+        *,
+        run_id: str,
+        citations: Sequence[object] = (),
+    ) -> bool:
+        """Persist the exchange and report whether a history write occurred."""
+
         if (
             self._memory is not None
             and identity is not None
             and current_user_message is not None
             and isinstance(current_user_message.content, str)
         ):
-            await self._memory.append(
+            await self._memory.append_messages(
                 identity,
-                ConversationTurn(current_user_message.content, response_text),
+                run_exchange_messages(
+                    current_user_message.content,
+                    final_response.text,
+                    run_id=run_id,
+                    completion_tokens=final_response.usage.completion_tokens,
+                    citations=citations,
+                ),
             )
+            return True
+        return False
 
     async def _execute(
         self,
@@ -127,15 +163,16 @@ class ChatAndToolExecutor:
         *,
         step: int,
         options: AgentRunOptions,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> tuple[HarborChatMessage, AgentToolExecution]:
         name = call.function.name
         arguments = call.function.parsed_arguments
-        digest = digest_arguments(
-            arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
+        digest = call_digest(call)
+        result = await self._invoke(name, arguments, options=options, allowed_tools=allowed_tools)
+        evidence = evidence_references(name, result)
+        content = bounded_tool_result_content(
+            tool_result_with_citation_guide(name, result, evidence)
         )
-        result = await self._invoke(name, arguments, options=options, allowed_names=allowed_names)
-        content = bounded_tool_result_content(result)
         return (
             HarborChatMessage.tool(content, tool_call_id=call.id, name=name),
             AgentToolExecution(
@@ -144,6 +181,7 @@ class ChatAndToolExecutor:
                 tool=name,
                 ok=result.get("ok") is True,
                 arguments_digest=digest,
+                evidence=evidence,
             ),
         )
 
@@ -153,35 +191,49 @@ class ChatAndToolExecutor:
         arguments: object,
         *,
         options: AgentRunOptions,
-        allowed_names: set[str],
+        allowed_tools: Mapping[str, AgentToolSpec],
     ) -> dict[str, object]:
         """Run one tool call, or explain why it can't run, without ever raising."""
 
         if not isinstance(arguments, dict):
             return {"ok": False, "error": "invalid tool arguments"}
-        if name not in allowed_names:
+        spec = allowed_tools.get(name)
+        if spec is None:
             return {"ok": False, "error": "tool is not available to this agent"}
         try:
             return await self._tools.call_tool(
                 name,
-                self._scoped_arguments(name, arguments, options),
+                self._scoped_arguments(spec, arguments, options),
                 principal_id=options.principal_id,
             )
         except Exception:  # noqa: BLE001 - tool failures become model-visible data
+            logger.exception("agent tool %r raised out of call_tool", name)
             return {"ok": False, "error": "tool call failed"}
 
     @staticmethod
     def _scoped_arguments(
-        name: str,
+        spec: AgentToolSpec,
         arguments: dict[str, object],
         options: AgentRunOptions,
     ) -> dict[str, object]:
-        """Bind a tool call to its caller's tenant, never trusting the model for it."""
+        """Bind a tool call to its caller's tenant, never trusting the model for it.
+
+        Only tools that *declare* ``tenant_id`` are bound to one. A tool whose
+        schema has no such property is either tenant-free (``describe_graph``)
+        or already bound server-side to a richer owner than a tenant (the
+        memory tools, whose owner arrives with the run); injecting into either
+        sends a key the schema forbids, so the call could never be made at all.
+        Where the property *is* declared the write is unconditional, so a
+        model-supplied tenant is overwritten rather than honoured.
+        """
 
         scoped = dict(arguments)
-        scoped["tenant_id"] = options.tenant_id
-        if name == VECTOR_SEARCH_TOOL and not options.graph_search:
+        properties = spec.input_schema.get("properties")
+        if isinstance(properties, dict) and "tenant_id" in properties:
+            scoped["tenant_id"] = options.tenant_id
+        if spec.name == VECTOR_SEARCH_TOOL and not options.graph_search:
             scoped["observe_graph"] = False
+            scoped["mode"] = "flat"
         return scoped
 
 

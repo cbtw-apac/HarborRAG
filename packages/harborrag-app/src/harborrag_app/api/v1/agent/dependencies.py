@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.agent import AgentExecutionOptions
+from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
 from harborrag_app.workflow_control.schemas import AppResponse
 
 
-class AgentCompletionService(Protocol):
+class AgentCompletionService(QueryScopeValidator, Protocol):
     async def create_agent_session(
         self,
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> AppResponse: ...
 
     async def agent_session_exists(
@@ -25,7 +27,10 @@ class AgentCompletionService(Protocol):
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> bool: ...
+
+    async def validate_agent_model(self, model: str | None, *, tenant_id: str) -> None: ...
 
     async def agent_completion(
         self,
@@ -43,7 +48,7 @@ class AgentCompletionService(Protocol):
         tenant_id: str,
         principal_id: str,
         options: AgentExecutionOptions,
-    ) -> AsyncIterator[dict[str, object]]: ...
+    ) -> AsyncGenerator[dict[str, object], None]: ...
 
     async def agent_resume(
         self,

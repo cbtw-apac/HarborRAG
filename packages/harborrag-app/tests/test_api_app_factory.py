@@ -245,6 +245,11 @@ def test_cors_honors_configured_origins() -> None:
     with TestClient(create_fastapi_app(ApiSettings(cors_origins=[origin]))) as client:
         response = client.get("/api/v1/health", headers={"Origin": origin})
         assert response.headers.get("access-control-allow-origin") == origin
+        exposed = {
+            value.strip().lower()
+            for value in response.headers["access-control-expose-headers"].split(",")
+        }
+        assert {"x-request-id", "idempotency-replayed", "retry-after"} <= exposed
     with TestClient(create_fastapi_app(ApiSettings())) as client:
         response = client.get("/api/v1/health", headers={"Origin": origin})
         assert "access-control-allow-origin" not in response.headers

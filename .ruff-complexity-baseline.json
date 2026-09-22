@@ -28,9 +28,6 @@
       "C901": 2,
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/models/chat/structured.py": {
-      "PLR0913": 3
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/models/embed/client.py": {
       "PLR0913": 2
     },

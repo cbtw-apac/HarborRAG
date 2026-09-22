@@ -24,10 +24,13 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
-from harborrag_core.ports.conversation import ConversationRepository
+from harborrag_core.ports.conversation import ConversationHistoryRepository
+from harborrag_core.ports.memory import MemoryRepository
+from harborrag_core.ports.model_catalog import TenantModelCatalogPort
 from harborrag_core.ports.provider_cost import ProviderCostTrackerPort
 from harborrag_core.ports.provider_probe import ProviderProbePort
 from harborrag_core.ports.secrets import SecretsPort
+from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -56,7 +59,7 @@ class ControlPlaneRepositories:
     providers: ProviderRepositoryPort
     routing_rules: RoutingRuleRepositoryPort
     members: MemberRepositoryPort
-    conversation_memory: ConversationRepository
+    conversation_memory: ConversationHistoryRepository
     agent_runs: AgentRunRepository
     secrets: SecretsPort
     pending_effects: PendingEffectRepositoryPort
@@ -66,6 +69,11 @@ class ControlPlaneRepositories:
     provider_cost: ProviderCostTrackerPort
     mcp_query_log: McpQueryLogRepositoryPort
     mcp_config_snapshot: McpConfigSnapshotPort
+    memories: MemoryRepository | None = None
+    model_usage: ModelUsageRepository | None = None
+    # Read side of a tenant's own chat models; None when this deployment does
+    # not wire one, in which case every tenant uses the process-wide catalog.
+    model_catalog: TenantModelCatalogPort | None = None
 
 
 @dataclass(slots=True)
@@ -122,8 +130,14 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.mcp_query_log import (
             SqlMcpQueryLogRepository,
         )
+        from harborrag_adapters.repositories.database.control_plane.memory import (
+            SqlMemoryRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.migrations import (
             run_migrations,
+        )
+        from harborrag_adapters.repositories.database.control_plane.model_catalog import (
+            SqlTenantModelCatalog,
         )
         from harborrag_adapters.repositories.database.control_plane.pending_effects import (
             SqlPendingEffectRepository,
@@ -134,6 +148,9 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.usage import (
+            SqlModelUsageRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.workspace import (
             SqlMemberRepository,
@@ -215,6 +232,9 @@ class CompositionRoot:
             provider_cost=InMemoryProviderCostTracker(),
             mcp_query_log=SqlMcpQueryLogRepository(sessions),
             mcp_config_snapshot=SqlMcpConfigSnapshotRepository(sessions),
+            memories=SqlMemoryRepository(sessions),
+            model_usage=SqlModelUsageRepository(sessions),
+            model_catalog=SqlTenantModelCatalog(sessions),
         )
         composition = cls(
             control_plane=repositories,

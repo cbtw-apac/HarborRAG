@@ -3,31 +3,36 @@ from __future__ import annotations
 import pytest
 from jsonschema.validators import validator_for
 
-from harborrag_core.chunking import PROJECTED_RELATION_TYPES
-from harborrag_core.ingestion import GraphEntityType, KnowledgeNodeKind
-from harborrag_core.ingestion.projection_contracts import GRAPH_SCHEMA_VERSION
-from harborrag_mcp_server.tools.describe_graph import DescribeGraphTool
-from harborrag_mcp_server.tools.graph_catalog import (
-    CONNECTOR_TOPOLOGIES,
+from harborrag_core.chunking import (
+    CHUNK_PROPERTIES,
+    COMMON_NODE_PROPERTIES,
+    DOCUMENT_OWNED_PROPERTIES,
+    ENTITY_PROPERTIES,
+    PROJECTED_RELATION_TYPES,
+    RELATES_PROPERTIES,
+)
+from harborrag_core.ingestion import KnowledgeNodeKind
+from harborrag_core.ingestion.projection_contracts import (
+    GRAPH_SCHEMA_VERSION,
     ONTOLOGY_SCHEMA_VERSION,
     SEMANTIC_SCHEMA_VERSION,
-    missing_entity_type_docs,
-    missing_node_kind_docs,
-    missing_projected_relation_docs,
 )
+from harborrag_engine.tools.describe_graph import DescribeGraphTool
 
 
 @pytest.mark.asyncio
 async def test_describe_graph_accepts_an_empty_object_and_needs_no_runtime() -> None:
     tool = DescribeGraphTool()
-    assert tool.spec.input_schema["additionalProperties"] is False
-    assert tool.spec.input_schema["properties"] == {}
+    assert tool.spec.input_schema == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
 
     result = await tool.call({}, principal_id="in-process")
 
+    assert set(result) == {"ok", "versions", "layers", "properties"}
     assert result["ok"] is True
-    assert result["graph_schema_version"] == GRAPH_SCHEMA_VERSION
-    assert result["versions"]["structural"] == GRAPH_SCHEMA_VERSION
 
 
 @pytest.mark.asyncio
@@ -41,36 +46,16 @@ async def test_describe_graph_output_matches_its_advertised_schema() -> None:
 
 
 def test_describe_graph_advertises_read_only_annotations() -> None:
-    annotations = DescribeGraphTool().spec.annotations
-    assert annotations == {
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    }
-
-
-def test_enum_backed_documentation_is_complete() -> None:
-    assert missing_node_kind_docs() == []
-    assert missing_entity_type_docs() == []
-    assert missing_projected_relation_docs() == []
-
-
-def test_reserved_non_projected_relations_are_absent() -> None:
-    from harborrag_mcp_server.tools.graph_catalog import RELATION_MEANINGS
-
-    assert set(RELATION_MEANINGS) <= set(PROJECTED_RELATION_TYPES)
-
-
-def test_connector_topologies_cover_every_documented_provider() -> None:
-    connectors = {topology["connector"] for topology in CONNECTOR_TOPOLOGIES}
-    assert connectors == {"confluence", "jira", "github", "sharepoint", "local"}
-    for topology in CONNECTOR_TOPOLOGIES:
-        assert len(topology["entity_chain"]) >= 2
+    behavior = DescribeGraphTool.spec.behavior
+    assert behavior is not None
+    assert behavior.read_only is True
+    assert behavior.destructive is False
+    assert behavior.idempotent is True
+    assert behavior.open_world is False
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_versions_cover_structural_semantic_and_ontology() -> None:
+async def test_describe_graph_versions_come_from_current_core_contracts() -> None:
     result = await DescribeGraphTool().call({}, principal_id="in-process")
 
     assert result["versions"] == {
@@ -83,115 +68,83 @@ async def test_describe_graph_versions_cover_structural_semantic_and_ontology() 
 @pytest.mark.asyncio
 async def test_describe_graph_layers_come_from_canonical_enums() -> None:
     result = await DescribeGraphTool().call({}, principal_id="in-process")
-    defaults = result["defaults"]
-    assert defaults["vector_search"]["mode"] == "flat"
 
-    assert result["layers"]["nodes"] == [kind.value for kind in KnowledgeNodeKind]
-    assert result["layers"]["relations"] == [
-        relation.value for relation in PROJECTED_RELATION_TYPES
-    ]
-    assert {item["name"] for item in result["node_kinds"]} == {
-        kind.value for kind in KnowledgeNodeKind
-    }
-    assert {item["name"] for item in result["entity_types"]} == {
-        entity.value for entity in GraphEntityType
+    assert result["layers"] == {
+        "nodes": [kind.value for kind in KnowledgeNodeKind],
+        "relations": [relation.value for relation in PROJECTED_RELATION_TYPES],
     }
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_defaults_are_read_from_the_live_tool_schemas() -> None:
-    from harborrag_mcp_server.tools.graph_search import (
-        GraphPathSearchTool,
-        GraphSubgraphSearchTool,
-        GraphTripletSearchTool,
-    )
-    from harborrag_mcp_server.tools.vector_search import VectorSearchTool
-
+async def test_describe_graph_properties_come_from_current_core_contracts() -> None:
     result = await DescribeGraphTool().call({}, principal_id="in-process")
-    defaults = result["defaults"]
-    assert defaults.keys() == {
-        "vector_search",
-        "graph_triplet_search",
-        "graph_path_search",
-        "graph_subgraph_search",
+
+    assert result["properties"] == {
+        "common_node": list(COMMON_NODE_PROPERTIES),
+        "document_owned": list(DOCUMENT_OWNED_PROPERTIES),
+        "Chunk": list(CHUNK_PROPERTIES),
+        "Entity": list(ENTITY_PROPERTIES),
+        "RELATES": list(RELATES_PROPERTIES),
     }
-    for tool_name, spec in (
-        ("vector_search", VectorSearchTool.spec),
-        ("graph_triplet_search", GraphTripletSearchTool.spec),
-        ("graph_path_search", GraphPathSearchTool.spec),
-        ("graph_subgraph_search", GraphSubgraphSearchTool.spec),
-    ):
-        for property_name, property_schema in spec.input_schema["properties"].items():
-            if isinstance(property_schema, dict) and "default" in property_schema:
-                assert defaults[tool_name][property_name] == property_schema["default"]
-
-
-def test_maximum_depth_and_results_are_derived_not_restated() -> None:
-    from harborrag_mcp_server.policy import McpToolPolicy
-    from harborrag_mcp_server.tools.graph_catalog import MAXIMUM_DEPTH, MAXIMUM_RESULTS
-    from harborrag_mcp_server.tools.graph_search import (
-        GraphPathSearchTool,
-        GraphSubgraphSearchTool,
-    )
-
-    path_properties = GraphPathSearchTool.spec.input_schema["properties"]
-    subgraph_properties = GraphSubgraphSearchTool.spec.input_schema["properties"]
-    assert MAXIMUM_DEPTH == path_properties["max_depth"]["maximum"]
-    assert MAXIMUM_DEPTH == subgraph_properties["max_depth"]["maximum"]
-    assert MAXIMUM_RESULTS == McpToolPolicy().max_results
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_retrieval_modes_match_the_vector_search_contract() -> None:
-    from harborrag_mcp_server.tools.vector_search import VectorSearchTool
-
+@pytest.mark.parametrize(
+    "removed_key",
+    [
+        "graph_schema_version",
+        "capabilities",
+        "selector_rules",
+        "node_kinds",
+        "entity_types",
+        "relations",
+        "meanings",
+        "topologies",
+        "workflows",
+        "defaults",
+        "argument_constraints",
+        "limits",
+    ],
+)
+async def test_describe_graph_schema_rejects_removed_sections(removed_key: str) -> None:
     tool = DescribeGraphTool()
     result = await tool.call({}, principal_id="in-process")
     validator = validator_for(tool.spec.output_schema)(tool.spec.output_schema)
-    modes = VectorSearchTool.spec.input_schema["properties"]["mode"]["enum"]
-    for mode in modes:
-        result["defaults"]["vector_search"]["mode"] = mode
-        validator.validate(result)
-    result["defaults"]["vector_search"]["mode"] = "global"
+
+    assert not validator.is_valid({**result, removed_key: {}})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("section", ["versions", "layers", "properties"])
+async def test_describe_graph_schema_rejects_unknown_nested_keys(section: str) -> None:
+    tool = DescribeGraphTool()
+    result = await tool.call({}, principal_id="in-process")
+    result[section]["unknown"] = []
+    validator = validator_for(tool.spec.output_schema)(tool.spec.output_schema)
+
     assert not validator.is_valid(result)
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_surfaces_the_triplet_anyof_requirement() -> None:
+async def test_describe_graph_payload_mutations_do_not_affect_later_calls() -> None:
     tool = DescribeGraphTool()
-    result = await tool.call({}, principal_id="in-process")
+    original = await tool.call({}, principal_id="in-process")
+    modified = await tool.call({}, principal_id="in-process")
+    modified["versions"]["structural"] = "modified"
+    modified["layers"]["nodes"].append("Modified")
+    modified["properties"]["Chunk"].append("modified")
 
-    constraints = result["argument_constraints"]["graph_triplet_search"]
-    assert constraints["required"] == ["tenant_id"]
-    assert constraints["at_least_one_of"] == [["subject"], ["predicate"], ["object"]]
-
-    validator_type = validator_for(tool.spec.output_schema)
-    validator_type(tool.spec.output_schema).validate(result)
-
-
-@pytest.mark.asyncio
-async def test_describe_graph_properties_cover_common_and_named_property_sets() -> None:
-    result = await DescribeGraphTool().call({}, principal_id="in-process")
-
-    assert set(result["properties"]) == {
-        "common_node",
-        "document_owned",
-        "Chunk",
-        "Entity",
-        "RELATES",
-    }
-    for property_names in result["properties"].values():
-        assert property_names
-        assert all(isinstance(name, str) and name for name in property_names)
+    assert await tool.call({}, principal_id="in-process") == original
 
 
 @pytest.mark.asyncio
-async def test_describe_graph_never_accepts_extra_arguments() -> None:
+@pytest.mark.parametrize("arguments", [{"query": "anything"}, {"for_tool": "vector_search"}])
+async def test_describe_graph_never_accepts_extra_arguments(arguments) -> None:
     from harborrag_mcp_server.server.server import McpServer
 
     server = McpServer()
     with pytest.raises(ValueError, match="do not match"):
-        await server.call_tool("describe_graph", {"query": "anything"})
+        await server.call_tool("describe_graph", arguments)
 
 
 @pytest.mark.asyncio

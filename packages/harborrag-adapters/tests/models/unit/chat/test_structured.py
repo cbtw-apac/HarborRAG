@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.chat import HarborChatMessage, StructuredOutputDegradation
@@ -30,6 +30,16 @@ class TypedAnswer(BaseModel):
 
 class InvalidSchemaModel(BaseModel):
     callback: Callable[[int], int]
+
+
+class ShortAnswer(BaseModel):
+    answer: str
+
+    @model_validator(mode="after")
+    def check_words(self) -> ShortAnswer:
+        if len(self.answer.split()) > 3:
+            raise ValueError("answer exceeds the 3-word limit")
+        return self
 
 
 def _configured(
@@ -139,8 +149,28 @@ def test_one_bounded_repair_can_recover_invalid_output(base_config) -> None:
     assert len(invocation.calls) == 2
     repair_messages = invocation.calls[1]["messages"]
     assert repair_messages[-2]["role"] == "assistant"
-    assert "failed JSON schema validation" in repair_messages[-1]["content"]
+    assert "failed structured output validation" in repair_messages[-1]["content"]
+    assert "Field required" in repair_messages[-1]["content"]
     assert invocation.calls[1]["response_format"]["type"] == "json_schema"
+
+
+def test_repair_explains_semantic_validation_not_expressed_in_schema(base_config) -> None:
+    config = _configured(base_config, HarborChatCapabilities(structured_output=True), repairs=1)
+    invocation = FakeInvocation(
+        [
+            response_dict('{"answer":"four words are too many"}'),
+            response_dict('{"answer":"three words only"}'),
+        ]
+    )
+
+    result = sync_client(config, backend=invocation).chat_structured(
+        [HarborChatMessage.user("question")], response_model=ShortAnswer
+    )
+
+    assert result.answer == "three words only"
+    repair = invocation.calls[1]["messages"][-1]["content"]
+    assert "answer exceeds the 3-word limit" in repair
+    assert "input_value" not in repair
 
 
 def test_repair_exhaustion_raises_after_the_configured_bound(base_config) -> None:

@@ -6,12 +6,15 @@ import json
 from dataclasses import replace
 
 import pytest
-from test_chat_service import _ChatFacade, _options, _RetrievalFacade, _Runtime
+from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
+from test_chat_service import _options
 from workflow_control_fixtures import FakeComposition
 
 from harborrag_app.workflow_control.chat.evidence import ChatEvidence
+from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage
 from harborrag_core.topology.extraction import EvidenceSpan, ExtractedAssertion
@@ -87,10 +90,12 @@ def test_qualified_assertions_paths_and_gaps_are_separate_from_originals() -> No
     )
     packet = _packet(evidence.prompt)
     assert packet["original_passages"][0]["text"] == _RAW
+    assert "document_title" in packet["original_passages"][0]
+    assert "section_path" in packet["original_passages"][0]
     assert len(packet["original_passages"]) == 1
     guidance = packet["generated_guidance"]
     assertion = guidance["qualified_assertions"][0]
-    assert assertion["source_citation"] == "Source 1"
+    assert assertion["source_citation"] == ('[Source 1: "doc-1" — source passage]')
     assert assertion["observation"]["polarity"] == "negative"
     assert assertion["observation"]["modality"] == "possible"
     assert assertion["observation"]["attribution"] == "Alice"
@@ -123,6 +128,23 @@ def test_untrusted_closing_tags_are_losslessly_quoted() -> None:
     assert evidence.passages[0].text == raw
 
 
+def test_nested_section_citation_marker_remains_literal_in_model_prompt() -> None:
+    result = _result()
+    result.metadata.update(
+        {"document_title": "Data Connectors", "section_path": ["Architecture", "Admission"]}
+    )
+    response = replace(_response(), results=(result,), evidence=EvidenceBundle())
+
+    evidence = ChatEvidence.prepare(
+        response, query="How does admission work?", history=(), max_bytes=8000, overlay=False
+    )
+
+    marker = citation_marker(1, result)
+    assert "Architecture > Admission" in evidence.prompt
+    assert "\\u003e" not in evidence.prompt
+    assert _packet(evidence.prompt)["original_passages"][0]["citation"] == marker
+
+
 def test_budget_keeps_whole_passages_and_complete_history_pairs() -> None:
     response = replace(_response(), results=(_result(text="x" * 5000), _result("short", "Small")))
     history = (
@@ -149,13 +171,20 @@ def test_budget_keeps_whole_passages_and_complete_history_pairs() -> None:
 
 
 def test_oversized_question_is_rejected_without_silent_truncation() -> None:
-    with pytest.raises(ValueError, match="context budget"):
+    """Rejected, and rejected as the caller's fault.
+
+    The exception type decides the status the client sees: a plain ValueError
+    is not in the re-raise set, so it became a 503 telling the caller the
+    service was down when their question was simply too long.
+    """
+
+    with pytest.raises(HarborValidationError, match="context budget"):
         ChatEvidence.prepare(
             _response(), query="x" * 9000, history=(), max_bytes=8000, overlay=True
         )
 
 
-class _TopologyRetrieval(_RetrievalFacade):
+class _TopologyRetrieval(FakeRetrievalFacade):
     async def search(self, request: object) -> RetrievalResponse:
         self.request = request
         return _response()
@@ -167,9 +196,9 @@ class _TopologyRetrieval(_RetrievalFacade):
 async def test_chat_mode_wiring_and_original_only_citations(
     stream: bool, graph_search: bool
 ) -> None:
-    chat = _ChatFacade()
+    chat = FakeChatFacade(answer=f"Grounded in {citation_marker(1, _result())}.")
     retrieval = _TopologyRetrieval()
-    runtime = _Runtime(chat, retrieval)
+    runtime = FakeRuntime(chat, retrieval)
     service = AppService(
         FakeComposition({"runtime": {"ready": True}}),
         factories=AppServiceFactories(
@@ -194,9 +223,54 @@ async def test_chat_mode_wiring_and_original_only_citations(
     assert retrieval.request.mode == (
         RetrievalMode.LOCAL_SEMANTIC if graph_search else RetrievalMode.FLAT
     )
-    assert citations == ({"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9},)
+    assert citations == (
+        {
+            "document_id": "doc-1",
+            "chunk_id": "chunk-1",
+            "score": 0.9,
+            "marker": '[Source 1: "doc-1" — source passage]',
+            "content": "According to Alice, A may not depend on B after 2025 if the pilot succeeds.",
+        },
+    )
     assert chat.request is not None
     assert chat.request.metadata.chunk_ids == ("chunk-1",)
     packet = _packet(chat.request.messages[-1].content)
     assert len(packet["original_passages"]) == 1
     assert bool(packet["generated_guidance"]) is graph_search
+
+
+@pytest.mark.asyncio
+async def test_a_long_question_still_gets_evidence_instead_of_a_503() -> None:
+    """The evidence budget is stated in tokens and spent in bytes.
+
+    Passing the token count straight through as a byte budget made the
+    pre-flight check fail on the question alone, so a 9KB prompt -- well inside
+    the 65,536-char schema limit -- came back as 503 "Chat service is
+    unavailable" whenever retrieval found anything, while the very same prompt
+    succeeded on a tenant with nothing indexed.
+
+    ``chunk_ids`` is the assertion that matters: it is set from the passages
+    that survived the budget, so a non-empty value means the retrieved evidence
+    actually reached the model rather than being dropped.
+    """
+
+    chat = FakeChatFacade(answer="Grounded in [Source 1].")
+    runtime = FakeRuntime(chat, _TopologyRetrieval())
+    service = AppService(
+        FakeComposition({"runtime": {"ready": True}}),
+        factories=AppServiceFactories(
+            retrieval_runtime=lambda _settings: runtime,  # type: ignore[arg-type]
+        ),
+    )
+
+    response = await service.chat_completion(
+        "why " * 2250,
+        tenant_id="ACME",
+        principal_id="reader-1",
+        options=await _options(service),
+    )
+
+    assert response.ok
+    assert chat.request is not None
+    assert chat.request.metadata.chunk_ids == ("chunk-1",)
+    assert len(_packet(chat.request.messages[-1].content)["original_passages"]) == 1

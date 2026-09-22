@@ -27,6 +27,7 @@ class _ObjectStore(_Resource):
     def __init__(self, *, connect_error: Exception | None = None) -> None:
         super().__init__(connect_error=connect_error)
         self.ensure_buckets = AsyncMock()
+        self.validate_buckets = AsyncMock()
 
 
 class _Telemetry:
@@ -130,7 +131,8 @@ async def test_retrieval_factory_connects_and_owns_every_provider(monkeypatch) -
 
     assert service is service_factory.return_value
     assert all(resource.connect.await_count == 1 for resource in (control, objects, vectors, graph))
-    objects.ensure_buckets.assert_awaited_once()
+    objects.ensure_buckets.assert_not_awaited()
+    objects.validate_buckets.assert_awaited_once_with((retrieval_factory.ARTIFACT_BUCKET,))
     resources = service_factory.call_args.kwargs["resources"]
     policy = service_factory.call_args.kwargs["policy"]
     assert resources.embed_client is embed
@@ -163,3 +165,20 @@ async def test_retrieval_factory_closes_connected_resources_after_failure(
     assert control.close.await_count == 1
     assert embed.aclose.await_count == 1
     assert telemetry.close.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reader_bucket_validation_failure_closes_all_connected_resources(
+    monkeypatch,
+) -> None:
+    embed, control, objects, vectors, graph, telemetry = _providers(monkeypatch)
+    objects.validate_buckets.side_effect = RuntimeError("required reader bucket unavailable")
+
+    with pytest.raises(RuntimeError, match="required reader bucket unavailable"):
+        await retrieval_factory.connect_retrieval_service(_settings())
+
+    objects.ensure_buckets.assert_not_awaited()
+    for resource in (control, objects, vectors, graph):
+        resource.close.assert_awaited_once()
+    embed.aclose.assert_awaited_once()
+    telemetry.close.assert_awaited_once()

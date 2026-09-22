@@ -21,6 +21,7 @@ from harborrag_core.topology.permissions import (
     BuildInputLineage,
     DerivedArtifactLineage,
     DerivedArtifactRecord,
+    PermissionCoverageReport,
     ResolvedPermissionSnapshot,
 )
 
@@ -78,6 +79,8 @@ class TopologyPermissionRepositoryPort(Protocol):
     """Persist and query resolved authorization snapshots."""
 
     async def set_permissions(self, snapshot: ResolvedPermissionSnapshot) -> None: ...
+
+    async def permission_coverage(self, tenant_id: str) -> PermissionCoverageReport: ...
 
     async def allowed_document_ids(
         self, tenant_id: str, *, access: AccessContext | None, limit: int = 10000

@@ -15,10 +15,9 @@ from jsonschema.exceptions import ValidationError
 from jsonschema.validators import validator_for
 
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_mcp_server.tools.describe_graph_schema import OUTPUT_SCHEMA
-from harborrag_mcp_server.tools.output_schemas import (
+from harborrag_engine.tools.base import BaseTool, ToolSpec
+from harborrag_engine.tools.describe_graph_schema import OUTPUT_SCHEMA
+from harborrag_engine.tools.output_schemas import (
     GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
     NODE_SCHEMA,
     PATH_SCHEMA,
@@ -27,6 +26,7 @@ from harborrag_mcp_server.tools.output_schemas import (
     RETRIEVAL_RESULT_SCHEMA,
     TRIPLET_SCHEMA,
 )
+from harborrag_mcp_server.server.server import McpServer
 
 
 def _validator(schema: dict[str, object]):
@@ -188,8 +188,8 @@ def test_describe_graph_output_schema_requires_every_property_section() -> None:
 
 
 def test_server_rejects_a_registered_tool_with_no_output_schema() -> None:
-    class UndocumentedTool(BaseMcpTool):
-        spec = McpToolSpec("undocumented", "undocumented")
+    class UndocumentedTool(BaseTool):
+        spec = ToolSpec("undocumented", "undocumented")
 
         async def call(self, arguments, *, principal_id):
             return {"ok": True}

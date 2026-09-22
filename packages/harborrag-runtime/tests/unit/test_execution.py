@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -11,6 +13,9 @@ from harborrag_runtime.contracts import ExecutionMode, IngestionRequest
 from harborrag_runtime.execution import build_ingestion_executor
 from harborrag_runtime.execution.direct import DirectIngestionExecutor
 from harborrag_runtime.execution.temporal import TemporalIngestionExecutor
+from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
+from harborrag_runtime.source_query import ProcessingProfileInput
+from harborrag_runtime.temporal.gateway import to_temporal_source
 
 
 def _request() -> IngestionRequest:
@@ -45,6 +50,125 @@ def test_execution_factory_selects_direct_and_temporal_strategies() -> None:
         build_ingestion_executor(ExecutionMode.TEMPORAL, settings),
         TemporalIngestionExecutor,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_type", [OSError, asyncio.CancelledError])
+async def test_direct_executor_rebuilds_runtime_after_failed_startup(
+    monkeypatch, failure_type
+) -> None:
+    from harborrag_runtime.execution import direct as direct_module
+
+    failed = SimpleNamespace(start=AsyncMock(side_effect=failure_type()), close=AsyncMock())
+    healthy = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
+    builder = Mock(side_effect=[failed, healthy])
+    monkeypatch.setattr(direct_module, "build_ingestion_runtime", builder)
+    executor = DirectIngestionExecutor(RuntimeSettings())
+
+    with pytest.raises(failure_type):
+        await executor.start()
+    failed.close.assert_awaited_once_with()
+
+    await executor.start()
+    await executor.start()
+
+    assert builder.call_count == 2
+    healthy.start.assert_awaited_once_with()
+    await executor.aclose()
+    healthy.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_direct_concurrent_startup_waits_for_runtime_readiness(monkeypatch) -> None:
+    from harborrag_runtime.execution import direct as direct_module
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def start() -> None:
+        entered.set()
+        await release.wait()
+
+    runtime = SimpleNamespace(start=AsyncMock(side_effect=start), close=AsyncMock())
+    builder = Mock(return_value=runtime)
+    monkeypatch.setattr(direct_module, "build_ingestion_runtime", builder)
+    executor = DirectIngestionExecutor(RuntimeSettings())
+    first = asyncio.create_task(executor.start())
+    await entered.wait()
+    second = asyncio.create_task(executor.start())
+    try:
+        await asyncio.sleep(0)
+        assert not second.done()
+    finally:
+        release.set()
+        await asyncio.gather(first, second)
+
+    builder.assert_called_once()
+    runtime.start.assert_awaited_once_with()
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_direct_retains_runtime_when_startup_cleanup_fails(monkeypatch) -> None:
+    from harborrag_runtime.execution import direct as direct_module
+
+    failed = SimpleNamespace(
+        start=AsyncMock(side_effect=OSError("startup failed")),
+        close=AsyncMock(side_effect=[OSError("close failed"), None]),
+    )
+    healthy = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
+    monkeypatch.setattr(
+        direct_module, "build_ingestion_runtime", Mock(side_effect=[failed, healthy])
+    )
+    executor = DirectIngestionExecutor(RuntimeSettings())
+
+    with pytest.raises(ExceptionGroup, match="startup and cleanup failed") as failure:
+        await executor.start()
+    assert [str(error) for error in failure.value.exceptions] == [
+        "startup failed",
+        "close failed",
+    ]
+
+    await executor.start()
+
+    assert failed.close.await_count == 2
+    healthy.start.assert_awaited_once_with()
+    await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_direct_shutdown_waits_for_startup_and_retries_failed_close(monkeypatch) -> None:
+    from harborrag_runtime.execution import direct as direct_module
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def start() -> None:
+        entered.set()
+        await release.wait()
+
+    runtime = SimpleNamespace(
+        start=AsyncMock(side_effect=start),
+        close=AsyncMock(side_effect=[OSError("close failed"), None]),
+    )
+    monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
+    executor = DirectIngestionExecutor(RuntimeSettings())
+    startup = asyncio.create_task(executor.start())
+    await entered.wait()
+    shutdown = asyncio.create_task(executor.aclose())
+    try:
+        await asyncio.sleep(0)
+        runtime.close.assert_not_awaited()
+    finally:
+        release.set()
+        await startup
+        with pytest.raises(OSError, match="close failed"):
+            await shutdown
+
+    await executor.aclose()
+    await executor.aclose()
+
+    assert runtime.close.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -128,7 +252,18 @@ async def test_temporal_executor_submits_controls_and_reads_results(
     from harborrag_runtime.execution import temporal as temporal_module
 
     calls: list[object] = []
-    source_input = object()
+    source_input = PreparedSourceSubmission(
+        task_id="task-1",
+        tenant_id="tenant-1",
+        connector_name="docs",
+        connector_type="local",
+        connection_id="connection-1",
+        source_scope_id="scope-1",
+        configuration_fingerprint="config-v1",
+        processing=ProcessingProfileInput(
+            "parser", "normalizer", "chunks", "dense", "sparse", "graph"
+        ),
+    )
 
     class Client:
         async def start_ingestion(self, source):
@@ -204,8 +339,8 @@ async def test_temporal_executor_submits_controls_and_reads_results(
     assert status.paused is True
     assert status.cancel_requested is False
     assert calls == [
-        ("submit", source_input),
-        ("submit", source_input),
+        ("submit", to_temporal_source(source_input)),
+        ("submit", to_temporal_source(source_input)),
         ("result", "task-1"),
         ("status", "task-1"),
         ("pause", "task-1"),
@@ -257,7 +392,7 @@ def test_submission_maps_public_request_without_losing_query_controls(
         captured = source
         return expected
 
-    monkeypatch.setattr(submission_module, "build_source_input", capture)
+    monkeypatch.setattr(submission_module, "prepare_configured_source_submission", capture)
 
     result = submission_module.build_ingestion_input(RuntimeSettings(), _request())
 

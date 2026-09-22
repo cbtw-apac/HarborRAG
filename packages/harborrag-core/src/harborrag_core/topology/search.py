@@ -22,6 +22,10 @@ class RetrievalMode(StrEnum):
 
 
 class TopologySearchPort(Protocol):
+    async def published_document_page(
+        self, tenant_id: str, *, access: AccessContext, after: str, limit: int
+    ) -> tuple[str, ...]: ...
+
     async def allowed_document_ids(
         self, tenant_id: str, *, access: AccessContext, limit: int = 10000
     ) -> tuple[str, ...]: ...

@@ -174,13 +174,20 @@ def activate_legacy_checkout(start: Path | None = None) -> Path | None:
 
 
 def project_option_from_argv(args: Sequence[str]) -> str | None:
-    """Read ``--project PATH`` or ``--project=PATH`` before Click parses the command line."""
+    """Read the leading global ``--project`` before Click parses the command line.
 
-    for index, arg in enumerate(args):
+    Stop at the subcommand so a command-local option with the same spelling
+    (chat's project scope) is left for that command to interpret.
+    """
+
+    index = 0
+    while index < len(args) and args[index].startswith("-"):
+        arg = args[index]
         if arg == "--project" and index + 1 < len(args):
             return args[index + 1]
         if arg.startswith("--project="):
             return arg.split("=", 1)[1]
+        index += 1
     return None
 
 

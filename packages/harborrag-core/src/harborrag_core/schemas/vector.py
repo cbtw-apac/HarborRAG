@@ -164,6 +164,13 @@ class VectorSearchResult(StrictModel):
     id: str
     score: float = Field(ge=0, le=1)
     raw_score: float
+    # How similar this point actually is to the query, normalized to 0..1, or
+    # ``None`` when the lane cannot say. Distinct from ``score``: on the
+    # hybrid lane ``score`` is a reciprocal-rank fusion value rescaled into a
+    # 0..1 shape, so its top hit sits near 1.0 whether or not anything matched.
+    # ``relevance`` is the point's own normalized score in the lane it came
+    # from, which is the only number here a caller may threshold on.
+    relevance: float | None = Field(default=None, ge=0, le=1)
     payload: dict[str, Any] = Field(default_factory=dict)
     vector: list[float] | None = None
 

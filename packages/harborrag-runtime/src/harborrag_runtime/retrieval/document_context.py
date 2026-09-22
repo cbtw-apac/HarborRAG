@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.contracts.errors import HarborCapabilityError
+from harborrag_core.contracts.reader import (
+    DocumentContextChunk,
+    DocumentContextRequest,
+    DocumentContextResponse,
+)
 from harborrag_core.ingestion import ChunkSetArtifacts
 from harborrag_core.storage import StorageOperationContext
 
-from ..contracts import DocumentContextChunk, DocumentContextRequest, DocumentContextResponse
 from .reader_resources import ReaderResources
 
 _CONTENT_BUDGET_BYTES = 60 * 1024

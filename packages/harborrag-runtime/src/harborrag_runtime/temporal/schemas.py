@@ -4,12 +4,14 @@ from dataclasses import dataclass, field
 
 from harborrag_runtime.ingestion.limits import (
     MAX_RETRY_DOCUMENT_IDS,
-    validate_discovery_concurrency,
-    validate_discovery_page_size,
-    validate_document_concurrency,
-    validate_source_orchestration_limits,
 )
-from harborrag_runtime.temporal.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
+from harborrag_runtime.source_query import (
+    ProcessingProfileInput as ProcessingProfileInput,
+)
+from harborrag_runtime.source_query import (
+    SourceQuery as SourceQuery,
+)
 from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .dispatch import DocumentDispatchSummary
@@ -71,49 +73,11 @@ class SourceContinuation:
 
 
 @dataclass(frozen=True, slots=True)
-class SourceIngestionInput:
-    task_id: str
-    tenant_id: str
-    connector_name: str
-    connector_type: str
-    connection_id: str
-    source_scope_id: str
-    configuration_fingerprint: str
-    processing: ProcessingProfileInput
-    query: SourceQuery = SourceQuery()
-    force_reprocess: bool = False
-    discovery_page_size: int = 50
-    discovery_concurrency: int = 4
-    document_concurrency: int = 8
-    missing_threshold: int = 2
-    batch_size: int = 200
-    continue_after_batches: int = 25
+class SourceIngestionInput(PreparedSourceSubmission):
+    """Temporal history payload extends the neutral submission with replay state."""
+
     continuation: SourceContinuation | None = None
     workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
-
-    def __post_init__(self) -> None:
-        values = (
-            self.task_id,
-            self.tenant_id,
-            self.connector_name,
-            self.connector_type,
-            self.connection_id,
-            self.source_scope_id,
-            self.configuration_fingerprint,
-        )
-        if any(not value.strip() for value in values):
-            raise ValueError("source input identities must be non-empty")
-        if len(self.task_id) > 128:
-            raise ValueError("source task ID must not exceed 128 characters")
-        validate_source_orchestration_limits(
-            batch_size=self.batch_size,
-            continue_after_batches=self.continue_after_batches,
-        )
-        validate_document_concurrency(self.document_concurrency)
-        validate_discovery_page_size(self.discovery_page_size)
-        validate_discovery_concurrency(self.discovery_concurrency)
-        if self.missing_threshold < 1:
-            raise ValueError("missing_threshold must be positive")
 
 
 @dataclass(frozen=True, slots=True)

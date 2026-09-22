@@ -6,8 +6,6 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from harborrag_adapters.repositories.object_store import ChunkArtifactReader
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorFilter
 from harborrag_core.ingestion import (
@@ -16,8 +14,11 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
     ReadableSource,
     SourceCatalogQuery,
+    SparseEncoding,
 )
+from harborrag_core.ports.artifacts import ChunkArtifactReaderPort
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.retrieval import (
     GraphNodeResolutionQuery,
@@ -37,7 +38,6 @@ from harborrag_core.topology.search import (
     TopologyDiagnostics,
     TopologySearchPort,
 )
-from harborrag_engine.ingestion.representations import BM25SparseEncoder
 from harborrag_engine.retrieval import RetrievalLane
 
 
@@ -57,6 +57,10 @@ class SourceCatalogReader(Protocol):
         self,
         query: SourceCatalogQuery,
     ) -> tuple[ReadableSource, ...]: ...
+
+
+class SparseQueryEncoder(Protocol):
+    def encode_query(self, text: str) -> SparseEncoding: ...
 
 
 class RetrievalTelemetry(Protocol):
@@ -159,10 +163,10 @@ class RuntimeRetrievalReport:
 @dataclass(frozen=True, slots=True)
 class RetrievalResources:
     embed_client: AsyncHarborEmbedClientProtocol
-    vector_repository: HarborVectorRepository
+    vector_repository: VectorRepositoryPort
     active_versions: ActiveVersionResolver
-    chunk_reader: ChunkArtifactReader
-    sparse_encoder: BM25SparseEncoder
+    chunk_reader: ChunkArtifactReaderPort
+    sparse_encoder: SparseQueryEncoder
     graph_repository: KnowledgeGraphReader | None = None
     topology_repository: TopologySearchPort | None = None
     contextual_search: ContextualSearchPort | None = None
@@ -196,6 +200,8 @@ class RetrievalOptions:
     lane: RetrievalLane = RetrievalLane.HYBRID
     filters: VectorFilter | None = None
     observe_graph: bool = False
+    # Extra graph observation seeds; see ``RetrievalRequest.graph_seed_node_keys``.
+    graph_seeds: tuple[str, ...] = ()
     mode: RetrievalMode = RetrievalMode.FLAT
 
     def __post_init__(self) -> None:

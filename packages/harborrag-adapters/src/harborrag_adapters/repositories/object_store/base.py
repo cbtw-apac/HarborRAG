@@ -16,6 +16,16 @@ from harborrag_core.storage import StorageOperationContext
 class HarborObjectStore(RepositoryLifecycle):
     """Defines tenant-safe binary object persistence and streaming operations."""
 
+    async def ensure_buckets(self, buckets: tuple[str, ...]) -> None:
+        """Backends with implicit namespaces need no provisioning."""
+
+        del buckets
+
+    async def validate_buckets(self, buckets: tuple[str, ...]) -> None:
+        """Check read prerequisites without creating storage."""
+
+        del buckets
+
     @property
     @abstractmethod
     def capabilities(self) -> ObjectStoreCapabilities:

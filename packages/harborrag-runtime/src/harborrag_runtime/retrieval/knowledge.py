@@ -7,24 +7,24 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import uuid4
 
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.contracts.errors import HarborCapabilityError
-from harborrag_core.domain.retrieval import RetrievalResult
-from harborrag_core.indexing import VectorSearchResult
-from harborrag_core.ingestion import DocumentIdentityBuilder
-from harborrag_core.security import AccessContext
-from harborrag_core.storage import StorageOperationContext
-from harborrag_core.topology.records import CanonicalAssertion, CanonicalMention
-from harborrag_core.topology.search import TopologySearchPort
-from harborrag_engine.retrieval import ActiveVersionCandidateValidator
-
-from ..contracts import (
+from harborrag_core.contracts.reader import (
     EntityResolveResponse,
     EvidenceFetchResponse,
     RelationSearchResponse,
     SemanticPathRequest,
     SemanticPathResponse,
 )
+from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_core.indexing import VectorSearchResult
+from harborrag_core.ingestion import DocumentIdentityBuilder
+from harborrag_core.ports.storage import VectorRepositoryPort
+from harborrag_core.security import AccessContext
+from harborrag_core.storage import StorageOperationContext
+from harborrag_core.topology.records import CanonicalAssertion, CanonicalMention
+from harborrag_core.topology.search import TopologySearchPort
+from harborrag_engine.retrieval import ActiveVersionCandidateValidator
+
 from .permissions import RetrievalPermissions
 from .validation import required_text
 
@@ -44,7 +44,7 @@ class KnowledgeRetrieval:
     def __init__(
         self,
         topology: TopologySearchPort | None,
-        vectors: HarborVectorRepository,
+        vectors: VectorRepositoryPort,
         validator: ActiveVersionCandidateValidator,
         permissions: RetrievalPermissions,
     ) -> None:

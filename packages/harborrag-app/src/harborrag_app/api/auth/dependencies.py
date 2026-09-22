@@ -20,6 +20,7 @@ from harborrag_core.contracts.errors import (
     HarborConfigurationError,
     HarborNotFoundError,
 )
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
 
 logger = logging.getLogger("harborrag.app.api.auth")
@@ -72,6 +73,7 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
             audience=settings.auth_audience,
             max_token_lifetime_seconds=settings.auth_max_token_lifetime_seconds,
             clock_skew_seconds=settings.auth_clock_skew_seconds,
+            user_id_claim=settings.auth_user_id_claim,
         )
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
 
@@ -104,6 +106,7 @@ def get_principal(
             role="owner",
             tenant_ids=frozenset({"*"}),
             token_kind="none",
+            user_id=DEFAULT_USER,
         )
     if credentials is None:
         raise HarborAuthError("missing bearer token")

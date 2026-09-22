@@ -85,6 +85,7 @@ Chat and agent are HTTP/CLI-only; MCP exposes only retrieval tools.
 | HTTP chat or agent returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
 | MCP appears to do nothing when started in a terminal | Stdio MCP waits for a client protocol over pipes and has no port or interactive prompt | Run `scripts/deployment/mcp.sh --check`, or use `--http` and open `http://127.0.0.1:8010/` |
 | The browser cannot load or run tools | Missing/wrong owner token or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the ignored `env/.env.mcp`; never paste model API keys into the UI |
+| MCP accepts the bearer token but retrieval is denied or empty | The token authenticates the client; `source_acl` remains the default reader policy, or the tool call names a different tenant | For a deliberately shared corpus, set `HARBORRAG_MCP_READER_TENANT_ID`, `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, and `HARBORRAG_CORPUS_SHARED_TENANT_ID` to the same tenant, then restart MCP. For restricted corpora, import current source/document ACLs instead. |
 | A tool change is saved but clients still list the old schema | FastMCP snapshots globally advertised schemas at startup | Restart when the UI reports `restart_required=true` |
 
 The MCP configuration UI controls enablement, defaults, numeric limits, and

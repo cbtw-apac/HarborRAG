@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 from harborrag_core.indexing import (
     FilterOperator,
     VectorFilter,
@@ -13,6 +12,7 @@ from harborrag_core.indexing import (
     VectorSearchResult,
 )
 from harborrag_core.ingestion import DocumentIdentityBuilder
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.derived import ContextualIndexProfile
 from harborrag_core.topology.permissions import DerivedArtifactRecord
@@ -37,7 +37,7 @@ class ContextualEvidenceSearch:
     def __init__(
         self,
         repository: DerivedSearchPort,
-        vectors: HarborVectorRepository,
+        vectors: VectorRepositoryPort,
         profile: ContextualIndexProfile,
     ) -> None:
         self._repository = repository

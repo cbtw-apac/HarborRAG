@@ -7,15 +7,14 @@ from collections.abc import Mapping
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.ingestion import IngestionTask
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    RetryFailuresInput,
-    SourceIngestionInput,
-    SourceQuery,
+from harborrag_runtime.ingestion_contracts import (
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
 )
+from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 
 
-def source_from_task(task: IngestionTask) -> SourceIngestionInput:
+def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     """Rebuild the safe workflow input for a retried durable submission."""
 
     request = task.request
@@ -23,7 +22,7 @@ def source_from_task(task: IngestionTask) -> SourceIngestionInput:
     query = _mapping(request.get("query"), "query")
     filters = query.get("filters")
     limit = query.get("limit")
-    return SourceIngestionInput(
+    return PreparedSourceSubmission(
         task_id=task.task_id,
         tenant_id=_required_text(request, "tenant_id"),
         connector_name=str(request["connector_name"]),
@@ -49,7 +48,7 @@ def source_from_task(task: IngestionTask) -> SourceIngestionInput:
     )
 
 
-def retry_from_task(task: IngestionTask) -> RetryFailuresInput:
+def retry_from_task(task: IngestionTask) -> IngestionRetryRequest:
     """Rebuild a safe retry workflow input from its durable task request."""
 
     request = task.request
@@ -61,7 +60,7 @@ def retry_from_task(task: IngestionTask) -> RetryFailuresInput:
         isinstance(item, str) and item.strip() for item in document_ids
     ):
         raise HarborValidationError("stored retry document identifiers are invalid")
-    return RetryFailuresInput(
+    return IngestionRetryRequest(
         retry_task_id=task.task_id,
         original_task_id=original_task_id,
         tenant_id=_required_text(request, "tenant_id"),

@@ -10,7 +10,11 @@ import pytest
 from harborrag_core.base import utc_now
 from harborrag_core.topology import ExtractionProfile, TopologyPolicy
 from harborrag_core.topology.config import TenantIndexingConfig, TenantIndexingState
-from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_core.topology.permissions import (
+    PermissionCoverageCounts,
+    PermissionCoverageReport,
+    ResolvedPermissionSnapshot,
+)
 from harborrag_core.topology.resolution import ResolutionRequest
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.topology import operations, security_operations
@@ -169,9 +173,31 @@ async def test_security_operations_round_trip_canonical_state(monkeypatch):
         processing_allowed=True,
         public=True,
     )
+    coverage_counts = PermissionCoverageCounts(
+        resources=1,
+        current_snapshots=1,
+        missing_snapshots=0,
+        unknown_snapshots=0,
+        not_yet_valid_snapshots=0,
+        expired_snapshots=0,
+        processing_disallowed_snapshots=0,
+        public_snapshots=1,
+        restricted_snapshots=0,
+        coverage_complete=True,
+    )
+    coverage = PermissionCoverageReport(
+        tenant_id="tenant",
+        checked_at=utc_now(),
+        sources=coverage_counts,
+        documents=coverage_counts,
+        corpus_present=True,
+        snapshot_coverage_complete=True,
+        processing_permission_complete=True,
+    )
     topology = SimpleNamespace(
         configure_indexing=AsyncMock(return_value=state),
         get_indexing=AsyncMock(return_value=state),
+        permission_coverage=AsyncMock(return_value=coverage),
         set_permissions=AsyncMock(),
         reconcile=AsyncMock(return_value=3),
     )
@@ -185,6 +211,9 @@ async def test_security_operations_round_trip_canonical_state(monkeypatch):
     configured = await security_operations.configure_indexing(settings, indexing)
     assert configured["state"]["epoch"] == 2 and configured["enqueued"] == 3
     assert (await security_operations.indexing_status(settings, "tenant"))["epoch"] == 2
+    assert (await security_operations.permission_coverage(settings, "tenant"))[
+        "snapshot_coverage_complete"
+    ]
     assert await security_operations.import_permissions(settings, snapshot) == {
         "resource_kind": "document",
         "resource_id": "document",

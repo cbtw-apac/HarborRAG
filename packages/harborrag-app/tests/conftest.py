@@ -13,10 +13,19 @@ from harborrag_app.cli import project as project_module
 
 @pytest.fixture(autouse=True)
 def _isolated_application_environment(
+    _restore_process_environment: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Use loopback auth and a durable database isolated to each test."""
+    """Use loopback auth and a durable database isolated to each test.
+
+    Depends on ``_restore_process_environment`` so that fixture snapshots the
+    environment *before* these variables are set. Without the ordering its
+    snapshot included this test's own tmp-path database URL, and because its
+    teardown can run after monkeypatch has already undone the set, it put the
+    stale value back permanently -- leaking one test's temporary database into
+    every suite that ran afterwards.
+    """
 
     monkeypatch.setenv("HARBORRAG_HOST", "127.0.0.1")
     monkeypatch.setenv("HARBORRAG_ENV", "dev")

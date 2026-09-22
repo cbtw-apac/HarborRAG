@@ -35,11 +35,54 @@ from harborrag_runtime.contracts import (
     EvidenceReadSelector,
     GraphNodeResolveRequest,
 )
+from harborrag_runtime.reader_contracts import DocumentListRequest, DocumentMetadataRequest
 from harborrag_runtime.retrieval.permissions import RetrievalPermissions
 from harborrag_runtime.retrieval.reader_resources import ReaderResources
 from harborrag_runtime.retrieval.readers import ReaderRetrieval
 
 ACCESS = AccessContext.system("tenant-1")
+
+
+@pytest.mark.asyncio
+async def test_document_catalog_reads_current_metadata_without_content_or_storage_addresses() -> (
+    None
+):
+    reader = _reader()
+    response = await reader.document_metadata(DocumentMetadataRequest(ACCESS, "document-1"))
+    assert response.document is not None
+    assert response.document.title == "Guide"
+    assert response.document.document_version_id == "version-1"
+    assert response.document.chunk_count == 2
+    page = await reader.list_documents(DocumentListRequest(ACCESS, limit=1))
+    assert page.documents == (response.document,)
+    assert page.next_document_id is None
+
+
+@pytest.mark.asyncio
+async def test_document_metadata_rechecks_permissions_after_artifact_read() -> None:
+    permissions = Permissions()
+    permissions.revoke_after_first = True
+    response = await _reader(permissions).document_metadata(
+        DocumentMetadataRequest(ACCESS, "document-1")
+    )
+    assert response.document is None
+
+
+@pytest.mark.asyncio
+async def test_document_metadata_rejects_publication_changed_during_read(monkeypatch) -> None:
+    reader = _reader()
+    snapshots = reader._resources.snapshots
+    original = snapshots.active_snapshot
+    calls = 0
+
+    async def changing(document_id):
+        nonlocal calls
+        calls += 1
+        return await original(document_id) if calls == 1 else None
+
+    monkeypatch.setattr(snapshots, "active_snapshot", changing)
+    response = await reader.document_metadata(DocumentMetadataRequest(ACCESS, "document-1"))
+    assert response.document is None
 
 
 def _chunk(chunk_id: str, ordinal: int, content: str) -> ChunkRecord:

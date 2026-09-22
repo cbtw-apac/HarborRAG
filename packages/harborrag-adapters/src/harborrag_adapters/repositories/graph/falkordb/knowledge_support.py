@@ -57,7 +57,7 @@ def access_parameters(scope: GraphAccessScope | None) -> dict[str, Any]:
     """Encode an absent legacy scope distinctly from an explicit deny-all scope."""
 
     return {
-        "access_unrestricted": scope is None,
+        "access_unrestricted": scope is None or scope.tenant_shared,
         "authorized_document_ids": list(scope.document_ids) if scope is not None else [],
         "authorized_source_scope_ids": (list(scope.source_scope_ids) if scope is not None else []),
         "tenant_visible": scope.tenant_visible if scope is not None else True,

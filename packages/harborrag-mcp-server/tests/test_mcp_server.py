@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import json
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from catalog_support import EXPECTED_READER_TOOLS
 
+from harborrag_engine.tools.base import BaseTool, ToolSpec
 from harborrag_mcp_server.server import call_tool, create_mcp_server, list_tools
 from harborrag_mcp_server.server.base import BaseMcpServer
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
-from harborrag_runtime.memory import InMemoryConversationMemory
 
 
 def test_package_exposes_the_mcp_server_namespace() -> None:
@@ -58,7 +59,6 @@ def test_module_runs_stdio_when_launched_with_a_pipe(monkeypatch) -> None:
             calls.append((transport, show_banner))
 
     monkeypatch.setattr(cli.sys, "stdin", PipedInput())
-    monkeypatch.setattr(cli, "_configured_memory", lambda _settings: InMemoryConversationMemory())
     monkeypatch.setattr(cli, "create_mcp_server", lambda **kwargs: FakeTransport())
 
     assert cli.main([]) == 0
@@ -126,8 +126,8 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
     assert describe.outputSchema is not None
 
 
-class BrokenTool(BaseMcpTool):
-    spec = McpToolSpec("broken", "broken", output_schema={"type": "object"})
+class BrokenTool(BaseTool):
+    spec = ToolSpec("broken", "broken", output_schema={"type": "object"})
 
     async def call(self, arguments, *, principal_id):
         return await super().call(arguments, principal_id=principal_id)
@@ -141,8 +141,8 @@ class BrokenServer(BaseMcpServer):
         return await super().call_tool(name, arguments, principal_id=principal_id)
 
 
-class InvalidOutputTool(BaseMcpTool):
-    spec = McpToolSpec(
+class InvalidOutputTool(BaseTool):
+    spec = ToolSpec(
         "invalid_output",
         "Return an invalid result.",
         output_schema={
@@ -178,7 +178,7 @@ async def test_server_rejects_tool_output_that_breaks_its_advertised_schema() ->
 
 @pytest.mark.asyncio
 async def test_mcp_registry_exposes_retrieval_tools():
-    spec = McpToolSpec("tool", "description")
+    spec = ToolSpec("tool", "description")
     assert spec.input_schema == {"type": "object"}
     server = McpServer()
     assert [tool.name for tool in server.list_tools()] == EXPECTED_READER_TOOLS
@@ -235,7 +235,7 @@ def test_tool_policy_enforces_result_budget():
 def test_tool_policy_enforces_declared_input_schema():
     from harborrag_mcp_server.policy import McpToolPolicy
 
-    spec = McpToolSpec(
+    spec = ToolSpec(
         "search",
         "Search.",
         input_schema={
@@ -400,16 +400,24 @@ async def test_call_tool_is_a_no_op_for_telemetry_when_none_is_configured() -> N
     assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
 
 
-def test_request_principal_requires_owner_role(monkeypatch) -> None:
+def test_request_principal_requires_reader_or_owner_role(monkeypatch) -> None:
     from types import SimpleNamespace
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
 
     from harborrag_mcp_server.server import _request_principal_id
 
-    reader = SimpleNamespace(claims={"sub": "reader-1", "role": "reader"}, client_id="client")
+    reader = SimpleNamespace(
+        claims={"sub": "reader-1", "role": "reader", "tenants": ["demo"]}, client_id="client"
+    )
     monkeypatch.setattr(dependencies, "get_access_token", lambda: reader)
-    with pytest.raises(PermissionError, match="owner"):
+    assert _request_principal_id("demo") == "reader-1"
+    with pytest.raises(PermissionError, match="requested tenant"):
+        _request_principal_id("other")
+
+    invalid = SimpleNamespace(claims={"sub": "guest-1", "role": "guest"}, client_id="client")
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: invalid)
+    with pytest.raises(PermissionError, match="reader or owner"):
         _request_principal_id()
 
     owner = SimpleNamespace(
@@ -438,3 +446,173 @@ def test_tenant_scoped_owner_cannot_access_global_configuration() -> None:
     authorize_request_tenant(request, "demo")
     with pytest.raises(Unauthorized, match="requested tenant"):
         authorize_request_tenant(request, "*")
+
+
+def test_the_transport_masks_details_of_an_unexpected_failure() -> None:
+    """A driver or filesystem error must not be narrated to the MCP client.
+
+    FastMCP defaults ``mask_error_details`` off, which relays any exception
+    escaping a tool as ``Error calling tool 'x': {exc}`` -- enough to leak a
+    connection URL or a server path. The HTTP route already masks; the MCP
+    transport has to agree.
+    """
+
+    pytest.importorskip("fastmcp")
+
+    transport = create_mcp_server(allow_unauthenticated_local=True)
+
+    # FastMCP keeps the resolved setting private; there is no public accessor.
+    assert transport._mask_error_details is True
+
+
+@pytest.mark.asyncio
+async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -> None:
+    """A token probing another tenant is exactly what the trail exists to show.
+
+    Resolving the principal as a call argument put it before ``call_tool``, so
+    an authorization refusal produced no audit record at all.
+    """
+
+    from types import SimpleNamespace
+
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.server import _tool_handler
+
+    intruder = SimpleNamespace(
+        claims={"sub": "reader-1", "role": "reader", "tenants": ["demo"]},
+        client_id="client",
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: intruder)
+    server = McpServer(audit=McpAuditLog())
+    # A tenant-scoped tool: ``describe_graph`` declares no tenant and is never
+    # bound to one, so it cannot express this refusal.
+    handler = _tool_handler(server, "list_sources")
+
+    with pytest.raises(PermissionError):
+        await handler(tenant_id="someone-else")
+
+    entries = server.audit.entries
+    assert [entry["event"] for entry in entries] == [
+        "tool_invocation_attempted",
+        "tool_invocation_completed",
+    ]
+    assert entries[-1]["error_type"] == "PermissionError"
+    assert entries[-1]["outcome"] == "error"
+    assert all(entry["principal_id"] == "reader-1" for entry in entries)
+
+
+@pytest.mark.asyncio
+async def test_describe_graph_needs_no_tenant_on_the_default_transports(monkeypatch) -> None:
+    """The one tool that declares no tenant must not be refused for lacking one.
+
+    ``describe_graph`` is advertised as the call to make first, with no
+    arguments, and its schema forbids a ``tenant_id`` -- so a client could not
+    supply one even to work around a demand for it. Requiring a bound tenant
+    refused it outright on stdio (no token) and under the wildcard grant the
+    local HTTP transport mints, leaving it reachable only from an API key
+    carrying exactly one concrete tenant.
+    """
+
+    from types import SimpleNamespace
+
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.server import _tool_handler
+
+    handler = _tool_handler(McpServer(audit=McpAuditLog()), "describe_graph")
+
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: None)
+    assert (await handler())["versions"]
+
+    wildcard = SimpleNamespace(
+        claims={"sub": "reader-1", "role": "reader", "tenants": ["*"]}, client_id="client"
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: wildcard)
+    assert (await handler())["versions"]
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_free_tool_still_refuses_a_token_without_a_read_role(monkeypatch) -> None:
+    """Skipping the tenant binding must not skip authorizing the principal."""
+
+    from types import SimpleNamespace
+
+    dependencies = pytest.importorskip("fastmcp.server.dependencies")
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.server import _tool_handler
+
+    writer = SimpleNamespace(
+        claims={"sub": "writer-1", "role": "writer", "tenants": ["*"]}, client_id="client"
+    )
+    monkeypatch.setattr(dependencies, "get_access_token", lambda: writer)
+    server = McpServer(audit=McpAuditLog())
+    handler = _tool_handler(server, "describe_graph")
+
+    with pytest.raises(PermissionError):
+        await handler()
+
+    assert server.audit.entries[-1]["error_type"] == "PermissionError"
+
+
+@pytest.mark.asyncio
+async def test_the_audit_records_which_tenant_a_call_touched() -> None:
+    """The first question asked of a trail, and it could not answer it."""
+
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    log = McpAuditLog()
+    server = McpServer(audit=log)
+
+    await server.call_tool("describe_graph", {}, principal_id="reader-1")
+    with contextlib.suppress(Exception):
+        # Rejected for a missing query; the point is that the attempt is
+        # recorded against the tenant it was aimed at.
+        await server.call_tool("vector_search", {"tenant_id": "  ACME  "}, principal_id="reader-1")
+
+    tenants = [entry["tenant_id"] for entry in log.entries]
+    # describe_graph takes no tenant; vector_search records the canonical
+    # stripped value, the same one that drove policy and validation.
+    assert tenants[0] is None
+    assert "ACME" in tenants
+
+
+def test_a_relative_audit_path_does_not_follow_the_launch_directory(tmp_path, monkeypatch) -> None:
+    """An MCP client picks the working directory; the trail must not move.
+
+    A relative path also meant the owner-only directory rules the writer
+    enforces landed wherever the client happened to start the server.
+    """
+
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    log = McpAuditLog(path=Path(".harborrag/mcp-audit.jsonl"))
+
+    assert log.path is not None
+    assert log.path.is_absolute()
+    assert log.path == tmp_path / ".harborrag/mcp-audit.jsonl"
+
+
+def test_an_absolute_audit_path_is_left_alone(tmp_path) -> None:
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    chosen = tmp_path / "audit.jsonl"
+
+    assert McpAuditLog(path=chosen).path == chosen
+
+
+def test_one_predicate_decides_whether_a_result_failed() -> None:
+    """The audit and the MCP handler disagreed about status == "error"."""
+
+    from harborrag_mcp_server.server.base import tool_reported_error
+
+    assert tool_reported_error({"ok": False}) is True
+    assert tool_reported_error({"status": "error"}) is True
+    assert tool_reported_error({"ok": True}) is False
+    assert tool_reported_error({"results": []}) is False

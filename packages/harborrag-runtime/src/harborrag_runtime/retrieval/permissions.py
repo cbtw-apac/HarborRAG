@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_core.indexing import (
     FilterOperator,
     VectorFilter,
@@ -28,6 +29,10 @@ class RetrievalPermissions:
             # Explicit legacy embedding-only callers. Production composition
             # always supplies canonical authority; unknown permissions there deny.
             return filters
+        if context.access.corpus_mode == "tenant_shared":
+            # The vector repository already scopes by tenant. The final canonical
+            # publication check still runs in validate().
+            return filters
         try:
             async with asyncio.timeout(2):
                 documents = await self._repository.allowed_document_ids(
@@ -37,7 +42,7 @@ class RetrievalPermissions:
             logger.warning(
                 "Permission scope unavailable", extra={"error_code": type(error).__name__}
             )
-            documents = ()
+            raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
         result = filters if filters is not None else VectorFilter()
         return VectorFilter(
             must=[
@@ -71,5 +76,5 @@ class RetrievalPermissions:
             logger.warning(
                 "Final permission check unavailable", extra={"error_code": type(error).__name__}
             )
-            return ()
+            raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
         return tuple(item for item in candidates if item.payload.get("document_id") in allowed)

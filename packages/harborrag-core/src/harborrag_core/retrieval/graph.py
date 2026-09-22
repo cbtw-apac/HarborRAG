@@ -29,6 +29,7 @@ class GraphAccessScope(StrictModel):
 
     document_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
     source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
+    tenant_shared: bool = False
 
     @model_validator(mode="after")
     def validate_unique_ids(self) -> Self:
@@ -40,7 +41,7 @@ class GraphAccessScope(StrictModel):
 
     @property
     def tenant_visible(self) -> bool:
-        return bool(self.document_ids or self.source_scope_ids)
+        return self.tenant_shared or bool(self.document_ids or self.source_scope_ids)
 
 
 class GraphNodeResolutionQuery(StrictModel):

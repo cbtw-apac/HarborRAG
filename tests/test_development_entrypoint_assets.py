@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -169,11 +170,10 @@ def test_mcp_entrypoint_runs_stdio_without_starting_other_processes() -> None:
     dev_script = DEV_SCRIPT.read_text(encoding="utf-8")
 
     assert "-m harborrag_mcp_server" in mcp_script
-    assert "mcp_arguments+=(--check)" in mcp_script
-    assert "HARBORRAG_CONTROL_DB_URL" in mcp_script
-    assert "HARBORRAG_MODEL_CONFIG_PATH" in mcp_script
-    assert "@localhost:" in mcp_script
-    assert "http://localhost:" in mcp_script
+    assert '--local-stack-root "${ROOT_DIR}" "$@"' in mcp_script
+    assert "HARBORRAG_CONTROL_DB_URL" not in mcp_script
+    assert "HARBORRAG_MODEL_CONFIG_PATH" not in mcp_script
+    assert "source " not in mcp_script
     assert "start_worker" not in mcp_script
     assert "start_api" not in mcp_script
     assert "docker compose" not in mcp_script
@@ -181,7 +181,7 @@ def test_mcp_entrypoint_runs_stdio_without_starting_other_processes() -> None:
     assert "    mcp)" not in dev_script
 
 
-def test_mcp_entrypoint_redacts_malformed_environment_values(tmp_path: Path) -> None:
+def test_mcp_entrypoint_reads_environment_as_data_without_exposing_secrets(tmp_path: Path) -> None:
     project = tmp_path / "project"
     script = project / "scripts/deployment/mcp.sh"
     environment = project / "env"
@@ -195,18 +195,24 @@ def test_mcp_entrypoint_redacts_malformed_environment_values(tmp_path: Path) -> 
         encoding="utf-8",
     )
     (environment / ".env.api").write_text("HARBORRAG_AUTH_MODE=none\n", encoding="utf-8")
+    config = project / "config"
+    config.mkdir()
+    (config / "mcp.yaml").write_text(
+        (ROOT / "config/mcp.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
     result = subprocess.run(
         ["bash", str(script), "--check"],
         cwd=project,
+        env={**os.environ, "HARBORRAG_MCP_PYTHON_BIN": sys.executable},
         capture_output=True,
         check=False,
         text=True,
     )
 
-    assert result.returncode != 0
+    assert result.returncode == 0, result.stderr
     assert fake_key not in result.stderr
-    assert "line 1: ***: command not found" in result.stderr
+    assert fake_key not in result.stdout
 
 
 def test_deployment_has_explicit_orchestration_and_mcp_entrypoints() -> None:

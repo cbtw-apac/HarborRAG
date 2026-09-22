@@ -204,8 +204,8 @@ class TemporalRuntimeConfig:
         return TemporalWorkflowOptions(task_queues=self.task_queues, retries=self.retries)
 
     @classmethod
-    def from_settings(cls, settings: RuntimeSettings) -> TemporalRuntimeConfig:
-        """Load YAML and apply explicitly supplied environment overrides.
+    def _loaded(cls, settings: RuntimeSettings) -> TemporalRuntimeConfig:
+        """Read the configured file, or the built-in defaults when there is none.
 
         The compatibility fallback keeps lightweight SDK composition working
         outside the repository when the default relative file is unavailable.
@@ -213,11 +213,46 @@ class TemporalRuntimeConfig:
         """
 
         configured_path = Path(settings.temporal_config_path).expanduser()
+        if configured_path.is_file() or "temporal_config_path" in settings.model_fields_set:
+            return cls.from_file(configured_path)
+        return cls()
+
+    @staticmethod
+    def _ingestion_with_overrides(
+        config: TemporalRuntimeConfig,
+        settings: RuntimeSettings,
+    ) -> IngestionConfig:
         explicit_fields = settings.model_fields_set
-        if configured_path.is_file() or "temporal_config_path" in explicit_fields:
-            config = cls.from_file(configured_path)
-        else:
-            config = cls()
+        return replace(
+            config.ingestion,
+            batch_size=settings.temporal_ingestion_batch_size
+            if "temporal_ingestion_batch_size" in explicit_fields
+            else config.ingestion.batch_size,
+            document_concurrency=settings.temporal_ingestion_document_concurrency
+            if "temporal_ingestion_document_concurrency" in explicit_fields
+            else config.ingestion.document_concurrency,
+        )
+
+    @classmethod
+    def ingestion_from_settings(cls, settings: RuntimeSettings) -> IngestionConfig:
+        """Resolve only the shared batch defaults, without a Temporal deployment.
+
+        Direct execution takes its batch size and document concurrency from the
+        same place the Temporal path does, but never connects to Temporal.
+        Building the whole deployment configuration to read two integers meant a
+        stray ``HARBORRAG_TEMPORAL_TARGET`` without TLS, or a worker capacity
+        that outran the control database pool, failed an inline ingestion that
+        touches neither.
+        """
+
+        return cls._ingestion_with_overrides(cls._loaded(settings), settings)
+
+    @classmethod
+    def from_settings(cls, settings: RuntimeSettings) -> TemporalRuntimeConfig:
+        """Load YAML and apply explicitly supplied environment overrides."""
+
+        explicit_fields = settings.model_fields_set
+        config = cls._loaded(settings)
 
         connection = config.connection
         worker = config.worker
@@ -269,15 +304,7 @@ class TemporalRuntimeConfig:
             if "temporal_graceful_shutdown_seconds" in explicit_fields
             else worker.graceful_shutdown_seconds,
         )
-        selected_ingestion = replace(
-            config.ingestion,
-            batch_size=settings.temporal_ingestion_batch_size
-            if "temporal_ingestion_batch_size" in explicit_fields
-            else config.ingestion.batch_size,
-            document_concurrency=settings.temporal_ingestion_document_concurrency
-            if "temporal_ingestion_document_concurrency" in explicit_fields
-            else config.ingestion.document_concurrency,
-        )
+        selected_ingestion = cls._ingestion_with_overrides(config, settings)
         selected = replace(
             config,
             connection=selected_connection,

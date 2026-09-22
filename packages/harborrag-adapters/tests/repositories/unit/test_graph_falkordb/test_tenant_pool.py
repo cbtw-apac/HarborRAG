@@ -88,6 +88,37 @@ async def test_pool_capacity_does_not_evict_active_connections():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tenant_isolation", [False, True])
+async def test_pool_retries_failed_close_without_reopening(tenant_isolation):
+    factory = FakeFactory()
+    pool = TenantGraphClientPool(
+        FalkorDBGraphConfig(tenant_isolation=tenant_isolation),
+        provisioner=AsyncMock(),
+        factory=factory,
+    )
+    await pool.connect()
+    first = await pool.database_for(context())
+    first.close = AsyncMock(side_effect=[OSError("close failed"), None])
+    if tenant_isolation:
+        second = await pool.database_for(context("tenant-b"))
+        second.close = AsyncMock()
+
+    with pytest.raises(OSError, match="close failed"):
+        await pool.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        await pool.database_for(context())
+    with pytest.raises(RuntimeError, match="closed"):
+        await pool.connect()
+
+    await pool.close()
+    await pool.close()
+
+    assert first.close.await_count == 2
+    if tenant_isolation:
+        second.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_concurrent_resolution_constructs_and_provisions_only_one_writer():
     factory = FakeFactory()
     provisioner = AsyncMock()
