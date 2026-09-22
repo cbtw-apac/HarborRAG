@@ -65,26 +65,18 @@ def _configure_registry(registry: McpServer, path: str) -> McpConfigurationStore
     return store
 
 
-def _configured_telemetry(settings: RuntimeSettings) -> McpTelemetryBridge:
+def _configured_telemetry(settings: RuntimeSettings) -> McpTelemetryBridge | None:
+    """Build optional telemetry without making the MCP server depend on its DB."""
     from harborrag_runtime.mcp_telemetry import build_mcp_telemetry_bridge
 
-    return build_mcp_telemetry_bridge(settings)
-
-
-async def _publish_initial_config_snapshot(
-    registry: McpServer,
-    configuration: McpConfigurationStore,
-) -> None:
-    if registry.telemetry is None:
-        return
-    from harborrag_mcp_server.telemetry import build_config_snapshot
-
     try:
-        await registry.telemetry.publish_config(build_config_snapshot(registry, configuration))
-    except Exception:  # noqa: BLE001 - startup telemetry must never block the server
+        return build_mcp_telemetry_bridge(settings)
+    except Exception:  # noqa: BLE001 - telemetry is optional for MCP availability
         logging.getLogger("harborrag.mcp.server").warning(
-            "Failed to publish initial MCP configuration snapshot", exc_info=True
+            "MCP telemetry is unavailable; continuing without control-plane telemetry",
+            exc_info=True,
         )
+        return None
 
 
 async def _check_protocol(transport: FastMCP[Any]) -> list[str]:
@@ -236,7 +228,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         telemetry=telemetry,
     )
     configuration = _configure_registry(registry, arguments.config)
-    asyncio.run(_publish_initial_config_snapshot(registry, configuration))
     transport = cast(
         "FastMCP[Any]",
         create_mcp_server(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 from io import StringIO
@@ -339,6 +340,12 @@ class _FakeTelemetry:
         )
 
 
+class _SlowTelemetry(_FakeTelemetry):
+    async def record_usage(self, **kwargs: object) -> None:
+        del kwargs
+        await asyncio.Event().wait()
+
+
 @pytest.mark.asyncio
 async def test_call_tool_records_usage_telemetry_with_real_timing_and_caller_identity() -> None:
     from harborrag_mcp_server.policy import McpToolPolicy
@@ -382,6 +389,22 @@ async def test_call_tool_never_fails_when_the_telemetry_write_raises() -> None:
     from harborrag_mcp_server.policy import McpToolPolicy
 
     server = McpServer(policy=McpToolPolicy(), telemetry=_FakeTelemetry(fails=True))
+
+    result = await server.call_tool("vector_search", {"query": "harbor", "tenant_id": "demo"})
+
+    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
+
+
+@pytest.mark.asyncio
+async def test_call_tool_times_out_a_stalled_telemetry_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Optional telemetry cannot indefinitely delay a completed tool response."""
+    import harborrag_mcp_server.server.server as server_module
+    from harborrag_mcp_server.policy import McpToolPolicy
+
+    monkeypatch.setattr(server_module, "_TELEMETRY_WRITE_TIMEOUT_SECONDS", 0.01)
+    server = McpServer(policy=McpToolPolicy(), telemetry=_SlowTelemetry())
 
     result = await server.call_tool("vector_search", {"query": "harbor", "tenant_id": "demo"})
 

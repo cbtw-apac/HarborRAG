@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from harborrag_runtime.mcp_telemetry import McpTelemetryBridge
 
 logger = logging.getLogger("harborrag.mcp.server")
+_TELEMETRY_WRITE_TIMEOUT_SECONDS = 2.0
 
 # Shared, process-wide default policy/audit singletons. The module-level
 # call_tool/list_tools facade constructs a fresh McpServer per invocation, so
@@ -189,11 +190,14 @@ class McpServer(BaseMcpServer):
             return
         latency_ms = max(0, round((time.monotonic() - started_at) * 1000))
         try:
-            await self.telemetry.record_usage(
-                tool=tool,
-                client=principal_id,
-                latency_ms=latency_ms,
-                created_at=datetime.now(UTC),
+            await asyncio.wait_for(
+                self.telemetry.record_usage(
+                    tool=tool,
+                    client=principal_id,
+                    latency_ms=latency_ms,
+                    created_at=datetime.now(UTC),
+                ),
+                timeout=_TELEMETRY_WRITE_TIMEOUT_SECONDS,
             )
         except Exception:  # noqa: BLE001 - telemetry must never break a tool call
             logger.warning("Failed to record MCP usage telemetry tool=%s", tool, exc_info=True)

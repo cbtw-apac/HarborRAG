@@ -13,7 +13,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.dependencies import (
+    authorize_tenant,
+    require_operator_role,
+    require_role,
+)
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
@@ -70,7 +74,9 @@ async def get_routing_rules(
 async def replace_routing_rules(
     rules: list[RoutingRuleInput],
     service: ProvidersServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("admin"))],
+    # Routing rules are workspace-wide and can reference every tenant's
+    # providers, so a tenant-scoped admin must not replace the whole table.
+    principal: Annotated[Principal, Depends(require_operator_role("admin"))],
 ) -> list[RoutingRuleOut]:
     """Replace the entire routing table with ``rules`` in one atomic write."""
     response = await service.replace_routing_rules(

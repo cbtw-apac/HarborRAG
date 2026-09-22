@@ -162,6 +162,24 @@ def test_replace_routing_rules_updates_the_table(
     assert service.routing_replace_calls[-1]["actor"] == "dev"
 
 
+def test_replace_routing_rules_rejects_a_tenant_scoped_admin() -> None:
+    """A workspace-wide table cannot be replaced by an admin of one tenant."""
+    app = create_fastapi_app(ApiSettings())
+    service = control_plane_app_service()
+    app.dependency_overrides[get_app_service] = lambda: service
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="scoped-admin", role="admin", tenant_ids=frozenset({"tenant-a"})
+    )
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/v1/providers/routing",
+            json=[{"family": "chat", "provider_id": "prov_1", "priority": 1}],
+        )
+
+    assert response.status_code == 403
+
+
 def test_replace_routing_rules_rejects_an_unknown_provider(client: TestClient) -> None:
     response = client.put(
         "/v1/providers/routing",

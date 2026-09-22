@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -29,6 +30,7 @@ from harborrag_mcp_server.server.http_responses import (
     configuration_response,
     error_response,
 )
+from harborrag_mcp_server.server.server import _TELEMETRY_WRITE_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -239,16 +241,18 @@ async def _publish_config_snapshot(
 ) -> None:
     """Best-effort: keep the app-facing config snapshot in sync after a change.
 
-    Never blocks the HTTP response on it -- a slow or unreachable
-    control-plane DB must not stop an operator from replacing/reloading the
-    MCP configuration itself.
+    A slow or unreachable control-plane DB is bounded so it cannot hold an
+    operator's replace/reload response indefinitely.
     """
     if registry.telemetry is None:
         return
     from harborrag_mcp_server.telemetry import build_config_snapshot
 
     try:
-        await registry.telemetry.publish_config(build_config_snapshot(registry, configuration))
+        await asyncio.wait_for(
+            registry.telemetry.publish_config(build_config_snapshot(registry, configuration)),
+            timeout=_TELEMETRY_WRITE_TIMEOUT_SECONDS,
+        )
     except Exception:  # noqa: BLE001 - telemetry must never break configuration changes
         logger.warning("Failed to publish updated MCP configuration snapshot", exc_info=True)
 
