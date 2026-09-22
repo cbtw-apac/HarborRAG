@@ -62,18 +62,21 @@ def test_mcp_tools_reports_usage_by_tool(client: TestClient) -> None:
     ]
 
 
-def test_mcp_queries_returns_matching_entries_for_a_valid_range(client: TestClient) -> None:
+def test_mcp_queries_returns_matching_entries_for_a_valid_range(
+    client: TestClient, service: MockAppService
+) -> None:
     response = client.get("/v1/mcp/queries", params={"range": "24h"})
 
     assert response.status_code == 200
     payload = response.json()
+    entry = service.mcp_query_entries[0]
     assert payload["range"] == "24h"
     assert payload["entries"] == [
         {
-            "tool": "retrieval_search",
-            "client": "dev",
-            "latency_ms": 42,
-            "created_at": "2026-09-17T12:00:00Z",
+            "tool": entry.tool,
+            "client": entry.client,
+            "latency_ms": entry.latency_ms,
+            "created_at": entry.created_at.isoformat().replace("+00:00", "Z"),
         }
     ]
 
