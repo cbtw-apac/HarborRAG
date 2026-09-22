@@ -55,7 +55,9 @@ class ControlPlaneProviderWritesMixin:
             raise HarborValidationError(str(exc)) from exc
         # Validated above, before secrets.put(): a bad tenant_id must fail here,
         # not after a secret is already stored with nothing to retire it.
-        secret_ref = await control_plane.secrets.put(api_key) if api_key else None
+        secret_ref = (
+            await control_plane.secrets.put(api_key, tenant_id=tenant_id) if api_key else None
+        )
         provider = Provider(
             id=f"prov_{uuid4().hex}",
             tenant_id=tenant_id,
@@ -68,7 +70,7 @@ class ControlPlaneProviderWritesMixin:
             created = await control_plane.providers.save(provider)
         except Exception:
             if secret_ref is not None:
-                await _retire_refs(control_plane, [secret_ref])
+                await _retire_refs(control_plane, [secret_ref], tenant_id=tenant_id)
             raise
         await _log_activity(
             control_plane,
@@ -109,7 +111,11 @@ class ControlPlaneProviderWritesMixin:
         if "api_key" in updates:
             new_key = updates["api_key"]
             stale_ref = provider.secret_ref
-            newly_put_ref = await control_plane.secrets.put(new_key) if new_key else None
+            newly_put_ref = (
+                await control_plane.secrets.put(new_key, tenant_id=provider.tenant_id)
+                if new_key
+                else None
+            )
             provider.secret_ref = newly_put_ref
         try:
             updated = await control_plane.providers.save(provider)
@@ -117,12 +123,12 @@ class ControlPlaneProviderWritesMixin:
             # The provider row never picked up the new ref -- retire it so it
             # doesn't linger as an orphaned secret pointing at nothing.
             if newly_put_ref is not None:
-                await _retire_refs(control_plane, [newly_put_ref])
+                await _retire_refs(control_plane, [newly_put_ref], tenant_id=provider.tenant_id)
             raise
         # Only now that the provider row durably references the new ref is it
         # safe to retire the old one.
         if stale_ref is not None:
-            await _retire_refs(control_plane, [stale_ref])
+            await _retire_refs(control_plane, [stale_ref], tenant_id=provider.tenant_id)
         await _log_activity(
             control_plane,
             ActivityEntry(
@@ -153,7 +159,7 @@ class ControlPlaneProviderWritesMixin:
             raise HarborNotFoundError(f"provider {provider_id!r} not found")
         await control_plane.providers.delete(provider_id, tenant_ids=tenant_ids)
         if provider.secret_ref is not None:
-            await _retire_refs(control_plane, [provider.secret_ref])
+            await _retire_refs(control_plane, [provider.secret_ref], tenant_id=provider.tenant_id)
         await _log_activity(
             control_plane,
             ActivityEntry(

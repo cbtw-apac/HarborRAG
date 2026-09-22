@@ -41,7 +41,10 @@ async def test_create_provider_stores_a_secret_ref_never_the_raw_key() -> None:
     assert provider.secret_ref.startswith("secret://")
     assert "sk-super-secret" not in repr(provider)
     control_plane = service._control_plane()
-    assert await control_plane.secrets.resolve(provider.secret_ref) == "sk-super-secret"
+    assert (
+        await control_plane.secrets.resolve(provider.secret_ref, tenant_id="ACME")
+        == "sk-super-secret"
+    )
     activity = await control_plane.activity.list(tenant_ids=None)
     assert activity[0].verb == "created"
     assert activity[0].entity_type == "provider"
@@ -89,7 +92,7 @@ async def test_create_provider_rejects_a_malformed_tenant_id_without_leaking_a_s
 @pytest.mark.asyncio
 async def test_update_provider_rotates_the_secret_and_retires_the_old_one() -> None:
     secrets = FakeSecrets()
-    old_ref = await secrets.put("sk-old-value")
+    old_ref = await secrets.put("sk-old-value", tenant_id="ACME")
     provider = Provider(
         id="prov_1", tenant_id="ACME", name="OpenAI", family="chat", secret_ref=old_ref
     )
@@ -104,9 +107,9 @@ async def test_update_provider_rotates_the_secret_and_retires_the_old_one() -> N
 
     updated = response.data["provider"]
     assert updated.secret_ref != old_ref
-    assert await secrets.resolve(updated.secret_ref) == "sk-new-value"
+    assert await secrets.resolve(updated.secret_ref, tenant_id="ACME") == "sk-new-value"
     with pytest.raises(KeyError):
-        await secrets.resolve(old_ref)
+        await secrets.resolve(old_ref, tenant_id="ACME")
 
 
 @pytest.mark.asyncio
@@ -152,7 +155,7 @@ async def test_get_and_delete_provider_outside_tenant_scope_is_not_found() -> No
 async def test_delete_provider_retires_its_secret() -> None:
     service = control_plane_app_service()
     control_plane = service._control_plane()
-    ref = await control_plane.secrets.put("sk-value")
+    ref = await control_plane.secrets.put("sk-value", tenant_id="ACME")
     provider = Provider(id="prov_1", tenant_id="ACME", name="OpenAI", family="chat", secret_ref=ref)
     await control_plane.providers.save(provider)
 
@@ -160,7 +163,7 @@ async def test_delete_provider_retires_its_secret() -> None:
 
     assert await control_plane.providers.get("prov_1", tenant_ids=None) is None
     with pytest.raises(KeyError):
-        await control_plane.secrets.resolve(ref)
+        await control_plane.secrets.resolve(ref, tenant_id="ACME")
 
 
 @pytest.mark.asyncio
