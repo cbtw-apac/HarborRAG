@@ -5,9 +5,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from harborrag_adapters.repositories.object_store import (
-    ProjectionArtifactRepository,
-)
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
@@ -17,6 +14,7 @@ from harborrag_core.ingestion import (
     ProjectionManifest,
 )
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.artifacts import ProjectionArtifactPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     GraphProjectionBatch,
@@ -46,7 +44,7 @@ class DocumentProjectionCoordinator:
     def __init__(
         self,
         *,
-        projection_artifacts: ProjectionArtifactRepository,
+        projection_artifacts: ProjectionArtifactPort,
         vector_store: VectorProjectionStore,
         graph_store: KnowledgeGraphRepositoryPort,
     ) -> None:

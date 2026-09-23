@@ -92,6 +92,9 @@ def _summary_runner(
     stop_event: asyncio.Event | None,
 ) -> Coroutine[Any, Any, None] | None:
     """Attach the optional semantic projection queue to the deployed worker."""
+    # Deliberate duck-typing, not a dead guard: a caller may pass any settings
+    # object, and one without graph-build configuration skips this queue rather
+    # than failing the whole worker over an optional projection.
     if not hasattr(settings, "graph_build_config_path"):
         return None
     graph_build = GraphBuildConfig.from_settings(settings)

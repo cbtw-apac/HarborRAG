@@ -8,14 +8,14 @@ from typing import Any
 from jsonschema.exceptions import ValidationError
 from jsonschema.validators import validator_for
 
-from harborrag_mcp_server.tools.base import McpToolSpec
+from harborrag_core.contracts.tools import ToolSpec
 
 from .models import McpConfiguration, ToolConfiguration
 
 
 def validate_tools(
     configuration: McpConfiguration,
-    specs: Mapping[str, McpToolSpec],
+    specs: Mapping[str, ToolSpec],
 ) -> None:
     configured_names = set(configuration.tools)
     for tenant in configuration.tenants.values():
@@ -49,7 +49,7 @@ def validate_tools(
 def _validate_tool_override(
     tool_name: str,
     override: ToolConfiguration,
-    spec: McpToolSpec,
+    spec: ToolSpec,
 ) -> None:
     properties = spec.input_schema.get("properties", {})
     if not isinstance(properties, dict):

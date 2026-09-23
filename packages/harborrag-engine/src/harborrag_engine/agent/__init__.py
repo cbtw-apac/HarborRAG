@@ -2,6 +2,7 @@
 
 from harborrag_core.ports.agent_runs import (
     AgentCheckpoint,
+    AgentEvidenceReference,
     AgentRunIdentity,
     AgentRunRepository,
     AgentRunStatus,
@@ -21,6 +22,7 @@ from .service import (
 
 __all__ = [
     "AgentCheckpoint",
+    "AgentEvidenceReference",
     "AgentEvent",
     "AgentEventSink",
     "AgentRunIdentity",

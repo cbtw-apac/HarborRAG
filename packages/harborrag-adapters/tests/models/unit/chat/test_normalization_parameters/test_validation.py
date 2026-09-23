@@ -69,3 +69,13 @@ def test_chat_request_capability_and_security_validation() -> None:
     )
     with pytest.raises(HarborChatCapabilityError):
         validate_chat_request(audio_request, chat_config(deployments=(audio_only,)), audio_only)
+
+
+def test_reasoning_opt_out_needs_no_reasoning_capability() -> None:
+    base = deployment(capabilities=HarborChatCapabilities(tools=True))
+    request = HarborChatRequest(
+        messages=(HarborChatMessage.user("x"),),
+        reasoning_effort="none",
+    )
+
+    validate_chat_request(request, chat_config(deployments=(base,)), base)

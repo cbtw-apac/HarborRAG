@@ -4,34 +4,42 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol
 
 from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.events import InProcessEventBus
+from harborrag_runtime.execution.gateway import (
+    IngestionGatewayDescription,
+    connect_ingestion_gateway,
+    describe_ingestion_gateway,
+    prepare_configured_source_submission,
+)
+from harborrag_runtime.execution.gateway import (
+    connect_temporal_client as connect_temporal_client,
+)
+from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
+from harborrag_runtime.ingestion_contracts import (
+    IngestionGateway,
+    PreparedSourceSubmission,
+    SourceSubmission,
+)
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
-from harborrag_runtime.temporal.optional import load_temporal_attribute
-from harborrag_runtime.temporal.schemas import SourceIngestionInput
-from harborrag_runtime.temporal.submission import SourceSubmission, build_source_input
-from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
 
 from ..ingestion.ports import PublicTaskStore
 
-if TYPE_CHECKING:
-    from harborrag_runtime.temporal.client import IngestionTemporalClient
-
 type ClientFactory = Callable[
-    [TemporalRuntimeConfig],
-    Awaitable[IngestionTemporalClient],
+    [RuntimeSettings],
+    Awaitable[IngestionGateway],
 ]
+type GatewayDescriptionFactory = Callable[[RuntimeSettings], IngestionGatewayDescription]
 type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
 type SourceInputBuilder = Callable[
     [RuntimeSettings, SourceSubmission],
-    SourceIngestionInput,
+    PreparedSourceSubmission,
 ]
 type ProjectionAdminFactory = Callable[
     [RuntimeSettings],
@@ -47,23 +55,6 @@ class TaskRegistry(PublicTaskStore, Protocol):
 type TaskRegistryFactory = Callable[[RuntimeSettings], Awaitable[TaskRegistry]]
 
 
-async def connect_temporal_client(config: TemporalRuntimeConfig) -> IngestionTemporalClient:
-    """Connect the Temporal client, importing it only now.
-
-    ``temporalio`` ships with the ``temporal`` extra, not with a bare or ``[local]`` install.
-    Direct-mode commands never call this, so they must not pay for the import either.
-    """
-
-    client_type = cast(
-        "type[IngestionTemporalClient]",
-        load_temporal_attribute(
-            "harborrag_runtime.temporal.client",
-            "IngestionTemporalClient",
-        ),
-    )
-    return await client_type.connect(config)
-
-
 def _retrieval_runtime(settings: RuntimeSettings) -> HarborRAG:
     return HarborRAG(HarborRAGConfig(runtime=settings))
 
@@ -72,9 +63,10 @@ def _retrieval_runtime(settings: RuntimeSettings) -> HarborRAG:
 class AppServiceFactories:
     """Collaborator factories, grouped so composition stays overridable in tests."""
 
-    client: ClientFactory = connect_temporal_client
+    client: ClientFactory = connect_ingestion_gateway
+    ingestion_description: GatewayDescriptionFactory = describe_ingestion_gateway
     retrieval_runtime: RetrievalRuntimeFactory = _retrieval_runtime
-    source_input_builder: SourceInputBuilder = build_source_input
+    source_input_builder: SourceInputBuilder = prepare_configured_source_submission
     task_registry: TaskRegistryFactory = IngestionTaskRegistry.connect
     projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
     event_bus: EventBusFactory = InProcessEventBus

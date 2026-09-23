@@ -81,6 +81,7 @@ async def graph_overview(
 
 @router.post(
     "/traverse",
+    deprecated=True,
     response_model=GraphTraverseResponse,
     responses=ERROR_RESPONSES,
 )

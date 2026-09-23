@@ -243,3 +243,41 @@ async def test_hung_subprocess_stops_heartbeating(
     assert proc.joined
     assert len(proc.join_timeouts) == 1
     assert proc.join_timeouts[0] == pytest.approx(0.02, abs=0.001)
+
+
+@pytest.mark.asyncio
+async def test_a_subprocess_that_survives_its_join_is_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung child must not outlive the activity that gave up on it.
+
+    ``join`` with a timeout returns whether or not the process ended, so the
+    hung path raised while a live interpreter stayed behind. The document stage
+    retries five times, so each hung parse piled another one onto the worker.
+    """
+
+    monkeypatch.setattr(module.activity, "heartbeat", lambda *_: None)
+    proc = _patch_subprocess(monkeypatch, [], alive=True)
+
+    with pytest.raises(module.SubprocessCrashError, match="hung"):
+        await module.run_in_isolated_subprocess(_hang_sync, heartbeat_interval=0.01)
+
+    assert proc.killed, "a subprocess still alive after the join must be killed"
+    assert not proc.is_alive()
+
+
+@pytest.mark.asyncio
+async def test_a_subprocess_that_exited_cleanly_is_not_killed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cleanup is conditional, so a normal return stays a normal return."""
+
+    monkeypatch.setattr(module.activity, "heartbeat", lambda *_: None)
+    proc = _patch_subprocess(
+        monkeypatch,
+        [("done", pickle.dumps("parsed"))],
+        alive=False,
+    )
+
+    assert await module.run_in_isolated_subprocess(_noop_sync, heartbeat_interval=0.01) == "parsed"
+    assert not proc.killed

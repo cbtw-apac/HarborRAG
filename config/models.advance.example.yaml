@@ -37,6 +37,7 @@ chat:
             structured_output: true
             json_mode: true
             tools: true
+            parallel_tools: true
         - name: azure-west
           provider: azure_openai
           model: azure/REPLACE_WITH_AZURE_DEPLOYMENT

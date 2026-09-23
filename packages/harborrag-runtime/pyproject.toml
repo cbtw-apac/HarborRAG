@@ -9,8 +9,8 @@ license-files = ["LICENSE"]
 dependencies = [
     "harborrag-core==2.0.0a1",
     "harborrag-engine==2.0.0a1",
-    "harborrag-memory==2.0.0a1",
     "harborrag-adapters==2.0.0a1",
+    "jsonschema>=4.26,<5",
     "PyYAML>=6.0.0",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
@@ -19,6 +19,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+reader = ["harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a1"]
+chat = ["harborrag-adapters[llm]==2.0.0a1"]
+agent = []
+memory = ["harborrag-memory==2.0.0a1"]
 temporal = [
     "temporalio>=1.30,<2",
     "cloudpickle>=3.1,<4",

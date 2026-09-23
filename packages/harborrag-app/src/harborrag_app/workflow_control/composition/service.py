@@ -1,4 +1,4 @@
-"""Application use cases backed by the HarborRAG Temporal runtime client."""
+"""Application use cases backed by provider-neutral runtime gateways."""
 
 from __future__ import annotations
 
@@ -11,24 +11,37 @@ from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 
 from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_NAME,
     EFFECT_RECOVERY_LEASE_TTL_SECONDS,
+    recover_pending_control_plane_effects,
 )
 from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
+from ..ingestion.durable import DurableIngestionOperations
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
-from ..ingestion.temporal import TemporalIngestionOperations
-from ..memory import ConversationSessionService, agent_run_checkpoints, conversation_memory
+from ..memory import (
+    ConversationDirectoryService,
+    ConversationSessionService,
+    MemoryAdminClientMixin,
+    MemoryAdministrationService,
+    MemoryExtractionQueue,
+    agent_run_checkpoints,
+    conversation_memory,
+    long_term_memories,
+    long_term_memory_index,
+    model_usage_records,
+    project_lookup,
+)
+from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
 from ..retrieval.client import RetrievalClientMixin
 from ..retrieval.graph import GraphRetrievalService
@@ -44,12 +57,13 @@ class AppService(
     ControlPlaneWritesMixin,
     AgentClientMixin,
     ChatClientMixin,
+    MemoryAdminClientMixin,
     PublicIngestionClientMixin,
     DirectIngestionClientMixin,
     RetrievalClientMixin,
     BaseAppService,
 ):
-    """Keep transport concerns outside the canonical Temporal ingestion path."""
+    """Keep transport concerns outside the canonical ingestion execution path."""
 
     def __init__(
         self,
@@ -63,13 +77,13 @@ class AppService(
         # Identifies this process as a lease holder (ingestion progress bridge);
         # stable for the process's lifetime, unique across concurrently running ones.
         self._instance_id = uuid.uuid4().hex
-        self._runtime_config = TemporalRuntimeConfig.from_settings(self._settings)
         selected = factories or AppServiceFactories()
+        self._runtime_config = selected.ingestion_description(self._settings)
         self._source_input_builder = selected.source_input_builder
         self._resources = AppResources(
             self._settings,
-            runtime_config=self._runtime_config,
             factories=selected,
+            composition=composition,
         )
         self._public_ingestions = IngestionApplicationService(
             self._settings,
@@ -78,19 +92,59 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         memory = conversation_memory(self._composition)
+        memories = long_term_memories(self._composition)
+        index = long_term_memory_index(self._composition)
+        runs = agent_run_checkpoints(self._composition)
+        projects = project_lookup(self._composition)
+        usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
+        locks = SessionLocks(memory)
+        # Extraction costs a model call, so it runs off the request path; the
+        # API lifespan starts and drains the pool (the CLI never starts it).
+        self._extraction: MemoryExtractionQueue | None = (
+            MemoryExtractionQueue(
+                runtime_provider=self._resources.runtime_sdk,
+                memories=memories,
+                index=index,
+            )
+            if self._settings.memory_extraction_enabled and memories is not None
+            else None
+        )
+        self._memory_admin = MemoryAdministrationService(
+            conversations=memory,
+            memories=memories,
+            index=index,
+            runs=runs,
+            pending_effects=getattr(
+                getattr(composition, "control_plane", None), "pending_effects", None
+            ),
+        )
+        self._conversation_directory = ConversationDirectoryService(memory, self._memory_admin)
         self._chat = ChatApplicationService(
             self._resources.runtime_sdk,
             self._settings,
             memory=memory,
+            locks=locks,
+            projects=projects,
+            memories=memories,
+            index=index,
+            extraction=self._extraction,
+            usage=usage,
         )
         self._agent = AgentApplicationService(
             self._resources.runtime_sdk,
             memory=memory,
-            runs=agent_run_checkpoints(self._composition),
+            locks=locks,
+            runs=runs,
+            projects=projects,
+            memories=memories,
+            index=index,
+            extraction=self._extraction,
+            memory_tools=self._settings.memory_agent_tools,
+            usage=usage,
         )
         self._graph = GraphRetrievalService(self._resources.runtime_sdk)
-        self._temporal = TemporalIngestionOperations(
+        self._durable = DurableIngestionOperations(
             self._settings,
             runtime_client=self._resources.runtime_client,
             task_registry=self._resources.task_registry,
@@ -117,7 +171,7 @@ class AppService(
     def ingest_once(self) -> AppResponse:
         return AppResponse(
             False,
-            error="use 'harborrag ingest start' to submit the Temporal ingestion workflow",
+            error="use 'harborrag ingest start' to submit an ingestion workflow",
         )
 
     async def runtime_health(self) -> AppResponse:
@@ -129,16 +183,15 @@ class AppService(
                 ready,
                 {
                     "runtime": {
-                        "provider": "temporal",
+                        "provider": self._runtime_config.provider,
                         "ready": ready,
-                        "target": self._runtime_config.connection.target,
-                        "namespace": self._runtime_config.connection.namespace,
+                        **self._runtime_config.details,
                     }
                 },
-                None if ready else "Temporal workflow service is not ready",
+                None if ready else "Ingestion workflow service is not ready",
             )
         except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
-            return failure_response(logger, exc, "check Temporal runtime health")
+            return failure_response(logger, exc, "check ingestion runtime health")
 
     async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
         """Drain one pass of the durable secret-retirement/audit-logging outbox.
@@ -156,8 +209,8 @@ class AppService(
         )
         if not acquired:
             return 0
-        return await ControlPlaneWritesMixin.recover_pending_control_plane_effects(
-            self, limit=limit
+        return await recover_pending_control_plane_effects(
+            self._control_plane(), limit=limit, erasure_handler=self._memory_admin.recover_erasure
         )
 
     async def sync_ingestion_progress(self) -> int:
@@ -254,7 +307,7 @@ class AppService(
         document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
-        return await self._temporal.start_ingestion(
+        return await self._durable.start_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,
             run_id=run_id,
@@ -274,13 +327,13 @@ class AppService(
         )
 
     async def ingestion_status(self, run_id: str) -> AppResponse:
-        return await self._temporal.ingestion_status(run_id)
+        return await self._durable.ingestion_status(run_id)
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
-        return await self._temporal.ingestion_result(run_id)
+        return await self._durable.ingestion_result(run_id)
 
     async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
-        return await self._temporal.control_ingestion(run_id, action)
+        return await self._durable.control_ingestion(run_id, action)
 
     async def projection_inventory(self, tenant: str) -> dict[str, object]:
         return (await self._resources.projection_administration().inspect(tenant)).as_dict()
@@ -301,6 +354,9 @@ class AppService(
 
     async def aclose(self) -> None:
         try:
-            await self._resources.aclose()
+            await self.drain_memory_extraction()
         finally:
-            await self._composition.aclose()
+            try:
+                await self._resources.aclose()
+            finally:
+                await self._composition.aclose()

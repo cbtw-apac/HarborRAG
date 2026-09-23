@@ -64,3 +64,17 @@ def permissions_import(path: File) -> None:
     except ValueError:
         raise typer.BadParameter("invalid resolved permission snapshot JSON") from None
     _emit(import_permissions(RuntimeSettings(), snapshot))
+
+
+@app.command("permissions-status")
+def permissions_status(
+    tenant: Annotated[str, typer.Option("--tenant")] = "DEFAULT",
+) -> None:
+    """Report current ACL coverage counts for active sources and documents."""
+
+    from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_runtime.topology.security_operations import permission_coverage
+
+    from .topology import _emit
+
+    _emit(permission_coverage(RuntimeSettings(), tenant))

@@ -130,11 +130,15 @@ The same asymmetry rules out storing `embedding_text` *as* `content`: `content` 
 what gets cited and shown to the model, while `embedding_text` is a retrieval-only
 representation carrying duplicated context headers.
 
-There is no intra-tenant permission model. Everyone in a tenant sees everything,
-which is why `security.permission_set_id` and `visibility` are carried on
-`ChunkRecord` and persisted to the object store but deliberately not projected
-into either store. `AuthoritativeProjectionSearch` validates version activeness,
-not access.
+Intra-tenant serving now requires current, readable source and document
+permission snapshots. `security.permission_set_id` and `visibility` remain on
+`ChunkRecord` in the object store rather than being projected as a grant into
+Qdrant or FalkorDB. Retrieval gets an authorized document allowlist from the
+canonical permission repository before vector ranking and checks it again
+before returning candidates. `AuthoritativeProjectionSearch` handles version
+activeness; the surrounding retrieval service applies access control. Missing
+or expired snapshots deny access, and connectors do not yet synchronize them
+automatically.
 
 For an existing development deployment:
 

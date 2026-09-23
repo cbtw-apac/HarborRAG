@@ -20,10 +20,12 @@ async def test_readonly_runtime_skips_all_provisioning(monkeypatch):
     store = SimpleNamespace(connect=AsyncMock(), close=AsyncMock(), ensure_buckets=AsyncMock())
     graph = SimpleNamespace(connect=AsyncMock(), close=AsyncMock())
     migrate = Mock(side_effect=AssertionError("read-only audit attempted schema migration"))
-    monkeypatch.setattr(composition, "run_migrations", migrate)
+    monkeypatch.setattr(
+        "harborrag_adapters.repositories.database.control_plane.migrations.run_migrations", migrate
+    )
     monkeypatch.setattr(composition, "build_ingestion_control", lambda settings: control)
     monkeypatch.setattr(composition, "build_object_store", lambda settings: store)
-    monkeypatch.setattr(composition, "FalkorTopologyRepository", lambda config: graph)
+    monkeypatch.setattr(composition, "build_topology_repository", lambda settings: graph)
     async with composition.connect_topology_runtime(
         RuntimeSettings(), provision_graph=False
     ) as runtime:

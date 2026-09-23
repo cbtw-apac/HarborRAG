@@ -5,6 +5,7 @@ from threading import Event, Thread
 
 import pytest
 
+from harborrag_engine.tools.base import BaseTool, ToolSpec
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import (
     ConfigurationRevisionError,
@@ -12,12 +13,11 @@ from harborrag_mcp_server.configuration import (
     McpConfigurationStore,
 )
 from harborrag_mcp_server.server.server import McpServer
-from harborrag_mcp_server.tools.base import BaseMcpTool, McpToolSpec
 
 
 @dataclass(slots=True)
-class ConfigurableTool(BaseMcpTool):
-    spec = McpToolSpec(
+class ConfigurableTool(BaseTool):
+    spec = ToolSpec(
         "search",
         "Configurable search.",
         {

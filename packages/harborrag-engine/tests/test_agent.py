@@ -6,6 +6,7 @@ import pytest
 from agent_test_helpers import (
     Chat,
     Memory,
+    Spec,
     Tools,
     many_tool_calls_response,
 )
@@ -26,6 +27,7 @@ from harborrag_engine.agent.tool_execution import (
     MAX_TOOL_CALLS_PER_TURN,
     MAX_TOOL_RESULT_CHARS,
     bounded_tool_result_content,
+    tool_definition,
 )
 
 
@@ -66,6 +68,7 @@ async def test_agent_runs_multiple_tool_hops_and_enforces_identity() -> None:
 @pytest.mark.asyncio
 async def test_agent_graph_switch_filters_graph_capabilities() -> None:
     tools = Tools()
+    tools.specs.extend([Spec("resolve_graph_nodes"), Spec("composed_evidence_search")])
     chat = Chat([_response(text="answer")])
 
     await AgentService(chat, tools).run(
@@ -80,6 +83,47 @@ async def test_agent_graph_switch_filters_graph_capabilities() -> None:
     definitions = chat.requests[0].tools
     assert [tool.function.name for tool in definitions] == ["vector_search"]
     assert "observe_graph" not in definitions[0].function.parameters["properties"]
+    assert chat.requests[0].reasoning_effort == "none"
+
+
+def test_agent_tool_schema_drops_provider_rejected_top_level_combinators() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"selector": {"type": "string", "enum": ["a", "b"]}},
+        "allOf": [{"not": {"required": ["selector"]}}],
+        "anyOf": [{"required": ["selector"]}],
+        "oneOf": [{"required": ["selector"]}],
+        "not": {"required": ["forbidden"]},
+    }
+
+    parameters = tool_definition(Spec("reader", input_schema=schema), True).function.parameters
+
+    assert parameters["type"] == "object"
+    assert not {"oneOf", "anyOf", "allOf", "enum", "const", "not"} & parameters.keys()
+    assert parameters["properties"]["selector"]["enum"] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_agent_without_graph_forces_flat_retrieval_and_blocks_composed_search() -> None:
+    tools = Tools()
+    tools.specs.extend([Spec("resolve_graph_nodes"), Spec("composed_evidence_search")])
+    chat = Chat(
+        [
+            _response(
+                call=("call-1", "vector_search", '{"mode":"local_semantic","observe_graph":true}')
+            ),
+            _response(call=("call-2", "composed_evidence_search", "{}")),
+            _response(text="answer"),
+        ]
+    )
+    result = await AgentService(chat, tools).run(
+        [HarborChatMessage.user("question")],
+        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+    )
+    assert len(tools.calls) == 1
+    assert tools.calls[0][1]["mode"] == "flat"
+    assert tools.calls[0][1]["observe_graph"] is False
+    assert result.executions[1].ok is False
 
 
 @pytest.mark.asyncio
@@ -106,6 +150,7 @@ async def test_agent_forces_final_synthesis_when_step_budget_is_used() -> None:
     assert result.turns == 2
     assert result.stop_reason is AgentStopReason.MAX_STEPS
     assert chat.requests[1].tools == ()
+    assert chat.requests[1].reasoning_effort is None
     assert "budget is exhausted" in chat.requests[1].messages[-1].content
 
 
@@ -163,7 +208,7 @@ async def test_agent_recalls_only_two_latest_turns_and_sets_user_metadata() -> N
         "third answer",
         "fourth question",
     ]
-    assert fourth.metadata.user_id is None
+    assert fourth.metadata.user_id == "principal-1"
     assert fourth.metadata.conversation_id == "session-1"
 
 
@@ -248,14 +293,19 @@ async def test_agent_truncates_oversized_tool_results() -> None:
     tools = _HugeResultTools()
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search", "{}")),
+            _response(call=("call-1", "graph_path_search", "{}")),
             _response(text="answer"),
         ]
     )
 
     await AgentService(chat, tools).run(
         [HarborChatMessage.user("question")],
-        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+        AgentRunOptions(
+            tenant_id="ACME",
+            principal_id="reader-1",
+            session_id="session-1",
+            graph_search=True,
+        ),
     )
 
     tool_message = next(m for m in chat.requests[1].messages if m.role.value == "tool")
@@ -274,14 +324,19 @@ async def test_agent_bounds_circular_tool_results() -> None:
 
     chat = Chat(
         [
-            _response(call=("call-1", "vector_search", "{}")),
+            _response(call=("call-1", "graph_path_search", "{}")),
             _response(text="answer"),
         ]
     )
 
     await AgentService(chat, _CircularResultTools()).run(
         [HarborChatMessage.user("question")],
-        AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
+        AgentRunOptions(
+            tenant_id="ACME",
+            principal_id="reader-1",
+            session_id="session-1",
+            graph_search=True,
+        ),
     )
 
     tool_message = next(message for message in chat.requests[1].messages if message.role == "tool")

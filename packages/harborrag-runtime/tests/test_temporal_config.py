@@ -279,3 +279,40 @@ def test_temporal_ingestion_section_rejects_out_of_range_values(
 
     with pytest.raises(TemporalConfigurationError, match="out of range"):
         load_temporal_config(config_path)
+
+
+def test_direct_ingestion_defaults_do_not_require_a_valid_deployment() -> None:
+    """Inline ingestion must not be failed by Temporal configuration it never uses.
+
+    Batch size and document concurrency are shared with the Temporal path, but
+    resolving them used to build the whole deployment config -- so a stray
+    ``HARBORRAG_TEMPORAL_TARGET`` without TLS, or a worker capacity exceeding
+    the control database pool, raised out of an ingestion that never connects.
+    """
+
+    settings = RuntimeSettings(
+        temporal_max_concurrent_activities=64,
+        control_db_pool_size=1,
+        control_db_max_overflow=0,
+    )
+
+    with pytest.raises(RuntimeConfigurationError, match="exceeds the control database"):
+        TemporalRuntimeConfig.from_settings(settings)
+
+    ingestion = TemporalRuntimeConfig.ingestion_from_settings(settings)
+
+    assert ingestion.batch_size >= 1
+    assert ingestion.document_concurrency >= 1
+
+
+def test_explicit_ingestion_overrides_still_apply_on_the_direct_path() -> None:
+    settings = RuntimeSettings(
+        temporal_ingestion_batch_size=17,
+        temporal_ingestion_document_concurrency=3,
+    )
+
+    ingestion = TemporalRuntimeConfig.ingestion_from_settings(settings)
+
+    assert ingestion.batch_size == 17
+    assert ingestion.document_concurrency == 3
+    assert TemporalRuntimeConfig.from_settings(settings).ingestion == ingestion

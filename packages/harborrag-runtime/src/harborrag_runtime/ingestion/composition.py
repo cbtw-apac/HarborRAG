@@ -14,10 +14,9 @@ from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BUCKET
-from harborrag_adapters.repositories.object_store.s3 import S3ObjectStore
-from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 from harborrag_runtime.config import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -53,8 +52,8 @@ class IngestionRuntime:
     cleanup: ProjectionCleanupService
     reindex: DocumentReindexService
     source_plans: SourcePlanRepository
-    object_store: S3ObjectStore
-    vector_repository: HarborVectorRepository
+    object_store: ObjectStorePort
+    vector_repository: VectorRepositoryPort
     graph_repository: KnowledgeGraphRepositoryPort
     embed_client: HarborEmbedClient
     connector_rate_limiter: ConnectorRateLimiter

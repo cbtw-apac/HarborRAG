@@ -1852,7 +1852,7 @@ dependencies = [
 all = [
     { name = "harborrag-adapters", extra = ["parsers-all"] },
     { name = "harborrag-app", extra = ["api"] },
-    { name = "harborrag-mcp-server", extra = ["mcp"] },
+    { name = "harborrag-mcp-server" },
     { name = "harborrag-memory" },
     { name = "harborrag-runtime", extra = ["production", "temporal"] },
 ]
@@ -1869,7 +1869,7 @@ local = [
     { name = "harborrag-adapters", extra = ["chunking", "control-plane", "falkordb", "llm", "parsers", "pdf-docling", "qdrant", "s3", "tables"] },
 ]
 mcp = [
-    { name = "harborrag-mcp-server", extra = ["mcp"] },
+    { name = "harborrag-mcp-server", extra = ["reader"] },
 ]
 memory = [
     { name = "harborrag-memory" },
@@ -1888,7 +1888,7 @@ s3 = [
 ]
 server = [
     { name = "harborrag-app", extra = ["api"] },
-    { name = "harborrag-runtime", extra = ["production", "temporal"] },
+    { name = "harborrag-runtime", extra = ["reader"] },
 ]
 temporal = [
     { name = "harborrag-runtime", extra = ["temporal"] },
@@ -1910,12 +1910,12 @@ requires-dist = [
     { name = "harborrag-app", extras = ["api"], marker = "extra == 'server'", editable = "packages/harborrag-app" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-mcp-server", extras = ["mcp"], marker = "extra == 'all'", editable = "packages/harborrag-mcp-server" },
-    { name = "harborrag-mcp-server", extras = ["mcp"], marker = "extra == 'mcp'", editable = "packages/harborrag-mcp-server" },
+    { name = "harborrag-mcp-server", extras = ["reader"], marker = "extra == 'mcp'", editable = "packages/harborrag-mcp-server" },
     { name = "harborrag-memory", marker = "extra == 'all'", editable = "packages/harborrag-memory" },
     { name = "harborrag-memory", marker = "extra == 'memory'", editable = "packages/harborrag-memory" },
     { name = "harborrag-runtime", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["production", "temporal"], marker = "extra == 'all'", editable = "packages/harborrag-runtime" },
-    { name = "harborrag-runtime", extras = ["production", "temporal"], marker = "extra == 'server'", editable = "packages/harborrag-runtime" },
+    { name = "harborrag-runtime", extras = ["reader"], marker = "extra == 'server'", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["temporal"], marker = "extra == 'temporal'", editable = "packages/harborrag-runtime" },
 ]
 provides-extras = ["local", "chat", "cli", "memory", "server", "temporal", "mcp", "qdrant", "falkordb", "postgres", "s3", "redis", "all"]
@@ -1973,6 +1973,9 @@ image-rapidocr = [
 image-tesseract = [
     { name = "pillow" },
     { name = "pytesseract" },
+]
+langchain = [
+    { name = "langchain-core" },
 ]
 langfuse = [
     { name = "langfuse" },
@@ -2105,6 +2108,7 @@ requires-dist = [
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.0,<2" },
     { name = "greenlet", marker = "extra == 'control-plane'", specifier = ">=3" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=1.5,<2" },
     { name = "langchain-text-splitters", marker = "extra == 'chunking'", specifier = ">=1.1,<2" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=4,<5" },
     { name = "litellm", marker = "extra == 'llm'", specifier = ">=1.90.0,<1.92.0" },
@@ -2180,7 +2184,7 @@ requires-dist = [
     { name = "xlrd", marker = "extra == 'parsers-all'", specifier = ">=2.0.1" },
     { name = "xlrd", marker = "extra == 'spreadsheet'", specifier = ">=2.0.1" },
 ]
-provides-extras = ["chunking", "control-plane", "redis", "s3", "qdrant", "falkordb", "postgres", "tables", "parsers", "pdf", "pdf-docling", "pdf-pymupdf", "pdf-liteparse", "pdf-mineru", "pdf-ocr", "document", "spreadsheet", "presentation", "markup", "image", "image-tesseract", "image-rapidocr", "parsers-all", "llm", "langfuse", "opentelemetry", "test", "dev"]
+provides-extras = ["chunking", "langchain", "control-plane", "redis", "s3", "qdrant", "falkordb", "postgres", "tables", "parsers", "pdf", "pdf-docling", "pdf-pymupdf", "pdf-liteparse", "pdf-mineru", "pdf-ocr", "document", "spreadsheet", "presentation", "markup", "image", "image-tesseract", "image-rapidocr", "parsers-all", "llm", "langfuse", "opentelemetry", "test", "dev"]
 
 [[package]]
 name = "harborrag-app"
@@ -2188,6 +2192,8 @@ version = "2.0.0a1"
 source = { editable = "packages/harborrag-app" }
 dependencies = [
     { name = "harborrag-core" },
+    { name = "harborrag-engine" },
+    { name = "harborrag-memory" },
     { name = "harborrag-runtime" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -2199,7 +2205,6 @@ dependencies = [
 [package.optional-dependencies]
 api = [
     { name = "fastapi" },
-    { name = "harborrag-runtime", extra = ["temporal"] },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -2207,6 +2212,9 @@ api = [
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
+]
+durable = [
+    { name = "harborrag-runtime", extra = ["temporal"] },
 ]
 production = [
     { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
@@ -2218,8 +2226,10 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
     { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "harborrag-engine", editable = "packages/harborrag-engine" },
+    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
     { name = "harborrag-runtime", editable = "packages/harborrag-runtime" },
-    { name = "harborrag-runtime", extras = ["temporal"], marker = "extra == 'api'", editable = "packages/harborrag-runtime" },
+    { name = "harborrag-runtime", extras = ["temporal"], marker = "extra == 'durable'", editable = "packages/harborrag-runtime" },
     { name = "harborrag-runtime", extras = ["temporal"], marker = "extra == 'production'", editable = "packages/harborrag-runtime" },
     { name = "prometheus-client", marker = "extra == 'api'", specifier = ">=0.19,<1" },
     { name = "pydantic", specifier = ">=2.13,<3" },
@@ -2234,7 +2244,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.30" },
     { name = "websockets", marker = "extra == 'api'", specifier = ">=12" },
 ]
-provides-extras = ["api", "production"]
+provides-extras = ["api", "durable", "production"]
 
 [[package]]
 name = "harborrag-core"
@@ -2253,13 +2263,13 @@ version = "2.0.0a1"
 source = { editable = "packages/harborrag-engine" }
 dependencies = [
     { name = "harborrag-core" },
-    { name = "harborrag-memory" },
+    { name = "jsonschema" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "harborrag-core", editable = "packages/harborrag-core" },
-    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
+    { name = "jsonschema", specifier = ">=4.26,<5" },
 ]
 
 [[package]]
@@ -2267,28 +2277,34 @@ name = "harborrag-mcp-server"
 version = "2.0.0a1"
 source = { editable = "packages/harborrag-mcp-server" }
 dependencies = [
+    { name = "fastmcp" },
     { name = "harborrag-core" },
+    { name = "harborrag-engine" },
     { name = "harborrag-runtime" },
     { name = "jsonschema" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
-mcp = [
-    { name = "fastmcp" },
+reader = [
+    { name = "harborrag-runtime", extra = ["reader"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=3.4,<4" },
+    { name = "fastmcp", specifier = ">=3.4,<4" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "harborrag-runtime", editable = "packages/harborrag-runtime" },
+    { name = "harborrag-runtime", extras = ["reader"], marker = "extra == 'reader'", editable = "packages/harborrag-runtime" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "pydantic", specifier = ">=2.12,<3" },
+    { name = "python-dotenv", specifier = ">=1,<2" },
     { name = "pyyaml", specifier = ">=6.0.2,<7" },
 ]
-provides-extras = ["mcp"]
+provides-extras = ["mcp", "reader"]
 
 [[package]]
 name = "harborrag-memory"
@@ -2296,10 +2312,16 @@ version = "2.0.0a1"
 source = { editable = "packages/harborrag-memory" }
 dependencies = [
     { name = "harborrag-core" },
+    { name = "langchain-core" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "harborrag-core", editable = "packages/harborrag-core" }]
+requires-dist = [
+    { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "langchain-core", specifier = ">=1.5,<2" },
+    { name = "pydantic", specifier = ">=2.13,<3" },
+]
 
 [[package]]
 name = "harborrag-runtime"
@@ -2309,7 +2331,7 @@ dependencies = [
     { name = "harborrag-adapters" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
-    { name = "harborrag-memory" },
+    { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "prometheus-client" },
     { name = "pydantic" },
@@ -2318,11 +2340,20 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+chat = [
+    { name = "harborrag-adapters", extra = ["llm"] },
+]
 dev = [
     { name = "types-pyyaml" },
 ]
+memory = [
+    { name = "harborrag-memory" },
+]
 production = [
     { name = "harborrag-adapters", extra = ["chunking", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-docling", "postgres", "qdrant", "redis", "s3", "tables"] },
+]
+reader = [
+    { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
 ]
 temporal = [
     { name = "cloudpickle" },
@@ -2334,9 +2365,12 @@ requires-dist = [
     { name = "cloudpickle", marker = "extra == 'temporal'", specifier = ">=3.1,<4" },
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["chunking", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-docling", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'reader'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
-    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
+    { name = "harborrag-memory", marker = "extra == 'memory'", editable = "packages/harborrag-memory" },
+    { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "opentelemetry-api", specifier = ">=1.43,<2" },
     { name = "prometheus-client", specifier = ">=0.19,<1" },
     { name = "pydantic", specifier = ">=2.13,<3" },
@@ -2345,7 +2379,7 @@ requires-dist = [
     { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.30,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["temporal", "production", "dev"]
+provides-extras = ["reader", "chat", "agent", "memory", "temporal", "production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"
@@ -2363,6 +2397,7 @@ dev = [
     { name = "httpx" },
     { name = "httpx2" },
     { name = "import-linter" },
+    { name = "langchain-core" },
     { name = "litellm" },
     { name = "mypy" },
     { name = "openpyxl" },
@@ -2417,6 +2452,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.10.0,<3" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.13,<3" },
+    { name = "langchain-core", marker = "extra == 'dev'", specifier = ">=1.5,<2" },
     { name = "litellm", marker = "extra == 'dev'", specifier = ">=1.90.0,<1.92.0" },
     { name = "markdown", marker = "extra == 'docs'", specifier = ">=3.5.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },

@@ -6,11 +6,11 @@ from dataclasses import dataclass
 
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.contracts.errors import HarborCapabilityError
+from harborrag_core.contracts.reader import EvidenceReadItem, EvidenceReadRequest
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.ingestion import DocumentIdentityBuilder
 from harborrag_core.storage import StorageOperationContext
 
-from ..contracts import EvidenceReadItem, EvidenceReadRequest
 from .reader_resources import ReaderResources
 
 _CONTENT_BUDGET_BYTES = 60 * 1024

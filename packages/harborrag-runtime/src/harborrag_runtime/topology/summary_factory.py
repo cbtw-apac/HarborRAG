@@ -9,6 +9,7 @@ from harborrag_adapters.repositories.object_store import (
     ImmutableArtifactWriter,
 )
 from harborrag_adapters.topology import default_extraction_profile
+from harborrag_core.security import AccessContext
 from harborrag_core.summaries import SummaryLease, SummaryPolicy
 from harborrag_core.topology.budget import IndexingBudgetLimits
 from harborrag_core.topology.config import TenantIndexingConfig
@@ -28,12 +29,27 @@ class SummaryRuntimeFactory:
     reader: ImmutableArtifactReader
     writer: ImmutableArtifactWriter
 
-    def policy(self) -> SummaryPolicy:
-        return build_summary_policy(self.settings)
+    def policy(self, tenant_id: str | None = None) -> SummaryPolicy:
+        policy = build_summary_policy(self.settings)
+        if (
+            self.settings.summary_processing_allowed
+            and tenant_id == self.settings.ingestion_tenant_id
+        ):
+            return policy.model_copy(
+                update={"processing_policy_revision": self.settings.summary_processing_revision}
+            )
+        return policy
 
     async def initialize(self, tenant_id: str) -> None:
         """Apply the configured tenant gate and shared durable budget once at startup."""
         config = GraphBuildConfig.from_settings(self.settings)
+        if (
+            self.settings.summary_processing_allowed
+            and tenant_id == self.settings.ingestion_tenant_id
+        ):
+            self.control.summaries.allow_shared_processing(
+                tenant_id, self.settings.summary_processing_revision
+            )
         tenant = next((value for value in config.tenants if value.tenant_id == tenant_id), None)
         if tenant is None:
             return
@@ -54,12 +70,23 @@ class SummaryRuntimeFactory:
         if tenant:
             scopes.update(value.source_scope_id for value in tenant.sources)
         enabled = self.settings.topology_parent_enabled and not (tenant and tenant.prohibited)
-        policy = self.policy() if enabled else None
-        allowed = (
-            {value.source_scope_id for value in tenant.sources if value.enabled}
-            if tenant
-            else scopes
-        )
+        policy = self.policy(tenant_id) if enabled else None
+        if (
+            self.settings.summary_processing_allowed
+            and tenant_id == self.settings.ingestion_tenant_id
+        ):
+            allowed = set(
+                await self.control.topology.allowed_source_scope_ids(
+                    tenant_id,
+                    access=AccessContext.system(tenant_id).model_copy(
+                        update={"corpus_mode": "tenant_shared"}
+                    ),
+                )
+            )
+        elif tenant:
+            allowed = {value.source_scope_id for value in tenant.sources if value.enabled}
+        else:
+            allowed = scopes
         for scope in sorted(scopes):
             await self.control.summaries.configure(
                 tenant_id, scope, policy if scope in allowed else None
@@ -70,7 +97,7 @@ class SummaryRuntimeFactory:
 
     def generator(self, lease: SummaryLease) -> ConfiguredDescriptionGenerator:
         catalog = HarborChatClientConfig.from_file(self.settings.model_config_path)
-        if build_summary_policy(self.settings, catalog).fingerprint != lease.policy.fingerprint:
+        if self.policy(lease.tenant_id).fingerprint != lease.policy.fingerprint:
             raise ValueError("summary model configuration changed; synchronize policy before retry")
         profile = default_extraction_profile(catalog, self.settings.topology_parent_model)
         # Explicit model chooses the rollup pin, independently of extraction prompt revisions.

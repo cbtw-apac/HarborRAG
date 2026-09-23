@@ -14,6 +14,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    # ``harborrag-app`` is listed although the facade never imports it: it owns the
+    # ``harborrag`` console script, so it is what makes ``pip install harborrag``
+    # yield a usable command. ``harborrag-mcp-server`` does not belong here -- it
+    # carries fastmcp and jsonschema, which no base install should pull in, and the
+    # ``mcp`` extra already reaches it.
     "harborrag-app==2.0.0a1",
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
@@ -33,10 +38,10 @@ cli = ["harborrag-app==2.0.0a1"]
 memory = ["harborrag-memory==2.0.0a1"]
 server = [
     "harborrag-app[api]==2.0.0a1",
-    "harborrag-runtime[production,temporal]==2.0.0a1",
+    "harborrag-runtime[reader]==2.0.0a1",
 ]
 temporal = ["harborrag-runtime[temporal]==2.0.0a1"]
-mcp = ["harborrag-mcp-server[mcp]==2.0.0a1"]
+mcp = ["harborrag-mcp-server[reader]==2.0.0a1"]
 qdrant = ["harborrag-adapters[qdrant]==2.0.0a1"]
 falkordb = ["harborrag-adapters[falkordb]==2.0.0a1"]
 postgres = ["harborrag-adapters[control-plane,postgres]==2.0.0a1"]

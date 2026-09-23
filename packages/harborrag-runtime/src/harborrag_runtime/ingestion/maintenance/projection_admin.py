@@ -6,9 +6,9 @@ import asyncio
 from collections.abc import Awaitable
 from dataclasses import asdict, dataclass
 
-from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_runtime.composition.resources import (
     build_knowledge_graph,
@@ -57,7 +57,7 @@ class ProjectionAdministrationService:
         self,
         settings: RuntimeSettings,
         *,
-        vectors: HarborVectorRepository | None = None,
+        vectors: VectorRepositoryPort | None = None,
         graph: KnowledgeGraphRepositoryPort | None = None,
     ) -> None:
         self._settings = settings

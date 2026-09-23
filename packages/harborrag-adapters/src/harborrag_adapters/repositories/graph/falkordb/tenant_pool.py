@@ -131,14 +131,23 @@ class TenantGraphClientPool:
 
     async def close(self) -> None:
         async with self._lock:
-            if self._closed:
-                return
+            # Closing prevents new work immediately, but failed clients remain
+            # owned so a subsequent close can finish releasing their resources.
             self._closed = True
             clients = [self._legacy] if self._legacy is not None else list(self._clients.values())
-            self._clients.clear()
             results = await asyncio.gather(
                 *(client.close() for client in clients), return_exceptions=True
             )
+            failed_ids = {
+                id(client)
+                for client, result in zip(clients, results, strict=True)
+                if isinstance(result, BaseException)
+            }
+            self._clients = {
+                key: client for key, client in self._clients.items() if id(client) in failed_ids
+            }
+            if self._legacy is not None and id(self._legacy) not in failed_ids:
+                self._legacy = None
             for result in results:
                 if isinstance(result, BaseException):
                     raise result

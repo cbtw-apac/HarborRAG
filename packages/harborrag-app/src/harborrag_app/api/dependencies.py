@@ -9,11 +9,27 @@ state after the TestClient has already started.
 
 from __future__ import annotations
 
-from typing import cast
+from dataclasses import dataclass
+from typing import Annotated, cast
 
-from fastapi import Request
+from fastapi import Depends, Request, Response
 
+from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control import BaseAppService
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseContext:
+    settings: ApiSettings
+    response: Response
+
+
+def response_context(request: Request, response: Response) -> ResponseContext:
+    """Server settings and response headers for one HTTP operation."""
+    return ResponseContext(request.app.state.settings, response)
+
+
+ResponseContextDependency = Annotated[ResponseContext, Depends(response_context)]
 
 
 def get_app_service(request: Request) -> BaseAppService:

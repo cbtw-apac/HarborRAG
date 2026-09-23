@@ -27,6 +27,7 @@ from harborrag_core.contracts.errors import (
     HarborConnectionError,
     HarborDeadlineExceeded,
     HarborError,
+    HarborNoIndexedContentError,
     HarborNotFoundError,
     HarborRateLimitError,
     HarborSecretDecryptionError,
@@ -39,9 +40,20 @@ from .schemas import ErrorResponse
 
 logger = logging.getLogger("harborrag.app.api.errors")
 
+_OPAQUE_ERRORS = (HarborConfigurationError,)
+"""Errors whose text is infrastructure, not a message for the caller.
+
+They are raised below the service layer that allowlists what it returns, so
+nothing has vetted their wording: a configuration failure names the DSN or the
+settings key it could not read.
+"""
+
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     HarborValidationError: 422,
     HarborNotFoundError: 404,
+    # 409, not 404: the tenant and project exist, their index just has no
+    # content yet. A 404 would say the thing they named is missing.
+    HarborNoIndexedContentError: 409,
     HarborConflictError: 409,
     HarborCapabilityError: 501,
     HarborSecurityError: 403,
@@ -122,14 +134,32 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(HarborError)
     async def _harbor_error(request: Request, exc: HarborError) -> JSONResponse:
-        """Envelope any HarborError with its mapped HTTP status."""
-        details = getattr(exc, "details", {})
+        """Envelope any HarborError with its mapped HTTP status.
+
+        A 4xx message is the caller's to act on. Most 5xx messages reaching
+        here are written for the caller too -- "Retrieval service is
+        unavailable" is chosen by the service layer, which allowlists what it
+        returns -- so they are forwarded as well.
+
+        The exception is an error that never passed through that layer and
+        whose text is infrastructure: a configuration failure can name a DSN or
+        a settings key. Those fall through to 500 by default, carry no
+        envelope, and are replaced here. Their detail goes to the log, which is
+        what the handler's own promise to leak nothing requires.
+        """
+
+        status = _status_for(exc)
+        internal = isinstance(exc, _OPAQUE_ERRORS)
+        if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            logger.exception("%s returned as %s", type(exc).__name__, status)
+        details = {} if internal else getattr(exc, "details", {})
+        message = "the server could not complete the request" if internal else str(exc)
         headers = None
         if isinstance(exc, HarborRateLimitError):
             headers = {"Retry-After": str(exc.details["retry_after_seconds"])}
         return JSONResponse(
-            status_code=_status_for(exc),
-            content=error_envelope(request, _code_for(exc), str(exc), details),
+            status_code=status,
+            content=error_envelope(request, _code_for(exc), message, details),
             headers=headers,
         )
 

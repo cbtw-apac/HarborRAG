@@ -1,5 +1,7 @@
 """Summary projection: reads operations."""
 
+from typing import Literal
+
 from sqlalchemy import select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +26,28 @@ from .topology.transactions import topology_transaction
 
 
 class SummaryReadOperations(SummaryAuthority):
+    def _binding_readable(
+        self,
+        binding: SummaryBinding,
+        policy: object,
+        acl: dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot],
+        access: AccessContext,
+        tenant_id: str,
+    ) -> bool:
+        deps = binding.manifest.permission_dependencies
+        if deps:
+            return all(
+                (value := acl.get((dep.resource_kind, dep.resource_id))) is not None
+                and value.revision == dep.revision
+                and value.can_read(access, now=utc_now())
+                for dep in deps
+            )
+        return (
+            access.corpus_mode == "tenant_shared"
+            and self._shared_processing.get(tenant_id)
+            == SummaryPolicy.model_validate(policy).processing_policy_revision
+        )
+
     async def retained_nodes(
         self, tenant_id: str, source_scope_id: str
     ) -> tuple[GraphNodeRecord, ...]:
@@ -108,13 +132,7 @@ class SummaryReadOperations(SummaryAuthority):
                 if row["policy"] is None:
                     continue
                 binding = SummaryBinding.model_validate(row["binding"])
-                deps = binding.manifest.permission_dependencies
-                if not deps or any(
-                    (value := acl.get((dep.resource_kind, dep.resource_id))) is None
-                    or value.revision != dep.revision
-                    or not value.can_read(access, now=utc_now())
-                    for dep in deps
-                ):
+                if not self._binding_readable(binding, row["policy"], acl, access, tenant_id):
                     continue
                 scope = row["source_scope_id"]
                 if scope not in snapshots:
@@ -165,28 +183,38 @@ class SummaryReadOperations(SummaryAuthority):
             snapshot = await self._snapshot(session, tenant_id, "@tenant")
         except HarborConflictError:
             return
-        required = [
-            (value.resource_kind, value.resource_id) for value in snapshot.permission_dependencies
-        ]
-        permissions = (
-            (
-                await session.execute(
-                    select(PERMISSION_SNAPSHOTS.c.snapshot).where(
-                        PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id,
-                        tuple_(
-                            PERMISSION_SNAPSHOTS.c.resource_kind, PERMISSION_SNAPSHOTS.c.resource_id
-                        ).in_(required),
+        shared = (
+            not snapshot.permission_dependencies
+            and access.corpus_mode == "tenant_shared"
+            and tenant_id in self._shared_processing
+        )
+        if not snapshot.permission_dependencies and not shared:
+            return
+        if not shared:
+            required = [
+                (value.resource_kind, value.resource_id)
+                for value in snapshot.permission_dependencies
+            ]
+            permissions = (
+                (
+                    await session.execute(
+                        select(PERMISSION_SNAPSHOTS.c.snapshot).where(
+                            PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id,
+                            tuple_(
+                                PERMISSION_SNAPSHOTS.c.resource_kind,
+                                PERMISSION_SNAPSHOTS.c.resource_id,
+                            ).in_(required),
+                        )
                     )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        if any(
-            not ResolvedPermissionSnapshot.model_validate(value).can_read(access, now=utc_now())
-            for value in permissions
-        ):
-            return
+            if any(
+                not ResolvedPermissionSnapshot.model_validate(value).can_read(access, now=utc_now())
+                for value in permissions
+            ):
+                return
         tenant_scope = (
             (
                 await session.execute(

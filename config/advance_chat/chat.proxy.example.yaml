@@ -24,4 +24,5 @@ chat:
             structured_output: true
             json_mode: true
             tools: true
+            parallel_tools: true
             reasoning: true

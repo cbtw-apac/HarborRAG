@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, field_validator
 
 from harborrag_core.base import ExtensibleModel
 
@@ -35,7 +35,11 @@ class HarborChatResponse(ExtensibleModel):
     deployment: str
     message: HarborChatMessage
     reasoning_content: str | None = None
-    finish_reason: str | FinishReason = FinishReason.UNKNOWN
+    # Not ``str | FinishReason``: under pydantic's smart union that always
+    # resolved to ``str``, so ``response.finish_reason is FinishReason.STOP``
+    # was False for every response and the enum half was decoration. Providers
+    # are normalized through ``normalize_finish_reason`` before they get here.
+    finish_reason: FinishReason = FinishReason.UNKNOWN
     usage: HarborChatUsage = Field(default_factory=HarborChatUsage)
     estimated_cost_usd: float | None = None
     latency_ms: float | None = None
@@ -46,6 +50,13 @@ class HarborChatResponse(ExtensibleModel):
     request_id: str | None = None
     provider_request_id: str | None = None
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("finish_reason", mode="before")
+    @classmethod
+    def _coerce_finish_reason(cls, value: object) -> FinishReason:
+        """Accept any provider spelling; an unfamiliar one is UNKNOWN, not an error."""
+
+        return FinishReason.parse(value)
 
     @property
     def text(self) -> str:
@@ -73,6 +84,7 @@ class HarborChatStreamChunk(ExtensibleModel):
     tool_call_delta: HarborToolCall | None = None
     tool_calls: tuple[HarborToolCall, ...] = ()
     usage: HarborChatUsage | None = None
+    estimated_cost_usd: float | None = None
     finish_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     error: dict[str, Any] | None = None

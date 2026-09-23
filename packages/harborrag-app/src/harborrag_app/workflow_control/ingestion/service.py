@@ -16,11 +16,12 @@ from harborrag_core.invariants import require
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
-from harborrag_runtime.temporal.schemas import (
-    RetryFailuresInput,
-    SourceIngestionInput,
+from harborrag_runtime.execution.source_submission import prepare_source_submission
+from harborrag_runtime.ingestion_contracts import (
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
+    SourceSubmission,
 )
-from harborrag_runtime.temporal.submission import SourceSubmission, build_source_input
 
 from ..errors import (
     IngestionAlreadyCompletedError,
@@ -68,7 +69,7 @@ class IngestionApplicationService(TaskListingMixin):
         *,
         client_provider: ClientProvider,
         task_store_provider: TaskStoreProvider,
-        source_input_builder: SourceInputBuilder = build_source_input,
+        source_input_builder: SourceInputBuilder = prepare_source_submission,
         task_id_factory: TaskIdFactory | None = None,
     ) -> None:
         self._settings = settings
@@ -154,7 +155,7 @@ class IngestionApplicationService(TaskListingMixin):
         return task_response(task, counts)
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
-        """Restart durable tasks left between database commit and Temporal start."""
+        """Restart durable tasks left between database commit and execution start."""
 
         store = await self._task_store_provider()
         recovered = 0
@@ -296,7 +297,7 @@ class IngestionApplicationService(TaskListingMixin):
         )
         try:
             tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
-            retry = RetryFailuresInput(
+            retry = IngestionRetryRequest(
                 retry_task_id=retry_task_id,
                 original_task_id=task_id,
                 tenant_id=tenant_id,
@@ -318,7 +319,7 @@ class IngestionApplicationService(TaskListingMixin):
             "message": "Failed documents accepted for retry",
         }
 
-    def _build_source(self, command: IngestionCreateCommand) -> SourceIngestionInput:
+    def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
         try:
             source = self._source_input_builder(
                 self._settings,

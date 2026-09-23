@@ -8,14 +8,14 @@ do and what arguments they take, see [MCP Tools](README.md).
 
 | Transport | Command | Authentication | Use when |
 | --- | --- | --- | --- |
-| [stdio](#stdio-for-external-clients) | `scripts/deployment/mcp.sh` | None; no listener opened | An MCP client (IDE, agent) launches the server itself |
-| [Local HTTP](#local-http-and-status-ui) | `scripts/deployment/mcp.sh --http` | Bearer token, loopback only | You want the status UI, Tool Playground, or an HTTP-capable client |
+| [stdio](#stdio-for-external-clients) | `harborrag-mcp` (checkout: `scripts/deployment/mcp.sh`) | None; no listener opened | An MCP client (IDE, agent) launches the server itself |
+| [Local HTTP](#local-http-and-status-ui) | `harborrag-mcp --http` (checkout: `scripts/deployment/mcp.sh --http`) | Bearer token, loopback only | You want the status UI, Tool Playground, or an HTTP-capable client |
 | [In-process Python](#use-from-python) | `McpServer(...)` | Caller's own runtime | An application or test needs direct control |
 | [Container](#container-image) | `docker run harborrag-mcp` | None; stdio only | A client launches the server from an image |
 
-All transports expose the same four read-only retrieval tools -
-`vector_search`, `graph_triplet_search`, `graph_path_search`, and
-`graph_subgraph_search` - and pass through the same policy and audit boundary.
+All transports expose the same thirteen read-only tools listed in [MCP Tools](README.md)
+and pass through the same policy and audit boundary. HTTP tool calls accept `reader`
+or `owner` tokens with tenant grants; the local administration API requires `owner`.
 
 Chat and agent are **not** in the MCP catalog. They are served only through the
 HarborRAG REST API at `/v1/chat/completions` and `/v1/agent/completions`.
@@ -28,9 +28,9 @@ Bootstrap the environment files once:
 scripts/deployment/dev.sh bootstrap
 ```
 
-This creates all seven ignored `env/` files at mode `0600` - including the
-database, model, API, and MCP files that `mcp.sh` needs - and generates the
-local MCP bearer token.
+This creates the ignored checkout `env/` files at mode `0600` and generates the
+local MCP bearer token. The MCP checkout wrapper reads the database, model, and
+optional MCP files; it does not load the API configuration.
 
 > **Review the placeholders before making real tool calls.**
 > `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty. See
@@ -38,8 +38,10 @@ local MCP bearer token.
 
 ## stdio for external clients
 
-The package provides a standard FastMCP stdio server. Configure your MCP client
-to run:
+The installed package provides `harborrag-mcp` as the canonical command. Give
+it `HARBORRAG_*` settings through the process environment or one or more
+`--env-file` options. For a repository checkout, configure your MCP client to
+run the convenience wrapper:
 
 ```bash
 scripts/deployment/mcp.sh
@@ -62,16 +64,19 @@ initialization handshake, and asks the server for its tools.
 
 ### Flags
 
-`mcp.sh` itself accepts only `--check`, `--http`, and `-h`. Server flags are
-pass-through and work **only after** `--http`:
+The wrapper forwards all options to the same Python command. Options work in
+stdio, HTTP, and check mode:
 
 | Flag | Accepted by | Notes |
 | --- | --- | --- |
-| `--check`, `--http`, `-h` | `mcp.sh` | |
-| `--host`, `--port`, `--path`, `--config`, `--transport` | the server, after `--http` | `mcp.sh --check --config X` is rejected as an unknown option |
+| `--check`, `--http`, `--transport`, `-h` | `harborrag-mcp` | `--http` selects Streamable HTTP; stdio is the default |
+| `--host`, `--port`, `--path`, `--config` | `harborrag-mcp` | `--check --config X` checks that catalog |
+| `--env-file FILE` | `harborrag-mcp` | Repeatable; existing process variables take precedence |
+| `--local-stack-root DIR` | `harborrag-mcp` | Reads checkout env files and maps local Compose backend addresses |
 
-To select a configuration file in `--check` or stdio mode, set
-`HARBORRAG_MCP_CONFIG_PATH` instead of passing `--config`.
+For example, an installed deployment can run `harborrag-mcp --http --env-file
+/etc/harborrag/reader.env --config /etc/harborrag/mcp.yaml` without the
+repository script or checkout-specific variables.
 
 ### Environment overrides for the launcher
 
@@ -79,11 +84,14 @@ To select a configuration file in `--check` or stdio mode, set
 | --- | --- |
 | `DATABASE_ENV_FILE` | `env/.env.database` |
 | `MODEL_ENV_FILE` | `env/.env.models` |
-| `API_ENV_FILE` | `env/.env.api` |
 | `MCP_ENV_FILE` | `env/.env.mcp` |
 | `HARBORRAG_MCP_PYTHON_BIN` | The interpreter used to start the server |
 
-`mcp.sh` hard-requires `env/.env.api` even though it starts no API.
+These file overrides apply only to `--local-stack-root` (which the wrapper
+passes automatically). The Python command parses the files as data and maps
+their Compose variables into reader settings. It requires the database and
+model files for checkout use; the MCP file is optional when authentication is
+configured in the process environment. No shell code in an env file runs.
 
 ## Local HTTP and status UI
 
@@ -115,6 +123,43 @@ from fastmcp import Client
 
 client = Client("http://127.0.0.1:8010/mcp", auth="<token>")
 ```
+
+### Tenant-bound reader keys and shared corpus access
+
+For an internal reader deployment, set `HARBORRAG_MCP_AUTH_MODE=api_key` and
+`HARBORRAG_MCP_KEYS_PATH=config/mcp_keys.yaml`. Copy
+[`config/mcp_keys.example.yaml`](../../../../config/mcp_keys.example.yaml) to
+that path, then create a random secret of at least 32 characters. Put its
+SHA-256 hex digest in the environment variable named by `secret_hash_env`;
+give the original secret to the MCP client. Keep a stable `principal_id` when
+rotating the secret. The server rereads the key file on every verification, so
+setting `revoked: true` takes effect without restarting. Reader keys cannot
+use the owner-only configuration API.
+
+`HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the default and requires current
+source and document ACL snapshots. Set it to `tenant_shared` only for a tenant
+whose published corpus is intentionally shared among its reader identities.
+Set `HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT` to name that tenant explicitly;
+other tenants continue using `source_acl` even in the same process.
+The key's `tenant_id` must match each tool call's `tenant_id`; a caller cannot
+select another tenant. Both HTTP modes bind to loopback; put TLS and any remote
+access at a reverse proxy.
+
+The local `HARBORRAG_MCP_BEARER_TOKEN` authenticates a connection but does not
+grant corpus access by itself. To use it for an intentionally shared corpus,
+also set `HARBORRAG_MCP_READER_TENANT_ID`,
+`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, and
+`HARBORRAG_CORPUS_SHARED_TENANT_ID` to the target tenant. Restart the MCP
+process after changing these environment settings; an already-running server
+keeps its previous access policy.
+
+Background summaries use a separate approval. For a shared `DEFAULT` corpus,
+set `HARBORRAG_INGESTION_TENANT_ID=DEFAULT` and
+`HARBORRAG_SUMMARY_PROCESSING_ALLOWED=true`; bump
+`HARBORRAG_SUMMARY_PROCESSING_REVISION` whenever that approval changes. The
+graph-build summarization switch, model, and budget must also be configured.
+Reader keys do not authorize model calls. Existing source-ACL deployments keep
+their snapshot-based processing rules.
 
 ### Run tools from the browser
 
@@ -242,16 +287,21 @@ control:
 
 ```python
 from harborrag_mcp_server.server import McpServer
-from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
+from harborrag_runtime.composition.readers import open_reader_application
+from harborrag_runtime.config.settings import RuntimeSettings
 
-server = McpServer(runtime=HarborRAG(HarborRAGConfig()))
+application = open_reader_application(RuntimeSettings())
+server = McpServer(invoker=application.invoker, references=application.references)
+await application.start()
 for spec in server.list_tools():
     print(spec.name, spec.input_schema)
 
 result = await server.call_tool(
     "vector_search",
     {"query": "publication policy", "tenant_id": "default"},
+    principal_id="reader-principal",
 )
+await application.aclose()
 ```
 
 Or use the package-level convenience functions shown in [MCP Tools](README.md).
@@ -275,7 +325,7 @@ the registered tools without opening provider connections. The check opens an
 in-memory client session, performs the MCP initialization handshake, and asks
 the server for its tools.
 
-The normal catalog contains five retrieval tools. Chat and agent are not part
+The normal catalog contains thirteen reader tools. Chat and agent are not part
 of the MCP catalog; they are served only through the HarborRAG REST API's
 `/v1/chat` and `/v1/agent` endpoints.
 
@@ -390,7 +440,7 @@ HARBORRAG_MCP_DISABLED_TOOLS
 HARBORRAG_MCP_CONFIG_PATH
 ```
 
-The server exposes nine read-only evidence, source, and graph tools. Eight require an
+The server exposes thirteen read-only evidence, document, source, and graph tools. Twelve require an
 explicit tenant scope; `describe_graph` is a static schema lookup and requires none.
 The traversal tools need a node
 identifier the caller already holds—in practice a `chunk_id` from
@@ -448,7 +498,7 @@ never the bearer token or raw arguments. See
 
 ## Next
 
-- [MCP Tools](README.md) - the nine tools, their arguments, and what they return
+- [MCP Tools](README.md) - the thirteen tools, their arguments, and what they return
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces) -
   keep service tools in `harborrag-mcp-server` and call runtime/service
   interfaces rather than provider clients

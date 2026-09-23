@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from harborrag_core.contracts.chunking import TokenCounter
 
+from ..anchors import section_anchors
 from ..errors import ChunkValidationError
 from ..identity import ChunkIdentityBuilder, ChunkIdentityInput, content_fingerprint
 from ..identity.fingerprint import manifest_fingerprint
@@ -71,7 +70,7 @@ class ChunkResultBuilder:
                     local_part_index=candidate.local_part_index,
                     chunk_kind=self._record_factory.kind_for_role(candidate.role),
                     content_hash=content_hashes[index],
-                    section_anchors=_section_anchors(candidate.metadata),
+                    section_anchors=section_anchors(candidate),
                 )
             )
             for index, candidate in enumerate(pipeline.candidates)
@@ -163,13 +162,3 @@ class ChunkResultBuilder:
             diagnostics=diagnostics,
             manifest=manifest,
         )
-
-
-def _section_anchors(metadata: object) -> tuple[str, ...]:
-    if not isinstance(metadata, Mapping):
-        return ()
-    values = metadata.get("heading_element_ids")
-    if not isinstance(values, (list, tuple)):
-        return ()
-    anchors = tuple(str(value).strip() for value in values)
-    return anchors if anchors and all(anchors) else ()

@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 chunking = ["langchain-text-splitters>=1.1,<2"]
+langchain = ["langchain-core>=1.5,<2"]
 control-plane = [
     "sqlalchemy[asyncio]>=2.0,<3",
     "alembic>=1.13",

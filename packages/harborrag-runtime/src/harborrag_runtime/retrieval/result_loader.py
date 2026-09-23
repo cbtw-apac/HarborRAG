@@ -12,6 +12,7 @@ from harborrag_core.models.embed import EmbeddingPurpose, HarborEmbedRequest
 from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 
 from .contracts import RetrievalPolicy
+from .payload import optional_text, section_path
 from .validation import required_text
 
 _LOAD_CONCURRENCY = 8
@@ -96,12 +97,14 @@ class EvidenceResultLoader:
             "quality_score": payload.get("quality_score"),
             "raw_score": candidate.raw_score,
             "retrieval_source": "qdrant-authoritative",
+            # Older evidence payloads predate these provenance fields; keep
+            # the public metadata shape stable instead of omitting the keys.
+            "document_title": optional_text(payload, "document_title"),
+            "section_path": section_path(payload),
         }
         for key in (
             "source_scope_id",
             "source_item_id",
-            "document_title",
-            "section_path",
             "content_hash",
         ):
             value = payload.get(key)
@@ -111,6 +114,7 @@ class EvidenceResultLoader:
             id=required_text(payload, "chunk_id"),
             text=required_text(payload, "content"),
             score=candidate.score,
+            relevance=candidate.relevance,
             metadata=metadata,
         )
 
