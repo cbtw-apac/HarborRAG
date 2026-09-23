@@ -169,6 +169,8 @@ class LocalFileSystem:
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
         """Apply local connector filters to one candidate path."""
+        if not self.config.follow_symlinks and self.has_symlink_component(path):
+            return False
         return self._selector.should_process_file(path, query)
 
     def enforce_size_limit(self, path: Path, size: int) -> None:
