@@ -94,6 +94,7 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
 
     started: list[int] = []
     finished: list[int] = []
+    control_activities: list[str] = []
     wave_release = {0: asyncio.Event(), 1: asyncio.Event()}
 
     async def execute_activity(name, request, **options):
@@ -106,6 +107,14 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
             )
         if name == "harborrag.cleanup_source_projections":
             return ProjectionCleanupResult(claimed=0, completed=0, cancelled=0, failed=0)
+        if name in {
+            "harborrag.pause_source_ingestion",
+            "harborrag.resume_source_ingestion",
+            "harborrag.pause_workflow_execution",
+            "harborrag.unpause_workflow_execution",
+        }:
+            control_activities.append(name)
+            return None
         assert name == "harborrag.finalize_source_ingestion"
         return SourceIngestionResult(
             task_id="task-1",
@@ -161,6 +170,9 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
     # Finish the in-flight wave; already-started work must not be discarded.
     wave_release[0].set()
     await _until(lambda: len(finished) == 8)
+    await _until(lambda: "harborrag.pause_source_ingestion" in control_activities)
+    await _until(lambda: "harborrag.pause_workflow_execution" in control_activities)
+    assert instance.get_status().pause_applied is True
 
     # Give the paused signal every chance to (wrongly) let the next wave
     # start; it must not, since pause forbids starting *new* work.
@@ -170,6 +182,9 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
 
     instance.resume()
     assert instance.get_status().status == "RUNNING"
+    await _until(lambda: "harborrag.resume_source_ingestion" in control_activities)
+    await _until(lambda: "harborrag.unpause_workflow_execution" in control_activities)
+    assert instance.get_status().pause_applied is False
 
     wave_release[1].set()
     result = await run_task

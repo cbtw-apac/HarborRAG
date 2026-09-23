@@ -3,3 +3,12 @@
 system.forceSearchAttributesCacheRefreshOnRead:
   - value: true
     constraints: {}
+
+# Experimental native workflow pause/unpause (server 1.31+). Without this,
+# PauseWorkflowExecution/UnpauseWorkflowExecution fail as UNIMPLEMENTED and
+# the Temporal UI execution status never leaves RUNNING, even though the
+# cooperative pause signal and Postgres-authoritative status are correct.
+frontend.WorkflowPauseEnabled:
+  - value: true
+    constraints:
+      namespace: harborrag

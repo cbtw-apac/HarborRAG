@@ -42,6 +42,10 @@ def worker_registrations(
             (
                 activities.discover_source_items,
                 activities.cancel_source_ingestion,
+                activities.pause_source_ingestion,
+                activities.resume_source_ingestion,
+                activities.pause_workflow_execution,
+                activities.unpause_workflow_execution,
                 activities.record_source_failure,
                 activities.finalize_source_ingestion,
                 activities.prepare_retry_failures,

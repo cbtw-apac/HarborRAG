@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Awaitable
 from dataclasses import replace
 from datetime import timedelta
 from typing import TypeVar, cast
+from uuid import uuid4
 
+from temporalio.api.workflowservice.v1 import (
+    PauseWorkflowExecutionRequest,
+    UnpauseWorkflowExecutionRequest,
+)
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -34,6 +41,8 @@ from .schemas import (
 )
 
 ResultT = TypeVar("ResultT")
+
+logger = logging.getLogger("harborrag.runtime.temporal.client")
 
 
 class IngestionTemporalClient:
@@ -156,8 +165,19 @@ class IngestionTemporalClient:
 
     async def pause(self, task_id: str) -> None:
         await self._signal(task_id, "pause")
+        await self._wait_for_pause_relay(task_id)
+        await self._pause_execution(
+            self._workflow_id(task_id),
+            reason="Source ingestion pause requested",
+            best_effort=False,
+        )
 
     async def resume(self, task_id: str) -> None:
+        await self._unpause_execution(
+            self._workflow_id(task_id),
+            reason="Source ingestion resume requested",
+            best_effort=False,
+        )
         await self._signal(task_id, "resume")
 
     async def cancel(self, task_id: str) -> None:
@@ -165,6 +185,11 @@ class IngestionTemporalClient:
             task_id,
             f"request graceful cancellation for ingestion task {task_id!r}",
             self._source_handle(task_id).signal("request_graceful_cancel"),
+        )
+        await self._unpause_execution(
+            self._workflow_id(task_id),
+            reason="Source ingestion cancellation requested",
+            best_effort=False,
         )
 
     async def start_reindex(
@@ -248,6 +273,88 @@ class IngestionTemporalClient:
             self._workflow_id(task_id),
             result_type=SourceIngestionResult,
         )
+
+    async def _wait_for_pause_relay(self, task_id: str) -> None:
+        for _ in range(300):
+            status = await self.get_status(task_id)
+            if status.pause_applied:
+                return
+            if status.status in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
+                raise WorkflowNotRunningError(
+                    f"Could not pause ingestion task {task_id!r}: "
+                    f"the task already finished ({status.status})"
+                )
+            await asyncio.sleep(0.1)
+        raise WorkflowOperationError(
+            f"Could not pause ingestion task {task_id!r}: pause relay did not settle"
+        )
+
+    async def _pause_execution(
+        self,
+        workflow_id: str,
+        *,
+        reason: str,
+        request_id: str | None = None,
+        allow_missing: bool = False,
+        best_effort: bool = True,
+    ) -> None:
+        request = PauseWorkflowExecutionRequest(
+            namespace=self._config.connection.namespace,
+            workflow_id=workflow_id,
+            identity=self._config.connection.identity or "harborrag-runtime",
+            reason=reason,
+            request_id=request_id or uuid4().hex,
+        )
+        await self._native_pause_control(
+            f"pause workflow {workflow_id!r}",
+            self._client.workflow_service.pause_workflow_execution(request),
+            allow_missing=allow_missing,
+            best_effort=best_effort,
+        )
+
+    async def _unpause_execution(
+        self,
+        workflow_id: str,
+        *,
+        reason: str,
+        request_id: str | None = None,
+        allow_missing: bool = False,
+        best_effort: bool = True,
+    ) -> None:
+        request = UnpauseWorkflowExecutionRequest(
+            namespace=self._config.connection.namespace,
+            workflow_id=workflow_id,
+            identity=self._config.connection.identity or "harborrag-runtime",
+            reason=reason,
+            request_id=request_id or uuid4().hex,
+        )
+        await self._native_pause_control(
+            f"unpause workflow {workflow_id!r}",
+            self._client.workflow_service.unpause_workflow_execution(request),
+            allow_missing=allow_missing,
+            best_effort=best_effort,
+        )
+
+    @staticmethod
+    async def _native_pause_control(
+        label: str,
+        operation: Awaitable[object],
+        *,
+        allow_missing: bool,
+        best_effort: bool = True,
+    ) -> None:
+        try:
+            await operation
+        except RPCError as error:
+            if error.status is RPCStatusCode.FAILED_PRECONDITION:
+                return
+            if allow_missing and error.status is RPCStatusCode.NOT_FOUND:
+                return
+            if not best_effort:
+                if error.status is RPCStatusCode.NOT_FOUND:
+                    raise WorkflowNotFoundError(f"Could not {label}: task not found") from error
+                raise WorkflowOperationError(f"Could not {label}") from error
+            logger.warning("Could not %s (status=%s): %s", label, error.status, error)
 
     @staticmethod
     def _workflow_id(task_id: str) -> str:

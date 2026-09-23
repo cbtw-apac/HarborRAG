@@ -108,6 +108,7 @@ class _Handle:
                 status="RUNNING",
                 paused=False,
                 cancel_requested=False,
+                pause_applied=True,
             )
         return {"published": 1}
 
@@ -122,6 +123,10 @@ class _SdkClient:
         self.start_workflow = AsyncMock(side_effect=self._start)
         self.get_workflow_handle = Mock(side_effect=self._handle)
         self.service_client = SimpleNamespace(check_health=AsyncMock(return_value=True))
+        self.workflow_service = SimpleNamespace(
+            pause_workflow_execution=AsyncMock(),
+            unpause_workflow_execution=AsyncMock(),
+        )
 
     def _start(self, workflow_name: str, *_args: object, **_kwargs: object) -> _Handle:
         return self.reindex_handle if workflow_name == "harborrag.reindex" else self.source_handle
@@ -279,6 +284,7 @@ async def test_client_operations_use_stable_workflow_id_for_source_controls() ->
 
     workflow_ids = [call.args[0] for call in sdk.get_workflow_handle.call_args_list]
     assert workflow_ids == [
+        "harborrag-source:task-1",
         "harborrag-source:task-1",
         "harborrag-source:task-1",
         "harborrag-source:task-1",

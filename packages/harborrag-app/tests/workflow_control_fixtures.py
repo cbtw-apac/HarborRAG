@@ -29,6 +29,7 @@ class FakeRuntimeClient:
     def __init__(self, *, failure: Exception | None = None) -> None:
         self.calls: list[tuple[str, tuple[object, ...]]] = []
         self._failure = failure
+        self.workflow_paused = False
 
     def _record(self, name: str, *args: object) -> None:
         self.calls.append((name, args))
@@ -51,8 +52,8 @@ class FakeRuntimeClient:
         self._record("get_status", run_id)
         return SourceIngestionStatus(
             task_id=run_id,
-            status="RUNNING",
-            paused=False,
+            status="PAUSED" if self.workflow_paused else "RUNNING",
+            paused=self.workflow_paused,
             cancel_requested=False,
         )
 
