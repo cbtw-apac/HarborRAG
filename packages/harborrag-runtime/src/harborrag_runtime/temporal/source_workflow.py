@@ -32,6 +32,8 @@ from .schemas import (
     WorkflowExecutionControlInput,
 )
 
+_PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
+
 
 @workflow.defn(name="harborrag.source_ingestion")
 class SourceIngestionWorkflow:
@@ -221,6 +223,9 @@ class SourceIngestionWorkflow:
 
             await workflow.wait_condition(_paused_differs_from)
             relayed = self._paused
+            if not workflow.patched(_PAUSE_PERSISTENCE_PATCH):
+                await handle.signal("pause" if relayed else "resume")
+                continue
             await workflow.execute_activity(
                 "harborrag.pause_source_ingestion"
                 if relayed
@@ -236,11 +241,7 @@ class SourceIngestionWorkflow:
                 await handle.signal("pause")
                 await workflow.execute_activity(
                     "harborrag.pause_workflow_execution",
-                    WorkflowExecutionControlInput(
-                        workflow_id=(
-                            f"harborrag-source-batch:{request.task_id}:{self._batch_number}"
-                        )
-                    ),
+                    WorkflowExecutionControlInput(workflow_id=handle.id),
                     task_queue=request.workflow_options.task_queues.discovery,
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
@@ -249,11 +250,7 @@ class SourceIngestionWorkflow:
             else:
                 await workflow.execute_activity(
                     "harborrag.unpause_workflow_execution",
-                    WorkflowExecutionControlInput(
-                        workflow_id=(
-                            f"harborrag-source-batch:{request.task_id}:{self._batch_number}"
-                        )
-                    ),
+                    WorkflowExecutionControlInput(workflow_id=handle.id),
                     task_queue=request.workflow_options.task_queues.discovery,
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
@@ -320,7 +317,8 @@ class SourceIngestionWorkflow:
     async def _stop_requested(self, request: SourceIngestionInput) -> bool:
         if self._paused and not self._cancel_requested:
             self._status = "PAUSED"
-            if not self._pause_persisted:
+            persist_pause = workflow.patched(_PAUSE_PERSISTENCE_PATCH)
+            if persist_pause and not self._pause_persisted:
                 await workflow.execute_activity(
                     "harborrag.pause_source_ingestion",
                     SourcePauseInput(task_id=self._task_id),
@@ -329,8 +327,10 @@ class SourceIngestionWorkflow:
                     retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                 )
                 self._pause_persisted = True
+                self._pause_relay_applied = True
             await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
-            if not self._cancel_requested:
+            self._pause_relay_applied = False
+            if persist_pause and not self._cancel_requested:
                 await workflow.execute_activity(
                     "harborrag.resume_source_ingestion",
                     SourceResumeInput(task_id=self._task_id),
@@ -370,7 +370,7 @@ class SourceIngestionWorkflow:
 
     @workflow.signal
     def pause(self) -> None:
-        if not self._cancel_requested:
+        if not self._cancel_requested and not self._paused:
             self._paused = True
             self._pause_persisted = False
             self._pause_relay_applied = False

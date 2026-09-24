@@ -36,8 +36,9 @@ class _LiveBatchHandle:
     parent's own flags flipped.
     """
 
-    def __init__(self, batch: SourceBatchWorkflow, request) -> None:
+    def __init__(self, batch: SourceBatchWorkflow, request, *, workflow_id: str) -> None:
         self._batch = batch
+        self.id = workflow_id
         self._task = asyncio.create_task(batch.run(request))
 
     def __await__(self):
@@ -77,6 +78,10 @@ def _fast_workflow_primitives(monkeypatch):
             (),
             {"is_continue_as_new_suggested": staticmethod(lambda: False)},
         )(),
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.patched",
+        lambda _patch_id: True,
     )
 
 
@@ -137,7 +142,11 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
 
     async def start_child_workflow(name, request, **options):
         assert name == "harborrag.source_batch"
-        return _LiveBatchHandle(SourceBatchWorkflow(), request)
+        return _LiveBatchHandle(
+            SourceBatchWorkflow(),
+            request,
+            workflow_id=options["id"],
+        )
 
     monkeypatch.setattr(
         "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",

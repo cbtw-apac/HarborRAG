@@ -169,16 +169,16 @@ class IngestionTemporalClient:
         await self._pause_execution(
             self._workflow_id(task_id),
             reason="Source ingestion pause requested",
-            best_effort=False,
+            best_effort=True,
         )
 
     async def resume(self, task_id: str) -> None:
+        await self._signal(task_id, "resume")
         await self._unpause_execution(
             self._workflow_id(task_id),
             reason="Source ingestion resume requested",
-            best_effort=False,
+            best_effort=True,
         )
-        await self._signal(task_id, "resume")
 
     async def cancel(self, task_id: str) -> None:
         await self._control(
@@ -189,7 +189,7 @@ class IngestionTemporalClient:
         await self._unpause_execution(
             self._workflow_id(task_id),
             reason="Source ingestion cancellation requested",
-            best_effort=False,
+            best_effort=True,
         )
 
     async def start_reindex(

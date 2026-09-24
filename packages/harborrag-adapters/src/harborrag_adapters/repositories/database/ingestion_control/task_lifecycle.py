@@ -32,6 +32,7 @@ _TASK_TRANSITIONS = {
     IngestionTaskState.PAUSED: frozenset(
         {
             IngestionTaskState.RUNNING,
+            IngestionTaskState.FAILED,
             IngestionTaskState.CANCELLED,
         }
     ),
