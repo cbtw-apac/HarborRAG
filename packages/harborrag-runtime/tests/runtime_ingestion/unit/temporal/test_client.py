@@ -313,9 +313,7 @@ async def test_controls_keep_signaling_when_native_pause_is_unavailable() -> Non
 @pytest.mark.asyncio
 async def test_pause_relay_rejects_finished_workflow() -> None:
     sdk = _SdkClient()
-    sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _status(
-        status="COMPLETED"
-    )
+    sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _status(status="COMPLETED")
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(WorkflowNotRunningError, match=r"already finished \(COMPLETED\)"):
