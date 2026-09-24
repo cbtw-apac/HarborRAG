@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -171,6 +172,10 @@ def test_path_read_is_capped_and_cached_as_one_snapshot(tmp_path: Path) -> None:
         read_parse_input_bytes(oversized, max_bytes=5)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Fails on Windows due to symlink restrictions",
+)
 def test_path_read_refuses_symbolic_links(tmp_path: Path) -> None:
     target = tmp_path / "target.txt"
     target.write_bytes(b"private")
