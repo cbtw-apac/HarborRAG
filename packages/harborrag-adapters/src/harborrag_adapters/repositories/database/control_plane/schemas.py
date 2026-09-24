@@ -224,6 +224,7 @@ class ProviderRow(Base):
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -281,6 +282,27 @@ class McpQueryLogRow(Base):
     client: Mapped[str] = mapped_column(sa.Text, nullable=False)
     latency_ms: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+
+
+class McpConfigSnapshotRow(Base):
+    """mcp_config_snapshot: single-document effective MCP config, written by harborrag-mcp-server.
+
+    One fixed row (id=1), replaced wholesale on every publish -- mirrors
+    ``WorkspaceSettingsRow``'s single-document shape, kept as its own table
+    (rather than folded into workspace_settings) so an MCP publish can never
+    clobber unrelated workspace settings.
+    """
+
+    __tablename__ = "mcp_config_snapshot"
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    policy_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, nullable=False)
+    disabled_tools_json: Mapped[list[str]] = mapped_column(JSONVariant, nullable=False)
+    enabled_tool_count: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    total_tool_count: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    revision: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    restart_required: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class GraphConflictRow(Base):

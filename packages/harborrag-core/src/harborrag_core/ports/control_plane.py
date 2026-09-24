@@ -7,16 +7,25 @@ never on the adapter classes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
+from harborrag_core.domain.mcp_usage import (
+    McpClientUsage,
+    McpConfigSnapshot,
+    McpToolUsage,
+    McpUsageEntry,
+)
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.context import AccessContext
@@ -136,19 +145,58 @@ class SettingsRepositoryPort(Protocol):
 
 
 class ProviderRepositoryPort(Protocol):
-    """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
+    """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``.
+
+    Delete is a soft delete (see ``Provider.deleted_at``): a routing rule may
+    reference a provider's id via a DB foreign key, so the row must keep
+    existing. ``list``/``get`` hide deleted providers as if they were gone.
+    """
+
+    async def list_page(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[Provider], str | None]:
+        """Non-deleted providers visible to ``tenant_ids``, walked via an opaque
+        keyset cursor, ordered by id (id is a generated, already-unique key,
+        so no second tiebreaker column is needed for a stable order)."""
 
     async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
-        """Registered providers visible to ``tenant_ids``."""
+        """Every non-deleted provider visible to ``tenant_ids``, unpaginated.
+
+        For internal aggregation only (e.g. the cost snapshot, which needs
+        every provider id to report zeros for). ``GET /v1/providers`` uses
+        ``list_page`` instead so a tenant with many providers gets a bounded
+        response.
+        """
 
     async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
-        """One provider by id within ``tenant_ids``, or None."""
+        """One non-deleted provider by id within ``tenant_ids``, or None."""
 
     async def save(self, provider: Provider) -> Provider:
         """Insert or update (upsert) a provider."""
 
     async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:
-        """Remove a provider registration within ``tenant_ids``."""
+        """Tombstone a provider within ``tenant_ids`` (sets ``deleted_at``); row stays."""
+
+
+class RoutingRuleRepositoryPort(Protocol):
+    """Workspace-wide routing table (plan §5.5); not tenant-scoped, like ``SettingsRepositoryPort``.
+
+    v1 has no "update just one rule": every write replaces the whole table
+    atomically, so callers never observe a partially-applied routing change.
+    """
+
+    async def replace(self, rules: Sequence[RoutingRule]) -> list[RoutingRule]:
+        """Atomically replace the entire routing table with ``rules``."""
+
+    async def list(self) -> list[RoutingRule]:
+        """Every routing rule, ordered by family then id (not insertion order:
+        ``id`` is an opaque generated string, so this is a stable sort key,
+        not a meaningful sequence -- callers must not read priority or
+        precedence from list position; use ``RoutingRule.priority`` instead."""
 
 
 class MemberRepositoryPort(Protocol):
@@ -254,6 +302,47 @@ class GraphConflictRepositoryPort(Protocol):
         Raises ``HarborNotFoundError`` if missing within ``tenant_ids``,
         ``HarborConflictError`` if already resolved.
         """
+
+
+class McpQueryLogRepositoryPort(Protocol):
+    """Read-side MCP telemetry written by harborrag-mcp-server (plan §5.5/§6, ML4-P3).
+
+    Not tenant-scoped: MCP tool calls are not reliably tenant-attributed at
+    the transport boundary, and this is an operator-facing usage view, not a
+    per-workspace resource. ``record`` is the only write path -- rows are
+    never mutated or deleted.
+    """
+
+    async def record(self, entry: McpUsageEntry) -> None:
+        """Durably record one completed MCP tool invocation."""
+
+    async def usage_by_client(self) -> list[McpClientUsage]:
+        """Every distinct client, with its total query count and last-seen time."""
+
+    async def usage_by_tool(self) -> list[McpToolUsage]:
+        """Every distinct tool, with its call count and average latency."""
+
+    async def list_since(self, *, since: datetime, limit: int) -> list[McpUsageEntry]:
+        """Entries at or after ``since``, newest first, capped at ``limit``."""
+
+    async def ping(self) -> bool:
+        """Best-effort reachability check for ``/mcp/status``: True if the store answers."""
+
+
+class McpConfigSnapshotPort(Protocol):
+    """Single-document read model for the MCP server's live effective configuration.
+
+    Published by harborrag-mcp-server (the only writer) through the same
+    control-plane DB bridge as ``McpQueryLogRepositoryPort``, since the
+    layering rules forbid harborrag-app from importing harborrag-mcp-server
+    directly to read it out of the running process.
+    """
+
+    async def get(self) -> McpConfigSnapshot | None:
+        """The most recently published snapshot, or None if never published."""
+
+    async def put(self, snapshot: McpConfigSnapshot) -> McpConfigSnapshot:
+        """Replace the published snapshot and return it."""
 
 
 TRepository_co = TypeVar("TRepository_co", covariant=True)

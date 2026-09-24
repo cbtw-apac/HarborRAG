@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -144,8 +145,10 @@ def _runtime_lifespan(
         del server
         try:
             await runtime.start()
+            await _publish_initial_config_snapshot(registry)
             yield
         finally:
+            await _close_telemetry(registry)
             close_task = asyncio.create_task(runtime.aclose())
             try:
                 await asyncio.shield(close_task)
@@ -159,6 +162,40 @@ def _runtime_lifespan(
             await asyncio.sleep(0.25)
 
     return lifespan
+
+
+async def _publish_initial_config_snapshot(registry: McpServer) -> None:
+    """Publish startup telemetry on the FastMCP loop that owns its DB pool."""
+
+    if registry.telemetry is None or registry.configuration is None:
+        return
+    from harborrag_mcp_server.server.server import _TELEMETRY_WRITE_TIMEOUT_SECONDS
+    from harborrag_mcp_server.telemetry import build_config_snapshot
+
+    try:
+        await asyncio.wait_for(
+            registry.telemetry.publish_config(
+                build_config_snapshot(registry, registry.configuration)
+            ),
+            timeout=_TELEMETRY_WRITE_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - telemetry must never prevent startup
+        logging.getLogger("harborrag.mcp.server").warning(
+            "Failed to publish initial MCP configuration snapshot", exc_info=True
+        )
+
+
+async def _close_telemetry(registry: McpServer) -> None:
+    """Dispose telemetry resources on the FastMCP loop that used them."""
+
+    if registry.telemetry is None:
+        return
+    try:
+        await registry.telemetry.aclose()
+    except Exception:  # noqa: BLE001 - shutdown telemetry must be best effort
+        logging.getLogger("harborrag.mcp.server").warning(
+            "Failed to close MCP telemetry", exc_info=True
+        )
 
 
 def _tool_handler(

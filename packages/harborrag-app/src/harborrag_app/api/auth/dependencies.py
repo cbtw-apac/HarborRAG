@@ -12,11 +12,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
+from harborrag_app.api.auth.oidc import OidcTokenVerifier
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
-from harborrag_app.api.settings import ApiSettings
+from harborrag_app.api.settings import OIDC_ISSUER_TRANSPORT, OIDC_JWKS_TRANSPORT, ApiSettings
 from harborrag_core.contracts.errors import (
     HarborAuthError,
-    HarborCapabilityError,
     HarborConfigurationError,
     HarborNotFoundError,
 )
@@ -32,8 +32,11 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     """Construct the verifier for the configured auth_mode at factory time.
 
     none -> None (implicit owner principal); hmac -> HS256 against
-    HARBORRAG_AUTH_SECRET; oidc -> HarborCapabilityError until M5.
-    Fails closed: auth cannot be disabled when HARBORRAG_ENV=prod.
+    HARBORRAG_AUTH_SECRET; oidc -> JWKS verification against the configured
+    discovery endpoint (Entra ID in production). Fails closed: auth cannot be
+    disabled when HARBORRAG_ENV=prod, and oidc config is validated for shape
+    here without making a network call (the JWKS document itself is fetched
+    lazily on first verify -- see OidcTokenVerifier).
     """
     if settings.auth_mode == "none":
         if settings.env == "prod":
@@ -75,7 +78,39 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
             clock_skew_seconds=settings.auth_clock_skew_seconds,
             user_id_claim=settings.auth_user_id_claim,
         )
-    raise HarborCapabilityError("auth_mode=oidc lands in M5")
+    return _build_oidc_verifier(settings)
+
+
+def _build_oidc_verifier(settings: ApiSettings) -> OidcTokenVerifier:
+    """auth_mode == "oidc": bad/insecure URLs and missing config fail startup
+    closed here; the JWKS document itself is fetched lazily by PyJWKClient."""
+    if not settings.oidc_jwks_uri:
+        raise HarborConfigurationError("auth_mode=oidc requires HARBORRAG_OIDC_JWKS_URI")
+    allow_insecure = settings.env == "dev" and settings.oidc_allow_insecure_transport
+    try:
+        OIDC_JWKS_TRANSPORT.validate(settings.oidc_jwks_uri, allow_insecure_remote=allow_insecure)
+    except ValueError as exc:
+        raise HarborConfigurationError(f"HARBORRAG_OIDC_JWKS_URI: {exc}") from exc
+    try:
+        OIDC_ISSUER_TRANSPORT.validate(settings.auth_issuer, allow_insecure_remote=allow_insecure)
+    except ValueError as exc:
+        raise HarborConfigurationError(f"HARBORRAG_AUTH_ISSUER: {exc}") from exc
+    if not settings.auth_audience.strip():
+        raise HarborConfigurationError(
+            "auth_mode=oidc requires a non-blank HARBORRAG_AUTH_AUDIENCE"
+        )
+    return OidcTokenVerifier(
+        jwks_uri=settings.oidc_jwks_uri,
+        issuer=settings.auth_issuer,
+        audience=settings.auth_audience,
+        algorithms=tuple(settings.oidc_algorithms),
+        max_token_lifetime_seconds=settings.auth_max_token_lifetime_seconds,
+        clock_skew_seconds=settings.auth_clock_skew_seconds,
+        user_id_claim=settings.auth_user_id_claim,
+        role_claim=settings.oidc_role_claim,
+        tenant_claim=settings.oidc_tenant_claim,
+        jwks_cache_seconds=settings.oidc_jwks_cache_seconds,
+    )
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -129,6 +164,36 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
     ) -> Principal:
         """Pass the principal through when its role clears the minimum."""
         authorize_role(principal, minimum)
+        return principal
+
+    return dependency
+
+
+def authorize_global_scope(principal: Principal) -> None:
+    """Reject a principal scoped to specific tenants.
+
+    For data with no tenant dimension at all (e.g. platform-wide MCP
+    telemetry): a tenant-scoped caller must not see it no matter their role,
+    since there is no tenant filter to apply on their behalf.
+    """
+
+    if "*" not in principal.tenant_ids:
+        raise HarborAuthError("requires operator-wide (all-tenant) access", forbidden=True)
+
+
+def require_operator_role(minimum: Role) -> Callable[..., Principal]:
+    """Dependency factory enforcing a minimum role AND unrestricted tenant scope.
+
+    Use for routes backed by data that has no tenant dimension to filter
+    on -- ``require_role`` alone would let a tenant-scoped caller through
+    since role rank says nothing about tenant scope.
+    """
+
+    def dependency(
+        principal: Annotated[Principal, Depends(get_principal)],
+    ) -> Principal:
+        authorize_role(principal, minimum)
+        authorize_global_scope(principal)
         return principal
 
     return dependency

@@ -55,12 +55,18 @@ class MemoryAdminClientMixin:
         scope: MemoryScope | None = None,
         limit: int = 20,
     ) -> AppResponse:
-        memories = await self._memory_admin.list_memories(
+        memories, truncated = await self._memory_admin.list_memories(
             access.owner(),
             scopes=() if scope is None else (scope,),
             limit=limit,
         )
-        return AppResponse(True, {"memories": [memory_data(memory) for memory in memories]})
+        return AppResponse(
+            True,
+            {
+                "memories": [memory_data(memory) for memory in memories],
+                "truncated": truncated,
+            },
+        )
 
     async def delete_memory(self, access: MemoryAccess, memory_id: str) -> AppResponse:
         await self._memory_admin.delete_memory(access.owner(), memory_id)

@@ -107,16 +107,25 @@ class MemoryAdministrationService:
         *,
         scopes: tuple[MemoryScope, ...] = (),
         limit: int = 20,
-    ) -> tuple[Memory, ...]:
+    ) -> tuple[tuple[Memory, ...], bool]:
         """The memories visible to ``owner``, newest and most important first.
 
         ``owner`` is always built from the authenticated principal, never from
         request fields, so this can only ever return the caller's own rows.
+
+        This is a ranked, bounded read (like retrieval's ``top_k``), not a
+        stably-ordered enumeration, so it does not offer a keyset cursor --
+        re-running the same query can reorder ties as importance/recency
+        scoring shifts. Instead, it fetches one extra row to report whether
+        the caller's full set exceeds ``limit``, so a truncated response is
+        never silent.
         """
 
-        return await self._store().search(
-            MemoryQuery(owner=owner, scopes=scopes, limit=limit, include_invalid=True)
+        fetch_limit = min(limit + 1, 1000)
+        matches = await self._store().search(
+            MemoryQuery(owner=owner, scopes=scopes, limit=fetch_limit, include_invalid=True)
         )
+        return matches[:limit], len(matches) > limit
 
     async def delete_memory(self, owner: MemoryOwner, memory_id: str) -> None:
         """Delete one memory the caller can see; 404 when they cannot see it."""

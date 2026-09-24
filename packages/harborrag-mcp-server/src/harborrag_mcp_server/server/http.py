@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 import secrets
 from collections.abc import Awaitable, Callable
@@ -28,6 +30,7 @@ from harborrag_mcp_server.server.http_responses import (
     configuration_response,
     error_response,
 )
+from harborrag_mcp_server.server.server import _TELEMETRY_WRITE_TIMEOUT_SECONDS
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -37,6 +40,7 @@ if TYPE_CHECKING:
 
     from harborrag_mcp_server.server.server import McpServer
 
+logger = logging.getLogger("harborrag.mcp.server.http")
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _REQUIRED_SCOPE = "mcp:read"
 _MAX_CONFIGURATION_REQUEST_BYTES = 1024 * 1024
@@ -118,10 +122,10 @@ def register_http_routes(
         _get_configuration_handler(configuration, token_verifier)
     )
     server.custom_route("/api/config", methods=["PUT"], include_in_schema=False)(
-        _replace_configuration_handler(configuration, token_verifier)
+        _replace_configuration_handler(registry, configuration, token_verifier)
     )
     server.custom_route("/api/config/reload", methods=["POST"], include_in_schema=False)(
-        _reload_configuration_handler(configuration, token_verifier)
+        _reload_configuration_handler(registry, configuration, token_verifier)
     )
     server.custom_route("/api/tools", methods=["GET"], include_in_schema=False)(
         _list_tools_handler(registry, token_verifier)
@@ -184,6 +188,7 @@ def _get_configuration_handler(
 
 
 def _replace_configuration_handler(
+    registry: McpServer,
     configuration: McpConfigurationStore,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
@@ -207,12 +212,14 @@ def _replace_configuration_handler(
             return error_response(str(exc), status_code=409)
         except (ValidationError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             return error_response(str(exc), status_code=422)
+        await _publish_config_snapshot(registry, configuration)
         return configuration_response(description)
 
     return replace_configuration
 
 
 def _reload_configuration_handler(
+    registry: McpServer,
     configuration: McpConfigurationStore,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
@@ -223,9 +230,31 @@ def _reload_configuration_handler(
             description = configuration.reload(principal_id=principal_id)
         except (ValidationError, ValueError) as exc:
             return error_response(str(exc), status_code=422)
+        await _publish_config_snapshot(registry, configuration)
         return configuration_response(description)
 
     return reload_configuration
+
+
+async def _publish_config_snapshot(
+    registry: McpServer, configuration: McpConfigurationStore
+) -> None:
+    """Best-effort: keep the app-facing config snapshot in sync after a change.
+
+    A slow or unreachable control-plane DB is bounded so it cannot hold an
+    operator's replace/reload response indefinitely.
+    """
+    if registry.telemetry is None:
+        return
+    from harborrag_mcp_server.telemetry import build_config_snapshot
+
+    try:
+        await asyncio.wait_for(
+            registry.telemetry.publish_config(build_config_snapshot(registry, configuration)),
+            timeout=_TELEMETRY_WRITE_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - telemetry must never break configuration changes
+        logger.warning("Failed to publish updated MCP configuration snapshot", exc_info=True)
 
 
 def _list_tools_handler(

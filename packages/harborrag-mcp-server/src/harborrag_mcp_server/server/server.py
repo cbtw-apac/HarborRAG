@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -20,6 +23,10 @@ from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 if TYPE_CHECKING:
     from harborrag_core.ports.reader import ReaderServices
     from harborrag_mcp_server.configuration import McpConfigurationStore
+    from harborrag_runtime.mcp_telemetry import McpTelemetryBridge
+
+logger = logging.getLogger("harborrag.mcp.server")
+_TELEMETRY_WRITE_TIMEOUT_SECONDS = 2.0
 
 # Shared, process-wide default policy/audit singletons. The module-level
 # call_tool/list_tools facade constructs a fresh McpServer per invocation, so
@@ -44,6 +51,7 @@ class McpServer(BaseMcpServer):
     invoker: ToolInvoker | None = None
     corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
     shared_tenant_id: str | None = None
+    telemetry: McpTelemetryBridge | None = None
 
     def __post_init__(self) -> None:
         if self.corpus_mode == "tenant_shared" and not self.shared_tenant_id:
@@ -112,6 +120,7 @@ class McpServer(BaseMcpServer):
             principal_id=principal_id,
             tenant_id=tenant_id,
         )
+        started_at = time.monotonic()
         try:
             if self.tools is None:
                 raise HarborInvariantError("self.tools must not be None here")
@@ -155,6 +164,7 @@ class McpServer(BaseMcpServer):
                 error_type="ToolReportedError" if reported_error else None,
                 tenant_id=tenant_id,
             )
+            await self._record_usage(name, principal_id, started_at)
             return result
         except BaseException as exc:
             self.audit.finish(
@@ -165,4 +175,29 @@ class McpServer(BaseMcpServer):
                 error_type=type(exc).__name__,
                 tenant_id=tenant_id,
             )
+            await self._record_usage(name, principal_id, started_at)
             raise
+
+    async def _record_usage(self, tool: str, principal_id: str, started_at: float) -> None:
+        """Best-effort telemetry write: never let a persistence hiccup fail a tool call.
+
+        ``client`` is ``principal_id`` -- the caller's authenticated account id,
+        used as a stand-in for true MCP client identity (see McpUsageEntry's
+        docstring). Latency is measured end-to-end around the tool call, not
+        just the audit bookkeeping either side of it.
+        """
+        if self.telemetry is None:
+            return
+        latency_ms = max(0, round((time.monotonic() - started_at) * 1000))
+        try:
+            await asyncio.wait_for(
+                self.telemetry.record_usage(
+                    tool=tool,
+                    client=principal_id,
+                    latency_ms=latency_ms,
+                    created_at=datetime.now(UTC),
+                ),
+                timeout=_TELEMETRY_WRITE_TIMEOUT_SECONDS,
+            )
+        except Exception:  # noqa: BLE001 - telemetry must never break a tool call
+            logger.warning("Failed to record MCP usage telemetry tool=%s", tool, exc_info=True)

@@ -15,7 +15,7 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
-from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
+from harborrag_core.contracts.errors import HarborAuthError, HarborConfigurationError
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 PROTECTED = "/v1/ingestions/missing/cancel"
@@ -125,9 +125,15 @@ def test_hmac_mode_enforces_auth_and_roles(
 
 
 @pytest.mark.blackbox
-def test_oidc_mode_is_a_declared_missing_capability() -> None:
-    """auth_mode=oidc fails fast at factory time until M5 delivers it."""
-    with pytest.raises(HarborCapabilityError):
+def test_oidc_mode_without_config_fails_closed_at_factory_time() -> None:
+    """auth_mode=oidc with no discovery/JWKS config refuses to start.
+
+    Full OIDC verification behavior (valid tokens, rotation, algorithm
+    confusion, malformed claims) is covered in test_api_auth_oidc.py; this
+    just confirms the app factory still fails closed for incomplete config,
+    the same guarantee HmacTokenVerifier gives for a missing secret.
+    """
+    with pytest.raises(HarborConfigurationError):
         create_fastapi_app(ApiSettings(auth_mode="oidc"))
 
 

@@ -5,15 +5,18 @@
 those identities so a caller can offer or validate the same choices the worker
 will accept, without exposing any connector settings or credential references.
 
-The catalog is process-wide configuration rather than tenant data, so the route
-enforces the reader role and does not scope by tenant.
+The catalog is process-wide configuration rather than tenant data, so the
+route requires unrestricted (operator) scope rather than the plain reader
+role: there is no tenant dimension here to filter a scoped caller against,
+so (per the same rule applied to routing rules and MCP telemetry) a
+tenant-scoped reader must not see it either.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.dependencies import require_operator_role
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 
@@ -23,7 +26,7 @@ from .schemas import ConnectionPage
 router = APIRouter(
     prefix="/connections",
     tags=["Connections"],
-    dependencies=[Depends(require_api_capacity), Depends(require_role("reader"))],
+    dependencies=[Depends(require_api_capacity), Depends(require_operator_role("reader"))],
 )
 
 ERROR_RESPONSES = documented_error_responses(

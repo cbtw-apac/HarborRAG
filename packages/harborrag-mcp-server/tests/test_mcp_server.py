@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 from io import StringIO
@@ -317,6 +318,109 @@ async def test_call_tool_facade_rejects_policy_violation_end_to_end(
 
     assert fresh_audit.entries[-1]["outcome"] == "error"
     assert fresh_audit.entries[-1]["error_type"] == "ValueError"
+
+
+class _FakeTelemetry:
+    def __init__(self, *, fails: bool = False) -> None:
+        self.calls: list[dict[str, object]] = []
+        self._fails = fails
+
+    async def record_usage(
+        self,
+        *,
+        tool: str,
+        client: str,
+        latency_ms: int,
+        created_at,
+    ) -> None:
+        if self._fails:
+            raise RuntimeError("control-plane DB unavailable")
+        self.calls.append(
+            {"tool": tool, "client": client, "latency_ms": latency_ms, "created_at": created_at}
+        )
+
+
+class _SlowTelemetry(_FakeTelemetry):
+    async def record_usage(self, **kwargs: object) -> None:
+        del kwargs
+        await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_records_usage_telemetry_with_real_timing_and_caller_identity() -> None:
+    from harborrag_mcp_server.policy import McpToolPolicy
+
+    telemetry = _FakeTelemetry()
+    server = McpServer(policy=McpToolPolicy(), telemetry=telemetry)
+
+    result = await server.call_tool(
+        "vector_search",
+        {"query": "harbor", "tenant_id": "demo"},
+        principal_id="account-42",
+    )
+
+    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
+    assert len(telemetry.calls) == 1
+    call = telemetry.calls[0]
+    assert call["tool"] == "vector_search"
+    # ``client`` is the caller's account id -- a best-effort stand-in, not a
+    # true MCP client identity (see McpUsageEntry's docstring).
+    assert call["client"] == "account-42"
+    assert isinstance(call["latency_ms"], int)
+    assert call["latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_call_tool_records_usage_telemetry_even_when_the_tool_raises() -> None:
+    from harborrag_mcp_server.policy import McpToolPolicy
+
+    telemetry = _FakeTelemetry()
+    server = McpServer(tools=[BrokenTool()], policy=McpToolPolicy(), telemetry=telemetry)
+
+    with pytest.raises(NotImplementedError):
+        await server.call_tool("broken", principal_id="account-1")
+
+    assert [call["tool"] for call in telemetry.calls] == ["broken"]
+    assert [call["client"] for call in telemetry.calls] == ["account-1"]
+
+
+@pytest.mark.asyncio
+async def test_call_tool_never_fails_when_the_telemetry_write_raises() -> None:
+    from harborrag_mcp_server.policy import McpToolPolicy
+
+    server = McpServer(policy=McpToolPolicy(), telemetry=_FakeTelemetry(fails=True))
+
+    result = await server.call_tool("vector_search", {"query": "harbor", "tenant_id": "demo"})
+
+    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
+
+
+@pytest.mark.asyncio
+async def test_call_tool_times_out_a_stalled_telemetry_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Optional telemetry cannot indefinitely delay a completed tool response."""
+    import harborrag_mcp_server.server.server as server_module
+    from harborrag_mcp_server.policy import McpToolPolicy
+
+    monkeypatch.setattr(server_module, "_TELEMETRY_WRITE_TIMEOUT_SECONDS", 0.01)
+    server = McpServer(policy=McpToolPolicy(), telemetry=_SlowTelemetry())
+
+    result = await server.call_tool("vector_search", {"query": "harbor", "tenant_id": "demo"})
+
+    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
+
+
+@pytest.mark.asyncio
+async def test_call_tool_is_a_no_op_for_telemetry_when_none_is_configured() -> None:
+    from harborrag_mcp_server.policy import McpToolPolicy
+
+    server = McpServer(policy=McpToolPolicy())
+    assert server.telemetry is None
+
+    result = await server.call_tool("vector_search", {"query": "harbor", "tenant_id": "demo"})
+
+    assert result == {"ok": False, "error": "vector retrieval backend is not configured"}
 
 
 def test_request_principal_requires_reader_or_owner_role(monkeypatch) -> None:

@@ -1,0 +1,187 @@
+"""Contract tests for the MCP telemetry API (ML4-P3)."""
+
+from __future__ import annotations
+
+import pytest
+from app_test_fixtures import MockAppService
+from app_test_mcp_records import mcp_usage_entry
+from fastapi.testclient import TestClient
+
+from harborrag_app.api import app as api_app
+from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.settings import ApiSettings
+
+
+@pytest.fixture
+def service() -> MockAppService:
+    return MockAppService()
+
+
+@pytest.fixture
+def client(monkeypatch, service: MockAppService) -> TestClient:
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    with TestClient(create_fastapi_app(ApiSettings())) as test_client:
+        yield test_client
+
+
+def test_mcp_status_reports_reachable_and_healthy(client: TestClient) -> None:
+    response = client.get("/v1/mcp/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"reachable": True, "healthy": True}
+
+
+def test_mcp_status_reports_unreachable_when_the_store_is_down(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    service.mcp_healthy = False
+
+    response = client.get("/v1/mcp/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"reachable": False, "healthy": False}
+
+
+def test_mcp_clients_reports_usage_by_client(client: TestClient) -> None:
+    response = client.get("/v1/mcp/clients")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["clients"] == [
+        {"client": "dev", "query_count": 3, "last_seen_at": "2026-09-17T12:00:00Z"}
+    ]
+
+
+def test_mcp_clients_rejects_a_tenant_scoped_caller(monkeypatch) -> None:
+    """McpClientUsage has no tenant dimension -- a tenant-scoped admin must not see it,
+    even though "admin" alone would clear the role bar."""
+    service = MockAppService()
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="scoped-admin", role="admin", tenant_ids=frozenset({"tenant-a"})
+    )
+    with TestClient(app) as scoped_client:
+        response = scoped_client.get("/v1/mcp/clients")
+
+    assert response.status_code == 403
+
+
+def test_mcp_clients_rejects_a_global_reader_below_the_role_bar(monkeypatch) -> None:
+    """Global tenant scope alone is not enough -- role must also clear "admin"."""
+    service = MockAppService()
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="global-reader", role="reader", tenant_ids=frozenset({"*"})
+    )
+    with TestClient(app) as scoped_client:
+        response = scoped_client.get("/v1/mcp/clients")
+
+    assert response.status_code == 403
+
+
+def test_mcp_tools_reports_usage_by_tool(client: TestClient) -> None:
+    response = client.get("/v1/mcp/tools")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tools"] == [
+        {"tool": "retrieval_search", "call_count": 3, "avg_latency_ms": 42.5}
+    ]
+
+
+def test_mcp_queries_returns_matching_entries_for_a_valid_range(
+    client: TestClient, service: MockAppService
+) -> None:
+    response = client.get("/v1/mcp/queries", params={"range": "24h"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    entry = service.mcp_query_entries[0]
+    assert payload["range"] == "24h"
+    assert payload["entries"] == [
+        {
+            "tool": entry.tool,
+            "client": entry.client,
+            "latency_ms": entry.latency_ms,
+            "created_at": entry.created_at.isoformat().replace("+00:00", "Z"),
+        }
+    ]
+
+
+def test_mcp_queries_defaults_to_24h(client: TestClient) -> None:
+    response = client.get("/v1/mcp/queries")
+
+    assert response.status_code == 200
+    assert response.json()["range"] == "24h"
+
+
+def test_mcp_queries_accepts_a_day_range_and_a_limit(client: TestClient) -> None:
+    response = client.get("/v1/mcp/queries", params={"range": "7d", "limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["range"] == "7d"
+
+
+def test_mcp_queries_reports_truncation_instead_of_silently_dropping_rows(
+    client: TestClient, service: MockAppService
+) -> None:
+    service.mcp_query_entries = [mcp_usage_entry(), mcp_usage_entry(), mcp_usage_entry()]
+
+    exact = client.get("/v1/mcp/queries", params={"limit": 3}).json()
+    assert len(exact["entries"]) == 3
+    assert exact["truncated"] is False
+
+    truncated = client.get("/v1/mcp/queries", params={"limit": 2}).json()
+    assert len(truncated["entries"]) == 2
+    assert truncated["truncated"] is True
+
+
+def test_mcp_queries_rejects_an_invalid_range_format(client: TestClient) -> None:
+    response = client.get("/v1/mcp/queries", params={"range": "yesterday"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "harbor_validation_error"
+
+
+def test_mcp_queries_rejects_a_tenant_scoped_caller(monkeypatch) -> None:
+    """McpUsageEntry has no tenant dimension either -- see the /clients tests above."""
+    service = MockAppService()
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="scoped-admin", role="admin", tenant_ids=frozenset({"tenant-a"})
+    )
+    with TestClient(app) as scoped_client:
+        response = scoped_client.get("/v1/mcp/queries")
+
+    assert response.status_code == 403
+
+
+def test_mcp_config_reports_real_values(client: TestClient) -> None:
+    response = client.get("/v1/mcp/config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["revision"] == "rev-1"
+    assert payload["disabled_tools"] == ["ingestion_run"]
+    assert payload["enabled_tool_count"] == 4
+    assert payload["total_tool_count"] == 5
+    assert payload["restart_required"] is False
+    assert payload["policy"]["max_results"] == 20
+
+
+def test_mcp_config_is_a_capability_error_before_any_mcp_server_has_published(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    service.mcp_config_value = None
+
+    response = client.get("/v1/mcp/config")
+
+    assert response.status_code == 501
+    assert response.json()["error"]["code"] == "harbor_capability_error"

@@ -20,11 +20,14 @@ from harborrag_adapters.repositories.database.control_plane.session import Sessi
 from harborrag_adapters.repositories.database.control_plane.workspace import (
     SqlMemberRepository,
     SqlProviderRepository,
+    SqlRoutingRuleRepository,
     SqlSettingsRepository,
 )
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
 
 pytestmark = pytest.mark.integration
@@ -96,6 +99,61 @@ async def test_activity_settings_provider_member_roundtrips(
     assert [stored.id for stored in await members.list(tenant_ids=None)] == ["m1"]
     await members.delete("m1", tenant_ids=None)
     assert await members.list(tenant_ids=None) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_provider_list_page_walks_a_keyset_cursor_and_rejects_a_bad_one(
+    sessions: SessionFactory,
+) -> None:
+    providers = SqlProviderRepository(sessions)
+    for index in range(5):
+        await providers.save(
+            Provider(id=f"p{index}", tenant_id="tenant-a", name=f"P{index}", family="chat")
+        )
+
+    first, cursor_1 = await providers.list_page(tenant_ids=None, cursor=None, limit=2)
+    assert [p.id for p in first] == ["p0", "p1"]
+    assert cursor_1 is not None
+
+    second, cursor_2 = await providers.list_page(tenant_ids=None, cursor=cursor_1, limit=2)
+    assert [p.id for p in second] == ["p2", "p3"]
+    assert cursor_2 is not None
+
+    last, cursor_3 = await providers.list_page(tenant_ids=None, cursor=cursor_2, limit=2)
+    assert [p.id for p in last] == ["p4"]
+    assert cursor_3 is None
+
+    with pytest.raises(HarborValidationError):
+        await providers.list_page(tenant_ids=None, cursor="garbage", limit=2)
+
+    scoped, _ = await providers.list_page(tenant_ids=frozenset({"tenant-b"}), cursor=None, limit=50)
+    assert scoped == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_deleting_a_provider_referenced_by_a_routing_rule_does_not_raise(
+    sessions: SessionFactory,
+) -> None:
+    """routing_rules.provider_id is a DB foreign key to providers.id; deleting a
+    still-referenced provider must tombstone the row (not remove it), so the
+    live FK constraint is never violated and the rule is never left dangling."""
+    providers = SqlProviderRepository(sessions)
+    routing_rules = SqlRoutingRuleRepository(sessions)
+
+    provider = Provider(id="pr1", tenant_id="tenant-a", name="OpenAI", family="chat")
+    await providers.save(provider)
+    await routing_rules.replace(
+        [RoutingRule(id="rule1", family="chat", provider_id="pr1", priority=0)]
+    )
+
+    await providers.delete("pr1", tenant_ids=None)
+
+    assert await providers.get("pr1", tenant_ids=None) is None
+    assert "pr1" not in [p.id for p in await providers.list(tenant_ids=None)]
+    rules = await routing_rules.list()
+    assert [rule.provider_id for rule in rules] == ["pr1"]
 
 
 @pytest.mark.asyncio

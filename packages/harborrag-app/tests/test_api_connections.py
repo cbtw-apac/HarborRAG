@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 
 _AUTH_SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
@@ -88,10 +90,29 @@ def test_catalog_requires_a_token_under_hmac(
     assert response.json()["error"]["code"] == "harbor_auth_error"
 
 
-def test_reader_role_clears_the_catalog_minimum(
+def test_operator_scoped_reader_clears_the_catalog_minimum(
     monkeypatch: pytest.MonkeyPatch,
     service: MockAppService,
 ) -> None:
+    """The reader role clears the bar, but only with unrestricted tenant scope."""
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    app = create_fastapi_app(ApiSettings())
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="global-reader", role="reader", tenant_ids=frozenset({"*"})
+    )
+
+    with TestClient(app) as catalog_client:
+        response = catalog_client.get("/v1/connections")
+
+    assert response.status_code == 200
+
+
+def test_tenant_scoped_reader_cannot_see_the_process_wide_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+    service: MockAppService,
+) -> None:
+    """The catalog has no tenant dimension to filter on, so a caller scoped to
+    one tenant must not see it even though "reader" alone clears the role bar."""
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_AUTH_SECRET))
 
@@ -101,4 +122,4 @@ def test_reader_role_clears_the_catalog_minimum(
             headers={"Authorization": f"Bearer {_token('reader')}"},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 403

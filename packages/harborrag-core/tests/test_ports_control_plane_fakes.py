@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.job import Job
@@ -240,6 +241,30 @@ async def test_fake_activity_settings_provider_and_member_repositories() -> None
     assert await members.get_by_subject("unknown") is None
     await members.delete(member.id, tenant_ids=None)
     assert await members.list(tenant_ids=None) == []
+
+
+@pytest.mark.asyncio
+async def test_fake_provider_repository_list_page_walks_a_keyset_cursor() -> None:
+    providers = FakeProviderRepository()
+    for index in range(5):
+        await providers.save(
+            Provider(id=f"p{index}", tenant_id="DEFAULT", name=f"P{index}", family="chat")
+        )
+
+    first, cursor_1 = await providers.list_page(tenant_ids=None, cursor=None, limit=2)
+    assert [p.id for p in first] == ["p0", "p1"]
+    assert cursor_1 is not None
+
+    second, cursor_2 = await providers.list_page(tenant_ids=None, cursor=cursor_1, limit=2)
+    assert [p.id for p in second] == ["p2", "p3"]
+    assert cursor_2 is not None
+
+    last, cursor_3 = await providers.list_page(tenant_ids=None, cursor=cursor_2, limit=2)
+    assert [p.id for p in last] == ["p4"]
+    assert cursor_3 is None
+
+    with pytest.raises(HarborValidationError):
+        await providers.list_page(tenant_ids=None, cursor="not-a-cursor", limit=2)
 
 
 @pytest.mark.asyncio
