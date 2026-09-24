@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from harborrag_app.api.auth.dependencies import (
     authorize_tenant,
@@ -26,6 +26,7 @@ from .dependencies import ProvidersServiceDependency
 from .schemas import (
     ProviderCostResponse,
     ProviderCreateInput,
+    ProviderListResponse,
     ProviderOut,
     ProviderTestResult,
     ProviderUpdateInput,
@@ -49,20 +50,34 @@ TEST_ERROR_RESPONSES = documented_error_responses(
 ROUTING_ERROR_RESPONSES = documented_error_responses({404: "Referenced provider not found"})
 
 
-@router.get("", response_model=list[ProviderOut], responses=CRUD_ERROR_RESPONSES)
+@router.get("", response_model=ProviderListResponse, responses=CRUD_ERROR_RESPONSES)
 async def list_providers(
     service: ProvidersServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
-) -> list[ProviderOut]:
-    """Providers visible to the caller's tenants; no real secret value ever appears."""
-    response = await service.list_providers(tenant_ids=principal.tenant_scope)
-    return [ProviderOut.from_domain(provider) for provider in response.data["providers"]]
+    cursor: Annotated[
+        str | None, Query(description="Opaque page cursor from a prior page.")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> ProviderListResponse:
+    """One page of providers visible to the caller's tenants; no real secret value
+    ever appears."""
+    response = await service.list_providers(
+        tenant_ids=principal.tenant_scope, cursor=cursor, limit=limit
+    )
+    return ProviderListResponse(
+        providers=[ProviderOut.from_domain(provider) for provider in response.data["providers"]],
+        next_cursor=response.data["next_cursor"],
+    )
 
 
 @router.get("/routing", response_model=list[RoutingRuleOut])
 async def get_routing_rules(
     service: ProvidersServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    # Routing rules are workspace-wide and can reference every tenant's
+    # providers (see replace_routing_rules below), so a tenant-scoped reader
+    # must not enumerate them either -- there is no tenant filter to apply
+    # on their behalf.
+    principal: Annotated[Principal, Depends(require_operator_role("reader"))],
 ) -> list[RoutingRuleOut]:
     """Every routing rule currently in effect (workspace-wide, not tenant-scoped)."""
     del principal

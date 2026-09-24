@@ -18,9 +18,20 @@ from harborrag_core.ports.provider_probe import ProviderProbeResult
 
 
 class ProviderServiceFixture:
-    async def list_providers(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
+    async def list_providers(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> AppResponse:
         del tenant_ids
-        return AppResponse(True, {"providers": list(self.providers.values())})
+        ordered = sorted(self.providers.values(), key=lambda p: p.id)
+        if cursor is not None:
+            ordered = [p for p in ordered if p.id > cursor]
+        page = ordered[:limit]
+        next_cursor = page[-1].id if len(ordered) > limit else None
+        return AppResponse(True, {"providers": page, "next_cursor": next_cursor})
 
     async def get_provider(
         self, provider_id: str, *, tenant_ids: frozenset[str] | None = None

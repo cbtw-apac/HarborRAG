@@ -13,6 +13,7 @@ from harborrag_app.api.auth.dependencies import get_principal
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
+from harborrag_core.domain.provider import Provider
 
 
 @pytest.fixture
@@ -32,9 +33,39 @@ def test_list_providers_never_reveals_a_raw_secret(client: TestClient) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 1
-    assert payload[0]["id"] == "prov_1"
-    assert payload[0]["secret_ref"] == "secret://db/1"
+    assert payload["next_cursor"] is None
+    assert len(payload["providers"]) == 1
+    assert payload["providers"][0]["id"] == "prov_1"
+    assert payload["providers"][0]["secret_ref"] == "secret://db/1"
+
+
+def test_list_providers_is_paginated(client: TestClient, service: MockAppService) -> None:
+    """A tenant with more providers than one page gets a cursor, not the whole table."""
+    for index in range(2, 6):
+        service.providers[f"prov_{index}"] = Provider(
+            id=f"prov_{index}",
+            tenant_id="DEFAULT",
+            name=f"Provider {index}",
+            family="chat",
+            config={},
+            secret_ref=None,
+        )
+
+    first_page = client.get("/v1/providers", params={"limit": 2}).json()
+    assert [p["id"] for p in first_page["providers"]] == ["prov_1", "prov_2"]
+    assert first_page["next_cursor"] is not None
+
+    second_page = client.get(
+        "/v1/providers", params={"limit": 2, "cursor": first_page["next_cursor"]}
+    ).json()
+    assert [p["id"] for p in second_page["providers"]] == ["prov_3", "prov_4"]
+    assert second_page["next_cursor"] is not None
+
+    last_page = client.get(
+        "/v1/providers", params={"limit": 2, "cursor": second_page["next_cursor"]}
+    ).json()
+    assert [p["id"] for p in last_page["providers"]] == ["prov_5"]
+    assert last_page["next_cursor"] is None
 
 
 def test_get_provider_returns_the_seeded_provider(client: TestClient) -> None:
@@ -147,6 +178,33 @@ def test_get_routing_rules_returns_the_seeded_rule(client: TestClient) -> None:
     assert payload[0]["provider_id"] == "prov_1"
 
 
+def test_list_providers_rejects_an_invalid_cursor_with_422() -> None:
+    """Exercises the real (base64-decoding) cursor codec, not the in-memory mock's."""
+    app = create_fastapi_app(ApiSettings())
+    service = control_plane_app_service()
+    app.dependency_overrides[get_app_service] = lambda: service
+
+    with TestClient(app) as client:
+        response = client.get("/v1/providers", params={"cursor": "not-a-valid-cursor"})
+
+    assert response.status_code == 422
+
+
+def test_get_routing_rules_rejects_a_tenant_scoped_reader() -> None:
+    """A workspace-wide table cannot be enumerated by a reader of one tenant either."""
+    app = create_fastapi_app(ApiSettings())
+    service = control_plane_app_service()
+    app.dependency_overrides[get_app_service] = lambda: service
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="scoped-reader", role="reader", tenant_ids=frozenset({"tenant-a"})
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/v1/providers/routing")
+
+    assert response.status_code == 403
+
+
 def test_replace_routing_rules_updates_the_table(
     client: TestClient, service: MockAppService
 ) -> None:
@@ -254,10 +312,10 @@ def test_provider_outside_the_callers_tenants_404s_not_403s() -> None:
 
         # Sanity: the default (owner, unrestricted) principal really can see it.
         assert client.get(f"/v1/providers/{created['id']}").status_code == 200
-        assert len(client.get("/v1/providers").json()) == 1
+        assert len(client.get("/v1/providers").json()["providers"]) == 1
 
         app.dependency_overrides[get_principal] = lambda: Principal(
             subject="other-tenant-user", role="owner", tenant_ids=frozenset({"tenant-b"})
         )
         assert client.get(f"/v1/providers/{created['id']}").status_code == 404
-        assert client.get("/v1/providers").json() == []
+        assert client.get("/v1/providers").json()["providers"] == []

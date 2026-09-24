@@ -152,8 +152,25 @@ class ProviderRepositoryPort(Protocol):
     existing. ``list``/``get`` hide deleted providers as if they were gone.
     """
 
+    async def list_page(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[Provider], str | None]:
+        """Non-deleted providers visible to ``tenant_ids``, walked via an opaque
+        keyset cursor, ordered by id (id is a generated, already-unique key,
+        so no second tiebreaker column is needed for a stable order)."""
+
     async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
-        """Non-deleted providers visible to ``tenant_ids``."""
+        """Every non-deleted provider visible to ``tenant_ids``, unpaginated.
+
+        For internal aggregation only (e.g. the cost snapshot, which needs
+        every provider id to report zeros for). ``GET /v1/providers`` uses
+        ``list_page`` instead so a tenant with many providers gets a bounded
+        response.
+        """
 
     async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
         """One non-deleted provider by id within ``tenant_ids``, or None."""

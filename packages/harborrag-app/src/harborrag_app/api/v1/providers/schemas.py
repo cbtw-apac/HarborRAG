@@ -56,6 +56,11 @@ class ProviderOut(ApiModel):
         )
 
 
+class ProviderListResponse(ApiModel):
+    providers: list[ProviderOut]
+    next_cursor: str | None
+
+
 class ProviderTestResult(ApiModel):
     ok: bool
     message: str

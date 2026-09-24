@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from app_test_fixtures import MockAppService
+from app_test_mcp_records import mcp_usage_entry
 from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
@@ -124,6 +125,20 @@ def test_mcp_queries_accepts_a_day_range_and_a_limit(client: TestClient) -> None
 
     assert response.status_code == 200
     assert response.json()["range"] == "7d"
+
+
+def test_mcp_queries_reports_truncation_instead_of_silently_dropping_rows(
+    client: TestClient, service: MockAppService
+) -> None:
+    service.mcp_query_entries = [mcp_usage_entry(), mcp_usage_entry(), mcp_usage_entry()]
+
+    exact = client.get("/v1/mcp/queries", params={"limit": 3}).json()
+    assert len(exact["entries"]) == 3
+    assert exact["truncated"] is False
+
+    truncated = client.get("/v1/mcp/queries", params={"limit": 2}).json()
+    assert len(truncated["entries"]) == 2
+    assert truncated["truncated"] is True
 
 
 def test_mcp_queries_rejects_an_invalid_range_format(client: TestClient) -> None:

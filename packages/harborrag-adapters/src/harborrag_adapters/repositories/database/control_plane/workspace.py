@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
@@ -14,7 +16,7 @@ from harborrag_adapters.repositories.database.control_plane.schemas import (
     RoutingRuleRow,
     WorkspaceSettingsRow,
 )
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.domain.member import Member, Role
 from harborrag_core.domain.provider import Provider, ProviderFamily
 from harborrag_core.domain.routing_rule import RoutingRule
@@ -72,6 +74,31 @@ class SqlProviderRepository:
     """
 
     sessions: SessionFactory
+
+    async def list_page(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[Provider], str | None]:
+        """Non-deleted providers visible to ``tenant_ids``, walked via an opaque keyset
+        cursor over ``id`` (already a unique, generated key -- no second tiebreaker
+        column is needed for a stable order)."""
+        statement = (
+            sa.select(ProviderRow).where(ProviderRow.deleted_at.is_(None)).order_by(ProviderRow.id)
+        )
+        if tenant_ids is not None:
+            statement = statement.where(ProviderRow.tenant_id.in_(tenant_ids))
+        if cursor is not None:
+            statement = statement.where(ProviderRow.id > _decode_provider_cursor(cursor))
+        statement = statement.limit(limit + 1)
+        async with self.sessions() as session:
+            rows = list(await session.scalars(statement))
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        next_cursor = _encode_provider_cursor(page[-1].id) if has_more else None
+        return [self._to_domain(row) for row in page], next_cursor
 
     async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
         """Non-deleted providers visible to ``tenant_ids`` (None: unrestricted), ordered by id."""
@@ -159,6 +186,7 @@ class SqlRoutingRuleRepository:
                         provider_id=rule.provider_id,
                         rule_json={"priority": rule.priority},
                         created_at=utc_now(),
+                        updated_at=utc_now(),
                     )
                 )
         return list(rules)
@@ -236,3 +264,20 @@ class SqlMemberRepository:
             subject=row.subject,
             role=cast(Role, row.role),
         )
+
+
+def _encode_provider_cursor(provider_id: str) -> str:
+    payload = json.dumps({"id": provider_id}, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_provider_cursor(value: str) -> str:
+    padding = "=" * (-len(value) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(value + padding))
+        provider_id = str(payload["id"])
+        if not provider_id:
+            raise ValueError
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise HarborValidationError("provider cursor is invalid") from error
+    return provider_id

@@ -23,6 +23,7 @@ from harborrag_adapters.repositories.database.control_plane.workspace import (
     SqlRoutingRuleRepository,
     SqlSettingsRepository,
 )
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.provider import Provider
@@ -98,6 +99,36 @@ async def test_activity_settings_provider_member_roundtrips(
     assert [stored.id for stored in await members.list(tenant_ids=None)] == ["m1"]
     await members.delete("m1", tenant_ids=None)
     assert await members.list(tenant_ids=None) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_provider_list_page_walks_a_keyset_cursor_and_rejects_a_bad_one(
+    sessions: SessionFactory,
+) -> None:
+    providers = SqlProviderRepository(sessions)
+    for index in range(5):
+        await providers.save(
+            Provider(id=f"p{index}", tenant_id="tenant-a", name=f"P{index}", family="chat")
+        )
+
+    first, cursor_1 = await providers.list_page(tenant_ids=None, cursor=None, limit=2)
+    assert [p.id for p in first] == ["p0", "p1"]
+    assert cursor_1 is not None
+
+    second, cursor_2 = await providers.list_page(tenant_ids=None, cursor=cursor_1, limit=2)
+    assert [p.id for p in second] == ["p2", "p3"]
+    assert cursor_2 is not None
+
+    last, cursor_3 = await providers.list_page(tenant_ids=None, cursor=cursor_2, limit=2)
+    assert [p.id for p in last] == ["p4"]
+    assert cursor_3 is None
+
+    with pytest.raises(HarborValidationError):
+        await providers.list_page(tenant_ids=None, cursor="garbage", limit=2)
+
+    scoped, _ = await providers.list_page(tenant_ids=frozenset({"tenant-b"}), cursor=None, limit=50)
+    assert scoped == []
 
 
 @pytest.mark.asyncio

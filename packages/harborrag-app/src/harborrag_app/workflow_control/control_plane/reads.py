@@ -92,10 +92,19 @@ class ControlPlaneReadsMixin:
         )
         return AppResponse(True, {"conflicts": conflicts, "next_cursor": next_cursor})
 
-    async def list_providers(self, *, tenant_ids: frozenset[str] | None) -> AppResponse:
-        """Providers within ``tenant_ids``; config/secret_ref never carry a raw key value."""
-        providers = await self._control_plane().providers.list(tenant_ids=tenant_ids)
-        return AppResponse(True, {"providers": providers})
+    async def list_providers(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> AppResponse:
+        """One page of providers within ``tenant_ids``; config/secret_ref never carry a
+        raw key value."""
+        providers, next_cursor = await self._control_plane().providers.list_page(
+            tenant_ids=tenant_ids, cursor=cursor, limit=limit
+        )
+        return AppResponse(True, {"providers": providers, "next_cursor": next_cursor})
 
     async def get_provider(
         self, provider_id: str, *, tenant_ids: frozenset[str] | None
@@ -153,9 +162,17 @@ class ControlPlaneReadsMixin:
         return AppResponse(True, {"tools": tools})
 
     async def mcp_queries(self, *, since: datetime, limit: int) -> AppResponse:
-        """MCP usage entries at or after ``since``, newest first, capped at ``limit``."""
-        entries = await self._control_plane().mcp_query_log.list_since(since=since, limit=limit)
-        return AppResponse(True, {"entries": entries})
+        """MCP usage entries at or after ``since``, newest first, capped at ``limit``.
+
+        No cursor: fetches one extra row to report whether more entries exist
+        in the range than ``limit``, so an over-limit range is truncated
+        visibly rather than silently.
+        """
+        entries = await self._control_plane().mcp_query_log.list_since(since=since, limit=limit + 1)
+        return AppResponse(
+            True,
+            {"entries": entries[:limit], "truncated": len(entries) > limit},
+        )
 
     async def mcp_config(self) -> AppResponse:
         """The MCP server's last-published effective configuration.

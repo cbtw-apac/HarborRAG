@@ -12,7 +12,13 @@ from harborrag_core.domain.provider import ProviderFamily
 
 
 class ProvidersService(Protocol):
-    async def list_providers(self, *, tenant_ids: frozenset[str] | None) -> AppResponse: ...
+    async def list_providers(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> AppResponse: ...
 
     async def get_provider(
         self, provider_id: str, *, tenant_ids: frozenset[str] | None

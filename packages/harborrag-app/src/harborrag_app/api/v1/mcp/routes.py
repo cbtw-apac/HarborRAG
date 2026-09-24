@@ -94,6 +94,7 @@ async def mcp_queries(
     return McpQueryListResponse(
         range=range,
         entries=[McpQueryEntryResponse.from_domain(e) for e in response.data["entries"]],
+        truncated=response.data["truncated"],
     )
 
 

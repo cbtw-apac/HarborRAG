@@ -474,8 +474,11 @@ class MockAppService(
         return AppResponse(True, {"tools": [mcp_tool_usage()]})
 
     async def mcp_queries(self, *, since: datetime, limit: int) -> AppResponse:
-        entries = [e for e in self.mcp_query_entries if e.created_at >= since][:limit]
-        return AppResponse(True, {"entries": entries})
+        matching = [e for e in self.mcp_query_entries if e.created_at >= since]
+        return AppResponse(
+            True,
+            {"entries": matching[:limit], "truncated": len(matching) > limit},
+        )
 
     async def mcp_config(self) -> AppResponse:
         if self.mcp_config_value is None:

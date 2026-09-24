@@ -16,8 +16,15 @@ from .schemas import AppResponse
 class ProviderPort:
     """Provider CRUD, test-connection, routing, and cost operations."""
 
-    async def list_providers(self, *, tenant_ids: frozenset[str] | None) -> AppResponse:
-        """Providers within ``tenant_ids``; data={"providers": [...]}, secret values never appear."""
+    async def list_providers(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> AppResponse:
+        """One page of providers within ``tenant_ids``, walked via an opaque cursor;
+        data={"providers": [...], "next_cursor": ...}, secret values never appear."""
         raise NotImplementedError
 
     async def get_provider(

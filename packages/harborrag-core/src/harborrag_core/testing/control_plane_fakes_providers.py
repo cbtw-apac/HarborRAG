@@ -4,11 +4,14 @@ keep that file under the repo's file-length gate.
 
 from __future__ import annotations
 
+import base64
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.ports.provider_probe import ProviderProbeResult
@@ -29,6 +32,30 @@ class FakeProviderRepository:
     """
 
     providers: dict[str, Provider] = field(default_factory=dict)
+
+    async def list_page(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[Provider], str | None]:
+        """Non-deleted providers visible to ``tenant_ids``, walked via an opaque keyset
+        cursor over ``id`` -- mirrors ``SqlProviderRepository.list_page``."""
+        scoped = sorted(
+            (
+                p
+                for p in self.providers.values()
+                if p.deleted_at is None and _in_scope(p.tenant_id, tenant_ids)
+            ),
+            key=lambda p: p.id,
+        )
+        if cursor is not None:
+            after = _decode_provider_cursor(cursor)
+            scoped = [p for p in scoped if p.id > after]
+        page = scoped[:limit]
+        next_cursor = _encode_provider_cursor(page[-1].id) if len(scoped) > limit else None
+        return page, next_cursor
 
     async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
         """Non-deleted providers visible to ``tenant_ids`` (None: unrestricted)."""
@@ -110,3 +137,20 @@ class FakeProviderCostTracker:
     def snapshot(self, provider_ids: Iterable[str]) -> dict[str, float]:
         """Current total spend per id (0.0 for one never recorded)."""
         return {provider_id: self._totals.get(provider_id, 0.0) for provider_id in provider_ids}
+
+
+def _encode_provider_cursor(provider_id: str) -> str:
+    payload = json.dumps({"id": provider_id}, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_provider_cursor(value: str) -> str:
+    padding = "=" * (-len(value) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(value + padding))
+        provider_id = str(payload["id"])
+        if not provider_id:
+            raise ValueError
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise HarborValidationError("provider cursor is invalid") from error
+    return provider_id

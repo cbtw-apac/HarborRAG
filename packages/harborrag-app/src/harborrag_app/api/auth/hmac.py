@@ -1,7 +1,8 @@
 """HS256 JWT verifier against a shared secret (ST4 dev/compose auth).
 
-OIDC/JWKS verification for Okta/Azure AD replaces this in M5 behind the same
-BaseTokenVerifier seam.
+Production deployments use ``OidcTokenVerifier`` (ML5) behind the same
+BaseTokenVerifier seam instead; this one remains an explicitly configured
+local development/test mode.
 """
 
 from __future__ import annotations

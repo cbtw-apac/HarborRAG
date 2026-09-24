@@ -104,7 +104,12 @@ async def list_memories(  # noqa: PLR0913 - one parameter per documented query f
     scope: Annotated[MemoryScope | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> MemoryListResponse:
-    """List the memories visible to the caller, with their provenance."""
+    """List the memories visible to the caller, with their provenance.
+
+    Ranked (recency/importance), bounded read -- not a stable enumeration, so
+    there is no cursor; `truncated` in the response says whether the caller
+    has more than `limit` (max 100).
+    """
 
     authorize_tenant(principal, tenant)
     access = _access(principal, tenant, project_id=project_id, session_id=session_id)

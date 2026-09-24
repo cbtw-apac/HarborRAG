@@ -29,6 +29,15 @@ class MemoryRecord(ApiModel):
 
 class MemoryListResponse(ApiModel):
     memories: list[MemoryRecord] = Field(default_factory=list)
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True when the caller has more memories than `limit`. This is a "
+            "ranked, bounded read (like retrieval), not a stably-ordered "
+            "enumeration, so there is no cursor to page further with -- raise "
+            "`limit` (max 100) or narrow with `scope`/`project_id`/`session_id`."
+        ),
+    )
 
 
 class MemoryDeletionResponse(ApiModel):

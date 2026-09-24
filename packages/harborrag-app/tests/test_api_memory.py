@@ -87,6 +87,26 @@ async def test_listing_returns_the_callers_own_memories_with_provenance(
     assert memories[0]["source_message_ids"] == ["msg-1", "msg-2"]
     assert memories[0]["scope"] == "user"
     assert memories[0]["valid_from"] is not None
+    assert response.json()["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_listing_reports_truncation_instead_of_silently_dropping_rows(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    """More memories than `limit` must be visible in the response, not silently
+    dropped -- this is a ranked/bounded read with no cursor to page further with."""
+    for index in range(3):
+        await service.memory_store.save(memory(f"mem-{index}", importance=1.0 - index * 0.1))
+
+    exact = client.get("/v1/memory/memories", params={"limit": 3}).json()
+    assert len(exact["memories"]) == 3
+    assert exact["truncated"] is False
+
+    truncated = client.get("/v1/memory/memories", params={"limit": 2}).json()
+    assert len(truncated["memories"]) == 2
+    assert truncated["truncated"] is True
 
 
 @pytest.mark.asyncio

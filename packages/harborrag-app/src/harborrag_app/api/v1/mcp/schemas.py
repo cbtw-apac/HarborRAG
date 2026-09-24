@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pydantic import Field
+
 from harborrag_app.api.schemas import ApiModel
 from harborrag_core.domain.mcp_usage import (
     McpClientUsage,
@@ -75,6 +77,14 @@ class McpQueryEntryResponse(ApiModel):
 class McpQueryListResponse(ApiModel):
     range: str
     entries: list[McpQueryEntryResponse]
+    truncated: bool = Field(
+        default=False,
+        description=(
+            "True when more entries exist in the range than `limit`. No cursor "
+            "is offered for this telemetry read; narrow `range` or raise `limit` "
+            "(max 1000)."
+        ),
+    )
 
 
 class McpConfigResponse(ApiModel):

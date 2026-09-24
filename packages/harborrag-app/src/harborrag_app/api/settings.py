@@ -21,6 +21,16 @@ _CAPACITY_REDIS_TRANSPORT = RemoteTransportPolicy(
     allowed_schemes=frozenset({"redis", "rediss"}),
     secure_schemes=frozenset({"rediss"}),
 )
+OIDC_JWKS_TRANSPORT = RemoteTransportPolicy(
+    service="OIDC JWKS",
+    allowed_schemes=frozenset({"http", "https"}),
+    secure_schemes=frozenset({"https"}),
+)
+OIDC_ISSUER_TRANSPORT = RemoteTransportPolicy(
+    service="OIDC issuer",
+    allowed_schemes=frozenset({"http", "https"}),
+    secure_schemes=frozenset({"https"}),
+)
 
 
 class TenantCapacityOverride(BaseModel):
@@ -61,7 +71,23 @@ class ApiSettings(BaseSettings):
     auth_clock_skew_seconds: int = Field(default=30, ge=0, le=300)
     # A required, signed JWT claim naming the stable end user. Use a claim
     # other than sub when one service credential acts for several people.
+    # Entra deployments typically set this to "oid" (the immutable directory
+    # object id), since "sub" there is pairwise per application registration.
     auth_user_id_claim: str = Field(default="sub", min_length=1)
+    # OIDC-only: the discovery/JWKS endpoint and claim shape. auth_issuer and
+    # auth_audience above are reused for the oidc verifier so the two auth
+    # modes share one config surface -- an operator switches HARBORRAG_AUTH_MODE
+    # and repoints those two plus the JWKS URI, nothing else changes.
+    oidc_jwks_uri: str | None = None
+    oidc_algorithms: list[str] = Field(default_factory=lambda: ["RS256"], min_length=1)
+    # Entra app roles arrive as a JSON array claim (a user can be assigned more
+    # than one); "tenants" mirrors the hmac verifier's claim shape and must be
+    # populated via an Entra claims-mapping policy, since AAD's own "tenant" is
+    # a different concept (the directory) from HarborRAG's per-customer tenant.
+    oidc_role_claim: str = Field(default="roles", min_length=1)
+    oidc_tenant_claim: str = Field(default="tenants", min_length=1)
+    oidc_jwks_cache_seconds: int = Field(default=300, ge=30, le=3600)
+    oidc_allow_insecure_transport: bool = False
     max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=16_777_216)
     api_capacity_redis_url: SecretStr | None = None
     api_capacity_allow_insecure_remote: bool = False
@@ -106,6 +132,13 @@ class ApiSettings(BaseSettings):
         if isinstance(data, dict) and data.get("env") == "prod" and "docs_enabled" not in data:
             data = {**data, "docs_enabled": False}
         return data
+
+    @model_validator(mode="after")
+    def _validate_oidc_algorithms(self) -> ApiSettings:
+        for algorithm in self.oidc_algorithms:
+            if algorithm.strip().lower() == "none":
+                raise ValueError("HARBORRAG_OIDC_ALGORITHMS must not include the 'none' algorithm")
+        return self
 
     @model_validator(mode="after")
     def _validate_capacity_backend(self) -> ApiSettings:
