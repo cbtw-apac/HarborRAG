@@ -181,6 +181,24 @@ class SourceCancellationInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SourcePauseInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("paused source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceResumeInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("resumed source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
 class SourceFailureInput:
     task_id: str
     error_code: str
@@ -213,12 +231,36 @@ class SourceIngestionStatus:
     status: str
     paused: bool
     cancel_requested: bool
+    pause_applied: bool = False
 
     def __post_init__(self) -> None:
         if not self.task_id.strip():
             raise ValueError("source status task ID must be non-empty")
         if self.status not in _SOURCE_TASK_STATES:
             raise ValueError("source status is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowExecutionControlInput:
+    workflow_id: str
+
+    def __post_init__(self) -> None:
+        if not self.workflow_id.strip():
+            raise ValueError("workflow control workflow ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceBatchStatus:
+    task_id: str
+    status: str
+    paused: bool
+    cancel_requested: bool
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("source batch status task ID must be non-empty")
+        if self.status not in {"PENDING", "RUNNING", "PAUSED", "CANCELLING", "COMPLETED"}:
+            raise ValueError("source batch status is invalid")
 
 
 @dataclass(frozen=True, slots=True)

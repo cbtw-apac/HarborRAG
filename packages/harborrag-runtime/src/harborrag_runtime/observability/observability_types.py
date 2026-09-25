@@ -20,6 +20,7 @@ class IngestionStage(StrEnum):
     FAILURE_CAPTURE = "failure_capture"
     FINALIZATION = "finalization"
     CANCELLATION = "cancellation"
+    CONTROL = "control"
     CLEANUP = "cleanup"
     RELATION_REPAIR = "relation_repair"
     REINDEX = "reindex"
