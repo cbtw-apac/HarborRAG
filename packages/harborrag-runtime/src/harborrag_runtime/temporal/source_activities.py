@@ -54,15 +54,20 @@ class SourceActivitiesMixin:
         if self._temporal_client is None:
             raise RuntimeError("Temporal client is required for workflow pause control")
         info = activity.info()
-        await self._temporal_client.workflow_service.pause_workflow_execution(
-            PauseWorkflowExecutionRequest(
-                namespace=self._temporal_client.namespace,
-                workflow_id=request.workflow_id,
-                identity="harborrag-runtime",
-                reason="Source ingestion pause requested",
-                request_id=f"{info.workflow_id}:{info.activity_id}",
+        try:
+            await self._temporal_client.workflow_service.pause_workflow_execution(
+                PauseWorkflowExecutionRequest(
+                    namespace=self._temporal_client.namespace,
+                    workflow_id=request.workflow_id,
+                    identity="harborrag-runtime",
+                    reason="Source ingestion pause requested",
+                    request_id=f"{info.workflow_id}:{info.activity_id}",
+                )
             )
-        )
+        except RPCError as error:
+            if error.status is RPCStatusCode.UNIMPLEMENTED:
+                return
+            raise
 
     @activity.defn(name="harborrag.unpause_workflow_execution")
     async def unpause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
@@ -80,7 +85,10 @@ class SourceActivitiesMixin:
                 )
             )
         except RPCError as error:
-            if error.status is RPCStatusCode.FAILED_PRECONDITION:
+            if error.status in {
+                RPCStatusCode.FAILED_PRECONDITION,
+                RPCStatusCode.UNIMPLEMENTED,
+            }:
                 return
             raise
 

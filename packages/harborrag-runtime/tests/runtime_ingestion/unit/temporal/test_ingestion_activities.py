@@ -168,8 +168,12 @@ async def test_native_workflow_pause_controls_update_temporal_ui_execution_statu
 ) -> None:
     activities, *_ = _build_activities()
     workflow_service = SimpleNamespace(
-        pause_workflow_execution=AsyncMock(),
-        unpause_workflow_execution=AsyncMock(),
+        pause_workflow_execution=AsyncMock(
+            side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+        ),
+        unpause_workflow_execution=AsyncMock(
+            side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+        ),
     )
     activities._temporal_client = SimpleNamespace(
         namespace="harborrag",

@@ -10,15 +10,20 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.maintenance_schemas import ProjectionCleanupResult
 from harborrag_runtime.temporal.schemas import (
     SourceDiscoveryResult,
     SourceIngestionResult,
+    WorkflowExecutionControlInput,
 )
+from harborrag_runtime.temporal.source_activities import SourceActivitiesMixin
 from harborrag_runtime.temporal.source_batch_workflow import SourceBatchWorkflow
 from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
 
@@ -101,6 +106,22 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
     finished: list[int] = []
     control_activities: list[str] = []
     wave_release = {0: asyncio.Event(), 1: asyncio.Event()}
+    native_control = SourceActivitiesMixin()
+    native_control._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=SimpleNamespace(
+            pause_workflow_execution=AsyncMock(
+                side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+            ),
+            unpause_workflow_execution=AsyncMock(
+                side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_activities.activity.info",
+        lambda: SimpleNamespace(workflow_id="source:task-1", activity_id="control-1"),
+    )
 
     async def execute_activity(name, request, **options):
         del options
@@ -115,10 +136,20 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
         if name in {
             "harborrag.pause_source_ingestion",
             "harborrag.resume_source_ingestion",
-            "harborrag.pause_workflow_execution",
-            "harborrag.unpause_workflow_execution",
         }:
             control_activities.append(name)
+            return None
+        if name == "harborrag.pause_workflow_execution":
+            control_activities.append(name)
+            await native_control.pause_workflow_execution(
+                WorkflowExecutionControlInput(workflow_id=request.workflow_id)
+            )
+            return None
+        if name == "harborrag.unpause_workflow_execution":
+            control_activities.append(name)
+            await native_control.unpause_workflow_execution(
+                WorkflowExecutionControlInput(workflow_id=request.workflow_id)
+            )
             return None
         assert name == "harborrag.finalize_source_ingestion"
         return SourceIngestionResult(
