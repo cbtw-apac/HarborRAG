@@ -105,7 +105,7 @@ class IngestionRuntimeBuilder:
             attachment_parser=parser,
             rate_limiter=rate_limiter,
         )
-        embed_client, model, dimensions = self._embedding_client()
+        embed_client, model, dimensions = self._embedding_client(telemetry)
         control = build_ingestion_control(settings)
         object_store = build_object_store(settings)
         vectors = build_vector_repository(settings)
@@ -274,7 +274,10 @@ class IngestionRuntimeBuilder:
             for argument, dependency in definition.constructor_dependencies.items()
         }
 
-    def _embedding_client(self) -> tuple[HarborEmbedClient, str, int]:
+    def _embedding_client(
+        self,
+        ingestion_telemetry: IngestionTelemetry,
+    ) -> tuple[HarborEmbedClient, str, int]:
         settings = self._settings
         config = HarborEmbedClientConfig.from_file(settings.model_config_path)
         model = settings.embedding_model or config.default_model
@@ -284,6 +287,7 @@ class IngestionRuntimeBuilder:
             telemetry=build_model_telemetry(
                 config,
                 langfuse_enabled=settings.langfuse_enabled,
+                registry=ingestion_telemetry.registry,
             ),
             telemetry_ownership=ResourceOwnership.OWNED,
         )

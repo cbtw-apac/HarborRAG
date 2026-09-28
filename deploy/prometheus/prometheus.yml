@@ -6,3 +6,11 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["temporal-worker:9464"]
+
+  # GET /api/v1/metrics requires an admin bearer token whenever
+  # HARBORRAG_AUTH_MODE is not "none" (see api/README.md); add a
+  # `bearer_token_file` here when scraping a non-dev deployment.
+  - job_name: harborrag-api
+    metrics_path: /api/v1/metrics
+    static_configs:
+      - targets: ["api:8000"]

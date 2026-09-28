@@ -13,6 +13,7 @@ from harborrag_adapters.models.runtime import (
     ModelClientConfig,
     OpenTelemetryTelemetry,
     TelemetryDispatcher,
+    TelemetryEvent,
 )
 
 from .connector_metrics import connector_metric_label
@@ -140,6 +141,18 @@ class IngestionTelemetry:
             "harborrag_ingestion_subprocess_executions_total",
             "Subprocess execution outcomes for CPU-intensive activities.",
             ("stage", "outcome"),
+            registry=self.registry,
+        )
+        self._parser_engine_attempts = Counter(
+            "harborrag_ingestion_parser_engine_attempts_total",
+            "PDF parser engine attempts within the parse_normalize stage.",
+            ("engine", "outcome"),
+            registry=self.registry,
+        )
+        self._parser_engine_duration = Histogram(
+            "harborrag_ingestion_parser_engine_duration_seconds",
+            "PDF parser engine attempt duration, one observation per engine tried.",
+            ("engine",),
             registry=self.registry,
         )
 
@@ -280,20 +293,79 @@ class IngestionTelemetry:
         self._stage_operations.labels(stage=stage.value, outcome=outcome).inc()
         self._stage_duration.labels(stage=stage.value).observe(duration)
 
+    def record_parser_engine_attempt(
+        self,
+        *,
+        engine: str,
+        success: bool,
+        duration_seconds: float,
+    ) -> None:
+        outcome = "success" if success else "failure"
+        self._parser_engine_attempts.labels(engine=engine, outcome=outcome).inc()
+        self._parser_engine_duration.labels(engine=engine).observe(max(0.0, duration_seconds))
+
 
 def build_model_telemetry(
     config: ModelClientConfig,
     *,
     langfuse_enabled: bool,
+    registry: CollectorRegistry | None = None,
 ) -> TelemetryDispatcher:
     """Compose sanitized model telemetry for embedding or chat clients.
 
     Annotated against the shared client-config base so every model family --
     embed, chat -- composes its dispatcher the same way; only
     ``config.observability`` is read.
+
+    ``OpenTelemetryTelemetry`` records into a bare OTel meter with no
+    MeterProvider/exporter wired up anywhere in this codebase, so its
+    histogram is otherwise discarded. Pass the caller's Prometheus
+    ``registry`` (e.g. ``IngestionTelemetry.registry``) to also record
+    call duration where it will actually be scraped.
     """
 
     sinks: list[object] = [OpenTelemetryTelemetry()]
+    if registry is not None:
+        sinks.append(PrometheusModelTelemetry(registry))
     if langfuse_enabled:
         sinks.append(LangfuseTelemetry())
     return TelemetryDispatcher(sinks, config=config.observability)
+
+
+class PrometheusModelTelemetry:
+    """Record model call counts/duration directly onto a prometheus_client registry."""
+
+    def __init__(self, registry: CollectorRegistry) -> None:
+        self._requests = Counter(
+            "harborrag_model_requests_total",
+            "Model requests completed, by operation, provider, model, and status.",
+            ("operation", "provider", "model", "status"),
+            registry=registry,
+        )
+        self._duration = Histogram(
+            "harborrag_model_call_duration_seconds",
+            "Model call duration, by operation, provider, model, and status.",
+            ("operation", "provider", "model", "status"),
+            registry=registry,
+        )
+
+    def emit(self, event: TelemetryEvent) -> None:
+        if event.total_duration_ms is None:
+            return
+        labels = {
+            "operation": event.operation,
+            "provider": event.provider or "unknown",
+            "model": event.provider_model or event.logical_model or "unknown",
+            "status": event.status.value,
+        }
+        self._requests.labels(**labels).inc()
+        self._duration.labels(**labels).observe(max(0.0, event.total_duration_ms / 1000))
+
+    async def aemit(self, event: TelemetryEvent) -> None:
+        self.emit(event)
+
+    def close(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None

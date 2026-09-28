@@ -39,6 +39,10 @@ class PreparedDocumentStage:
     document_version_id: str
     decision: SourceAdmissionDecision
     canonical_reference: ArtifactReference | None = None
+    # (engine, success, duration_ms) per parser engine attempt, carried out of a
+    # possibly-isolated subprocess as plain picklable primitives so the caller
+    # can record per-engine metrics without a harborrag_adapters import here.
+    parser_attempts: tuple[tuple[str, bool, float], ...] = ()
 
     @property
     def requires_processing(self) -> bool:
