@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.parsers.common.normalization import compact_text, html_to_text
 
+from .html_to_markdown import html_to_markdown
 from .schemas import (
     JiraCustomFieldKind,
     JiraCustomFieldMetadata,
@@ -25,6 +27,7 @@ def build_raw_content(
 ) -> str:
     """Render a JIRA issue and optional child data as readable plain text."""
     fields = issue.get("fields", {})
+    rendered_fields = issue.get("renderedFields", {}) or {}
     lines = [
         f"# {issue.get('key')} {fields.get('summary') or ''}".strip(),
         "",
@@ -33,7 +36,8 @@ def build_raw_content(
         f"Priority: {_name(fields.get('priority')) or ''}".strip(),
         "",
         "## Description",
-        field_text(fields.get("description")),
+        # Prefer rendered HTML (if available) so we preserve tables/formatting
+        field_text(rendered_fields.get("description") or fields.get("description")),
     ]
 
     custom_field_lines = [
@@ -159,21 +163,48 @@ def field_text(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
-        if "<" in value and ">" in value:
-            return html_to_text(value)
-        return compact_text(value)
+        return _field_text_from_string(value)
     if isinstance(value, dict):
-        adf_text = compact_text("".join(_walk_adf(value)))
-        if adf_text:
-            return adf_text
-        for key in ("displayName", "name", "value", "key", "emailAddress"):
-            if value.get(key):
-                return compact_text(str(value[key]))
-        nested_parts = [field_text(item) for item in value.values()]
-        return compact_text("\n".join(part for part in nested_parts if part))
+        # If this looks like Atlassian Document Format (ADF), attempt to
+        # convert it to Markdown (preserving tables) before falling back
+        # to a plain-text ADF walk.
+        return _field_text_from_dict(value)
     if isinstance(value, list):
         return compact_text("\n".join(field_text(item) for item in value))
     return compact_text(str(value))
+
+
+def _field_text_from_string(value: str) -> str:
+    """Handle string values: prefer HTML->Markdown for tables, else plain text."""
+    if "<" in value and ">" in value:
+        try:
+            md = html_to_markdown(value)
+            if md and "|" in md and "---" in md:
+                return md
+        except Exception:
+            pass
+        return html_to_text(value)
+    return compact_text(value)
+
+
+def _field_text_from_dict(value: dict[str, Any]) -> str:
+    """Handle dict-like values including ADF, objects, and nested structures."""
+    try:
+        if value.get("type") == "doc" or isinstance(value.get("content"), list):
+            md = _adf_to_markdown(value)
+            if md and md.strip():
+                return md.strip()
+    except Exception:
+        # fall through to text-only extraction on any failure
+        pass
+    adf_text = compact_text("".join(_walk_adf(value)))
+    if adf_text:
+        return adf_text
+    for key in ("displayName", "name", "value", "key", "emailAddress"):
+        if value.get(key):
+            return compact_text(str(value[key]))
+    nested_parts = [field_text(item) for item in value.values()]
+    return compact_text("\n".join(part for part in nested_parts if part))
 
 
 def _walk_adf(node: Any) -> list[str]:
@@ -200,6 +231,142 @@ def _walk_adf(node: Any) -> list[str]:
     if node_type in {"paragraph", "heading", "listItem"} and node_parts:
         node_parts.append("\n")
     return node_parts
+
+
+def _adf_to_markdown(node: Any) -> str:
+    """Render a subset of ADF to Markdown, with table support.
+
+    This implements minimal ADF handling sufficient to render tables and
+    paragraphs into readable Markdown. It is conservative and falls back
+    to plain-text when structures are unfamiliar.
+    """
+    parts: list[str] = []
+
+    def render(n: Any) -> str:
+        if isinstance(n, str):
+            return n
+        if isinstance(n, list):
+            return "".join(render(child) for child in n)
+        if not isinstance(n, dict):
+            return ""
+        t = n.get("type")
+        if t == "paragraph":
+            return compact_text("".join(_walk_adf(n))) + "\n\n"
+        if t == "heading":
+            level = (n.get("attrs") or {}).get("level") or 1
+            try:
+                level = int(level)
+            except Exception:
+                level = 1
+            text = compact_text("".join(_walk_adf(n)))
+            return f"{('#' * max(1, min(level, 6)))} {text}\n\n" if text else ""
+        if t == "table":
+            return _adf_table_to_markdown(n) + "\n\n"
+        # Generic: render children
+        return "".join(render(child) for child in n.get("content", []) or [])
+
+    parts.append(render(node))
+    return _compact_md("".join(parts))
+
+
+def _adf_table_to_markdown(table_node: dict[str, Any]) -> str:
+    rows, header_row = _extract_adf_table_rows(table_node)
+    if not rows:
+        return ""
+    return _format_md_table(rows, header_row)
+
+
+def _parse_span(attrs: dict[str, Any], key: str) -> int:
+    try:
+        return max(1, int(attrs.get(key) or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _extract_adf_table_row(
+    row: dict[str, Any], row_spans: dict[int, int]
+) -> tuple[list[str], bool]:
+    """Render one ADF tableRow into a grid-aligned list of cell strings.
+
+    `row_spans` (column index -> remaining rows to blank-fill) is mutated in
+    place so a cell's rowspan carries a blank placeholder into later rows.
+    """
+    cell_nodes = [c for c in row.get("content", []) or [] if isinstance(c, dict)]
+    out_row: list[str] = []
+    col = 0
+    idx = 0
+    row_has_header = False
+    while idx < len(cell_nodes) or col in row_spans:
+        if row_spans.get(col, 0) > 0:
+            out_row.append("")
+            row_spans[col] -= 1
+            if row_spans[col] <= 0:
+                del row_spans[col]
+            col += 1
+            continue
+        cell = cell_nodes[idx]
+        idx += 1
+        attrs = cell.get("attrs") or {}
+        colspan = _parse_span(attrs, "colspan")
+        rowspan = _parse_span(attrs, "rowspan")
+        parts: list[str] = []
+        for child in cell.get("content", []) or []:
+            parts.extend(_walk_adf(child))
+        if cell.get("type") == "tableHeader":
+            row_has_header = True
+        out_row.append(_escape_table_cell(compact_text("".join(parts))))
+        out_row.extend([""] * (colspan - 1))
+        if rowspan > 1:
+            for spanned_col in range(col, col + colspan):
+                row_spans[spanned_col] = rowspan - 1
+        col += colspan
+    return out_row, row_has_header
+
+
+def _extract_adf_table_rows(table_node: dict[str, Any]) -> tuple[list[list[str]], int | None]:
+    """Return normalized rows and header_row index (or None).
+
+    Accounts for `attrs.rowspan`/`attrs.colspan` on each cell so that a
+    merged cell occupies its full grid footprint: spanned columns get a
+    blank placeholder and rows covered by a rowspan skip the occupied
+    column, keeping later cells aligned under the correct header.
+    """
+    rows: list[list[str]] = []
+    header_row: int | None = None
+    row_spans: dict[int, int] = {}
+    for row in table_node.get("content", []) or []:
+        if not isinstance(row, dict) or row.get("type") != "tableRow":
+            continue
+        out_row, row_has_header = _extract_adf_table_row(row, row_spans)
+        if out_row:
+            rows.append(out_row)
+            if header_row is None and row_has_header:
+                header_row = len(rows) - 1
+    return rows, header_row
+
+
+def _format_md_table(rows: list[list[str]], header_row: int | None) -> str:
+    max_cols = max(len(r) for r in rows)
+    norm = [r + [""] * (max_cols - len(r)) for r in rows]
+    if header_row is not None and 0 <= header_row < len(norm):
+        header = norm[header_row]
+        data = norm[:header_row] + norm[header_row + 1 :]
+    else:
+        header = [f"Column {i + 1}" for i in range(max_cols)]
+        data = norm
+    sep = ["---"] * max_cols
+    md_lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(sep) + " |"]
+    for row in data:
+        md_lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(md_lines)
+
+
+def _escape_table_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", "<br>")
+
+
+def _compact_md(value: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", value).strip()
 
 
 def _name(value: Any) -> str | None:
