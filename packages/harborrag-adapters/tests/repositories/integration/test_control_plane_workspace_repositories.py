@@ -20,11 +20,13 @@ from harborrag_adapters.repositories.database.control_plane.session import Sessi
 from harborrag_adapters.repositories.database.control_plane.workspace import (
     SqlMemberRepository,
     SqlProviderRepository,
+    SqlRoutingRuleRepository,
     SqlSettingsRepository,
 )
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
 
 pytestmark = pytest.mark.integration
@@ -96,6 +98,31 @@ async def test_activity_settings_provider_member_roundtrips(
     assert [stored.id for stored in await members.list(tenant_ids=None)] == ["m1"]
     await members.delete("m1", tenant_ids=None)
     assert await members.list(tenant_ids=None) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_deleting_a_provider_referenced_by_a_routing_rule_does_not_raise(
+    sessions: SessionFactory,
+) -> None:
+    """routing_rules.provider_id is a DB foreign key to providers.id; deleting a
+    still-referenced provider must tombstone the row (not remove it), so the
+    live FK constraint is never violated and the rule is never left dangling."""
+    providers = SqlProviderRepository(sessions)
+    routing_rules = SqlRoutingRuleRepository(sessions)
+
+    provider = Provider(id="pr1", tenant_id="tenant-a", name="OpenAI", family="chat")
+    await providers.save(provider)
+    await routing_rules.replace(
+        [RoutingRule(id="rule1", family="chat", provider_id="pr1", priority=0)]
+    )
+
+    await providers.delete("pr1", tenant_ids=None)
+
+    assert await providers.get("pr1", tenant_ids=None) is None
+    assert "pr1" not in [p.id for p in await providers.list(tenant_ids=None)]
+    rules = await routing_rules.list()
+    assert [rule.provider_id for rule in rules] == ["pr1"]
 
 
 @pytest.mark.asyncio

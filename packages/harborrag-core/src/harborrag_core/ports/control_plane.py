@@ -7,6 +7,7 @@ never on the adapter classes.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
@@ -17,6 +18,7 @@ from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.routing_rule import RoutingRule
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.context import AccessContext
@@ -136,19 +138,38 @@ class SettingsRepositoryPort(Protocol):
 
 
 class ProviderRepositoryPort(Protocol):
-    """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
+    """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``.
+
+    Delete is a soft delete (see ``Provider.deleted_at``): a routing rule may
+    reference a provider's id via a DB foreign key, so the row must keep
+    existing. ``list``/``get`` hide deleted providers as if they were gone.
+    """
 
     async def list(self, *, tenant_ids: frozenset[str] | None) -> list[Provider]:
-        """Registered providers visible to ``tenant_ids``."""
+        """Non-deleted providers visible to ``tenant_ids``."""
 
     async def get(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> Provider | None:
-        """One provider by id within ``tenant_ids``, or None."""
+        """One non-deleted provider by id within ``tenant_ids``, or None."""
 
     async def save(self, provider: Provider) -> Provider:
         """Insert or update (upsert) a provider."""
 
     async def delete(self, provider_id: str, *, tenant_ids: frozenset[str] | None) -> None:
-        """Remove a provider registration within ``tenant_ids``."""
+        """Tombstone a provider within ``tenant_ids`` (sets ``deleted_at``); row stays."""
+
+
+class RoutingRuleRepositoryPort(Protocol):
+    """Workspace-wide routing table (plan §5.5); not tenant-scoped, like ``SettingsRepositoryPort``.
+
+    v1 has no "update just one rule": every write replaces the whole table
+    atomically, so callers never observe a partially-applied routing change.
+    """
+
+    async def replace(self, rules: Sequence[RoutingRule]) -> list[RoutingRule]:
+        """Atomically replace the entire routing table with ``rules``."""
+
+    async def list(self) -> list[RoutingRule]:
+        """Every routing rule, ordered by family then insertion."""
 
 
 class MemberRepositoryPort(Protocol):

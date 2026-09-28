@@ -32,7 +32,10 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeMemberRepository,
     FakePendingEffectRepository,
     FakeProjectRepository,
+    FakeProviderCostTracker,
+    FakeProviderProbe,
     FakeProviderRepository,
+    FakeRoutingRuleRepository,
     FakeSettingsRepository,
     FakeSourceRepository,
 )
@@ -95,6 +98,7 @@ def _build_service(
         activity=FakeActivityRepository(),
         settings=FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT")),
         providers=FakeProviderRepository(),
+        routing_rules=FakeRoutingRuleRepository(),
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
         agent_runs=InMemoryAgentRunRepository(),
@@ -102,6 +106,8 @@ def _build_service(
         pending_effects=FakePendingEffectRepository(),
         leases=lease_repository,
         graph_conflicts=FakeGraphConflictRepository(),
+        provider_probe=FakeProviderProbe(),
+        provider_cost=FakeProviderCostTracker(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

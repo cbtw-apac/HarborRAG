@@ -89,3 +89,41 @@ class ControlPlaneReadsMixin:
             tenant_ids=tenant_ids, status=status, cursor=cursor, limit=limit
         )
         return AppResponse(True, {"conflicts": conflicts, "next_cursor": next_cursor})
+
+    async def list_providers(self, *, tenant_ids: frozenset[str] | None) -> AppResponse:
+        """Providers within ``tenant_ids``; config/secret_ref never carry a raw key value."""
+        providers = await self._control_plane().providers.list(tenant_ids=tenant_ids)
+        return AppResponse(True, {"providers": providers})
+
+    async def get_provider(
+        self, provider_id: str, *, tenant_ids: frozenset[str] | None
+    ) -> AppResponse:
+        """One provider by id within ``tenant_ids``; raises HarborNotFoundError when missing."""
+        provider = await self._control_plane().providers.get(provider_id, tenant_ids=tenant_ids)
+        if provider is None:
+            raise HarborNotFoundError(f"provider {provider_id!r} not found")
+        return AppResponse(True, {"provider": provider})
+
+    async def list_routing_rules(self) -> AppResponse:
+        """Every routing rule (workspace-wide, not tenant-scoped)."""
+        rules = await self._control_plane().routing_rules.list()
+        return AppResponse(True, {"rules": rules})
+
+    async def get_provider_cost(self, *, tenant_ids: frozenset[str] | None) -> AppResponse:
+        """In-memory spend snapshot per provider within ``tenant_ids`` since process start.
+
+        Deliberately grouped by provider id (not project or time window): the
+        resource this endpoint lives under is ``/v1/providers/cost``, and a
+        brand-new workspace has no providers yet, so it reports an empty
+        snapshot rather than zeros for ids that don't exist.
+        """
+        control_plane = self._control_plane()
+        providers = await control_plane.providers.list(tenant_ids=tenant_ids)
+        totals = control_plane.provider_cost.snapshot(provider.id for provider in providers)
+        return AppResponse(
+            True,
+            {
+                "since": control_plane.provider_cost.started_at,
+                "providers": dict(totals),
+            },
+        )

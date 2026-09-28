@@ -19,6 +19,7 @@ from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_TTL_SECONDS,
     recover_pending_control_plane_effects,
 )
+from ..control_plane.provider_writes import ControlPlaneProviderWritesMixin
 from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
@@ -55,6 +56,7 @@ logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 class AppService(
     ControlPlaneReadsMixin,
     ControlPlaneWritesMixin,
+    ControlPlaneProviderWritesMixin,
     AgentClientMixin,
     ChatClientMixin,
     MemoryAdminClientMixin,
