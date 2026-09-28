@@ -150,13 +150,13 @@ class TopologyExperimentFactory:
 
 
 class SummaryGenerator:
-    async def generate_usage(self, packets):  # type: ignore[no-untyped-def]
+    async def generate_usage(self, packets, **_):  # type: ignore[no-untyped-def]
         from harborrag_adapters.topology.descriptions import DescriptionRun
         from harborrag_core.models.chat import HarborChatUsage
 
         return DescriptionRun(await self.generate(packets), HarborChatUsage(), 1)
 
-    async def generate(self, packets):  # type: ignore[no-untyped-def]
+    async def generate(self, packets, **_):  # type: ignore[no-untyped-def]
         return DescriptionOutput(
             description="Alpha depends on Beta in the architecture.",
             cited_packet_ids=tuple(packet.packet_id for packet in packets),

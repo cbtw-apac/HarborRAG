@@ -31,3 +31,13 @@ tenants:
       daily_cost_usd: "15.00"
     sources:
       - source_scope_id: harborrag-docs
+        # Facets: filterable facts every source-entity card in this scope carries.
+        # Each copies a structured field the connector already extracted, verbatim
+        # and with no model call -- a Jira custom field by display name or
+        # customfield_NNNNN id, or a standard issue attribute such as `status`.
+        # facets:
+        #   - name: stage
+        #     field: status
+        #   - name: years_experience
+        #     field: "Years of experience"
+        #     type: integer             # stored as a number, so gte/lte filters work

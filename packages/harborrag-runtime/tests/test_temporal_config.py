@@ -26,7 +26,7 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.connection.target == "localhost:7233"
     assert config.connection.namespace == "harborrag"
     assert config.connection.tls.enabled is False
-    assert config.worker.max_concurrent_activities == 2
+    assert config.worker.max_concurrent_activities == 6
     assert config.task_queues.as_tuple() == (
         "harborrag-discovery",
         "harborrag-transform",
@@ -40,7 +40,7 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.workflow_execution_timeout_seconds == 2_592_000
     assert config.health_timeout_seconds == 5
     assert config.ingestion.batch_size == 200
-    assert config.ingestion.document_concurrency == 8
+    assert config.ingestion.document_concurrency == 16
 
 
 def test_annotated_temporal_example_matches_active_defaults() -> None:

@@ -1,38 +1,42 @@
 version: 1
 
 parsers:
-  pdf-docling:
+  pdf-liteparse:
     parser: pdf
     enabled: true
     settings:
       min_content_chars: 20
     engines:
-      - backend: docling
+      - backend: liteparse
         settings:
-          do_ocr: true
-          ocr_engine: rapidocr
-          ocr_lang: [en]
-          force_full_page_ocr: false
-          bitmap_area_threshold: 0.05
-          do_table_structure: true
-          table_do_cell_matching: true
-          accelerator_device: auto
-          accelerator_threads: 4
-          pdf_backend: pypdfium2
-          max_file_size: 104857600
-          raises_on_error: true
-          export_format: markdown
-          strict_text: false
-          include_raw_document: false
-          extra_convert_options: {}
+          output_format: markdown
+          image_mode: none
+          extract_links: true
+          ocr_enabled: true
+          ocr_language: en
+          ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-http://ppocr-server:8888/ocr}
+          dpi: 150
+          # Concurrent OCR requests this parser opens per PDF. The server admits
+          # PPOCR_SERVICE__MAX_INFLIGHT=32 and sheds the rest with HTTP 503, and the
+          # parse-queue holds max_concurrent_activities(4) x replicas(2) = 8 parses,
+          # so anything above 4 here can exceed the ceiling and silently lose pages
+          # from a multi-page PDF. Throughput is server-bound either way: measured
+          # 1.128 pages/s at 3 versus 1.253 at 16, for 2.4x the p50 latency.
+          num_workers: 3
+          preserve_very_small_text: false
+          quiet: true
+          input_mode: path
+          include_raw: false
+          strip_code_fences: true
+          extra_options: {}
 
-  # Active image parser: use the same local RapidOCR/ONNX stack installed by
-  # the PDF extra. The engine is memoized and reused across image parses.
-  image-rapidocr:
+  image-liteparse:
     parser: image
     enabled: true
     settings:
-      ocr_engine: rapidocr
+      ocr_engine: liteparse
+      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-http://ppocr-server:8888/ocr}
+      lang: en
       max_pixels: 100000000
 
   # Inactive alternatives. Keep exactly one definition enabled for each stable
@@ -79,31 +83,31 @@ parsers:
   #     profile: quality
   #     min_content_chars: 50
 
-  # Local LiteParse with an optional external OCR service.
-  # pdf-liteparse:
+  # Docling with RapidOCR (previously the active PDF parser).
+  # pdf-docling:
   #   parser: pdf
   #   enabled: true
   #   settings:
   #     min_content_chars: 20
   #   engines:
-  #     - backend: liteparse
+  #     - backend: docling
   #       settings:
-  #         output_format: markdown
-  #         image_mode: placeholder
-  #         extract_links: true
-  #         ocr_enabled: true
-  #         ocr_language: eng
-  #         ocr_server_url: http://127.0.0.1:8080
-  #         max_pages: 1000
-  #         dpi: 200
-  #         preserve_very_small_text: false
-  #         quiet: true
-  #         num_workers: 4
-  #         input_mode: path
-  #         include_raw: false
-  #         extra_options: {}
-  #       secrets:
-  #         password_env: PDF_DOCUMENT_PASSWORD
+  #         do_ocr: true
+  #         ocr_engine: rapidocr
+  #         ocr_lang: [en]
+  #         force_full_page_ocr: false
+  #         bitmap_area_threshold: 0.05
+  #         do_table_structure: true
+  #         table_do_cell_matching: true
+  #         accelerator_device: auto
+  #         accelerator_threads: 4
+  #         pdf_backend: pypdfium2
+  #         max_file_size: 104857600
+  #         raises_on_error: true
+  #         export_format: markdown
+  #         strict_text: false
+  #         include_raw_document: false
+  #         extra_convert_options: {}
 
   # Local MinerU pipeline; the mineru executable must be installed on PATH.
   # pdf-mineru:
@@ -152,6 +156,15 @@ parsers:
   #         markdown_ignore_labels: [header, footer]
   #         extra_options: {}
   #         legacy_ocr_options: {}
+
+  # Local RapidOCR/ONNX image OCR; needs the image-rapidocr extra and runs on
+  # the worker's CPU instead of the OCR server.
+  # image-rapidocr:
+  #   parser: image
+  #   enabled: true
+  #   settings:
+  #     ocr_engine: rapidocr
+  #     max_pixels: 100000000
 
   # Legacy image OCR using the external Tesseract executable.
   # image-pytesseract:

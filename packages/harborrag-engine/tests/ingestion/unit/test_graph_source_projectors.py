@@ -250,3 +250,56 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
             if node.node_key not in reachable and not node.attributes.get("placeholder")
         }
         assert not stranded, (connector, stranded)
+
+
+def test_jira_issue_observation_describes_and_dates_the_issue() -> None:
+    """The observation a reader re-attaches to the shared issue node.
+
+    Source-entity node properties are written empty on purpose, so whatever this
+    omits is unreachable from the graph even though the document carries it.
+    """
+
+    graph = _project(
+        "jira",
+        {
+            "project_key": "ENG",
+            "project_name": "Harbor Ingestion",
+            "issue_key": "ENG-2",
+            "status": "In Progress",
+            "status_category": "In Progress",
+            "issue_type": "Bug",
+            "priority": "High",
+            "assignee": "Grace",
+            "reporter": "Alan",
+            "creator": "Alan",
+            "labels": ["ingestion", "urgent"],
+            "components": ["worker"],
+            "source_created_at": "2026-01-01T00:00:00+00:00",
+            "source_updated_at": "2026-03-09T00:00:00+00:00",
+        },
+        source_item_id="ENG-2",
+    )
+
+    issue = next(
+        node
+        for node in graph.nodes
+        if node.entity_type == GraphEntityType.JIRA_ISSUE
+        and node.attributes.get("placeholder") is not True
+    )
+
+    assert issue.attributes == {
+        "issue_key": "ENG-2",
+        "status": "In Progress",
+        "status_category": "In Progress",
+        "issue_type": "Bug",
+        "priority": "High",
+        "assignee": "Grace",
+        "reporter": "Alan",
+        "creator": "Alan",
+        "project_key": "ENG",
+        "project_name": "Harbor Ingestion",
+        "labels": ["ingestion", "urgent"],
+        "components": ["worker"],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-03-09T00:00:00+00:00",
+    }

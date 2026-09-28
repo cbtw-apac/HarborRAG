@@ -102,11 +102,12 @@ of the chain to its own hierarchy:
 
 Tenant isolation is enforced in two independent places, and both are required.
 Qdrant gives each tenant a physically separate collection, so `tenant_id` is
-deliberately not a payload field. FalkorDB shares one graph, so `tenant_id` is
-part of the node merge identity and of the uniqueness constraint, not merely a
-filter property - version-owned node keys (`DocumentVersion`, `Structure`,
-`Chunk`) do not hash the tenant, so without it two tenants that produced the same
-document version would share a node.
+deliberately not a payload field. FalkorDB likewise gives each tenant its own
+graph, named after the tenant in the same way. `tenant_id` also stays part of the
+node merge identity and of the uniqueness constraint, not merely a filter
+property - version-owned node keys (`DocumentVersion`, `Structure`, `Chunk`) do
+not hash the tenant, so without it two tenants that produced the same document
+version would share a node.
 
 ## Why chunk text lives in two places
 

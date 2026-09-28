@@ -8,18 +8,28 @@ from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClie
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.summaries import (
+    MissingSourceDocument,
     SummaryLease,
     SummarySnapshot,
 )
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
-from .schema import DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_MANIFESTS, SOURCE_SCOPES
+from .schema import (
+    DOCUMENT_VERSIONS,
+    DOCUMENTS,
+    INGESTION_TASKS,
+    PROJECTION_MANIFESTS,
+    SOURCE_ITEMS,
+    SOURCE_SCOPES,
+)
 from .summary_intent import lock_summary_tenant
 from .summary_schema import SUMMARY_SCOPES
 from .topology.configuration import lock_indexing_config
 from .topology.policy_schema import PERMISSION_SNAPSHOTS
 from .topology.transactions import topology_transaction
+
+_ACTIVE_TASK_STATES = ("PENDING", "RUNNING")
 
 
 class SummaryAuthority:
@@ -69,6 +79,84 @@ class SummaryAuthority:
     async def source_documents(self, tenant_id: str, source_scope_id: str) -> tuple[dict, ...]:
         async with self._client.sessions() as session:
             return await self._documents(session, tenant_id, source_scope_id)
+
+    async def ingestion_active(self, tenant_id: str, source_scope_id: str) -> bool:
+        async with self._client.sessions() as session:
+            row = await session.execute(
+                select(INGESTION_TASKS.c.task_id)
+                .where(
+                    INGESTION_TASKS.c.tenant_id == tenant_id,
+                    INGESTION_TASKS.c.source_scope_id == source_scope_id
+                    if source_scope_id != "@tenant"
+                    else true(),
+                    INGESTION_TASKS.c.status.in_(_ACTIVE_TASK_STATES),
+                )
+                .limit(1)
+            )
+            return row.first() is not None
+
+    async def missing_documents(
+        self, tenant_id: str, source_scope_id: str
+    ) -> tuple[MissingSourceDocument, ...]:
+        """Report active source items whose document has no ACTIVE version.
+
+        Discovery is the authority on what the scope contains, so the gap is read
+        from ``source_items`` rather than inferred from what happened to publish.
+        A still-parsing attachment and a permanently failed one are the same fact
+        here: the entity's material is not all present.
+        """
+
+        parent = SOURCE_ITEMS.alias("parent_item")
+        query = (
+            select(
+                SOURCE_ITEMS.c.document_id,
+                parent.c.document_id.label("parent_document_id"),
+            )
+            .select_from(
+                SOURCE_ITEMS.outerjoin(
+                    parent,
+                    (parent.c.source_scope_id == SOURCE_ITEMS.c.source_scope_id)
+                    & (parent.c.source_item_id == SOURCE_ITEMS.c.parent_source_item_id),
+                )
+                .outerjoin(
+                    DOCUMENTS,
+                    (DOCUMENTS.c.document_id == SOURCE_ITEMS.c.document_id)
+                    & (DOCUMENTS.c.tenant_id == tenant_id),
+                )
+                .outerjoin(
+                    DOCUMENT_VERSIONS,
+                    (
+                        DOCUMENT_VERSIONS.c.document_version_id
+                        == DOCUMENTS.c.active_document_version_id
+                    )
+                    & (DOCUMENT_VERSIONS.c.status == "ACTIVE"),
+                )
+            )
+            .where(
+                SOURCE_ITEMS.c.source_scope_id == source_scope_id
+                if source_scope_id != "@tenant"
+                else SOURCE_ITEMS.c.source_scope_id.in_(
+                    select(SOURCE_SCOPES.c.source_scope_id).where(
+                        SOURCE_SCOPES.c.tenant_id == tenant_id
+                    )
+                ),
+                SOURCE_ITEMS.c.is_active.is_(True),
+                DOCUMENT_VERSIONS.c.document_version_id.is_(None),
+            )
+            .order_by(SOURCE_ITEMS.c.document_id)
+            .limit(10001)
+        )
+        async with self._client.sessions() as session:
+            rows = (await session.execute(query)).mappings().all()
+        if len(rows) > 10000:
+            raise HarborConflictError("summary scope exceeds 10000-document coverage budget")
+        return tuple(
+            MissingSourceDocument(
+                document_id=row["document_id"],
+                parent_document_id=row["parent_document_id"],
+            )
+            for row in rows
+        )
 
     @staticmethod
     async def _documents(

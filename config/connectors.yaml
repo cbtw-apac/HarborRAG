@@ -70,7 +70,10 @@ connectors:
       max_attachments: 1000
       max_changelog_items: 1000
       fail_on_error: false
-      requests_per_minute: 60
+      # Redis-shared across every worker replica, so this is a global ceiling:
+      # 60/min = 1 req/s gated bulk backfills far below what Jira Cloud allows.
+      # 429s remain safe here: the client retries them with backoff.
+      requests_per_minute: 300
       page_size: 50
       request_timeout_seconds: 30
       max_retries: 3

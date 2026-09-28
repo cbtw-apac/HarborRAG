@@ -31,6 +31,7 @@ from .identity import (
     ChangeFingerprintBuilder,
     DocumentIdentityBuilder,
     identity_for_source,
+    is_runtime_field,
     reject_runtime_fields,
 )
 from .lifecycle_contracts import (
@@ -187,5 +188,6 @@ __all__ = [
     "canonical_document_bytes",
     "identity_for_source",
     "load_canonical_document",
+    "is_runtime_field",
     "reject_runtime_fields",
 ]

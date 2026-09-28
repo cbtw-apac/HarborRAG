@@ -5,10 +5,16 @@ from typing import Protocol
 
 from harborrag_core.models.chat import HarborChatUsage
 from harborrag_core.topology.derived import DescriptionOutput, DescriptionPacket
+from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
 
 
 class DescriptionGeneratorPort(Protocol):
-    async def generate(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionOutput: ...
+    async def generate(
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        *,
+        max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
+    ) -> DescriptionOutput: ...
 
 
 class DescriptionRunProtocol(Protocol):
@@ -29,5 +35,8 @@ class UsageAwareDescriptionPort(DescriptionGeneratorPort, Protocol):
     """Description generation that reports usage so reservations settle actuals."""
 
     async def generate_usage(
-        self, packets: tuple[DescriptionPacket, ...]
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        *,
+        max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
     ) -> DescriptionRunProtocol: ...

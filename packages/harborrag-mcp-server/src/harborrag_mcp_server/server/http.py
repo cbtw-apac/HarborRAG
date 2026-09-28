@@ -19,9 +19,12 @@ from harborrag_mcp_server.configuration import (
     McpConfigurationStore,
 )
 from harborrag_mcp_server.server.http_auth import (
+    ADMIN_SCOPE,
     Unauthorized,
+    authorize_administration,
     authorize_request_tenant,
     owner_only,
+    request_tenant_default,
 )
 from harborrag_mcp_server.server.http_responses import (
     browser_security_headers,
@@ -90,7 +93,9 @@ def create_local_token_verifier(token: str, *, tenant_id: str = "*") -> TokenVer
                     "sub": "harborrag-local",
                     "role": "owner",
                     "tenants": [tenant_id],
-                    "scopes": [_REQUIRED_SCOPE],
+                    # The owner administers this server whichever tenant its reads
+                    # are bound to; only the tenant list narrows with the binding.
+                    "scopes": [_REQUIRED_SCOPE, ADMIN_SCOPE],
                 }
             },
             required_scopes=[_REQUIRED_SCOPE],
@@ -177,7 +182,7 @@ def _get_configuration_handler(
 ) -> Callable[[Request], Awaitable[Response]]:
     @owner_only(token_verifier)
     async def get_configuration(request: Request, principal_id: str) -> JSONResponse:
-        authorize_request_tenant(request, "*")
+        authorize_administration(request)
         return configuration_response(configuration.describe())
 
     return get_configuration
@@ -190,7 +195,7 @@ def _replace_configuration_handler(
     @owner_only(token_verifier)
     async def replace_configuration(request: Request, principal_id: str) -> JSONResponse:
         try:
-            authorize_request_tenant(request, "*")
+            authorize_administration(request)
             payload = await _bounded_json(request, maximum=_MAX_CONFIGURATION_REQUEST_BYTES)
             if not isinstance(payload, dict) or not isinstance(payload.get("configuration"), dict):
                 raise ValueError("request must contain a configuration object")
@@ -219,7 +224,7 @@ def _reload_configuration_handler(
     @owner_only(token_verifier)
     async def reload_configuration(request: Request, principal_id: str) -> JSONResponse:
         try:
-            authorize_request_tenant(request, "*")
+            authorize_administration(request)
             description = configuration.reload(principal_id=principal_id)
         except (ValidationError, ValueError) as exc:
             return error_response(str(exc), status_code=422)
@@ -238,7 +243,15 @@ def _list_tools_handler(
         tenant_id = tenant_value.strip() if tenant_value is not None else None
         if tenant_value is not None and not tenant_id:
             return error_response("tenant_id must not be empty", status_code=422)
-        authorize_request_tenant(request, tenant_id or "*")
+        if tenant_id is None:
+            # A token bound to one tenant means that tenant, not every tenant: the
+            # catalog it asks for is its own, and refusing it left the operator UI
+            # with no tool list until the bound tenant was retyped by hand.
+            tenant_id = request_tenant_default(request)
+        if tenant_id is None:
+            authorize_administration(request)
+        else:
+            authorize_request_tenant(request, tenant_id)
         tools = [
             {
                 "name": spec.name,
@@ -269,7 +282,7 @@ def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP ou
                 raise ValueError("name must be a non-empty string")
             if not isinstance(arguments, dict):
                 raise ValueError("arguments must be an object")
-            tenant_id = arguments.get("tenant_id")
+            tenant_id = _bind_tenant(request, registry, name.strip(), arguments)
             if isinstance(tenant_id, str):
                 authorize_request_tenant(request, tenant_id)
             result = await registry.call_tool(
@@ -297,6 +310,37 @@ def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP ou
         return configuration_response({"name": name.strip(), "result": result})
 
     return call_tool
+
+
+def _bind_tenant(
+    request: Request,
+    registry: McpServer,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> object:
+    """Return the call's tenant, defaulting a tenantless call to the token's own.
+
+    This is the binding the MCP transport already applies: a token that grants one
+    tenant supplies it. Left unset, the call fell through to the ``local`` tenant
+    under source ACLs, so the playground answered every query with an empty corpus.
+
+    Fail closed on the schema: the tenant is only defaulted for a tool that takes
+    one, read from the registered catalog rather than the configured view -- a tool
+    disabled for this tenant declares the same schema, and refusing it is
+    ``call_tool``'s decision to make.
+    """
+
+    tenant_id = arguments.get("tenant_id")
+    tool = next((item for item in registry.tools or () if item.spec.name == tool_name), None)
+    if tenant_id is not None or tool is None:
+        return tenant_id
+    properties = tool.spec.input_schema.get("properties")
+    if not isinstance(properties, dict) or "tenant_id" not in properties:
+        return None
+    bound = request_tenant_default(request)
+    if bound is not None:
+        arguments["tenant_id"] = bound
+    return bound
 
 
 async def _bounded_json(request: Request, *, maximum: int) -> object:

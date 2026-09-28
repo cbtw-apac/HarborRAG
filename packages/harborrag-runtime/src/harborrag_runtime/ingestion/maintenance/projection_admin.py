@@ -86,7 +86,7 @@ class ProjectionAdministrationService:
                 )
                 for name, present in zip(_VECTOR_INDEXES, exists, strict=True)
             ),
-            graph_name=self._settings.falkordb_graph,
+            graph_name=f"{self._settings.falkordb_tenant_graph_prefix}_{tenant}",
             graph_nodes=graph_nodes,
             graph_relations=graph_relations,
         )

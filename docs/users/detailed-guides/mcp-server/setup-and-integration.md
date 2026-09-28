@@ -64,15 +64,23 @@ initialization handshake, and asks the server for its tools.
 
 ### Flags
 
-The wrapper forwards all options to the same Python command. Options work in
-stdio, HTTP, and check mode:
+The wrapper runs the server in the `harborrag-mcp` container from
+`deploy/compose/docker-compose.mcp.yml`, building the image the first time.
+The container uses the host network, so start the data services first with
+`scripts/deployment/dev.sh data`.
 
-| Flag | Accepted by | Notes |
-| --- | --- | --- |
-| `--check`, `--http`, `--transport`, `-h` | `harborrag-mcp` | `--http` selects Streamable HTTP; stdio is the default |
-| `--host`, `--port`, `--path`, `--config` | `harborrag-mcp` | `--check --config X` checks that catalog |
-| `--env-file FILE` | `harborrag-mcp` | Repeatable; existing process variables take precedence |
-| `--local-stack-root DIR` | `harborrag-mcp` | Reads checkout env files and maps local Compose backend addresses |
+| Command | Behavior |
+| --- | --- |
+| `mcp.sh [OPTION...]` | Stdio server (`docker compose run -T`); options are forwarded to `harborrag-mcp` |
+| `mcp.sh --check [OPTION...]` | One-off handshake that prints the advertised tools |
+| `mcp.sh --http` | Starts the HTTP server in the background and waits for its health check |
+| `mcp.sh down` / `mcp.sh logs` | Stops, or shows the logs of, the background HTTP server |
+| `mcp.sh --build ...` | Rebuilds the image first; use after source or dependency changes |
+
+Forwarded options are the `harborrag-mcp` flags (`--config`, `--transport`,
+`--env-file`, ...); paths refer to the container, where the checkout's `config/`
+is mounted read-only at `/app/config`. HTTP host, port, and path come from
+`env/.env.mcp`.
 
 For example, an installed deployment can run `harborrag-mcp --http --env-file
 /etc/harborrag/reader.env --config /etc/harborrag/mcp.yaml` without the
@@ -85,13 +93,12 @@ repository script or checkout-specific variables.
 | `DATABASE_ENV_FILE` | `env/.env.database` |
 | `MODEL_ENV_FILE` | `env/.env.models` |
 | `MCP_ENV_FILE` | `env/.env.mcp` |
-| `HARBORRAG_MCP_PYTHON_BIN` | The interpreter used to start the server |
+| `HARBORRAG_MCP_IMAGE` | The image tag (default `harborrag-mcp-mcp`) |
+| `HARBORRAG_MCP_STARTUP_TIMEOUT` | Seconds `--http` waits for health (default `120`) |
 
-These file overrides apply only to `--local-stack-root` (which the wrapper
-passes automatically). The Python command parses the files as data and maps
-their Compose variables into reader settings. It requires the database and
-model files for checkout use; the MCP file is optional when authentication is
-configured in the process environment. No shell code in an env file runs.
+The database file supplies the Compose variables that build the backend
+addresses and credentials; the MCP file is required and the model file is
+optional. Compose reads the files as data, so no shell code in an env file runs.
 
 ## Local HTTP and status UI
 
@@ -153,6 +160,12 @@ also set `HARBORRAG_MCP_READER_TENANT_ID`,
 process after changing these environment settings; an already-running server
 keeps its previous access policy.
 
+`HARBORRAG_MCP_READER_TENANT_ID` scopes what the local token reads, not what it
+may administer: the owner keeps the configuration API and the browser UI, and a
+request that names no tenant -- a catalog load or a tool call -- is bound to that
+tenant instead of being refused. A tool call naming a different tenant is still
+rejected with `403`.
+
 Background summaries use a separate approval. For a shared `DEFAULT` corpus,
 set `HARBORRAG_INGESTION_TENANT_ID=DEFAULT` and
 `HARBORRAG_SUMMARY_PROCESSING_ALLOWED=true`; bump
@@ -161,11 +174,107 @@ graph-build summarization switch, model, and budget must also be configured.
 Reader keys do not authorize model calls. Existing source-ACL deployments keep
 their snapshot-based processing rules.
 
+Two further settings decide what a summary is and whether it can be searched:
+
+- `HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS` (default `60`) is how long a
+  source-entity card may be. A source entity -- a Jira issue with its comments
+  and its attachments -- is the first level that spans documents, so it is the
+  one worth writing as a dossier rather than a navigation hint. Raising it
+  regenerates source-entity cards and leaves every other level cached, because
+  the budget is part of the summary policy fingerprint.
+- `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` (default `false`) publishes each
+  accepted source-entity card as its own searchable vector point, so a question
+  about a whole issue reaches the issue rather than one chunk of it. It needs a
+  vector backend reachable from the summary worker and costs one embedding per
+  entity per regeneration. Nothing is served from the point itself: a hit yields
+  a node key, and the summary authority re-checks that binding's permissions and
+  freshness before releasing any evidence.
+
+#### Facets: the filterable part of a card
+
+A source scope can declare **facets** -- the named facts every entity card in that
+scope should carry. Each facet copies a structured field the connector already
+extracted, verbatim and with no model call:
+
+```yaml
+# config/topology/graph_build.yaml
+tenants:
+  - tenant_id: DEFAULT
+    sources:
+      - source_scope_id: jira-main
+        facets:
+          - name: stage
+            field: status               # a standard issue attribute
+          - name: skill_set
+            field: "Skill Set"          # display name or customfield_NNNNN
+          - name: years_experience
+            field: "Years of experience"
+            type: integer               # stored as a number, so gte/lte filters work
+```
+
+An entity whose issue does not set a declared field simply has no value for that
+facet. Facets are part of the summary policy fingerprint, so editing them
+regenerates that scope's source-entity cards and nothing else.
+
+With `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, facets are also written to
+the entity point's payload under `facet.<name>` and indexed, so they filter:
+
+- `vector_search` / the retrieval API accept `facet.*` keys in `filters`, e.g.
+  `{"facet.stage": "placed", "facet.skill_set": ["data engineering", "java"]}`. Such a
+  filter selects entities on the entity lane and is taken out of the chunk
+  filter, so the semantic lanes stay on instead of falling back to flat search.
+- `find_entities` ranks whole entities against a question within a facet
+  selection and returns each entity's summary, facets and released evidence
+  ids. It is the tool for "which candidates fit this role"; `fetch_evidence` on
+  the returned ids is how the answer gets cited.
+
+#### Filtering evidence by Jira fields
+
+Facets select whole entities and need the summary pipeline. Evidence chunks can
+be filtered directly too: every chunk of a Jira issue document -- its summary,
+description, and comments -- carries the issue's typed custom fields under
+`fields.<key>`. An attachment (a CV) is a document of its own and does not copy
+them; instead a `fields.*` filter is resolved to the matching issues first, and
+the search then covers those issues' evidence *and* the evidence of every
+document attached to them. Editing a field in Jira therefore takes effect as
+soon as the issue is re-ingested, without reprocessing its attachments. The key
+is the field's display name
+normalized to snake case (`Skill Set` -> `skill_set`, `Rate Normal ($)` ->
+`rate_normal`). A name that collides with another or with a reserved runtime key
+falls back to the field id (`fields.customfield_10042`). Free-text custom fields
+are left out; they are searchable as evidence instead.
+
+Values keep their Jira type and are matched exactly, case included. A scalar is
+an equality, a list is "any of", and a mapping of bounds is a numeric range:
+
+```json
+{
+  "fields.skill_set": "Data Engineering",
+  "fields.position_level": ["Medior", "Senior"],
+  "fields.years_of_experience": {"gte": 3}
+}
+```
+
+A filter matching more than 10,000 issues is rejected with a request to narrow
+it. A `fields.*` filter cannot be combined with other `should` alternatives, and
+it switches off entity-lane enrichment for that request so no chunk of a
+non-matching issue is fused back in.
+
+The map and the attachment-to-issue link are written at ingestion, so documents
+ingested earlier gain them on their next reprocessing.
+
+A card also reports its `coverage_mode`. `partial` means the connector
+discovered source items -- an attachment still in OCR, or one nothing can parse
+-- that had no published version when the card was written, and the card names
+how many. Treat a `partial` dossier as provisional; it is superseded
+automatically once the missing document lands.
+
 ### Run tools from the browser
 
 1. Open `http://127.0.0.1:8010/`.
 2. Enter the bearer token from `env/.env.mcp`.
-3. Enter a tenant ID and select **Load tools**.
+3. Enter a tenant ID and select **Load tools**. Leave it blank to use the
+   tenant bound by `HARBORRAG_MCP_READER_TENANT_ID`, if one is set.
 4. Select **Run tool**.
 
 The page loads that tenant's effective catalog and generates argument controls

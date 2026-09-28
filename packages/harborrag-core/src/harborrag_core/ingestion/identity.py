@@ -49,6 +49,12 @@ _RUNTIME_FIELDS = frozenset(
 )
 
 
+def is_runtime_field(name: object) -> bool:
+    """Whether a key names runtime-only state that knowledge records must not carry."""
+
+    return canonical_field_name(name) in _RUNTIME_FIELDS
+
+
 def reject_runtime_fields(value: object) -> None:
     """Reject runtime-only keys before canonical or projection persistence."""
 

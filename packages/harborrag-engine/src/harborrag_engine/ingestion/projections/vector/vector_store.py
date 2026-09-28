@@ -36,6 +36,10 @@ _PAYLOAD_INDEXES = [
     "connector_type",
     "document_kind",
     "source_scope_id",
+    # An item and the item it is attached to: tracing a parent filter to its
+    # attachments is a lookup on both, and the distinct-value facet requires an index.
+    "source_item_id",
+    "parent_source_item_id",
     "space_id",
     "page_id",
     "project_id",
@@ -43,6 +47,21 @@ _PAYLOAD_INDEXES = [
     "attachment_id",
     "relative_path",
     "language",
+    # Source-owned descriptors. Time is indexed because "what changed since" is a
+    # filter, not a ranking; the people fields because a result set is routinely
+    # narrowed to one owner; labels and components because they are the source's
+    # own taxonomy.
+    "created_at",
+    "updated_at",
+    "status",
+    "status_category",
+    "item_type",
+    "priority",
+    "assignee",
+    "reporter",
+    "project_key",
+    "labels",
+    "components",
 ]
 _MAXIMUM_FILTERED_SCAN_PAGES = 10_000
 

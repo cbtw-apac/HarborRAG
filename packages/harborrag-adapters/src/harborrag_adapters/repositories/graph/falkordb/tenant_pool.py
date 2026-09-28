@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from hashlib import sha256
 from typing import Protocol
 
 from harborrag_core.storage import StorageOperationContext
 
 from .client import FalkorDBClient
 from .config import FalkorDBGraphConfig
+
+# Mirrors the Qdrant collection charset so one tenant reads the same way in
+# both projection stores and operators can recognize a graph without a lookup.
+_TENANT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 @dataclass(frozen=True)
@@ -20,9 +24,12 @@ class TenantGraphRegistry:
 
     def graph_for(self, context: StorageOperationContext) -> str:
         tenant = str(context.tenant_id)
-        if not tenant or tenant != tenant.strip():
-            raise ValueError("graph selection requires trusted nonempty tenant scope")
-        return f"{self.prefix}_{sha256(tenant.encode('utf-8')).hexdigest()}"
+        if _TENANT_PATTERN.fullmatch(tenant) is None:
+            raise ValueError(
+                "graph selection requires a trusted tenant of 1-128 ASCII letters, "
+                "digits, '.', '_' or '-' beginning with a letter or digit"
+            )
+        return f"{self.prefix}_{tenant}"
 
 
 class GraphClientFactory(Protocol):

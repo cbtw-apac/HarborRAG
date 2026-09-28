@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("harborrag.mcp.server.http")
 
+# Administering this server is a different permission from reading every tenant's
+# data. Only the local owner token carries it; hashed reader keys never do.
+ADMIN_SCOPE = "mcp:admin"
+
 type OwnerHandler = Callable[[Request, str], Awaitable[Response]]
 
 
@@ -50,6 +54,7 @@ async def authenticated_owner(request: Request, token_verifier: TokenVerifier) -
     if claims.get("role") != "owner":
         raise Unauthorized("owner role required", status_code=403)
     request.state.allowed_tenants = allowed_tenants(claims)
+    request.state.token_scopes = frozenset(access.scopes or ())
     subject = claims.get("sub")
     principal_id = subject if isinstance(subject, str) and subject.strip() else access.client_id
     return principal_id or "authenticated-owner"
@@ -73,6 +78,39 @@ def authorize_claimed_tenant(claims: Mapping[str, object], tenant_id: str) -> No
     grants = allowed_tenants(claims)
     if "*" not in grants and tenant not in grants:
         raise PermissionError("token is not authorized for the requested tenant")
+
+
+def request_tenant_default(request: Request) -> str | None:
+    """Return the single tenant a token is bound to, or ``None`` when unbound.
+
+    A token that grants exactly one tenant makes that tenant the implied scope of
+    a request naming none, which is how the MCP transport already binds a call.
+    """
+
+    grants: frozenset[str] = getattr(request.state, "allowed_tenants", frozenset())
+    if "*" in grants or len(grants) != 1:
+        return None
+    return next(iter(grants))
+
+
+def authorize_administration(request: Request) -> None:
+    """Require administration rights rather than a grant over every tenant.
+
+    ``HARBORRAG_MCP_READER_TENANT_ID`` binds the local owner token to one tenant so
+    its *reads* stay inside that corpus. Asking for a wildcard tenant grant here
+    read that data scope as an admin demotion and locked the owner out of their own
+    configuration with a valid bearer token. Reader keys carry ``mcp:read`` alone
+    and are already refused by ``owner_only``, so global state stays owner-only.
+    """
+
+    scopes: frozenset[str] = getattr(request.state, "token_scopes", frozenset())
+    grants: frozenset[str] = getattr(request.state, "allowed_tenants", frozenset())
+    if ADMIN_SCOPE in scopes or "*" in grants:
+        return
+    raise Unauthorized(
+        "token is not authorized to administer this server",
+        status_code=403,
+    )
 
 
 def authorize_request_tenant(request: Request, tenant_id: str) -> None:
@@ -113,10 +151,13 @@ def owner_only(
 
 
 __all__ = [
+    "ADMIN_SCOPE",
     "Unauthorized",
     "allowed_tenants",
     "authenticated_owner",
+    "authorize_administration",
     "authorize_claimed_tenant",
     "authorize_request_tenant",
     "owner_only",
+    "request_tenant_default",
 ]

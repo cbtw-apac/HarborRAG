@@ -33,21 +33,23 @@ def _write_config(tmp_path: Path, content: str) -> Path:
     return config_path
 
 
-def test_repository_config_builds_enabled_parser_overrides(caplog) -> None:
+def test_repository_config_builds_enabled_parser_overrides(caplog, monkeypatch) -> None:
+    monkeypatch.delenv("HARBORRAG_OCR_SERVER_URL", raising=False)
     with caplog.at_level(logging.INFO, logger="harborrag.runtime.config.parsers"):
         catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
 
-    assert catalog.names(enabled_only=True) == ["image-rapidocr", "pdf-docling"]
+    assert catalog.names(enabled_only=True) == ["image-liteparse", "pdf-liteparse"]
 
-    pdf_parser = catalog.build("pdf-docling")
+    pdf_parser = catalog.build("pdf-liteparse")
     assert isinstance(pdf_parser, PdfParser)
-    assert [backend.name for backend in pdf_parser.backends] == ["docling"]
-    assert isinstance(pdf_parser.backends[0], DoclingBackend)
-    assert pdf_parser.backends[0].options.ocr_engine == "rapidocr"
+    assert [backend.name for backend in pdf_parser.backends] == ["liteparse"]
+    assert isinstance(pdf_parser.backends[0], LiteParseBackend)
+    assert pdf_parser.backends[0].options.ocr_server_url == "http://ppocr-server:8888/ocr"
 
-    image_parser = catalog.build("image-rapidocr")
+    image_parser = catalog.build("image-liteparse")
     assert isinstance(image_parser, HarborImageParser)
-    assert image_parser.ocr_engine == "rapidocr"
+    assert image_parser.ocr_engine == "liteparse"
+    assert image_parser.engines[0].ocr_server_url == "http://ppocr-server:8888/ocr"
 
     harbor_parser = catalog.build_harbor_parser()
     attachment_parser = catalog.build_harbor_parser()
@@ -62,7 +64,41 @@ def test_repository_config_builds_enabled_parser_overrides(caplog) -> None:
 def test_repository_config_keeps_inactive_alternatives_commented() -> None:
     catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
 
-    assert catalog.names() == ["image-rapidocr", "pdf-docling"]
+    assert catalog.names() == ["image-liteparse", "pdf-liteparse"]
+
+
+def test_ocr_server_url_follows_the_environment_over_the_catalog_default(monkeypatch) -> None:
+    monkeypatch.setenv("HARBORRAG_OCR_SERVER_URL", "http://localhost:8888/ocr")
+
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+
+    assert catalog.build("pdf-liteparse").backends[0].options.ocr_server_url == (
+        "http://localhost:8888/ocr"
+    )
+    assert catalog.build("image-liteparse").engines[0].ocr_server_url == (
+        "http://localhost:8888/ocr"
+    )
+
+
+def test_setting_reference_to_an_unset_variable_without_a_default_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("TEST_OCR_SERVER_URL", raising=False)
+    config_path = _write_config(
+        tmp_path,
+        """
+        version: 1
+        parsers:
+          custom-image:
+            parser: image
+            settings:
+              ocr_engine: liteparse
+              ocr_server_url: ${TEST_OCR_SERVER_URL}
+        """,
+    )
+
+    with pytest.raises(ParserConfigurationError, match="TEST_OCR_SERVER_URL"):
+        load_parser_catalog(config_path)
 
 
 def test_builds_explicit_pdf_backend_order_and_options(tmp_path: Path) -> None:

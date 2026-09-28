@@ -20,6 +20,17 @@ COPY packages/harborrag-runtime/pyproject.toml packages/harborrag-runtime/README
 COPY packages/harborrag-runtime/src/harborrag_runtime/__init__.py ./packages/harborrag-runtime/src/harborrag_runtime/
 COPY packages/harborrag-mcp-server/pyproject.toml packages/harborrag-mcp-server/README.md ./packages/harborrag-mcp-server/
 COPY packages/harborrag-mcp-server/src/harborrag_mcp_server/__init__.py ./packages/harborrag-mcp-server/src/harborrag_mcp_server/
+# Nothing below is installed, but uv resolves the whole workspace and validates
+# every member's `tool.uv.sources` before it can build harborrag-runtime: its
+# optional `memory` extra points at harborrag-memory, so a missing member
+# directory fails the build with "references a workspace ... but is not a
+# workspace member". These stubs keep the workspace complete.
+COPY packages/harborrag-memory/pyproject.toml packages/harborrag-memory/README.md ./packages/harborrag-memory/
+COPY packages/harborrag-memory/src/harborrag_memory/__init__.py ./packages/harborrag-memory/src/harborrag_memory/
+COPY packages/harborrag-app/pyproject.toml packages/harborrag-app/README.md ./packages/harborrag-app/
+COPY packages/harborrag-app/src/harborrag_app/__init__.py ./packages/harborrag-app/src/harborrag_app/
+COPY packages/harborrag/pyproject.toml packages/harborrag/README.md ./packages/harborrag/
+COPY packages/harborrag/src/harborrag/__init__.py ./packages/harborrag/src/harborrag/
 
 RUN uv export --quiet --frozen --package harborrag-mcp-server --extra reader \
         --no-dev --no-hashes --no-emit-workspace \
@@ -37,7 +48,12 @@ RUN uv export --quiet --frozen --package harborrag-mcp-server --extra reader \
         --home-dir /var/lib/harborrag --create-home \
         --shell /usr/sbin/nologin harborrag \
     && mkdir -p /var/lib/harborrag/.harborrag \
-    && chown -R harborrag:harborrag /var/lib/harborrag
+    && chown -R harborrag:harborrag /var/lib/harborrag \
+    # The audit writer refuses any group- or world-readable trail directory, and
+    # a named volume mounted here inherits this mode when Docker first creates
+    # it. Left at the umask default of 0755 every tool call ended in
+    # "durable MCP audit directory must be owner-only".
+    && chmod 700 /var/lib/harborrag/.harborrag
 
 COPY packages/harborrag-core ./packages/harborrag-core
 COPY packages/harborrag-adapters ./packages/harborrag-adapters

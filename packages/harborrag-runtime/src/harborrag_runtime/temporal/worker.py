@@ -19,6 +19,7 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion import build_ingestion_runtime
+from harborrag_runtime.topology.derived_models import RequestEmbedder
 from harborrag_runtime.topology.summary_factory import SummaryRuntimeFactory
 from harborrag_runtime.topology.summary_worker import serve_summaries
 
@@ -104,11 +105,19 @@ def _summary_runner(
         logger.warning("Summary projection enabled but no managed tenants are configured")
         return None
     effective = graph_build.effective_settings(settings)
+    # The durable worker already owns a connected vector repository and embed
+    # client; handing them over is what lets an accepted entity card also become
+    # a searchable point here, not only on the standalone summaries CLI. Same
+    # duck-typing as above: a partial runtime simply gets cards without search.
+    vectors = getattr(runtime, "vector_repository", None)
+    embed_client = getattr(runtime, "embed_client", None)
     factory = SummaryRuntimeFactory(
         effective,
         runtime.control,
         ImmutableArtifactReader(runtime.object_store),
         ImmutableArtifactWriter(runtime.object_store),
+        vectors,
+        RequestEmbedder(embed_client) if embed_client is not None else None,
     )
     logger.info(
         "Temporal summary worker polling queue=%s tenants=%s",

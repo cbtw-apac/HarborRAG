@@ -12,11 +12,17 @@ connection:
     enabled: false
     domain: null
 
-# One process owns six task-queue workers. Keep six times the activity limit at
-# or below HARBORRAG_CONTROL_DB_POOL_SIZE + HARBORRAG_CONTROL_DB_MAX_OVERFLOW.
+# Each worker replica owns six task-queue workers. Keep six times the activity
+# limit at or below HARBORRAG_CONTROL_DB_POOL_SIZE + HARBORRAG_CONTROL_DB_MAX_OVERFLOW
+# (the limit applies per process, so this bound holds regardless of replica count).
+# With HARBORRAG_TEMPORAL_WORKER_REPLICAS=3, each replica also holds its own CUDA
+# context, so keep this lower than the single-replica GPU setting.
+# 6 * 6 = 36, matching HARBORRAG_CONTROL_DB_POOL_SIZE=20 + HARBORRAG_CONTROL_DB_MAX_OVERFLOW=16.
+# Three replicas can then hold 108 control-database connections, which is why the
+# Compose PostgreSQL service raises max_connections to 200.
 worker:
   identity: harborrag-runtime
-  max_concurrent_activities: 2
+  max_concurrent_activities: 6
   max_concurrent_workflow_tasks: 4
   max_concurrent_activity_polls: 2
   max_concurrent_workflow_polls: 2
@@ -52,7 +58,7 @@ retries:
 # caller may override either per submission; these apply when they don't.
 ingestion:
   batch_size: 200
-  document_concurrency: 8
+  document_concurrency: 16
 
 workflow:
   execution_timeout_seconds: 2592000  # 30 days

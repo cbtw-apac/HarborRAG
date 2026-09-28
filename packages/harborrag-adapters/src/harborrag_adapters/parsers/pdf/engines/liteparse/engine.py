@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from harborrag_adapters.parsers.common.normalization import compact_text
+from harborrag_adapters.parsers.common.normalization import compact_text, strip_code_fences
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
@@ -153,9 +153,10 @@ class LiteParsePDFEngine(HarborPDFEngine):
         """
 
         text = getattr(result, "text", None)
-        if text is not None:
-            return content_from_any(text)
-        return content_from_any(result)
+        content = content_from_any(text) if text is not None else content_from_any(result)
+        if self.options.strip_code_fences:
+            content = strip_code_fences(content)
+        return content
 
     def _elements_from_result(
         self,
@@ -168,6 +169,10 @@ class LiteParsePDFEngine(HarborPDFEngine):
         for page_index, page in enumerate(getattr(result, "pages", []) or [], start=1):
             page_number = self._page_number(page, page_index)
             page_text = self._page_text(page)
+            if self.options.strip_code_fences:
+                # Per-page text mirrors the document markdown, so it carries
+                # the same spurious fences the joined content is cleaned of.
+                page_text = strip_code_fences(page_text).strip()
             if not page_text:
                 continue
             elements.append(

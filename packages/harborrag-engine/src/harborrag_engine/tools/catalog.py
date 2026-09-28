@@ -10,6 +10,7 @@ from .base import BaseTool
 from .composed_search import ComposedEvidenceSearchTool
 from .describe_graph import DescribeGraphTool
 from .document_tools import GetDocumentMetadataTool, ListDocumentsTool, VerifyCitationsTool
+from .find_entities import FindEntitiesTool
 from .graph_search import GraphPathSearchTool, GraphSubgraphSearchTool, GraphTripletSearchTool
 from .reader_tools import FetchEvidenceTool, GetDocumentContextTool, ResolveGraphNodesTool
 from .source_list_tool import ListSourcesTool
@@ -56,6 +57,7 @@ def build_reader_tool_catalog(
             knowledge=knowledge,
             references=references,
         ),
+        FindEntitiesTool(runtime=retrieval_runtime, retrieval=retrieval, references=references),
     ]
 
 

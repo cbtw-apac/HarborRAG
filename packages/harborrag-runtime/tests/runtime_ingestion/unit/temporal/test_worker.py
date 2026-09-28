@@ -106,6 +106,39 @@ async def test_deployed_worker_attaches_enabled_summary_queue(monkeypatch, tmp_p
     await runner
     assert serve.await_args.args[2] == ("DEFAULT",)
     assert serve.await_args.kwargs["stop_event"] is stop
+    # A partial runtime still gets a factory; it just cannot publish entity points.
+    factory = serve.await_args.args[1]
+    assert factory.vectors is None and factory.embed is None
+
+
+@pytest.mark.asyncio
+async def test_deployed_worker_lends_its_vector_and_embed_clients_to_summaries(
+    monkeypatch, tmp_path
+) -> None:
+    """Entity cards become searchable on the durable worker, not only on the CLI."""
+
+    policy = tmp_path / "graph-build.yaml"
+    policy.write_text(
+        "summarization:\n  enabled: true\ntenants:\n"
+        "  - tenant_id: DEFAULT\n    sources:\n      - source_scope_id: docs\n",
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(graph_build_config_path=policy)
+    vectors, embed_client = object(), object()
+    runtime = SimpleNamespace(
+        control=object(),
+        object_store=object(),
+        vector_repository=vectors,
+        embed_client=embed_client,
+    )
+    serve = AsyncMock()
+    monkeypatch.setattr(worker_module, "serve_summaries", serve)
+
+    await worker_module._summary_runner(settings, runtime, object(), asyncio.Event())
+
+    factory = serve.await_args.args[1]
+    assert factory.vectors is vectors
+    assert factory.embed is not None and factory.embed.client is embed_client
 
 
 def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:

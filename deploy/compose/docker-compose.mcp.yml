@@ -1,0 +1,54 @@
+name: harborrag-mcp
+
+services:
+  mcp:
+    image: ${HARBORRAG_MCP_IMAGE:-harborrag-mcp-mcp}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.mcp
+    command: ["--http"]
+    env_file:
+      - path: ${HARBORRAG_MCP_ENV_FILE:-../../env/.env.mcp}
+        required: true
+      - path: ${HARBORRAG_MODEL_ENV_FILE:-../../env/.env.models}
+        required: false
+    network_mode: host
+    environment:
+      HARBORRAG_ENV: ${HARBORRAG_ENV:-dev}
+      HARBORRAG_MCP_CONFIG_PATH: /app/config/mcp.yaml
+      HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
+      HARBORRAG_MCP_AUDIT_PATH: /var/lib/harborrag/.harborrag/mcp-audit.jsonl
+      HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
+      HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?set HARBORRAG_SECRETS_ENCRYPTION_KEY in the database environment file}
+      HARBORRAG_OBJECT_STORE_ENDPOINT_URL: ${HARBORRAG_OBJECT_STORE_ENDPOINT_URL:-http://127.0.0.1:${MINIO_API_PORT:-9000}}
+      HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the database environment file}
+      HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the database environment file}
+      HARBORRAG_QDRANT_URL: ${HARBORRAG_QDRANT_URL:-http://127.0.0.1:${QDRANT_HTTP_PORT:-6333}}
+      HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE: "true"
+      HARBORRAG_FALKORDB_HOST: 127.0.0.1
+      HARBORRAG_FALKORDB_PORT: ${FALKORDB_PORT:-6379}
+      HARBORRAG_FALKORDB_MAX_CONNECTIONS: ${HARBORRAG_FALKORDB_MAX_CONNECTIONS:-32}
+      HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
+    volumes:
+      - ../../config:/app/config:ro
+      - harborrag_mcp_audit:/var/lib/harborrag/.harborrag
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys,os;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:'+os.environ.get('HARBORRAG_MCP_PORT','8010')+'/healthz',
+          timeout=5).status==200 else 1)"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  harborrag_mcp_audit:
+    name: harborrag-mcp-audit

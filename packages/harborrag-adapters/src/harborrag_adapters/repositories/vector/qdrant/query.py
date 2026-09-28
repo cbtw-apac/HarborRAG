@@ -118,6 +118,31 @@ class QdrantQueryExecutor:
             next_cursor=str(next_offset) if next_offset is not None else None,
         )
 
+    async def distinct_values(
+        self,
+        collection: str,
+        field: str,
+        *,
+        filters: VectorFilter | None = None,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        """Count-free facet over one keyword-indexed field.
+
+        ``exact`` because the answer is used as a filter: an approximate facet
+        could drop a matching value, and with it every point that value names.
+        """
+
+        await self.require_spec(collection, context)
+        response = await self._client.raw.facet(
+            collection_name=self.collection_name(collection, context),
+            key=field,
+            facet_filter=QdrantMapper.filter(filters, qm),
+            limit=limit,
+            exact=True,
+        )
+        return tuple(str(hit.value) for hit in response.hits)
+
     async def search(
         self,
         query: VectorSearchQuery,

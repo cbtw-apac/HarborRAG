@@ -98,4 +98,4 @@ def test_installed_command_accepts_env_file_without_checkout(tmp_path: Path) -> 
     )
 
     assert result.returncode == 0, result.stderr
-    assert len(json.loads(result.stdout)) == 13
+    assert len(json.loads(result.stdout)) == 14

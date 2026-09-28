@@ -86,12 +86,18 @@ class JiraChunkingStrategy:
             is not None
         ]
 
+        # A connector that already emits an element per entity owns that evidence:
+        # rebuilding it from provenance would duplicate the chunk and cite a source
+        # element the canonical document never contained.
+        covered = {field for _, field in elements}
         source_ordinal = len(elements)
         for collection, field in (
             ("comments", "comment"),
             ("attachments", "attachment"),
             ("changelog", "changelog"),
         ):
+            if field in covered:
+                continue
             source_position = 0
             for item in self._mapping_items(provenance.get(collection)):
                 content = self._entity_content(field, item)

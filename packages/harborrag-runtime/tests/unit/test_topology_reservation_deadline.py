@@ -56,7 +56,7 @@ async def test_llm_summary_is_cancelled_before_reservation_expires_and_charge_is
     )
     entered = asyncio.Event()
 
-    async def slow(packets):
+    async def slow(packets, **_):
         entered.set()
         await asyncio.Event().wait()
 

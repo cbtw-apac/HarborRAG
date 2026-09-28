@@ -224,6 +224,20 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
             context=context,
         )
 
+    @traced_repository_operation("distinct_values")
+    async def distinct_values(
+        self,
+        index_name: str,
+        field: str,
+        *,
+        filters: VectorFilter | None = None,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        return await self._queries.distinct_values(
+            index_name, field, filters=filters, limit=limit, context=context
+        )
+
     @traced_repository_operation("search")
     async def search(
         self,

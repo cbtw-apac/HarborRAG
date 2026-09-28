@@ -314,8 +314,10 @@ known-first-party = [
 
 [tool.uv]
 package = false
+# onnxruntime (RapidOCR) and torch publish no emscripten wheels, so a Pyodide
+# split has no solution. This stack targets CPython on Linux and macOS only.
 environments = [
-    "python_version == '3.12'",
+    "python_version == '3.12' and sys_platform != 'emscripten'",
 ]
 
 [tool.uv.workspace]
@@ -359,4 +361,10 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-timeout>=2.4.0",
+    # The connector smoke scripts parse real documents through the shipped
+    # config/parsers.yaml, so its engines have to exist in the default
+    # `uv run` environment or every attachment fails as "unavailable".
+    # Narrowing the sync to one package instead drops harborrag-runtime's
+    # own dependencies, which those scripts import from source.
+    "harborrag-adapters[parsers,pdf-liteparse]",
 ]

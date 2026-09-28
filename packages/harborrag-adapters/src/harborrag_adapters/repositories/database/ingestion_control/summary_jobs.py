@@ -7,7 +7,9 @@ from sqlalchemy import or_, select, true, update
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.summaries import (
+    SUMMARY_IMMEDIATE_RETRY_BLOCKERS,
     SUMMARY_PERMISSION_BLOCKERS,
+    SUMMARY_TRANSIENT_BLOCKERS,
     SummaryBinding,
     SummaryLease,
     SummaryPolicy,
@@ -245,7 +247,18 @@ class SummaryJobOperations(SummaryAuthority):
             )
             if row["policy"] is None:
                 execution = "idle"
-            if changed:
+            if error_code in SUMMARY_TRANSIENT_BLOCKERS:
+                # Transient: come straight back when the run merely ran out of its
+                # per-run call allowance (its reductions are cached), or on the
+                # scope's own settle window while documents are still arriving.
+                execution = "queued" if row["policy"] is not None else "idle"
+                seconds = (
+                    1
+                    if error_code in SUMMARY_IMMEDIATE_RETRY_BLOCKERS
+                    else lease.policy.max_wait_seconds
+                )
+                retry_at = utc_now() + timedelta(seconds=seconds)
+            elif changed:
                 retry_at = utc_now() + timedelta(seconds=1)
             elif error_code in SUMMARY_PERMISSION_BLOCKERS:
                 # A permission import/refresh invalidates the scope and wakes it.

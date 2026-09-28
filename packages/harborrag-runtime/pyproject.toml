@@ -28,7 +28,7 @@ temporal = [
     "cloudpickle>=3.1,<4",
 ]
 production = [
-    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]==2.0.0a1",
+    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]==2.0.0a1",
 ]
 dev = [
     "types-PyYAML>=6.0,<7",

@@ -6,6 +6,7 @@ from typing import Protocol
 from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
+    VectorFilter,
     VectorSearchQuery,
     VectorSearchResult,
     VectorStoreCapabilities,
@@ -48,6 +49,18 @@ class VectorRepositoryPort(VectorIndexRepositoryPort, StorageLifecyclePort, Prot
     async def hybrid_search(
         self, query: HybridSearchQuery, *, context: StorageOperationContext
     ) -> list[VectorSearchResult]: ...
+
+    async def distinct_values(
+        self,
+        index_name: str,
+        field: str,
+        *,
+        filters: VectorFilter | None = None,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        """Distinct values of one indexed payload field among the matching points."""
+        ...
 
 
 class ObjectStorePort(StorageLifecyclePort, Protocol):

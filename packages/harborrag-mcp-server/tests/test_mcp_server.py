@@ -356,7 +356,7 @@ def test_request_principal_requires_reader_or_owner_role(monkeypatch) -> None:
     assert _request_principal_id("other") == "global-owner"
 
 
-def test_tenant_scoped_owner_cannot_access_global_configuration() -> None:
+def test_a_tenant_grant_never_reaches_another_tenants_data() -> None:
     from types import SimpleNamespace
 
     from harborrag_mcp_server.server.http_auth import Unauthorized, authorize_request_tenant
@@ -364,7 +364,51 @@ def test_tenant_scoped_owner_cannot_access_global_configuration() -> None:
     request = SimpleNamespace(state=SimpleNamespace(allowed_tenants=frozenset({"demo"})))
     authorize_request_tenant(request, "demo")
     with pytest.raises(Unauthorized, match="requested tenant"):
+        authorize_request_tenant(request, "other")
+    with pytest.raises(Unauthorized, match="requested tenant"):
         authorize_request_tenant(request, "*")
+
+
+def test_administration_follows_the_admin_scope_not_the_tenant_binding() -> None:
+    """Binding the local token to one tenant scopes its reads, not its rights.
+
+    ``HARBORRAG_MCP_READER_TENANT_ID`` exists so a shared single-tenant corpus can
+    be read without source ACLs. Reading it as an admin demotion locked the owner
+    out of the configuration API with a perfectly valid bearer token.
+    """
+
+    from types import SimpleNamespace
+
+    from harborrag_mcp_server.server.http_auth import (
+        ADMIN_SCOPE,
+        Unauthorized,
+        authorize_administration,
+        request_tenant_default,
+    )
+
+    bound_owner = SimpleNamespace(
+        state=SimpleNamespace(
+            allowed_tenants=frozenset({"demo"}),
+            token_scopes=frozenset({"mcp:read", ADMIN_SCOPE}),
+        )
+    )
+    authorize_administration(bound_owner)
+    assert request_tenant_default(bound_owner) == "demo"
+
+    reader = SimpleNamespace(
+        state=SimpleNamespace(
+            allowed_tenants=frozenset({"demo"}),
+            token_scopes=frozenset({"mcp:read"}),
+        )
+    )
+    with pytest.raises(Unauthorized, match="administer"):
+        authorize_administration(reader)
+
+    unbound_owner = SimpleNamespace(
+        state=SimpleNamespace(allowed_tenants=frozenset({"*"}), token_scopes=frozenset())
+    )
+    authorize_administration(unbound_owner)
+    assert request_tenant_default(unbound_owner) is None
 
 
 def test_the_transport_masks_details_of_an_unexpected_failure() -> None:

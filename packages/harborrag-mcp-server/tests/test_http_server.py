@@ -138,7 +138,7 @@ async def test_http_routes_expose_ui_health_and_authenticated_mcp(tmp_path) -> N
         "transport": "streamable-http",
         "mcp_path": "/mcp",
         "authentication": "bearer",
-        "tool_count": 13,
+        "tool_count": 14,
     }
     assert unauthenticated.status_code == 401
     assert authenticated.status_code == 200
@@ -311,6 +311,73 @@ async def test_tool_playground_api_applies_effective_tenant_configuration(tmp_pa
         "error",
         "error",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_bound_owner_token_still_administers_and_binds_its_tenant(tmp_path) -> None:
+    """HARBORRAG_MCP_READER_TENANT_ID scopes reads; it must not revoke ownership.
+
+    Binding the local token to a shared corpus made every owner route answer
+    403 "token is not authorized for the requested tenant" -- the configuration
+    API, the tool catalog and the playground -- with the correct bearer token.
+    """
+
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(audit=audit, corpus_mode="tenant_shared", shared_tenant_id="demo")
+    configuration = McpConfigurationStore(
+        path=tmp_path / "mcp.yaml",
+        configuration=McpConfiguration(),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    registry.configuration = configuration
+    verifier = create_local_token_verifier(TOKEN, tenant_id="demo")
+    server = create_mcp_server(registry=registry, auth=verifier)
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=verifier,
+    )
+    app = server.http_app(path="/mcp")
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            config_response = await client.get("/api/config", headers=_owner_headers())
+            reload_response = await client.post("/api/config/reload", headers=_owner_headers())
+            catalog = await client.get("/api/tools", headers=_owner_headers())
+            call_response = await client.post(
+                "/api/tools/call",
+                headers=_owner_headers(),
+                json={"name": "vector_search", "arguments": {"query": "harbor"}},
+            )
+            cross_tenant = await client.post(
+                "/api/tools/call",
+                headers=_owner_headers(),
+                json={
+                    "name": "vector_search",
+                    "arguments": {"query": "harbor", "tenant_id": "other"},
+                },
+            )
+
+    assert config_response.status_code == 200
+    # Reaching the store at all is the point: with no file written yet the reload
+    # reports 422, but authorization no longer turns it into a 403.
+    assert reload_response.status_code != 403
+    assert catalog.status_code == 200
+    assert catalog.json()["tenant_id"] == "demo"
+    assert [tool["name"] for tool in catalog.json()["tools"]] == EXPECTED_READER_TOOLS
+    assert call_response.status_code == 200
+    # The call was bound to the token's tenant instead of falling through to the
+    # "local" tenant, where source ACLs would have returned an empty corpus.
+    assert [entry["tenant_id"] for entry in audit.entries][-1] == "demo"
+    assert cross_tenant.status_code == 403
+    assert cross_tenant.json()["error"] == "token is not authorized for the requested tenant"
 
 
 def _mcp_headers(token: str | None = None) -> dict[str, str]:

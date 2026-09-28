@@ -12,6 +12,7 @@ MCP_ENV_FILE="${MCP_ENV_FILE:-env/.env.mcp}"
 API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
+WORKER_DEVICE="cpu"
 
 usage() {
     cat <<'EOF'
@@ -19,12 +20,13 @@ Usage: scripts/deployment/dev.sh [--build] COMMAND [OPTION...]
 
 Commands:
   bootstrap          Create missing protected env files, then stop for review
-  up [--no-worker] [--build]
+  up [--no-worker] [--build] [--device cpu|gpu]
                      Start data, Temporal, worker (default), and API
   down [--volumes]   Stop API, Temporal/worker, and data services
   data               Start only PostgreSQL, Qdrant, FalkorDB, Redis, and MinIO
   temporal           Start only Temporal server services; never starts a worker
-  worker [--build]   Start only the ingestion worker; reuse its image by default
+  worker [--build] [--device cpu|gpu]
+                     Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
@@ -33,6 +35,13 @@ API_ENV_FILE, and MCP_ENV_FILE.
 Use --build after source, dependency, or baked worker configuration changes.
 For up, worker, and api, --build may appear before or after the command.
 If a local API or worker image is missing, the first start builds it automatically.
+
+--device selects the ingestion worker's Dockerfile and compose overlay:
+cpu (default) uses Dockerfile.temporal-worker; gpu uses the CUDA-enabled
+Dockerfile.temporal-worker.gpu and reserves an NVIDIA GPU (requires the
+NVIDIA Container Toolkit on the host). Each device builds its own image tag,
+so switching devices rebuilds automatically the first time:
+  scripts/deployment/dev.sh worker --device gpu --build
 EOF
 }
 
@@ -132,11 +141,21 @@ data_compose() {
 temporal_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
+    local -a compose_files=(
+        --file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.yml"
+    )
+    if [[ "${WORKER_DEVICE}" == "gpu" ]]; then
+        compose_files+=(--file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.gpu.yml")
+    fi
     docker compose \
         --env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}" \
         --env-file "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" \
-        --file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.yml" \
+        "${compose_files[@]}" \
         "$@"
+}
+
+validate_device() {
+    [[ "$1" == "cpu" || "$1" == "gpu" ]] || fail "--device must be cpu or gpu, got: $1"
 }
 
 api_compose() {
@@ -222,12 +241,17 @@ start_worker() {
     prepare_worker_mount
     local replicas
     replicas="$(worker_replicas)"
+    local worker_image="${TEMPORAL_WORKER_IMAGE}"
+    if [[ "${WORKER_DEVICE}" == "gpu" ]]; then
+        worker_image="${TEMPORAL_WORKER_IMAGE}-gpu"
+    fi
+    export HARBORRAG_TEMPORAL_WORKER_IMAGE="${worker_image}"
     local -a build_args=(--no-build)
-    if ((rebuild)) || ! docker image inspect "${TEMPORAL_WORKER_IMAGE}" >/dev/null 2>&1; then
+    if ((rebuild)) || ! docker image inspect "${worker_image}" >/dev/null 2>&1; then
         build_args=(--build)
-        echo "Building Temporal ingestion worker image..."
+        echo "Building Temporal ingestion worker image (${WORKER_DEVICE})..."
     else
-        echo "Reusing local worker image ${TEMPORAL_WORKER_IMAGE}."
+        echo "Reusing local worker image ${worker_image}."
     fi
     echo "Starting Temporal ingestion worker (${replicas} replica(s))..."
     temporal_compose --profile worker config --quiet
@@ -343,6 +367,12 @@ case "${command}" in
             case "$1" in
                 --no-worker) start_worker_flag=0 ;;
                 --build) rebuild_images=1 ;;
+                --device)
+                    [[ "$#" -ge 2 ]] || fail "--device requires a value: cpu or gpu."
+                    validate_device "$2"
+                    WORKER_DEVICE="$2"
+                    shift
+                    ;;
                 *) fail "Unknown up option: $1" ;;
             esac
             shift
@@ -372,11 +402,19 @@ case "${command}" in
         ;;
     worker)
         rebuild_image="${global_rebuild}"
-        if [[ "${1:-}" == "--build" ]]; then
-            rebuild_image=1
+        while [[ "$#" -gt 0 ]]; do
+            case "$1" in
+                --build) rebuild_image=1 ;;
+                --device)
+                    [[ "$#" -ge 2 ]] || fail "--device requires a value: cpu or gpu."
+                    validate_device "$2"
+                    WORKER_DEVICE="$2"
+                    shift
+                    ;;
+                *) fail "Unknown worker option: $1" ;;
+            esac
             shift
-        fi
-        [[ "$#" -eq 0 ]] || fail "Unknown worker option: $1"
+        done
         start_worker "${rebuild_image}"
         ;;
     api)

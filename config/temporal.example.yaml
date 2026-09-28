@@ -27,8 +27,8 @@ worker:
   identity: harborrag-runtime
   # One process creates one worker for each of the six task queues. Keep
   # queue_count * max_concurrent_activities no greater than the control DB
-  # pool size plus overflow.
-  max_concurrent_activities: 2
+  # pool size plus overflow (6 * 6 = 36 = the default pool 20 + overflow 16).
+  max_concurrent_activities: 6
   max_concurrent_workflow_tasks: 4
   max_concurrent_activity_polls: 2
   max_concurrent_workflow_polls: 2
@@ -63,7 +63,7 @@ ingestion:
   # and concurrent DocumentIngestionWorkflow children per wave. A CLI/API
   # caller may override either per submission; these apply when they don't.
   batch_size: 200
-  document_concurrency: 8
+  document_concurrency: 16
 
 workflow:
   execution_timeout_seconds: 2592000  # 30 days

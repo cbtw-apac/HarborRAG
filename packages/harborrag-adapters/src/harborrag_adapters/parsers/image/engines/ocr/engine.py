@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any, ClassVar
 
+from harborrag_adapters.parsers.common.normalization import strip_code_fences
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
@@ -30,7 +31,7 @@ class OcrImageEngine(HarborImageEngine):
     """Run OCR over raster images using a selectable local OCR engine."""
 
     parser_name: ClassVar[str] = "image"
-    parser_engine: ClassVar[str] = "rapidocr/pytesseract"
+    parser_engine: ClassVar[str] = "rapidocr/pytesseract/liteparse"
     suffixes: ClassVar[frozenset[str]] = frozenset(
         {"png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp"}
     )
@@ -51,7 +52,11 @@ class OcrImageEngine(HarborImageEngine):
     config: str = ""
     timeout: int | float | None = 60
     max_pixels: int | None = DEFAULT_MAX_IMAGE_PIXELS
+    # Only meaningful for the `liteparse` engine, which OCRs through an
+    # external server instead of a local inference runtime.
+    ocr_server_url: str | None = None
     _rapidocr_engine: Any | None = field(default=None, init=False, repr=False)
+    _liteparse_parser: Any | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Normalize and validate the configured OCR engine."""
@@ -59,9 +64,10 @@ class OcrImageEngine(HarborImageEngine):
         if not isinstance(self.ocr_engine, str):
             raise ValueError("Image OCR engine must be a string")
         self.ocr_engine = self.ocr_engine.lower().strip()
-        if self.ocr_engine not in {"pytesseract", "rapidocr"}:
+        if self.ocr_engine not in {"pytesseract", "rapidocr", "liteparse"}:
             raise ValueError(
-                f"Unsupported image OCR engine {self.ocr_engine!r}: pytesseract, rapidocr"
+                f"Unsupported image OCR engine {self.ocr_engine!r}: "
+                "pytesseract, rapidocr, liteparse"
             )
         if self.max_pixels is not None and (
             not isinstance(self.max_pixels, int)
@@ -218,6 +224,8 @@ class OcrImageEngine(HarborImageEngine):
     def _extract_text(self, data: bytes, image: Any) -> str:
         """Dispatch OCR while keeping optional dependencies lazy."""
 
+        if self.ocr_engine == "liteparse":
+            return self._extract_with_liteparse(data)
         if self.ocr_engine == "rapidocr":
             data = self._prepare_rapidocr_bytes(data, image)
             return self._extract_with_rapidocr(data)
@@ -263,6 +271,36 @@ class OcrImageEngine(HarborImageEngine):
                 return ""
             raise
         return "" if content is None else str(content).strip()
+
+    def _extract_with_liteparse(self, data: bytes) -> str:
+        """Extract text by sending the image to the shared OCR server.
+
+        LiteParse accepts raster bytes directly, so images use the same OCR
+        service as scanned PDFs instead of a second local inference runtime.
+        The parser is memoized because constructing it is not free, and no
+        ``dpi`` is passed: that setting rasterizes PDF pages and an image is
+        already at its native resolution.
+        """
+
+        if self._liteparse_parser is None:
+            try:
+                from liteparse import LiteParse
+            except ImportError as exc:
+                raise ParseError(
+                    "Image OCR with LiteParse requires the `liteparse` package; "
+                    "install `harborrag-adapters[pdf-liteparse]`."
+                ) from exc
+            options: dict[str, Any] = {"ocr_enabled": True, "quiet": True}
+            if self.lang:
+                options["ocr_language"] = self.lang
+            if self.ocr_server_url:
+                options["ocr_server_url"] = self.ocr_server_url
+            self._liteparse_parser = LiteParse(**options)
+
+        result = self._liteparse_parser.parse(data)
+        # An OCR'd image is a single unstructured block, which LiteParse's
+        # Markdown writer readily fences as preformatted text.
+        return strip_code_fences(str(getattr(result, "text", "") or ""))
 
     def _extract_with_rapidocr(self, data: bytes) -> str:
         """Extract ordered text lines with a memoized RapidOCR engine."""

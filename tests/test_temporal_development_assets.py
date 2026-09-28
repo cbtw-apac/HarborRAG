@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
 
     adapter_extras = (
         "chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,"
-        "pdf-docling,postgres,qdrant,redis,s3,tables"
+        "pdf-liteparse,postgres,qdrant,redis,s3,tables"
     )
     release_version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
@@ -114,7 +115,12 @@ def test_server_only_temporal_does_not_interpolate_worker_encryption_secret() ->
     temporal_function = script.split("start_temporal() {", 1)[1].split("start_worker() {", 1)[0]
     worker_function = script.split("start_worker() {", 1)[1].split("start_api() {", 1)[0]
     api_function = script.split("start_api() {", 1)[1].split("stop_stack() {", 1)[0]
-    up_function = script.split("    up)", 1)[1].split("        ;;", 1)[0]
+    # The `up)` arm closes with a `;;` indented exactly one case level. Anchor
+    # to the line start: a nested case arm (--device) ends with a deeper-
+    # indented `;;` that still contains eight spaces, and an unanchored split
+    # would truncate the arm before its body.
+    up_body = script.split("    up)", 1)[1]
+    up_function = re.split(r"^ {8};;$", up_body, maxsplit=1, flags=re.MULTILINE)[0]
 
     assert 'HARBORRAG_SECRETS_ENCRYPTION_KEY: "${HARBORRAG_SECRETS_ENCRYPTION_KEY:-}"' in temporal
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY:?" not in temporal

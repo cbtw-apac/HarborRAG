@@ -6,6 +6,7 @@ from harborrag_core.base import utc_now
 from harborrag_core.summaries import (
     SummaryCard,
 )
+from harborrag_core.summary_cards import card_digest
 
 from .summary_authority import SummaryAuthority
 from .summary_intent import upsert
@@ -30,10 +31,11 @@ class SummaryCacheOperations(SummaryAuthority):
             )
         if row is None:
             return None
-        card = SummaryCard.model_validate(row["card"])
-        if card.artifact_hash != row["artifact_hash"]:
+        # Checked against the stored form: a card written before facets became
+        # source-field only is upgraded on parse, and would then hash differently.
+        if card_digest(row["card"]) != row["artifact_hash"]:
             raise ValueError("summary cache integrity failure")
-        return card
+        return SummaryCard.model_validate(row["card"])
 
     async def put_card(self, tenant_id: str, key: str, card: SummaryCard) -> SummaryCard:
         async with topology_transaction(self._client) as session:

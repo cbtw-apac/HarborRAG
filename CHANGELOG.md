@@ -22,14 +22,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object store and the control database, and checks Temporal only with `--temporal`.
 - The `harborrag` command ships with every install of `harborrag`, including the bare one;
   `harborrag[local]` adds the clients the local stack needs.
+- Source-entity summaries can be searched, not only read. With
+  `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, each accepted source-entity card is
+  published as its own vector point, and a query that matches one expands into the evidence
+  chunks beneath that entity. This is what lets a question spanning an issue's body, its
+  comments and an attached file reach that issue, which chunk search alone cannot do. The
+  point carries no card text: a hit yields a node key, and the summary authority re-checks
+  the binding's permission dependencies and freshness before releasing any chunk.
+- Summary cards carry `attributes`: named facets (a short reusable name, its values, and the
+  documents each value was copied from) that make a card filterable as well as readable.
+- `HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS` (default `60`) sets how long a source-entity card
+  may be, so the level that spans documents can be a dossier while section and document cards
+  stay navigation hints. The budget is part of the summary policy fingerprint, so widening it
+  regenerates only the cards it applies to.
+- Source scopes can declare **facets** in `config/topology/graph_build.yaml`: the named,
+  filterable facts every source-entity card carries. Each facet names a structured field the
+  connector already extracted (`field: "Skill Set"` -- a custom field by display name or id,
+  or a standard attribute such as `status`) and copies its value verbatim, with no model call;
+  a Jira issue node now carries its typed custom fields for this. Facets land on the entity
+  point as indexed `facet.<name>` payload, so `filters: {"facet.stage": "placed"}` selects
+  entities without forcing the flat lane, and a new `find_entities` reader tool ranks whole
+  entities against a question within a facet selection, returning each one's summary, facets
+  and released evidence ids.
+- Every evidence chunk of a Jira issue carries the issue's typed custom fields as a `fields`
+  payload map keyed by normalized field name (`Skill Set` -> `fields.skill_set`, `Years of
+  experience` -> `fields.years_of_experience`). Values keep their type, so
+  `{"fields.skill_set": "Data Engineering"}` matches exactly and a range condition works on a
+  number. A `fields.*` filter also reaches the issue's attachments: retrieval resolves it to
+  the matching issues, then searches their evidence and every document attached to them
+  (each attachment chunk now carries `parent_source_item_id`), so a CV is found through the
+  candidate issue whose fields describe it without copying those fields onto the CV. Documents
+  ingested before this change gain the map and the link on their next reprocessing.
+- The Temporal worker now hands its vector repository and embed client to the summary
+  projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
+  not only on the standalone `topology summaries worker` CLI.
 
 ### Changed
 
 - `ingest start --wait` and `ingest watch` render an inline progress block instead of a
   full-screen dashboard; `watch --events` streams NDJSON.
+- A summary's `coverage_mode` can now be `partial`, not only `complete` or `empty`. Coverage
+  is read from discovery -- the connector lists an issue's attachments and comments before any
+  of them is parsed -- so a card written while an attachment is still in OCR, or is of a type
+  nothing can parse, says so and names how many documents are missing, instead of silently
+  describing a candidate without their CV. A partial card is superseded automatically once the
+  missing document lands.
 - Direct-mode commands (`ingest run`, `retrieve`, `chat`, `doctor`) no longer import the
   Temporal client, so they work on a bare or `[local]` install; durable commands explain
   that `harborrag[temporal]` is required instead of failing with an import error.
+- `config/parsers.yaml` setting values may reference the environment with `${VARIABLE}` or
+  `${VARIABLE:-default}`, as `config/models.yaml` already did. The LiteParse OCR server URL
+  uses it: `HARBORRAG_OCR_SERVER_URL` (see `env-example/.env.parser.example`) moves both the
+  PDF and the image parser off the `ppocr-server` container alias - for example to
+  `http://localhost:8888/ocr` for a host run - without editing the catalog. A bare
+  `${VARIABLE}` that is unset fails the load; secrets keep using the `secrets` block.
+- FalkorDB names a tenant's graph `{falkordb_tenant_graph_prefix}_{tenant_id}` instead of
+  appending a SHA-256 digest of the tenant, matching the Qdrant collection naming so a graph
+  is recognizable without a lookup. The tenant must use the same charset Qdrant requires
+  (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
+  Deployments that already wrote digest-named graphs must rename them or reindex, and
+  projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
 
 ### Removed
 

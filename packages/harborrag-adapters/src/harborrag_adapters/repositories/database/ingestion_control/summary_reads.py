@@ -3,6 +3,7 @@
 from typing import Literal
 
 from sqlalchemy import select, tuple_, update
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_core.base import utc_now
@@ -65,6 +66,124 @@ class SummaryReadOperations(SummaryAuthority):
                 .all()
             )
         return tuple(GraphNodeRecord.model_validate(row) for row in rows)
+
+    async def entity_evidence(
+        self,
+        tenant_id: str,
+        node_keys: tuple[str, ...],
+        *,
+        access: AccessContext,
+    ) -> dict[str, tuple[str, ...]]:
+        """Resolve source-entity summary hits into the evidence they may serve.
+
+        A vector hit carries a node key and nothing else, so every check ``views``
+        makes before showing a card is made here before returning a single chunk:
+        the tenant gate, the binding's own permission dependencies, and the active
+        document versions the card was written over. A stale or unreadable binding
+        yields no chunks rather than an unfiltered set.
+        """
+
+        if str(access.tenant_id) != tenant_id or not node_keys or len(node_keys) > 1000:
+            return {}
+        async with topology_transaction(self._client) as session:
+            await lock_summary_tenant(session, tenant_id)
+            state = await lock_indexing_config(session, tenant_id)
+            if state.config.prohibited:
+                return {}
+            rows = (
+                (
+                    await session.execute(
+                        select(
+                            SUMMARY_BINDINGS,
+                            SUMMARY_SCOPES.c.revision,
+                            SUMMARY_SCOPES.c.policy,
+                        )
+                        .join(
+                            SUMMARY_SCOPES,
+                            (SUMMARY_SCOPES.c.tenant_id == SUMMARY_BINDINGS.c.tenant_id)
+                            & (
+                                SUMMARY_SCOPES.c.source_scope_id
+                                == SUMMARY_BINDINGS.c.source_scope_id
+                            ),
+                        )
+                        .where(
+                            SUMMARY_BINDINGS.c.tenant_id == tenant_id,
+                            SUMMARY_BINDINGS.c.node_key.in_(node_keys),
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            acl = await self._resolved_permissions(session, tenant_id)
+            snapshots: dict[str, SummarySnapshot | None] = {}
+            result: dict[str, tuple[str, ...]] = {}
+            for row in rows:
+                scope = row["source_scope_id"]
+                if scope not in snapshots:
+                    snapshots[scope] = await self._scope_snapshot(session, tenant_id, scope)
+                chunks = self._servable_entity_chunks(row, snapshots[scope], acl, access, tenant_id)
+                if chunks:
+                    result[row["node_key"]] = chunks
+            return result
+
+    def _servable_entity_chunks(
+        self,
+        row: RowMapping,
+        snapshot: SummarySnapshot | None,
+        acl: dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot],
+        access: AccessContext,
+        tenant_id: str,
+    ) -> tuple[str, ...]:
+        """Return the entity's chunks, or nothing when any single check fails."""
+
+        policy = row["policy"]
+        if policy is None or snapshot is None:
+            return ()
+        binding = SummaryBinding.model_validate(row["binding"])
+        manifest = binding.manifest
+        if manifest.kind != "SourceEntity" or not manifest.input_chunk_ids:
+            return ()
+        if not self._binding_readable(binding, policy, acl, access, tenant_id):
+            return ()
+        if any(
+            snapshot.document_versions.get(key) != value
+            for key, value in manifest.input_document_versions.items()
+        ):
+            return ()
+        current = (
+            binding.revision == row["revision"]
+            and manifest.membership_digest == snapshot.membership_digest
+            and manifest.policy_fingerprint == SummaryPolicy.model_validate(policy).fingerprint
+        )
+        return manifest.input_chunk_ids if current else ()
+
+    async def _resolved_permissions(
+        self, session: AsyncSession, tenant_id: str
+    ) -> dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot]:
+        permissions = (
+            (
+                await session.execute(
+                    select(PERMISSION_SNAPSHOTS.c.snapshot).where(
+                        PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            (value.resource_kind, value.resource_id): value
+            for value in (ResolvedPermissionSnapshot.model_validate(item) for item in permissions)
+        }
+
+    async def _scope_snapshot(
+        self, session: AsyncSession, tenant_id: str, scope: str
+    ) -> SummarySnapshot | None:
+        try:
+            return await self._snapshot(session, tenant_id, scope)
+        except HarborConflictError:
+            return None
 
     async def views(
         self,
@@ -164,6 +283,9 @@ class SummaryReadOperations(SummaryAuthority):
                     execution=row["execution"],
                     card=binding.card if versions_valid else None,
                     coverage_mode=binding.coverage_mode if versions_valid else None,
+                    missing_documents=len(binding.manifest.missing_document_ids)
+                    if versions_valid and binding.coverage_mode == "partial"
+                    else None,
                     included_chunks=len(binding.manifest.input_chunk_ids)
                     if versions_valid
                     else None,

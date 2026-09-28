@@ -14,6 +14,7 @@ EXPECTED_READER_TOOLS = [
     "get_document_metadata",
     "verify_citations",
     "composed_evidence_search",
+    "find_entities",
 ]
 
 __all__ = ["EXPECTED_READER_TOOLS"]

@@ -479,7 +479,7 @@ Tenant isolation is enforced at multiple layers:
 | Control-plane repositories | Tenant-owned records carry `tenant_id`; repository contracts expose tenant-scope filters for data access. |
 | Canonical SQL repositories | Documents, versions, chunks, events, and outbox records store tenant identity and use it in reads and ownership checks. |
 | Qdrant | Each tenant receives a physically separate vector collection. `tenant_id` is deliberately not stored as a payload filter. |
-| FalkorDB | Tenants share one graph. `tenant_id` participates in node identity, uniqueness constraints, writes, and retrieval filters. |
+| FalkorDB | Each tenant receives a physically separate graph. `tenant_id` also participates in node identity, uniqueness constraints, writes, and retrieval filters. |
 | Filesystem and S3 object stores | Logical object keys are placed below an opaque SHA-256-derived tenant prefix. |
 | SQL and Redis workflow state | Workflow state, checkpoints, leases, and fencing counters include tenant in keys or ownership checks. |
 | Temporal ingestion | Tenant identity is persisted in workflow/source inputs so retries and resumed activities keep the original scope. |
@@ -487,8 +487,8 @@ Tenant isolation is enforced at multiple layers:
 | Model cache, singleflight, and budgets | Model request metadata supplies `tenant_id`; configured policies can require it and partition state by tenant. |
 | MCP tool policy | The tenant chooses effective enablement, defaults, and limits after transport authorization; the runtime context still provides data isolation. |
 
-Qdrant's physical partition and FalkorDB's logical partition are both required;
-one is not a substitute for the other. See [Projection and rebuild
+FalkorDB's physical partition and its in-graph tenant predicates are both
+required; one is not a substitute for the other. See [Projection and rebuild
 architecture](../../developers/architecture/projection-rebuild.md#the-tenant-spine)
 for the storage design.
 
@@ -515,16 +515,29 @@ collections.
 
 ### FalkorDB graph isolation
 
-FalkorDB uses one configured graph, so tenant identity is part of every relevant
-node and relationship operation. The graph adapter includes `tenant_id` in
-merge identities, uniqueness constraints, traversal predicates, administrative
-counts, cleanup, and projection deletion. This is necessary even when a node key
-is deterministic: two tenants can ingest identical content and produce the same
-document-version or chunk key.
+The graph adapter derives a physical graph name from the configured prefix and
+the tenant, mirroring the Qdrant collection naming:
+
+```text
+{falkordb_tenant_graph_prefix}_{tenant_id}
+```
+
+The tenant must use 1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with
+a letter or digit - the same charset Qdrant requires. The graph is selected from
+the trusted operation context before any query is built, so a graph name is never
+taken from user input. Changing `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX` points
+the runtime at different physical graphs; it does not rename or repopulate
+existing ones.
+
+Tenant identity remains part of every relevant node and relationship operation.
+The graph adapter includes `tenant_id` in merge identities, uniqueness
+constraints, traversal predicates, administrative counts, cleanup, and projection
+deletion. This is necessary even when a node key is deterministic: two tenants
+can ingest identical content and produce the same document-version or chunk key.
 
 Graph queries must continue to use repository methods that receive
 `StorageOperationContext`. Do not run application-supplied Cypher directly
-against the shared graph, because doing so bypasses those tenant predicates.
+against a graph, because doing so bypasses those tenant predicates.
 
 ### Object-store isolation
 

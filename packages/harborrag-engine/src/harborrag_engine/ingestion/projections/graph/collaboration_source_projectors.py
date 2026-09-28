@@ -191,6 +191,77 @@ class ConfluenceSourceProjector(BaseSourceProjector):
         return item
 
 
+def _issue_attributes(extra: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe one issue for the reader that re-attaches this observation.
+
+    ``selected_values`` stringifies anything it cannot keep as a scalar, so the
+    source's own taxonomies are collected separately and stay as sequences. The
+    timestamps are normalized onto one pair of names: ``reidentify`` promotes the
+    canonical provenance dates to ``source_created_at``/``source_updated_at``, and
+    a reader should not have to know which spelling a connector produced.
+    """
+
+    attributes = selected_values(
+        extra,
+        "issue_key",
+        "status",
+        "status_category",
+        "issue_type",
+        "priority",
+        "assignee",
+        "reporter",
+        "creator",
+        "project_key",
+        "project_name",
+        "due_date",
+        "resolved_at",
+    )
+    for key in ("labels", "components"):
+        values = text_sequence(extra.get(key))
+        if values:
+            attributes[key] = list(values)
+    for key, promoted in (
+        ("created_at", "source_created_at"),
+        ("updated_at", "source_updated_at"),
+    ):
+        value = text_value(extra, key, promoted)
+        if value is not None:
+            attributes[key] = value
+    custom_fields = _typed_custom_fields(extra)
+    if custom_fields:
+        attributes["custom_fields"] = custom_fields
+    return attributes
+
+
+def _typed_custom_fields(extra: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Carry the issue's structured custom fields on its own node.
+
+    The connector already split these out of the prose (``typed_custom_attributes``);
+    until now they stopped at document metadata, which nothing downstream reads
+    by field. On the entity node they are what a summary can copy into a facet
+    without a model call. Prose-kind fields stay out: they are already chunks.
+    Bounded to what the graph attribute contract allows, so a project with sixty
+    custom fields does not fail projection.
+    """
+
+    rows = extra.get("typed_custom_attributes")
+    if not isinstance(rows, (list, tuple)):
+        return []
+    selected: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        field_id = text_value(row, "field_id")
+        name = text_value(row, "name")
+        value = text_value(row, "text")
+        if not field_id or not name or not value:
+            continue
+        selected.append({"field_id": field_id, "name": name, "value": value[:1024]})
+        if len(selected) == 32:
+            break
+    return selected
+
+
 class JiraSourceProjector(BaseSourceProjector):
     entity_type = GraphEntityType.JIRA_ISSUE
 
@@ -211,7 +282,9 @@ class JiraSourceProjector(BaseSourceProjector):
             state,
             document,
             provider_id=issue_id,
-            attributes=selected_values(extra, "issue_key", "status", "issue_type", "resolved_at"),
+            # The observation a reader re-attaches to this shared node, so it carries
+            # what identifies and dates the issue rather than only how it is filed.
+            attributes=_issue_attributes(extra),
         )
         self.edge(state, RelationType.CONTAINS, container, issue)
         parent = mapping_value(extra.get("parent"))

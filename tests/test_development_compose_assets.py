@@ -154,7 +154,7 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
 
     adapter_extras = (
         "chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,"
-        "pdf-docling,postgres,qdrant,redis,s3,tables"
+        "pdf-liteparse,postgres,qdrant,redis,s3,tables"
     )
     release_version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"

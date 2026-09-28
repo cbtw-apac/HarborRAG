@@ -18,6 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
+from harborrag_core.summary_cards import SUMMARY_DESCRIPTION_MAX_WORDS
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 
 from .memory_settings import MemorySettingsMixin
@@ -61,8 +62,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     summary_processing_allowed: bool = False
     summary_processing_revision: str = Field(default="v1", min_length=1, max_length=128)
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
-    control_db_pool_size: int = Field(default=5, ge=1, le=100)
-    control_db_max_overflow: int = Field(default=10, ge=0, le=200)
+    # Matches the Compose defaults: config/temporal.yaml runs 6 activities on each of
+    # six task queues, and TemporalRuntimeConfig refuses 36 > pool + overflow.
+    control_db_pool_size: int = Field(default=20, ge=1, le=100)
+    control_db_max_overflow: int = Field(default=16, ge=0, le=200)
     secrets_encryption_key: SecretStr | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
@@ -171,6 +174,15 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     summary_debounce_seconds: float = Field(default=5, ge=0, le=300)
     summary_max_wait_seconds: float = Field(default=60, ge=1, le=3600)
     summary_tenant_enabled: bool = False
+    # A source entity is the first card that spans documents, so it is the one
+    # worth writing as a dossier rather than a navigation hint. Widening this
+    # regenerates source-entity cards and nothing else, because the budget is part
+    # of the summary policy fingerprint.
+    summary_entity_card_max_words: int = Field(default=60, ge=20, le=SUMMARY_DESCRIPTION_MAX_WORDS)
+    # Publishes each accepted source-entity card as its own searchable point, so a
+    # question about a whole issue reaches the issue instead of one chunk of it.
+    # Off by default: it needs a vector backend and one embedding per entity.
+    summary_entity_index_enabled: bool = False
     # Explicit conservative per-operation price bounds are required before LLM dispatch.
     topology_llm_operation_cost_usd: Decimal | None = Field(default=None, gt=0)
     topology_derived_enabled: bool = False

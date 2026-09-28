@@ -9,6 +9,7 @@ from harborrag_core.contracts import reader as dto
 
 class RetrievalReader(Protocol):
     async def search(self, request: dto.RetrievalRequest) -> dto.RetrievalResponse: ...
+    async def find_entities(self, request: dto.EntityFindRequest) -> dto.EntityFindResponse: ...
 
 
 class GraphReader(Protocol):

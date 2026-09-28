@@ -290,3 +290,52 @@ def test_attachment_relative_download_url_without_leading_slash():
 
     assert result.status == "processed"
     assert result.download_url == f"{BASE_URL}/download/notes.txt"
+
+
+def test_attachment_records_jira_created_timestamp():
+    processor = _text_processor()
+    [result] = processor.process([_attachment(created="2026-09-14T10:22:31.000+0700")])
+
+    assert result.status == "processed"
+    assert result.created_at == "2026-09-14T10:22:31.000+0700"
+
+
+def test_attachment_prefers_confluence_version_over_history():
+    # version.when is the current file revision; history.createdDate is the
+    # original upload. A re-uploaded file should report the newer timestamp.
+    processor = _text_processor()
+    [result] = processor.process(
+        [
+            _attachment(
+                version={"when": "2026-08-01T09:00:00.000Z"},
+                history={"createdDate": "2025-01-05T12:00:00.000Z"},
+            )
+        ]
+    )
+
+    assert result.created_at == "2026-08-01T09:00:00.000Z"
+
+
+def test_attachment_without_timestamp_reports_none():
+    processor = _text_processor()
+    [result] = processor.process([_attachment()])
+
+    assert result.created_at is None
+
+
+def test_attachment_timestamp_survives_a_malformed_provider_shape():
+    processor = _text_processor()
+    [result] = processor.process([_attachment(version="not-a-mapping", history=None)])
+
+    assert result.status == "processed"
+    assert result.created_at is None
+
+
+def test_failed_attachment_still_reports_its_upload_time():
+    # The timestamp is provider metadata, not a parse result: a file too large
+    # to download should still say when it was attached.
+    processor = _text_processor(max_attachment_size_bytes=1)
+    [result] = processor.process([_attachment(created="2026-09-14T10:22:31.000+0700")])
+
+    assert result.status == "skipped"
+    assert result.created_at == "2026-09-14T10:22:31.000+0700"

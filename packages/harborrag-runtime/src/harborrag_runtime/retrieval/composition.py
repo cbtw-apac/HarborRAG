@@ -28,6 +28,7 @@ from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
 from .contextual import ContextualEvidenceSearch
 from .contracts import RetrievalPolicy, RetrievalResources
+from .entity_summary import EntitySummarySearch
 from .service import RuntimeRetrievalService
 
 
@@ -103,6 +104,11 @@ async def connect_retrieval_service(
             summary_repository=control.summaries,
             contextual_search=ContextualEvidenceSearch(
                 control.topology, vector_repository, contextual_profile
+            ),
+            entity_summary_search=(
+                EntitySummarySearch(control.summaries, vector_repository, contextual_profile)
+                if settings.summary_entity_index_enabled
+                else None
             ),
             document_snapshots=control.document_versions,
             source_catalog=getattr(control, "source_scans", None),

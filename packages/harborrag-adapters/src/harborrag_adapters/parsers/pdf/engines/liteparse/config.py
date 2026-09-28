@@ -25,6 +25,10 @@ class LiteParsePDFConfig:
     num_workers: int | None = None
     input_mode: str = "path"
     include_raw: bool = False
+    # Markdown output fences blocks LiteParse reads as preformatted, which on
+    # scanned or single-column pages is plain prose. Not a LiteParse
+    # constructor argument: applied to its output.
+    strip_code_fences: bool = True
     parser: Any | None = None
     extra_options: dict[str, Any] = field(default_factory=dict)
 

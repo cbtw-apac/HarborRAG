@@ -167,6 +167,7 @@ def test_agent_tool_catalog_exposes_only_bounded_read_tools() -> None:
         "get_document_metadata",
         "verify_citations",
         "composed_evidence_search",
+        "find_entities",
     }
     assert {tool.capability for tool in tools} == {"read"}
     shared = build_reader_tool_catalog(provider.runtime, KnowledgeReferenceStore())

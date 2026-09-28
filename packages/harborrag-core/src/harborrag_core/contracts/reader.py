@@ -264,6 +264,10 @@ __all__ = [
     "RetrievalResponse",
     "EvidenceFetchRequest",
     "EvidenceFetchResponse",
+    "ENTITY_FIND_LIMIT",
+    "EntityFindRequest",
+    "EntityFindResponse",
+    "EntityMatch",
     "EntityResolveRequest",
     "EntityResolveResponse",
     "RelationSearchRequest",
@@ -310,6 +314,53 @@ class RetrievalResponse:
     results: tuple[RetrievalResult, ...]
     diagnostics: dict[str, object]
     evidence: EvidenceBundle = field(default_factory=EvidenceBundle)
+
+
+ENTITY_FIND_LIMIT = 50
+
+
+@dataclass(frozen=True, slots=True)
+class EntityFindRequest:
+    """Rank source entities against a question, within declared facet values.
+
+    ``facets`` is keyed by facet name; a value is a string (equals), a list
+    (any of), or a mapping of ``gte``/``gt``/``lte``/``lt`` bounds for an integer
+    facet. It is the one place a caller states *which* entities qualify, as
+    opposed to what to look for in them.
+    """
+
+    access: AccessContext
+    query: str
+    facets: dict[str, object] = field(default_factory=dict)
+    source_scope_ids: tuple[str, ...] = ()
+    limit: int = 10
+
+    def __post_init__(self) -> None:
+        if not self.query.strip():
+            raise ValueError("entity query must be non-empty")
+        if not 1 <= self.limit <= ENTITY_FIND_LIMIT:
+            raise ValueError(f"entity limit must be between 1 and {ENTITY_FIND_LIMIT}")
+        if len(self.facets) > 12 or len(self.source_scope_ids) > 100:
+            raise ValueError("entity find request exceeds bounded filters")
+
+
+@dataclass(frozen=True, slots=True)
+class EntityMatch:
+    node_key: str
+    source_scope_id: str | None
+    rank: int
+    score: float
+    description: str | None
+    coverage_mode: str | None
+    attributes: tuple[dict[str, object], ...]
+    evidence_chunk_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EntityFindResponse:
+    request_id: str
+    matches: tuple[EntityMatch, ...]
+    truncated: bool = False
 
 
 @dataclass(frozen=True, slots=True)

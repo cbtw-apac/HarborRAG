@@ -208,6 +208,30 @@ services:
       HARBORRAG_FALKORDB_MAX_CONNECTIONS: ${HARBORRAG_FALKORDB_MAX_CONNECTIONS:-32}
       HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY: ${HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY:-8}
       HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
+      # Raising activity concurrency (config/temporal.yaml worker.max_concurrent_activities)
+      # requires headroom here: pool + overflow must cover 6 * max_concurrent_activities.
+      HARBORRAG_CONTROL_DB_POOL_SIZE: ${HARBORRAG_CONTROL_DB_POOL_SIZE:-20}
+      HARBORRAG_CONTROL_DB_MAX_OVERFLOW: ${HARBORRAG_CONTROL_DB_MAX_OVERFLOW:-16}
+      # Summarization resolves an ACL snapshot per document and per scope, and blocks
+      # the scope with SUMMARY_PERMISSION_SNAPSHOT_MISSING when one is absent. Nothing
+      # in ingestion writes those rows -- only the operator-run
+      # `topology security permissions-import` does -- so a corpus of any size is
+      # unreachable that way. These three put the worker on the shared-processing
+      # basis instead, which SummaryRuntimeFactory.initialize grants to the single
+      # tenant named here. RuntimeSettings rejects the combination unless the mode is
+      # tenant_shared and the shared tenant equals the ingestion tenant, so they move
+      # together -- and with the tenant in config/topology/graph_build.yaml.
+      HARBORRAG_INGESTION_TENANT_ID: ${HARBORRAG_INGESTION_TENANT_ID:-DEFAULT}
+      HARBORRAG_CORPUS_ACCESS_MODE: ${HARBORRAG_CORPUS_ACCESS_MODE:-source_acl}
+      HARBORRAG_CORPUS_SHARED_TENANT_ID: ${HARBORRAG_CORPUS_SHARED_TENANT_ID:-}
+      HARBORRAG_SUMMARY_PROCESSING_ALLOWED: "${HARBORRAG_SUMMARY_PROCESSING_ALLOWED:-false}"
+      # Publish each accepted source-entity card as a searchable point carrying its
+      # facets, so `facet.*` filters and `find_entities` have something to hit. The
+      # worker lends its own vector and embed clients; one embedding per entity.
+      HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED: "${HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED:-false}"
+      # The source entity is the level that spans documents -- issue, comments and
+      # CV -- so it gets a dossier budget; section and document cards stay at 60.
+      HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS: "${HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS:-250}"
     volumes:
       # Temporal policy is mounted separately so queue/retry changes used by
       # resilience tests need only a worker restart, not an image rebuild.
