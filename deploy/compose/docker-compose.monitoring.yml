@@ -15,7 +15,7 @@ services:
   grafana:
     image: grafana/grafana:13.1.0
     ports:
-      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+      - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in the monitoring environment file}
@@ -27,6 +27,10 @@ services:
       - grafana_secure_data:/var/lib/grafana
     networks:
       - monitoring-network
+      # Docker cannot publish a host port for a container whose only network is
+      # internal; attach the external data network too, purely so the port
+      # mapping above actually binds (Grafana doesn't otherwise talk to it).
+      - harborrag-data-network
 
   loki:
     image: grafana/loki:3.7.2

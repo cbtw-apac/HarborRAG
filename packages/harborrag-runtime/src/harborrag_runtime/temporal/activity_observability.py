@@ -190,6 +190,12 @@ class ActivityObservability:
                 ArtifactMetricKind.CANONICAL,
                 prepared.canonical_reference.byte_size,
             )
+        for engine, success, duration_ms in prepared.parser_attempts:
+            self._telemetry.record_parser_engine_attempt(
+                engine=engine,
+                success=success,
+                duration_seconds=duration_ms / 1000,
+            )
 
     def record_chunking(self, statistics: ChunkingStatistics | None) -> None:
         if statistics is None:

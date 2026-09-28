@@ -20,8 +20,9 @@ composition and security policy.
 
 Note that host port 6379 is **FalkorDB**, not Redis - Redis is published on 6380 to avoid
 the collision. `HARBORRAG_REDIS_URL=redis://redis:6379/0` is still correct, because that
-URL is resolved inside the Docker network rather than on the host. FalkorDB's browser also
-defaults to host port 3000, which collides with Grafana in the monitoring stack.
+URL is resolved inside the Docker network rather than on the host. FalkorDB's browser
+defaults to host port 3000; Grafana in the monitoring stack defaults to 3001 to avoid
+colliding with it.
 
 The service image tags are pinned directly in the Compose file. The environment template
 controls ports and credentials. Its `DATABASE_PULL`, `DATABASE_STARTUP_TIMEOUT`, and
@@ -98,8 +99,9 @@ scripts/deployment/dev.sh data          # creates harborrag-data-network
 cp env-example/.env.monitoring.example env/.env.monitoring
 chmod 600 env/.env.monitoring
 # GRAFANA_ADMIN_PASSWORD ships empty and is guarded, so Compose refuses to start
-# until you set it. Grafana also defaults to host port 3000, which the FalkorDB
-# browser already uses -- change GRAFANA_PORT or FALKORDB_BROWSER_PORT.
+# until you set it. Grafana defaults to host port 3001 to avoid the FalkorDB
+# browser's default of 3000 -- change GRAFANA_PORT or FALKORDB_BROWSER_PORT if
+# either is already in use.
 docker compose --env-file env/.env.monitoring \
   --file deploy/compose/docker-compose.monitoring.yml up --detach
 ```

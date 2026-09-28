@@ -259,7 +259,10 @@ def test_activity_observability_translates_successful_stage_results() -> None:
     observability = ActivityObservability(telemetry)
     raw_reference = SimpleNamespace(source_artifact=SimpleNamespace(byte_size=512))
     capture = SimpleNamespace(unchanged=False, raw_reference=raw_reference)
-    prepared = SimpleNamespace(canonical_reference=SimpleNamespace(byte_size=256))
+    prepared = SimpleNamespace(
+        canonical_reference=SimpleNamespace(byte_size=256),
+        parser_attempts=(("pymupdf", True, 12.5), ("mineru", False, 340.0)),
+    )
     statistics = ChunkingStatistics(
         route_chunk_count=2,
         evidence_chunk_count=3,
@@ -278,7 +281,9 @@ def test_activity_observability_translates_successful_stage_results() -> None:
     )
     observability.record_capture(cast(Any, capture), "jira")
     observability.record_prepared(cast(Any, prepared))
-    observability.record_prepared(cast(Any, SimpleNamespace(canonical_reference=None)))
+    observability.record_prepared(
+        cast(Any, SimpleNamespace(canonical_reference=None, parser_attempts=()))
+    )
     observability.record_chunking(None)
     observability.record_chunking(statistics)
     observability.record_publication(cast(Any, SimpleNamespace(published=True)), "jira")
@@ -292,6 +297,12 @@ def test_activity_observability_translates_successful_stage_results() -> None:
     telemetry.record_artifact_bytes.assert_any_call(ArtifactMetricKind.RAW, 512)
     telemetry.record_artifact_bytes.assert_any_call(ArtifactMetricKind.CANONICAL, 256)
     telemetry.record_chunk_tokens.assert_called_once_with(42)
+    telemetry.record_parser_engine_attempt.assert_any_call(
+        engine="pymupdf", success=True, duration_seconds=0.0125
+    )
+    telemetry.record_parser_engine_attempt.assert_any_call(
+        engine="mineru", success=False, duration_seconds=0.34
+    )
 
 
 def test_capture_without_a_raw_reference_fails_the_stage_invariant() -> None:

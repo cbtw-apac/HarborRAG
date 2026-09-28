@@ -8,6 +8,7 @@ import logging
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.domain.document import Document
+from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.ingestion import (
     ChangeFingerprintBuilder,
     DocumentIdentityBuilder,
@@ -205,6 +206,7 @@ class DocumentCaptureStages:
                 document_version_id=candidate_id,
                 decision=decision,
                 canonical_reference=canonical_reference,
+                parser_attempts=_extract_parser_attempts(parsed),
             )
         except Exception as error:
             if candidate_id is not None:
@@ -340,3 +342,22 @@ class DocumentCaptureStages:
 
 def _context(tenant_id: str) -> StorageOperationContext:
     return StorageOperationContext.system(tenant_id)
+
+
+def _extract_parser_attempts(parsed: ParsedDocument) -> tuple[tuple[str, bool, float], ...]:
+    """Read PDF-parser fallback attempts stashed in metadata by ParseResult.to_parsed_document().
+
+    Only the PDF family records these; every other parser leaves the key absent.
+    """
+
+    raw_attempts = parsed.metadata.get("parser_attempts") if parsed.metadata else None
+    if not raw_attempts:
+        return ()
+    attempts: list[tuple[str, bool, float]] = []
+    for attempt in raw_attempts:
+        engine = attempt.get("engine")
+        duration_ms = attempt.get("duration_ms")
+        if not isinstance(engine, str) or not isinstance(duration_ms, (int, float)):
+            continue
+        attempts.append((engine, bool(attempt.get("success")), float(duration_ms)))
+    return tuple(attempts)
