@@ -18,13 +18,15 @@ from workflow_control_fixtures import (
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.errors import (
     IngestionAlreadyCompletedError,
+    IngestionAlreadyPausedError,
+    IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
 )
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
-from harborrag_core.contracts.errors import HarborConnectionError
+from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
-from harborrag_runtime.errors import WorkflowSubmissionError
+from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
@@ -249,14 +251,85 @@ async def test_pause_and_resume_forward_to_temporal(
         FakeTemporalClient,
     ],
 ) -> None:
-    service, _, temporal = service_resources
+    service, control, temporal = service_resources
     accepted = await service.submit(_command(), idempotency_key=None)
     task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
 
     paused = await service.pause(task_id)
     assert temporal.paused == [task_id]
+    assert paused["status"] == "PENDING"
     assert paused["message"] == "Pause requested"
+
+    # The Temporal activity settles the durable lifecycle asynchronously.
+    await control.tasks.transition(task_id, IngestionTaskState.PAUSED)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED
+
+    with pytest.raises(IngestionAlreadyPausedError, match="already paused"):
+        await service.pause(task_id)
+    assert temporal.paused == [task_id]
+
+    with pytest.raises(HarborConflictError, match="finalization from PAUSED"):
+        await control.tasks.finalize(
+            task_id,
+            IngestionTaskState.COMPLETED,
+            summary={"stage": "COMPLETED"},
+        )
 
     resumed = await service.resume(task_id)
     assert temporal.resumed == [task_id]
+    assert resumed["status"] == "RUNNING"
     assert resumed["message"] == "Resume requested"
+    # The Temporal activity settles the durable lifecycle asynchronously.
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_resume_on_an_already_running_task_is_rejected(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+
+    with pytest.raises(IngestionAlreadyRunningError, match="already running"):
+        await service.resume(task_id)
+    assert temporal.resumed == []
+
+
+@pytest.mark.asyncio
+async def test_failed_pause_and_resume_do_not_change_durable_state(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+
+    async def fail_pause(_task_id: str) -> None:
+        raise WorkflowOperationError("pause failed")
+
+    temporal.pause = fail_pause  # type: ignore[method-assign]
+    with pytest.raises(HarborConnectionError):
+        await service.pause(task_id)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.RUNNING
+
+    await control.tasks.transition(task_id, IngestionTaskState.PAUSED)
+
+    async def fail_resume(_task_id: str) -> None:
+        raise WorkflowOperationError("resume failed")
+
+    temporal.resume = fail_resume  # type: ignore[method-assign]
+    with pytest.raises(HarborConnectionError):
+        await service.resume(task_id)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED

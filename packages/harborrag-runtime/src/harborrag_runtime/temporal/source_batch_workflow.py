@@ -9,7 +9,12 @@ from temporalio.workflow import ParentClosePolicy
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 
-from .schemas import DocumentDispatchSummary, DocumentIngestionInput, SourceBatchInput
+from .schemas import (
+    DocumentDispatchSummary,
+    DocumentIngestionInput,
+    SourceBatchInput,
+    SourceBatchStatus,
+)
 
 
 @workflow.defn(name="harborrag.source_batch")
@@ -19,9 +24,13 @@ class SourceBatchWorkflow:
     def __init__(self) -> None:
         self._cancel_requested = False
         self._paused = False
+        self._task_id = "pending"
+        self._status = "PENDING"
 
     @workflow.run
     async def run(self, request: SourceBatchInput) -> DocumentDispatchSummary:
+        self._task_id = request.task_id
+        self._status = "RUNNING"
         summary = DocumentDispatchSummary()
         for start in range(
             request.start_index,
@@ -29,8 +38,11 @@ class SourceBatchWorkflow:
             request.document_concurrency,
         ):
             if self._paused:
+                self._status = "PAUSED"
                 await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
+                self._status = "CANCELLING" if self._cancel_requested else "RUNNING"
             if self._cancel_requested:
+                self._status = "CANCELLING"
                 break
             end = min(request.end_index, start + request.document_concurrency)
             statuses = await asyncio.gather(
@@ -55,6 +67,8 @@ class SourceBatchWorkflow:
             )
             for status in statuses:
                 summary = summary.add(status)
+        if not self._cancel_requested:
+            self._status = "COMPLETED"
         return summary
 
     @workflow.signal
@@ -63,6 +77,7 @@ class SourceBatchWorkflow:
 
         self._cancel_requested = True
         self._paused = False
+        self._status = "CANCELLING"
 
     @workflow.signal
     def pause(self) -> None:
@@ -70,7 +85,19 @@ class SourceBatchWorkflow:
 
         if not self._cancel_requested:
             self._paused = True
+            self._status = "PAUSED"
 
     @workflow.signal
     def resume(self) -> None:
         self._paused = False
+        if not self._cancel_requested:
+            self._status = "RUNNING"
+
+    @workflow.query
+    def get_status(self) -> SourceBatchStatus:
+        return SourceBatchStatus(
+            task_id=self._task_id,
+            status=self._status,
+            paused=self._paused,
+            cancel_requested=self._cancel_requested,
+        )

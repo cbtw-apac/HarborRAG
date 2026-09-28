@@ -10,15 +10,20 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.temporal.maintenance_schemas import ProjectionCleanupResult
 from harborrag_runtime.temporal.schemas import (
     SourceDiscoveryResult,
     SourceIngestionResult,
+    WorkflowExecutionControlInput,
 )
+from harborrag_runtime.temporal.source_activities import SourceActivitiesMixin
 from harborrag_runtime.temporal.source_batch_workflow import SourceBatchWorkflow
 from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
 
@@ -36,8 +41,9 @@ class _LiveBatchHandle:
     parent's own flags flipped.
     """
 
-    def __init__(self, batch: SourceBatchWorkflow, request) -> None:
+    def __init__(self, batch: SourceBatchWorkflow, request, *, workflow_id: str) -> None:
         self._batch = batch
+        self.id = workflow_id
         self._task = asyncio.create_task(batch.run(request))
 
     def __await__(self):
@@ -78,6 +84,10 @@ def _fast_workflow_primitives(monkeypatch):
             {"is_continue_as_new_suggested": staticmethod(lambda: False)},
         )(),
     )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.patched",
+        lambda _patch_id: True,
+    )
 
 
 @pytest.mark.asyncio
@@ -94,7 +104,24 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
 
     started: list[int] = []
     finished: list[int] = []
+    control_activities: list[str] = []
     wave_release = {0: asyncio.Event(), 1: asyncio.Event()}
+    native_control = SourceActivitiesMixin()
+    native_control._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=SimpleNamespace(
+            pause_workflow_execution=AsyncMock(
+                side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+            ),
+            unpause_workflow_execution=AsyncMock(
+                side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_activities.activity.info",
+        lambda: SimpleNamespace(workflow_id="source:task-1", activity_id="control-1"),
+    )
 
     async def execute_activity(name, request, **options):
         del options
@@ -106,6 +133,24 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
             )
         if name == "harborrag.cleanup_source_projections":
             return ProjectionCleanupResult(claimed=0, completed=0, cancelled=0, failed=0)
+        if name in {
+            "harborrag.pause_source_ingestion",
+            "harborrag.resume_source_ingestion",
+        }:
+            control_activities.append(name)
+            return None
+        if name == "harborrag.pause_workflow_execution":
+            control_activities.append(name)
+            await native_control.pause_workflow_execution(
+                WorkflowExecutionControlInput(workflow_id=request.workflow_id)
+            )
+            return None
+        if name == "harborrag.unpause_workflow_execution":
+            control_activities.append(name)
+            await native_control.unpause_workflow_execution(
+                WorkflowExecutionControlInput(workflow_id=request.workflow_id)
+            )
+            return None
         assert name == "harborrag.finalize_source_ingestion"
         return SourceIngestionResult(
             task_id="task-1",
@@ -128,7 +173,11 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
 
     async def start_child_workflow(name, request, **options):
         assert name == "harborrag.source_batch"
-        return _LiveBatchHandle(SourceBatchWorkflow(), request)
+        return _LiveBatchHandle(
+            SourceBatchWorkflow(),
+            request,
+            workflow_id=options["id"],
+        )
 
     monkeypatch.setattr(
         "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
@@ -161,6 +210,9 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
     # Finish the in-flight wave; already-started work must not be discarded.
     wave_release[0].set()
     await _until(lambda: len(finished) == 8)
+    await _until(lambda: "harborrag.pause_source_ingestion" in control_activities)
+    await _until(lambda: "harborrag.pause_workflow_execution" in control_activities)
+    assert instance.get_status().pause_applied is True
 
     # Give the paused signal every chance to (wrongly) let the next wave
     # start; it must not, since pause forbids starting *new* work.
@@ -170,6 +222,9 @@ async def test_pause_stops_new_dispatch_and_resume_completes_without_losing_prog
 
     instance.resume()
     assert instance.get_status().status == "RUNNING"
+    await _until(lambda: "harborrag.resume_source_ingestion" in control_activities)
+    await _until(lambda: "harborrag.unpause_workflow_execution" in control_activities)
+    assert instance.get_status().pause_applied is False
 
     wave_release[1].set()
     result = await run_task

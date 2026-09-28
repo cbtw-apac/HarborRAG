@@ -247,7 +247,7 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
         after_task_id: str | None = None,
         limit: int = 500,
     ) -> tuple[IngestionTask, ...]:
-        """Non-terminal tasks (PENDING/RUNNING), keyset-paginated for a progress bridge.
+        """Non-terminal tasks, keyset-paginated for a progress bridge.
 
         Callers must page through with (submitted_at, task_id) from the last
         row of the previous page until a short page signals the end -- a
@@ -260,7 +260,11 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             raise ValueError("active task cursor values must be supplied together")
         statement = select(INGESTION_TASKS).where(
             INGESTION_TASKS.c.status.in_(
-                (IngestionTaskState.PENDING.value, IngestionTaskState.RUNNING.value)
+                (
+                    IngestionTaskState.PENDING.value,
+                    IngestionTaskState.RUNNING.value,
+                    IngestionTaskState.PAUSED.value,
+                )
             )
         )
         if after_submitted_at is not None:

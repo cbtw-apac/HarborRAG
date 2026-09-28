@@ -62,8 +62,11 @@ contract:
   `Completed`, `Succeeded`, and `CompletedWithErrors` are not public values.
 - A create request selects a configured `connection_id`; it does not accept an
   arbitrary caller-provided `source_id`.
-- Pause and resume are currently Temporal/CLI controls; the REST router does
-  not expose pause/resume endpoints.
+- Pause and resume are available through the CLI, SDK, and
+  `POST /v1/ingestions/{task_id}/pause|resume`. They take effect at safe batch
+  boundaries. Native `Paused`/`Running` execution status in Temporal UI also
+  requires `frontend.WorkflowPauseEnabled` on the Temporal server; cooperative
+  ingestion controls remain available when that optional native API is absent.
 - Vector and graph projection writes are separate idempotent activities,
   followed by verification. A test requiring a single atomic `index_upsert`
   activity describes a different implementation contract.

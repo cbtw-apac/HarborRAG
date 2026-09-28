@@ -141,6 +141,20 @@ class SourceIngestionService(SourceDocumentOperations):
         )
         logger.info("Source ingestion cancelled task_id=%s", task_id)
 
+    async def pause(self, task_id: str) -> None:
+        task = await self._control.tasks.get(task_id)
+        if task is None or task.status == IngestionTaskState.PAUSED:
+            return
+        if task.status == IngestionTaskState.RUNNING:
+            await self._control.tasks.transition(task_id, IngestionTaskState.PAUSED)
+
+    async def resume(self, task_id: str) -> None:
+        task = await self._control.tasks.get(task_id)
+        if task is None or task.status == IngestionTaskState.RUNNING:
+            return
+        if task.status == IngestionTaskState.PAUSED:
+            await self._control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+
     async def fail(self, task_id: str, *, error_code: str) -> None:
         """Persist one terminal source-workflow failure without runtime details."""
 
