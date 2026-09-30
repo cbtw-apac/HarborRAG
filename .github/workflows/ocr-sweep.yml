@@ -72,6 +72,8 @@ jobs:
       MODE: ${{ needs.plan.outputs.mode }}
       BRANCH: ${{ matrix.branch }}
       RULES: ${{ github.workspace }}/ocr-config/.opencodereview/harborrag-rules.json
+      DELTA_TOKEN_BUDGET: ${{ vars.OCR_DELTA_TOKEN_BUDGET || '3_000_000' }} # 3M tokens for delta jobs should be good
+      FULL_TOKEN_BUDGET: ${{ vars.OCR_FULL_TOKEN_BUDGET || '50_000_000' }} # 50M tokens for repo-wide monthly scan
     defaults:
       run: { working-directory: target }
     steps:
@@ -136,12 +138,14 @@ jobs:
       - name: Run sweep
         run: |
           if [ "$MODE" = "full" ]; then
-            ocr scan --path packages --rule "$RULES" --format json --output result.json
+            ocr scan --path packages --rule "$RULES" --max-tokens-budget "$FULL_TOKEN_BUDGET" \
+              --format json --output result.json
           elif [ "$BASE" = "$(git rev-parse HEAD)" ]; then
             echo "Nothing new on $BRANCH since last sweep"
             echo '{"status":"skipped","comments":[]}' > result.json
           else
-            ocr review --from "$BASE" --to HEAD --rule "$RULES" --format json --output result.json
+            ocr review --from "$BASE" --to HEAD --rule "$RULES" --max-tokens-budget "$DELTA_TOKEN_BUDGET" \
+              --format json --output result.json
           fi
 
       # ocr exits 0 even when some files failed to review (known persisting issue raised in ocr repo),
@@ -157,6 +161,9 @@ jobs:
           else
             echo "complete=false" >> "$GITHUB_OUTPUT"
             jq -r '.manifest.coverage.failed[]? | "::warning::Not reviewed: \(.path)"' result.json
+            if [ "$(jq -r '.summary.budget_exceeded // false' result.json)" = true ]; then
+              echo "::warning::Token budget reached ($(jq -r '.summary.total_tokens' result.json) tokens). Raise OCR_${MODE^^}_TOKEN_BUDGET or run this branch manually."
+            fi
           fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
