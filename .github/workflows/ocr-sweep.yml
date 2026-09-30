@@ -101,9 +101,11 @@ jobs:
           ocr config set language English
 
       - name: Resolve marker tag and base
+        id: marker
         run: |
           SAFE="${BRANCH//\//-}"                       # just a safeguard for naming
           echo "SAFE=$SAFE" >> "$GITHUB_ENV"
+          echo "safe=$SAFE" >> "$GITHUB_OUTPUT"
           echo "TAG=ocr-sweep/$SAFE" >> "$GITHUB_ENV"
           # Base candidates: every ocr-sweep/* tag already in this branch's history, plus,
           # for release branches only, the point where the branch left main. main must not
@@ -141,6 +143,69 @@ jobs:
           else
             ocr review --from "$BASE" --to HEAD --rule "$RULES" --format json --output result.json
           fi
+
+      # ocr exits 0 even when some files failed to review (known persisting issue raised in ocr repo),
+      # so completeness is read from the run manifest instead of the exit code.
+      - name: Check review completeness
+        id: coverage
+        run: |
+          STATE=$(jq -r '.manifest.terminal_state // .status' result.json)
+          FAILED=$(jq '[.manifest.coverage.failed[]?] | length' result.json)
+          echo "Review state: $STATE, failed item(s): $FAILED"
+          if { [ "$STATE" = complete ] || [ "$STATE" = skipped ]; } && [ "$FAILED" -eq 0 ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            jq -r '.manifest.coverage.failed[]? | "::warning::Not reviewed: \(.path)"' result.json
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          {
+            name: "ocr-${{ env.MODE }}-${{ steps.marker.outputs.safe }}-${{ github.run_id }}",
+            path: target/result.json,
+          }
+
+      # Publishes findings even from a partial review: they are real, just not the full picture.
+      - name: Raise alert issue
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          COMPLETE: "${{ steps.coverage.outputs.complete }}"
+        run: |
+          # only counts critical and high findings from .comments[]
+          SEVERE='[.comments[]? | select(.severity == "critical" or .severity == "high")]'
+          COUNT=$(jq "$SEVERE | length" result.json)
+          [ "$COMPLETE" = true ] && SCOPE="" || SCOPE=" (PARTIAL)"
+          if [ "$COUNT" -gt 0 ]; then
+              { echo "OCR $MODE sweep of \`$BRANCH\`$SCOPE found $COUNT high/critical findings. Full JSON in the run artifact:"
+              echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              [ "$COMPLETE" = true ] || echo "Some files were not reviewed; the marker was not advanced and they will be retried."
+              echo
+              jq -r "$SEVERE | sort_by(.severity != \"critical\") | .[] |
+                \"- **\(.severity)** \(.category // \"\") \`\(.path):\(.start_line)-\(.end_line)\`\n  \(.content | gsub(\"\n\"; \"\n  \"))\"" result.json
+              } | head -c 60000 > body.md
+          gh issue create --title "OCR $MODE sweep ($BRANCH)$SCOPE $(date +%F): $COUNT findings" \
+          --label ocr-sweep --body-file body.md
+          fi
+
+      - name: Advance sweep marker
+        if: env.MODE == 'delta' && github.ref == 'refs/heads/main' && steps.coverage.outputs.complete == 'true'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          # Checkout does not persist credentials, so authenticate only this push.
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$AUTH"
+          git tag -f "$TAG" HEAD
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" \
+            push -f origin "refs/tags/$TAG"
+
+      # Runs last so findings are already published; the marker was kept, so the next sweep retries.
+      - name: Fail on incomplete review
+        if: steps.coverage.outputs.complete == 'false'
+        run: |
+          echo "::error::Review of $BRANCH was incomplete; marker not advanced. See warnings above for unreviewed files."
+          exit 1
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
