@@ -27,7 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         # all branch refs + dates, no file contents
-        with: { fetch-depth: 0, filter: "blob:none", persist-credentials: false }
+        with:
+          { fetch-depth: 0, filter: "blob:none", persist-credentials: false }
       - id: plan
         env:
           INPUT_MODE: ${{ inputs.mode }}
@@ -76,10 +77,21 @@ jobs:
     steps:
       # The code being reviewed
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with: { ref: "${{ matrix.branch }}", fetch-depth: 0, path: target, persist-credentials: false }
+        with:
+          {
+            ref: "${{ matrix.branch }}",
+            fetch-depth: 0,
+            path: target,
+            persist-credentials: false,
+          }
       # and the rules, always from the workflow's own branch (main), even if dev lacks them.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with: { path: ocr-config, sparse-checkout: .opencodereview, persist-credentials: false }
+        with:
+          {
+            path: ocr-config,
+            sparse-checkout: .opencodereview,
+            persist-credentials: false,
+          }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24 }
 
@@ -90,18 +102,32 @@ jobs:
 
       - name: Resolve marker tag and base
         run: |
-          SAFE="${BRANCH//\//-}"                       # dev/v2.0.0 -> dev-v2.0.0
+          SAFE="${BRANCH//\//-}"                       # just a safeguard for naming
           echo "SAFE=$SAFE" >> "$GITHUB_ENV"
           echo "TAG=ocr-sweep/$SAFE" >> "$GITHUB_ENV"
-          # Base = the already-reviewed point closest to HEAD: any ocr-sweep/* tag that is an
-          # ancestor of HEAD, else where this branch left main. Fewest changed files wins.
-          BASE=$(git merge-base origin/main HEAD)
-          BEST_N=$(git diff --name-only "$BASE" HEAD | wc -l)
+          # Base candidates: every ocr-sweep/* tag already in this branch's history, plus,
+          # for release branches only, the point where the branch left main. main must not
+          # use merge-base: on main it equals HEAD, which would skip every hotfix.
+          CANDIDATES=""
           for T in $(git tag --list 'ocr-sweep/*'); do
-            git merge-base --is-ancestor "$T" HEAD || continue
-            N=$(git diff --name-only "$T" HEAD | wc -l)
-            if [ "$N" -lt "$BEST_N" ]; then BASE=$(git rev-parse "$T^{commit}"); BEST_N=$N; fi
+            if git merge-base --is-ancestor "$T" HEAD; then
+              CANDIDATES="$CANDIDATES $(git rev-parse "$T^{commit}")"
+            fi
           done
+          if [ "$BRANCH" != "main" ]; then
+            CANDIDATES="$CANDIDATES $(git merge-base origin/main HEAD)"
+          fi
+          # Closest already-reviewed point = fewest changed files to HEAD.
+          BASE=""; BEST_N=""
+          for C in $CANDIDATES; do
+            N=$(git diff --name-only "$C" HEAD | wc -l)
+            if [ -z "$BEST_N" ] || [ "$N" -lt "$BEST_N" ]; then BASE=$C; BEST_N=$N; fi
+          done
+          if [ -z "$BASE" ]; then
+            # No marker in this branch's history yet: start tracking now, don't review all history.
+            BASE=$(git rev-parse HEAD); BEST_N=0
+            echo "::notice::No ocr-sweep tag in $BRANCH history; starting from HEAD"
+          fi
           echo "BASE=$BASE" >> "$GITHUB_ENV"
           echo "$BRANCH: base ${BASE:0:8}, $BEST_N changed file(s) to HEAD $(git rev-parse --short HEAD)"
 
