@@ -206,38 +206,3 @@ jobs:
         run: |
           echo "::error::Review of $BRANCH was incomplete; marker not advanced. See warnings above for unreviewed files."
           exit 1
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          {
-            name: "ocr-${{ env.MODE }}-${{ env.SAFE }}-${{ github.run_id }}",
-            path: target/result.json,
-          }
-
-      - name: Raise alert issue
-        env: { GH_TOKEN: "${{ github.token }}" }
-        run: |
-          # only counts critical and high findings from .comments[]
-          SEVERE='[.comments[]? | select(.severity == "critical" or .severity == "high")]'
-          COUNT=$(jq "$SEVERE | length" result.json)
-          if [ "$COUNT" -gt 0 ]; then
-              { echo "OCR $MODE sweep of \`$BRANCH\` found $COUNT high/critical findings. Full JSON in the run artifact:"
-              echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-              echo
-              jq -r "$SEVERE | sort_by(.severity != \"critical\") | .[] |
-                \"- **\(.severity)** \(.category // \"\") \`\(.path):\(.start_line)-\(.end_line)\`\n  \(.content | gsub(\"\n\"; \"\n  \"))\"" result.json
-              } | head -c 60000 > body.md
-          gh issue create --title "OCR $MODE sweep ($BRANCH) $(date +%F): $COUNT findings" \
-          --label ocr-sweep --body-file body.md
-          fi
-
-      - name: Advance sweep marker
-        if: env.MODE == 'delta' && github.ref == 'refs/heads/main'
-        env: { GH_TOKEN: "${{ github.token }}" }
-        run: |
-          # Checkout does not persist credentials, so authenticate only this push.
-          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          echo "::add-mask::$AUTH"
-          git tag -f "$TAG" HEAD
-          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH"             push -f origin "refs/tags/$TAG"
