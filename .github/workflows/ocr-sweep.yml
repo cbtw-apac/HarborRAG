@@ -1,0 +1,147 @@
+name: OCR scheduled sweep
+on:
+  schedule:
+    - cron: "0 1 * * 0" # delta on main + active dev branch
+    - cron: "0 2 1 * *" # full scan of active dev branch
+  workflow_dispatch:
+    inputs:
+      mode: { type: choice, options: [delta, full], default: delta }
+      branch:
+        description: "Sweep only this branch (empty = main + newest dev/v* branch)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency: { group: ocr-sweep, cancel-in-progress: false }
+
+jobs:
+  # 1) Decide what branch to sweep: mode + list of branches. (like dev/v2.0.0 for example)
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      branches: ${{ steps.plan.outputs.branches }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, filter: "blob:none" } # all branch refs + dates, no file contents
+      - id: plan
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          VAR_BRANCH: ${{ vars.OCR_SWEEP_BRANCH }} # Don't really need this unless we want to hard-code
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          MODE="$INPUT_MODE"
+          if [ -z "$MODE" ]; then
+            [ "$SCHEDULE" = "0 2 1 * *" ] && MODE=full || MODE=delta
+          fi
+          # Active release branch = most recently committed dev/v* (override via repo variable).
+          DEV="${VAR_BRANCH:-$(git for-each-ref --sort=-committerdate \
+            --format='%(refname:lstrip=3)' 'refs/remotes/origin/dev/v*' | head -1)}"
+          if [ -n "$INPUT_BRANCH" ]; then
+            BRANCHES="$INPUT_BRANCH"
+          elif [ "$MODE" = full ]; then
+            BRANCHES="${DEV:-main}"                  # full scan: dev only
+          else
+            BRANCHES="main${DEV:+ $DEV}"             # delta: main (hotfixes) + dev
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "branches=$(printf '%s\n' $BRANCHES | jq -R . | jq -sc unique)" >> "$GITHUB_OUTPUT"
+          echo "Mode: $MODE, branches: $BRANCHES"
+
+  # 2) Sweep each branch as its own matrix job.
+  sweep:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.plan.outputs.branches) }}
+    env:
+      OCR_LLM_URL: ${{ vars.OCR_LLM_URL || 'https://api.openai.com/v1/responses' }}
+      OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+      OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+      OCR_LLM_PROTOCOL: openai-responses # gpt-6-luna rejects tool calls with reasoning on /v1/chat/completions
+      OCR_USE_ANTHROPIC: "false" # sadly, we only have openAI
+      MODE: ${{ needs.plan.outputs.mode }}
+      BRANCH: ${{ matrix.branch }}
+      RULES: ${{ github.workspace }}/ocr-config/.opencodereview/harborrag-rules.json
+    defaults:
+      run: { working-directory: target }
+    steps:
+      # The code being reviewed
+      - uses: actions/checkout@v4
+        with: { ref: "${{ matrix.branch }}", fetch-depth: 0, path: target }
+      # and the rules, always from the workflow's own branch (main), even if dev lacks them.
+      - uses: actions/checkout@v4
+        with: { path: ocr-config, sparse-checkout: .opencodereview }
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+
+      - name: Install OCR
+        run: |
+          npm install -g @alibaba-group/open-code-review@1.12.11
+          ocr config set language English
+
+      - name: Resolve marker tag and base
+        run: |
+          SAFE="${BRANCH//\//-}"                       # dev/v2.0.0 -> dev-v2.0.0
+          echo "SAFE=$SAFE" >> "$GITHUB_ENV"
+          echo "TAG=ocr-sweep/$SAFE" >> "$GITHUB_ENV"
+          # Base = the already-reviewed point closest to HEAD: any ocr-sweep/* tag that is an
+          # ancestor of HEAD, else where this branch left main. Fewest changed files wins.
+          BASE=$(git merge-base origin/main HEAD)
+          BEST_N=$(git diff --name-only "$BASE" HEAD | wc -l)
+          for T in $(git tag --list 'ocr-sweep/*'); do
+            git merge-base --is-ancestor "$T" HEAD || continue
+            N=$(git diff --name-only "$T" HEAD | wc -l)
+            if [ "$N" -lt "$BEST_N" ]; then BASE=$(git rev-parse "$T^{commit}"); BEST_N=$N; fi
+          done
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          echo "$BRANCH: base ${BASE:0:8}, $BEST_N changed file(s) to HEAD $(git rev-parse --short HEAD)"
+
+      - name: Run sweep
+        run: |
+          if [ "$MODE" = "full" ]; then
+            ocr scan --path packages --rule "$RULES" --format json --output result.json
+          elif [ "$BASE" = "$(git rev-parse HEAD)" ]; then
+            echo "Nothing new on $BRANCH since last sweep"
+            echo '{"status":"skipped","comments":[]}' > result.json
+          else
+            ocr review --from "$BASE" --to HEAD --rule "$RULES" --format json --output result.json
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          {
+            name: "ocr-${{ env.MODE }}-${{ env.SAFE }}-${{ github.run_id }}",
+            path: target/result.json,
+          }
+
+      - name: Raise alert issue
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          # only counts critical and high findings from .comments[]
+          SEVERE='[.comments[]? | select(.severity == "critical" or .severity == "high")]'
+          COUNT=$(jq "$SEVERE | length" result.json)
+          if [ "$COUNT" -gt 0 ]; then
+              { echo "OCR $MODE sweep of \`$BRANCH\` found $COUNT high/critical findings. Full JSON in the run artifact:"
+              echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              echo
+              jq -r "$SEVERE | sort_by(.severity != \"critical\") | .[] |
+                \"- **\(.severity)** \(.category // \"\") \`\(.path):\(.start_line)-\(.end_line)\`\n  \(.content | gsub(\"\n\"; \"\n  \"))\"" result.json
+              } | head -c 60000 > body.md
+          gh issue create --title "OCR $MODE sweep ($BRANCH) $(date +%F): $COUNT findings" \
+          --label ocr-sweep --body-file body.md
+          fi
+
+      - name: Advance sweep marker
+        if: env.MODE == 'delta' && github.ref == 'refs/heads/main'
+        run: |
+          git tag -f "$TAG" HEAD
+          git push -f origin "refs/tags/$TAG"
