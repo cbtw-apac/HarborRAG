@@ -86,7 +86,9 @@ jobs:
             path: target,
             persist-credentials: false,
           }
-      # and the rules, always from the workflow's own branch (main), even if dev lacks them.
+      # and the rules, from the branch this workflow runs from (main on schedule; the chosen
+      # branch on a manual run, so rule changes can be tested before merging), not from the
+      # swept branch, so dev branches don't need their own copy.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           {
