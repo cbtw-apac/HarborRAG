@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import weakref
+from collections.abc import Callable
 from typing import ClassVar, Self
 
 from .lifecycle import (
     AsyncLifecycleResource,
     LifecycleResource,
     close_async_resources,
+    close_callbacks,
     close_resources,
 )
 from .sync import AsyncLoopRunner
@@ -47,13 +50,17 @@ class ModelClientLifecycleMixin:
 
         Loop-bound resources such as the pooled connection session pin the first
         event loop they see, so every synchronous bridge over this client must
-        share one loop. The runner is created lazily and stopped by ``close``.
+        share one loop. The runner is created lazily and stopped by ``close``;
+        a client that is garbage-collected without being closed stops it from a
+        finalizer so the loop thread does not leak.
         """
 
         with self._sync_runner_lock:
             self._ensure_open()
             if self._sync_runner is None:
-                self._sync_runner = AsyncLoopRunner(thread_name=thread_name)
+                runner = AsyncLoopRunner(thread_name=thread_name)
+                weakref.finalize(self, runner.stop)
+                self._sync_runner = runner
             return self._sync_runner
 
     def close(self) -> None:
@@ -61,13 +68,17 @@ class ModelClientLifecycleMixin:
 
         if self._closed:
             return
+        self._reject_close_from_runner_thread()
         self._closed = True
         runner = self._detach_sync_runner()
         if runner is None:
             close_resources(self._sync_resources())
             return
-        # Resources bound to the runner loop must be released on that same loop.
+        # Resources bound to the runner loop must be released on that same loop;
+        # resources running their own loop are closed synchronously first, which
+        # leaves their ``aclose`` an idempotent no-op on the runner.
         try:
+            close_callbacks(self._loop_owning_closers())
             runner.run(close_async_resources(self._async_resources()))
         finally:
             runner.stop()
@@ -77,15 +88,34 @@ class ModelClientLifecycleMixin:
 
         if self._closed:
             return
+        self._reject_close_from_runner_thread()
         self._closed = True
         runner = self._detach_sync_runner()
         if runner is None:
             await close_async_resources(self._async_resources())
             return
         try:
+            await asyncio.to_thread(close_callbacks, self._loop_owning_closers())
             await asyncio.wrap_future(runner.submit(close_async_resources(self._async_resources())))
         finally:
             await asyncio.to_thread(runner.stop)
+
+    def _reject_close_from_runner_thread(self) -> None:
+        runner = self._sync_runner
+        if runner is not None and runner.in_runner_thread():
+            raise RuntimeError(
+                f"{type(self).__name__} cannot be closed from its own sync runner thread"
+            )
+
+    def _loop_owning_closers(self) -> tuple[Callable[[], None], ...]:
+        """Return closers for resources that run their own event loop.
+
+        Their asynchronous ``aclose`` must run on that private loop, so it cannot
+        be awaited on the sync runner; their synchronous ``close`` handles it.
+        """
+
+        monitor = getattr(self, "_health_monitor", None)
+        return (monitor.close,) if monitor is not None else ()
 
     def _detach_sync_runner(self) -> AsyncLoopRunner | None:
         with self._sync_runner_lock:

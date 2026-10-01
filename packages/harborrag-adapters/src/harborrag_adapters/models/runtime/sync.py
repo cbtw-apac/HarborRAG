@@ -49,6 +49,17 @@ class AsyncLoopRunner:
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
 
+    @property
+    def is_running(self) -> bool:
+        """Return whether the runner accepts work and its loop thread is alive."""
+
+        return not self._stopped and self._thread.is_alive()
+
+    def in_runner_thread(self) -> bool:
+        """Return whether the caller is executing on this runner's loop thread."""
+
+        return threading.current_thread() is self._thread
+
     def submit(self, awaitable: Awaitable[R]) -> concurrent.futures.Future[R]:
         """Schedule ``awaitable`` on the background loop and return its future."""
         with self._state_lock:

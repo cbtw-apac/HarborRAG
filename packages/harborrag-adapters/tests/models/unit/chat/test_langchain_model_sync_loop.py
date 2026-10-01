@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from harborrag_adapters.models.chat.langchain import HarborChatModel
 from harborrag_adapters.models.runtime.config import ConnectionPoolConfig
 from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.health import CallableHealthProbe, HealthCheckResult
 
 from .chat_client_support import FakeInvocation, async_client, response_dict
 from .langchain_model_support import make_model
@@ -109,7 +111,7 @@ def test_model_close_releases_resources_on_the_runner_loop(config) -> None:
     model.close()
 
     assert invocation.aclose_loops == invocation.loops
-    assert not runner._thread.is_alive()
+    assert not runner.is_running
     with pytest.raises(RuntimeError, match="closed"):
         model.invoke("again")
 
@@ -125,7 +127,7 @@ async def test_client_aclose_stops_the_sync_runner(config) -> None:
     await client.aclose()
 
     assert invocation.aclose_loops == invocation.loops
-    assert not runner._thread.is_alive()
+    assert not runner.is_running
     with pytest.raises(RuntimeError, match="closed"):
         runner.run(asyncio.sleep(0))
 
@@ -138,3 +140,64 @@ def test_client_close_without_sync_calls_closes_synchronously(config) -> None:
 
     assert invocation.close_count == 1
     assert client._sync_runner is None
+
+
+def _health_config(config: Any) -> Any:
+    raw = config.model_dump(mode="python")
+    raw["routing"]["active_health"] = {
+        "enabled": True,
+        "start_automatically": True,
+        "interval_seconds": 60.0,
+    }
+    return type(config).model_validate(raw)
+
+
+def _health_threads() -> list[threading.Thread]:
+    return [t for t in threading.enumerate() if t.name == "harbor-model-health" and t.is_alive()]
+
+
+def test_client_close_stops_a_started_health_monitor_after_sync_invoke(config) -> None:
+    invocation = PooledInvocation([response_dict("first")])
+    probe = CallableHealthProbe(lambda _logical, _deployment: HealthCheckResult(True))
+    before = set(_health_threads())
+    client = async_client(_health_config(config), backend=invocation, health_probe=probe)
+    model = HarborChatModel(client, logical_model="primary")
+    model.invoke("hi")
+    runner = client.sync_runner(thread_name="probe")
+    assert set(_health_threads()) - before
+
+    client.close()
+
+    assert not runner.is_running
+    assert set(_health_threads()) - before == set()
+
+
+@pytest.mark.asyncio
+async def test_client_aclose_stops_a_started_health_monitor_after_sync_invoke(config) -> None:
+    invocation = PooledInvocation([response_dict("first")])
+    probe = CallableHealthProbe(lambda _logical, _deployment: HealthCheckResult(True))
+    before = set(_health_threads())
+    client = async_client(_health_config(config), backend=invocation, health_probe=probe)
+    HarborChatModel(client, logical_model="primary").invoke("hi")
+
+    await client.aclose()
+
+    assert set(_health_threads()) - before == set()
+
+
+def test_client_close_from_the_runner_thread_raises_instead_of_deadlocking(config) -> None:
+    invocation = PooledInvocation([response_dict("first")])
+    client = async_client(config, backend=invocation)
+    model = HarborChatModel(client, logical_model="primary")
+    model.invoke("hi")
+    runner = client.sync_runner(thread_name="probe")
+
+    async def close_inside_runner() -> None:
+        client.close()
+
+    try:
+        with pytest.raises(RuntimeError, match="runner thread"):
+            runner.run(close_inside_runner())
+    finally:
+        client.close()
+    assert not runner.is_running
