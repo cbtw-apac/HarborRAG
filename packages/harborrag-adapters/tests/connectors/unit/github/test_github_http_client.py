@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import responses
 from harbor_test_builders import FakeResponse, FakeSession
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -142,6 +143,53 @@ def test_github_request_raises_authentication_error_on_plain_403():
         client.get_json("repos/o/r")
 
 
+@responses.activate
+def test_github_request_raises_authentication_error_on_streamed_plain_403():
+    """A real (streamed) 403 response must not leak ``StreamConsumedError``.
+
+    ``_rate_limited`` sniffs the body for rate-limit wording and the plain-403
+    branch previously read the same already-consumed stream again, which
+    ``requests`` surfaces as ``StreamConsumedError`` rather than any
+    connector exception. ``responses`` backs a real ``requests.Session`` here
+    (unlike ``FakeResponse``, whose ``iter_content`` can be called more than
+    once) so a second read reproduces that real failure mode.
+    """
+    from harborrag_adapters.connectors.exceptions import AuthenticationError
+
+    client = _github_client()
+    responses.add(
+        responses.GET,
+        f"{client.config.api_url}/repos/o/r",
+        status=403,
+        body="Resource not accessible by integration",
+    )
+
+    with pytest.raises(AuthenticationError, match="Resource not accessible"):
+        client.get_json("repos/o/r")
+
+
+@responses.activate
+def test_github_request_raises_rate_limit_error_on_streamed_body_at_max_retries():
+    """The rate-limited/max-retries branch must also survive a streamed body.
+
+    ``_rate_limited`` reads the body once to sniff for "secondary rate
+    limit" wording; the max-retries branch previously read the same
+    already-consumed stream again to build the ``RateLimitError`` message.
+    """
+    from harborrag_adapters.connectors.exceptions import RateLimitError
+
+    client = _github_client(max_retries=0)
+    responses.add(
+        responses.GET,
+        f"{client.config.api_url}/repos/o/r",
+        status=403,
+        body="You have exceeded a secondary rate limit",
+    )
+
+    with pytest.raises(RateLimitError, match="secondary rate limit"):
+        client.get_json("repos/o/r")
+
+
 def test_github_request_raises_rate_limit_error_after_exhausting_retries():
     from harborrag_adapters.connectors.exceptions import RateLimitError
 
@@ -240,21 +288,24 @@ def test_github_config_rejects_negative_max_retries():
 def test_github_rate_limited_static_predicate_branches():
     from harborrag_adapters.connectors.github.connector import _RequestsGitHubClient
 
-    assert _RequestsGitHubClient._rate_limited(FakeResponse(status_code=429, headers={}, text=""))
-    assert not _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=200, headers={}, text="")
-    )
     assert _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=403, headers={"X-RateLimit-Remaining": "0"}, text="")
-    )
-    assert _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=403, headers={"Retry-After": "5"}, text="")
-    )
-    assert _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=403, headers={}, text="Abuse Detection triggered")
+        FakeResponse(status_code=429, headers={}, text=""), ""
     )
     assert not _RequestsGitHubClient._rate_limited(
-        FakeResponse(status_code=403, headers={}, text="just forbidden")
+        FakeResponse(status_code=200, headers={}, text=""), ""
+    )
+    assert _RequestsGitHubClient._rate_limited(
+        FakeResponse(status_code=403, headers={"X-RateLimit-Remaining": "0"}, text=""), ""
+    )
+    assert _RequestsGitHubClient._rate_limited(
+        FakeResponse(status_code=403, headers={"Retry-After": "5"}, text=""), ""
+    )
+    assert _RequestsGitHubClient._rate_limited(
+        FakeResponse(status_code=403, headers={}, text="Abuse Detection triggered"),
+        "Abuse Detection triggered",
+    )
+    assert not _RequestsGitHubClient._rate_limited(
+        FakeResponse(status_code=403, headers={}, text="just forbidden"), "just forbidden"
     )
 
 

@@ -123,28 +123,38 @@ class _RequestsGitHubClient:
 
             if response.status_code in (401,):
                 raise AuthenticationError(safe_response_error_detail(response))
-            if self._rate_limited(response):
-                if attempt == self.config.max_retries:
-                    raise RateLimitError(safe_response_error_detail(response))
-                last_error = RateLimitError("GitHub rate limit exceeded")
+
+            if response.status_code >= 400:
+                # Read the error body once: `_rate_limited` sniffs it for
+                # rate-limit wording and every branch below reports it, but a
+                # streamed `requests.Response` body can only be read once --
+                # a second `iter_content` raises `StreamConsumedError`.
+                detail = safe_response_error_detail(response, limit=2_000)
+                if self._rate_limited(response, detail):
+                    if attempt == self.config.max_retries:
+                        raise RateLimitError(detail)
+                    last_error = RateLimitError("GitHub rate limit exceeded")
+                    retry_headers = response.headers
+                    response.close()
+                    self._sleep(attempt, last_error, retry_headers)
+                    continue
+                if response.status_code == 403:
+                    raise AuthenticationError(detail)
+                if (
+                    response.status_code not in _RETRYABLE_STATUS
+                    or attempt == self.config.max_retries
+                ):
+                    raise FetchError(
+                        f"GitHub request failed with HTTP {response.status_code}: {detail}"
+                    )
+
+                last_error = FetchError(f"GitHub request returned HTTP {response.status_code}")
                 retry_headers = response.headers
                 response.close()
                 self._sleep(attempt, last_error, retry_headers)
                 continue
-            if response.status_code == 403:
-                raise AuthenticationError(safe_response_error_detail(response))
-            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
-                if response.status_code >= 400:
-                    raise FetchError(
-                        f"GitHub request failed with HTTP "
-                        f"{response.status_code}: {safe_response_error_detail(response)}"
-                    )
-                return response
 
-            last_error = FetchError(f"GitHub request returned HTTP {response.status_code}")
-            retry_headers = response.headers
-            response.close()
-            self._sleep(attempt, last_error, retry_headers)
+            return response
 
         raise FetchError("GitHub request failed") from last_error
 
@@ -162,7 +172,13 @@ class _RequestsGitHubClient:
         return f"{self.config.api_url}/{endpoint.lstrip('/')}"
 
     @staticmethod
-    def _rate_limited(response: requests.Response) -> bool:
+    def _rate_limited(response: requests.Response, detail: str) -> bool:
+        """Classify a response as rate-limited without reading its body again.
+
+        ``detail`` must be the already-read, already-capped error body (see
+        ``_request``): reading it here too would raise ``StreamConsumedError``
+        on a streamed response whose body was already consumed.
+        """
         if response.status_code == 429:
             return True
         if response.status_code != 403:
@@ -171,7 +187,7 @@ class _RequestsGitHubClient:
             return True
         if response.headers.get("Retry-After"):
             return True
-        body = safe_response_error_detail(response, limit=2_000).lower()
+        body = detail.lower()
         return "secondary rate limit" in body or "abuse detection" in body
 
     def _acquire(self) -> None:
