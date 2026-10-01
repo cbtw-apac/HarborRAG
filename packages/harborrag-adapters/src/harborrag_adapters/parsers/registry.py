@@ -67,7 +67,7 @@ class HarborParserRegistry:
         *,
         replace: bool = False,
     ) -> None:
-        normalized = mime_type.partition(";")[0].strip().lower()
+        normalized = self._normalize_mime_type(mime_type)
         self._register_route(
             self._mime_types,
             normalized,
@@ -82,8 +82,7 @@ class HarborParserRegistry:
         *,
         replace: bool = False,
     ) -> None:
-        normalized = extension.lower().strip()
-        normalized = normalized if normalized.startswith(".") else f".{normalized}"
+        normalized = self._normalize_extension(extension)
         self._register_route(
             self._extensions,
             normalized,
@@ -106,10 +105,20 @@ class HarborParserRegistry:
         def builder() -> HarborParser:
             return parser
 
-        for extension in parser.extensions:
-            self.register_extension(extension, builder, replace=replace)
-        for mime_type in parser.mime_types:
-            self.register_mime_type(mime_type, builder, replace=replace)
+        normalized_extensions = [
+            self._normalize_extension(extension) for extension in parser.extensions
+        ]
+        normalized_mime_types = [
+            self._normalize_mime_type(mime_type) for mime_type in parser.mime_types
+        ]
+        if not replace:
+            self._check_route_conflicts(self._extensions, normalized_extensions)
+            self._check_route_conflicts(self._mime_types, normalized_mime_types)
+
+        for extension in normalized_extensions:
+            self._register_route(self._extensions, extension, builder, replace=replace)
+        for mime_type in normalized_mime_types:
+            self._register_route(self._mime_types, mime_type, builder, replace=replace)
         self._families[name] = builder
         self._family_routes[name] = (parser.extensions, parser.mime_types)
 
@@ -270,6 +279,26 @@ class HarborParserRegistry:
         if existing is not None and existing is not builder and not replace:
             raise ValueError(f"Parser route {key!r} is already registered.")
         index[key] = builder
+
+    @staticmethod
+    def _check_route_conflicts(
+        index: dict[str, ParserBuilder],
+        keys: Iterable[str],
+    ) -> None:
+        for key in keys:
+            if not key:
+                raise ValueError("Parser route key cannot be empty")
+            if key in index:
+                raise ValueError(f"Parser route {key!r} is already registered.")
+
+    @staticmethod
+    def _normalize_extension(extension: str) -> str:
+        normalized = extension.lower().strip()
+        return normalized if normalized.startswith(".") else f".{normalized}"
+
+    @staticmethod
+    def _normalize_mime_type(mime_type: str) -> str:
+        return mime_type.partition(";")[0].strip().lower()
 
 
 # Compatibility name for callers migrating from the former combined facade.

@@ -11,7 +11,7 @@ from harborrag_core.contracts.chunking import (
     TokenCounter,
 )
 
-_PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "? ", "! ", " ", "")
+_PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "？", "！", " ", "")
 _STRUCTURED_SEPARATORS = ("\n", "")
 
 

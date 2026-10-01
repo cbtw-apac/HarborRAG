@@ -14,6 +14,8 @@ from harborrag_adapters.parsers.compat import (
     PdfParserProfile,
     PyMuPdfBackend,
 )
+from harborrag_adapters.parsers.document.engines.odt.engine import OdtDocumentEngine
+from harborrag_adapters.parsers.document.parser import HarborDocumentParser
 from harborrag_adapters.parsers.image.parser import HarborImageParser
 from harborrag_runtime.config import (
     ParserConfigurationError,
@@ -92,6 +94,24 @@ def test_builds_explicit_pdf_backend_order_and_options(tmp_path: Path) -> None:
     assert isinstance(parser.backends[0], PyMuPdfBackend)
     assert isinstance(parser.backends[1], DoclingBackend)
     assert parser.backends[1].options.force_full_page_ocr is True
+
+
+def test_runtime_parser_config_accepts_odt_and_builds_odt_family(tmp_path: Path) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+        version: 1
+        parsers:
+          custom-odt:
+            parser: odt
+        """,
+    )
+
+    parser = load_parser_catalog(config_path).build("custom-odt")
+
+    assert isinstance(parser, HarborDocumentParser)
+    assert isinstance(parser.engines[0], OdtDocumentEngine)
+    assert ".odt" in parser.extensions
 
 
 def test_build_allows_explicit_code_overrides(tmp_path: Path) -> None:

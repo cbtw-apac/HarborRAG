@@ -179,3 +179,13 @@ def test_recursive_refiner_uses_inclusive_end_lines_for_half_open_offsets() -> N
         for split in splits
         if split.source_span
     ] == [(4, 4), (5, 5)]
+
+
+def test_recursive_refiner_splits_cjk_paragraph_at_fullwidth_question_mark() -> None:
+    refiner = RecursiveTextRefiner(CharacterCounter())
+    content = "甲甲甲甲" + "？" + "乙乙乙乙乙乙乙"
+
+    splits = refiner.split(TextRefinementRequest(content=content, maximum_tokens=6))
+
+    assert splits[0].content == "甲甲甲甲"
+    assert splits[1].content.startswith("？")

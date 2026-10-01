@@ -7,6 +7,7 @@ from typing import Any
 from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.document.engines.docx.engine import DocxDocumentEngine
 from harborrag_adapters.parsers.document.engines.epub.engine import EpubDocumentEngine
+from harborrag_adapters.parsers.document.engines.odt.engine import OdtDocumentEngine
 from harborrag_adapters.parsers.document.parser import HarborDocumentParser
 from harborrag_adapters.parsers.factory import HarborParserFactory
 from harborrag_adapters.parsers.image.engines.ocr.engine import OcrImageEngine
@@ -113,6 +114,10 @@ def _markdown_factory(**settings: Any) -> HarborMarkupParser:
     return _markup_parser(MarkdownMarkupEngine(**settings))
 
 
+def _odt_factory(**settings: Any) -> HarborDocumentParser:
+    return _document_parser(OdtDocumentEngine(**settings))
+
+
 def _pptx_factory(**settings: Any) -> HarborPresentationParser:
     return _presentation_parser(PythonPptxPresentationEngine(**settings))
 
@@ -159,6 +164,7 @@ _PARSER_FACTORIES: Mapping[str, ParserFactory] = {
     "image": _image_factory,
     "json": _json_factory,
     "markdown": _markdown_factory,
+    "odt": _odt_factory,
     "pdf": _pdf_factory,
     "pptx": _pptx_factory,
     "text": _text_factory,

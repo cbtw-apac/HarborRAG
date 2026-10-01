@@ -18,6 +18,7 @@ from harborrag_adapters.parsers.compat import (
     get_parser_logger,
     parser_log_extra,
 )
+from harborrag_adapters.parsers.errors import UnsupportedParserError
 from harborrag_adapters.parsers.markup.parser import HarborMarkupParser
 from harborrag_adapters.parsers.pdf.normalization import content_from_any
 from harborrag_core.domain.element import DocumentElement
@@ -69,6 +70,16 @@ class OtherFakeFamily(FakeFamily):
     parser_name = "other_fake"
 
 
+class ConflictingMimeParser(FakeParser):
+    parser_name: ClassVar[str] = "conflicting_mime"
+    suffixes: ClassVar[frozenset[str]] = frozenset({"conflict"})
+    content_types: ClassVar[frozenset[str]] = frozenset({"application/x-fake"})
+
+
+class ConflictingMimeFamily(FakeFamily):
+    parser_name = "conflicting_mime"
+
+
 def test_parser_package_smoke_imports_and_default_registry():
     parser = HarborParserFactory().create_registry()
 
@@ -99,6 +110,20 @@ def test_registry_indexes_routes_and_rejects_duplicate_ownership():
 
     registry.unregister("fake")
     assert registry.parser_for(ParseInput(content="hello", filename="doc.fake")) is None
+
+
+@pytest.mark.whitebox
+def test_register_family_leaves_no_orphan_extension_route_on_mime_conflict():
+    registry = HarborParserRegistry()
+    registry.register_family(FakeFamily())
+
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register_family(ConflictingMimeFamily(ConflictingMimeParser()))
+
+    assert "conflicting_mime" not in registry._families
+    assert ".conflict" not in registry._extensions
+    with pytest.raises(UnsupportedParserError):
+        registry.resolve("doc.conflict", None)
 
 
 @pytest.mark.whitebox
