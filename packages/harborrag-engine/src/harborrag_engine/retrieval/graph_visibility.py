@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from harborrag_core.contracts.errors import HarborLimitExceededError
 from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord, GraphOwnershipScope
 from harborrag_core.retrieval import GraphAccessScope, GraphDirection
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 
 from .graph_metadata import selector_matches
+
+logger = logging.getLogger("harborrag.engine.retrieval.graph_visibility")
 
 
 class GraphVisibilityAuthorizer(Protocol):
@@ -60,14 +64,24 @@ async def graph_access_scope(
         return None
     if context.access.corpus_mode == "tenant_shared":
         return GraphAccessScope(tenant_shared=True)
-    document_ids, source_scope_ids = await asyncio.gather(
-        authorizer.allowed_document_ids(
-            str(context.tenant_id), access=context.access, limit=10_000
-        ),
-        authorizer.allowed_source_scope_ids(
-            str(context.tenant_id), access=context.access, limit=10_000
-        ),
-    )
+    try:
+        document_ids, source_scope_ids = await asyncio.gather(
+            authorizer.allowed_document_ids(
+                str(context.tenant_id), access=context.access, limit=10_000
+            ),
+            authorizer.allowed_source_scope_ids(
+                str(context.tenant_id), access=context.access, limit=10_000
+            ),
+        )
+    except HarborLimitExceededError:
+        # Unlike vector retrieval, the graph store has no per-candidate final
+        # check behind this scope, so an over-budget reader must see nothing.
+        # An empty scope is deny-all; ``None`` would mean unrestricted.
+        logger.info(
+            "Graph permission scope over budget; denying graph reads",
+            extra={"reason": "permission_scope_over_budget"},
+        )
+        return GraphAccessScope()
     return GraphAccessScope(
         document_ids=tuple(sorted(set(document_ids))),
         source_scope_ids=tuple(sorted(set(source_scope_ids))),
@@ -178,7 +192,7 @@ async def _tenant_readable(
 
     ``limit`` on these ports is an enumeration *budget*, not a truncation: a
     reader with more readable resources than the budget gets a
-    ``HarborConflictError`` rather than a short list. Asking with ``limit=1``
+    ``HarborLimitExceededError`` rather than a short list. Asking with ``limit=1``
     therefore failed every reader holding two grants. Enumerate under the same
     default budget :func:`graph_access_scope` already spends on this request,
     so this probe can add no failure the request would not already have had,

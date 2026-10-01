@@ -6,7 +6,7 @@ import pytest
 from test_graph_retrieval import ActiveVersions, NoActiveVersions, Repository
 
 from harborrag_core.chunking import RelationType
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import HarborLimitExceededError
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphEntityType,
@@ -16,6 +16,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphSubgraphQuery,
     GraphTriplet,
     GraphTripletQuery,
@@ -24,7 +25,7 @@ from harborrag_core.retrieval import (
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import AuthoritativeGraphSearch
-from harborrag_engine.retrieval.graph_visibility import apply_graph_permissions
+from harborrag_engine.retrieval.graph_visibility import apply_graph_permissions, graph_access_scope
 
 
 class ScopedAuthorizer:
@@ -60,7 +61,9 @@ class ScopedAuthorizer:
 def _within_budget(values, limit, kind):
     bound = max(1, min(limit, 10000))
     if len(values) > bound:
-        raise HarborConflictError(f"authorized {kind} enumeration exceeds the configured budget")
+        raise HarborLimitExceededError(
+            f"authorized {kind} enumeration exceeds the configured budget"
+        )
     return tuple(values)
 
 
@@ -305,3 +308,38 @@ async def test_a_readable_document_does_not_unlock_tenant_nodes_beside_it() -> N
     # "s-1" happening to share the batch.
     assert states["s-1"] == "active"
     assert states["n-1"] == "active"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("over", ["documents", "sources"])
+async def test_an_over_budget_graph_scope_fails_closed_to_empty_allowlists(
+    over: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Graph reads have no final per-candidate check, so over budget means nothing.
+
+    Vector retrieval may drop its prefilter above the budget because validate()
+    re-checks every candidate. The graph store has no such second gate, so the
+    scope must deny everything rather than fall back to unrestricted.
+    """
+
+    class OverBudgetAuthorizer(ScopedAuthorizer):
+        async def allowed_document_ids(self, tenant_id, *, access, limit=10000):
+            if over == "documents":
+                raise HarborLimitExceededError("document enumeration exceeds the budget")
+            return ("doc-1",)
+
+        async def allowed_source_scope_ids(self, tenant_id, *, access, limit=10000):
+            if over == "sources":
+                raise HarborLimitExceededError("source enumeration exceeds the budget")
+            return ("scope-1",)
+
+    reader = AccessContext(principal_id="reader-1", tenant_id="tenant-1")
+    with caplog.at_level("INFO", logger="harborrag.engine.retrieval.graph_visibility"):
+        scope = await graph_access_scope(
+            OverBudgetAuthorizer(),  # type: ignore[arg-type]
+            StorageOperationContext.for_access(reader),
+        )
+
+    assert scope == GraphAccessScope()
+    assert scope is not None and not scope.tenant_shared and not scope.tenant_visible
+    assert [getattr(r, "reason", None) for r in caplog.records] == ["permission_scope_over_budget"]

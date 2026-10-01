@@ -10,13 +10,18 @@ from harborrag_adapters.repositories.database.ingestion_control.topology.policy_
 )
 from harborrag_adapters.repositories.database.ingestion_control.topology.schema import TOPOLOGY_JOBS
 from harborrag_core.base import utc_now
-from harborrag_core.contracts import HarborConflictError
+from harborrag_core.contracts import HarborConflictError, HarborLimitExceededError
 from harborrag_core.security.context import AccessContext
 from harborrag_core.topology.budget import BudgetRequest, IndexingBudgetLimits, UsageSettlement
 from harborrag_core.topology.config import TenantIndexingConfig
 from harborrag_core.topology.permissions import DerivedArtifactLineage, ResolvedPermissionSnapshot
 
-from .ingestion_control_fixtures import advance_to_verified, candidate, make_control_plane
+from .ingestion_control_fixtures import (
+    advance_to_verified,
+    candidate,
+    make_control_plane,
+    source_identity,
+)
 from .topology_fixtures import ACCESS, artifact, permit, policy, prepared_build, publish
 
 
@@ -105,6 +110,33 @@ async def test_acl_filtered_before_reads_and_mode_off_preserves_raw_acl(tmp_path
         assert await control.topology.allowed_document_ids("DEFAULT", access=other) == (
             job.document_id,
         )
+
+
+@pytest.mark.asyncio
+async def test_enumeration_over_budget_raises_limit_exceeded_not_conflict(tmp_path: Path) -> None:
+    """The budget is a refusal, not a truncation, and it is a limit, not a conflict.
+
+    Retrieval degrades on this specific type while still failing closed on any
+    other error, so the two must be distinguishable. ``limit=1`` stands in for
+    the 10,000-row production budget: two readable rows exceed it.
+    """
+
+    async with make_control_plane(tmp_path) as control:
+        await publish(control, "one")
+        second = candidate("two", source=source_identity("page-2"))
+        await permit(control, str(second.document_id), "scope-other")
+        await advance_to_verified(control, second)
+        await control.publisher.publish(
+            document_id=str(second.document_id),
+            candidate_document_version_id=str(second.document_version_id),
+        )
+        assert len(await control.topology.allowed_document_ids("DEFAULT", access=ACCESS)) == 2
+        assert len(await control.topology.allowed_source_scope_ids("DEFAULT", access=ACCESS)) == 2
+
+        with pytest.raises(HarborLimitExceededError, match="exceeds the configured budget"):
+            await control.topology.allowed_document_ids("DEFAULT", access=ACCESS, limit=1)
+        with pytest.raises(HarborLimitExceededError, match="exceeds the configured budget"):
+            await control.topology.allowed_source_scope_ids("DEFAULT", access=ACCESS, limit=1)
 
 
 @pytest.mark.asyncio

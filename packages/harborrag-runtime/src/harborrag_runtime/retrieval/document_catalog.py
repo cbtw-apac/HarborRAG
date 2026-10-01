@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from harborrag_core.contracts.errors import HarborCapabilityError
+from harborrag_core.contracts.errors import (
+    HarborCapabilityError,
+    HarborConflictError,
+    HarborLimitExceededError,
+)
 from harborrag_core.contracts.reader import (
     DocumentListRequest,
     DocumentListResponse,
@@ -85,9 +89,14 @@ class DocumentCatalogReader:
                 )
             )
         else:
-            document_ids = await topology.allowed_document_ids(
-                str(request.access.tenant_id), access=request.access, limit=10_000
-            )
+            try:
+                document_ids = await topology.allowed_document_ids(
+                    str(request.access.tenant_id), access=request.access, limit=10_000
+                )
+            except HarborLimitExceededError as error:
+                # Listing cannot degrade (it would have to page an unbounded
+                # set), so keep the explicit conflict callers already handle.
+                raise HarborConflictError(str(error)) from error
             candidates = sorted(
                 item for item in document_ids if item > (request.after_document_id or "")
             )

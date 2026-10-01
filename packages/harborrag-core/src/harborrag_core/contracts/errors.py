@@ -80,6 +80,15 @@ class HarborValidationError(HarborError):
         self.details: dict[str, object] = details or {}
 
 
+class HarborLimitExceededError(HarborValidationError):
+    """A bounded enumeration has more rows than its configured budget.
+
+    The ports that enumerate a principal's readable resources refuse rather
+    than truncate when the answer exceeds the budget. Callers decide whether
+    that degrades (and still enforces permissions some other way) or fails.
+    """
+
+
 class HarborConflictError(HarborError):
     """Operation conflicts with current resource state."""
 

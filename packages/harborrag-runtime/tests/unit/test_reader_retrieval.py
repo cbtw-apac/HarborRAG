@@ -13,6 +13,7 @@ from harborrag_core.chunking import (
     DocumentKind,
     RecordKind,
 )
+from harborrag_core.contracts.errors import HarborConflictError, HarborLimitExceededError
 from harborrag_core.indexing import VectorIndexRecord
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
@@ -56,6 +57,26 @@ async def test_document_catalog_reads_current_metadata_without_content_or_storag
     page = await reader.list_documents(DocumentListRequest(ACCESS, limit=1))
     assert page.documents == (response.document,)
     assert page.next_document_id is None
+
+
+@pytest.mark.asyncio
+async def test_document_listing_over_budget_still_reports_a_conflict() -> None:
+    """The catalog keeps its explicit over-budget failure (HTTP 409).
+
+    The enumeration now raises ``HarborLimitExceededError``, a validation
+    subclass that would map to 422; the catalog keeps the prior contract.
+    """
+
+    class OverBudget(Permissions):
+        async def allowed_document_ids(self, tenant_id, *, access, limit=10000):
+            raise HarborLimitExceededError(
+                "authorized document enumeration exceeds the configured budget"
+            )
+
+    reader = _reader(OverBudget())
+    with pytest.raises(HarborConflictError, match="exceeds the configured budget") as raised:
+        await reader.list_documents(DocumentListRequest(ACCESS, limit=1))
+    assert not isinstance(raised.value, HarborLimitExceededError)
 
 
 @pytest.mark.asyncio

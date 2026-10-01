@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
+from harborrag_core.contracts.errors import (
+    HarborAuthorizationUnavailableError,
+    HarborLimitExceededError,
+)
 from harborrag_core.indexing import (
     FilterOperator,
     VectorFilter,
@@ -38,6 +41,15 @@ class RetrievalPermissions:
                 documents = await self._repository.allowed_document_ids(
                     str(context.tenant_id), access=context.access, limit=10000
                 )
+        except HarborLimitExceededError:
+            # More readable documents than the prefilter budget. Search the
+            # caller's filters unchanged: validate() still re-checks every
+            # candidate against canonical ACLs before anything is returned.
+            logger.info(
+                "Permission scope over budget; relying on final permission check",
+                extra={"reason": "permission_scope_over_budget"},
+            )
+            return filters
         except Exception as error:
             logger.warning(
                 "Permission scope unavailable", extra={"error_code": type(error).__name__}

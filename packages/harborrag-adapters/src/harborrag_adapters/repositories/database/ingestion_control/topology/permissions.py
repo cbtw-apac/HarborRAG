@@ -10,7 +10,7 @@ from sqlalchemy.sql.selectable import Subquery
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
-from harborrag_core.contracts import HarborConflictError
+from harborrag_core.contracts import HarborConflictError, HarborLimitExceededError
 from harborrag_core.security.context import AccessContext
 from harborrag_core.summaries import SUMMARY_PERMISSION_BLOCKERS
 from harborrag_core.topology.permissions import (
@@ -332,7 +332,7 @@ class TopologyPermissionOperations:
                 .all()
             )
         if len(values) > bound:
-            raise HarborConflictError(
+            raise HarborLimitExceededError(
                 "authorized document enumeration exceeds the configured budget"
             )
         return tuple(str(value["document_id"]) for value in values)
@@ -378,7 +378,9 @@ class TopologyPermissionOperations:
                 .all()
             )
         if len(values) > bound:
-            raise HarborConflictError("authorized source enumeration exceeds the configured budget")
+            raise HarborLimitExceededError(
+                "authorized source enumeration exceeds the configured budget"
+            )
         return tuple(str(value) for value in values)
 
     async def authorized_document_ids(
