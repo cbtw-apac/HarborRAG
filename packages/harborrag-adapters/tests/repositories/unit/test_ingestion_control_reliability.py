@@ -360,3 +360,108 @@ async def test_pending_cleanup_selection_is_scope_isolated(tmp_path: Path) -> No
                 source_scope_id="scope-a",
                 document_ids=(str(cleanup_by_scope["scope-b"].document_id),),
             )
+
+
+@pytest.mark.asyncio
+async def test_completing_an_already_completed_cleanup_job_raises(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("cleanup completed twice")
+        await control_plane.document_versions.create_candidate(value)
+        job = await control_plane.reliability.enqueue_cleanup(
+            document_id=str(value.document_id),
+            document_version_id=str(value.document_version_id),
+        )
+        await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+        await control_plane.reliability.complete_cleanup(job.cleanup_job_id)
+
+        with pytest.raises(HarborConflictError, match="invalid cleanup-job transition"):
+            await control_plane.reliability.complete_cleanup(job.cleanup_job_id)
+        with pytest.raises(HarborConflictError, match="invalid cleanup-job transition"):
+            await control_plane.reliability.fail_cleanup(
+                job.cleanup_job_id,
+                safe_error_code="qdrant_unavailable",
+            )
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_completed_cleanup_job_raises(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("cleanup cancelled after completion")
+        await control_plane.document_versions.create_candidate(value)
+        job = await control_plane.reliability.enqueue_cleanup(
+            document_id=str(value.document_id),
+            document_version_id=str(value.document_version_id),
+        )
+        await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+        await control_plane.reliability.complete_cleanup(job.cleanup_job_id)
+
+        with pytest.raises(HarborConflictError, match="invalid cleanup-job transition"):
+            await control_plane.reliability.cancel_cleanup(
+                job.cleanup_job_id,
+                safe_reason_code="document_version_is_active",
+            )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_job_happy_path_pending_running_completed(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("cleanup happy path")
+        await control_plane.document_versions.create_candidate(value)
+        job = await control_plane.reliability.enqueue_cleanup(
+            document_id=str(value.document_id),
+            document_version_id=str(value.document_version_id),
+        )
+        assert job.status == CleanupJobState.PENDING
+
+        claimed = await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+        assert claimed is True
+        running = await control_plane.reliability.cleanup_for_version(
+            str(value.document_version_id)
+        )
+        assert running is not None
+        assert running.status == CleanupJobState.RUNNING
+
+        await control_plane.reliability.complete_cleanup(job.cleanup_job_id)
+        completed = await control_plane.reliability.cleanup_for_version(
+            str(value.document_version_id)
+        )
+        assert completed is not None
+        assert completed.status == CleanupJobState.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_failed_cleanup_job_can_be_requeued_to_pending(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("cleanup requeue after failure")
+        await control_plane.document_versions.create_candidate(value)
+        job = await control_plane.reliability.enqueue_cleanup(
+            document_id=str(value.document_id),
+            document_version_id=str(value.document_version_id),
+        )
+        await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+        await control_plane.reliability.fail_cleanup(
+            job.cleanup_job_id,
+            safe_error_code="qdrant_unavailable",
+        )
+        failed = await control_plane.reliability.cleanup_for_version(
+            str(value.document_version_id)
+        )
+        assert failed is not None
+        assert failed.status == CleanupJobState.FAILED
+
+        # No production caller requeues a FAILED job to PENDING today (claim_cleanup
+        # retries FAILED jobs directly to RUNNING instead); this exercises the
+        # transition the core table still allows for a future requeue path.
+        await control_plane.reliability._set_cleanup_state(
+            job.cleanup_job_id,
+            status=CleanupJobState.PENDING,
+        )
+        requeued = await control_plane.reliability.cleanup_for_version(
+            str(value.document_version_id)
+        )
+        assert requeued is not None
+        assert requeued.status == CleanupJobState.PENDING

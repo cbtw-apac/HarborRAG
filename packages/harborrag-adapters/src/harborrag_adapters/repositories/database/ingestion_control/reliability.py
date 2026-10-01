@@ -7,8 +7,9 @@ from sqlalchemy import insert, select, update
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
 from harborrag_core.chunking import encoded_identifier
-from harborrag_core.contracts import HarborNotFoundError
+from harborrag_core.contracts import HarborConflictError, HarborNotFoundError
 from harborrag_core.ingestion import (
+    CLEANUP_TRANSITIONS,
     CleanupJobState,
     DocumentFailure,
     ProjectionCleanupJob,
@@ -288,7 +289,6 @@ class IngestionReliabilityRepository:
         cleanup_job_id: str,
         *,
         status: CleanupJobState,
-        increment_attempt: bool = False,
         completed: bool = False,
         last_error_code: str | None = None,
     ) -> None:
@@ -304,13 +304,16 @@ class IngestionReliabilityRepository:
                 raise HarborNotFoundError(
                     f"projection cleanup job does not exist: {cleanup_job_id}"
                 )
+            current = CleanupJobState(row["status"])
+            if status not in CLEANUP_TRANSITIONS[current]:
+                raise HarborConflictError(
+                    f"invalid cleanup-job transition: {current.value} -> {status.value}"
+                )
             values: dict[str, object] = {
                 "status": status.value,
                 "updated_at": now,
                 "last_error_code": last_error_code,
             }
-            if increment_attempt:
-                values["attempt_count"] = row["attempt_count"] + 1
             if completed:
                 values["completed_at"] = now
             await session.execute(

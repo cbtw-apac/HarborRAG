@@ -82,6 +82,7 @@ from .source_contracts import (
     StoredSourceItem,
 )
 from .states import (
+    CLEANUP_TRANSITIONS,
     BindingKind,
     CleanupJobState,
     DocumentIngestionOutcome,
@@ -117,6 +118,7 @@ __all__ = [
     "ChunkSetArtifacts",
     "ContentReference",
     "ChunkRepresentation",
+    "CLEANUP_TRANSITIONS",
     "CleanupJobState",
     "DiscoveredSourceItem",
     "DocumentFailure",

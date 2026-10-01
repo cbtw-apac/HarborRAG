@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
 from re import fullmatch
 from typing import Self
@@ -152,6 +153,35 @@ class CleanupJobState(StrEnum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+# NOTE: CleanupJobState.COMPLETED is not terminal here, and CleanupJobState.FAILED
+# also allows RUNNING. Both diverge from the state diagram one might expect from
+# CleanupJobState alone; the divergence mirrors current runtime behaviour rather
+# than an idealised machine:
+#   - enqueue_cleanup and _ensure_cleanup (publication.py) already requeue a
+#     COMPLETED (and CANCELLED) job back to PENDING when the same document
+#     version is retired/cleaned up again, so COMPLETED -> PENDING is real.
+#   - claim_cleanup already retries a FAILED job straight to RUNNING (it treats
+#     PENDING and FAILED as equally claimable), so FAILED -> RUNNING is real.
+#   - document_version_access.prepare cancels a PENDING or FAILED cleanup job
+#     when the document version is replayed, so {PENDING, FAILED} -> CANCELLED
+#     is real.
+# FAILED -> PENDING and CANCELLED -> PENDING are kept for a future requeue path;
+# no production caller drives them today.
+CLEANUP_TRANSITIONS: Mapping[CleanupJobState, frozenset[CleanupJobState]] = {
+    CleanupJobState.PENDING: frozenset(
+        {CleanupJobState.RUNNING, CleanupJobState.CANCELLED}
+    ),
+    CleanupJobState.RUNNING: frozenset(
+        {CleanupJobState.COMPLETED, CleanupJobState.FAILED, CleanupJobState.CANCELLED}
+    ),
+    CleanupJobState.FAILED: frozenset(
+        {CleanupJobState.PENDING, CleanupJobState.RUNNING, CleanupJobState.CANCELLED}
+    ),
+    CleanupJobState.CANCELLED: frozenset({CleanupJobState.PENDING}),
+    CleanupJobState.COMPLETED: frozenset({CleanupJobState.PENDING}),
+}
 
 
 class ReindexJobState(StrEnum):
