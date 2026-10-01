@@ -21,6 +21,26 @@ from harborrag_core.ingestion import DocumentIdentityBuilder
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
 
 
+def test_load_raw_documents_can_be_called_twice(tmp_path: Path):
+    """``load_raw_documents`` must not close a reusable connector for the caller.
+
+    ``LocalFileConnector`` opens a root directory descriptor in ``__init__`` and
+    only releases it in ``close()``. Before this fix, ``load_raw_documents``
+    closed the connector in a ``finally`` block, so a second call against the
+    same connector instance raised once the descriptor was gone.
+    """
+    write_file(tmp_path / "a.md", "content-a")
+    connector = LocalFileConnector(config(tmp_path, allowed_extensions={".md"}))
+    query = ConnectorQuery()
+
+    with connector:
+        first = list(connector.load_raw_documents(query))
+        second = list(connector.load_raw_documents(query))
+
+    assert [doc.id for doc in first] == ["a.md"]
+    assert [doc.id for doc in second] == ["a.md"]
+
+
 def test_load_reads_file_bytes_and_builds_metadata(tmp_path: Path):
     path = write_file(tmp_path / "docs" / "README.md", b"# Hello")
     connector = LocalFileConnector(config(tmp_path, checksum_mode="sha256"))

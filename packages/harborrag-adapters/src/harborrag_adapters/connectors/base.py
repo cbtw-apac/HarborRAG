@@ -31,13 +31,21 @@ class BaseConnector(ABC):
     connector_version: str | None = "1.0.0"
     capabilities: ConnectorCapabilities = ConnectorCapabilities()
 
+    def __init__(self) -> None:
+        """Initialize shared connector state.
+
+        Subclasses that define their own ``__init__`` must call
+        ``super().__init__()`` so this state is present.
+        """
+        self._connected = False
+
     def connect(self) -> None:
         """Perform an optional eager connection check."""
         return None
 
     def _ensure_connected(self) -> None:
         """Run :meth:`connect` exactly once, memoized across repeated calls."""
-        if getattr(self, "_connected", False):
+        if self._connected:
             return
         self.connect()
         self._connected = True
@@ -130,24 +138,26 @@ class BaseConnector(ABC):
         * ``"skip"``: log and skip records that fail to load, but still
           propagate :class:`AuthenticationError` (a bad credential is fatal for
           the whole run, not a per-record condition).
+
+        This method does not close the connector. The caller owns its
+        lifecycle: use the connector as a context manager (``with connector:``)
+        or call ``close()`` explicitly once done, including when the returned
+        iterator is abandoned early or raises.
         """
         if on_error not in ("raise", "skip"):
             raise ValueError(f"Unknown on_error policy: {on_error!r}")
 
         self._ensure_connected()
-        try:
-            for record in self.discover(query):
-                try:
-                    yield self.load(record)
-                except AuthenticationError:
+        for record in self.discover(query):
+            try:
+                yield self.load(record)
+            except AuthenticationError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if on_error == "raise":
                     raise
-                except Exception as exc:  # noqa: BLE001
-                    if on_error == "raise":
-                        raise
-                    logger.warning(
-                        "Skipping record %s after load failure (%s)",
-                        record.id,
-                        type(exc).__name__,
-                    )
-        finally:
-            self.close()
+                logger.warning(
+                    "Skipping record %s after load failure (%s)",
+                    record.id,
+                    type(exc).__name__,
+                )

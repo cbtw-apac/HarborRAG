@@ -73,6 +73,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
         """Initialize provider APIs and shared attachment processing."""
+        super().__init__()
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsConfluenceClient(

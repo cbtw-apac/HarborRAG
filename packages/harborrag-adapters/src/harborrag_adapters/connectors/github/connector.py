@@ -58,6 +58,7 @@ class GitHubConnector(BaseConnector):
         client: GitHubClient | None = None,
     ) -> None:
         """Initialize repository operations with an optional client override."""
+        super().__init__()
         self.config = config
         self.owner = str(config.owner)
         self.repo = str(config.repo)

@@ -46,6 +46,7 @@ class SharePointConnector(BaseConnector):
         client: SharePointClient | None = None,
     ) -> None:
         """Initialize drive operations with an optional client override."""
+        super().__init__()
         self.config = config
         self.client = client or _RequestsGraphClient(config)
         self._drive = SharePointDriveAPI(self.client, config)

@@ -21,6 +21,7 @@ class _StubConnector(BaseConnector):
     capabilities = ConnectorCapabilities(attachments=True)
 
     def __init__(self, **kwargs) -> None:
+        super().__init__()
         self.init_kwargs = kwargs
         self.connected = False
         self.records = [

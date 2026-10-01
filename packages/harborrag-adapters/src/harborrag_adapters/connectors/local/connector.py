@@ -47,6 +47,7 @@ class LocalFileConnector(BaseConnector):
 
     def __init__(self, config: LocalFileConfig) -> None:
         """Initialize safe filesystem operations for the configured scope."""
+        super().__init__()
         self.config = config
         self._files = LocalFileSystem(config)
         self.source_path = self._files.source_path

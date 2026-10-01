@@ -80,6 +80,7 @@ class JiraConnector(BaseConnector):
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
         """Initialize issue operations and shared attachment processing."""
+        super().__init__()
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsJiraClient(

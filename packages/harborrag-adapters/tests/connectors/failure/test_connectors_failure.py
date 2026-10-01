@@ -127,6 +127,7 @@ class _FlakyConnector(BaseConnector):
     provider_name = "flaky"
 
     def __init__(self, fail_with: Exception) -> None:
+        super().__init__()
         self._fail_with = fail_with
 
     def discover(self, query=None) -> Iterator[SourceRecord]:
@@ -180,6 +181,7 @@ class _ClosableConnector(BaseConnector):
     provider_name = "closable"
 
     def __init__(self, fail_with: Exception | None = None) -> None:
+        super().__init__()
         self._fail_with = fail_with
         self.closed = False
 
@@ -197,23 +199,36 @@ class _ClosableConnector(BaseConnector):
         self.closed = True
 
 
-def test_load_raw_documents_closes_connector_after_full_consumption():
+def test_load_raw_documents_leaves_connector_open_after_full_consumption():
+    """``load_raw_documents`` no longer owns the connector's lifecycle.
+
+    The caller must close the connector itself (explicitly or via ``with``) so
+    a connector that opens scarce resources in ``__init__`` (e.g. a directory
+    descriptor) can be reused across repeated calls.
+    """
     connector = _ClosableConnector()
     list(connector.load_raw_documents())
-    assert connector.closed is True
+    assert connector.closed is False
 
 
-def test_load_raw_documents_closes_connector_after_raise():
+def test_load_raw_documents_leaves_connector_open_after_raise():
     connector = _ClosableConnector(FetchError("transient"))
     with pytest.raises(FetchError):
         list(connector.load_raw_documents(on_error="raise"))
-    assert connector.closed is True
+    assert connector.closed is False
 
 
-def test_load_raw_documents_closes_connector_on_early_break():
+def test_load_raw_documents_leaves_connector_open_on_early_break():
     connector = _ClosableConnector()
     for _ in connector.load_raw_documents():
         break
+    assert connector.closed is False
+
+
+def test_context_manager_closes_connector_after_load_raw_documents():
+    connector = _ClosableConnector()
+    with connector:
+        list(connector.load_raw_documents())
     assert connector.closed is True
 
 

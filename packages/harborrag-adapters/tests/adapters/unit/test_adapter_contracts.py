@@ -22,6 +22,7 @@ class ExampleConnector(BaseConnector):
     capabilities = ConnectorCapabilities(sync=True, full_sync=True)
 
     def __init__(self, text: str = DEFAULT_TEST_TEXT, *, count: int = 1) -> None:
+        super().__init__()
         self.text = text
         self.count = count
 
@@ -50,6 +51,7 @@ class ExampleLocalTextFileConnector(BaseConnector):
     capabilities = ConnectorCapabilities(sync=True, full_sync=True, local_files=True)
 
     def __init__(self, root: str | Path, *, pattern: str = "*.md") -> None:
+        super().__init__()
         self.root = Path(root)
         self.pattern = pattern
 
