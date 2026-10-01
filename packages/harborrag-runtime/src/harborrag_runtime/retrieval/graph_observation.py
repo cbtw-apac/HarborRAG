@@ -9,8 +9,10 @@ from dataclasses import dataclass, field
 
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.ingestion import GraphNodeRecord, KnowledgeGraphTraversal, KnowledgeNodeKind
-from harborrag_core.retrieval import compact_node, compact_relation
+from harborrag_core.retrieval import GraphAccessScope, compact_node, compact_relation
 from harborrag_core.storage import StorageOperationContext
+from harborrag_core.topology.search import TopologySearchPort
+from harborrag_engine.retrieval import graph_access_scope
 
 from .contracts import GraphDocumentSummary, GraphResultNeighborhood, KnowledgeGraphReader
 from .validation import required_text
@@ -61,8 +63,11 @@ class GraphObserver:
     def __init__(
         self,
         graph: KnowledgeGraphReader,
+        *,
+        topology: TopologySearchPort | None = None,
     ) -> None:
         self._graph = graph
+        self._topology = topology
 
     async def observe(
         self,
@@ -110,6 +115,9 @@ class GraphObserver:
         )[:_MEMORY_SEED_LIMIT]
         if not results and not extra:
             return GraphObservation()
+        access_scope = await self._access_scope(context)
+        if access_scope is None:
+            return GraphObservation()
         walks = await asyncio.gather(
             *(
                 self._graph.traverse(
@@ -117,6 +125,7 @@ class GraphObserver:
                     max_depth=_GRAPH_OBSERVE_DEPTH,
                     max_nodes=_GRAPH_OBSERVE_MAX_NODES,
                     direction=_GRAPH_OBSERVE_DIRECTION,
+                    access_scope=access_scope,
                     context=context,
                 )
                 for node_key in (*results, *extra)
@@ -139,6 +148,21 @@ class GraphObserver:
                 tuple(zip(results, walks[: len(results)], strict=True)),
             ),
         )
+
+    async def _access_scope(self, context: StorageOperationContext) -> GraphAccessScope | None:
+        """Resolve the reader's graph allowlists; ``None`` means do not walk at all.
+
+        Without an authorizer only a tenant-shared reader has a scope that needs no
+        allowlist. Any other reader would walk the graph unscoped, so observation is
+        skipped instead -- it is optional diagnostics and must fail closed.
+        """
+
+        scope = await graph_access_scope(self._topology, context)
+        if scope is not None:
+            return scope
+        if context.access.corpus_mode == "tenant_shared":
+            return GraphAccessScope(tenant_shared=True)
+        return None
 
 
 def _document_neighborhoods(

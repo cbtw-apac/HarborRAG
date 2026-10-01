@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from retrieval_test_support import FakeGraphRepository
+from retrieval_test_support import TENANT_SHARED_READER, FakeGraphRepository
 from retrieval_test_support import (
     policy as _policy,
 )
@@ -101,6 +101,7 @@ async def test_graph_documents_reports_the_related_result_and_its_neighborhood()
     report = await service.retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(observe_graph=True),
     )
 
@@ -182,6 +183,7 @@ async def test_graph_documents_preserves_cross_document_connecting_edge() -> Non
     report = await service.retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(observe_graph=True),
     )
 

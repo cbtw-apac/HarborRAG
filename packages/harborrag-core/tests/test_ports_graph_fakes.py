@@ -17,6 +17,7 @@ from harborrag_core.ingestion import (
     GraphOwnershipScope,
     KnowledgeNodeKind,
 )
+from harborrag_core.retrieval import GraphAccessScope
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.testing.graph_fakes import FakeKnowledgeGraphRepository
 
@@ -100,7 +101,12 @@ async def test_delete_relations_retracts_by_id_and_leaves_every_node() -> None:
     assert [relation.relation_id for relation in graph.retracted_relations] == ["to-stub"]
     # And the node it left behind reaches nothing, which is why leaving it is safe.
     traversal = await graph.traverse(
-        "stub", max_depth=2, max_nodes=10, direction="both", context=_CONTEXT
+        "stub",
+        max_depth=2,
+        max_nodes=10,
+        direction="both",
+        access_scope=GraphAccessScope(tenant_shared=True),
+        context=_CONTEXT,
     )
     assert traversal.nodes == () and traversal.relations == ()
 

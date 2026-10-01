@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from retrieval_test_support import FakeGraphRepository
+from retrieval_test_support import TENANT_SHARED_READER, FakeGraphRepository
 from retrieval_test_support import (
     policy as _policy,
 )
@@ -103,6 +103,7 @@ async def test_memory_seeds_widen_the_walk_beyond_the_vector_results() -> None:
     report = await _service(graph).retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(observe_graph=True, graph_seeds=("node-atlas",)),
     )
 
@@ -120,6 +121,7 @@ async def test_a_memory_seeded_document_carries_no_related_result() -> None:
     report = await _service(_SeededGraph()).retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(observe_graph=True, graph_seeds=("node-atlas",)),
     )
     documents = {document.document_id: document for document in report.diagnostics.graph_documents}
@@ -136,6 +138,7 @@ async def test_seeds_are_deduplicated_against_the_results_blanks_dropped_and_cap
     await _service(graph).retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(
             observe_graph=True,
             graph_seeds=(
@@ -162,6 +165,7 @@ async def test_seeds_are_inert_when_graph_observation_is_off() -> None:
     report = await _service(graph).retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(observe_graph=False, graph_seeds=("node-atlas",)),
     )
 

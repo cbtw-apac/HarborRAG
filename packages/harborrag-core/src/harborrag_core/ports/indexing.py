@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     GraphSchemaMigrationVerification,
     KnowledgeGraphTraversal,
 )
+from harborrag_core.retrieval import GraphAccessScope
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import (
     VectorFilter,
@@ -89,13 +90,14 @@ class KnowledgeGraphRepositoryPort(Protocol):
         context: StorageOperationContext,
     ) -> GraphProjectionVerification: ...
 
-    async def traverse(
+    async def traverse(  # noqa: PLR0913 - explicit access scope on the traversal contract
         self,
         start_node_key: str,
         *,
         max_depth: int,
         max_nodes: int,
         direction: str,
+        access_scope: GraphAccessScope,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal: ...
 

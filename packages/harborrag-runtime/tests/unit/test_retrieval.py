@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from retrieval_test_support import (
+    TENANT_SHARED_READER,
     FailingGraphRepository,
     FakeChunkReader,
     FakeEmbedClient,
@@ -43,6 +44,7 @@ async def test_hybrid_retrieval_returns_vector_payload_content() -> None:
     report = await service.retrieve(
         "release acceptance",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         top_k=2,
         options=RetrievalOptions(observe_graph=True),
     )
@@ -143,6 +145,7 @@ async def test_optional_graph_observation_failure_does_not_fail_retrieval() -> N
     report = await service.retrieve(
         "release",
         tenant_id="tenant-1",
+        access=TENANT_SHARED_READER,
         options=RetrievalOptions(observe_graph=True),
     )
 

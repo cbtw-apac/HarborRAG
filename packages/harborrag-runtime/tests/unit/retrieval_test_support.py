@@ -19,8 +19,15 @@ from harborrag_core.ingestion import (
     SparseEncoderProfile,
 )
 from harborrag_core.schemas.vector import VectorSearchResult
+from harborrag_core.security import AccessContext
 from harborrag_engine.ingestion import BM25SparseEncoder
 from harborrag_runtime.retrieval import RetrievalPolicy, RetrievalResources
+
+# Graph observation never walks unscoped: without a topology authorizer only a
+# tenant-shared reader is observed, so graph-observation tests retrieve as one.
+TENANT_SHARED_READER = AccessContext(
+    principal_id="reader", tenant_id="tenant-1", corpus_mode="tenant_shared"
+)
 
 
 class FakeEmbedClient:

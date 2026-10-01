@@ -27,6 +27,7 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
 )
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
@@ -70,6 +71,7 @@ async def traverse(
     start_node_key: str,
     *,
     bounds: TraversalBounds,
+    access_scope: GraphAccessScope,
     context: StorageOperationContext,
 ) -> KnowledgeGraphTraversal:
     """Traverse a bounded graph without exposing provider node IDs."""
@@ -87,11 +89,14 @@ async def traverse(
         WHERE start.tenant_id = $tenant_id
           AND start.node_key = $start_node_key
           AND start.graph_schema_version = $graph_schema_version
+          AND {access_predicate("start")}
           AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
-                  AND node.graph_schema_version = $graph_schema_version)
+                  AND node.graph_schema_version = $graph_schema_version
+                  AND {access_predicate("node")})
           AND all(relation IN relationships(path)
                   WHERE relation.tenant_id = $tenant_id
-                    AND relation.graph_schema_version = $graph_schema_version)
+                    AND relation.graph_schema_version = $graph_schema_version
+                    AND {access_predicate("relation")})
         RETURN nodes(path) AS path_nodes,
                relationships(path) AS path_relations
         ORDER BY size(path_relations)
@@ -102,6 +107,7 @@ async def traverse(
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
             "start_node_key": start_node_key,
             "path_limit": path_limit + 1,
+            **access_parameters(access_scope),
         },
     )
     return build_knowledge_traversal(rows, max_nodes=max_nodes, path_limit=path_limit)

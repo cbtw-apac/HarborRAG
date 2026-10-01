@@ -125,7 +125,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._close_resources = close_resources
         self._telemetry = telemetry or _NullRetrievalTelemetry()
         self._observer = (
-            GraphObserver(resources.graph_repository)
+            GraphObserver(resources.graph_repository, topology=resources.topology_repository)
             if resources.graph_repository is not None and resources.topology_repository is None
             else None
         )
@@ -197,9 +197,10 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 extra={"request_id": request_id, "tenant_id": tenant_id},
             )
             raise no_indexed_content() from exc
+        permitted_candidates = await self._permissions.validate(search.candidates, context)
         topology = await self._topology.prepare(
             query,
-            await self._permissions.validate(search.candidates, context),
+            permitted_candidates,
             options=selected,
             context=context,
             dense_vector=dense_vector,
@@ -210,7 +211,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         observation = (
             await self._observer.observe(
-                search.candidates,
+                permitted_candidates,
                 context=context,
                 request_id=request_id,
                 memory_seeds=selected.graph_seeds,

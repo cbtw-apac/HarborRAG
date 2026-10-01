@@ -21,6 +21,7 @@ from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
 from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphNodeResolutionQuery,
     GraphNodeResolutionResult,
     GraphPathQuery,
@@ -70,13 +71,14 @@ class RetrievalTelemetry(Protocol):
 
 
 class KnowledgeGraphReader(Protocol):
-    async def traverse(
+    async def traverse(  # noqa: PLR0913 - explicit access scope on the traversal contract
         self,
         start_node_key: str,
         *,
         max_depth: int,
         max_nodes: int,
         direction: str,
+        access_scope: GraphAccessScope,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal: ...
 
