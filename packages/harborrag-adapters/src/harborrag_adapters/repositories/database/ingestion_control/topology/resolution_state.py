@@ -3,10 +3,9 @@
 from collections.abc import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import insert_for_dialect
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.topology import ResolutionDecision, ResolutionRequest
 
@@ -14,7 +13,7 @@ from .schema import TOPOLOGY_RESOLUTION_HEADS
 
 
 async def lock_resolution_head(session: AsyncSession, tenant_id: str) -> int:
-    factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    factory = insert_for_dialect(session)
     await session.execute(
         factory(TOPOLOGY_RESOLUTION_HEADS)
         .values(

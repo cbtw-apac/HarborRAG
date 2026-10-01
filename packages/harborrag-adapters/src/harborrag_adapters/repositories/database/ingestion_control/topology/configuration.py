@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import insert_for_dialect
 from harborrag_core.topology.config import TenantIndexingConfig, TenantIndexingState
 
 from .policy_schema import INDEXING_CONFIGS
@@ -81,7 +80,7 @@ async def _wake_retryable_failed_jobs(
 
 async def lock_indexing_config(session: AsyncSession, tenant_id: str) -> TenantIndexingState:
     default = TenantIndexingConfig(tenant_id=tenant_id)
-    factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    factory = insert_for_dialect(session)
     await session.execute(
         factory(INDEXING_CONFIGS)
         .values(

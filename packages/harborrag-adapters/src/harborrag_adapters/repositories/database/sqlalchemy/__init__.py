@@ -9,6 +9,9 @@ from harborrag_adapters.repositories.database.sqlalchemy.chunks import (
     SQLChunkRepository,
     SQLOutboxRepository,
 )
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import (
+    insert_for_dialect,
+)
 from harborrag_adapters.repositories.database.sqlalchemy.documents import (
     SQLDocumentRepository,
 )
@@ -20,4 +23,5 @@ __all__ = [
     "SQLChunkRepository",
     "SQLDocumentRepository",
     "SQLOutboxRepository",
+    "insert_for_dialect",
 ]

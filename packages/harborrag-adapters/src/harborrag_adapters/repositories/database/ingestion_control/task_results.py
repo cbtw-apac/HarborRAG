@@ -4,10 +4,9 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import insert_for_dialect
 from harborrag_core.base import utc_now
 from harborrag_core.ingestion import (
     StoredTaskDocumentResult,
@@ -91,9 +90,7 @@ class TaskDocumentResultsMixin:
                 "result": result.result,
                 "completed_at": utc_now(),
             }
-            insert_factory = (
-                postgresql_insert if self._client.backend == "postgresql" else sqlite_insert
-            )
+            insert_factory = insert_for_dialect(session)
             statement = insert_factory(TASK_DOCUMENT_RESULTS).values(**values)
             await session.execute(
                 statement.on_conflict_do_update(

@@ -5,11 +5,10 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import Insert as PostgreSQLInsert
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import Insert as SQLiteInsert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import insert_for_dialect
 from harborrag_core.base import utc_now
 from harborrag_core.summaries import SummaryPolicy
 
@@ -17,7 +16,7 @@ from .summary_schema import SUMMARY_SCOPES, SUMMARY_TENANTS
 
 
 def upsert(session: AsyncSession) -> Callable[..., PostgreSQLInsert | SQLiteInsert]:
-    return sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    return insert_for_dialect(session)
 
 
 async def lock_summary_tenant(session: AsyncSession, tenant_id: str) -> None:

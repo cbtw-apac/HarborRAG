@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import insert_for_dialect
 from harborrag_core.topology import CONSERVATIVE_RESOLUTION_REVISION, TopologyPolicy
 
 from .audit import TopologyAuditOperations
@@ -60,7 +59,7 @@ class TopologyRepository(
                 "fingerprint": policy.fingerprint,
                 "policy": serialized,
             }
-            factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+            factory = insert_for_dialect(session)
             await session.execute(
                 factory(TOPOLOGY_POLICIES)
                 .values(**values)

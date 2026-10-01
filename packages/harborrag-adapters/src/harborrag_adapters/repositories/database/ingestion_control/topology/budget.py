@@ -5,11 +5,10 @@ from datetime import timedelta
 from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy import and_, func, insert, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.database.sqlalchemy.dialects import insert_for_dialect
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.topology import TopologyJob
@@ -112,7 +111,7 @@ async def reserve(
     if active >= state.config.budgets.max_concurrency:
         return BudgetAdmission(admitted=False, reason="concurrency", retry_after=later)
     day = now.date().isoformat()
-    factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    factory = insert_for_dialect(session)
     await session.execute(
         factory(BUDGET_DAYS)
         .values(tenant_id=job.tenant_id, day=day, tokens=0, cost_microusd=0)
