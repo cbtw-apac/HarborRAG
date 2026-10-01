@@ -54,11 +54,18 @@ async def search_documents(
     """Search the current question with the selected retrieval mode."""
 
     graph_enabled = settings.chat_retrieval_graph_search if graph_search is None else graph_search
+    runtime_config = runtime.config.runtime
+    corpus_mode = (
+        runtime_config.corpus_access_mode
+        if identity.tenant_id == runtime_config.corpus_shared_tenant_id
+        else "source_acl"
+    )
     return await runtime.retrieval.search(
         RetrievalRequest(
             access=AccessContext(
                 principal_id=identity.principal_id,
                 tenant_id=TenantId(identity.tenant_id),
+                corpus_mode=corpus_mode,
             ),
             query=context.standalone_query,
             top_k=settings.chat_retrieval_top_k,
