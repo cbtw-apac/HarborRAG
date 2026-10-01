@@ -142,18 +142,14 @@ class ResponseCacheController:
         config: CacheConfig,
         *,
         family: str,
+        configuration_fingerprint: str,
         backend: ModelResponseCache | None = None,
-        configuration_fingerprint: str | None = None,
     ) -> None:
-        """Bind cache policy to one model family and optional backend."""
+        """Bind cache policy to one model family, configuration, and optional backend."""
 
         self.config = config
         self.family = family
-        self._namespace = (
-            f"{config.key_namespace}:{configuration_fingerprint}"
-            if configuration_fingerprint is not None
-            else config.key_namespace
-        )
+        self._namespace = f"{config.key_namespace}:{configuration_fingerprint}"
         self.backend = backend or InMemoryModelCache(max_entries=config.max_entries)
 
     def decision(self, request: BaseModel, logical_model: str) -> CacheDecision:

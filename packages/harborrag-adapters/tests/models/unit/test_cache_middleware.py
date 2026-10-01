@@ -66,9 +66,13 @@ def test_cache_controller_policy_and_metadata() -> None:
         metadata={"tenant_id": "tenant", "request_id": "r1"},
         cacheable=True,
     )
-    disabled = ResponseCacheController(CacheConfig(enabled=False), family="chat")
+    disabled = ResponseCacheController(
+        CacheConfig(enabled=False), family="chat", configuration_fingerprint="fp"
+    )
     assert disabled.decision(request, "primary").reason == "disabled"
-    controller = ResponseCacheController(CacheConfig(enabled=True, ttl_seconds=12), family="chat")
+    controller = ResponseCacheController(
+        CacheConfig(enabled=True, ttl_seconds=12), family="chat", configuration_fingerprint="fp"
+    )
     decision = controller.decision(request, "primary")
     assert decision.allowed
     response = ValueModel(value=1)
@@ -101,13 +105,17 @@ async def test_cache_controller_async_and_litellm_controls() -> None:
         cacheable=True,
     )
     controller = ResponseCacheController(
-        CacheConfig(enabled=True, backend=CacheBackend.CUSTOM), family="chat"
+        CacheConfig(enabled=True, backend=CacheBackend.CUSTOM),
+        family="chat",
+        configuration_fingerprint="fp",
     )
     decision = controller.decision(request, "primary")
     await controller.aset(decision, ValueModel(value=2))
     assert await controller.aget(decision) == ValueModel(value=2)
     litellm = ResponseCacheController(
-        CacheConfig(enabled=True, backend=CacheBackend.LITELLM), family="chat"
+        CacheConfig(enabled=True, backend=CacheBackend.LITELLM),
+        family="chat",
+        configuration_fingerprint="fp",
     )
     enabled = litellm.decision(request, "primary")
     assert litellm.provider_parameters(enabled)["caching"] is True
