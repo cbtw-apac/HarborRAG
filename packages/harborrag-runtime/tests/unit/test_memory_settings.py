@@ -43,7 +43,23 @@ def test_defaults_match_the_approved_policy() -> None:
     assert settings.memory_dedup_threshold == pytest.approx(0.92)
     assert settings.memory_model_profile == "memory"
     assert settings.memory_embed_profile is None
-    assert settings.memory_pii_redaction is False
+
+
+def test_pii_redaction_is_not_an_advertised_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PII redaction is not implemented; the knob must not exist to be configured.
+
+    ``extra="ignore"`` on ``RuntimeSettings.model_config`` means an unknown
+    field is silently dropped, whether it arrives as an env var or a
+    constructor kwarg; it must not resurface as an attribute either way.
+    """
+
+    monkeypatch.setenv("HARBORRAG_MEMORY_PII_REDACTION", "true")
+    from_env = RuntimeSettings()
+    from_kwarg = RuntimeSettings(memory_pii_redaction=True)  # type: ignore[call-arg]
+
+    assert not hasattr(from_env, "memory_pii_redaction")
+    assert not hasattr(from_kwarg, "memory_pii_redaction")
+    assert "memory_pii_redaction" not in RuntimeSettings.model_fields
 
 
 def test_environment_overrides_use_the_harborrag_prefix(monkeypatch: pytest.MonkeyPatch) -> None:

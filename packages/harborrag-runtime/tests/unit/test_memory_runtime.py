@@ -66,6 +66,8 @@ def test_memory_policy_maps_every_settings_field() -> None:
         memory_block_budget_fraction=0.25,
         memory_type_affinity_weight=1.25,
         memory_query_rewrite=False,
+        memory_extraction_min_importance=0.7,
+        memory_dedup_threshold=0.8,
     )
 
     policy = memory_policy_from_settings(settings)
@@ -81,6 +83,8 @@ def test_memory_policy_maps_every_settings_field() -> None:
     assert policy.block_budget_fraction == pytest.approx(0.25)
     assert policy.type_affinity_weight == pytest.approx(1.25)
     assert policy.query_rewrite is False
+    assert policy.extraction_min_importance == pytest.approx(0.7)
+    assert policy.dedup_threshold == pytest.approx(0.8)
 
 
 def test_memory_policy_is_disabled_when_memory_is_off() -> None:

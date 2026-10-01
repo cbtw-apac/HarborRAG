@@ -85,8 +85,6 @@ class MemorySettingsMixin(BaseSettings):
     memory_retention_days_user: int = Field(default=365, ge=0)
     memory_retention_days_project: int = Field(default=0, ge=0)
 
-    memory_pii_redaction: bool = False
-
     @field_validator("memory_recall_scopes")
     @classmethod
     def validate_recall_scopes(cls, value: str) -> str:
