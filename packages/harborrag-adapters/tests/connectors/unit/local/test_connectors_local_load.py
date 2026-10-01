@@ -11,7 +11,7 @@ from local_test_helpers import config, write_file
 
 from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
-from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
+from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type, local_record_id
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.domain.source import SourceRecord
@@ -27,13 +27,13 @@ def test_load_reads_file_bytes_and_builds_metadata(tmp_path: Path):
 
     document = connector.load(record)
 
-    assert document.id == "docs/README.md"
+    assert document.id == local_record_id("docs/README.md")
     assert document.source == "local:///docs/README.md"
     assert document.content == b"# Hello"
     assert document.content_type == guess_mime_type(path)
     assert document.metadata["source_system"] == "local"
     assert document.metadata["metadata_schema_version"] == 1
-    assert document.metadata["record_id"] == "docs/README.md"
+    assert document.metadata["record_id"] == local_record_id("docs/README.md")
     assert document.metadata["title"] == "README.md"
     assert document.metadata["relative_path"] == "docs/README.md"
     assert document.metadata["parent_relative_path"] == "docs"
@@ -159,7 +159,7 @@ def test_moving_source_root_preserves_public_and_document_identity(tmp_path: Pat
     second = next(LocalFileConnector(config(second_path.parents[1])).discover())
     identities = DocumentIdentityBuilder()
 
-    assert first.id == second.id == "docs/guide.md"
+    assert first.id == second.id == local_record_id("docs/guide.md")
     assert first.locator == second.locator == "docs/guide.md"
     assert first.metadata["relative_path"] == second.metadata["relative_path"]
     assert identities.document_id(
