@@ -122,7 +122,13 @@ async def test_backend_failure_returns_generic_error_but_logs_the_cause(caplog) 
             principal_id="subject-1",
         )
 
-    assert result == {"ok": False, "error": "vector retrieval backend failed"}
+    assert result == {
+        "ok": False,
+        "error": "vector retrieval backend failed",
+        "error_class": "internal",
+        "component": "vector_retrieval",
+    }
+    assert "provider config invalid" not in str(result)
     logged = [record for record in caplog.records if record.exc_info is not None]
     assert logged, "the real exception must be logged even though the caller sees a generic error"
     assert "provider config invalid" in str(logged[0].exc_info[1])

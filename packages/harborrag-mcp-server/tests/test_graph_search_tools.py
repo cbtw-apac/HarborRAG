@@ -133,7 +133,17 @@ async def test_graph_tool_backend_failure_returns_generic_error_but_logs_the_cau
     with caplog.at_level("ERROR", logger="harborrag.mcp.tools.graph_search"):
         result = await tool_cls(runtime=harbor).call(arguments, principal_id="reader-1")
 
-    assert result == {"ok": False, "error": "graph retrieval backend failed"}
+    assert result["ok"] is False
+    assert result["error"] == "graph retrieval backend failed"
+    assert result["error_class"] in {
+        "internal",
+        "configuration",
+        "connection",
+        "authentication",
+        "timeout",
+        "invalid_request",
+    }
+    assert result["component"] == "graph_retrieval"
     logged = [record for record in caplog.records if record.exc_info is not None]
     assert logged, "the real exception must be logged even though the caller sees a generic error"
     assert logged[0].message == log_message

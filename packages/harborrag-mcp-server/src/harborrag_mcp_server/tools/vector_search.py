@@ -10,6 +10,7 @@ from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_runtime.contracts import RetrievalLane, RetrievalRequest
 
+from .backend_errors import classify_backend_error
 from .base import BaseMcpTool, McpToolSpec
 from .retrieval_inputs import (
     TENANT_PROPERTY,
@@ -125,12 +126,16 @@ async def _search(
         return {"ok": False, "error": "vector retrieval backend is not configured"}
     try:
         response = await runtime.retrieval.search(request)
-    except Exception:
-        # The caller only ever sees the generic message below; the real cause
-        # (e.g. a misconfigured provider or an unreachable store) is only
-        # visible in the server logs, never in the tool response.
+    except Exception as exc:
+        # The caller never sees exception text (hosts, credentials, provider
+        # payloads stay in the server log), only a coarse class and the
+        # component that failed, so the failure can be triaged from the client.
         logger.exception("vector retrieval backend raised during search")
-        return {"ok": False, "error": "vector retrieval backend failed"}
+        return {
+            "ok": False,
+            "error": "vector retrieval backend failed",
+            **classify_backend_error(exc, default_component="vector_retrieval"),
+        }
     return {
         "ok": True,
         "request_id": response.request_id,
