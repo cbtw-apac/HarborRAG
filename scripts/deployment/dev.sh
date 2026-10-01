@@ -30,7 +30,8 @@ Commands:
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
 API_ENV_FILE, and MCP_ENV_FILE.
-Use --build after source, dependency, or baked worker configuration changes.
+Use --build after source or dependency changes; config/ is mounted, so a configuration
+change needs only a restart (dev.sh worker or dev.sh api).
 For up, worker, and api, --build may appear before or after the command.
 If a local API or worker image is missing, the first start builds it automatically.
 EOF

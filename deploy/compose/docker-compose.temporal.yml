@@ -205,10 +205,12 @@ services:
       HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY: ${HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY:-8}
       HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
     volumes:
-      # Temporal policy is mounted separately so queue/retry changes used by
-      # resilience tests need only a worker restart, not an image rebuild.
-      - ../../config/temporal.yaml:/app/config/temporal.yaml:ro
-      # Other runtime configuration remains baked into the worker image.
+      # Runtime configuration (models, connectors, parsers, temporal policy) is
+      # mounted read-only from the checkout, as the API already does, so a
+      # configuration change needs only a worker restart, not an image rebuild.
+      # The copy baked into the image remains the fallback for a hand-run
+      # container without this mount.
+      - ../../config:/app/config:ro
       - harborrag_model_cache:/var/lib/harborrag/.cache/huggingface
       # scripts/deployment/dev.sh sets this from LOCAL_SOURCE_PATH in
       # env/.env.connector. The fallback only applies to a hand-run compose.
