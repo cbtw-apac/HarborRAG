@@ -67,6 +67,22 @@ class DocumentVersionState(StrEnum):
     FAILED = "FAILED"
 
 
+class DocumentArtifactSlot(StrEnum):
+    """Name the immutable artifact a document version records at a lifecycle stage.
+
+    Storage adapters map each slot to their own persistence location; callers
+    never address artifacts by column or field name.
+    """
+
+    RAW = "RAW"
+    RAW_METADATA = "RAW_METADATA"
+    CANONICAL = "CANONICAL"
+    CHUNK = "CHUNK"
+    CHUNK_INDEX = "CHUNK_INDEX"
+    RELATION = "RELATION"
+    REPRESENTATION = "REPRESENTATION"
+
+
 class FailureCategory(StrEnum):
     TRANSIENT = "TRANSIENT"
     RATE_LIMITED = "RATE_LIMITED"

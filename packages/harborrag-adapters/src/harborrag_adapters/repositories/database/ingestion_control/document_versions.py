@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     ActiveSourceDocument,
     ArtifactReference,
+    DocumentArtifactSlot,
     DocumentVersionCandidate,
     DocumentVersionSnapshot,
     DocumentVersionState,
@@ -67,17 +68,15 @@ _ALLOWED_TRANSITIONS: dict[DocumentVersionState, frozenset[DocumentVersionState]
     DocumentVersionState.FAILED: frozenset(),
 }
 
-_ARTIFACT_COLUMNS = frozenset(
-    {
-        "raw_artifact",
-        "raw_metadata_artifact",
-        "canonical_artifact",
-        "chunk_artifact",
-        "chunk_index_artifact",
-        "relation_artifact",
-        "representation_artifact",
-    }
-)
+_SLOT_COLUMNS: Mapping[DocumentArtifactSlot, str] = {
+    DocumentArtifactSlot.RAW: "raw_artifact",
+    DocumentArtifactSlot.RAW_METADATA: "raw_metadata_artifact",
+    DocumentArtifactSlot.CANONICAL: "canonical_artifact",
+    DocumentArtifactSlot.CHUNK: "chunk_artifact",
+    DocumentArtifactSlot.CHUNK_INDEX: "chunk_index_artifact",
+    DocumentArtifactSlot.RELATION: "relation_artifact",
+    DocumentArtifactSlot.REPRESENTATION: "representation_artifact",
+}
 
 
 class DocumentVersionRepository:
@@ -146,13 +145,17 @@ class DocumentVersionRepository:
         document_version_id: str,
         target: DocumentVersionState,
         *,
-        artifact_column: str | None = None,
-        artifact: ArtifactReference | None = None,
+        artifact: tuple[DocumentArtifactSlot, ArtifactReference] | None = None,
     ) -> None:
-        if (artifact_column is None) != (artifact is None):
-            raise ValueError("artifact column and reference must be supplied together")
-        if artifact_column is not None and artifact_column not in _ARTIFACT_COLUMNS:
-            raise ValueError(f"unsupported document-version artifact column: {artifact_column}")
+        artifact_column: str | None = None
+        reference: ArtifactReference | None = None
+        if artifact is not None:
+            slot, reference = artifact
+            if not isinstance(slot, DocumentArtifactSlot):
+                raise TypeError(
+                    f"document-version artifact slot must be a DocumentArtifactSlot: {slot!r}"
+                )
+            artifact_column = _SLOT_COLUMNS[slot]
         async with self._client.sessions.begin() as session:
             result = await session.execute(
                 select(DOCUMENT_VERSIONS)
@@ -169,7 +172,7 @@ class DocumentVersionRepository:
                     row=row,
                     document_version_id=document_version_id,
                     artifact_column=artifact_column,
-                    artifact=artifact,
+                    artifact=reference,
                 )
                 return
             if target not in _ALLOWED_TRANSITIONS[current]:
@@ -178,10 +181,10 @@ class DocumentVersionRepository:
                 )
             values: dict[str, object] = {"status": target.value, "updated_at": utc_now()}
             if artifact_column is not None:
-                if artifact is None:
+                if reference is None:
                     raise HarborInvariantError("artifact must not be None here")
                 existing_artifact = row[artifact_column]
-                serialized = artifact.model_dump(mode="json")
+                serialized = reference.model_dump(mode="json")
                 if existing_artifact is not None and existing_artifact != serialized:
                     raise HarborConflictError("document-version artifacts are immutable")
                 values[artifact_column] = serialized

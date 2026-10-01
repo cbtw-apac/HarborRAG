@@ -10,6 +10,7 @@ from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     ArtifactReference,
     ChunkSetArtifacts,
+    DocumentArtifactSlot,
     DocumentFailure,
     DocumentVersionSnapshot,
     DocumentVersionState,
@@ -90,14 +91,12 @@ class DocumentVersionLifecycle:
         await self.advance(
             document_version_id,
             DocumentVersionState.RAW_CAPTURED,
-            artifact_column="raw_artifact",
-            artifact=reference.source_artifact,
+            artifact=(DocumentArtifactSlot.RAW, reference.source_artifact),
         )
         await self.advance(
             document_version_id,
             DocumentVersionState.RAW_CAPTURED,
-            artifact_column="raw_metadata_artifact",
-            artifact=reference.metadata_artifact,
+            artifact=(DocumentArtifactSlot.RAW_METADATA, reference.metadata_artifact),
         )
 
     async def record_chunks(
@@ -108,14 +107,12 @@ class DocumentVersionLifecycle:
         await self.advance(
             document_version_id,
             DocumentVersionState.CHUNKS_READY,
-            artifact_column="chunk_artifact",
-            artifact=artifacts.chunks,
+            artifact=(DocumentArtifactSlot.CHUNK, artifacts.chunks),
         )
         await self.advance(
             document_version_id,
             DocumentVersionState.CHUNKS_READY,
-            artifact_column="chunk_index_artifact",
-            artifact=artifacts.index,
+            artifact=(DocumentArtifactSlot.CHUNK_INDEX, artifacts.index),
         )
 
     async def advance(
@@ -123,8 +120,7 @@ class DocumentVersionLifecycle:
         document_version_id: str,
         state: DocumentVersionState,
         *,
-        artifact_column: str | None = None,
-        artifact: ArtifactReference | None = None,
+        artifact: tuple[DocumentArtifactSlot, ArtifactReference] | None = None,
     ) -> None:
         snapshot = await self._required_snapshot(document_version_id)
         if snapshot.state == DocumentVersionState.FAILED:
@@ -136,7 +132,6 @@ class DocumentVersionLifecycle:
         await self._control.document_versions.transition(
             document_version_id,
             state,
-            artifact_column=artifact_column,
             artifact=artifact,
         )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from harborrag_core.ingestion import (
+    DocumentArtifactSlot,
     DocumentVersionState,
     ProjectionVerificationError,
 )
@@ -67,8 +68,7 @@ class DocumentProjectionStages:
         await self._lifecycle.advance(
             prepared.document_version_id,
             DocumentVersionState.REPRESENTATIONS_READY,
-            artifact_column="relation_artifact",
-            artifact=reference,
+            artifact=(DocumentArtifactSlot.RELATION, reference),
         )
 
     async def build_projections(

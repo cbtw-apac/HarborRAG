@@ -7,8 +7,10 @@ import pytest
 
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
+    ArtifactReference,
     CleanupJobState,
     DiscoveredSourceItem,
+    DocumentArtifactSlot,
     DocumentFailure,
     DocumentVersionState,
     FailureCategory,
@@ -199,6 +201,79 @@ async def test_active_snapshot_exposes_fingerprints_for_admission_reuse(
         assert snapshot is not None
         assert snapshot.state == DocumentVersionState.ACTIVE
         assert snapshot.fingerprints == value.fingerprints
+
+
+def _artifact(key: str) -> ArtifactReference:
+    return ArtifactReference(
+        bucket="harborrag",
+        key=key,
+        sha256="a" * 64,
+        byte_size=10,
+        media_type="application/json",
+    )
+
+
+@pytest.mark.asyncio
+async def test_transition_writes_the_column_behind_the_artifact_slot(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("slotted")
+        version_id = str(value.document_version_id)
+        repository = control_plane.document_versions
+        await repository.create_candidate(value)
+        reference = _artifact("canonical/slotted.json")
+
+        await repository.transition(
+            version_id,
+            DocumentVersionState.CANONICAL_READY,
+            artifact=(DocumentArtifactSlot.CANONICAL, reference),
+        )
+
+        snapshot = await repository.get_version(version_id)
+        assert snapshot is not None
+        assert snapshot.state == DocumentVersionState.CANONICAL_READY
+        assert snapshot.canonical_artifact == reference
+        assert snapshot.raw_artifact is None
+
+        # A replay into the same state may attach the same reference again, but
+        # never replace it: artifact slots are immutable once written.
+        await repository.transition(
+            version_id,
+            DocumentVersionState.CANONICAL_READY,
+            artifact=(DocumentArtifactSlot.CANONICAL, reference),
+        )
+        with pytest.raises(HarborConflictError, match="immutable"):
+            await repository.transition(
+                version_id,
+                DocumentVersionState.CANONICAL_READY,
+                artifact=(DocumentArtifactSlot.CANONICAL, _artifact("canonical/other.json")),
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("slot", ["canonical_artifact", "CANONICAL"])
+async def test_transition_rejects_a_string_where_an_artifact_slot_is_expected(
+    tmp_path: Path, slot: str
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("unslotted")
+        version_id = str(value.document_version_id)
+        repository = control_plane.document_versions
+        await repository.create_candidate(value)
+
+        with pytest.raises(TypeError, match="DocumentArtifactSlot"):
+            await repository.transition(
+                version_id,
+                DocumentVersionState.CANONICAL_READY,
+                artifact=(slot, _artifact("canonical/unslotted.json")),  # type: ignore[arg-type]
+            )
+
+        snapshot = await repository.get_version(version_id)
+        assert snapshot is not None
+        assert snapshot.state == DocumentVersionState.PENDING
 
 
 @pytest.mark.asyncio

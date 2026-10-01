@@ -25,6 +25,7 @@ from harborrag_core.chunking import (
 from harborrag_core.ingestion import (
     AdmissionSnapshot,
     ChangeFingerprintBuilder,
+    DocumentArtifactSlot,
     DocumentIdentityBuilder,
     DocumentVersionCandidate,
     DocumentVersionState,
@@ -275,8 +276,7 @@ class Harness:
                 await repo.transition(
                     str(version_id),
                     state,
-                    artifact_column="chunk_artifact",
-                    artifact=artifacts.chunks,
+                    artifact=(DocumentArtifactSlot.CHUNK, artifacts.chunks),
                 )
             else:
                 await repo.transition(str(version_id), state)

@@ -6,6 +6,7 @@ import asyncio
 
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
+    DocumentArtifactSlot,
     DocumentVersionSnapshot,
     DocumentVersionState,
     SourceAdmissionDecision,
@@ -78,8 +79,7 @@ class DocumentMaterializationStages:
         await self._lifecycle.advance(
             prepared.document_version_id,
             DocumentVersionState.CANONICAL_READY,
-            artifact_column="canonical_artifact",
-            artifact=canonical_reference,
+            artifact=(DocumentArtifactSlot.CANONICAL, canonical_reference),
         )
 
     async def chunk_and_validate(
@@ -153,8 +153,7 @@ class DocumentMaterializationStages:
         await self._lifecycle.advance(
             prepared.document_version_id,
             DocumentVersionState.REPRESENTATIONS_READY,
-            artifact_column="representation_artifact",
-            artifact=reference,
+            artifact=(DocumentArtifactSlot.REPRESENTATION, reference),
         )
 
     async def record_failure(

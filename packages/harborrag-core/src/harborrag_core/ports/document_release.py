@@ -9,6 +9,7 @@ from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     ActiveSourceDocument,
     ArtifactReference,
+    DocumentArtifactSlot,
     DocumentFailure,
     DocumentRetirementResult,
     DocumentVersionCandidate,
@@ -32,8 +33,7 @@ class DocumentVersionPort(Protocol):
         document_version_id: str,
         target: DocumentVersionState,
         *,
-        artifact_column: str | None = None,
-        artifact: ArtifactReference | None = None,
+        artifact: tuple[DocumentArtifactSlot, ArtifactReference] | None = None,
     ) -> None: ...
 
     async def save_projection_manifest(self, manifest: ProjectionManifest) -> None: ...

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from harborrag_core.ingestion import DocumentVersionSnapshot, DocumentVersionState
+from harborrag_core.ingestion import (
+    DocumentArtifactSlot,
+    DocumentVersionSnapshot,
+    DocumentVersionState,
+)
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import ChunkVersionRebinder
 
@@ -97,8 +101,7 @@ class ChunkReuseCoordinator:
             await self._lifecycle.advance(
                 prepared.document_version_id,
                 DocumentVersionState.REPRESENTATIONS_READY,
-                artifact_column="representation_artifact",
-                artifact=reference,
+                artifact=(DocumentArtifactSlot.REPRESENTATION, reference),
             )
         except Exception as error:
             await self._pipeline.preparation.record_failure(
@@ -122,16 +125,15 @@ class ChunkReuseCoordinator:
         )
         if candidate is None:
             raise ValueError("reindex candidate disappeared before publication")
-        for column, reference in (
-            ("raw_artifact", active.raw_artifact),
-            ("raw_metadata_artifact", active.raw_metadata_artifact),
+        for slot, reference in (
+            (DocumentArtifactSlot.RAW, active.raw_artifact),
+            (DocumentArtifactSlot.RAW_METADATA, active.raw_metadata_artifact),
         ):
             if reference is not None:
                 await self._dependencies.control.document_versions.transition(
                     prepared.document_version_id,
                     candidate.state,
-                    artifact_column=column,
-                    artifact=reference,
+                    artifact=(slot, reference),
                 )
 
 
