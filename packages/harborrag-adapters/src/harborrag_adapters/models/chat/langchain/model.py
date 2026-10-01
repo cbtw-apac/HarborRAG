@@ -24,7 +24,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from harborrag_adapters.models.chat.async_client import AsyncHarborChatClient
 from harborrag_adapters.models.chat.validation import default_deployment
-from harborrag_adapters.models.runtime.sync import run_awaitable_synchronously
 from harborrag_core.models.chat import (
     HarborChatMetadata,
     HarborChatRequest,
@@ -177,10 +176,12 @@ class HarborChatModel(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        return run_awaitable_synchronously(
-            self._agenerate(messages, stop=stop, run_manager=None, **kwargs),
-            thread_name=_SYNC_THREAD_NAME,
-        )
+        # Every synchronous call runs on the client's one background loop: the
+        # pooled connection session pins the first loop it sees, so a fresh
+        # loop per call would fail on the second call. ``run`` blocks on a
+        # concurrent future, so this is safe inside a caller's running loop too.
+        runner = self.client.sync_runner(thread_name=_SYNC_THREAD_NAME)
+        return runner.run(self._agenerate(messages, stop=stop, run_manager=None, **kwargs))
 
     async def _astream(
         self,
@@ -197,6 +198,21 @@ class HarborChatModel(BaseChatModel):
             if run_manager is not None:
                 await run_manager.on_llm_new_token(chunk.text, chunk=chunk)
             yield chunk
+
+    def close(self) -> None:
+        """Close the wrapped client together with its synchronous event loop.
+
+        The pooled connection session is pinned to the loop synchronous calls
+        run on, so the loop cannot be released without the client. Closing the
+        model therefore closes the client for every model sharing it.
+        """
+
+        self.client.close()
+
+    async def aclose(self) -> None:
+        """Asynchronously close the wrapped client and its synchronous event loop."""
+
+        await self.client.aclose()
 
     def bind_tools(
         self,
