@@ -157,18 +157,23 @@ class CleanupJobState(StrEnum):
 
 # NOTE: CleanupJobState.COMPLETED is not terminal here, and CleanupJobState.FAILED
 # also allows RUNNING. Both diverge from the state diagram one might expect from
-# CleanupJobState alone; the divergence mirrors current runtime behaviour rather
-# than an idealised machine:
-#   - enqueue_cleanup and _ensure_cleanup (publication.py) already requeue a
-#     COMPLETED (and CANCELLED) job back to PENDING when the same document
-#     version is retired/cleaned up again, so COMPLETED -> PENDING is real.
-#   - claim_cleanup already retries a FAILED job straight to RUNNING (it treats
-#     PENDING and FAILED as equally claimable), so FAILED -> RUNNING is real.
+# CleanupJobState alone; every entry below mirrors a real caller rather than an
+# idealised machine:
+#   - claim_cleanup (reliability.py) claims PENDING or FAILED jobs straight to
+#     RUNNING, so PENDING -> RUNNING and FAILED -> RUNNING are real.
+#   - enqueue_cleanup (reliability.py) and _ensure_cleanup (publication.py) both
+#     requeue a CANCELLED or COMPLETED job back to PENDING when the same document
+#     version is cleaned up again, so CANCELLED -> PENDING and COMPLETED -> PENDING
+#     are real.
 #   - document_version_access.prepare cancels a PENDING or FAILED cleanup job
-#     when the document version is replayed, so {PENDING, FAILED} -> CANCELLED
-#     is real.
-# FAILED -> PENDING and CANCELLED -> PENDING are kept for a future requeue path;
-# no production caller drives them today.
+#     when the document version is replayed, so PENDING -> CANCELLED and
+#     FAILED -> CANCELLED are real.
+#   - the public complete_cleanup/fail_cleanup/cancel_cleanup methods only ever
+#     run against a job claim_cleanup just moved to RUNNING, so RUNNING -> {
+#     COMPLETED, FAILED, CANCELLED} is real.
+# FAILED -> PENDING is intentionally absent: no caller, public or inline,
+# requeues a FAILED job back to PENDING; its only recovery path is the direct
+# FAILED -> RUNNING reclaim above.
 CLEANUP_TRANSITIONS: Mapping[CleanupJobState, frozenset[CleanupJobState]] = {
     CleanupJobState.PENDING: frozenset(
         {CleanupJobState.RUNNING, CleanupJobState.CANCELLED}
@@ -177,7 +182,7 @@ CLEANUP_TRANSITIONS: Mapping[CleanupJobState, frozenset[CleanupJobState]] = {
         {CleanupJobState.COMPLETED, CleanupJobState.FAILED, CleanupJobState.CANCELLED}
     ),
     CleanupJobState.FAILED: frozenset(
-        {CleanupJobState.PENDING, CleanupJobState.RUNNING, CleanupJobState.CANCELLED}
+        {CleanupJobState.RUNNING, CleanupJobState.CANCELLED}
     ),
     CleanupJobState.CANCELLED: frozenset({CleanupJobState.PENDING}),
     CleanupJobState.COMPLETED: frozenset({CleanupJobState.PENDING}),

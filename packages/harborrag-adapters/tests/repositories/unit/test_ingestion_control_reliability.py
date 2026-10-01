@@ -433,10 +433,10 @@ async def test_cleanup_job_happy_path_pending_running_completed(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
-async def test_failed_cleanup_job_can_be_requeued_to_pending(tmp_path: Path) -> None:
+async def test_failed_cleanup_job_can_be_reclaimed_to_running(tmp_path: Path) -> None:
     control_plane = make_control_plane(tmp_path)
     async with control_plane:
-        value = candidate("cleanup requeue after failure")
+        value = candidate("cleanup retry after failure")
         await control_plane.document_versions.create_candidate(value)
         job = await control_plane.reliability.enqueue_cleanup(
             document_id=str(value.document_id),
@@ -452,16 +452,16 @@ async def test_failed_cleanup_job_can_be_requeued_to_pending(tmp_path: Path) -> 
         )
         assert failed is not None
         assert failed.status == CleanupJobState.FAILED
+        assert failed.attempt_count == 1
 
-        # No production caller requeues a FAILED job to PENDING today (claim_cleanup
-        # retries FAILED jobs directly to RUNNING instead); this exercises the
-        # transition the core table still allows for a future requeue path.
-        await control_plane.reliability._set_cleanup_state(
-            job.cleanup_job_id,
-            status=CleanupJobState.PENDING,
-        )
-        requeued = await control_plane.reliability.cleanup_for_version(
+        # The real retry path for a FAILED job is a direct reclaim to RUNNING
+        # (claim_cleanup treats PENDING and FAILED as equally claimable); there
+        # is no requeue back through PENDING.
+        reclaimed = await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+        assert reclaimed is True
+        running = await control_plane.reliability.cleanup_for_version(
             str(value.document_version_id)
         )
-        assert requeued is not None
-        assert requeued.status == CleanupJobState.PENDING
+        assert running is not None
+        assert running.status == CleanupJobState.RUNNING
+        assert running.attempt_count == 2
