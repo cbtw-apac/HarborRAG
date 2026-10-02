@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from harborrag_core.contracts.errors import (
     HarborAuthorizationUnavailableError,
@@ -21,6 +22,19 @@ from harborrag_core.topology.search import TopologySearchPort
 logger = logging.getLogger("harborrag.runtime.retrieval.permissions")
 
 
+@dataclass(frozen=True, slots=True)
+class PermissionScope:
+    """The search filter plus whether it confines the search to readable documents.
+
+    ``readable_only`` is false only when the reader can read more documents than
+    the prefilter budget enumerates: the search then also sees unreadable
+    documents, so anything it counts before ``validate()`` must stay private.
+    """
+
+    filters: VectorFilter | None
+    readable_only: bool
+
+
 class RetrievalPermissions:
     def __init__(self, repository: TopologySearchPort | None) -> None:
         self._repository = repository
@@ -28,14 +42,19 @@ class RetrievalPermissions:
     async def scope_filter(
         self, filters: VectorFilter | None, context: StorageOperationContext
     ) -> VectorFilter | None:
+        return (await self.scope(filters, context)).filters
+
+    async def scope(
+        self, filters: VectorFilter | None, context: StorageOperationContext
+    ) -> PermissionScope:
         if self._repository is None:
             # Explicit legacy embedding-only callers. Production composition
             # always supplies canonical authority; unknown permissions there deny.
-            return filters
+            return PermissionScope(filters, readable_only=True)
         if context.access.corpus_mode == "tenant_shared":
             # The vector repository already scopes by tenant. The final canonical
             # publication check still runs in validate().
-            return filters
+            return PermissionScope(filters, readable_only=True)
         try:
             async with asyncio.timeout(2):
                 documents = await self._repository.allowed_document_ids(
@@ -49,14 +68,14 @@ class RetrievalPermissions:
                 "Permission scope over budget; relying on final permission check",
                 extra={"reason": "permission_scope_over_budget"},
             )
-            return filters
+            return PermissionScope(filters, readable_only=False)
         except Exception as error:
             logger.warning(
                 "Permission scope unavailable", extra={"error_code": type(error).__name__}
             )
             raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
         result = filters if filters is not None else VectorFilter()
-        return VectorFilter(
+        scoped = VectorFilter(
             must=[
                 *result.must,
                 VectorFilterCondition(
@@ -66,6 +85,7 @@ class RetrievalPermissions:
             should=list(result.should),
             must_not=list(result.must_not),
         )
+        return PermissionScope(scoped, readable_only=True)
 
     async def validate(
         self, candidates: tuple[VectorSearchResult, ...], context: StorageOperationContext

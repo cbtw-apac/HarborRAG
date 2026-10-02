@@ -179,6 +179,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
             else None
         )
+        scope = await self._permissions.scope(selected.filters, context)
         try:
             search = await self._search.search(
                 AuthoritativeSearchRequest(
@@ -186,7 +187,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                     top_k=top_k,
                     dense_vector=dense_vector,
                     sparse_vector=sparse_vector,
-                    filters=await self._permissions.scope_filter(selected.filters, context),
+                    filters=scope.filters,
                     dense_weight=self._policy.dense_weight,
                 ),
                 context=context,
@@ -244,11 +245,16 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         duration_ms = (perf_counter() - started) * 1_000
         diagnostics = search.diagnostics
         stale_count = diagnostics.stale_count + final_validation.stale_count
-        unpublished_count = diagnostics.unpublished_count + final_validation.unpublished_count
-        malformed_count = (
-            diagnostics.malformed_count + final_validation.malformed_count + load_failures
-        )
         self._telemetry.record_stale_candidate_rejections(stale_count)
+        # Caller-facing counts cover only candidates the reader may read. Over the
+        # enumeration budget the search also saw unreadable documents, so its
+        # rejection counts stay in telemetry and logs; readable rejections from
+        # that stage are under-reported by design.
+        search_rejections = (
+            (diagnostics.stale_count, diagnostics.unpublished_count, diagnostics.malformed_count)
+            if scope.readable_only
+            else (0, 0, 0)
+        )
         logger.info(
             "Completed authoritative retrieval",
             extra={
@@ -267,10 +273,12 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             results=tuple(results),
             evidence=build_evidence_bundle(tuple(results), topology.evidence, topology_diagnostics),
             diagnostics=RetrievalDiagnostics(
-                candidate_hits=len(search.candidates),
-                stale_candidates=stale_count,
-                unpublished_candidates=unpublished_count,
-                malformed_candidates=malformed_count,
+                candidate_hits=len(permitted_candidates),
+                stale_candidates=search_rejections[0] + final_validation.stale_count,
+                unpublished_candidates=search_rejections[1] + final_validation.unpublished_count,
+                malformed_candidates=(
+                    search_rejections[2] + final_validation.malformed_count + load_failures
+                ),
                 search_window=diagnostics.search_window,
                 graph_nodes=observation.nodes,
                 graph_relations=observation.relations,
