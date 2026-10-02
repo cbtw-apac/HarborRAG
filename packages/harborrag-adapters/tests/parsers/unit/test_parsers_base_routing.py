@@ -8,18 +8,16 @@ import pytest
 
 from harborrag_adapters.parsers.common.base import BaseParser
 from harborrag_adapters.parsers.common.mime import normalize_suffix
-from harborrag_adapters.parsers.compat import (
-    CsvParser,
-    DocxParser,
-    EpubParser,
-    ExcelParser,
-    HtmlParser,
-    ImageParser,
-    JsonParser,
-    MarkdownParser,
-    PptxParser,
-    TextParser,
-)
+from harborrag_adapters.parsers.document.engines.docx.engine import DocxParser
+from harborrag_adapters.parsers.document.engines.epub.engine import EpubParser
+from harborrag_adapters.parsers.image.engines.ocr.engine import ImageParser
+from harborrag_adapters.parsers.markup.engines.html.engine import HtmlParser
+from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownParser
+from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import PptxParser
+from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvParser
+from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
+from harborrag_adapters.parsers.structured.engines.json.engine import JsonParser
+from harborrag_adapters.parsers.text.engines.plain_text.engine import TextParser
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

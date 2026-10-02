@@ -8,13 +8,11 @@ from typing import ClassVar
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory
-from harborrag_adapters.parsers.compat import (
-    PARSER_LOGGER_NAME,
-    PdfBackend,
-    PdfParser,
-    PdfParseResult,
-    PdfParserProfile,
-)
+from harborrag_adapters.parsers.common.utils import PARSER_LOGGER_NAME
+from harborrag_adapters.parsers.pdf.base import PdfBackend
+from harborrag_adapters.parsers.pdf.config import PdfParserProfile
+from harborrag_adapters.parsers.pdf.models import PdfParseResult
+from harborrag_adapters.parsers.pdf.parser import PdfParser
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 

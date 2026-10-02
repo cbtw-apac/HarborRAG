@@ -62,8 +62,6 @@ result = await parser.parse(
 engine names, warnings, metadata, and an ordered provider-attempt history.
 Current ingestion callers can continue using the synchronous
 `registry.parse(ParseInput(...))` compatibility boundary while they migrate.
-Older concrete class names are available explicitly from
-`harborrag_adapters.parsers.compat`; they are not part of the root public API.
 
 ## Routing
 

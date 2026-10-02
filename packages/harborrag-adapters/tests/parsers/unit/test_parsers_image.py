@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from harborrag_adapters.parsers.compat import ImageParser
 from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.image.engines.ocr.engine import ImageParser
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

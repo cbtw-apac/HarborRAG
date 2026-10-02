@@ -15,20 +15,18 @@ from harbor_test_builders import build_zip_bomb_bytes
 
 from harborrag_adapters.parsers import HarborParserFactory
 from harborrag_adapters.parsers.common.validation import open_guarded_zip
-from harborrag_adapters.parsers.compat import (
-    DocxParser,
-    EpubParser,
-    ExcelParser,
-    ImageParser,
-    JsonParser,
-    OdtParser,
-    PptxParser,
-)
+from harborrag_adapters.parsers.document.engines.docx.engine import DocxParser
+from harborrag_adapters.parsers.document.engines.epub.engine import EpubParser
+from harborrag_adapters.parsers.document.engines.odt.engine import OdtParser
 from harborrag_adapters.parsers.errors import (
     ParseError,
     PasswordProtectedError,
     UnsupportedFormatError,
 )
+from harborrag_adapters.parsers.image.engines.ocr.engine import ImageParser
+from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import PptxParser
+from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
+from harborrag_adapters.parsers.structured.engines.json.engine import JsonParser
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]

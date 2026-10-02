@@ -12,14 +12,12 @@ from harbor_test_builders import (
     build_xlsx_bytes,
 )
 
-from harborrag_adapters.parsers.compat import (
-    DocxParser,
-    EpubParser,
-    ExcelParser,
-    OdtParser,
-    PptxParser,
-)
+from harborrag_adapters.parsers.document.engines.docx.engine import DocxParser
+from harborrag_adapters.parsers.document.engines.epub.engine import EpubParser
+from harborrag_adapters.parsers.document.engines.odt.engine import OdtParser
 from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import PptxParser
+from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]

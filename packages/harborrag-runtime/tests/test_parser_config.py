@@ -6,17 +6,15 @@ from textwrap import dedent
 
 import pytest
 
-from harborrag_adapters.parsers.compat import (
-    DoclingBackend,
-    LiteParseBackend,
-    MinerUBackend,
-    PdfParser,
-    PdfParserProfile,
-    PyMuPdfBackend,
-)
 from harborrag_adapters.parsers.document.engines.odt.engine import OdtDocumentEngine
 from harborrag_adapters.parsers.document.parser import HarborDocumentParser
 from harborrag_adapters.parsers.image.parser import HarborImageParser
+from harborrag_adapters.parsers.pdf.config import PdfParserProfile
+from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingBackend
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParseBackend
+from harborrag_adapters.parsers.pdf.engines.mineru.engine import MinerUBackend
+from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
+from harborrag_adapters.parsers.pdf.parser import PdfParser
 from harborrag_runtime.config import (
     ParserConfigurationError,
     load_parser_catalog,

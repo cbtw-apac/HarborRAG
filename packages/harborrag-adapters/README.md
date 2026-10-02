@@ -218,9 +218,8 @@ registered families and their extensions:
 | `image` | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tif`, `.tiff`, `.webp` - via OCR |
 | `pdf` | `.pdf`, with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR engines |
 
-List them at runtime with `registry.families()`. The `PptxParser`/`DocxParser`/
-`PdfParser`-style names are migration aliases in `parsers/compat.py`, kept out of the
-package `__all__`; write new code against the registry and family names above.
+List them at runtime with `registry.families()`. Write new code against the registry
+and family names above.
 
 ## Repositories
 

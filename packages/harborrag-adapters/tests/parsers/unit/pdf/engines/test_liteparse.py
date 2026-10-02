@@ -7,7 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from harborrag_adapters.parsers.compat import LiteParseBackend, LiteParseBackendOptions
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (
+    LiteParseBackend,
+    LiteParseBackendOptions,
+)
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit

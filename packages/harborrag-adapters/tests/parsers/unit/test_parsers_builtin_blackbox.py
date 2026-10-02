@@ -5,13 +5,11 @@ from __future__ import annotations
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory
-from harborrag_adapters.parsers.compat import (
-    CsvParser,
-    HtmlParser,
-    JsonParser,
-    MarkdownParser,
-    TextParser,
-)
+from harborrag_adapters.parsers.markup.engines.html.engine import HtmlParser
+from harborrag_adapters.parsers.markup.engines.markdown.engine import MarkdownParser
+from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvParser
+from harborrag_adapters.parsers.structured.engines.json.engine import JsonParser
+from harborrag_adapters.parsers.text.engines.plain_text.engine import TextParser
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit

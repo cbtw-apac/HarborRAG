@@ -8,17 +8,16 @@ from typing import Any, ClassVar
 import pytest
 
 from harborrag_adapters.parsers import HarborParserFactory, HarborParserRegistry
+from harborrag_adapters.parsers.common.base import BaseParser
 from harborrag_adapters.parsers.common.family import HarborSingleEngineFamilyParser
 from harborrag_adapters.parsers.common.resources import read_parse_input_text
-from harborrag_adapters.parsers.compat import (
+from harborrag_adapters.parsers.common.utils import (
     PARSER_LOGGER_NAME,
-    BaseParser,
-    HtmlParser,
-    UnsupportedFormatError,
     get_parser_logger,
     parser_log_extra,
 )
-from harborrag_adapters.parsers.errors import UnsupportedParserError
+from harborrag_adapters.parsers.errors import UnsupportedFormatError, UnsupportedParserError
+from harborrag_adapters.parsers.markup.engines.html.engine import HtmlParser
 from harborrag_adapters.parsers.markup.parser import HarborMarkupParser
 from harborrag_adapters.parsers.pdf.normalization import content_from_any
 from harborrag_core.domain.element import DocumentElement

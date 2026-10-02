@@ -7,7 +7,10 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.parsers.compat import PaddleOcrBackend, PaddleOcrBackendOptions
+from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import (
+    PaddleOcrBackend,
+    PaddleOcrBackendOptions,
+)
 
 pytestmark = pytest.mark.unit
 

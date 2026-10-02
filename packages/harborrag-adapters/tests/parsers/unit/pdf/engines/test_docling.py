@@ -11,7 +11,10 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.parsers.compat import DoclingBackend, DoclingBackendOptions
+from harborrag_adapters.parsers.pdf.engines.docling.engine import (
+    DoclingBackend,
+    DoclingBackendOptions,
+)
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = pytest.mark.unit

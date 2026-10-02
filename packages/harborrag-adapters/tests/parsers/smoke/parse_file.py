@@ -15,15 +15,13 @@ for source_path in (
         sys.path.insert(0, source)
 
 from harborrag_adapters.parsers import HarborParserFactory  # noqa: E402
-from harborrag_adapters.parsers.compat import (  # noqa: E402
-    DoclingBackend,
-    LiteParseBackend,
-    MinerUBackend,
-    PaddleOcrBackend,
-    PdfParser,
-    PdfParserProfile,
-    PyMuPdfBackend,
-)
+from harborrag_adapters.parsers.pdf.config import PdfParserProfile  # noqa: E402
+from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingBackend  # noqa: E402
+from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParseBackend  # noqa: E402
+from harborrag_adapters.parsers.pdf.engines.mineru.engine import MinerUBackend  # noqa: E402
+from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import PaddleOcrBackend  # noqa: E402
+from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend  # noqa: E402
+from harborrag_adapters.parsers.pdf.parser import PdfParser  # noqa: E402
 from harborrag_core.domain.parser import ParseInput  # noqa: E402
 
 PDF_BACKENDS = {

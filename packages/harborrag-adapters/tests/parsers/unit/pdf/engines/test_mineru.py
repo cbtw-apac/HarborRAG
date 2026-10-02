@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.parsers.compat import MinerUBackend, MinerUBackendOptions
+from harborrag_adapters.parsers.pdf.engines.mineru.engine import (
+    MinerUBackend,
+    MinerUBackendOptions,
+)
 
 pytestmark = pytest.mark.unit
 
