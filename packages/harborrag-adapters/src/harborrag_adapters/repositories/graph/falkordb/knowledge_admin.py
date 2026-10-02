@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.knowledge_support import read_rows
-from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION, GraphSchemaMigrationVerification
+from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION
 from harborrag_core.storage import StorageOperationContext
 
 _COUNT_STATEMENTS = (
@@ -121,124 +121,6 @@ async def delete_source_scope(
         """,
         parameters,
     )
-
-
-async def verify_schema_v2_migration(
-    database: FalkorDBClient,
-    *,
-    evidence_chunk_ids: tuple[str, ...],
-    active_source_item_node_keys: tuple[str, ...],
-    context: StorageOperationContext,
-) -> GraphSchemaMigrationVerification:
-    """Verify v2 completeness and metadata safety before legacy deletion."""
-
-    parameters = {
-        "tenant_id": str(context.tenant_id),
-        "graph_schema_version": GRAPH_SCHEMA_VERSION,
-        "chunk_ids": list(dict.fromkeys(evidence_chunk_ids)),
-        "source_item_node_keys": list(dict.fromkeys(active_source_item_node_keys)),
-        "forbidden_fields": [
-            "body",
-            "content",
-            "content_preview",
-            "credentials",
-            "password",
-            "payload",
-            "preview",
-            "raw",
-            "secret",
-        ],
-    }
-    chunks = await read_rows(
-        database,
-        """
-        UNWIND $chunk_ids AS chunk_id
-        OPTIONAL MATCH (chunk:KnowledgeNode {node_key: chunk_id})
-        WHERE chunk.tenant_id = $tenant_id
-          AND chunk.graph_schema_version = $graph_schema_version
-          AND chunk.entity_type = 'chunk'
-        WITH chunk_id, count(chunk) AS matches
-        WHERE matches <> 1
-        RETURN chunk_id
-        """,
-        parameters,
-    )
-    source_items = await read_rows(
-        database,
-        """
-        UNWIND $source_item_node_keys AS node_key
-        OPTIONAL MATCH path=(item:KnowledgeNode {node_key: node_key})
-                            <-[:CONTAINS|PARENT_OF|HAS_ATTACHMENT*0..32]-
-                            (:DataSource)<-[:HAS_DATA_SOURCE]-(tenant:Tenant)
-        WHERE item.tenant_id = $tenant_id
-          AND item.graph_schema_version = $graph_schema_version
-          AND tenant.tenant_id = $tenant_id
-          AND tenant.graph_schema_version = $graph_schema_version
-        WITH node_key, count(DISTINCT tenant) AS tenant_count
-        WHERE tenant_count <> 1
-        RETURN node_key
-        """,
-        parameters,
-    )
-    unsafe = await read_rows(
-        database,
-        """
-        MATCH (node:KnowledgeNode)
-        WHERE node.tenant_id = $tenant_id
-          AND node.graph_schema_version = $graph_schema_version
-          AND (
-              any(field IN keys(node) WHERE toLower(field) IN $forbidden_fields)
-              OR any(field IN $forbidden_fields
-                     WHERE toLower(toString(coalesce(node.attributes, ''))) CONTAINS
-                           ('\"' + field + '\"'))
-          )
-        RETURN count(node) AS item_count
-        UNION ALL
-        MATCH ()-[relation]->()
-        WHERE relation.tenant_id = $tenant_id
-          AND relation.graph_schema_version = $graph_schema_version
-          AND (
-              any(field IN keys(relation) WHERE toLower(field) IN $forbidden_fields)
-              OR any(field IN $forbidden_fields
-                     WHERE toLower(toString(coalesce(relation.attributes, ''))) CONTAINS
-                           ('\"' + field + '\"'))
-          )
-        RETURN count(relation) AS item_count
-        """,
-        parameters,
-    )
-    content_field_records = sum(int(row["item_count"]) for row in unsafe)
-    missing = tuple(sorted(str(row["chunk_id"]) for row in chunks))
-    invalid = tuple(sorted(str(row["node_key"]) for row in source_items))
-    return GraphSchemaMigrationVerification(
-        valid=not (missing or invalid or content_field_records),
-        missing_chunk_ids=missing,
-        invalid_source_item_ids=invalid,
-        content_field_records=content_field_records,
-    )
-
-
-async def delete_legacy_tenant_projection(
-    database: FalkorDBClient,
-    *,
-    context: StorageOperationContext,
-) -> None:
-    """Remove only pre-v2 records after the caller has passed migration verification."""
-
-    parameters = {
-        "tenant_id": str(context.tenant_id),
-        "graph_schema_version": GRAPH_SCHEMA_VERSION,
-    }
-    for pattern, alias, deletion in (
-        ("()-[relation]->()", "relation", "DELETE relation"),
-        ("(node:KnowledgeNode)", "node", "DETACH DELETE node"),
-    ):
-        await database.write(
-            f"MATCH {pattern} WHERE {alias}.tenant_id = $tenant_id "
-            f"AND coalesce({alias}.graph_schema_version, '1.0') <> $graph_schema_version "
-            f"{deletion}",
-            parameters,
-        )
 
 
 async def delete_tenant_projection(

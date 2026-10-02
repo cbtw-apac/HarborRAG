@@ -9,7 +9,6 @@ from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphNodeRecord,
     GraphProjectionVerification,
-    GraphSchemaMigrationVerification,
     KnowledgeGraphTraversal,
 )
 from harborrag_core.retrieval import GraphAccessScope
@@ -119,17 +118,6 @@ class KnowledgeGraphRepositoryPort(Protocol):
         """Verify new native link supports, then retract this version's obsolete links."""
         ...
 
-    async def retire_legacy_source_relations(
-        self,
-        source_scope_id: str,
-        nodes: Sequence[GraphNodeRecord],
-        relations: Sequence[GraphEdgeRecord],
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        """Verify rebuilt scope manifests before deleting unsupported legacy assertions."""
-        ...
-
     async def delete_version(
         self,
         document_version_id: str,
@@ -147,20 +135,6 @@ class KnowledgeGraphRepositoryPort(Protocol):
     async def delete_source_scope(
         self,
         source_scope_id: str,
-        *,
-        context: StorageOperationContext,
-    ) -> None: ...
-
-    async def verify_schema_v2_migration(
-        self,
-        *,
-        evidence_chunk_ids: Sequence[str],
-        active_source_item_node_keys: Sequence[str],
-        context: StorageOperationContext,
-    ) -> GraphSchemaMigrationVerification: ...
-
-    async def delete_legacy_tenant_projection(
-        self,
         *,
         context: StorageOperationContext,
     ) -> None: ...

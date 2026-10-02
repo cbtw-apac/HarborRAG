@@ -170,29 +170,6 @@ async def test_source_item_cleanup_removes_owned_supports_between_shared_endpoin
     assert parameters["node_key"] == "source-item-1"
 
 
-@pytest.mark.asyncio
-async def test_schema_v2_migration_gate_and_legacy_cleanup_are_isolated() -> None:
-    client = FakeFalkorDBClient()
-    client.read_results = [
-        FakeQueryResult([HeaderItem("chunk_id")], []),
-        FakeQueryResult([HeaderItem("node_key")], []),
-        FakeQueryResult([HeaderItem("item_count")], [[0], [0]]),
-    ]
-    graph = repository(client)
-    context = StorageOperationContext.system("tenant-1")
-
-    verification = await graph.verify_schema_v2_migration(
-        evidence_chunk_ids=("chunk-1",),
-        active_source_item_node_keys=("source-item-1",),
-        context=context,
-    )
-    await graph.delete_legacy_tenant_projection(context=context)
-
-    assert verification.valid is True
-    assert len(client.write_calls) == 2
-    assert all("<> $graph_schema_version" in statement for statement, _ in client.write_calls)
-
-
 @pytest.mark.parametrize(
     ("message", "swallowed"),
     [

@@ -14,9 +14,7 @@ from dataclasses import dataclass, field
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphNodeRecord,
-    GraphOwnershipScope,
     GraphProjectionVerification,
-    GraphSchemaMigrationVerification,
     KnowledgeGraphTraversal,
 )
 from harborrag_core.ports.indexing import KnowledgeGraphRepositoryPort
@@ -173,27 +171,6 @@ class FakeKnowledgeGraphRepository:
         )
         await self.delete_relations(obsolete, context=context)
 
-    async def retire_legacy_source_relations(
-        self,
-        source_scope_id: str,
-        nodes: Sequence[GraphNodeRecord],
-        relations: Sequence[GraphEdgeRecord],
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        verification = await self.verify_projection(nodes, relations, context=context)
-        if not verification.valid:
-            raise ValueError("rebuilt source manifests failed verification")
-        obsolete = tuple(
-            relation
-            for relation in self.relations.values()
-            if relation.owner_id == context.tenant_id
-            and relation.source_scope_id == source_scope_id
-            and relation.ownership_scope == GraphOwnershipScope.SOURCE_SCOPE
-            and relation.relation_type.value != "has_data_source"
-        )
-        await self.delete_relations(obsolete, context=context)
-
     async def delete_source_item(
         self,
         source_item_node_key: str,
@@ -224,33 +201,6 @@ class FakeKnowledgeGraphRepository:
         }
         self.nodes = {key: node for key, node in self.nodes.items() if key not in removed}
         self._drop_relations_touching(removed)
-
-    async def verify_schema_v2_migration(
-        self,
-        *,
-        evidence_chunk_ids: Sequence[str],
-        active_source_item_node_keys: Sequence[str],
-        context: StorageOperationContext,
-    ) -> GraphSchemaMigrationVerification:
-        del context
-        missing = tuple(
-            sorted(chunk_id for chunk_id in evidence_chunk_ids if chunk_id not in self.nodes)
-        )
-        invalid = tuple(
-            sorted(key for key in active_source_item_node_keys if key not in self.nodes)
-        )
-        return GraphSchemaMigrationVerification(
-            valid=not (missing or invalid),
-            missing_chunk_ids=missing,
-            invalid_source_item_ids=invalid,
-        )
-
-    async def delete_legacy_tenant_projection(
-        self,
-        *,
-        context: StorageOperationContext,
-    ) -> None:
-        del context
 
     async def tenant_projection_counts(
         self,

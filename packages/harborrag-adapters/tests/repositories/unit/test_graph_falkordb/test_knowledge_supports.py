@@ -118,36 +118,6 @@ async def test_replacement_rejects_foreign_version_before_any_write() -> None:
     assert not client.write_calls
 
 
-@pytest.mark.asyncio
-async def test_legacy_retirement_requires_verified_new_scope_manifests() -> None:
-    client = FakeFalkorDBClient()
-    verified_rows(client)
-
-    await repository(client).retire_legacy_source_relations(
-        "scope-1", nodes(), (relation(),), context=CONTEXT
-    )
-
-    assert len(client.write_calls) == 1
-    statement, parameters = client.write_calls[0]
-    assert "relation.ownership_scope = 'SOURCE_SCOPE'" in statement
-    assert "relation.relation_type <> 'has_data_source'" in statement
-    assert parameters["source_scope_id"] == "scope-1"
-    assert parameters["tenant_id"] == "tenant-1"
-
-
-@pytest.mark.asyncio
-async def test_legacy_retirement_does_not_delete_when_manifests_are_missing() -> None:
-    client = FakeFalkorDBClient()
-    client.read_results = [FakeQueryResult([], []), FakeQueryResult([], [])]
-
-    with pytest.raises(ValueError, match="failed verification"):
-        await repository(client).retire_legacy_source_relations(
-            "scope-1", nodes(), (relation(),), context=CONTEXT
-        )
-
-    assert not client.write_calls
-
-
 def test_source_observation_selector_columns_are_not_public_contract_fields() -> None:
     edge = relation()
     mapped = KnowledgeGraphMapper.relation(

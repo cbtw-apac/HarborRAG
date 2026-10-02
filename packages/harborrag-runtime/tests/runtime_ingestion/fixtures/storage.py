@@ -134,19 +134,3 @@ class InMemoryKnowledgeGraph:
             and relation.relation_id not in retained
         )
         await self.delete_relations(obsolete, context=context)
-
-    async def retire_legacy_source_relations(
-        self, source_scope_id, nodes, relations, *, context
-    ) -> None:
-        verification = await self.verify_projection(nodes, relations, context=context)
-        if not verification.valid:
-            raise ValueError("rebuilt source manifests failed verification")
-        obsolete = tuple(
-            relation
-            for relation in self.relations.values()
-            if relation.owner_id == context.tenant_id
-            and relation.source_scope_id == source_scope_id
-            and relation.ownership_scope.value == "SOURCE_SCOPE"
-            and relation.relation_type.value != "has_data_source"
-        )
-        await self.delete_relations(obsolete, context=context)
