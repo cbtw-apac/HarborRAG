@@ -5,11 +5,6 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
-from harborrag_adapters.repositories.database.sqlite.plugin import SQLiteDatabasePlugin
-from harborrag_adapters.repositories.database.sqlite.repository import (
-    SQLiteDatabaseBackend,
-)
 from harborrag_adapters.repositories.graph.falkordb import (
     client as falkordb_client_module,
 )
@@ -56,12 +51,6 @@ class _Sentinel:
 
     def __init__(self, **attrs: Any) -> None:
         self.__dict__.update(attrs)
-
-
-def test_sqlite_database_plugin_builds_unconnected_backend() -> None:
-    plugin = SQLiteDatabasePlugin()
-    backend = plugin.create(SQLiteDatabaseConfig(), RepositoryDependencies())
-    assert isinstance(backend, SQLiteDatabaseBackend)
 
 
 def test_memory_object_store_plugin_builds_unconnected_backend() -> None:

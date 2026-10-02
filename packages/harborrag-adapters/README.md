@@ -232,13 +232,12 @@ tenant boundary; callers must not encode tenant IDs into user keys themselves.
 | Vector | Qdrant | Collections, point CRUD, scan, dense and hybrid search. |
 | Graph | FalkorDB | Node/edge CRUD and bounded subgraph expansion. |
 | Object store | Memory, filesystem, S3 | Streaming bodies, metadata, list/delete, presigned reads. |
-| Database | SQLite, PostgreSQL | Document/chunk unit of work and transactional outbox. |
 
 Use the family clients (`HarborVectorDBClient`, `HarborGraphDBClient`,
-`HarborObjectStoreDBClient`, and `HarborDatabaseClient`) for provider-name construction, or instantiate a
+and `HarborObjectStoreDBClient`) for provider-name construction, or instantiate a
 provider backend directly when configuration is already typed.
 
-Live, non-pytest smoke checks for FalkorDB, PostgreSQL, Qdrant, and SQLite
+Live, non-pytest smoke checks for FalkorDB and Qdrant
 are documented in `tests/repositories/smoke/README.md`.
 
 ## Reliability Boundaries

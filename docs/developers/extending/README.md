@@ -75,7 +75,6 @@ Add a backend below the matching family:
 repositories/vector/<provider>/
 repositories/graph/<provider>/
 repositories/object_store/<provider>/
-repositories/database/<provider>/
 ```
 
 Implement the family's Harbor contract and plugin/config pattern. Repository requirements include:

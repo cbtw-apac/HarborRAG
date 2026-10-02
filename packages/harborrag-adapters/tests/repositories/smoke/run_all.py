@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import falkordb_graph
-import postgresql
 import qdrant
-import sqlite
 
 TARGETS = {
-    "sqlite": sqlite.main,
-    "postgresql": postgresql.main,
     "qdrant": qdrant.main,
     "falkordb": falkordb_graph.main,
 }

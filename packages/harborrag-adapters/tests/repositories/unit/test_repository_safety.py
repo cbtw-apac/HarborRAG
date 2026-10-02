@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 import pytest
 
-from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.errors import (
     HarborStorageAuthorizationError,
     HarborStorageConfigurationError,
@@ -106,10 +105,6 @@ async def test_falkordb_advanced_query_is_never_executed() -> None:
             {},
             context=context,
         )
-
-
-def test_sqlite_schema_creation_is_opt_in() -> None:
-    assert SQLiteDatabaseConfig().create_schema is False
 
 
 def test_falkordb_structured_properties_round_trip_through_json_marker() -> None:

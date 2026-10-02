@@ -2,11 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.repositories.database.client import HarborDatabaseClient
-from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
-from harborrag_adapters.repositories.database.sqlite.repository import (
-    SQLiteDatabaseBackend,
-)
 from harborrag_adapters.repositories.graph.client import HarborGraphDBClient
 from harborrag_adapters.repositories.graph.falkordb import (
     client as falkordb_client_module,
@@ -38,7 +33,6 @@ from .fakes import FakeAsyncQdrantClient, FalkorDBWithoutDirectClose
 
 
 def test_default_clients_register_only_supported_backends() -> None:
-    assert HarborDatabaseClient.default().backends() == ("postgresql", "sqlite")
     assert HarborGraphDBClient.default().backends() == ("falkordb",)
     assert HarborVectorDBClient.default().backends() == ("qdrant",)
 
@@ -69,17 +63,6 @@ async def test_falkordb_client_closes_sdk_connection(
     await client.close()
 
     assert connection.closed is True
-
-
-def test_database_client_capabilities_create_and_create_from_config() -> None:
-    client = HarborDatabaseClient.default()
-    assert client.capabilities("sqlite") is None
-
-    created = client.create(backend="sqlite", options={"database": ":memory:"})
-    assert isinstance(created, SQLiteDatabaseBackend)
-
-    from_config = client.create_from_config(SQLiteDatabaseConfig(database=":memory:"))
-    assert isinstance(from_config, SQLiteDatabaseBackend)
 
 
 def test_graph_client_capabilities_create_and_create_from_config(
