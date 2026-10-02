@@ -5,14 +5,6 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.repositories.graph.falkordb import (
-    client as falkordb_client_module,
-)
-from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
-from harborrag_adapters.repositories.graph.falkordb.plugin import FalkorDBGraphPlugin
-from harborrag_adapters.repositories.graph.falkordb.repository import (
-    FalkorDBGraphRepository,
-)
 from harborrag_adapters.repositories.object_store.filesystem.config import (
     FilesystemObjectStoreConfig,
 )
@@ -68,15 +60,6 @@ def test_filesystem_object_store_plugin_builds_unconnected_backend(
         RepositoryDependencies(),
     )
     assert isinstance(store, FilesystemObjectStore)
-
-
-def test_falkordb_graph_plugin_builds_unconnected_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(falkordb_client_module, "FalkorDB", _Sentinel)
-    plugin = FalkorDBGraphPlugin()
-    repository = plugin.create(FalkorDBGraphConfig(), RepositoryDependencies())
-    assert isinstance(repository, FalkorDBGraphRepository)
 
 
 def test_qdrant_vector_plugin_builds_unconnected_repository(

@@ -1,20 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 import pytest
 
 from harborrag_adapters.repositories.errors import (
     HarborStorageAuthorizationError,
     HarborStorageConfigurationError,
-    HarborUnsafeQueryError,
     StorageErrorContext,
 )
-from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
-from harborrag_adapters.repositories.graph.falkordb.repository import (
-    FalkorDBGraphRepository,
-)
 from harborrag_adapters.repositories.plugin import (
     RepositoryConfig,
     RepositoryDependencies,
@@ -41,11 +36,6 @@ class BrokenPlugin(RepositoryPlugin[ExampleConfig, object]):
     def create(self, config: ExampleConfig, dependencies: RepositoryDependencies) -> object:
         del config, dependencies
         raise ImportError(self._message)
-
-
-class FakeFalkorClient:
-    async def read(self, statement: str, parameters: dict[str, Any]) -> Any:
-        raise AssertionError(f"unsafe query was executed: {statement!r}, {parameters!r}")
 
 
 def test_provider_map_does_not_mask_internal_import_errors() -> None:
@@ -87,23 +77,6 @@ def test_tenant_mismatch_uses_storage_authorization_error() -> None:
                 operation="write",
                 tenant_id=str(context.tenant_id),
             ),
-        )
-
-
-@pytest.mark.asyncio
-async def test_falkordb_advanced_query_is_never_executed() -> None:
-    repository = FalkorDBGraphRepository(
-        FalkorDBGraphConfig(),
-        client=FakeFalkorClient(),  # type: ignore[arg-type]
-    )
-    context = StorageOperationContext.system(tenant_id="tenant-a")
-
-    assert repository.capabilities.advanced_native_query is False
-    with pytest.raises(HarborUnsafeQueryError):
-        await repository.advanced_query(
-            "MATCH (n) WHERE n.tenant_id = $harbor_tenant_id OR true RETURN n",
-            {},
-            context=context,
         )
 
 

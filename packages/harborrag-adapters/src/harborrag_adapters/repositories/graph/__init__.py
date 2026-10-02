@@ -1,4 +1,3 @@
-from harborrag_adapters.repositories.graph.base import HarborGraphRepository
-from harborrag_adapters.repositories.graph.client import HarborGraphDBClient
+"""Graph repositories: FalkorDB knowledge, topology and traversal adapters."""
 
-__all__ = ["HarborGraphDBClient", "HarborGraphRepository"]
+__all__: list[str] = []

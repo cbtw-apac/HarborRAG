@@ -3,15 +3,9 @@ from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphC
 from harborrag_adapters.repositories.graph.falkordb.knowledge import (
     FalkorKnowledgeGraphRepository,
 )
-from harborrag_adapters.repositories.graph.falkordb.plugin import FalkorDBGraphPlugin
-from harborrag_adapters.repositories.graph.falkordb.repository import (
-    FalkorDBGraphRepository,
-)
 
 __all__ = [
     "FalkorDBClient",
     "FalkorDBGraphConfig",
-    "FalkorDBGraphPlugin",
-    "FalkorDBGraphRepository",
     "FalkorKnowledgeGraphRepository",
 ]

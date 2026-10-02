@@ -7,9 +7,6 @@ from harborrag_adapters.repositories.object_store.chunk_artifacts import (
     ChunkArtifactReader,
     ChunkArtifactWriter,
 )
-from harborrag_adapters.repositories.object_store.client import (
-    HarborObjectStoreDBClient,
-)
 from harborrag_adapters.repositories.object_store.comment_artifacts import (
     CanonicalCommentArtifactRepository,
     CanonicalCommentSetBuilder,
@@ -44,7 +41,6 @@ __all__ = [
     "CanonicalTableArtifactRepository",
     "FilesystemObjectStore",
     "HarborObjectStore",
-    "HarborObjectStoreDBClient",
     "ImmutableArtifact",
     "ImmutableArtifactReader",
     "ImmutableArtifactWriter",

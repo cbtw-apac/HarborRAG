@@ -44,7 +44,7 @@ def build_config(graph_name: str = "harborrag") -> FalkorDBGraphConfig:
 
 
 def build_client(graph_name: str = "harborrag") -> FalkorDBClient:
-    """Connect like the runtime would (see ``FalkorDBGraphRepository``)."""
+    """Connect like the runtime would (see ``FalkorKnowledgeGraphRepository``)."""
 
     config = build_config(graph_name)
     return FalkorDBClient(

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import falkordb_graph
 import qdrant
 
 TARGETS = {
     "qdrant": qdrant.main,
-    "falkordb": falkordb_graph.main,
 }
 
 
