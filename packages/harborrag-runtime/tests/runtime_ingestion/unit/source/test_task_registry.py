@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_runtime.execution.task_registry import (
+    IngestionTaskRegistry,
+)
 from harborrag_runtime.temporal.schemas import (
     ProcessingProfileInput,
     SourceIngestionInput,
     SourceQuery,
-)
-from harborrag_runtime.temporal.task_registry import (
-    IngestionTaskRegistry,
 )
 
 

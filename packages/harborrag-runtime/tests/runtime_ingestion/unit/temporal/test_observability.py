@@ -22,7 +22,7 @@ from harborrag_runtime.ingestion.observability import (
     IngestionStage,
     IngestionTelemetry,
 )
-from harborrag_runtime.ingestion.stage_observation import StageObservation
+from harborrag_runtime.observability.stage_observation import StageObservation
 from harborrag_runtime.temporal.activity_observability import (
     ActivityObservability,
 )

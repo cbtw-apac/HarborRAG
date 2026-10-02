@@ -227,20 +227,21 @@ Applications can also use the framework-owned client directly:
 ```python
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.execution.gateway import prepare_configured_source_submission
+from harborrag_runtime.ingestion_contracts import SourceSubmission
 from harborrag_runtime.temporal.client import IngestionTemporalClient
-from harborrag_runtime.temporal.submission import (
-    SourceSubmission,
-    build_source_input,
-)
+from harborrag_runtime.temporal.gateway import to_temporal_source
 
 settings = RuntimeSettings()
-source = build_source_input(
-    settings,
-    SourceSubmission(
-        task_id="sync-2026-07-31",
-        tenant_id="tenant-1",
-        connector_name="harborrag-workspace",
-    ),
+source = to_temporal_source(
+    prepare_configured_source_submission(
+        settings,
+        SourceSubmission(
+            task_id="sync-2026-07-31",
+            tenant_id="tenant-1",
+            connector_name="harborrag-workspace",
+        ),
+    )
 )
 client = await IngestionTemporalClient.connect(TemporalRuntimeConfig.from_settings(settings))
 reference = await client.start_ingestion(source)

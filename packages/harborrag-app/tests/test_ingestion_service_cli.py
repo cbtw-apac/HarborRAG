@@ -13,6 +13,7 @@ from harborrag_app.workflow_control.composition.factories import AppServiceFacto
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.ingestion_contracts import SourceSubmission
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import (
     ProcessingProfileInput,
@@ -20,7 +21,6 @@ from harborrag_runtime.temporal.schemas import (
     SourceIngestionResult,
     SourceIngestionStatus,
 )
-from harborrag_runtime.temporal.submission import SourceSubmission
 
 # Every command below goes through the CLI's project gate; give each test its own
 # project instead of inheriting whatever directory pytest was started from.

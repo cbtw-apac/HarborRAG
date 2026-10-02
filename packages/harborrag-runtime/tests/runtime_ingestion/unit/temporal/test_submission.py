@@ -2,21 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.execution.source_submission import (
     SourceSubmissionDefaults,
     prepare_source_submission,
 )
-from harborrag_runtime.temporal.schemas import SourceQuery
-from harborrag_runtime.temporal.submission import (
-    SourceSubmission,
-    build_source_input,
-)
+from harborrag_runtime.ingestion_contracts import SourceSubmission
+from harborrag_runtime.temporal.gateway import to_temporal_source
+from harborrag_runtime.temporal.schemas import SourceIngestionInput, SourceQuery
+
+
+def build_source_input(
+    settings: RuntimeSettings,
+    submission: SourceSubmission,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> SourceIngestionInput:
+    return to_temporal_source(
+        prepare_configured_source_submission(settings, submission, environment=environment)
+    )
 
 
 def _settings(tmp_path: Path) -> RuntimeSettings:

@@ -18,7 +18,7 @@ from harborrag_core.ingestion import (
     TaskDocumentResult,
 )
 from harborrag_core.schemas.ids import DocumentId
-from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
+from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 
 
 class TaskListingService(TaskListingMixin):
