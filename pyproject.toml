@@ -116,8 +116,8 @@ mypy_path = "packages/harborrag-core/src:packages/harborrag-adapters/src:package
 # and index into loosely-typed diagnostics payloads; keep strictness for src only.
 exclude = "packages/[^/]+/tests/"
 
-# Optional, lazily-imported provider integrations (secrets backends, OCR/PDF
-# engines) with no usable stubs. Each import site already fails closed with a
+# Optional, lazily-imported provider integrations (OCR/PDF engines and other
+# optional SDKs) with no usable stubs. Each import site already fails closed with a
 # friendly error when the library isn't installed; ignore_missing_imports just
 # keeps that intentional optionality from failing the type check.
 [[tool.mypy.overrides]]
@@ -129,12 +129,7 @@ module = [
     "docx2txt",
     "odf",
     "odf.*",
-    "boto3",
-    "google.cloud",
-    "google.cloud.*",
     "langchain_text_splitters",
-    "azure.identity",
-    "azure.keyvault.secrets",
     "falkordb.asyncio",
     "docling.*",
     "fastmcp",
