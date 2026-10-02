@@ -5,10 +5,6 @@ from typing import Any
 
 import pytest
 
-from harborrag_adapters.repositories.backends import redis as shared_redis_module
-from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
-from harborrag_adapters.repositories.cache.redis.plugin import RedisCachePlugin
-from harborrag_adapters.repositories.cache.redis.repository import RedisCacheBackend
 from harborrag_adapters.repositories.database.sqlite.config import SQLiteDatabaseConfig
 from harborrag_adapters.repositories.database.sqlite.plugin import SQLiteDatabasePlugin
 from harborrag_adapters.repositories.database.sqlite.repository import (
@@ -45,12 +41,6 @@ from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStore
 from harborrag_adapters.repositories.object_store.s3.plugin import S3ObjectStorePlugin
 from harborrag_adapters.repositories.object_store.s3.repository import S3ObjectStore
 from harborrag_adapters.repositories.plugin import RepositoryDependencies
-from harborrag_adapters.repositories.state.redis.config import RedisStateConfig
-from harborrag_adapters.repositories.state.redis.plugin import RedisStatePlugin
-from harborrag_adapters.repositories.state.redis.repository import RedisStateBackend
-from harborrag_adapters.repositories.state.sqlite.config import SQLiteStateConfig
-from harborrag_adapters.repositories.state.sqlite.plugin import SQLiteStatePlugin
-from harborrag_adapters.repositories.state.sqlite.repository import SQLiteStateBackend
 from harborrag_adapters.repositories.vector.qdrant import client as qdrant_client_module
 from harborrag_adapters.repositories.vector.qdrant import query as qdrant_query_module
 from harborrag_adapters.repositories.vector.qdrant import repository as qdrant_repository_module
@@ -74,12 +64,6 @@ def test_sqlite_database_plugin_builds_unconnected_backend() -> None:
     assert isinstance(backend, SQLiteDatabaseBackend)
 
 
-def test_sqlite_state_plugin_builds_unconnected_backend() -> None:
-    plugin = SQLiteStatePlugin()
-    backend = plugin.create(SQLiteStateConfig(), RepositoryDependencies())
-    assert isinstance(backend, SQLiteStateBackend)
-
-
 def test_memory_object_store_plugin_builds_unconnected_backend() -> None:
     plugin = MemoryObjectStorePlugin()
     store = plugin.create(MemoryObjectStoreConfig(), RepositoryDependencies())
@@ -95,30 +79,6 @@ def test_filesystem_object_store_plugin_builds_unconnected_backend(
         RepositoryDependencies(),
     )
     assert isinstance(store, FilesystemObjectStore)
-
-
-def test_redis_cache_plugin_builds_unconnected_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(shared_redis_module, "redis", _Sentinel())
-    plugin = RedisCachePlugin()
-    backend = plugin.create(
-        RedisCacheConfig(url="redis://localhost:6379/0"),
-        RepositoryDependencies(),
-    )
-    assert isinstance(backend, RedisCacheBackend)
-
-
-def test_redis_state_plugin_builds_unconnected_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(shared_redis_module, "redis", _Sentinel())
-    plugin = RedisStatePlugin()
-    backend = plugin.create(
-        RedisStateConfig(url="redis://localhost:6379/0"),
-        RepositoryDependencies(),
-    )
-    assert isinstance(backend, RedisStateBackend)
 
 
 def test_falkordb_graph_plugin_builds_unconnected_backend(

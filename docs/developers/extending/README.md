@@ -74,10 +74,8 @@ Add a backend below the matching family:
 ```text
 repositories/vector/<provider>/
 repositories/graph/<provider>/
-repositories/cache/<provider>/
 repositories/object_store/<provider>/
 repositories/database/<provider>/
-repositories/state/<provider>/
 ```
 
 Implement the family's Harbor contract and plugin/config pattern. Repository requirements include:

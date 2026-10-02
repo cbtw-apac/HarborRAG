@@ -3,13 +3,11 @@ from __future__ import annotations
 import falkordb_graph
 import postgresql
 import qdrant
-import redis_cache
 import sqlite
 
 TARGETS = {
     "sqlite": sqlite.main,
     "postgresql": postgresql.main,
-    "redis": redis_cache.main,
     "qdrant": qdrant.main,
     "falkordb": falkordb_graph.main,
 }

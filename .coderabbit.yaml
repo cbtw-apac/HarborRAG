@@ -160,12 +160,11 @@ reviews:
     - path: "packages/harborrag-adapters/src/harborrag_adapters/repositories/**"
       instructions: >
         This is the storage adapter layer. Use repositories/ naming, not stores/.
-        Each family folder - vector, graph, cache, object_store, database, and
-        state when added - exposes provider-neutral Harbor* contracts plus real
-        provider packages. Production repository packages do not ship mock
+        Each family folder - vector, graph, object_store, and database - exposes
+        provider-neutral Harbor* contracts plus real provider packages. Production repository packages do not ship mock
         backends; deterministic fakes belong under tests/. Check
         connection lifecycle, transaction boundaries, parameterized SQL, object
-        path traversal prevention, cache TTL semantics, vector namespace support,
+        path traversal prevention, vector namespace support,
         graph relationship normalization, and missing optional dependency errors.
 
     - path: "packages/harborrag-engine/src/harborrag_engine/ingestion/**"

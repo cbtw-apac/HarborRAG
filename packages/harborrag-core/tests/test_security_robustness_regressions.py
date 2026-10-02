@@ -3,10 +3,12 @@ from __future__ import annotations
 import inspect
 from datetime import UTC, datetime, timedelta
 from math import inf, nan
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
+from harborrag_core.base import StrictModel
 from harborrag_core.chunking import RelationType
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.source_config import SourceConfig
@@ -27,7 +29,6 @@ from harborrag_core.ports.memory import (
     MemoryType,
 )
 from harborrag_core.retrieval.graph import GraphPath
-from harborrag_core.schemas.state import WorkflowState
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
 
@@ -127,12 +128,12 @@ def test_model_error_diagnostics_are_sanitized_recursively() -> None:
     assert "camel-secret" not in rendered
 
 
+class _PayloadModel(StrictModel):
+    payload: dict[str, Any]
+
+
 def test_strict_models_recursively_freeze_mutable_containers() -> None:
-    state = WorkflowState(
-        workflow_id="workflow-1",
-        tenant_id="tenant-a",
-        payload={"nested": {"items": [1]}},
-    )
+    state = _PayloadModel(payload={"nested": {"items": [1]}})
     with pytest.raises(TypeError, match="immutable"):
         state.payload["new"] = 2
     with pytest.raises(TypeError, match="immutable"):

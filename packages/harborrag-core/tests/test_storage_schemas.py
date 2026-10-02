@@ -1,15 +1,21 @@
-from datetime import UTC
+from datetime import UTC, datetime
 from math import inf
 
 import pytest
 from chunking_test_fixtures import make_chunk
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
+from harborrag_core.base import StrictModel, utc_now
 from harborrag_core.chunking import ChunkRecord
-from harborrag_core.schemas.cache import CacheEntry
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorIndexRecord, VectorIndexSpec, VectorSearchQuery
 from harborrag_core.security import AccessContext
+
+
+class _TimestampedEntry(StrictModel):
+    key: str
+    value: object
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 def test_chunk_records_use_the_canonical_identity_shape() -> None:
@@ -51,11 +57,11 @@ def test_vector_index_spec_requires_a_dense_name_when_sparse_is_set() -> None:
 
 
 def test_storage_schemas_are_strict_frozen_and_use_utc_timestamps() -> None:
-    entry = CacheEntry(key="key", value="value")
+    entry = _TimestampedEntry(key="key", value="value")
 
     assert entry.created_at.tzinfo is UTC
     with pytest.raises(ValidationError):
-        CacheEntry(key="key", value="value", unknown=True)
+        _TimestampedEntry(key="key", value="value", unknown=True)
     with pytest.raises(ValidationError):
         entry.key = "other"
 

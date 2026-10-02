@@ -106,21 +106,17 @@ def test_implemented_base_methods_raise_not_implemented():
 
 @pytest.mark.whitebox
 def test_repository_contracts_are_abstract():
-    from harborrag_adapters.repositories.cache.base import HarborCacheBackend
     from harborrag_adapters.repositories.database.base import HarborDatabaseBackend
     from harborrag_adapters.repositories.graph.base import HarborGraphRepository
     from harborrag_adapters.repositories.object_store.base import HarborObjectStore
-    from harborrag_adapters.repositories.state.base import HarborStateBackend
     from harborrag_adapters.repositories.vector.base import HarborVectorRepository
 
     assert all(
         inspect.isabstract(contract)
         for contract in (
-            HarborCacheBackend,
             HarborDatabaseBackend,
             HarborGraphRepository,
             HarborObjectStore,
-            HarborStateBackend,
             HarborVectorRepository,
         )
     )
