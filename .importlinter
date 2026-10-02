@@ -174,3 +174,194 @@ forbidden_modules =
     harborrag_runtime.sdk
     harborrag_runtime.execution
     harborrag_runtime.config.temporal
+
+# Ratchet contracts (15, 16). The ignore_imports lists freeze today's known
+# violations: delete an entry when you remove the import it covers. Never add
+# entries. unmatched_ignore_imports_alerting = error makes lint-imports fail
+# when an entry no longer matches any import, so the lists can only shrink.
+
+[importlinter:contract:15]
+name = Runtime application services do not depend on adapters
+type = forbidden
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = error
+source_modules =
+    harborrag_runtime.ingestion
+    harborrag_runtime.retrieval
+    harborrag_runtime.topology
+    harborrag_runtime.chat
+    harborrag_runtime.agent
+    harborrag_runtime.memory
+    harborrag_runtime.execution
+forbidden_modules =
+    harborrag_adapters
+ignore_imports =
+    harborrag_runtime.agent.checkpoint -> harborrag_adapters.repositories.database.control_plane.agent_runs
+    harborrag_runtime.agent.checkpoint -> harborrag_adapters.repositories.database.control_plane.engine
+    harborrag_runtime.agent.checkpoint -> harborrag_adapters.repositories.database.control_plane.migrations
+    harborrag_runtime.chat.composition -> harborrag_adapters.models.chat
+    harborrag_runtime.chat.composition -> harborrag_adapters.models.runtime
+    harborrag_runtime.chat.service -> harborrag_adapters.models.chat
+    harborrag_runtime.chat.tenant_clients -> harborrag_adapters.models.chat
+    harborrag_runtime.chat.tenant_config -> harborrag_adapters.models.chat
+    harborrag_runtime.chat.tenant_config -> harborrag_adapters.models.runtime
+    harborrag_runtime.execution.source_conversion -> harborrag_adapters.connectors.schemas
+    harborrag_runtime.execution.task_registry -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.composition -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.composition -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.composition -> harborrag_adapters.connectors.rate_limiting
+    harborrag_runtime.ingestion.composition -> harborrag_adapters.models.embed
+    harborrag_runtime.ingestion.composition -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.composition -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.ingestion.document.capture -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.document.capture -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.document.lifecycle -> harborrag_adapters.repositories.errors
+    harborrag_runtime.ingestion.document.normalizers.builtins -> harborrag_adapters.connectors
+    harborrag_runtime.ingestion.document.normalizers.builtins -> harborrag_adapters.connectors.document_transform
+    harborrag_runtime.ingestion.document.normalizers.transform -> harborrag_adapters.connectors.document_transform
+    harborrag_runtime.ingestion.document.pipeline -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.document.pipeline -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.document.preparation -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.document.preparation -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.document.service -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.document.service -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.maintenance.cleanup -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.maintenance.relation_repair -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.maintenance.relation_repair -> harborrag_adapters.repositories.errors
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.chunking
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.connectors.rate_limiting
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.connectors.registry
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.models.embed
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.models.runtime
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.parsers
+    harborrag_runtime.ingestion.runtime_builder -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.ingestion.source.descriptor_mapping -> harborrag_adapters.connectors.descriptors
+    harborrag_runtime.ingestion.source.discovery -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.source.discovery -> harborrag_adapters.connectors.descriptors
+    harborrag_runtime.ingestion.source.discovery -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.source.discovery -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.source.documents -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.source.documents -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.source.documents -> harborrag_adapters.connectors.registry
+    harborrag_runtime.ingestion.source.documents -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.source.finalization -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.source.models -> harborrag_adapters.connectors.schemas
+    harborrag_runtime.ingestion.source.operations -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.source.operations -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.source.plan -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.ingestion.source.retry -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.source.retry -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.source.retry -> harborrag_adapters.repositories.database
+    harborrag_runtime.ingestion.source.service -> harborrag_adapters.connectors.base
+    harborrag_runtime.ingestion.source.service -> harborrag_adapters.connectors.harbor_connector
+    harborrag_runtime.ingestion.source.service -> harborrag_adapters.repositories.database
+    harborrag_runtime.memory.composition -> harborrag_adapters.repositories.database.control_plane.conversation
+    harborrag_runtime.memory.composition -> harborrag_adapters.repositories.database.control_plane.engine
+    harborrag_runtime.memory.composition -> harborrag_adapters.repositories.database.control_plane.migrations
+    harborrag_runtime.memory.embedder -> harborrag_adapters.models.embed
+    harborrag_runtime.memory.index -> harborrag_adapters.repositories.vector
+    harborrag_runtime.memory.model -> harborrag_adapters.models.chat
+    harborrag_runtime.memory.model -> harborrag_adapters.models.chat.langchain
+    harborrag_runtime.retrieval.composition -> harborrag_adapters.models.embed
+    harborrag_runtime.retrieval.composition -> harborrag_adapters.models.runtime
+    harborrag_runtime.retrieval.composition -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.retrieval.service -> harborrag_adapters.repositories.errors
+    harborrag_runtime.topology.budgeted_extractor -> harborrag_adapters.topology.extraction_budget
+    harborrag_runtime.topology.budgeted_extractor -> harborrag_adapters.topology.extractor
+    harborrag_runtime.topology.chunk_runner -> harborrag_adapters.topology.artifacts
+    harborrag_runtime.topology.composition -> harborrag_adapters.models.chat
+    harborrag_runtime.topology.composition -> harborrag_adapters.models.runtime
+    harborrag_runtime.topology.composition -> harborrag_adapters.repositories.database
+    harborrag_runtime.topology.composition -> harborrag_adapters.repositories.database.control_plane.migrations
+    harborrag_runtime.topology.composition -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.composition -> harborrag_adapters.topology
+    harborrag_runtime.topology.composition -> harborrag_adapters.topology.artifacts
+    harborrag_runtime.topology.configuration -> harborrag_adapters.models.chat
+    harborrag_runtime.topology.configuration -> harborrag_adapters.topology
+    harborrag_runtime.topology.contextual -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.derived_factory -> harborrag_adapters.models.embed
+    harborrag_runtime.topology.derived_factory -> harborrag_adapters.models.runtime
+    harborrag_runtime.topology.derived_factory -> harborrag_adapters.repositories.database
+    harborrag_runtime.topology.derived_factory -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.derived_models -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.derived_models -> harborrag_adapters.topology.descriptions
+    harborrag_runtime.topology.derived_projection -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.description_factory -> harborrag_adapters.models.chat
+    harborrag_runtime.topology.description_factory -> harborrag_adapters.models.runtime
+    harborrag_runtime.topology.description_factory -> harborrag_adapters.topology
+    harborrag_runtime.topology.description_factory -> harborrag_adapters.topology.descriptions
+    harborrag_runtime.topology.embedding_profile -> harborrag_adapters.models.embed
+    harborrag_runtime.topology.embedding_profile -> harborrag_adapters.models.embed.configs
+    harborrag_runtime.topology.embedding_profile -> harborrag_adapters.topology.descriptions
+    harborrag_runtime.topology.operations -> harborrag_adapters.models.chat
+    harborrag_runtime.topology.operations -> harborrag_adapters.topology
+    harborrag_runtime.topology.parent_materializer -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.service -> harborrag_adapters.topology.artifacts
+    harborrag_runtime.topology.summary_factory -> harborrag_adapters.models.chat
+    harborrag_runtime.topology.summary_factory -> harborrag_adapters.repositories.database
+    harborrag_runtime.topology.summary_factory -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.summary_factory -> harborrag_adapters.topology
+    harborrag_runtime.topology.summary_inputs -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.summary_operations -> harborrag_adapters.repositories.object_store
+    harborrag_runtime.topology.summary_policy -> harborrag_adapters.models.chat
+    harborrag_runtime.topology.summary_policy -> harborrag_adapters.topology
+    harborrag_runtime.topology.summary_policy -> harborrag_adapters.topology.descriptions
+    harborrag_runtime.topology.summary_products -> harborrag_adapters.repositories.database
+    harborrag_runtime.topology.summary_service -> harborrag_adapters.topology.descriptions
+
+[importlinter:contract:16]
+name = Only composition and config deep-import adapters
+type = forbidden
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = error
+source_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.contracts
+    harborrag_runtime.document_stage_catalog
+    harborrag_runtime.errors
+    harborrag_runtime.events
+    harborrag_runtime.execution
+    harborrag_runtime.ingestion
+    harborrag_runtime.ingestion_contracts
+    harborrag_runtime.memory
+    harborrag_runtime.observability
+    harborrag_runtime.plugins
+    harborrag_runtime.rate_limiting
+    harborrag_runtime.reader_contracts
+    harborrag_runtime.retrieval
+    harborrag_runtime.sdk
+    harborrag_runtime.serialization
+    harborrag_runtime.source_query
+    harborrag_runtime.temporal
+    harborrag_runtime.temporal_models
+    harborrag_runtime.tokenization
+    harborrag_runtime.topology
+forbidden_modules =
+    harborrag_adapters.models.chat.configs
+    harborrag_adapters.models.chat.langchain
+    harborrag_adapters.models.embed.configs
+    harborrag_adapters.parsers.common.base
+    harborrag_adapters.parsers.*.engines
+    harborrag_adapters.parsers.*.parser
+    harborrag_adapters.parsers.pdf.base
+    harborrag_adapters.parsers.pdf.config
+    harborrag_adapters.repositories.backends.sqlalchemy
+    harborrag_adapters.repositories.database.control_plane
+    harborrag_adapters.repositories.graph.falkordb
+    harborrag_adapters.repositories.object_store.filesystem
+    harborrag_adapters.repositories.object_store.memory
+    harborrag_adapters.repositories.object_store.s3
+    harborrag_adapters.repositories.vector.qdrant
+ignore_imports =
+    harborrag_runtime.agent.checkpoint -> harborrag_adapters.repositories.database.control_plane.agent_runs
+    harborrag_runtime.agent.checkpoint -> harborrag_adapters.repositories.database.control_plane.engine
+    harborrag_runtime.agent.checkpoint -> harborrag_adapters.repositories.database.control_plane.migrations
+    harborrag_runtime.memory.composition -> harborrag_adapters.repositories.database.control_plane.conversation
+    harborrag_runtime.memory.composition -> harborrag_adapters.repositories.database.control_plane.engine
+    harborrag_runtime.memory.composition -> harborrag_adapters.repositories.database.control_plane.migrations
+    harborrag_runtime.memory.model -> harborrag_adapters.models.chat.langchain
+    harborrag_runtime.topology.composition -> harborrag_adapters.repositories.database.control_plane.migrations
+    harborrag_runtime.topology.embedding_profile -> harborrag_adapters.models.embed.configs

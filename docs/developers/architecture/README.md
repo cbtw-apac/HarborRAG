@@ -64,6 +64,36 @@ may compose several packages and are not treated as production dependencies. Nei
 runtime call graphs, so review still needs to catch indirect boundary leaks, provider
 objects in public schemas, and service layers bypassed through callbacks.
 
+### Ratchet contracts
+
+`.importlinter` contracts 1-14 must hold with no exceptions. Contracts 15 and 16 are
+ratchets. They name a boundary that the tree does not meet yet, and their `ignore_imports`
+lists freeze the violations that existed when they were added:
+
+- **Runtime application services do not depend on adapters**: `harborrag_runtime.ingestion`,
+  `.retrieval`, `.topology`, `.chat`, `.agent`, `.memory`, and `.execution` must not
+  import `harborrag_adapters` directly. Adapters reach them through composition.
+- **Only composition and config deep-import adapters**: every `harborrag_runtime` package
+  and top-level module except `composition` and `config` must not import deep adapter paths:
+  parser engines and parser modules, the control-plane database repositories, the vector,
+  graph, and object-store backends, and the model config and LangChain modules.
+
+Both contracts set `allow_indirect_imports = true`, so they check direct imports only.
+Chains through `composition` or `config` are expected. Both also set
+`unmatched_ignore_imports_alerting = error`, so `lint-imports` fails with
+`No matches for ignored import ...` when an `ignore_imports` entry no longer matches a
+real import. This means the lists can only shrink:
+
+- If you remove a violating import, delete its `ignore_imports` entry in the same change.
+  Otherwise the gate fails.
+- Never add entries. A new direct dependency belongs in `harborrag_runtime.composition`
+  (or `config`) and should be injected through a core port.
+- Do not use wildcards in these `ignore_imports` lists. A wildcard would also allow
+  future violations.
+
+New top-level `harborrag_runtime` packages are not covered by contract 16 automatically.
+Add them to its `source_modules`.
+
 ## Control plane and data plane
 
 The control plane owns identities, configuration, source admission, version state,
