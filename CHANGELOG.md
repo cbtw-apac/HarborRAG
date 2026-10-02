@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object store and the control database, and checks Temporal only with `--temporal`.
 - The `harborrag` command ships with every install of `harborrag`, including the bare one;
   `harborrag[local]` adds the clients the local stack needs.
+- Import-linter contracts 15 and 16 ratchet runtime-to-adapters imports; their exception lists can only shrink.
 
 ### Changed
 
@@ -30,16 +31,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Direct-mode commands (`ingest run`, `retrieve`, `chat`, `doctor`) no longer import the
   Temporal client, so they work on a bare or `[local]` install; durable commands explain
   that `harborrag[temporal]` is required instead of failing with an import error.
+- `KnowledgeGraphRepositoryPort.traverse` requires an `access_scope` argument.
+- `DocumentVersionPort.transition` takes `artifact=(DocumentArtifactSlot, ArtifactReference)` instead of `artifact_column`.
+- Cleanup-job transitions are validated against `CLEANUP_TRANSITIONS`; an invalid transition raises `HarborConflictError`.
+- `BaseConnector.load_raw_documents` no longer closes the connector; callers own `close()` or a `with` block.
+- Embed and rerank response caches are keyed by configuration fingerprint, so each deploy starts with one cold cache.
+- Retrieval falls back to per-candidate permission checks when a reader exceeds the 10k document enumeration budget (`HarborLimitExceededError`).
+- Chat retrieval honours the configured corpus access mode.
+- The `memory_extraction_min_importance` and `memory_dedup_threshold` settings are now applied.
+- LangChain sync calls share one event loop per client.
+- GitHub 403 response bodies are read once.
 
 ### Removed
 
 - The Textual ingestion dashboard and the `textual` dependency of `harborrag-app`.
+- The `memory_pii_redaction` setting, which was never implemented.
+- The cache, state, and working-memory repositories; the generic document/chunk database backend; the generic graph repository and object-store client.
+- The model-runtime secret resolvers, `parsers.compat`, and the runtime and app compatibility shims.
+- The legacy FalkorDB migration methods `verify_schema_v2_migration`, `delete_legacy_tenant_projection`, and `retire_legacy_source_relations`.
 
 ### Security
 
 - Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
   user and not world-writable; `--project` opts in explicitly. The CLI announces the project
   it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
+- Graph traversal applies the reader's ACL, and graph observation fails closed when no authorizer is configured.
 
 ### Fixed
 

@@ -1946,7 +1946,6 @@ dev = [
     { name = "mypy" },
     { name = "ruff" },
     { name = "types-defusedxml" },
-    { name = "types-hvac" },
     { name = "types-openpyxl" },
     { name = "types-pyyaml" },
     { name = "types-xlrd" },
@@ -2176,7 +2175,6 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'control-plane'", specifier = ">=2.0,<3" },
     { name = "types-defusedxml", marker = "extra == 'dev'", specifier = ">=0.7,<1" },
-    { name = "types-hvac", marker = "extra == 'dev'", specifier = ">=2.3,<3" },
     { name = "types-openpyxl", marker = "extra == 'dev'", specifier = ">=3.1,<4" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
     { name = "types-xlrd", marker = "extra == 'dev'", specifier = ">=2.0,<3" },
@@ -6477,18 +6475,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/da/d2/4553c8fa9cdebfe1e84b950cf790a4d2376a97fa016e43f7c65323fa6c7d/types_defusedxml-0.7.0.20260504.tar.gz", hash = "sha256:2ab2828a3f97111ba1c16cee273ad4124a831fc9198c41bf8368ff6ea48ad300", size = 10729, upload-time = "2026-05-04T05:22:50.192Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bf/2d/8a4b5ba1d732b8bc691f0efbb1c6f77cb5f6f473b2afe181d83d910773c5/types_defusedxml-0.7.0.20260504-py3-none-any.whl", hash = "sha256:a959e3a0a43b93e464bd625d91ec9193a2703ddc10443bdd627792485fae0b10", size = 13467, upload-time = "2026-05-04T05:22:49.319Z" },
-]
-
-[[package]]
-name = "types-hvac"
-version = "2.4.0.20260718"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/14/2b908471c2c0d61a2e8d21ec837b7dd02a3e0f9d99fbf840ad8ac724c268/types_hvac-2.4.0.20260718.tar.gz", hash = "sha256:cebadb8a733015e7497756c138c0c9ac1f51fe7b1daa9aaba6d8c4a4f239ea60", size = 24766, upload-time = "2026-07-18T04:36:11.067Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/35/bcec28247fc02f0e1f039d00da915446759e67007b3391cfa77f9a30937f/types_hvac-2.4.0.20260718-py3-none-any.whl", hash = "sha256:05ddb66d9b4bf0ced98f8e5240409f41828605d035781c580bf227ff1d98d728", size = 42645, upload-time = "2026-07-18T04:36:10.037Z" },
 ]
 
 [[package]]

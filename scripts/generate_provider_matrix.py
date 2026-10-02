@@ -26,7 +26,6 @@ FAMILIES = [
     "models/reranker",
     "repositories/vector",
     "repositories/graph",
-    "repositories/cache",
     "repositories/object_store",
     "repositories/database",
 ]

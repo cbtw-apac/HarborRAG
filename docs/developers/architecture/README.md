@@ -91,6 +91,11 @@ real import. This means the lists can only shrink:
 - Do not use wildcards in these `ignore_imports` lists. A wildcard would also allow
   future violations.
 
+The ratchet has limits. Because `allow_indirect_imports = true`, an indirect chain to a
+forbidden module is not caught, and an existing `ignore_imports` pair permits any new
+import between those same two modules. Reviewers must still reject additions to the lists
+and new imports that ride on an existing pair.
+
 New top-level `harborrag_runtime` packages are not covered by contract 16 automatically.
 Add them to its `source_modules`.
 
