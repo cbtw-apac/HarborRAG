@@ -27,7 +27,7 @@ services:
       retries: 20
 
   minio:
-    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
+    image: cgr.dev/chainguard/minio@@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
