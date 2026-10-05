@@ -14,8 +14,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import conv
 
 from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
+from harborrag_core.base import utc_now
 
 from .schemas import Base
+
+# SQLite keeps timestamps as text: CURRENT_TIMESTAMP has second precision while
+# UTCDateTime writes six fractional digits, so a raw comparison lets an equal
+# expires_at pass. Normalize both sides to one format first.
+_SQLITE_TS = "strftime('%Y-%m-%d %H:%M:%f', {})"
+SQLITE_EXPIRY_CHECK = f"{_SQLITE_TS.format('expires_at')} > {_SQLITE_TS.format('created_at')}"
 
 
 class McpApiKeyRow(Base):
@@ -29,7 +36,12 @@ class McpApiKeyRow(Base):
             dialect="postgresql"
         ),
         sa.CheckConstraint("environment IN ('dev','staging','prod')", name=conv("ck_mcp_key_env")),
-        sa.CheckConstraint("expires_at > created_at", name=conv("ck_mcp_key_expiry")),
+        sa.CheckConstraint("expires_at > created_at", name=conv("ck_mcp_key_expiry")).ddl_if(
+            dialect="postgresql"
+        ),
+        sa.CheckConstraint(SQLITE_EXPIRY_CHECK, name=conv("ck_mcp_key_expiry")).ddl_if(
+            dialect="sqlite"
+        ),
         sa.Index("ix_mcp_api_keys_tenant_owner", "tenant_id", "owner"),
     )
 
@@ -40,7 +52,7 @@ class McpApiKeyRow(Base):
     secret_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     environment: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(), nullable=False, server_default=sa.func.now()
+        UTCDateTime(), nullable=False, default=utc_now, server_default=sa.func.now()
     )
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)

@@ -23,6 +23,7 @@ _IX_TENANT_OWNER = "ix_mcp_api_keys_tenant_owner"
 _TZDT = sa.DateTime(timezone=True)
 _NO_DELETE_FN = "mcp_api_keys_no_delete"
 _NO_DELETE_TRIGGER = "trg_mcp_api_keys_no_delete"
+_SQLITE_TS = "strftime('%Y-%m-%d %H:%M:%f', {})"
 
 
 def _is_postgresql() -> bool:
@@ -30,9 +31,15 @@ def _is_postgresql() -> bool:
 
 
 def upgrade() -> None:
+    if _is_postgresql():
+        expiry_check = "expires_at > created_at"
+    else:
+        # SQLite: CURRENT_TIMESTAMP has second precision, UTCDateTime six fractional
+        # digits; raw text comparison would let an equal expires_at pass.
+        expiry_check = f"{_SQLITE_TS.format('expires_at')} > {_SQLITE_TS.format('created_at')}"
     checks = [
         sa.CheckConstraint("environment IN ('dev','staging','prod')", name="ck_mcp_key_env"),
-        sa.CheckConstraint("expires_at > created_at", name="ck_mcp_key_expiry"),
+        sa.CheckConstraint(expiry_check, name="ck_mcp_key_expiry"),
     ]
     if _is_postgresql():
         checks += [

@@ -7,7 +7,14 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
+from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
+from harborrag_adapters.repositories.database.control_plane.engine import (
+    create_control_plane_engine,
+    create_session_factory,
+)
 from harborrag_adapters.repositories.database.control_plane.mcp_api_keys import (
     SqlMcpApiKeyRepository,
 )
@@ -101,3 +108,60 @@ async def test_commit_failure_is_wrapped(sessions: SessionFactory) -> None:
     # Duplicate PK fails at commit, i.e. inside begin().__aexit__.
     with pytest.raises(AuthStoreUnavailable):
         await repo.insert(mcp_key_row(key_id))
+
+
+async def _insert_without_created_at(sessions: SessionFactory, expires_at: datetime) -> str:
+    """Insert leaving created_at to SQLite's CURRENT_TIMESTAMP (second precision).
+
+    Plain SQL, because the column's Python default (utc_now) also fires for Core
+    inserts and would fill created_at before the database default could.
+    """
+    key_id = secrets.token_hex(12)
+    statement = sa.text(
+        "INSERT INTO mcp_api_keys"
+        " (key_id, tenant_id, owner, name, secret_hash, environment, created_by, expires_at)"
+        " VALUES (:key_id, 'tenant-a', 'owner-1', 'ci-key', :secret_hash, 'dev', 'admin',"
+        " :expires_at)"
+    ).bindparams(sa.bindparam("expires_at", type_=UTCDateTime()))
+    async with sessions.begin() as session:
+        await session.execute(
+            statement,
+            {
+                "key_id": key_id,
+                "secret_hash": hashlib.sha256(b"not-a-real-secret").hexdigest(),
+                "expires_at": expires_at,
+            },
+        )
+    return key_id
+
+
+async def test_expiry_check_rejects_expiry_not_after_defaulted_created_at(
+    sessions: SessionFactory,
+) -> None:
+    # Floored to the second, expires_at is <= the defaulted created_at even if
+    # the clock ticks before the insert. A raw text comparison let this pass.
+    with pytest.raises(IntegrityError, match="ck_mcp_key_expiry"):
+        await _insert_without_created_at(sessions, datetime.now(UTC).replace(microsecond=0))
+
+
+async def test_expiry_check_accepts_future_expiry_with_defaulted_created_at(
+    sessions: SessionFactory,
+) -> None:
+    key_id = await _insert_without_created_at(sessions, datetime.now(UTC) + timedelta(days=30))
+
+    assert await SqlMcpApiKeyRepository(sessions).get(key_id) is not None
+
+
+async def test_model_ddl_normalizes_expiry_check_on_sqlite() -> None:
+    # The `sessions` fixture builds the schema from the migration; this builds it
+    # from the ORM model, so both definitions of ck_mcp_key_expiry are covered.
+    engine = create_control_plane_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(McpApiKeyRow.__table__.create)
+        with pytest.raises(IntegrityError, match="ck_mcp_key_expiry"):
+            await _insert_without_created_at(
+                create_session_factory(engine), datetime.now(UTC).replace(microsecond=0)
+            )
+    finally:
+        await engine.dispose()
