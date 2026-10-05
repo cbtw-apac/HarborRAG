@@ -7,6 +7,7 @@ services:
       - "${HARBORRAG_MONITORING_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/harborrag_alerts.yml:/etc/prometheus/harborrag_alerts.yml:ro
       - prometheus_data:/prometheus
     networks:
       - monitoring-network

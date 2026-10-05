@@ -1,0 +1,20 @@
+groups:
+  - name: harborrag-temporal-schedules
+    rules:
+      - alert: HarborRAGScheduledWorkflowFailed
+        expr: increase(harborrag_temporal_scheduled_runs_total{outcome="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: A HarborRAG scheduled workflow failed
+          description: "Schedule {{ $labels.schedule_id }} has a failed run in the last 15 minutes."
+
+      - alert: HarborRAGScheduleUnexpectedlyPaused
+        expr: harborrag_temporal_schedule_paused > harborrag_temporal_schedule_expected_paused
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: A HarborRAG schedule is paused unexpectedly
+          description: "Schedule {{ $labels.schedule_id }} is paused but is not configured to be paused."

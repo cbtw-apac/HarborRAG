@@ -25,6 +25,7 @@ from harborrag_runtime.topology.summary_worker import serve_summaries
 from .connection import connect_temporal_client
 from .ingestion_activities import IngestionActivities
 from .maintenance_activities import MaintenanceActivities
+from .schedules import TemporalScheduleBackend
 from .worker_registry import (
     validate_worker_registrations,
     worker_registrations,
@@ -32,6 +33,7 @@ from .worker_registry import (
 
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
+SCHEDULE_METRICS_INTERVAL_SECONDS = 30.0
 
 
 async def run_workers(
@@ -80,7 +82,14 @@ async def run_workers(
             *(worker.run() for worker in workers),
             *((summary_run,) if summary_run is not None else ()),
         )
-        await _wait_for_shutdown(workers, runs, stop_event=stop_event)
+        schedule_metrics = asyncio.create_task(
+            _schedule_metrics_loop(runtime.telemetry, client, config, stop_event)
+        )
+        try:
+            await _wait_for_shutdown(workers, runs, stop_event=stop_event)
+        finally:
+            schedule_metrics.cancel()
+            await asyncio.gather(schedule_metrics, return_exceptions=True)
     finally:
         await runtime.close()
 
@@ -164,6 +173,42 @@ async def _emit_queue_metrics(
         depth = queue_depths.get(queue_name)
         telemetry.record_temporal_queue_depth(queue_name, depth)
         telemetry.record_temporal_worker_slot_saturation(queue_name, slots=slots, depth=depth)
+
+
+async def _schedule_metrics_loop(
+    telemetry: Any,
+    client: Client,
+    config: TemporalRuntimeConfig,
+    stop_event: asyncio.Event | None,
+) -> None:
+    while True:
+        try:
+            views = await TemporalScheduleBackend(client, config).list_all()
+            telemetry.record_schedule_states(
+                {
+                    view.definition.schedule_id: (
+                        view.definition.paused,
+                        view.desired_paused,
+                        view.num_actions_skipped_overlap,
+                    )
+                    for view in views
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Temporal schedule metrics collection failed")
+        if stop_event is None:
+            await asyncio.sleep(SCHEDULE_METRICS_INTERVAL_SECONDS)
+        else:
+            try:
+                await asyncio.wait_for(
+                    stop_event.wait(),
+                    timeout=SCHEDULE_METRICS_INTERVAL_SECONDS,
+                )
+            except TimeoutError:
+                continue
+            return
 
 
 async def _describe_task_queue_depths(

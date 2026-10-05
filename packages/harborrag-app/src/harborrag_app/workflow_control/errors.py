@@ -58,6 +58,22 @@ class IngestionStatusFilterError(HarborValidationError):
     error_code = "INGESTION_STATUS_INVALID"
 
 
+class ScheduleNotFoundAppError(HarborNotFoundError):
+    error_code = "SCHEDULE_NOT_FOUND"
+
+
+class ScheduleAlreadyExistsError(HarborConflictError):
+    error_code = "SCHEDULE_ALREADY_EXISTS"
+
+
+class ScheduleManagedByConfigError(HarborConflictError):
+    error_code = "SCHEDULE_MANAGED_BY_CONFIG"
+
+
+class ScheduleInvalidError(HarborValidationError):
+    error_code = "SCHEDULE_INVALID"
+
+
 # Error types whose messages are authored inside HarborRAG at the Temporal
 # boundary and only ever interpolate caller-supplied identifiers (run IDs,
 # connector names, queue names) -- never provider responses, credentials, or

@@ -39,6 +39,7 @@ from .schemas import (
     SourceIngestionResult,
     SourceIngestionStatus,
 )
+from .schedules import IngestionScheduleClient
 
 ResultT = TypeVar("ResultT")
 
@@ -51,6 +52,7 @@ class IngestionTemporalClient:
     def __init__(self, client: Client, config: TemporalRuntimeConfig) -> None:
         self._client = client
         self._config = config
+        self._schedules = IngestionScheduleClient(client, config)
 
     @classmethod
     async def connect(
@@ -94,6 +96,30 @@ class IngestionTemporalClient:
             workflow_id=self._workflow_id(request.task_id),
             first_execution_run_id=handle.first_execution_run_id,
         )
+
+    async def upsert_ingestion_schedule(
+        self,
+        schedule_id: str,
+        cron_expression: str,
+        request: SourceIngestionInput,
+    ) -> None:
+        await self._schedules.upsert_source_ingestion_schedule(
+            schedule_id,
+            cron_expression,
+            request,
+        )
+
+    async def pause_ingestion_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
+        await self._schedules.pause(schedule_id, note=note)
+
+    async def unpause_ingestion_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
+        await self._schedules.unpause(schedule_id, note=note)
+
+    async def trigger_ingestion_schedule(self, schedule_id: str) -> None:
+        await self._schedules.trigger(schedule_id)
+
+    async def delete_ingestion_schedule(self, schedule_id: str) -> None:
+        await self._schedules.delete(schedule_id)
 
     async def start_retry_failures(
         self,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -13,12 +13,16 @@ from harborrag_runtime.ingestion_contracts import (
     PreparedSourceSubmission,
     SourceSubmission,
 )
+from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.temporal.optional import load_temporal_attribute
 
 from .source_submission import SourceSubmissionDefaults, prepare_source_submission
 
 if TYPE_CHECKING:
+    from temporalio.client import Client
+
     from harborrag_runtime.temporal.client import IngestionTemporalClient
+    from harborrag_runtime.temporal.schedules import TemporalScheduleBackend
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,3 +81,16 @@ async def connect_ingestion_gateway(settings: RuntimeSettings) -> IngestionGatew
     return TemporalIngestionGateway(
         await connect_temporal_client(TemporalRuntimeConfig.from_settings(settings))
     )
+
+
+async def connect_schedule_backend(settings: RuntimeSettings) -> ScheduleBackend:
+    config = TemporalRuntimeConfig.from_settings(settings)
+    connect = cast(
+        "Callable[[TemporalRuntimeConfig], Awaitable[Client]]",
+        load_temporal_attribute("harborrag_runtime.temporal.connection", "connect_temporal_client"),
+    )
+    backend_type = cast(
+        "type[TemporalScheduleBackend]",
+        load_temporal_attribute("harborrag_runtime.temporal.schedules", "TemporalScheduleBackend"),
+    )
+    return backend_type(await connect(config), config)

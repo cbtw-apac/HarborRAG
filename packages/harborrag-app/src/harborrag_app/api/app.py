@@ -103,6 +103,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.app_service = service
     app.state.composition_mode = mode
     logger.info("Application service composed in %s mode", mode)
+    sync_schedules = getattr(service, "sync_declared_schedules", None)
+    if sync_schedules is not None:
+        await sync_schedules()
     # Long-term memory extraction runs on a bounded in-process worker pool
     # owned by this process, so it starts with the app and is drained -- not
     # cancelled -- on shutdown, letting queued exchanges finish.

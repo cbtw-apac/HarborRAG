@@ -136,6 +136,38 @@ class IngestionTelemetry:
             ("task_queue",),
             registry=self.registry,
         )
+        self._scheduled_runs = Counter(
+            "harborrag_temporal_scheduled_runs_total",
+            "Scheduled workflow runs by outcome.",
+            ("schedule_id", "outcome"),
+            registry=self.registry,
+        )
+        self._schedule_to_start = Histogram(
+            "harborrag_temporal_schedule_to_start_seconds",
+            "Time between a scheduled action and its workflow start.",
+            ("schedule_id",),
+            registry=self.registry,
+            buckets=(0.1, 0.5, 1, 5, 15, 60, 300, 900),
+        )
+        self._schedule_paused = Gauge(
+            "harborrag_temporal_schedule_paused",
+            "Whether a HarborRAG schedule is currently paused.",
+            ("schedule_id",),
+            registry=self.registry,
+        )
+        self._schedule_expected_paused = Gauge(
+            "harborrag_temporal_schedule_expected_paused",
+            "Whether a HarborRAG schedule is configured to be paused.",
+            ("schedule_id",),
+            registry=self.registry,
+        )
+        self._schedule_skipped_overlap = Gauge(
+            "harborrag_temporal_schedule_actions_skipped_overlap",
+            "Cumulative schedule actions skipped because of overlap.",
+            ("schedule_id",),
+            registry=self.registry,
+        )
+        self._schedule_ids: set[str] = set()
         self._subprocess_executions = Counter(
             "harborrag_ingestion_subprocess_executions_total",
             "Subprocess execution outcomes for CPU-intensive activities.",
@@ -239,6 +271,38 @@ class IngestionTelemetry:
             normalized_slots = max(1, slots)
             value = min(1.0, max(0.0, depth / normalized_slots))
         self._temporal_worker_slot_saturation.labels(task_queue=task_queue).set(value)
+
+    def record_scheduled_run(
+        self,
+        schedule_id: str,
+        outcome: str,
+        *,
+        schedule_to_start_seconds: float | None = None,
+    ) -> None:
+        self._scheduled_runs.labels(schedule_id=schedule_id, outcome=outcome).inc()
+        if schedule_to_start_seconds is not None and schedule_to_start_seconds >= 0:
+            self._schedule_to_start.labels(schedule_id=schedule_id).observe(
+                schedule_to_start_seconds
+            )
+
+    def record_schedule_states(
+        self,
+        states: Mapping[str, tuple[bool, bool, int]],
+    ) -> None:
+        current_ids = set(states)
+        for schedule_id in self._schedule_ids - current_ids:
+            self._schedule_paused.remove(schedule_id)
+            self._schedule_expected_paused.remove(schedule_id)
+            self._schedule_skipped_overlap.remove(schedule_id)
+        for schedule_id, (paused, expected_paused, skipped_overlap) in states.items():
+            self._schedule_paused.labels(schedule_id=schedule_id).set(int(paused))
+            self._schedule_expected_paused.labels(schedule_id=schedule_id).set(
+                int(expected_paused)
+            )
+            self._schedule_skipped_overlap.labels(schedule_id=schedule_id).set(
+                max(0, skipped_overlap)
+            )
+        self._schedule_ids = current_ids
 
     def record_rate_limit_wait(
         self,

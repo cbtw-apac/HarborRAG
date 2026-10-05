@@ -13,16 +13,33 @@ from harborrag_runtime.temporal.retry_workflow import (
     RetryFailuresWorkflow,
 )
 from harborrag_runtime.temporal.source_batch_workflow import SourceBatchWorkflow
-from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
+from harborrag_runtime.temporal.source_workflow import (
+    ScheduledSourceIngestionWorkflow,
+    SourceIngestionWorkflow,
+    _scheduled_task_id,
+)
 
 WORKFLOWS = (
     SourceIngestionWorkflow,
+    ScheduledSourceIngestionWorkflow,
     SourceBatchWorkflow,
     DocumentIngestionWorkflow,
     DocumentRetryWorkflow,
     RetryFailuresWorkflow,
     ReindexWorkflow,
 )
+
+
+def test_scheduled_ingestion_task_ids_are_unique_per_firing() -> None:
+    first = _scheduled_task_id(
+        "schedule-source-1", "harborrag-scheduled:2026-09-28T00:00Z"
+    )
+    second = _scheduled_task_id(
+        "schedule-source-1", "harborrag-scheduled:2026-09-29T00:00Z"
+    )
+
+    assert first != second
+    assert len(first) <= 128
 
 
 @pytest.mark.parametrize("workflow_type", WORKFLOWS)
@@ -86,6 +103,7 @@ def test_worker_registration_inventory_is_complete() -> None:
         "record_retry_document_failure",
         "record_retry_failures_task_failure",
         "record_source_failure",
+        "record_scheduled_run_metrics",
         "reindex",
         "repair_reindex_relations",
         "retry_document_release",

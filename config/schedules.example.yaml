@@ -1,0 +1,21 @@
+# HarborRAG-owned Temporal schedules.
+# Copy to config/schedules.yaml and keep the active file under version control.
+# Temporal UI is for monitoring and emergency administration only.
+version: 1
+prune: false
+
+schedules:
+  - id: artifact-update
+    workflow: source_ingestion
+    cron: "0 1 * * *"
+    timezone: Asia/Ho_Chi_Minh
+    overlap: skip
+    catchup_window_seconds: 3600
+    jitter_seconds: 30
+    pause_on_failure: false
+    paused: false
+    source:
+      tenant: DEFAULT
+      connection_id: harborrag-workspace
+      source_scope_id: workspace
+      mode: incremental

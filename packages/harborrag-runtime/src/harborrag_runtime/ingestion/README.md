@@ -47,6 +47,15 @@ engine modules.
 exports for public application services and contracts; nested modules are for
 runtime and white-box test implementation details.
 
+Temporal recurring ingestion is managed through
+`IngestionTemporalClient.upsert_ingestion_schedule(schedule_id, cron_expression,
+prepared_source_input)`. Each firing starts the existing source-ingestion
+workflow with a fresh task ID; overlapping firings are skipped. The client also
+supports pause, resume, manual trigger, and delete. This runtime API is not yet
+reconciled automatically from the app control-plane `SourceConfig.schedule`
+field, so callers must supply a currently prepared connector input when they
+create or update a schedule.
+
 Tests mirror the same boundaries under `packages/harborrag-runtime/tests/runtime_ingestion/`: shared fakes are in
 `fixtures/`, fast behavior tests are grouped under `unit/document`,
 `unit/source`, `unit/maintenance`, and `unit/temporal`, while deterministic

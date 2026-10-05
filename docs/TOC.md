@@ -16,6 +16,7 @@
   - [Agent](users/chat/agent.md)
   - [Limits and Accounting](users/chat/limits.md)
 - [Ingestion Modes](users/ingestion-modes.md)
+- [Scheduled Ingestion](users/scheduled-ingestion.md)
 - [Python SDK](users/python-sdk/README.md)
 - [CLI Reference](users/cli-reference/README.md)
 - [Configuration](users/configuration/README.md)

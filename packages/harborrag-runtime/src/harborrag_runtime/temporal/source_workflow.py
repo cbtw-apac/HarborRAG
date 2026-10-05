@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any, cast
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy, SearchAttributeKey
 from temporalio.exceptions import ActivityError, ChildWorkflowError
 from temporalio.workflow import ParentClosePolicy
 
@@ -27,12 +29,113 @@ from .schemas import (
     SourceIngestionInput,
     SourceIngestionResult,
     SourceIngestionStatus,
+    ScheduledSourceIngestionInput,
+    ScheduledRunMetricInput,
     SourcePauseInput,
     SourceResumeInput,
     WorkflowExecutionControlInput,
 )
 
 _PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
+
+
+@workflow.defn(name="harborrag.scheduled_source_ingestion")
+class ScheduledSourceIngestionWorkflow:
+    @workflow.run
+    async def run(
+        self,
+        request: ScheduledSourceIngestionInput,
+    ) -> SourceIngestionResult:
+        info = workflow.info()
+        scheduled_at = info.typed_search_attributes.get(
+            SearchAttributeKey.for_datetime("TemporalScheduledStartTime")
+        )
+        schedule_to_start_seconds = (
+            max(0.0, (info.workflow_start_time - scheduled_at).total_seconds())
+            if scheduled_at is not None
+            else None
+        )
+        workflow.logger.info(
+            "Scheduled ingestion started schedule_id=%s workflow_id=%s run_id=%s",
+            request.schedule_id,
+            info.workflow_id,
+            info.run_id,
+        )
+        await _record_scheduled_run_metric(
+            request.schedule_id,
+            "started",
+            schedule_to_start_seconds=schedule_to_start_seconds,
+        )
+        task_id = _scheduled_task_id(request.schedule_id, info.workflow_id)
+        source = replace(request.source, task_id=task_id)
+        try:
+            handle = await workflow.start_child_workflow(
+                "harborrag.source_ingestion",
+                source,
+                id=f"harborrag-source:{task_id}",
+                task_queue=source.workflow_options.task_queues.discovery,
+                result_type=SourceIngestionResult,
+                parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+            )
+            workflow.logger.info(
+                "Scheduled ingestion child started schedule_id=%s workflow_id=%s "
+                "run_id=%s child_workflow_id=%s",
+                request.schedule_id,
+                info.workflow_id,
+                info.run_id,
+                handle.id,
+            )
+            result = cast(SourceIngestionResult, await handle)
+        except Exception as error:
+            workflow.logger.error(
+                "Scheduled ingestion failed schedule_id=%s workflow_id=%s "
+                "run_id=%s error_type=%s",
+                request.schedule_id,
+                info.workflow_id,
+                info.run_id,
+                type(error).__name__,
+            )
+            await _record_scheduled_run_metric(request.schedule_id, "failed")
+            raise
+        workflow.logger.info(
+            "Scheduled ingestion completed schedule_id=%s workflow_id=%s run_id=%s",
+            request.schedule_id,
+            info.workflow_id,
+            info.run_id,
+        )
+        await _record_scheduled_run_metric(request.schedule_id, "completed")
+        return result
+
+
+async def _record_scheduled_run_metric(
+    schedule_id: str,
+    outcome: str,
+    *,
+    schedule_to_start_seconds: float | None = None,
+) -> None:
+    try:
+        await workflow.execute_activity(
+            "harborrag.record_scheduled_run_metrics",
+            ScheduledRunMetricInput(
+                schedule_id=schedule_id,
+                outcome=outcome,
+                schedule_to_start_seconds=schedule_to_start_seconds,
+            ),
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    except Exception as error:
+        workflow.logger.warning(
+            "Scheduled run metric recording failed schedule_id=%s outcome=%s error_type=%s",
+            schedule_id,
+            outcome,
+            type(error).__name__,
+        )
+
+
+def _scheduled_task_id(schedule_id: str, workflow_id: str) -> str:
+    digest = hashlib.sha256(f"{schedule_id}:{workflow_id}".encode()).hexdigest()[:32]
+    return f"scheduled-{digest}"
 
 
 @workflow.defn(name="harborrag.source_ingestion")

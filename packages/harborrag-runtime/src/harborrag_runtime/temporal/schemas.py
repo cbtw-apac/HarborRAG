@@ -81,6 +81,23 @@ class SourceIngestionInput(PreparedSourceSubmission):
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionInput:
+    schedule_id: str
+    source: SourceIngestionInput
+
+    def __post_init__(self) -> None:
+        if not self.schedule_id.strip():
+            raise ValueError("schedule_id must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledRunMetricInput:
+    schedule_id: str
+    outcome: str
+    schedule_to_start_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SourceDiscoveryResult:
     scan_id: str
     plan_reference: WorkflowArtifactReference

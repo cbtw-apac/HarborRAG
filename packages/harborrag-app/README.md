@@ -26,6 +26,12 @@ persists a `PENDING` task in Postgres, and submits
 `harborrag.source_ingestion`. Re-running the same source under a new run ID
 replays from the earliest reusable immutable artifact.
 
+## Scheduled ingestion
+
+Schedules are managed through Temporal, with config and API-owned modes. See
+the [Scheduled Ingestion runbook](../../docs/users/scheduled-ingestion.md) for
+configuration, API operations, incident pause/resume, backfill, and monitoring.
+
 Every one-shot command accepts `--json` after its action and returns
 `{"ok":...,"data":...,"error":...}`. A failed operation exits with status 1.
 Typer supplies grouped Rich help and shell completion. Rich renders one-shot
