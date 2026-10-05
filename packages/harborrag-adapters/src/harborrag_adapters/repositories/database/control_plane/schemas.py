@@ -314,4 +314,5 @@ class GraphConflictRow(Base):
 # required for Alembic autogenerate and the metadata-drift test to see them.
 from . import schemas_agent_memory as _schemas_agent_memory  # noqa: E402, F401
 from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
+from . import schemas_mcp_auth as _schemas_mcp_auth  # noqa: E402, F401
 from . import schemas_usage as _schemas_usage  # noqa: E402, F401

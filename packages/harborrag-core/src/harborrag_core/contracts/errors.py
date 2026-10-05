@@ -93,3 +93,7 @@ class HarborAuthError(HarborError):
     def __init__(self, message: str, forbidden: bool = False) -> None:
         super().__init__(message)
         self.forbidden = forbidden
+
+
+class AuthStoreUnavailable(HarborError):
+    """The API-key store could not answer; callers must fail closed."""
