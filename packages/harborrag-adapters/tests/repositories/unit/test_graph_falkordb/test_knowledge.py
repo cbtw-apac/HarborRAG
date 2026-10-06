@@ -6,6 +6,9 @@ from harborrag_adapters.repositories.graph.falkordb import (
     FalkorDBGraphConfig,
     FalkorKnowledgeGraphRepository,
 )
+from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
+    RELATION_IDENTIFIERS,
+)
 from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
@@ -22,6 +25,8 @@ from harborrag_core.retrieval import (
 from harborrag_core.schemas.storage import StorageOperationContext
 
 from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
+
+_RELATION_INDEXES = ("tenant_id", "relation_id", "document_version_id")
 
 
 def repository(client: FakeFalkorDBClient) -> FalkorKnowledgeGraphRepository:
@@ -104,9 +109,21 @@ async def test_provision_creates_exact_indexes_and_unique_node_constraint() -> N
     assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.title_key)" in node_indexes
     # owner_id duplicates tenant_id and is filtered by no query; indexing it is pure cost.
     assert not any("owner_id" in statement for statement in node_indexes)
-    # Relationship predicates were unindexed scans before; each written type is covered.
+    # Relationship predicates were unindexed scans before; each written type is covered,
+    # including the per-document lookups by relation_id and document_version_id that
+    # otherwise walk every edge of the type in a single-tenant graph.
     assert relation_indexes
-    assert all("ON (relation.tenant_id)" in statement for statement in relation_indexes)
+    for property_name in ("tenant_id", "relation_id", "document_version_id"):
+        covered = {
+            statement.split("-[relation:")[1].split("]")[0]
+            for statement in relation_indexes
+            if f"ON (relation.{property_name})" in statement
+        }
+        assert covered == set(RELATION_IDENTIFIERS.values()), property_name
+    assert all(
+        any(f"ON (relation.{name})" in statement for name in _RELATION_INDEXES)
+        for statement in relation_indexes
+    )
 
 
 @pytest.mark.asyncio

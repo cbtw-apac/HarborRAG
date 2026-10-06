@@ -217,30 +217,54 @@ async def verify_projection(
             "node_keys": list(node_keys),
         },
     )
-    relation_rows = await read_rows(
-        database,
-        """
-        MATCH (source:KnowledgeNode)-[relation]->(target:KnowledgeNode)
-        WHERE relation.tenant_id = $tenant_id
-          AND relation.graph_schema_version = $graph_schema_version
-          AND relation.relation_id IN $relation_ids
-        RETURN relation.relation_id AS relation_id,
-               source.node_key AS source_node_key,
-               target.node_key AS target_node_key,
-               count(relation) AS occurrences
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "relation_ids": list(relation_ids),
-        },
-    )
+    relation_rows = await _read_relations(database, relations, context=context)
     return build_graph_verification(
         node_keys=node_keys,
         relation_ids=relation_ids,
         node_rows=node_rows,
         relation_rows=relation_rows,
     )
+
+
+async def _read_relations(
+    database: FalkorDBClient,
+    relations: Sequence[GraphEdgeRecord],
+    *,
+    context: StorageOperationContext,
+) -> list[dict[str, Any]]:
+    """Read named relations back through their type's relation_id index.
+
+    The endpoints stay unlabelled on purpose: labelling them, even in ``WHERE``, makes
+    FalkorDB start from a scan of every node instead of the edge index. Only the
+    knowledge projection writes these types between ``KnowledgeNode`` endpoints, so
+    type plus relation_id already pins the edge.
+    """
+
+    grouped: defaultdict[str, list[str]] = defaultdict(list)
+    for relation in relations:
+        grouped[RELATION_IDENTIFIERS[relation.relation_type]].append(relation.relation_id)
+    if not grouped:
+        return []
+    branches = []
+    parameters: dict[str, Any] = {
+        "tenant_id": str(context.tenant_id),
+        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+    }
+    for position, (relationship_type, relation_ids) in enumerate(sorted(grouped.items())):
+        parameters[f"relation_ids_{position}"] = relation_ids
+        branches.append(
+            f"""
+            MATCH (source)-[relation:{relationship_type}]->(target)
+            WHERE relation.tenant_id = $tenant_id
+              AND relation.graph_schema_version = $graph_schema_version
+              AND relation.relation_id IN $relation_ids_{position}
+            RETURN relation.relation_id AS relation_id,
+                   source.node_key AS source_node_key,
+                   target.node_key AS target_node_key,
+                   count(relation) AS occurrences
+            """
+        )
+    return await read_rows(database, "UNION ALL".join(branches), parameters)
 
 
 def _node_row(node: GraphNodeRecord, *, tenant_id: str) -> dict[str, Any]:

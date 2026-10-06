@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
-from harborrag_adapters.repositories.graph.falkordb.knowledge_support import read_rows
+from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
+    read_rows,
+    relationship_types_matching,
+)
 from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION, GraphSchemaMigrationVerification
 from harborrag_core.storage import StorageOperationContext
 
@@ -293,6 +296,17 @@ async def _delete_projection(
         if version_scoped:
             predicate += f" AND {alias}.ownership_scope = 'DOCUMENT_VERSION'"
             predicate += version_filter.format(alias=alias)
+        if version_scoped and alias == "relation":
+            # One version's edges, found through each type's document_version_id
+            # index; untyped, retiring a version walked every edge in the graph.
+            for relationship_type in await relationship_types_matching(
+                database, predicate, parameters
+            ):
+                await database.write(
+                    f"MATCH ()-[relation:{relationship_type}]->() WHERE {predicate} {deletion}",
+                    parameters,
+                )
+            continue
         await database.write(
             f"MATCH {pattern} WHERE {predicate} {deletion}",
             parameters,
