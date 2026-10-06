@@ -28,6 +28,10 @@ DESCRIPTOR_FIELDS = (
     "subtasks",
     "issuelinks",
     "attachment",
+    # Admission versions every comment by id and timestamp. Search returns a
+    # page of them inline, which spares describing an issue its own comment
+    # request -- at 50 issues a page, 50 of the page's 51 requests.
+    "comment",
 )
 DISCOVERY_FIELDS = DESCRIPTOR_FIELDS
 DISCOVERY_DESCRIPTOR_KEY = "_jira_discovery_descriptor"
@@ -148,6 +152,28 @@ class JiraIssueAPI:
             f"issue/{issue_key}",
             params={"fields": ",".join(DESCRIPTOR_FIELDS)},
         )
+
+    def issue_comments(self, issue_key: str, issue: dict[str, Any]) -> list[dict[str, Any]]:
+        """The comments embedded in an issue response, fetched only when that list is partial.
+
+        The result is what ``fetch_comments`` returns: the same comments, capped
+        at the same ``max_comments``.
+        """
+
+        embedded = (issue.get("fields") or {}).get("comment")
+        if isinstance(embedded, dict):
+            values = embedded.get("comments")
+            total = embedded.get("total")
+            if (
+                isinstance(values, list)
+                and isinstance(total, int)
+                and not isinstance(total, bool)
+                and total <= len(values)
+            ):
+                comments: list[dict[str, Any]] = []
+                truncate_with_limit(comments, values, limit=self.config.max_comments)
+                return comments
+        return self.fetch_comments(issue_key)
 
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
         """Fetch comments for one issue, truncated to the configured cap."""

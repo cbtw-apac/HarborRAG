@@ -131,3 +131,69 @@ def test_search_result_is_reused_for_admission_description() -> None:
     assert client.get_calls == [("myself", None)]
     assert descriptor.admission.source_version.startswith("2024")
     assert "_jira_discovery_descriptor" not in descriptor.source.metadata
+
+
+def _comment(comment_id: str) -> dict[str, str]:
+    return {
+        "id": comment_id,
+        "created": "2026-07-29T00:00:00Z",
+        "updated": f"2026-07-30T00:00:0{comment_id[-1]}Z",
+    }
+
+
+def _describe(issue_value: dict, client: FakeJiraClient, **config: object):
+    client.add_get("issue/ENG-1", issue_value)
+    connector = JiraConnector(
+        cloud_config(include_comments=True, include_attachments=False, **config),
+        client=client,
+    )
+    return connector.describe(
+        SourceRecord(
+            id="jira://ENG/ENG-1",
+            source_type="application/vnd.atlassian.jira.issue+json",
+            locator="ENG-1",
+        )
+    )
+
+
+def test_describe_versions_comments_embedded_in_the_issue_without_fetching_them() -> None:
+    # Search and the descriptor request both return a page of comments inline;
+    # when it holds every comment, describing the issue costs no comment request.
+    client = FakeJiraClient()
+    issue_value = issue()
+    issue_value["fields"]["comment"] = {"comments": [_comment("c1"), _comment("c2")], "total": 2}
+
+    descriptor = _describe(issue_value, client)
+
+    assert [comment.source_item_id for comment in descriptor.admission.comments] == ["c1", "c2"]
+    assert not [endpoint for endpoint, _ in client.get_calls if endpoint.endswith("/comment")]
+
+
+def test_describe_fetches_comments_when_the_embedded_page_is_partial() -> None:
+    client = FakeJiraClient()
+    issue_value = issue()
+    issue_value["fields"]["comment"] = {"comments": [_comment("c1")], "total": 2}
+    client.add_get(
+        "issue/ENG-1/comment", {"comments": [_comment("c1"), _comment("c2")], "total": 2}
+    )
+
+    descriptor = _describe(issue_value, client)
+
+    assert [comment.source_item_id for comment in descriptor.admission.comments] == ["c1", "c2"]
+    assert [endpoint for endpoint, _ in client.get_calls if endpoint.endswith("/comment")] == [
+        "issue/ENG-1/comment"
+    ]
+
+
+def test_embedded_comments_are_capped_like_fetched_ones() -> None:
+    # The snapshot must not depend on which path supplied the comments.
+    client = FakeJiraClient()
+    issue_value = issue()
+    issue_value["fields"]["comment"] = {
+        "comments": [_comment("c1"), _comment("c2"), _comment("c3")],
+        "total": 3,
+    }
+
+    descriptor = _describe(issue_value, client, max_comments=2)
+
+    assert [comment.source_item_id for comment in descriptor.admission.comments] == ["c1", "c2"]
