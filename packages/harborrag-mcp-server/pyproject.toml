@@ -10,7 +10,7 @@ dependencies = [
     "harborrag-core==2.0.0a1",
     "harborrag-runtime==2.0.0a1",
     "harborrag-engine==2.0.0a1",
-    "fastmcp>=3.4,<4",
+    "fastmcp>=4.0.10,<5",
     "jsonschema>=4.26,<5",
     "pydantic>=2.12,<3",
     "python-dotenv>=1,<2",
@@ -19,10 +19,14 @@ dependencies = [
 
 [project.scripts]
 harborrag-mcp = "harborrag_mcp_server.__main__:main"
+harborrag-mcp-ui = "harborrag_mcp_server.__main__:ui_main"
 
 [project.optional-dependencies]
 mcp = []
 reader = ["harborrag-runtime[reader]==2.0.0a1"]
+# The optional Explorer MCP UI server (harborrag-mcp-ui): FastMCP Apps and Prefab.
+# The reader server never imports it.
+ui = ["fastmcp[apps]>=4.0.10,<5"]
 
 [build-system]
 requires = ["hatchling"]

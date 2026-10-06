@@ -136,6 +136,20 @@ def register_http_routes(
     )
 
 
+def register_health_route(
+    server: FastMCP[Any],
+    *,
+    mcp_path: str,
+    tool_names: list[str],
+    service: str,
+) -> None:
+    """Attach only the unauthenticated health route, for the Explorer UI server."""
+
+    server.custom_route("/healthz", methods=["GET"], include_in_schema=False)(
+        _health_handler(mcp_path, tool_names, service=service)
+    )
+
+
 def _status_handler(
     mcp_path: str,
     tool_names: list[str],
@@ -156,6 +170,8 @@ def _status_handler(
 def _health_handler(
     mcp_path: str,
     tool_names: list[str],
+    *,
+    service: str = "harborrag-mcp",
 ) -> Callable[[Request], Awaitable[Response]]:
     from starlette.responses import JSONResponse
 
@@ -164,7 +180,7 @@ def _health_handler(
         return JSONResponse(
             {
                 "status": "ok",
-                "service": "harborrag-mcp",
+                "service": service,
                 "transport": "streamable-http",
                 "mcp_path": mcp_path,
                 "authentication": "bearer",
@@ -377,6 +393,7 @@ def _status_page(*, mcp_path: str, tool_names: list[str], nonce: str) -> str:
 
 __all__ = [
     "create_local_token_verifier",
+    "register_health_route",
     "register_http_routes",
     "validate_local_http_settings",
 ]

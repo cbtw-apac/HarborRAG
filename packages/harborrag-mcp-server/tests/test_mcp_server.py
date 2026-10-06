@@ -95,11 +95,11 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
 
     assert type(transport).__module__.startswith("fastmcp.")
     assert [tool.name for tool in tools] == EXPECTED_READER_TOOLS
-    assert tools[0].inputSchema["required"] == ["query", "tenant_id"]
+    assert tools[0].input_schema["required"] == ["query", "tenant_id"]
 
     path = next(tool for tool in tools if tool.name == "graph_path_search")
-    assert path.inputSchema["additionalProperties"] is False
-    assert set(path.inputSchema["properties"]) == {
+    assert path.input_schema["additionalProperties"] is False
+    assert set(path.input_schema["properties"]) == {
         "start_node",
         "end_node",
         "relationship_types",
@@ -109,21 +109,21 @@ async def test_factory_registers_tools_on_real_fastmcp_transport(tmp_path, monke
         "tenant_id",
     }
     assert path.annotations is not None
-    assert path.annotations.readOnlyHint is True
-    assert path.annotations.destructiveHint is False
-    assert path.annotations.idempotentHint is True
-    assert path.annotations.openWorldHint is False
-    assert path.outputSchema is not None
+    assert path.annotations.read_only_hint is True
+    assert path.annotations.destructive_hint is False
+    assert path.annotations.idempotent_hint is True
+    assert path.annotations.open_world_hint is False
+    assert path.output_schema is not None
 
     describe = next(tool for tool in tools if tool.name == "describe_graph")
-    assert describe.inputSchema["additionalProperties"] is False
-    assert set(describe.inputSchema["properties"]) == set()
+    assert describe.input_schema["additionalProperties"] is False
+    assert set(describe.input_schema["properties"]) == set()
     assert describe.annotations is not None
-    assert describe.annotations.readOnlyHint is True
-    assert describe.annotations.destructiveHint is False
-    assert describe.annotations.idempotentHint is True
-    assert describe.annotations.openWorldHint is False
-    assert describe.outputSchema is not None
+    assert describe.annotations.read_only_hint is True
+    assert describe.annotations.destructive_hint is False
+    assert describe.annotations.idempotent_hint is True
+    assert describe.annotations.open_world_hint is False
+    assert describe.output_schema is not None
 
 
 class BrokenTool(BaseTool):

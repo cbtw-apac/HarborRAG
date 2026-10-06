@@ -11,13 +11,14 @@ server/server.py            tool registry, policy enforcement, dispatch
 server/http.py              loopback Streamable HTTP transport and status UI
 server/http_auth.py         owner-only bearer and tenant authorization
 server/static/status.html   status page and Tool Playground
+server/explorer/            HarborRAG Explorer MCP App served by harborrag-mcp-ui
 configuration/              config/mcp.yaml loading, validation, env overrides
 policy.py                   compiled safety ceilings
 audit.py                    JSONL audit writer
 defaults/mcp.yaml           packaged fallback configuration
 ```
 
-The 13 reader tool implementations, schemas, catalog, and checked dispatcher live
+The 11 reader tool implementations, schemas, catalog, and checked dispatcher live
 in `harborrag_engine.tools`. Generic contracts live in `harborrag_core`.
 `harborrag_runtime.composition.readers` connects the reader backends and owns
 their lifecycle. MCP adapts authentication, registration, configuration, and
@@ -114,6 +115,33 @@ The owner-only browser API is:
 
 The API is a local administrative convenience, not a second unprotected tool
 transport. It requires the same owner bearer token as configuration editing.
+
+## Explorer MCP UI server
+
+`harborrag-mcp-ui` is an optional second MCP server that serves only the
+HarborRAG Explorer, a FastMCP 4 `FastMCPApp` whose Prefab UI helps people search
+the corpus. Hosts that support MCP Apps render it, including the MCP Inspector's
+**Apps** tab. The reader server works without it: its catalog is unchanged, it
+never imports `server/explorer/`, and FastMCP Apps and Prefab come only from the
+`ui` extra (`harborrag-mcp-server[ui]`).
+
+In a checkout, `scripts/deployment/mcp-ui.sh` runs it in Docker from
+`deploy/compose/docker-compose.mcp-ui.yml` and `deploy/docker/Dockerfile.mcp-ui`,
+a thin layer over the reader image.
+
+- `open_explorer` is the model-visible entry point and returns the UI.
+- `explorer_search`, `explorer_read`, `explorer_browse` and `explorer_graph` are
+  app-only backends for search, reading, browsing and graph tracing. They call
+  the registered reader handlers, so authentication, tenant binding,
+  configuration, budgets and audit are shared.
+- Found evidence goes back to the conversation only when the user selects
+  **Send to chat** or **Add to conversation context**.
+- It takes the reader server's flags and environment, listens on
+  `HARBORRAG_MCP_UI_PORT` (default `8011`) over HTTP, and serves `/healthz` only.
+- The renderer loads from `cdn.jsdelivr.net`, declared in the resource CSP.
+
+See [Setup and Integration](../../docs/users/detailed-guides/mcp-server/setup-and-integration.md#explorer-mcp-ui-server)
+for running it and for the MCP Inspector workflow.
 
 ## Tool configuration
 

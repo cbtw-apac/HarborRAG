@@ -62,13 +62,7 @@ def create_mcp_server(
 ) -> object:
     """Create a real FastMCP transport around the bounded in-process registry."""
 
-    if auth is None and not allow_unauthenticated_local:
-        raise RuntimeError(
-            "MCP transport requires authentication; "
-            "set allow_unauthenticated_local=True only for local stdio"
-        )
     try:
-        from fastmcp import FastMCP
         from fastmcp.tools import FunctionTool
         from mcp.types import ToolAnnotations
     except ImportError as exc:
@@ -76,28 +70,14 @@ def create_mcp_server(
             "FastMCP transport is not installed; install harborrag-mcp-server"
         ) from exc
 
-    audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
-    facade = registry or McpServer(
-        invoker=runtime.invoker if runtime is not None else None,
-        audit=McpAuditLog(path=audit_path),
-    )
-    lifespan = None
-    if manage_runtime_lifecycle:
-        if runtime is None:
-            raise ValueError("runtime lifecycle management requires a runtime")
-        lifespan = _runtime_lifespan(runtime, facade)
-    transport = FastMCP(
+    transport, facade = _transport(
         "HarborRAG",
+        _SERVER_INSTRUCTIONS,
+        registry=registry,
+        runtime=runtime,
         auth=auth,
-        lifespan=lifespan,
-        instructions=_SERVER_INSTRUCTIONS,
-        # FastMCP defaults this off, which sends any exception escaping a tool
-        # to the client as "Error calling tool 'x': {exc}" -- a driver error
-        # carrying a connection URL, or an audit error carrying a server path.
-        # The HTTP route already masks to the exception type; this makes the MCP
-        # transport agree. A ToolError we raise ourselves is still delivered in
-        # full, so a model keeps the messages it has to self-correct from.
-        mask_error_details=True,
+        allow_unauthenticated_local=allow_unauthenticated_local,
+        manage_runtime_lifecycle=manage_runtime_lifecycle,
     )
 
     # Registered once, from the global view. FastMCP builds its tool table at
@@ -119,6 +99,107 @@ def create_mcp_server(
             )
         )
     return transport
+
+
+def require_explorer_extra() -> None:
+    """Fail with one message wherever the optional Explorer extra is missing.
+
+    The reader server never needs ``prefab_ui``; the explorer factory and the
+    ``harborrag-mcp-ui`` entry point both ask here so the check exists once.
+    """
+
+    import importlib.util
+
+    if importlib.util.find_spec("prefab_ui") is None:
+        raise RuntimeError(
+            "The Explorer MCP UI server is optional and not installed; "
+            "install 'harborrag-mcp-server[ui]' to use harborrag-mcp-ui"
+        )
+
+
+def create_explorer_server(
+    *,
+    registry: McpServer | None = None,
+    runtime: ReaderApplication | None = None,
+    auth: AuthProvider | None = None,
+    allow_unauthenticated_local: bool = False,
+    manage_runtime_lifecycle: bool = False,
+) -> object:
+    """Create the separate HarborRAG Explorer MCP UI server.
+
+    It serves only the Explorer MCP App, so the reader server's catalog stays
+    the reader tools. The app's backends call the same audited handlers the
+    reader transport registers, over the same registry, configuration and audit
+    trail, so the UI can reach nothing a reader tool call could not.
+    """
+
+    require_explorer_extra()
+    from harborrag_mcp_server.server.explorer import EXPLORER_INSTRUCTIONS, build_explorer
+
+    transport, facade = _transport(
+        "HarborRAG Explorer",
+        EXPLORER_INSTRUCTIONS,
+        registry=registry,
+        runtime=runtime,
+        auth=auth,
+        allow_unauthenticated_local=allow_unauthenticated_local,
+        manage_runtime_lifecycle=manage_runtime_lifecycle,
+    )
+    app = build_explorer(facade, lambda name: _tool_handler(facade, name))
+    if app is None:
+        raise RuntimeError("every reader tool the Explorer uses is disabled in the configuration")
+    transport.add_provider(app)
+    return transport
+
+
+def _transport(  # noqa: PLR0913 - the shared options of both transport factories
+    name: str,
+    instructions: str,
+    *,
+    registry: McpServer | None,
+    runtime: ReaderApplication | None,
+    auth: AuthProvider | None,
+    allow_unauthenticated_local: bool,
+    manage_runtime_lifecycle: bool,
+) -> tuple[Any, McpServer]:
+    """Build an authenticated FastMCP server and the registry facade it serves."""
+
+    if auth is None and not allow_unauthenticated_local:
+        raise RuntimeError(
+            "MCP transport requires authentication; "
+            "set allow_unauthenticated_local=True only for local stdio"
+        )
+    try:
+        from fastmcp import FastMCP
+    except ImportError as exc:
+        raise RuntimeError(
+            "FastMCP transport is not installed; install harborrag-mcp-server"
+        ) from exc
+
+    audit_path = Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
+    facade = registry or McpServer(
+        invoker=runtime.invoker if runtime is not None else None,
+        audit=McpAuditLog(path=audit_path),
+    )
+    lifespan = None
+    if manage_runtime_lifecycle:
+        if runtime is None:
+            raise ValueError("runtime lifecycle management requires a runtime")
+        lifespan = _runtime_lifespan(runtime, facade)
+    transport = FastMCP(
+        name,
+        auth=auth,
+        lifespan=lifespan,
+        instructions=instructions,
+        # FastMCP defaults this off, which sends any exception escaping a tool
+        # to the client as "Error calling tool 'x': {exc}" -- a driver error
+        # carrying a connection URL, or an audit error carrying a server path.
+        # The HTTP route already masks to the exception type; this makes the MCP
+        # transport agree. A ToolError we raise ourselves is still delivered in
+        # full, so a model keeps the messages it has to self-correct from.
+        mask_error_details=True,
+    )
+    return transport, facade
 
 
 def _mcp_annotations(spec: ToolSpec) -> dict[str, Any] | None:
@@ -313,6 +394,8 @@ __all__ = [
     "BaseMcpServer",
     "McpServer",
     "call_tool",
+    "create_explorer_server",
     "create_mcp_server",
+    "require_explorer_extra",
     "list_tools",
 ]

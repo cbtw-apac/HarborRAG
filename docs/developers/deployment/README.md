@@ -206,6 +206,13 @@ transport and local status/configuration UI. Remote MCP needs TLS and a
 production JWT/JWKS verifier and is intentionally not provided by the local
 container command.
 
+The Explorer MCP UI server is optional and separate. `scripts/deployment/mcp-ui.sh`
+builds `deploy/docker/Dockerfile.mcp-ui`, a layer over the MCP image that adds
+the `ui` extra and runs `harborrag-mcp-ui`, and starts it from
+`deploy/compose/docker-compose.mcp-ui.yml` on port `8011`. Its audit path is the
+same, inside its own `harborrag-mcp-ui-audit` volume. The MCP image and
+`mcp.sh` never include or start it.
+
 ## Model assets
 
 `scripts/models/` contains helpers for Docling/FastEmbed downloads, warmup, and local-model smoke checks. Inspect each script before use: provider/model downloads may require network access, substantial disk space, and platform-specific runtimes. Keep caches outside container layers when they need independent lifecycle management.

@@ -294,6 +294,122 @@ The editor exposes the validated JSON representation of `config/mcp.yaml`.
 **Save** atomically writes it back as YAML; **Reload YAML** discards in-memory
 changes and reloads the file.
 
+### Explorer MCP UI server
+
+The **HarborRAG Explorer** is an
+[MCP App](https://modelcontextprotocol.io/extensions/apps/overview): a tool whose
+result is an interactive UI that the host renders in a sandboxed frame. It is
+built with FastMCP 4 `FastMCPApp` and [Prefab](https://prefab.prefect.io/docs/welcome)
+components, and it runs as its own MCP server, `harborrag-mcp-ui`.
+
+The Explorer is optional. The reader server keeps its eleven tools and never
+imports it, its image does not contain it, and nothing in `mcp.sh` starts it.
+Add the Explorer to a host as a second server when people want to search the
+corpus themselves. Its dependencies, FastMCP Apps and Prefab, come from the
+`ui` extra; without that extra `harborrag-mcp-ui` exits with an install hint.
+
+| Tool | Visible to | Purpose |
+| --- | --- | --- |
+| `open_explorer` | Model | Opens the UI; `query` and `mode` pre-run a search, `tenant_id` preselects a tenant |
+| `explorer_search` | App only | Evidence search or entity ranking |
+| `explorer_read` | App only | One evidence chunk with its reading window, or a window of a document |
+| `explorer_browse` | App only | Pages of documents or sources |
+| `explorer_graph` | App only | Resolves a graph node, or expands the neighborhood around one |
+
+The UI has these tabs:
+
+- **Search** runs `vector_search` or `find_entities`.
+  Select a hit or an entity to open its evidence in the Reader. **Ask the
+  assistant about these results** sends the top hits, with evidence IDs, to the
+  chat.
+- **Reader** shows the full evidence, its section, and the surrounding chunks
+  from `get_document_context`. **Send to chat** posts the evidence as a message
+  that cites its evidence ID. **Add to conversation context** gives it to the
+  model without starting a reply. **Continue reading** pages through the
+  document.
+- **Documents** and **Sources** page through `list_documents` and
+  `list_sources`. Select a document to read it.
+- **Graph** resolves a title, provider ID or node key with
+  `resolve_graph_nodes`, then draws the `graph_subgraph_search` neighborhood as
+  a diagram. Select a node to expand around it.
+- **Tools** lists the reader catalog.
+
+Every backend calls the same handlers the reader server registers, over the
+same configuration file, tenant binding, budgets, output-schema checks and
+audit trail. A mode exists only while its reader tool is enabled, and the
+server refuses to start when none is.
+
+Run it like the reader server. It accepts the same flags and environment, and
+uses the same bearer token or API keys. Over HTTP it listens on port `8011` by
+default, set by `HARBORRAG_MCP_UI_PORT`, and serves only `/healthz` besides the
+MCP endpoint. The status page and configuration API stay on the reader server.
+
+From a checkout, `scripts/deployment/mcp-ui.sh` runs it in Docker the way
+`mcp.sh` runs the reader server:
+
+| Command | Behavior |
+| --- | --- |
+| `mcp-ui.sh [OPTION...]` | Stdio server for an MCP client; options go to `harborrag-mcp-ui` |
+| `mcp-ui.sh --check` | One-off handshake that prints the Explorer tools |
+| `mcp-ui.sh --http` | Starts the HTTP server in the background and waits for its health check |
+| `mcp-ui.sh down` / `mcp-ui.sh logs` | Stops, or shows the logs of, the background HTTP server |
+| `mcp-ui.sh --build ...` | Rebuilds the reader image and the Explorer layer first |
+
+The container comes from `deploy/compose/docker-compose.mcp-ui.yml`. It extends
+the reader service, so it gets the same env files, host networking, reader
+database role, object-store credentials and read-only `config/` mount. Its
+image, `deploy/docker/Dockerfile.mcp-ui`, is a thin layer over the reader image
+that adds only the locked `ui` extra. Its audit trail lives in its own
+`harborrag-mcp-ui-audit` volume.
+
+Without Docker:
+
+```bash
+# From a checkout, with the data services running
+uv sync --all-packages --extra ui
+uv run harborrag-mcp-ui --check --local-stack-root .
+uv run harborrag-mcp-ui --http --local-stack-root .
+
+# An installed deployment
+pip install 'harborrag-mcp-server[reader,ui]'
+harborrag-mcp-ui --http --env-file /etc/harborrag/reader.env --config /etc/harborrag/mcp.yaml
+```
+
+For a stdio host that renders MCP Apps, register both servers:
+
+```json
+{
+  "mcpServers": {
+    "harborrag": {"command": "harborrag-mcp", "args": ["--env-file", "/etc/harborrag/reader.env"]},
+    "harborrag-explorer": {"command": "harborrag-mcp-ui", "args": ["--env-file", "/etc/harborrag/reader.env"]}
+  }
+}
+```
+
+Hosts without MCP Apps support get a short text result from `open_explorer`.
+The renderer script loads from `cdn.jsdelivr.net`, which the tool declares in
+its resource CSP, so the host needs that origin.
+
+### Inspect with the MCP Inspector
+
+The [MCP Inspector web client](https://modelcontextprotocol.io/docs/2026-07-28/tools/inspector/web)
+shows every tool, the JSON-RPC traffic, and an **Apps** tab that renders the
+Explorer. Start the Explorer over HTTP, then launch the Inspector against it:
+
+```bash
+scripts/deployment/mcp-ui.sh --http
+npx @modelcontextprotocol/inspector --server-url http://127.0.0.1:8011/mcp
+```
+
+Open the URL the Inspector prints, because it carries the Inspector's
+per-launch session token. In the server's **Server Settings**, add the header
+`Authorization: Bearer <HARBORRAG_MCP_BEARER_TOKEN>` and connect. Then open
+**Apps** and select `open_explorer`. Point the Inspector at port `8010` to
+inspect the reader tools instead.
+
+The Apps sandbox is served over plain `http`. Browse the Inspector at
+`localhost` or `127.0.0.1`, not at `[::1]`, or the frame is blocked.
+
 ## Tool configuration
 
 ### Per-tool controls
@@ -434,7 +550,9 @@ the registered tools without opening provider connections. The check opens an
 in-memory client session, performs the MCP initialization handshake, and asks
 the server for its tools.
 
-The normal catalog contains thirteen reader tools. Chat and agent are not part
+The normal catalog contains eleven reader tools. The interactive Explorer
+runs as a separate server; see [Explorer MCP UI server](#explorer-mcp-ui-server).
+Chat and agent are not part
 of the MCP catalog; they are served only through the HarborRAG REST API's
 `/v1/chat` and `/v1/agent` endpoints.
 

@@ -29,14 +29,17 @@ unclear. It is a static schema lookup, not a query. The MCP server also advertis
 short cross-tool routing instructions (which tool to call for which intent) to any
 client that surfaces server-level `instructions`.
 
-The catalog contains thirteen read-only tools. Twelve require an explicit `tenant_id`;
+The catalog contains eleven read-only tools. Ten require an explicit `tenant_id`;
 `describe_graph` accepts `{}` because it returns only the static supported model.
+A separate server, `harborrag-mcp-ui`, offers the interactive
+[Explorer](setup-and-integration.md#explorer-mcp-ui-server): a UI that helps people
+search, read and trace the corpus, rather than an evidence source for models.
 
 | Tool | Required arguments | Optional arguments | Returns |
 | --- | --- | --- | --- |
 | `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `filters`, `mode`, `observe_graph`, `include_content`, `score_threshold` (0.0–1.0) | Vector results, retrieval diagnostics, and cost availability |
 | `fetch_evidence` | `tenant_id`, `items[].chunk_id` | Expected document/version IDs | Canonical text, citation locator, and `available`/`unavailable`/`output_limit` per item |
-| `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor, cursor, limit (1–10), outline | Ordered chunks and a tenant/principal/version-bound cursor |
+| `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor, cursor, limit (1–10), outline | `document_title`, ordered chunks, and a tenant/principal/version-bound cursor |
 | `list_sources` | `tenant_id` | Source IDs, connector types, cursor, limit (1–20) | Only readable source scopes; never connection configuration |
 | `describe_graph` | None | None | `ok`, `versions`, `layers`, and `properties` |
 | `graph_triplet_search` | `tenant_id`, plus at least one of `subject`, `predicate`, `object` | `limit` (1–20, default 10) | Active canonical subject–predicate–object records |
@@ -164,7 +167,8 @@ Every tool call requires an explicit tenant (except `describe_graph` static tool
 principal through the runtime access context. MCP audits store argument
 digests rather than raw query text.
 
-1. **Capability check** - all thirteen tools declare `read`; nothing else is registered.
+1. **Capability check** - all eleven tools declare `read`; nothing else is registered.
+   The separate Explorer UI server calls the reader tools through this same pipeline.
 2. **Schema validation** - the declared JSON schema, with `additionalProperties: false`.
 3. **Argument budget** - a serialized-argument size ceiling.
 4. **Tenant scope** - `tenant_id` is required, and `filters` explicitly cannot carry a

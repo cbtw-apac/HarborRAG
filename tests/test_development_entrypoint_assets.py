@@ -297,7 +297,7 @@ def test_mcp_entrypoint_requires_bootstrapped_environment(tmp_path: Path) -> Non
 def test_deployment_has_explicit_orchestration_and_mcp_entrypoints() -> None:
     scripts = sorted((ROOT / "scripts/deployment").glob("*.sh"))
 
-    assert [script.name for script in scripts] == ["dev.sh", "mcp.sh"]
+    assert [script.name for script in scripts] == ["dev.sh", "mcp-ui.sh", "mcp.sh"]
     assert all(script.stat().st_mode & stat.S_IXUSR for script in scripts)
 
 
