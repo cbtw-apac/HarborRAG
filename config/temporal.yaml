@@ -39,6 +39,16 @@ task_queues:
   model: harborrag-model
   index: harborrag-index
 
+# Per-attempt budgets of the two source-level activities whose work grows with
+# the source. Discovery resumes each retry from its last persisted page, so this
+# bounds one attempt, not the whole listing; both heartbeat every 30s, so a dead
+# worker is still caught within 2 minutes. A Jira project lists at roughly 50
+# issues per 10s, so 12h covers about 200k issues in one attempt. Embedded in
+# each root workflow input like the retries below.
+timeouts:
+  discovery_seconds: 43200
+  finalization_seconds: 21600
+
 # These policies are embedded in each root workflow input so an in-flight run
 # keeps replaying with the policy it started with, even if this file changes.
 retries:

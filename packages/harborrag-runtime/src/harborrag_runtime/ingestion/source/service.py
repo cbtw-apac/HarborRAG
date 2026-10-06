@@ -17,7 +17,8 @@ from .discovery import SourceDiscoveryPlanner
 from .documents import SourceDocumentService
 from .finalization import SourceFinalizationService
 from .models import (
-    PlannedDocumentRelease,
+    PlannedDocuments,
+    RelationRepairProgress,
     SourceDiscoveryPage,
     SourceDiscoveryRun,
     SourceDispatchSummary,
@@ -97,7 +98,7 @@ class SourceIngestionService(SourceDocumentOperations):
         outcome = await self.finish(
             request,
             scan_id=discovery.scan_id,
-            planned=discovery.planned,
+            planned=PlannedDocuments.of(discovery.planned),
             summary=SourceDispatchSummary.from_results(results),
         )
         logger.info(
@@ -277,14 +278,16 @@ class SourceIngestionService(SourceDocumentOperations):
         request: SourceIngestionRequest,
         *,
         scan_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
+        repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
         return await self._finalization.finish(
             request,
             scan_id=scan_id,
             planned=planned,
             summary=summary,
+            repair_progress=repair_progress,
         )
 
     async def _initialize(self, request: SourceIngestionRequest) -> None:

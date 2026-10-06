@@ -125,3 +125,32 @@ Callbacks and custom parser objects are Python values and cannot be represented 
 HTTP connectors validate timeouts, retry counts, backoff, page sizes, request rates, and source-specific collection/size limits. Configuration objects are construction recipes, not live mutable controls; construct a new connector after changing settings.
 
 Use [Testing](../../developers/testing/README.md#real-system-smoke-checks) for credentialed connector checks.
+
+### Large runs (tens of thousands of issues, attachments included)
+
+A Jira project of 15,000 issues with attachments discovers a few hundred
+thousand documents. Discovery is checkpointed per provider page and resumes
+after a failure, and each document workflow reads only the plan page that
+holds it, so the run itself is bounded. What decides whether it finishes is
+outside the code:
+
+- **Rehearse with `limit`.** Run the same scope with `query.limit` of a few
+  thousand issues first. It gives the real documents-per-issue ratio, the
+  attachment size distribution, the failure classes (for example legacy `.doc`
+  files, which have no parser) and the throughput of *your* host. Extrapolate
+  from that, not from the issue count.
+- **Throughput is CPU-bound.** OCR of image attachments dominates; on a
+  4-vCPU host with three workers expect roughly half a document per second,
+  which is days for 400,000 documents. A first pass with
+  `include_attachments: false` finishes in hours and a second pass adds the
+  attachments.
+- **Credentials must outlive the run.** A token that expires mid-run fails
+  discovery after its retries. Use a service credential that does not rotate
+  during the run.
+- **Disk.** Every attachment is kept as an immutable artifact (up to
+  `max_attachment_size_bytes` each). Size the object store from the rehearsal.
+- **Why did it stop?** `harborrag ingest status RUN_ID` and the run's event
+  trail record pause, resume and cancel requests with who asked
+  (`task.<id>.control` events). A run that ends with
+  `cancelled_at_safe_boundary` was cancelled on request; it was not a timeout.
+

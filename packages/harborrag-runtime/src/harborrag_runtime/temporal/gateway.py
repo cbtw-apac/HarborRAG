@@ -83,6 +83,7 @@ class TemporalIngestionGateway:
             removal_candidates=result.removal_candidates,
             unresolved_relations=result.unresolved_relations,
             status=result.status,
+            removal_count=result.removal_count,
         )
 
     async def get_progress(self, task_id: str) -> dict[str, int]:

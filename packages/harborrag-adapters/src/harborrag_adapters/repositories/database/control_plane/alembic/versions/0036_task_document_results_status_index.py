@@ -1,0 +1,29 @@
+"""Index task document results by task and status for the progress poll.
+
+Revision ID: 0036
+Revises: 0035
+"""
+
+from __future__ import annotations
+
+from alembic import op
+
+revision = "0036"
+down_revision = "0035"
+branch_labels = None
+depends_on = None
+
+_INDEX = "ix_task_document_results_task_status"
+_TABLE = "task_document_results"
+
+
+def upgrade() -> None:
+    # The progress bridge counts a running task's results per status every few
+    # seconds. The primary key covers task_id but not status, so each poll read
+    # every row of the task; at hundreds of thousands of documents that is a
+    # steady load on the shared database for the whole run.
+    op.create_index(_INDEX, _TABLE, ["task_id", "status"])
+
+
+def downgrade() -> None:
+    op.drop_index(_INDEX, table_name=_TABLE)

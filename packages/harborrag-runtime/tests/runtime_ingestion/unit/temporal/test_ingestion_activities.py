@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_runtime.ingestion.source.models import PlannedDocuments
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
 from harborrag_runtime.temporal.schemas import (
@@ -103,9 +104,19 @@ class RecordingPlans:
         self.calls.append("get")
         return self.planned
 
+    async def documents(self, reference: object, **kwargs: object) -> PlannedDocuments:
+        del reference, kwargs
+        self.calls.append("documents")
+        return PlannedDocuments.of(cast(Any, self.planned))
+
     async def put(self, **kwargs: object) -> object:
         del kwargs
         self.calls.append("put")
+        return self.put_reference
+
+    async def put_pages_and_index(self, **kwargs: object) -> object:
+        del kwargs
+        self.calls.append("put_pages_and_index")
         return self.put_reference
 
 

@@ -44,6 +44,15 @@ task_queues:
   model: harborrag-model
   index: harborrag-index
 
+timeouts:
+  # Per-attempt budgets (60s to 7 days) of the source-level activities whose
+  # work grows with the source. Discovery resumes each retry from its last
+  # persisted page, so this bounds one attempt, not the whole listing. Both
+  # heartbeat, so a dead worker is caught within 2 minutes regardless.
+  # Defaults when omitted: discovery 1800, finalization 900.
+  discovery_seconds: 43200
+  finalization_seconds: 21600
+
 retries:
   # maximum_attempts counts the initial execution, so 8 means one initial
   # attempt plus at most 7 retries.

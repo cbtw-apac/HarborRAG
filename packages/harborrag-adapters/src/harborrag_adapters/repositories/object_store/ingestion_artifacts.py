@@ -96,6 +96,10 @@ class IngestionArtifactLayout:
         return f"source-plans/{task_id}/{scan_id}.json"
 
     @staticmethod
+    def source_plan_index(task_id: str, scan_id: str) -> str:
+        return f"source-plans/{task_id}/{scan_id}/index.json"
+
+    @staticmethod
     def source_plan_page(task_id: str, scan_id: str, page_number: int) -> str:
         if page_number < 0:
             raise ValueError("source plan page number must not be negative")

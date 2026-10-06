@@ -10,7 +10,8 @@ from harborrag_core.ingestion import BindingKind, IngestionTaskState
 
 from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
 from .models import (
-    PlannedDocumentRelease,
+    PlannedDocuments,
+    RelationRepairProgress,
     SourceDispatchSummary,
     SourceIngestionOutcome,
     SourceIngestionRequest,
@@ -40,21 +41,24 @@ class SourceFinalizationService:
         request: SourceIngestionRequest,
         *,
         scan_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
+        repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
-        summary.require_total(len(planned))
+        summary.require_total(planned.document_count)
         logger.info(
             "Source finalization started task_id=%s scan_id=%s documents=%d",
             request.task_id,
             scan_id,
-            len(planned),
+            planned.document_count,
         )
         await self._control.tasks.update_summary(
             request.task_id,
             {"stage": "RECONCILING"},
         )
-        relation_repair = await self._repair_relations(request, planned, summary)
+        relation_repair = await self._repair_relations(
+            request, planned, summary, repair_progress or RelationRepairProgress()
+        )
         removals = await self._reconcile_removals(
             request,
             scan_id=scan_id,
@@ -69,8 +73,8 @@ class SourceFinalizationService:
             summary.task_state(),
             summary={
                 "stage": "COMPLETED",
-                "discovered": len(planned),
-                "admitted": len(planned),
+                "discovered": planned.document_count,
+                "admitted": planned.document_count,
                 "published": summary.published,
                 "unchanged": summary.unchanged,
                 "failed": summary.failed,
@@ -81,7 +85,7 @@ class SourceFinalizationService:
         outcome = SourceIngestionOutcome(
             task_id=request.task_id,
             scan_id=scan_id,
-            discovered=len(planned),
+            discovered=planned.document_count,
             published=summary.published,
             unchanged=summary.unchanged,
             failed=summary.failed,
@@ -102,15 +106,27 @@ class SourceFinalizationService:
     async def _repair_relations(
         self,
         request: SourceIngestionRequest,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
+        progress: RelationRepairProgress,
     ) -> RelationRepairResult | None:
         if self._relations is None:
             return None
         try:
-            return await self._relations.repair(
-                planned,
-                tenant_id=request.tenant_id,
+            # Page by page: every document is already published, so no repair
+            # depends on another page's, and memory stays bounded by one page.
+            # ``progress`` is updated in place after each page; the caller may
+            # persist it (the Temporal activity heartbeats it) to resume here.
+            async for page in planned.pages(progress.next_page):
+                result = await self._relations.repair(page, tenant_id=request.tenant_id)
+                progress.repaired_documents += result.repaired_documents
+                progress.resolved_relations += result.resolved_relations
+                progress.unresolved_relations += result.unresolved_relations
+                progress.next_page += 1
+            return RelationRepairResult(
+                repaired_documents=progress.repaired_documents,
+                resolved_relations=progress.resolved_relations,
+                unresolved_relations=progress.unresolved_relations,
             )
         except Exception as error:
             logger.error(
@@ -149,7 +165,7 @@ class SourceFinalizationService:
         request: SourceIngestionRequest,
         *,
         scan_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
     ) -> tuple[str, ...]:
         try:
@@ -186,12 +202,12 @@ class SourceFinalizationService:
     async def _record_failure(
         self,
         task_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
         *,
         failed_stage: str,
     ) -> None:
-        discovered = len(planned)
+        discovered = planned.document_count
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.FAILED,

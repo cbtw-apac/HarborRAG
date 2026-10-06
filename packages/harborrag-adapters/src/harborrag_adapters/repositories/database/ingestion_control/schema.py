@@ -233,6 +233,14 @@ TASK_DOCUMENT_RESULTS = Table(
     Column("result", JSON, nullable=False, default=dict),
     Column("completed_at", UTCDateTime(), nullable=False),
 )
+# Progress is a count per status over one task, polled every few seconds while
+# the task runs. Without this the poll reads every result row of the task from
+# the heap; with it the count is answered from the index alone.
+Index(
+    "ix_task_document_results_task_status",
+    TASK_DOCUMENT_RESULTS.c.task_id,
+    TASK_DOCUMENT_RESULTS.c.status,
+)
 
 DOCUMENT_FAILURES = Table(
     "document_failures",
