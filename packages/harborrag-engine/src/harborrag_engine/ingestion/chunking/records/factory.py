@@ -232,14 +232,18 @@ class CanonicalChunkFactory:
     @staticmethod
     def _relations(request: ChunkingRequest) -> tuple[ChunkRelation, ...]:
         supported = {relation.value: relation for relation in RelationType}
-        return tuple(
-            ChunkRelation(
-                relation_type=supported[relation.predicate],
-                target_id=relation.target_id,
-            )
-            for relation in request.document.relations
-            if relation.predicate in supported
-        )
+        # A chunk relation is keyed by type and target, so two source links that
+        # differ only in provenance -- e.g. two separate Jira "relates to" links to
+        # the same issue -- collapse to one. ChunkRecord rejects duplicates.
+        unique: dict[tuple[str, str], ChunkRelation] = {}
+        for relation in request.document.relations:
+            key = (relation.predicate, relation.target_id)
+            if relation.predicate in supported and key not in unique:
+                unique[key] = ChunkRelation(
+                    relation_type=supported[relation.predicate],
+                    target_id=relation.target_id,
+                )
+        return tuple(unique.values())
 
     @classmethod
     def _metadata(cls, values: CanonicalChunkInput) -> dict[str, object]:
