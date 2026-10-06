@@ -194,8 +194,17 @@ async def test_cancel_and_retry_apply_postgres_state_rules(
     service, control, temporal = service_resources
     accepted = await service.submit(_command(), idempotency_key=None)
     task_id = str(accepted["task_id"])
-    await service.cancel(task_id)
+    await service.cancel(task_id, actor="ops@laptop")
     assert temporal.cancelled == [task_id]
+    # Who asked is now on the run's own trail, next to its progress events.
+    control_events = [
+        event
+        for event in await control.task_events.list_events(task_id)
+        if event.name == f"task.{task_id}.control"
+    ]
+    assert [event.payload for event in control_events] == [
+        {"action": "cancel", "actor": "ops@laptop"}
+    ]
 
     await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
     await control.tasks.record_document_result(

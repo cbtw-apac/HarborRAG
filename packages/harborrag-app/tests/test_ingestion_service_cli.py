@@ -79,6 +79,9 @@ class FakeTaskRegistry:
     async def register(self, source: SourceIngestionInput) -> None:
         del source
 
+    async def append_task_event(self, task_id: str, event: object) -> object:
+        return event
+
     async def close(self) -> None:
         return None
 

@@ -11,6 +11,7 @@ from harborrag_core.contracts.errors import (
     HarborConnectionError,
     HarborValidationError,
 )
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
 from harborrag_runtime.config.errors import ConnectorConfigurationError
@@ -56,6 +57,27 @@ logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
 _SUBMISSION_STATE_KEY = "submission_state"
 _SUBMITTED = "submitted"
+
+
+async def record_control_action(
+    store: PublicTaskStore, task_id: str, *, action: str, actor: str | None
+) -> None:
+    """Append who asked for pause/resume/cancel to the run's own event trail.
+
+    ``cancelled_at_safe_boundary`` used to be the only trace a cancellation
+    left, with nothing saying whether an operator, the API or a script asked
+    for it. The event sits next to the run's progress events, where anyone
+    asking "why did this stop" already looks.
+    """
+
+    await store.append_task_event(
+        task_id,
+        HarborEvent(
+            name=f"task.{task_id}.control",
+            trace_id=task_id,
+            payload={"action": action, "actor": actor or "unknown"},
+        ),
+    )
 
 
 class IngestionApplicationService(TaskListingMixin):
@@ -215,7 +237,7 @@ class IngestionApplicationService(TaskListingMixin):
             )
         return {"items": items, "next_cursor": next_cursor}
 
-    async def pause(self, task_id: str) -> dict[str, object]:
+    async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
@@ -224,13 +246,14 @@ class IngestionApplicationService(TaskListingMixin):
             await (await self._client_provider()).pause(task_id)
         except WorkflowOperationError as error:
             raise HarborConnectionError("Ingestion pause is temporarily unavailable.") from error
+        await record_control_action(store, task_id, action="pause", actor=actor)
         return {
             "task_id": task.task_id,
             "status": STATUS_NAMES[task.status],
             "message": "Pause requested",
         }
 
-    async def resume(self, task_id: str) -> dict[str, object]:
+    async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
@@ -239,13 +262,14 @@ class IngestionApplicationService(TaskListingMixin):
             await (await self._client_provider()).resume(task_id)
         except WorkflowOperationError as error:
             raise HarborConnectionError("Ingestion resume is temporarily unavailable.") from error
+        await record_control_action(store, task_id, action="resume", actor=actor)
         return {
             "task_id": task.task_id,
             "status": STATUS_NAMES[task.status],
             "message": "Resume requested",
         }
 
-    async def cancel(self, task_id: str) -> dict[str, object]:
+    async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
@@ -256,6 +280,7 @@ class IngestionApplicationService(TaskListingMixin):
             raise HarborConnectionError(
                 "Ingestion cancellation is temporarily unavailable."
             ) from error
+        await record_control_action(store, task_id, action="cancel", actor=actor)
         return {
             "task_id": task.task_id,
             "status": STATUS_NAMES[task.status],
