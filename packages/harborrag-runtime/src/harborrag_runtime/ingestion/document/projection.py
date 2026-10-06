@@ -56,19 +56,15 @@ class DocumentProjectionStages:
     ) -> None:
         if not prepared.requires_processing:
             return
-        material = await self._material.load(request, prepared)
-        graph = self._material.graph(request, material)
-        reference = await self._dependencies.projection_artifacts.put_relations(
-            document_id=prepared.document_id,
-            document_version_id=prepared.document_version_id,
-            relations=graph.relations,
-            context=self._material.context(request),
-        )
+        del request
+        # Only the state step remains, so a FAILED version still re-enters replay
+        # here. The relations it used to build and store were write-only: nothing
+        # reads the relation artifact, build_projections rebuilds the same graph, and
+        # graph.jsonl carries the edges. Skipping it saves a full reload of canonical,
+        # chunks and representations per document.
         await self._lifecycle.advance(
             prepared.document_version_id,
             DocumentVersionState.REPRESENTATIONS_READY,
-            artifact_column="relation_artifact",
-            artifact=reference,
         )
 
     async def build_projections(
@@ -230,10 +226,19 @@ class DocumentProjectionStages:
         )
         if snapshot is None:
             raise RuntimeError("publication candidate disappeared")
+        is_current_active = False
+        if snapshot.state == DocumentVersionState.ACTIVE:
+            active = await self._dependencies.control.document_versions.active_snapshot(
+                prepared.document_id
+            )
+            is_current_active = active is not None and str(active.document_version_id) == str(
+                prepared.document_version_id
+            )
         self._publication.require_publishable(
             decision=prepared.decision,
             state=snapshot.state,
             requires_processing=prepared.requires_processing,
+            is_current_active=is_current_active,
         )
         publication = await self._dependencies.control.publisher.publish(
             document_id=prepared.document_id,

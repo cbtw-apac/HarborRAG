@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from hashlib import sha256
 
@@ -14,6 +15,8 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.ports.storage import ObjectStorePort
 from harborrag_core.schemas.object_store import PutObjectRequest
 from harborrag_core.storage import StorageOperationContext
+
+logger = logging.getLogger("harborrag.storage.artifacts")
 
 RAW_BUCKET = "harborrag-raw"
 ARTIFACT_BUCKET = "harborrag-artifacts"
@@ -110,7 +113,16 @@ class ImmutableArtifactWriter:
         artifact: ImmutableArtifact,
         *,
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ArtifactReference:
+        """Write ``artifact`` once; an identical replay returns the stored reference.
+
+        ``adopt_existing`` makes the first writer win when the key already holds
+        different bytes: the existing object is returned instead of a conflict. Only
+        a caller whose control plane has not yet recorded any object at this key may
+        ask for it, so nothing can already depend on the bytes being replaced.
+        """
+
         checksum = sha256(artifact.payload).hexdigest()
         request = PutObjectRequest(
             bucket=artifact.bucket,
@@ -125,11 +137,10 @@ class ImmutableArtifactWriter:
             stored = await self._store.put(request, context=context)
         except HarborStorageAlreadyExistsError:
             return await self._resolve_replay(
-                bucket=artifact.bucket,
-                key=artifact.key,
+                artifact,
                 checksum=checksum,
-                media_type=artifact.media_type,
                 context=context,
+                adopt_existing=adopt_existing,
             )
         return ArtifactReference(
             bucket=artifact.bucket,
@@ -141,25 +152,33 @@ class ImmutableArtifactWriter:
 
     async def _resolve_replay(
         self,
+        artifact: ImmutableArtifact,
         *,
-        bucket: str,
-        key: str,
         checksum: str,
-        media_type: str,
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ArtifactReference:
+        bucket, key = artifact.bucket, artifact.key
         metadata = await self._store.head(bucket, key, context=context)
         existing_checksum = metadata.metadata.get("sha256") or metadata.reference.checksum_sha256
         if existing_checksum != checksum:
-            raise HarborConflictError(
-                f"immutable artifact key already contains different content: {bucket}/{key}"
+            if not adopt_existing or not existing_checksum:
+                raise HarborConflictError(
+                    f"immutable artifact key already contains different content: {bucket}/{key}"
+                )
+            logger.warning(
+                "Adopting the existing immutable artifact written by an earlier attempt "
+                "bucket=%s key=%s",
+                bucket,
+                key,
             )
+            checksum = existing_checksum
         return ArtifactReference(
             bucket=bucket,
             key=key,
             sha256=checksum,
             byte_size=metadata.reference.size_bytes,
-            media_type=metadata.reference.content_type or media_type,
+            media_type=metadata.reference.content_type or artifact.media_type,
         )
 
 
