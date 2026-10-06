@@ -225,6 +225,26 @@ _SOURCE = {
             "format": "date-time",
         },
         "active_document_count": {"type": "integer", "minimum": 0},
+        # The closed facet vocabulary find_entities filters this source's entities
+        # by; empty when the source declares none, which is the common case.
+        "entity_facets": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "required": ["name", "type", "field"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "type": {"type": "string", "enum": ["text", "integer"]},
+                    "field": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "entity_summaries": {
+            "type": ["string", "null"],
+            "enum": ["disabled", "idle", "queued", "running", "blocked", "failed", None],
+        },
     },
     "additionalProperties": False,
 }
@@ -233,7 +253,11 @@ LIST_SOURCES_SPEC = ToolSpec(
     "list_sources",
     "List corpus scopes readable by the authenticated principal, with safe connector and "
     "freshness metadata. Source IDs can be used as source_scope_id filters in vector_search "
-    "and resolve_graph_nodes. Connection configuration and storage addresses are excluded.",
+    "and resolve_graph_nodes. Each source also lists entity_facets -- the facet names and "
+    "types find_entities accepts for its entities (field is the connector field each is "
+    "copied from) -- and entity_summaries: disabled means its entities have no summaries, "
+    "so find_entities cannot reach them and vector_search is the way in. Connection "
+    "configuration and storage addresses are excluded.",
     {
         "type": "object",
         "required": ["tenant_id"],

@@ -15,9 +15,17 @@ permission validation and loading as every other candidate.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from harborrag_core.contracts.reader import (
+    ENTITIES_WITHOUT_RELEASED_EVIDENCE,
+    ENTITY_INDEX_UNAVAILABLE,
+    EntityFindRequest,
+    EntityFindResponse,
+    EntityMatch,
+)
 from harborrag_core.indexing import (
     FilterOperator,
     VectorFilter,
@@ -29,6 +37,7 @@ from harborrag_core.ingestion import DocumentIdentityBuilder
 from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.storage import StorageOperationContext
+from harborrag_core.summaries import SummaryCard
 from harborrag_core.topology.derived import (
     ENTITY_SUMMARY_RECORD_KIND,
     ContextualIndexProfile,
@@ -199,11 +208,109 @@ class EntitySummarySearch:
 
         Returns routing data only. Whether any of it may be *shown* is the summary
         authority's call, made per request by the caller that holds the access.
+        A missing index ranks nothing here; ``find`` is where that is reported.
         """
+
+        return await self._rank(dense_vector, context, facet_filter, limit=limit) or ()
+
+    async def find(
+        self,
+        request: EntityFindRequest,
+        request_id: str,
+        dense_vector: tuple[float, ...],
+        context: StorageOperationContext,
+    ) -> EntityFindResponse:
+        """Answer ``find_entities``: rank entity points, keep what the authority releases.
+
+        Three different situations used to produce the same empty, *complete*
+        answer -- no index published for this tenant, nothing matched, and hits
+        whose cards the authority would not release -- so a caller could not tell
+        "the corpus has no such candidate" from "entity search cannot answer yet;
+        use chunk search". They are told apart here with reason codes.
+
+        Released-nothing hits are counted only for a tenant-shared corpus. There
+        every principal reads every released card, so a withheld hit can only mean
+        a card not yet written or gone stale. Under source ACLs the same count
+        would tell a principal how many entities they may not see match their
+        facets, so those hits stay silently absent, as the authority intends.
+        """
+
+        facet_filter = facet_filter_from_mapping(request.facets, request.source_scope_ids)
+        hits = await self._rank(dense_vector, context, facet_filter, limit=request.limit + 1)
+        if hits is None:
+            return EntityFindResponse(request_id, (), reasons=(ENTITY_INDEX_UNAVAILABLE,))
+        if not hits:
+            return EntityFindResponse(request_id, ())
+        tenant_id = str(request.access.tenant_id)
+        keys = tuple(hit.node_key for hit in hits)
+        evidence, views = await asyncio.gather(
+            self.summaries.entity_evidence(tenant_id, keys, access=request.access),
+            self.summaries.views(tenant_id, keys, access=request.access),
+        )
+        matches: list[EntityMatch] = []
+        withheld = 0
+        for hit in hits:
+            if len(matches) == request.limit:
+                break
+            chunks = evidence.get(hit.node_key)
+            view = views.get(hit.node_key)
+            if not chunks or view is None or view.card is None:
+                withheld += 1
+                continue
+            matches.append(
+                self._match(hit, view.card, view.coverage_mode, chunks, rank=len(matches) + 1)
+            )
+        truncated = len(hits) > request.limit
+        if not withheld or request.access.corpus_mode != "tenant_shared":
+            return EntityFindResponse(request_id, tuple(matches), truncated=truncated)
+        return EntityFindResponse(
+            request_id,
+            tuple(matches),
+            truncated=truncated,
+            reasons=(ENTITIES_WITHOUT_RELEASED_EVIDENCE,),
+            withheld_count=withheld,
+        )
+
+    def _match(  # noqa: PLR0913 - the parts of one released match
+        self,
+        hit: EntityHit,
+        card: SummaryCard,
+        coverage_mode: str | None,
+        chunks: tuple[str, ...],
+        *,
+        rank: int,
+    ) -> EntityMatch:
+        return EntityMatch(
+            node_key=hit.node_key,
+            source_scope_id=hit.source_scope_id,
+            rank=rank,
+            score=hit.score,
+            description=card.description,
+            coverage_mode=coverage_mode,
+            attributes=tuple(
+                {
+                    "name": item.name,
+                    "values": list(item.values),
+                    "from_document_ids": list(item.from_document_ids),
+                }
+                for item in card.attributes
+            ),
+            evidence_chunk_ids=chunks[: self.max_chunks_per_entity],
+        )
+
+    async def _rank(
+        self,
+        dense_vector: tuple[float, ...],
+        context: StorageOperationContext,
+        facet_filter: VectorFilter | None,
+        *,
+        limit: int | None,
+    ) -> tuple[EntityHit, ...] | None:
+        """Ranked hits, or ``None`` when this tenant has no entity index at all."""
 
         index = self.profile.entity_index_name
         if not await self.vectors.index_exists(index, context=context):
-            return ()
+            return None
         filters = VectorFilter(
             must=[
                 VectorFilterCondition(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import replace
 from time import perf_counter
@@ -13,7 +12,6 @@ from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_core.contracts.reader import (
     EntityFindRequest,
     EntityFindResponse,
-    EntityMatch,
     EntityResolveResponse,
     EvidenceFetchResponse,
     RelationSearchResponse,
@@ -46,7 +44,7 @@ from .contracts import (
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
-from .entity_summary import facet_filter_from_mapping, split_facet_filters
+from .entity_summary import split_facet_filters
 from .errors import no_entity_index, no_indexed_content
 from .evidence import budget_diagnostics, build_evidence_bundle, select_evidence
 from .graph_observation import GraphObservation, GraphObserver
@@ -60,7 +58,6 @@ from .source_fields import SourceFieldTrace, split_field_filters
 from .topology import TopologyRetrieval
 from .validation import validate_retrieval_request
 
-_ENTITY_EVIDENCE_PREVIEW = 8
 _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
     candidate_count=0,
     accepted_count=0,
@@ -163,7 +160,9 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         authority answers "which of those may this principal see, and with what
         evidence". Nothing from the index is returned unless the authority
         released it, so an entity whose binding is stale or private is simply
-        absent, not shown without its evidence.
+        absent, not shown without its evidence. A missing index, and (on a shared
+        corpus) hits nothing was released for, come back as reason codes rather
+        than as an empty answer that looks complete -- see ``EntitySummarySearch.find``.
         """
 
         request_id = f"entities-{uuid4().hex}"
@@ -174,47 +173,8 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             tenant_id=str(request.access.tenant_id),
             access=request.access,
         )
-        facet_filter = facet_filter_from_mapping(request.facets, request.source_scope_ids)
         dense_vector = await self._result_loader.dense_vector(request.query)
-        hits = await self._entities.ranked_entities(
-            dense_vector, context, facet_filter, limit=request.limit + 1
-        )
-        keys = tuple(hit.node_key for hit in hits)
-        if not keys:
-            return EntityFindResponse(request_id, ())
-        tenant_id = str(request.access.tenant_id)
-        evidence, views = await asyncio.gather(
-            self._summaries.entity_evidence(tenant_id, keys, access=request.access),
-            self._summaries.views(tenant_id, keys, access=request.access),
-        )
-        matches: list[EntityMatch] = []
-        for hit in hits:
-            chunks = evidence.get(hit.node_key)
-            view = views.get(hit.node_key)
-            if not chunks or view is None or view.card is None:
-                continue
-            matches.append(
-                EntityMatch(
-                    node_key=hit.node_key,
-                    source_scope_id=hit.source_scope_id,
-                    rank=len(matches) + 1,
-                    score=hit.score,
-                    description=view.card.description,
-                    coverage_mode=view.coverage_mode,
-                    attributes=tuple(
-                        {
-                            "name": item.name,
-                            "values": list(item.values),
-                            "from_document_ids": list(item.from_document_ids),
-                        }
-                        for item in view.card.attributes
-                    ),
-                    evidence_chunk_ids=chunks[:_ENTITY_EVIDENCE_PREVIEW],
-                )
-            )
-            if len(matches) == request.limit:
-                break
-        return EntityFindResponse(request_id, tuple(matches), truncated=len(hits) > request.limit)
+        return await self._entities.find(request, request_id, dense_vector, context)
 
     @property
     def vector_repository(self) -> VectorRepositoryPort:

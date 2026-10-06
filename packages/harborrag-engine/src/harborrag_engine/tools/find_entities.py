@@ -61,8 +61,14 @@ FIND_ENTITIES_SPEC = ToolSpec(
     "Use for questions about whole entities -- which candidates fit a role, which issues "
     "concern a topic -- rather than for finding one passage. Each match returns the "
     "entity's summary, its facets and the evidence chunk ids released for it; pass those "
-    "ids to fetch_evidence to cite. Facet names are the ones the source scope declares; "
-    "a text facet takes a value or a list of values, an integer facet takes gte/gt/lte/lt.",
+    "ids to fetch_evidence to cite. Facet names and types are the ones each source "
+    "declares, listed per source by list_sources as entity_facets; a text facet takes a "
+    "value or a list of values (matched case-insensitively), an integer facet takes "
+    "gte/gt/lte/lt. An empty answer is only conclusive when completion.complete is true. "
+    "Reason entity_index_unavailable means no entity index has been built for this tenant "
+    "yet, and entities_without_released_evidence means some ranked entities have no "
+    "current summary yet (withheld_entity_count says how many): in both cases answer "
+    "with vector_search instead of concluding that nothing matches.",
     {
         "type": "object",
         "required": ["tenant_id", "query"],
@@ -98,6 +104,9 @@ FIND_ENTITIES_SPEC = ToolSpec(
                 "ok": {"const": True},
                 "request_id": {"type": "string", "minLength": 1},
                 "contract_revision": {"type": "string"},
+                # Ranked entities left out for want of a released summary; non-zero
+                # only alongside the entities_without_released_evidence reason.
+                "withheld_entity_count": {"type": "integer", "minimum": 0},
                 "matches": {
                     "type": "array",
                     "maxItems": ENTITY_FIND_LIMIT,
@@ -183,6 +192,10 @@ class FindEntitiesTool(ReaderTool):
                 limit=integer(arguments, "limit", 10, minimum=1, maximum=ENTITY_FIND_LIMIT),
             )
             response = await self.require_retrieval().find_entities(request)
+            # Truncation is one reason among several: a missing index or hits with
+            # no released summary leave the answer short too, and an empty list
+            # must not read as "nothing matched" when it is "could not look".
+            reasons = [*response.reasons, *(["candidate_limit"] if response.truncated else [])]
             return success(
                 response.request_id,
                 {
@@ -198,10 +211,11 @@ class FindEntitiesTool(ReaderTool):
                             "evidence_chunk_ids": list(match.evidence_chunk_ids),
                         }
                         for match in response.matches
-                    ]
+                    ],
+                    "withheld_entity_count": response.withheld_count,
                 },
-                complete=not response.truncated,
-                reasons=[] if not response.truncated else ["candidate_limit"],
+                complete=not reasons,
+                reasons=reasons,
             )
         except (HarborValidationError, ValueError) as exc:
             return failure(str(exc))

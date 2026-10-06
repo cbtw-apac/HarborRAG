@@ -265,6 +265,8 @@ __all__ = [
     "EvidenceFetchRequest",
     "EvidenceFetchResponse",
     "ENTITY_FIND_LIMIT",
+    "ENTITIES_WITHOUT_RELEASED_EVIDENCE",
+    "ENTITY_INDEX_UNAVAILABLE",
     "EntityFindRequest",
     "EntityFindResponse",
     "EntityMatch",
@@ -356,11 +358,23 @@ class EntityMatch:
     evidence_chunk_ids: tuple[str, ...]
 
 
+# Why an entity answer may hold fewer matches than the corpus does. Without them
+# "no index has been built" and "nothing matched" were the same empty, complete
+# answer, so a caller had no reason to fall back to chunk search.
+ENTITY_INDEX_UNAVAILABLE = "entity_index_unavailable"
+ENTITIES_WITHOUT_RELEASED_EVIDENCE = "entities_without_released_evidence"
+
+
 @dataclass(frozen=True, slots=True)
 class EntityFindResponse:
     request_id: str
     matches: tuple[EntityMatch, ...]
     truncated: bool = False
+    # Incompleteness other than truncation, as the ``ENTITY_*`` reason codes above.
+    reasons: tuple[str, ...] = ()
+    # Ranked entities left out because the summary authority released no card or
+    # evidence for them -- counted only where that cannot reveal a private entity.
+    withheld_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

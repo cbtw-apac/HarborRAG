@@ -15,6 +15,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
     ReadableSource,
 )
+from harborrag_core.ingestion.source_catalog import SourceEntityFacet
 from harborrag_engine.tools.reader_catalog import (
     FETCH_EVIDENCE_SPEC,
     GET_DOCUMENT_CONTEXT_SPEC,
@@ -122,6 +123,12 @@ class FakeReaderKnowledge:
             ingestion_state="COMPLETED",
             last_source_check_at=datetime(2026, 9, page, tzinfo=UTC),
             active_document_count=page,
+            entity_facets=(
+                (SourceEntityFacet(name="skill_set", type="text", field="Skill Set"),)
+                if page == 1
+                else ()
+            ),
+            entity_summaries="idle" if page == 1 else "disabled",
         )
         return SourceListResponse(f"sources-{page}", (value,), has_more=page == 1)
 
@@ -372,6 +379,16 @@ async def test_source_pagination_and_graph_resolution_are_explicit() -> None:
 
     assert [item["source_id"] for item in sources["sources"]] == ["source-1"]
     assert [item["source_id"] for item in next_sources["sources"]] == ["source-2"]
+    # The facet vocabulary find_entities filters by is discoverable per source.
+    assert sources["sources"][0]["entity_facets"] == [
+        {"name": "skill_set", "type": "text", "field": "Skill Set"}
+    ]
+    assert sources["sources"][0]["entity_summaries"] == "idle"
+    assert next_sources["sources"][0]["entity_facets"] == []
+    assert next_sources["sources"][0]["entity_summaries"] == "disabled"
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(sources, LIST_SOURCES_SPEC.output_schema)
+    jsonschema.validate(next_sources, LIST_SOURCES_SPEC.output_schema)
     assert resolved["resolution"] == "ambiguous"
     assert [item["node_key"] for item in resolved["candidates"]] == ["node-1", "node-2"]
     assert all(item["content_availability"] == "unknown" for item in resolved["candidates"])

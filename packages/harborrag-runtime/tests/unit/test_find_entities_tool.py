@@ -4,12 +4,16 @@ import pytest
 from test_entity_summary_search import PROFILE, Vectors, entity_hit
 
 from harborrag_core.contracts.reader import (
+    ENTITIES_WITHOUT_RELEASED_EVIDENCE,
+    ENTITY_INDEX_UNAVAILABLE,
     EntityFindRequest,
     EntityFindResponse,
     EntityMatch,
 )
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition
+from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
+from harborrag_core.summaries import SummaryAttribute, SummaryCard, SummaryView
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.find_entities import FindEntitiesTool
 from harborrag_engine.tools.references import KnowledgeReferenceStore
@@ -126,3 +130,145 @@ async def test_ranked_hits_carry_scope_and_coverage_and_drop_foreign_points() ->
     assert [(hit.node_key, hit.source_scope_id, hit.coverage_mode) for hit in hits] == [
         ("node-a", "scope", "complete")
     ]
+
+
+class Unindexed(Retrieval):
+    """A retrieval backend whose tenant has no entity index published yet."""
+
+    async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
+        self.requests.append(request)
+        return EntityFindResponse("entities-2", (), reasons=(ENTITY_INDEX_UNAVAILABLE,))
+
+
+@pytest.mark.asyncio
+async def test_a_missing_index_is_an_incomplete_answer_not_an_empty_one() -> None:
+    tool = FindEntitiesTool(retrieval=Unindexed(), references=KnowledgeReferenceStore())
+    result = await tool.call({"tenant_id": "AUTA-5", "query": "java"}, principal_id="p")
+    assert result["ok"] is True
+    assert result["matches"] == []
+    assert result["withheld_entity_count"] == 0
+    # "Could not look" must never read as "nothing matched".
+    assert result["completion"] == {"complete": False, "reasons": [ENTITY_INDEX_UNAVAILABLE]}
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(result, tool.spec.output_schema)
+
+
+def test_the_description_says_when_to_fall_back_to_chunk_search() -> None:
+    tools = build_reader_tool_catalog(None, KnowledgeReferenceStore())
+    spec = next(tool.spec for tool in tools if tool.spec.name == "find_entities")
+    assert ENTITY_INDEX_UNAVAILABLE in spec.description
+    assert "vector_search" in spec.description
+    assert "list_sources" in spec.description
+
+
+class Released:
+    """The authority releases a card and evidence only for the keys it is given."""
+
+    def __init__(self, released: set[str]) -> None:
+        self.released = released
+
+    async def entity_evidence(self, tenant_id, node_keys, *, access):
+        return {key: ("chunk-" + key,) for key in node_keys if key in self.released}
+
+    async def views(self, tenant_id, node_keys, *, access, source_scopes=None):
+        card = SummaryCard(
+            description="Senior Java engineer.",
+            attributes=(SummaryAttribute(name="skill_set", values=("BE-Java",)),),
+        )
+        return {
+            key: SummaryView(status="current", card=card, coverage_mode="complete")
+            for key in node_keys
+            if key in self.released
+        }
+
+
+def _request(corpus_mode: str = "tenant_shared", limit: int = 5) -> EntityFindRequest:
+    access = AccessContext(tenant_id="DEFAULT", principal_id="p", corpus_mode=corpus_mode)
+    return EntityFindRequest(access=access, query="java", limit=limit)
+
+
+@pytest.mark.asyncio
+async def test_find_reports_a_tenant_without_an_entity_index() -> None:
+    search = EntitySummarySearch(Released(set()), Vectors(), PROFILE)
+    response = await search.find(
+        _request(), "entities-x", (1.0, 0.0), StorageOperationContext.system("DEFAULT")
+    )
+    assert response.matches == ()
+    assert response.reasons == (ENTITY_INDEX_UNAVAILABLE,)
+
+
+@pytest.mark.asyncio
+async def test_an_existing_index_with_no_match_is_a_complete_empty_answer() -> None:
+    vectors = Vectors(records={PROFILE.entity_index_name: {}}, hits=())
+    search = EntitySummarySearch(Released(set()), vectors, PROFILE)
+    response = await search.find(
+        _request(), "entities-x", (1.0, 0.0), StorageOperationContext.system("DEFAULT")
+    )
+    assert response.matches == () and response.reasons == () and not response.truncated
+
+
+@pytest.mark.asyncio
+async def test_hits_with_no_released_summary_are_counted_on_a_shared_corpus() -> None:
+    vectors = Vectors(
+        records={PROFILE.entity_index_name: {}},
+        hits=(entity_hit("node-a"), entity_hit("node-b"), entity_hit("node-c")),
+    )
+    search = EntitySummarySearch(Released({"node-b"}), vectors, PROFILE)
+    response = await search.find(
+        _request(), "entities-x", (1.0, 0.0), StorageOperationContext.system("DEFAULT")
+    )
+    assert [match.node_key for match in response.matches] == ["node-b"]
+    assert response.matches[0].rank == 1
+    assert response.matches[0].evidence_chunk_ids == ("chunk-node-b",)
+    assert response.matches[0].attributes[0]["values"] == ["BE-Java"]
+    assert response.reasons == (ENTITIES_WITHOUT_RELEASED_EVIDENCE,)
+    assert response.withheld_count == 2
+
+    tool = FindEntitiesTool(retrieval=_Fixed(response), references=KnowledgeReferenceStore())
+    result = await tool.call({"tenant_id": "DEFAULT", "query": "java"}, principal_id="p")
+    assert result["withheld_entity_count"] == 2
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(result, tool.spec.output_schema)
+    assert result["completion"] == {
+        "complete": False,
+        "reasons": [ENTITIES_WITHOUT_RELEASED_EVIDENCE],
+    }
+
+
+@pytest.mark.asyncio
+async def test_unreleased_hits_stay_silent_under_source_acls() -> None:
+    """Under source ACLs a count would say how many private entities match."""
+
+    vectors = Vectors(
+        records={PROFILE.entity_index_name: {}},
+        hits=(entity_hit("node-a"), entity_hit("node-b")),
+    )
+    search = EntitySummarySearch(Released({"node-b"}), vectors, PROFILE)
+    response = await search.find(
+        _request("source_acl"), "entities-x", (1.0, 0.0), StorageOperationContext.system("DEFAULT")
+    )
+    assert [match.node_key for match in response.matches] == ["node-b"]
+    assert response.reasons == () and response.withheld_count == 0
+
+
+@pytest.mark.asyncio
+async def test_more_released_entities_than_the_limit_is_truncation() -> None:
+    vectors = Vectors(
+        records={PROFILE.entity_index_name: {}},
+        hits=(entity_hit("node-a"), entity_hit("node-b"), entity_hit("node-c")),
+    )
+    search = EntitySummarySearch(Released({"node-a", "node-b", "node-c"}), vectors, PROFILE)
+    response = await search.find(
+        _request(limit=2), "entities-x", (1.0, 0.0), StorageOperationContext.system("DEFAULT")
+    )
+    assert [match.node_key for match in response.matches] == ["node-a", "node-b"]
+    assert response.truncated and response.reasons == ()
+
+
+class _Fixed(Retrieval):
+    def __init__(self, response: EntityFindResponse) -> None:
+        super().__init__()
+        self.response = response
+
+    async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
+        return self.response
