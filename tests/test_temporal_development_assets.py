@@ -73,10 +73,15 @@ def test_temporal_secret_is_explicitly_scoped_to_api_and_worker() -> None:
 def test_temporal_compose_mounts_its_required_dynamic_config() -> None:
     temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
     dynamic_config = ROOT / "deploy/temporal/dynamicconfig/development-sql.yaml"
+    dynamic_config_text = dynamic_config.read_text(encoding="utf-8")
 
     assert "DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml" in temporal
     assert "../temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro" in temporal
     assert dynamic_config.is_file()
+    # Without this, native PauseWorkflowExecution/UnpauseWorkflowExecution fail
+    # as UNIMPLEMENTED and the Temporal UI never leaves RUNNING for paused runs.
+    assert "frontend.WorkflowPauseEnabled:" in dynamic_config_text
+    assert "namespace: harborrag" in dynamic_config_text
 
 
 def test_worker_image_installs_durable_artifact_adapters() -> None:

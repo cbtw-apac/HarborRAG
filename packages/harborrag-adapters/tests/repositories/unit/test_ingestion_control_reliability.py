@@ -73,6 +73,33 @@ async def test_retried_task_finalization_recovers_a_stage_failure(
 
 
 @pytest.mark.asyncio
+async def test_paused_task_can_transition_to_failed_and_persists_status(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        task = IngestionTask(
+            task_id="task-paused-failure",
+            source_scope_id="scope-engineering",
+            status=IngestionTaskState.PENDING,
+            request={"connector": "confluence"},
+        )
+        await control_plane.tasks.create(task)
+        await control_plane.tasks.transition(task.task_id, IngestionTaskState.RUNNING)
+        await control_plane.tasks.transition(task.task_id, IngestionTaskState.PAUSED)
+        await control_plane.tasks.transition(
+            task.task_id,
+            IngestionTaskState.FAILED,
+            summary={"failed_stage": "document_dispatch", "error_code": "child_timeout"},
+        )
+
+        stored = await control_plane.tasks.get(task.task_id)
+        assert stored is not None
+        assert stored.status == IngestionTaskState.FAILED
+        assert stored.completed_at is not None
+
+
+@pytest.mark.asyncio
 async def test_partial_task_finalization_is_terminal_and_idempotent(
     tmp_path: Path,
 ) -> None:

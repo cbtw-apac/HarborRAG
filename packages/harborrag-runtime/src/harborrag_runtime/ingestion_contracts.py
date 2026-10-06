@@ -118,6 +118,7 @@ class IngestionExecutionStatus:
     status: str
     paused: bool
     cancel_requested: bool
+    pause_applied: bool = False
 
 
 @dataclass(frozen=True, slots=True)

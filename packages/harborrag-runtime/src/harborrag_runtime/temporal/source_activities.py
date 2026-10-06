@@ -4,6 +4,12 @@ import logging
 from time import perf_counter
 
 from temporalio import activity
+from temporalio.api.workflowservice.v1 import (
+    PauseWorkflowExecutionRequest,
+    UnpauseWorkflowExecutionRequest,
+)
+from temporalio.client import Client
+from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
@@ -28,6 +34,9 @@ from .schemas import (
     SourceFinalizationInput,
     SourceIngestionInput,
     SourceIngestionResult,
+    SourcePauseInput,
+    SourceResumeInput,
+    WorkflowExecutionControlInput,
 )
 
 logger = logging.getLogger("harborrag.runtime.temporal.source_activities")
@@ -38,6 +47,50 @@ class SourceActivitiesMixin:
 
     _runtime: IngestionRuntime
     _observability: ActivityObservability
+    _temporal_client: Client | None
+
+    @activity.defn(name="harborrag.pause_workflow_execution")
+    async def pause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
+        if self._temporal_client is None:
+            raise RuntimeError("Temporal client is required for workflow pause control")
+        info = activity.info()
+        try:
+            await self._temporal_client.workflow_service.pause_workflow_execution(
+                PauseWorkflowExecutionRequest(
+                    namespace=self._temporal_client.namespace,
+                    workflow_id=request.workflow_id,
+                    identity="harborrag-runtime",
+                    reason="Source ingestion pause requested",
+                    request_id=f"{info.workflow_id}:{info.activity_id}",
+                )
+            )
+        except RPCError as error:
+            if error.status is RPCStatusCode.UNIMPLEMENTED:
+                return
+            raise
+
+    @activity.defn(name="harborrag.unpause_workflow_execution")
+    async def unpause_workflow_execution(self, request: WorkflowExecutionControlInput) -> None:
+        if self._temporal_client is None:
+            raise RuntimeError("Temporal client is required for workflow pause control")
+        info = activity.info()
+        try:
+            await self._temporal_client.workflow_service.unpause_workflow_execution(
+                UnpauseWorkflowExecutionRequest(
+                    namespace=self._temporal_client.namespace,
+                    workflow_id=request.workflow_id,
+                    identity="harborrag-runtime",
+                    reason="Source ingestion resume requested",
+                    request_id=f"{info.workflow_id}:{info.activity_id}",
+                )
+            )
+        except RPCError as error:
+            if error.status in {
+                RPCStatusCode.FAILED_PRECONDITION,
+                RPCStatusCode.UNIMPLEMENTED,
+            }:
+                return
+            raise
 
     @activity.defn(name="harborrag.discover_source_items")
     async def discover_source_items(
@@ -253,6 +306,16 @@ class SourceActivitiesMixin:
     async def cancel_source_ingestion(self, request: SourceCancellationInput) -> None:
         with self._observability.boundary("CancelSourceIngestion"):
             await self._runtime.sources.cancel(request.task_id)
+
+    @activity.defn(name="harborrag.pause_source_ingestion")
+    async def pause_source_ingestion(self, request: SourcePauseInput) -> None:
+        with self._observability.boundary("PauseSourceIngestion"):
+            await self._runtime.sources.pause(request.task_id)
+
+    @activity.defn(name="harborrag.resume_source_ingestion")
+    async def resume_source_ingestion(self, request: SourceResumeInput) -> None:
+        with self._observability.boundary("ResumeSourceIngestion"):
+            await self._runtime.sources.resume(request.task_id)
 
     @activity.defn(name="harborrag.record_source_failure")
     async def record_source_failure(self, request: SourceFailureInput) -> None:

@@ -183,7 +183,7 @@ class IngestionServiceFixture:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         return {
             "task_id": task_id,
-            "status": "RUNNING",
+            "status": "PENDING",
             "message": "Pause requested",
         }
 

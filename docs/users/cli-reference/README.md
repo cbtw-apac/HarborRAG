@@ -154,8 +154,10 @@ limits discovery to sources changed since then. `ingest watch` has `--events` in
 
 `start` generates an omitted run ID and deterministically derives omitted
 connection/scope identity. `--wait` submits the ingestion workflow and waits
-for its final result. Pause, resume, and cancellation take effect at safe batch
-boundaries. A new run for the same source scope replays reusable durable
+for its final result. Pause lets in-flight document work finish and then takes
+effect before the next batch. Resume restarts batch dispatch; cancellation
+releases a paused run and takes effect at the same safe boundary. A new run for
+the same source scope replays reusable durable
 artifacts after a terminal failure.
 
 ### Following a run

@@ -38,6 +38,7 @@ class SourceScanState(StrEnum):
 class IngestionTaskState(StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
     COMPLETED = "COMPLETED"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"

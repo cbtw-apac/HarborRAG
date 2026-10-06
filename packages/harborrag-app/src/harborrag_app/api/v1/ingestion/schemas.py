@@ -53,6 +53,7 @@ class IngestionCreateRequest(ApiModel):
 class IngestionStatus(StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
     SUCCESS = "SUCCESS"
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"

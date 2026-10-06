@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from temporalio import activity
+from temporalio.client import Client
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.ingestion.composition import IngestionRuntime
@@ -44,9 +45,11 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         runtime: IngestionRuntime,
         *,
+        temporal_client: Client | None = None,
         telemetry: IngestionTelemetry | None = None,
     ) -> None:
         self._runtime = runtime
+        self._temporal_client = temporal_client
         self._observability = ActivityObservability(telemetry or IngestionTelemetry())
         self._documents = PlanDocumentResolver(runtime.source_plans)
 

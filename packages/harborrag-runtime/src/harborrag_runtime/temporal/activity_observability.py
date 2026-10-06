@@ -31,6 +31,8 @@ logger = logging.getLogger("harborrag.runtime.temporal.activities")
 _ACTIVITY_STAGES = {
     "DiscoverSourceItems": IngestionStage.DISCOVERY,
     "CancelSourceIngestion": IngestionStage.CANCELLATION,
+    "PauseSourceIngestion": IngestionStage.CONTROL,
+    "ResumeSourceIngestion": IngestionStage.CONTROL,
     "RecordSourceFailure": IngestionStage.FAILURE_CAPTURE,
     "FetchAndCaptureRaw": IngestionStage.FETCH,
     "ParseAndNormalize": IngestionStage.PARSE_NORMALIZE,

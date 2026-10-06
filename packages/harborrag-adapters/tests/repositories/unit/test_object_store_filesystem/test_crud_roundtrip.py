@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,10 @@ async def test_object_key_cannot_escape_bucket_root(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Fails on Windows due to symlink restrictions",
+)
 async def test_object_paths_refuse_symbolic_link_components(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -63,6 +68,10 @@ async def test_object_paths_refuse_symbolic_link_components(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Fails on Windows due to symlink restrictions",
+)
 async def test_get_refuses_object_replaced_by_symbolic_link(tmp_path: Path) -> None:
     store = FilesystemObjectStore(root=tmp_path / "store")
     async with store:
