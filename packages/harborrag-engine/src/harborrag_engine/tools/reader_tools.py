@@ -138,6 +138,7 @@ class GetDocumentContextTool(ReaderTool):
                     "outcome": response.outcome,
                     "document_id": response.document_id,
                     "document_version_id": response.document_version_id,
+                    "document_title": response.document_title,
                     "chunks": [
                         {
                             "chunk_id": item.chunk_id,

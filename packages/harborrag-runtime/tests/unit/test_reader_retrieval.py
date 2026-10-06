@@ -35,7 +35,7 @@ from harborrag_runtime.contracts import (
     EvidenceReadSelector,
     GraphNodeResolveRequest,
 )
-from harborrag_runtime.reader_contracts import DocumentListRequest, DocumentMetadataRequest
+from harborrag_runtime.reader_contracts import DocumentListRequest
 from harborrag_runtime.retrieval.permissions import RetrievalPermissions
 from harborrag_runtime.retrieval.reader_resources import ReaderResources
 from harborrag_runtime.retrieval.readers import ReaderRetrieval
@@ -48,28 +48,24 @@ async def test_document_catalog_reads_current_metadata_without_content_or_storag
     None
 ):
     reader = _reader()
-    response = await reader.document_metadata(DocumentMetadataRequest(ACCESS, "document-1"))
-    assert response.document is not None
-    assert response.document.title == "Guide"
-    assert response.document.document_version_id == "version-1"
-    assert response.document.chunk_count == 2
     page = await reader.list_documents(DocumentListRequest(ACCESS, limit=1))
-    assert page.documents == (response.document,)
+    (document,) = page.documents
+    assert document.title == "Guide"
+    assert document.document_version_id == "version-1"
+    assert document.chunk_count == 2
     assert page.next_document_id is None
 
 
 @pytest.mark.asyncio
-async def test_document_metadata_rechecks_permissions_after_artifact_read() -> None:
+async def test_document_catalog_rechecks_permissions_after_artifact_read() -> None:
     permissions = Permissions()
     permissions.revoke_after_first = True
-    response = await _reader(permissions).document_metadata(
-        DocumentMetadataRequest(ACCESS, "document-1")
-    )
-    assert response.document is None
+    page = await _reader(permissions).list_documents(DocumentListRequest(ACCESS, limit=1))
+    assert page.documents == ()
 
 
 @pytest.mark.asyncio
-async def test_document_metadata_rejects_publication_changed_during_read(monkeypatch) -> None:
+async def test_document_catalog_rejects_publication_changed_during_read(monkeypatch) -> None:
     reader = _reader()
     snapshots = reader._resources.snapshots
     original = snapshots.active_snapshot
@@ -81,8 +77,8 @@ async def test_document_metadata_rejects_publication_changed_during_read(monkeyp
         return await original(document_id) if calls == 1 else None
 
     monkeypatch.setattr(snapshots, "active_snapshot", changing)
-    response = await reader.document_metadata(DocumentMetadataRequest(ACCESS, "document-1"))
-    assert response.document is None
+    page = await reader.list_documents(DocumentListRequest(ACCESS, limit=1))
+    assert page.documents == ()
 
 
 def _chunk(chunk_id: str, ordinal: int, content: str) -> ChunkRecord:
@@ -277,8 +273,11 @@ async def test_document_context_is_ordered_paged_and_version_bound() -> None:
     assert [item.chunk_id for item in first.chunks] == ["chunk-1"]
     assert first.next_offset == 1
     assert [item.chunk_id for item in second.chunks] == ["chunk-2"]
+    # The title comes from the window's own chunks, on every page.
+    assert first.document_title == second.document_title == "Guide"
     assert changed.outcome == "version_changed"
     assert changed.chunks == ()
+    assert changed.document_title is None
 
 
 def _graph_node(key: str, scope: str) -> GraphNodeRecord:

@@ -13,7 +13,7 @@ do and what arguments they take, see [MCP Tools](README.md).
 | [In-process Python](#use-from-python) | `McpServer(...)` | Caller's own runtime | An application or test needs direct control |
 | [Container](#container-image) | `docker run harborrag-mcp` | None; stdio only | A client launches the server from an image |
 
-All transports expose the same thirteen read-only tools listed in [MCP Tools](README.md)
+All transports expose the same eleven read-only tools listed in [MCP Tools](README.md)
 and pass through the same policy and audit boundary. HTTP tool calls accept `reader`
 or `owner` tokens with tenant grants; the local administration API requires `owner`.
 
@@ -739,7 +739,7 @@ HARBORRAG_MCP_DISABLED_TOOLS
 HARBORRAG_MCP_CONFIG_PATH
 ```
 
-The server exposes thirteen read-only evidence, document, source, and graph tools. Twelve require an
+The server exposes eleven read-only evidence, document, source, and graph tools. Ten require an
 explicit tenant scope; `describe_graph` is a static schema lookup and requires none.
 The traversal tools need a node
 identifier the caller already holds—in practice a `chunk_id` from
@@ -804,7 +804,7 @@ never the bearer token or raw arguments. See
 
 ## Next
 
-- [MCP Tools](README.md) - the thirteen tools, their arguments, and what they return
+- [MCP Tools](README.md) - the eleven tools, their arguments, and what they return
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces) -
   keep service tools in `harborrag-mcp-server` and call runtime/service
   interfaces rather than provider clients

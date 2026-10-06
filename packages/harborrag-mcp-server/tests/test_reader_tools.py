@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import pytest
 from catalog_support import EXPECTED_READER_TOOLS
 
-from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ingestion import (
     GraphEntityType,
     GraphNodeRecord,
@@ -28,15 +26,12 @@ from harborrag_runtime.reader_contracts import (
     SOURCE_LIST_LIMIT,
     DocumentListResponse,
     DocumentMetadata,
-    DocumentMetadataResponse,
 )
 from harborrag_runtime.sdk import (
     DocumentContextResponse,
     EvidenceReadItem,
     EvidenceReadResponse,
     GraphNodeResolveResponse,
-    RetrievalLane,
-    RetrievalResponse,
     SourceListResponse,
 )
 
@@ -71,15 +66,6 @@ class FakeReaderKnowledge:
             "document-1" if page == 1 else None,
         )
 
-    async def get_document_metadata(self, request):
-        self.document_requests.append(request)
-        return DocumentMetadataResponse(
-            "document-1",
-            DocumentMetadata("document-1", "version-1", "Guide", "source-1", "local", 2)
-            if request.document_id == "document-1"
-            else None,
-        )
-
     async def read_evidence(self, request):
         self.evidence_requests.append(request)
         items = tuple(
@@ -111,6 +97,7 @@ class FakeReaderKnowledge:
             chunks=(_context_chunk(f"chunk-{offset + 1}", offset),),
             outline=(("Overview",),) if request.include_outline else (),
             next_offset=offset + 1 if offset == 0 else None,
+            document_title="Guide",
         )
 
     async def list_sources(self, request):
@@ -199,89 +186,6 @@ async def test_document_inventory_cursor_is_bound_to_tenant_and_principal() -> N
 
 
 @pytest.mark.asyncio
-async def test_document_metadata_returns_unavailable_without_leaking_metadata() -> None:
-    server = McpServer(runtime=FakeRuntime())  # type: ignore[arg-type]
-    visible = await server.call_tool(
-        "get_document_metadata", {"tenant_id": "tenant-1", "document_id": "document-1"}
-    )
-    assert visible["document"]["title"] == "Guide"
-    hidden = await server.call_tool(
-        "get_document_metadata", {"tenant_id": "tenant-1", "document_id": "hidden"}
-    )
-    assert hidden["document"] is None
-    assert hidden["completion"] == {"complete": False, "reasons": ["unavailable"]}
-
-
-@pytest.mark.asyncio
-async def test_verify_citations_checks_content_digest_and_reports_unavailable_evidence() -> None:
-    server = McpServer(runtime=FakeRuntime())  # type: ignore[arg-type]
-    digest = hashlib.sha256(b"Canonical evidence").hexdigest()
-    result = await server.call_tool(
-        "verify_citations",
-        {
-            "tenant_id": "tenant-1",
-            "items": [
-                {"chunk_id": "chunk-1", "expected_content_sha256": digest},
-                {"chunk_id": "hidden"},
-            ],
-        },
-    )
-    assert result["items"] == [
-        {"chunk_id": "chunk-1", "valid": True, "content_sha256": digest},
-        {"chunk_id": "hidden", "valid": False, "content_sha256": None},
-    ]
-    mismatch = await server.call_tool(
-        "verify_citations",
-        {
-            "tenant_id": "tenant-1",
-            "items": [{"chunk_id": "chunk-1", "expected_content_sha256": "0" * 64}],
-        },
-    )
-    assert mismatch["items"][0]["valid"] is False
-    assert mismatch["completion"]["complete"] is False
-
-
-@pytest.mark.asyncio
-async def test_composed_search_uses_semantic_mode_then_returns_canonical_content() -> None:
-    class Retrieval:
-        request = None
-
-        async def search(self, request):
-            self.request = request
-            return RetrievalResponse(
-                "search-1",
-                RetrievalLane.HYBRID,
-                (
-                    RetrievalResult(
-                        "chunk-1",
-                        "Index content",
-                        0.9,
-                        {"document_id": "document-1", "document_version_id": "version-1"},
-                    ),
-                ),
-                {},
-            )
-
-    @dataclass
-    class Runtime(FakeRuntime):
-        retrieval: Retrieval = field(default_factory=Retrieval)
-
-    runtime = Runtime()
-    result = await McpServer(runtime=runtime).call_tool(  # type: ignore[arg-type]
-        "composed_evidence_search",
-        {"tenant_id": "tenant-1", "query": "guide"},
-        principal_id="reader-1",
-    )
-    assert result["ok"] is True
-    assert result["items"][0]["text"] == "Canonical evidence"
-    assert runtime.retrieval.request.mode.value == "local_semantic"
-    assert (
-        runtime.knowledge.evidence_requests[0].items[0].expected_document_version_id == "version-1"
-    )
-    assert result["cost"]["status"] == "unavailable"
-
-
-@pytest.mark.asyncio
 async def test_fetch_evidence_preserves_mixed_batch_availability_and_expectations() -> None:
     runtime = FakeRuntime()
     result = await McpServer(runtime=runtime).call_tool(  # type: ignore[arg-type]
@@ -351,6 +255,8 @@ async def test_document_cursor_is_owner_bound_and_keeps_one_version() -> None:
 
     assert [item["chunk_id"] for item in first["chunks"]] == ["chunk-1"]
     assert [item["chunk_id"] for item in second["chunks"]] == ["chunk-2"]
+    # The title rides along with each window, so no separate metadata read is needed.
+    assert first["document_title"] == second["document_title"] == "Guide"
     assert runtime.knowledge.context_requests[1].expected_document_version_id == "version-1"
     assert denied == {"ok": False, "error": "cursor is unavailable"}
 

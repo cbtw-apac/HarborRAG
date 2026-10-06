@@ -11,8 +11,6 @@ from harborrag_core.contracts.reader import (
     DocumentContextResponse,
     DocumentListRequest,
     DocumentListResponse,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
     EntityFindRequest,
     EntityFindResponse,
     EntityResolveRequest,
@@ -125,12 +123,6 @@ class KnowledgeFacade:
 
     def __init__(self, owner: _ReaderOwner) -> None:
         self._owner = owner
-
-    async def get_document_metadata(
-        self, request: DocumentMetadataRequest
-    ) -> DocumentMetadataResponse:
-        service = await self._owner._retrieval_service()
-        return await service.get_document_metadata(request)
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
         service = await self._owner._retrieval_service()

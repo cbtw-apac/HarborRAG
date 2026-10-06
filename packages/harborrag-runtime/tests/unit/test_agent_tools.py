@@ -169,9 +169,6 @@ def test_agent_tool_catalog_exposes_only_bounded_read_tools() -> None:
         "describe_graph",
         "resolve_graph_nodes",
         "list_documents",
-        "get_document_metadata",
-        "verify_citations",
-        "composed_evidence_search",
         "find_entities",
     }
     assert {tool.capability for tool in tools} == {"read"}

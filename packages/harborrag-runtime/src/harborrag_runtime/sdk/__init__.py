@@ -6,8 +6,6 @@ from harborrag_runtime.reader_contracts import (
     DocumentListRequest,
     DocumentListResponse,
     DocumentMetadata,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
 )
 
 from ..contracts import (
@@ -50,8 +48,6 @@ __all__ = [
     "DocumentListRequest",
     "DocumentListResponse",
     "DocumentMetadata",
-    "DocumentMetadataRequest",
-    "DocumentMetadataResponse",
     "DocumentContextRequest",
     "DocumentContextResponse",
     "ExecutionMode",

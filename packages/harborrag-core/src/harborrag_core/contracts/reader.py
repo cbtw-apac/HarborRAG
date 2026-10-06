@@ -140,6 +140,9 @@ class DocumentContextResponse:
     chunks: tuple[DocumentContextChunk, ...] = ()
     outline: tuple[tuple[str, ...], ...] = ()
     next_offset: int | None = None
+    # Last, with a default, so positional constructions of the earlier fields keep
+    # working. Read from the window's chunks rather than a separate metadata lookup.
+    document_title: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,22 +178,6 @@ class DocumentMetadata:
     source_scope_id: str
     connector_type: str
     chunk_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class DocumentMetadataRequest:
-    access: AccessContext
-    document_id: str
-
-    def __post_init__(self) -> None:
-        if not self.document_id.strip():
-            raise ValueError("document ID must be non-empty")
-
-
-@dataclass(frozen=True, slots=True)
-class DocumentMetadataResponse:
-    request_id: str
-    document: DocumentMetadata | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,8 +222,6 @@ __all__ = [
     "DocumentListRequest",
     "DocumentListResponse",
     "DocumentMetadata",
-    "DocumentMetadataRequest",
-    "DocumentMetadataResponse",
     "DOCUMENT_CONTEXT_LIMIT",
     "DOCUMENT_CONTEXT_OUTCOMES",
     "DOCUMENT_CONTEXT_CHUNK_FIELDS",

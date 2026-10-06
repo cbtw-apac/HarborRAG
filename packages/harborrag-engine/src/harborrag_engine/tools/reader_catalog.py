@@ -136,7 +136,8 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
     "get_document_context",
     "Read an ordered, bounded window of chunks from one active document. Anchor by exact "
     "chunk or section path, and continue only with the opaque cursor returned by this tool. "
-    "A publication change is reported explicitly; historical versions are not substituted.",
+    "Returns the document title with the window. A publication change is reported "
+    "explicitly; historical versions are not substituted.",
     {
         "type": "object",
         "required": ["tenant_id", "document_id"],
@@ -172,6 +173,10 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
             },
             "document_id": {"type": "string", "minLength": 1},
             "document_version_id": {"type": ["string", "null"]},
+            # Taken from the window's own chunks, so it costs no extra read. Null when
+            # no chunk was read (unavailable, version_changed, past the end): a refused
+            # read discloses nothing about the document beyond its outcome.
+            "document_title": {"type": ["string", "null"]},
             "chunks": {
                 "type": "array",
                 "items": _CONTEXT_CHUNK,
@@ -189,6 +194,7 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
             "outcome",
             "document_id",
             "document_version_id",
+            "document_title",
             "chunks",
             "outline",
             "outline_complete",

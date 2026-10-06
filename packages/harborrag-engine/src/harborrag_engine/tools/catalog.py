@@ -7,9 +7,8 @@ from typing import TYPE_CHECKING
 from harborrag_engine.tools.references import KnowledgeReferenceStore
 
 from .base import BaseTool
-from .composed_search import ComposedEvidenceSearchTool
 from .describe_graph import DescribeGraphTool
-from .document_tools import GetDocumentMetadataTool, ListDocumentsTool, VerifyCitationsTool
+from .document_tools import ListDocumentsTool
 from .find_entities import FindEntitiesTool
 from .graph_search import GraphPathSearchTool, GraphSubgraphSearchTool, GraphTripletSearchTool
 from .reader_tools import FetchEvidenceTool, GetDocumentContextTool, ResolveGraphNodesTool
@@ -47,16 +46,6 @@ def build_reader_tool_catalog(
             runtime=knowledge_runtime, knowledge=knowledge, references=references
         ),
         ListDocumentsTool(runtime=knowledge_runtime, knowledge=knowledge, references=references),
-        GetDocumentMetadataTool(
-            runtime=knowledge_runtime, knowledge=knowledge, references=references
-        ),
-        VerifyCitationsTool(runtime=knowledge_runtime, knowledge=knowledge, references=references),
-        ComposedEvidenceSearchTool(
-            runtime=runtime if retrieval is None or knowledge is None else None,
-            retrieval=retrieval,
-            knowledge=knowledge,
-            references=references,
-        ),
         FindEntitiesTool(runtime=retrieval_runtime, retrieval=retrieval, references=references),
     ]
 

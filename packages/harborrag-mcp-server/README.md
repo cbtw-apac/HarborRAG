@@ -26,10 +26,11 @@ protocol responses; the optional agent uses the same dispatcher.
 
 ## Team deliverables
 
-- The shipped transport exposes the thirteen read-only tools documented in
+- The shipped transport exposes the eleven read-only tools documented in
   [MCP Tools](../../docs/users/detailed-guides/mcp-server/README.md):
   evidence search/fetch/context, source discovery, static graph description, bounded
-  triplet/subgraph/path traversal, and exact graph-node resolution.
+  triplet/subgraph/path traversal, exact graph-node resolution, document
+  inventory, and faceted entity ranking.
   Chat and agent are not MCP tools; they are served only through the HarborRAG
   REST API's `/v1/chat/completions` and `/v1/agent/completions` endpoints.
 - Every attempt and outcome is durably audited with a principal identifier and

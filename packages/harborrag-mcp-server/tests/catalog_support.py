@@ -11,9 +11,6 @@ EXPECTED_READER_TOOLS = [
     "graph_path_search",
     "resolve_graph_nodes",
     "list_documents",
-    "get_document_metadata",
-    "verify_citations",
-    "composed_evidence_search",
     "find_entities",
 ]
 

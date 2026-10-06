@@ -24,15 +24,18 @@ if TYPE_CHECKING:
 
 
 _SERVER_INSTRUCTIONS = (
-    "Use list_sources when corpus scope is unclear, then vector_search for natural-language "
-    "discovery. Use list_documents and get_document_metadata for document inventory. "
-    "Set include_content=false for compact search hits; use composed_evidence_search for "
-    "bounded semantic expansion followed by canonical evidence reads. Re-fetch citations "
-    "with fetch_evidence and check final references with verify_citations; use get_document_context for an "
-    "ordered, version-bound reading window. Call resolve_graph_nodes before graph traversal "
-    "when a provider ID or title can be ambiguous. Use graph_triplet_search for exact "
-    "relations, graph_subgraph_search for a neighborhood, and graph_path_search between two "
-    "stable node keys. Cite immutable evidence only; graph records are navigation. Preserve "
+    "Use list_sources when corpus scope is unclear. Find candidates with vector_search for "
+    "natural-language questions (mode=local_semantic adds bounded graph expansion; "
+    "include_content=false returns compact hits), or with find_entities when the question "
+    "asks which issues, pages or other entities match, optionally by facet. Read and cite "
+    "with fetch_evidence for chosen chunk IDs, including the evidence IDs find_entities "
+    "returns, or get_document_context for an ordered, version-bound window of one "
+    "document; list_documents pages the document inventory. To navigate relations, call "
+    "resolve_graph_nodes when a provider ID or title may be ambiguous, then "
+    "graph_triplet_search for exact relations, graph_subgraph_search for a neighborhood "
+    "or graph_path_search between two nodes; describe_graph explains the graph model if "
+    "you need orientation, and is never a required first call. Cite only evidence chunks "
+    "returned with their text; graph records are navigation, not evidence. Preserve "
     "stored direction and report bounded completion reasons."
 )
 
