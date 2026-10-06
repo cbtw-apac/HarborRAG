@@ -7,14 +7,36 @@ can fill every slot of a result page with one sentence. A second copy tells the
 caller nothing the first did not, so only the best-ranked one is kept and the
 search window behind it supplies the next distinct hit.
 
-Identity is the payload's ``content_hash``: the projection's own hash of the
-chunk text. A hit without one is never collapsed, because guessing equality
-from anything else could merge two different pieces of evidence.
+Identity is the payload's ``content_hash`` -- the projection's own hash of the
+chunk text -- within one subject: the source item the chunk is about, which for
+an attachment is its parent (an issue and everything attached to it). The same
+text on two subjects is two pieces of evidence: "Passed interview with
+Pepperstone" on eight candidates' issues says something about each of them,
+while the same file attached twice to one issue says it once. A hit without a
+hash is never collapsed, because guessing equality from anything else could
+merge two different pieces of evidence.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+
+
+def duplicate_identity(fields: Mapping[str, object]) -> str | None:
+    """The collapse key of a hit: its subject and its text hash, or None."""
+
+    content_hash = fields.get("content_hash")
+    if not isinstance(content_hash, str) or not content_hash:
+        return None
+    subject = next(
+        (
+            value
+            for key in ("parent_source_item_id", "source_item_id", "document_id")
+            if isinstance(value := fields.get(key), str) and value
+        ),
+        "",
+    )
+    return f"{subject}\0{content_hash}"
 
 
 def collapse_duplicates[T](
@@ -45,4 +67,4 @@ def collapse_duplicates[T](
     return tuple(kept), collapsed
 
 
-__all__ = ["collapse_duplicates"]
+__all__ = ["collapse_duplicates", "duplicate_identity"]

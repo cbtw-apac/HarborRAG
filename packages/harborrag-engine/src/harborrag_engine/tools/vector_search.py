@@ -41,10 +41,18 @@ _MAX_TOP_K = MAX_TOOL_RESULTS
 # ``retrieval_source`` are the same constant on every hit; ``raw_score`` is a
 # lane-internal number (cosine, BM25 or RRF) that is comparable to nothing;
 # ``quality_score`` is a chunker default (1.0 for every record chunk); and
-# ``content_hash`` has done its job once retrieval collapsed identical texts.
+# ``content_hash`` and ``parent_source_item_id`` have done their job once retrieval
+# collapsed identical texts per subject.
 # In-process callers still see them on ``RetrievalResult.metadata``.
 TRIMMED_METADATA_KEYS = frozenset(
-    {"record_kind", "retrieval_source", "raw_score", "quality_score", "content_hash"}
+    {
+        "record_kind",
+        "retrieval_source",
+        "raw_score",
+        "quality_score",
+        "content_hash",
+        "parent_source_item_id",
+    }
 )
 
 

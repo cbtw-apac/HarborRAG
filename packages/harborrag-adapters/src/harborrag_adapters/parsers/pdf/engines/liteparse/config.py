@@ -32,6 +32,12 @@ class LiteParsePDFConfig:
     parser: Any | None = None
     extra_options: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Treat a blank OCR server URL as unset, so LiteParse OCRs locally."""
+
+        if isinstance(self.ocr_server_url, str):
+            self.ocr_server_url = self.ocr_server_url.strip() or None
+
 
 LiteParseBackendOptions = LiteParsePDFConfig
 

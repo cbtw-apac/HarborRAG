@@ -89,7 +89,6 @@ Run an authenticated local Streamable HTTP endpoint and status page:
 ```bash
 scripts/deployment/dev.sh bootstrap
 scripts/deployment/dev.sh up         # data services + API, which applies the migrations
-scripts/deployment/dev.sh mcp-role   # once: the server's least-privilege DB role and MinIO user
 scripts/deployment/mcp.sh --http
 ```
 

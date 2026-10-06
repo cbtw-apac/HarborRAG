@@ -28,12 +28,6 @@ Commands:
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
-  mcp-role [--migrate] [--build]
-                     Create or update the MCP server's least-privilege PostgreSQL
-                     role and MinIO user. Needs the migrated schema: run it after
-                     the API has started, or pass --migrate to start the API
-                     first (--build rebuilds it). Re-run after a migration adds
-                     ingestion tables
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
@@ -60,60 +54,6 @@ require_file() {
     local path="$1"
     local label="$2"
     [[ -f "${ROOT_DIR}/${path}" ]] || fail "Missing ${label}: ${path}. Run '$0 bootstrap'."
-}
-
-database_environment_value() {
-    local name="$1"
-    local value
-    value="$(sed -n "s/^${name}=//p" "${ROOT_DIR}/${DATABASE_ENV_FILE}" | tail -n 1)"
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    printf '%s' "${value}"
-}
-
-# Older checkouts have a database env file without the MCP role entries; append
-# them and generate the password the same way the MCP bearer token is generated.
-ensure_mcp_database_credentials() {
-    local target_path="${ROOT_DIR}/${DATABASE_ENV_FILE}"
-    local password
-
-    if ! grep -Eq '^HARBORRAG_MCP_DB_USER=' "${target_path}"; then
-        printf '\nHARBORRAG_MCP_DB_USER=harborrag_mcp_reader\n' >>"${target_path}"
-    fi
-    if ! grep -Eq '^HARBORRAG_MCP_DB_PASSWORD=' "${target_path}"; then
-        printf 'HARBORRAG_MCP_DB_PASSWORD=\n' >>"${target_path}"
-    fi
-    if grep -Eq '^HARBORRAG_MCP_DB_PASSWORD=.+$' "${target_path}"; then
-        return
-    fi
-    command -v openssl >/dev/null ||
-        fail "OpenSSL is required to generate the MCP database password."
-    password="$(openssl rand -hex 32)"
-    sed -i "s/^HARBORRAG_MCP_DB_PASSWORD=.*/HARBORRAG_MCP_DB_PASSWORD=${password}/" "${target_path}"
-    chmod 600 "${target_path}"
-    echo "Generated a protected MCP database password in ${DATABASE_ENV_FILE}; run '$0 mcp-role' once the API has started."
-}
-
-# MinIO limits an access key to 20 and a secret key to 40 characters.
-ensure_mcp_object_store_credentials() {
-    local target_path="${ROOT_DIR}/${DATABASE_ENV_FILE}"
-    local secret
-
-    if ! grep -Eq '^HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID=' "${target_path}"; then
-        printf 'HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID=harborrag-mcp-reader\n' >>"${target_path}"
-    fi
-    if ! grep -Eq '^HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=' "${target_path}"; then
-        printf 'HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=\n' >>"${target_path}"
-    fi
-    if grep -Eq '^HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=.+$' "${target_path}"; then
-        return
-    fi
-    command -v openssl >/dev/null ||
-        fail "OpenSSL is required to generate the MCP object-store secret."
-    secret="$(openssl rand -hex 20)"
-    sed -i "s/^HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=.*/HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=${secret}/" "${target_path}"
-    chmod 600 "${target_path}"
-    echo "Generated a protected MCP object-store secret in ${DATABASE_ENV_FILE}."
 }
 
 require_control_plane_encryption_key() {
@@ -171,8 +111,6 @@ ensure_mcp_environment_file() {
 bootstrap_environment() {
     created_environment=0
     ensure_environment_file "${DATABASE_ENV_FILE}" "env-example/.env.database.example"
-    ensure_mcp_database_credentials
-    ensure_mcp_object_store_credentials
     ensure_environment_file "${TEMPORAL_ENV_FILE}" "env-example/.env.temporal.example"
     ensure_environment_file "${CONNECTOR_ENV_FILE}" "env-example/.env.connector.example"
     ensure_environment_file "${PARSER_ENV_FILE}" "env-example/.env.parser.example"
@@ -284,63 +222,6 @@ start_data() {
     echo "Starting HarborRAG data services..."
     data_compose config --quiet
     data_compose up --detach
-}
-
-# Applies deploy/postgres/mcp-reader-role.sql inside the running postgres
-# container as the owner account. The password travels on psql's stdin as a
-# \set, never on the command line, so it does not show up in the process list.
-provision_mcp_role() {
-    require_file "${DATABASE_ENV_FILE}" "database environment"
-    local role password
-    role="$(database_environment_value HARBORRAG_MCP_DB_USER)"
-    password="$(database_environment_value HARBORRAG_MCP_DB_PASSWORD)"
-    [[ -n "${role}" && -n "${password}" ]] ||
-        fail "HARBORRAG_MCP_DB_USER and HARBORRAG_MCP_DB_PASSWORD are required; run '$0 bootstrap' to generate them in ${DATABASE_ENV_FILE}."
-    [[ "${role}" =~ ^[a-z_][a-z0-9_]*$ ]] ||
-        fail "HARBORRAG_MCP_DB_USER must be a plain lowercase identifier."
-    [[ "${password}" != *"'"* ]] || fail "HARBORRAG_MCP_DB_PASSWORD must not contain a single quote."
-    echo "Provisioning MCP database role '${role}'..."
-    {
-        printf '%s\n' "\\set mcp_password '${password}'"
-        cat "${ROOT_DIR}/deploy/postgres/mcp-reader-role.sql"
-    } | data_compose exec -T postgres sh -c \
-        'exec psql --quiet --no-psqlrc --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-            --set "mcp_user=$1" --set "database=$POSTGRES_DB" --file -' sh "${role}"
-    echo "MCP database role '${role}' is ready."
-}
-
-# Quote a value for a POSIX shell command line, so an operator password with
-# quotes or spaces survives the trip to the container: it's -> 'it'\''s'.
-shell_quote() {
-    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
-}
-
-# Creates the MinIO user and the read-only artifact-bucket policy with the mc
-# client shipped in the MinIO image. The script reaches the container shell on
-# stdin, so nothing appears in a process list, and the root credentials are
-# the container's own MINIO_ROOT_* variables: the host never re-parses the
-# env file (Compose's quoting rules differ from a raw read) or ships them.
-provision_mcp_object_store_user() {
-    require_file "${DATABASE_ENV_FILE}" "database environment"
-    local user secret
-    user="$(database_environment_value HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID)"
-    secret="$(database_environment_value HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY)"
-    [[ -n "${user}" && -n "${secret}" ]] ||
-        fail "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID and HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY are required; run '$0 bootstrap' to generate them in ${DATABASE_ENV_FILE}."
-    echo "Provisioning MCP object-store user '${user}'..."
-    {
-        printf 'set -eu\n'
-        printf '%s\n' 'mc alias set --quiet local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null'
-        printf "cat >/tmp/harborrag-mcp-reader.json <<'HARBORRAG_POLICY'\n"
-        cat "${ROOT_DIR}/deploy/minio/mcp-reader-policy.json"
-        printf '\nHARBORRAG_POLICY\n'
-        printf 'mc admin user add local %s %s\n' "$(shell_quote "${user}")" "$(shell_quote "${secret}")"
-        printf 'mc admin policy create local harborrag-mcp-reader /tmp/harborrag-mcp-reader.json\n'
-        printf 'mc admin policy detach local harborrag-mcp-reader --user %s >/dev/null 2>&1 || true\n' "$(shell_quote "${user}")"
-        printf 'mc admin policy attach local harborrag-mcp-reader --user %s\n' "$(shell_quote "${user}")"
-        printf 'rm -f /tmp/harborrag-mcp-reader.json\n'
-    } | data_compose exec -T minio sh -s
-    echo "MCP object-store user '${user}' is ready."
 }
 
 start_temporal() {
@@ -465,8 +346,8 @@ command="${1:-}"
 }
 shift
 
-if ((global_rebuild)) && [[ ! "${command}" =~ ^(up|worker|api|mcp-role)$ ]]; then
-    fail "--build is supported only with up, worker, api, or mcp-role."
+if ((global_rebuild)) && [[ ! "${command}" =~ ^(up|worker|api)$ ]]; then
+    fail "--build is supported only with up, worker, or api."
 fi
 
 case "${command}" in
@@ -544,28 +425,6 @@ case "${command}" in
         fi
         [[ "$#" -eq 0 ]] || fail "Unknown api option: $1"
         start_api "${rebuild_image}"
-        ;;
-    mcp-role)
-        migrate_first=0
-        rebuild_image="${global_rebuild}"
-        while [[ "$#" -gt 0 ]]; do
-            case "$1" in
-                --migrate) migrate_first=1 ;;
-                --build) rebuild_image=1 ;;
-                *) fail "Unknown mcp-role option: $1" ;;
-            esac
-            shift
-        done
-        if ((migrate_first)); then
-            # The API owns the schema: starting it applies the control-plane
-            # migrations and returns once healthy, so the grants below can
-            # name every table they need.
-            start_api "${rebuild_image}"
-        elif ((rebuild_image)); then
-            fail "--build only applies together with --migrate."
-        fi
-        provision_mcp_role
-        provision_mcp_object_store_user
         ;;
     -h|--help|help)
         usage

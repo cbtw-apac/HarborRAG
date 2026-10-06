@@ -89,3 +89,83 @@ def test_one_page_to_attachment_edge_however_many_projectors_assert_it() -> None
     assert len(edges) == 1, [
         (edge.source_node_key, edge.target_node_key, edge.relation_id) for edge in edges
     ]
+
+
+def _jira_issue_projection(resolved: bool):
+    """A Jira issue declaring `has_attachment` for an attachment that is its own document."""
+
+    document = make_document(
+        [DocumentElement("p1", "paragraph", "Issue evidence")],
+        source="jira",
+        extra={"project_id": "ENG", "project_key": "ENG", "issue_key": "ENG-1"},
+    )
+    document.relations = [
+        DocumentRelation(
+            predicate="has_attachment",
+            target_id="jira://ENG/ENG-1/attachments/55",
+            target_type="document",
+            metadata={"source_relation_version": "attachment-v1"},
+        )
+    ]
+    chunks = (
+        make_service(
+            make_profile(target=40, maximum=60),
+            configuration_version="3",
+            create_route_chunks=True,
+        )
+        .chunk(make_request(make_document(document.content)))
+        .chunks
+    )
+    rebound = tuple(
+        chunk.model_copy(
+            update={
+                "connector_type": ConnectorType("jira"),
+                "document_kind": DocumentKind("jira_file"),
+                "source_item_id": "jira://ENG/ENG-1",
+            }
+        )
+        for chunk in chunks
+    )
+    targets = (
+        {
+            "jira://ENG/ENG-1/attachments/55": GraphDocumentTarget(
+                source_item_id="jira://ENG/ENG-1/attachments/55",
+                document_id="doc-attachment",
+                document_version_id="version-attachment",
+                source_scope_id="tenant-1",
+                title="payment-trace.log",
+            )
+        }
+        if resolved
+        else {}
+    )
+    return GraphProjectionBuilder().build(
+        GraphProjectionInput(
+            document=document,
+            chunks=rebound,
+            resolved_targets=targets,
+            graph_projection_version="graph-v2",
+        )
+    )
+
+
+def test_the_container_leaves_has_attachment_to_the_attachment_document() -> None:
+    """Measured live: every Jira issue -> attachment pair had two parallel edges.
+
+    One came from the attachment's own projection, one from relation repair of the
+    issue's `has_attachment`, owned by the issue version. The attachment's edge is the
+    one that lives and dies with the attachment, so the issue asserts none.
+    """
+
+    issue = _jira_issue_projection(resolved=True)
+
+    assert [r for r in issue.relations if r.relation_type is RelationType.HAS_ATTACHMENT] == []
+    assert issue.unresolved_relations == ()
+
+
+def test_an_unresolved_attachment_is_still_reported() -> None:
+    issue = _jira_issue_projection(resolved=False)
+
+    assert [u.relation_type for u in issue.unresolved_relations] == [
+        RelationType.HAS_ATTACHMENT.value
+    ]

@@ -131,7 +131,7 @@ class HarborParserFactory:
         try:
             profile = PDFParserProfile.normalize(profile_name)
         except ValueError:
-            profile = PDFParserProfile.BALANCED
+            profile = PDFParserProfile.LITEPARSE
         pool = self._pdf_engine_pool(profile)
         configured: list[HarborPDFEngine] = []
         for engine_name in router_config.profiles[profile_name].engine_order:

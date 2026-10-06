@@ -17,7 +17,7 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
 
 from .active_versions import ActiveVersionCandidateValidator
-from .duplicates import collapse_duplicates
+from .duplicates import collapse_duplicates, duplicate_identity
 
 _INITIAL_OVERSAMPLE = 3
 _MINIMUM_WINDOW = 20
@@ -151,7 +151,7 @@ class AuthoritativeProjectionSearch:
             # it holds too few distinct hits, exactly as it does for stale ones.
             distinct, collapsed = collapse_duplicates(
                 validated.accepted,
-                lambda candidate: candidate.payload.get("content_hash"),
+                lambda candidate: duplicate_identity(candidate.payload),
                 limit=request.top_k,
             )
             accepted = distinct[: request.top_k]

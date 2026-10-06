@@ -29,25 +29,15 @@ def _set_default(environ: MutableMapping[str, str], name: str, value: str | None
 
 
 def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: bool) -> None:
-    # The dedicated reader role (deploy/postgres/mcp-reader-role.sql) once
-    # bootstrap has provisioned it; the POSTGRES_* owner account stays a
-    # fallback for checkouts bootstrapped before the role existed.
-    user_name, password_name = "POSTGRES_USER", "POSTGRES_PASSWORD"
-    if environ.get("HARBORRAG_MCP_DB_USER") and environ.get("HARBORRAG_MCP_DB_PASSWORD"):
-        user_name, password_name = "HARBORRAG_MCP_DB_USER", "HARBORRAG_MCP_DB_PASSWORD"
     if "HARBORRAG_CONTROL_DB_URL" not in environ:
-        missing = missing_control_db_values(
-            environ, user_name=user_name, password_name=password_name
-        )
+        missing = missing_control_db_values(environ)
         if missing and not check:
             raise ValueError("Checkout database configuration is missing: " + ", ".join(missing))
         if not missing:
             _set_default(
                 environ,
                 "HARBORRAG_CONTROL_DB_URL",
-                control_db_url_from_compose(
-                    environ, user_name=user_name, password_name=password_name
-                ),
+                control_db_url_from_compose(environ),
             )
 
     _set_default(
@@ -55,16 +45,10 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
         "HARBORRAG_OBJECT_STORE_ENDPOINT_URL",
         f"http://localhost:{environ.get('MINIO_API_PORT', '9000')}",
     )
-    # Same shape as the database role: the read-only MinIO user once bootstrap has
-    # provisioned it, the root account as a fallback for older checkouts.
-    access_key_name, secret_key_name = "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"
-    if environ.get("HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID") and environ.get(
-        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY"
-    ):
-        access_key_name = "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID"
-        secret_key_name = "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY"
-    _set_default(environ, "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID", environ.get(access_key_name))
-    _set_default(environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get(secret_key_name))
+    _set_default(environ, "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID", environ.get("MINIO_ROOT_USER"))
+    _set_default(
+        environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get("MINIO_ROOT_PASSWORD")
+    )
     _set_default(
         environ,
         "HARBORRAG_QDRANT_URL",

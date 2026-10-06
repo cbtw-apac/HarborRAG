@@ -133,6 +133,14 @@ class SourceRelationProjector:
                 # ancestors are projected by the connector-specific projector;
                 # an unresolved external link must not invent a same-scope target.
                 continue
+            if relation_type is RelationType.HAS_ATTACHMENT and not reverse:
+                # The attachment is its own document, and its projection already asserts
+                # container -> attachment. Asserting it again from the container gave
+                # every pair a second, parallel edge owned by the container's version
+                # (and carrying the container's whole metadata). The reverse
+                # `attached_to` path stays: inside the attachment's batch it is deduped
+                # against that projector edge, and it covers connectors without one.
+                continue
             raw_target_id = resolved.source_item_id
             # The far end's own connector, not the declaring document's: both the
             # entity type and the provider-id reduction below feed the target's

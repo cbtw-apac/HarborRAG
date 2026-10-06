@@ -21,7 +21,7 @@ from harborrag_engine.retrieval import (
     AuthoritativeSearchRequest,
     RetrievalLane,
 )
-from harborrag_engine.retrieval.duplicates import collapse_duplicates
+from harborrag_engine.retrieval.duplicates import collapse_duplicates, duplicate_identity
 from harborrag_engine.retrieval.evidence_filters import (
     evidence_filters_schema,
     validate_evidence_filter,
@@ -29,12 +29,14 @@ from harborrag_engine.retrieval.evidence_filters import (
 )
 
 
-def _hit(index: int, content_hash: str | None) -> VectorSearchResult:
+def _hit(index: int, content_hash: str | None, subject: str | None = None) -> VectorSearchResult:
     payload: dict[str, object] = {
         "chunk_id": f"chunk-{index}",
         "document_id": f"document-{index}",
         "document_version_id": f"active-{index}",
     }
+    if subject is not None:
+        payload["parent_source_item_id"] = subject
     if content_hash is not None:
         payload["content_hash"] = content_hash
     return VectorSearchResult(id=f"point-{index}", score=0.9, raw_score=0.9, payload=payload)
@@ -68,10 +70,10 @@ def test_duplicates_past_the_page_are_not_counted_as_collapsed() -> None:
 
 @pytest.mark.asyncio
 async def test_a_page_of_one_repeated_comment_is_backfilled_with_distinct_hits() -> None:
-    """Five copies of "Bounced - Unable to Send Mailing" become one hit plus four others."""
+    """Five copies of one file attached to one issue become one hit plus four others."""
 
     evidence = [
-        *(_hit(index, "bounced") for index in range(5)),
+        *(_hit(index, "bounced", subject="jira://ENG/ENG-1") for index in range(5)),
         *(_hit(index, f"distinct-{index}") for index in range(5, 20)),
     ]
 
@@ -90,10 +92,24 @@ async def test_a_page_of_one_repeated_comment_is_backfilled_with_distinct_hits()
     assert result.diagnostics.collapsed_count == 4
 
 
+def test_the_same_text_on_different_subjects_is_different_evidence() -> None:
+    """ "Passed interview with Pepperstone" on two candidates' issues says two things."""
+
+    issue_a = {"content_hash": "passed", "source_item_id": "jira://ENG/ENG-1"}
+    attachment_a = {"content_hash": "passed", "parent_source_item_id": "jira://ENG/ENG-1"}
+    issue_b = {"content_hash": "passed", "source_item_id": "jira://ENG/ENG-2"}
+
+    kept, collapsed = collapse_duplicates([issue_a, issue_b, attachment_a], duplicate_identity)
+
+    assert kept == (issue_a, issue_b)
+    assert collapsed == 1
+    assert duplicate_identity({"source_item_id": "jira://ENG/ENG-1"}) is None
+
+
 @pytest.mark.asyncio
 async def test_the_window_widens_when_it_holds_too_few_distinct_hits() -> None:
     evidence = [
-        *(_hit(index, "same") for index in range(30)),
+        *(_hit(index, "same", subject="jira://ENG/ENG-1") for index in range(30)),
         *(_hit(index, f"distinct-{index}") for index in range(30, 40)),
     ]
     repository = SearchRepository(evidence)

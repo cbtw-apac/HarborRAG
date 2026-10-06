@@ -47,7 +47,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
         engines: Sequence[HarborPDFEngine] | None = None,
         backends: Sequence[HarborPDFEngine] | None = None,
         min_content_chars: int = 20,
-        profile: PDFParserProfile | str = PDFParserProfile.BALANCED,
+        profile: PDFParserProfile | str = PDFParserProfile.LITEPARSE,
         router: PDFEngineRouter | None = None,
         router_config: PDFRouterConfig | None = None,
         quality_evaluator: PDFQualityEvaluator | None = None,

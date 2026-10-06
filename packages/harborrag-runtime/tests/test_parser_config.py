@@ -44,12 +44,13 @@ def test_repository_config_builds_enabled_parser_overrides(caplog, monkeypatch) 
     assert isinstance(pdf_parser, PdfParser)
     assert [backend.name for backend in pdf_parser.backends] == ["liteparse"]
     assert isinstance(pdf_parser.backends[0], LiteParseBackend)
-    assert pdf_parser.backends[0].options.ocr_server_url == "http://ppocr-server:8888/ocr"
+    # Without HARBORRAG_OCR_SERVER_URL no OCR server is used: LiteParse OCRs locally.
+    assert pdf_parser.backends[0].options.ocr_server_url is None
 
     image_parser = catalog.build("image-liteparse")
     assert isinstance(image_parser, HarborImageParser)
     assert image_parser.ocr_engine == "liteparse"
-    assert image_parser.engines[0].ocr_server_url == "http://ppocr-server:8888/ocr"
+    assert image_parser.engines[0].ocr_server_url is None
 
     harbor_parser = catalog.build_harbor_parser()
     attachment_parser = catalog.build_harbor_parser()
@@ -78,6 +79,17 @@ def test_ocr_server_url_follows_the_environment_over_the_catalog_default(monkeyp
     assert catalog.build("image-liteparse").engines[0].ocr_server_url == (
         "http://localhost:8888/ocr"
     )
+
+
+def test_an_empty_ocr_server_url_means_no_ocr_server(monkeypatch) -> None:
+    monkeypatch.setenv("HARBORRAG_OCR_SERVER_URL", "  ")
+
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+
+    liteparse = catalog.build("pdf-liteparse").backends[0]
+    assert liteparse.options.ocr_server_url is None
+    assert "ocr_server_url" not in liteparse._constructor_kwargs()
+    assert catalog.build("image-liteparse").engines[0].ocr_server_url is None
 
 
 def test_setting_reference_to_an_unset_variable_without_a_default_is_rejected(

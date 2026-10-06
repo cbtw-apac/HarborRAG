@@ -133,7 +133,7 @@ def _pdf_factory(
     *,
     backends: list[HarborPDFEngine] | None = None,
     min_content_chars: int = 20,
-    profile: str = "balanced",
+    profile: str = "liteparse",
 ) -> HarborPDFParser:
     if backends is not None:
         return HarborPDFParser(

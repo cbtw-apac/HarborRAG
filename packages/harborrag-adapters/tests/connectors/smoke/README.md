@@ -196,10 +196,11 @@ attachments.
 
 ### LiteParse OCR server
 
-`config/parsers.yaml` is written for the containerized ingestion worker, so
-`ocr_server_url` names the `ppocr-server` Docker DNS alias on
-`harborrag-data-network`. These scripts run on the host, where that name does
-not resolve and LiteParse would fail every scanned page with
+`ocr_server_url` comes from `HARBORRAG_OCR_SERVER_URL`; when it is unset or
+empty no OCR server is used, LiteParse OCRs locally with Tesseract, and the
+rest of this section does not apply. For the containerized ingestion worker it
+is usually the `ppocr-server` Docker DNS alias on `harborrag-data-network`.
+These scripts run on the host, where that name does not resolve and LiteParse would fail every scanned page with
 `OCR failed: ... error sending request`. The bootstrap therefore keeps the
 scheme, port, and path but retargets an unresolvable host at the loopback
 interface, and says so:
@@ -214,7 +215,7 @@ That assumes the OCR server publishes its port on the host, which the
 `ocr_server_url` is the published one. `HARBORRAG_OCR_SERVER_URL` (read by
 `config/parsers.yaml` itself) changes what the catalog configures for every
 process, including the worker. Point only the smoke run at a different OCR
-server with:
+server (when one is configured) with:
 
 ```bash
 HARBOR_SMOKE_OCR_SERVER_URL=http://ocr.internal:8888/ocr \

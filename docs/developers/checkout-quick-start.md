@@ -252,7 +252,6 @@ HTTP surface.
 ### 10. Connect an MCP client
 
 ```bash
-scripts/deployment/dev.sh mcp-role   # once, after the API has run: the MCP server's DB role and MinIO user
 scripts/deployment/mcp.sh --check
 ```
 

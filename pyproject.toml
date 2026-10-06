@@ -186,6 +186,10 @@ addopts = [
     "--tb=short",
     "-m",
     "not integration and not e2e and not smoke",
+    # Eight xdist workers: each one imports the full suite (~0.5 GB), so one per
+    # CPU (`-n auto`) can exhaust a 16 GB machine. Override with `-n 0` or `-n N`.
+    "-n",
+    "8",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",

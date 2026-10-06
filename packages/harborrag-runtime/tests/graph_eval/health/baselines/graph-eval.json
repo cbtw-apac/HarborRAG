@@ -1,6 +1,6 @@
 [
   {
-    "average_degree": 2.604651162790698,
+    "average_degree": 2.5860465116279068,
     "component_sizes": [
       215
     ],
@@ -261,7 +261,7 @@
     },
     "orphans_by_kind": {},
     "placeholder_count": 0,
-    "relation_count": 280,
+    "relation_count": 278,
     "relation_ids": [
       "graph-relation:0046cd5df4727a8907d4f7b14aaf97d49d433f43c59d90773932eefbde58e4db",
       "graph-relation:010dfbba7e0af1b4faf0606feef94fed44b472bfb968994d94b3fb1b5ce2a2aa",
@@ -309,7 +309,6 @@
       "graph-relation:21f5eef67222783c53e3916ca0eef510a09d06716a37cd2d432c893de2afff31",
       "graph-relation:221bc28dee5779b072003404b12b80d6679b5e1035e04717d414a1509cd6a30b",
       "graph-relation:2224db273925f2bad6a214eb93dfb8ab6524f6a7069d4f154b07b3c8d2086a6d",
-      "graph-relation:2288249bac0cf05af339acfec1471c57a1d7b95e528b8497be3c6b6c6db63791",
       "graph-relation:240eed24c0d242d54f91b24ebac3594f78b9d80e85ebfb8328d9ef5a1cff33a3",
       "graph-relation:24e0bdfe57907b77b602bc1218da14be0146c654cb665b2441cd48f8dec33cee",
       "graph-relation:26701fed7b76b7159d349517da6ac4407957952945ed6ad24fbfd767099c79f1",
@@ -524,7 +523,6 @@
       "graph-relation:efb205d1b34d687c5218f59a4369349f11f2971ddfd6b359926b1cc964617b04",
       "graph-relation:efc4782e468530ea4b033c030e1beb8227980db89f41c41854887426ed13749c",
       "graph-relation:f0b7ef0c740e2f6f44b2cb5e8aeb4f7584995ec9c2473543896dffbf4f462f03",
-      "graph-relation:f36a8d270feac35d37d8e5555cb58d724e2ea6e49e306ed8c0a37aa7612d2a99",
       "graph-relation:f37abad2c56bf220292c670b54d1f17d47f09c3dd9dc7469ae23a7f363091093",
       "graph-relation:f3c234b2b2cd10d2bb53701ccd67f73bfbcb3f6b4982ce13b12a4743341ab52b",
       "graph-relation:f3e0b80f2da75c8c246506893832377f3200623f2d372fa830c0a11a5dca633e",
@@ -548,7 +546,7 @@
       "blocks": 4,
       "contains": 86,
       "duplicates": 3,
-      "has_attachment": 4,
+      "has_attachment": 2,
       "has_chunk": 71,
       "has_data_source": 1,
       "has_version": 37,
@@ -568,7 +566,7 @@
       "SourceEntity blocks SourceEntity": 4,
       "SourceEntity contains SourceEntity": 37,
       "SourceEntity duplicates SourceEntity": 3,
-      "SourceEntity has_attachment SourceEntity": 4,
+      "SourceEntity has_attachment SourceEntity": 2,
       "SourceEntity has_version DocumentVersion": 37,
       "SourceEntity includes SourceEntity": 1,
       "SourceEntity links_to SourceEntity": 5,
@@ -623,12 +621,6 @@
       {
         "degree": 7,
         "kind": "SourceEntity",
-        "node_key": "graph-v2-source-entity:5a612548abb32f97eacb03d32414949eeb2262d946bcf4c1985d7eb23b7e5bbf",
-        "title": "team-handbook"
-      },
-      {
-        "degree": 7,
-        "kind": "SourceEntity",
         "node_key": "graph-v2-source-entity:67f10a0456a8d477bcb2f6148380c752d152588535cd5462164f7b2595a5c13e",
         "title": "runbook-index"
       },
@@ -643,6 +635,12 @@
         "kind": "DataSource",
         "node_key": "graph-v2-data-source:d102899d6c7fffaaaf59cdf6b3d5f32844e08ee6d7ff12cc9bd4ceccea3a9b3e",
         "title": "graph-eval"
+      },
+      {
+        "degree": 6,
+        "kind": "DocumentVersion",
+        "node_key": "graph-v2-document-version:ed5adfa074efd9e324fcfefeda352f29b23b547a2480175d3cc007996760c71d",
+        "title": "Incident Log"
       }
     ]
   }

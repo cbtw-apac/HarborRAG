@@ -101,7 +101,8 @@ async def connect_retrieval_service(
             ),
             graph_repository=graph_repository,
             topology_repository=control.topology,
-            summary_repository=control.summaries,
+            # Without summarization there are no summary views to join onto nodes.
+            summary_repository=(control.summaries if settings.topology_parent_enabled else None),
             contextual_search=ContextualEvidenceSearch(
                 control.topology, vector_repository, contextual_profile
             ),

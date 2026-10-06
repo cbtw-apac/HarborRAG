@@ -23,8 +23,7 @@ class ApiKeySchemaMissing(RuntimeError):
         where = f" in {target}" if target else ""
         super().__init__(
             f"the {KEY_TABLE} table does not exist{where}: start the API once (it applies "
-            "the control-plane migrations) or re-run with --migrate; then provision the "
-            "MCP server's database role with 'scripts/deployment/dev.sh mcp-role'"
+            "the control-plane migrations) or re-run with --migrate"
         )
 
 

@@ -176,19 +176,6 @@ def test_mcp_compose_does_not_opt_into_plaintext_remote_backends() -> None:
     assert "HARBORRAG_FALKORDB_HOST: 127.0.0.1" in mcp
 
 
-def test_mcp_compose_connects_as_the_dedicated_reader_role() -> None:
-    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
-    example = (ROOT / "env-example/.env.database.example").read_text(encoding="utf-8")
-
-    assert "postgresql+asyncpg://${HARBORRAG_MCP_DB_USER:?" in mcp
-    assert "${HARBORRAG_MCP_DB_PASSWORD:?" in mcp
-    # The owner account must not be substituted into the URL (a comment may name it).
-    assert "${POSTGRES_USER" not in mcp
-    assert "${POSTGRES_PASSWORD" not in mcp
-    assert "HARBORRAG_MCP_DB_USER=harborrag_mcp_reader" in example
-    assert "HARBORRAG_MCP_DB_PASSWORD=\n" in example
-
-
 def test_mcp_compose_does_not_receive_the_secrets_encryption_key() -> None:
     # The reader never opens the control-plane secret store; the API and worker
     # files keep requiring the key.
@@ -197,12 +184,3 @@ def test_mcp_compose_does_not_receive_the_secrets_encryption_key() -> None:
 
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${" not in mcp
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?" in api
-
-
-def test_mcp_compose_uses_the_read_only_object_store_user() -> None:
-    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
-
-    assert "${HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID:?" in mcp
-    assert "${HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY:?" in mcp
-    assert "${MINIO_ROOT_USER" not in mcp
-    assert "${MINIO_ROOT_PASSWORD" not in mcp

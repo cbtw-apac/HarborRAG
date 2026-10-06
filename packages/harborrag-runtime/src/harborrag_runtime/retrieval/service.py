@@ -32,7 +32,7 @@ from harborrag_engine.retrieval import (
     AuthoritativeSearchResult,
     RetrievalLane,
 )
-from harborrag_engine.retrieval.duplicates import collapse_duplicates
+from harborrag_engine.retrieval.duplicates import collapse_duplicates, duplicate_identity
 from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
 
 from .contracts import (
@@ -319,7 +319,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         # own duplicates, so the same text can arrive twice by different routes.
         distinct, late_duplicates = collapse_duplicates(
             [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
-            lambda result: result.metadata.get("content_hash"),
+            lambda result: duplicate_identity(result.metadata),
             limit=top_k,
         )
         results = list(distinct)

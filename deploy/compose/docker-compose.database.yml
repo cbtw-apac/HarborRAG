@@ -80,7 +80,9 @@ services:
       - harborrag-data-network
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Chainguard's free tier publishes only :latest, so it is pinned by digest. Runs as
+    # uid 65532; the image's /data is world-writable, so a fresh volume needs no chown.
+    image: cgr.dev/chainguard/minio:latest@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034
     restart: unless-stopped
     command:
       - server

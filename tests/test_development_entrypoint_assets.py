@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 MCP_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
+MCP_LAUNCHER = ROOT / "scripts/deployment/lib/mcp-launcher.sh"
 
 
 def test_development_entrypoint_orchestrates_explicit_components() -> None:
@@ -168,14 +169,21 @@ def test_api_subcommand_validates_configuration_and_never_starts_worker() -> Non
 
 
 def test_mcp_entrypoint_runs_the_server_container_without_other_services() -> None:
-    mcp_script = MCP_SCRIPT.read_text(encoding="utf-8")
+    entrypoint = MCP_SCRIPT.read_text(encoding="utf-8")
+    launcher = MCP_LAUNCHER.read_text(encoding="utf-8")
+    mcp_script = entrypoint + launcher
     dev_script = DEV_SCRIPT.read_text(encoding="utf-8")
 
-    assert "deploy/compose/docker-compose.mcp.yml" in mcp_script
-    assert 'run --rm --no-deps -T mcp --transport stdio "$@"' in mcp_script
+    assert 'MCP_COMPOSE_FILE="docker-compose.mcp.yml"' in entrypoint
+    assert 'MCP_SERVICE="mcp"' in entrypoint
+    assert 'run --rm --no-deps -T "${MCP_SERVICE}" --transport stdio "$@"' in launcher
     assert "HARBORRAG_CONTROL_DB_URL" not in mcp_script
     assert "HARBORRAG_MODEL_CONFIG_PATH" not in mcp_script
-    assert "source " not in mcp_script
+    # The shared launcher is the only file sourced; env files go to Compose.
+    sources = [
+        line.strip() for line in mcp_script.splitlines() if line.strip().startswith("source ")
+    ]
+    assert sources == ['source "${ROOT_DIR}/scripts/deployment/lib/mcp-launcher.sh"']
     assert "start_worker" not in mcp_script
     assert "start_api" not in mcp_script
     assert "docker-compose.yml" not in mcp_script
@@ -189,13 +197,12 @@ def _mcp_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     script = project / "scripts/deployment/mcp.sh"
     script.parent.mkdir(parents=True)
     script.write_text(MCP_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    launcher = project / "scripts/deployment/lib/mcp-launcher.sh"
+    launcher.parent.mkdir()
+    launcher.write_text(MCP_LAUNCHER.read_text(encoding="utf-8"), encoding="utf-8")
     environment = project / "env"
     environment.mkdir()
-    (environment / ".env.database").write_text(
-        "POSTGRES_USER=test\nHARBORRAG_MCP_DB_PASSWORD=test-db-password\n"
-        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=test-object-secret\n",
-        encoding="utf-8",
-    )
+    (environment / ".env.database").write_text("POSTGRES_USER=test\n", encoding="utf-8")
     (environment / ".env.mcp").write_text(
         "HARBORRAG_MCP_BEARER_TOKEN=test-token\nHARBORRAG_MCP_PORT=8123\n",
         encoding="utf-8",
@@ -346,268 +353,6 @@ def test_down_subcommand_stops_composed_projects_in_reverse_order() -> None:
     database_position = down_function.index("data_compose")
 
     assert api_position < temporal_position < database_position
-
-
-def test_mcp_entrypoint_refuses_to_start_without_the_reader_role_password(tmp_path: Path) -> None:
-    script, docker_log, env = _mcp_project(tmp_path)
-    (script.parents[2] / "env/.env.database").write_text(
-        "POSTGRES_USER=test\nHARBORRAG_MCP_DB_PASSWORD=\n", encoding="utf-8"
-    )
-
-    result = subprocess.run(
-        ["bash", str(script), "--check"],
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 2
-    assert "HARBORRAG_MCP_DB_PASSWORD" in result.stderr
-    assert "dev.sh mcp-role" in result.stderr
-    assert not docker_log.exists()
-
-
-def _dev_project(tmp_path: Path, database_env: str) -> tuple[Path, Path, Path, dict[str, str]]:
-    """A checkout with a fake docker that logs argv and captures psql's stdin."""
-
-    project = tmp_path / "project"
-    script = project / "scripts/deployment/dev.sh"
-    script.parent.mkdir(parents=True)
-    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
-    sql = project / "deploy/postgres/mcp-reader-role.sql"
-    sql.parent.mkdir(parents=True)
-    sql.write_text("-- role sql\n", encoding="utf-8")
-    policy = project / "deploy/minio/mcp-reader-policy.json"
-    policy.parent.mkdir(parents=True)
-    policy.write_text('{"Statement": []}\n', encoding="utf-8")
-    environment = project / "env"
-    environment.mkdir()
-    for filename in (".env.temporal", ".env.connector", ".env.parser", ".env.models", ".env.api"):
-        (environment / filename).write_text("", encoding="utf-8")
-    (environment / ".env.database").write_text(database_env, encoding="utf-8")
-    (environment / ".env.mcp").write_text(
-        "HARBORRAG_MCP_BEARER_TOKEN=test-token\n", encoding="utf-8"
-    )
-    (project / "env-example").mkdir()
-    (project / "env-example/.env.database.example").write_text("", encoding="utf-8")
-
-    fake_bin = project / "fake-bin"
-    fake_bin.mkdir()
-    docker_log = project / "docker.log"
-    docker_stdin = project / "docker.stdin"
-    fake_docker = fake_bin / "docker"
-    fake_docker.write_text(
-        """#!/usr/bin/env sh
-printf '%s\\n' "$*" >> "$DEV_DOCKER_LOG"
-case " $* " in
-  *" exec -T postgres sh -c "*) cat > "$DEV_DOCKER_STDIN" ;;
-  *" exec -T minio sh -s"*) cat > "$DEV_DOCKER_STDIN.minio" ;;
-  *" config --services "*) printf 'api\\n' ;;
-esac
-""",
-        encoding="utf-8",
-    )
-    fake_docker.chmod(0o755)
-    env = {
-        **os.environ,
-        "DEV_DOCKER_LOG": str(docker_log),
-        "DEV_DOCKER_STDIN": str(docker_stdin),
-        "PATH": f"{fake_bin}:{os.environ['PATH']}",
-    }
-    return script, docker_log, docker_stdin, env
-
-
-def test_mcp_role_command_provisions_the_reader_role_without_exposing_the_password(
-    tmp_path: Path,
-) -> None:
-    script, docker_log, docker_stdin, env = _dev_project(
-        tmp_path,
-        "POSTGRES_USER=owner\nPOSTGRES_DB=harbor\n"
-        "HARBORRAG_MCP_DB_USER=harborrag_mcp_reader\nHARBORRAG_MCP_DB_PASSWORD=s3cret-pw\n"
-        "MINIO_ROOT_USER=root\nMINIO_ROOT_PASSWORD=root-pw\n"
-        "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID=harborrag-mcp-reader\n"
-        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=obj-s3cret\n",
-    )
-
-    result = subprocess.run(
-        ["bash", str(script), "mcp-role"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "MCP database role 'harborrag_mcp_reader' is ready." in result.stdout
-    docker_calls = docker_log.read_text(encoding="utf-8")
-    assert "docker-compose.database.yml exec -T postgres sh -c" in docker_calls
-    # Owner login and database name are the container's own variables; only the
-    # generated role name crosses over, as a positional argument.
-    assert '--username "$POSTGRES_USER" --dbname "$POSTGRES_DB"' in docker_calls
-    assert "sh harborrag_mcp_reader" in docker_calls
-    # The password reaches psql only on stdin, never in the process arguments.
-    assert "s3cret-pw" not in docker_calls
-    stdin = docker_stdin.read_text(encoding="utf-8")
-    assert stdin.startswith("\\set mcp_password 's3cret-pw'\n")
-    assert "-- role sql" in stdin
-    # MinIO: the mc script, root and reader credentials included, is stdin-only.
-    assert "MCP object-store user 'harborrag-mcp-reader' is ready." in result.stdout
-    assert "docker-compose.database.yml exec -T minio sh -s" in docker_calls
-    for secret in ("root-pw", "obj-s3cret"):
-        assert secret not in docker_calls
-    minio_stdin = Path(f"{docker_stdin}.minio").read_text(encoding="utf-8")
-    # Root credentials are the container's own variables; they never leave it.
-    assert (
-        'mc alias set --quiet local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"'
-        in minio_stdin
-    )
-    assert "root-pw" not in minio_stdin
-    assert "mc admin user add local 'harborrag-mcp-reader' 'obj-s3cret'" in minio_stdin
-    assert '{"Statement": []}' in minio_stdin
-    assert (
-        "mc admin policy attach local harborrag-mcp-reader --user 'harborrag-mcp-reader'"
-        in minio_stdin
-    )
-
-
-def test_mcp_role_command_requires_a_generated_password(tmp_path: Path) -> None:
-    script, docker_log, _, env = _dev_project(
-        tmp_path, "POSTGRES_USER=owner\nHARBORRAG_MCP_DB_USER=harborrag_mcp_reader\n"
-    )
-
-    result = subprocess.run(
-        ["bash", str(script), "mcp-role"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 2
-    assert "HARBORRAG_MCP_DB_PASSWORD" in result.stderr
-    assert "dev.sh bootstrap" in result.stderr
-    assert not docker_log.exists()
-
-
-def test_bootstrap_adds_reader_role_credentials_to_an_existing_database_env(
-    tmp_path: Path,
-) -> None:
-    script, docker_log, _, env = _dev_project(tmp_path, "POSTGRES_USER=owner\n")
-
-    result = subprocess.run(
-        ["bash", str(script), "bootstrap"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    database_env = (script.parents[2] / "env/.env.database").read_text(encoding="utf-8")
-    assert "POSTGRES_USER=owner\n" in database_env
-    assert "HARBORRAG_MCP_DB_USER=harborrag_mcp_reader\n" in database_env
-    password = next(
-        line.split("=", 1)[1]
-        for line in database_env.splitlines()
-        if line.startswith("HARBORRAG_MCP_DB_PASSWORD=")
-    )
-    assert len(password) == 64 and set(password) <= set("0123456789abcdef")
-    assert "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID=harborrag-mcp-reader\n" in database_env
-    object_secret = next(
-        line.split("=", 1)[1]
-        for line in database_env.splitlines()
-        if line.startswith("HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=")
-    )
-    assert len(object_secret) == 40  # MinIO caps secret keys at 40 characters
-    assert "dev.sh mcp-role" in result.stdout or "mcp-role" in result.stdout
-    assert not docker_log.exists()
-    # Re-running keeps the generated password.
-    again = subprocess.run(
-        ["bash", str(script), "bootstrap"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    assert again.returncode == 0, again.stderr
-    assert password in (script.parents[2] / "env/.env.database").read_text(encoding="utf-8")
-
-
-def test_mcp_role_quotes_operator_credentials_for_the_container_shell(tmp_path: Path) -> None:
-    # A secret with a quote and a space must reach mc intact, not abort
-    # provisioning or break the generated shell script.
-    script, docker_log, docker_stdin, env = _dev_project(
-        tmp_path,
-        "POSTGRES_USER=owner\nPOSTGRES_DB=harbor\n"
-        "HARBORRAG_MCP_DB_USER=harborrag_mcp_reader\nHARBORRAG_MCP_DB_PASSWORD=s3cret-pw\n"
-        "MINIO_ROOT_USER=root\nMINIO_ROOT_PASSWORD=root-pw\n"
-        "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID=harborrag-mcp-reader\n"
-        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=it's a pass\n",
-    )
-
-    result = subprocess.run(
-        ["bash", str(script), "mcp-role"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    minio_stdin = Path(f"{docker_stdin}.minio").read_text(encoding="utf-8")
-    assert "mc admin user add local 'harborrag-mcp-reader' 'it'\\''s a pass'" in minio_stdin
-    # The generated script itself parses: run it through sh -n.
-    check = subprocess.run(
-        ["sh", "-n"], input=minio_stdin, capture_output=True, text=True, check=False
-    )
-    assert check.returncode == 0, check.stderr
-    assert "it's a pass" not in docker_log.read_text(encoding="utf-8")
-
-
-def test_mcp_role_migrate_starts_the_api_before_provisioning(tmp_path: Path) -> None:
-    # --migrate defers to the API, which owns the schema: it must be up and
-    # healthy (migrations applied) before any GRANT names a table.
-    script, docker_log, _, env = _dev_project(
-        tmp_path,
-        "POSTGRES_USER=owner\nPOSTGRES_DB=harbor\nHARBORRAG_SECRETS_ENCRYPTION_KEY=k\n"
-        "HARBORRAG_MCP_DB_USER=harborrag_mcp_reader\nHARBORRAG_MCP_DB_PASSWORD=s3cret-pw\n"
-        "MINIO_ROOT_USER=root\nMINIO_ROOT_PASSWORD=root-pw\n"
-        "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID=harborrag-mcp-reader\n"
-        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=obj-s3cret\n",
-    )
-    (script.parents[2] / "docs").mkdir(exist_ok=True)
-
-    result = subprocess.run(
-        ["bash", str(script), "mcp-role", "--migrate"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    calls = docker_log.read_text(encoding="utf-8")
-    api_up = calls.index("docker-compose.yml up")
-    role = calls.index("exec -T postgres sh -c")
-    assert api_up < role < calls.index("exec -T minio sh -s")
-
-    plain = subprocess.run(
-        ["bash", str(script), "--build", "mcp-role"],
-        cwd=script.parents[2],
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    assert plain.returncode == 2 and "--migrate" in plain.stderr
 
 
 def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) -> None:

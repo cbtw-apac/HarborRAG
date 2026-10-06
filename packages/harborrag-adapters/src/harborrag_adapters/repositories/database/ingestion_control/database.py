@@ -24,18 +24,19 @@ class IngestionControlPlaneDatabase:
         *,
         create_schema: bool = False,
         owns_client: bool = True,
+        summaries_enabled: bool = True,
     ) -> None:
         self._client = client
         self._create_schema = create_schema
         self._owns_client = owns_client
         self.source_scans = SourceScanRepository(client)
         self.document_versions = DocumentVersionRepository(client)
-        self.publisher = DocumentVersionPublisher(client)
+        self.publisher = DocumentVersionPublisher(client, summaries_enabled=summaries_enabled)
         self.reliability = IngestionReliabilityRepository(client)
         self.reindex = ReindexJobRepository(client)
         self.tasks = IngestionTaskRepository(client)
         self.task_events = TaskEventRepository(client)
-        self.topology = TopologyRepository(client)
+        self.topology = TopologyRepository(client, summaries_enabled=summaries_enabled)
         self.summaries = SummaryRepository(client)
 
     async def __aenter__(self) -> IngestionControlPlaneDatabase:

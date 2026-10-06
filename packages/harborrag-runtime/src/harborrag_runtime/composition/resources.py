@@ -42,7 +42,22 @@ def build_ingestion_control(
         pool_recycle_seconds=1800,
         echo=False,
     )
-    return IngestionControlPlaneDatabase(client, create_schema=False)
+    return IngestionControlPlaneDatabase(
+        client, create_schema=False, summaries_enabled=summarization_enabled(settings)
+    )
+
+
+def summarization_enabled(settings: RuntimeSettings) -> bool:
+    """Whether summaries are produced, per config/topology/graph_build.yaml.
+
+    Resolved here rather than by callers because the ingestion runtime builds
+    its control database from raw settings, before the YAML is applied.
+    """
+
+    from harborrag_runtime.config.graph_build import GraphBuildConfig
+
+    config = GraphBuildConfig.from_settings(settings)
+    return config.effective_settings(settings).topology_parent_enabled
 
 
 def embedding_dimensions(config: Any, model_name: str) -> int:

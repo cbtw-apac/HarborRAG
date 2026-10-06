@@ -302,7 +302,7 @@ def test_missing_schema_is_reported_with_the_fix(monkeypatch):
     assert result.exit_code == 1
     payload = json.loads(result.stderr.strip().splitlines()[-1])
     assert payload["error_code"] == "SchemaMissing"
-    assert "--migrate" in payload["detail"] and "dev.sh mcp-role" in payload["detail"]
+    assert "--migrate" in payload["detail"]
 
 
 def test_settings_come_from_the_checkout_unless_exported(tmp_path: Path, monkeypatch):

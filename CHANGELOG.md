@@ -10,13 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `harborrag auth keys create|list|revoke`: hashed, tenant-bound MCP reader keys with a
-  bounded lifetime, stored in the control database (`mcp_api_keys`, migration 0035) and
+  bounded lifetime, stored in the control database (`mcp_api_keys`, migration 0036) and
   verified on every request. `HARBORRAG_MCP_AUTH_MODE=api_key` accepts them (and keeps the
   loopback owner token for the status UI); the UI's tool playground now accepts reader keys
   for their own tenant. The secret is written once to a `0600` file, never printed.
-- `scripts/deployment/dev.sh mcp-role [--migrate]` provisions the MCP server's least-privilege
-  PostgreSQL role (`deploy/postgres/mcp-reader-role.sql`) and read-only MinIO user
-  (`deploy/minio/mcp-reader-policy.json`); `bootstrap` generates their secrets.
 - Pause, resume and cancel of an ingestion run append a `task.<id>.control` event naming the
   action and who asked for it, next to the run's progress events.
 - `harborrag init` scaffolds a self-contained project directory (`harborrag.yaml`, `.env`,
@@ -69,6 +66,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Summarization is off in the shipped `config/topology/graph_build.yaml` (`summarization.enabled:
+  false`), and the switch now stops all summary work, not just the worker: publishing, retiring and
+  permission imports no longer take the summary tenant lock or mark `summary_scopes` dirty, and
+  retrieval no longer joins summary views onto graph nodes. Rebuild the worker image to pick up the
+  YAML. After turning it back on, run `harborrag topology summaries backfill` so scopes published
+  while it was off are summarized.
+- An issue or page no longer asserts its own `HAS_ATTACHMENT` edge to an attachment that is a
+  separate document: the attachment's projection owns that edge. Every pair used to have two
+  parallel edges, the extra one owned by the container's version and carrying its full metadata.
+  Existing duplicates are removed by relation repair on the next ingestion run of the scope.
+- Search collapses identical chunk text per subject (the source item, or an attachment's parent)
+  instead of across the whole corpus. The same file attached twice to one issue still shows once,
+  but the same comment on different issues (for example a status line on each candidate) is no
+  longer reduced to a single hit.
+- LiteParse is the default parser engine. A new `liteparse` PDF profile (LiteParse, then
+  PyMuPDF) is the default wherever a profile was not named (it was `balanced`, which starts with
+  PyMuPDF), and the image parser's default `ocr_engine` is `liteparse` instead of `pytesseract`.
+  `harborrag init` now scaffolds `pdf-liteparse` and `image-liteparse` (Docling and RapidOCR stay
+  as commented alternatives) and writes `HARBORRAG_OCR_SERVER_URL=` to `.env`. The adapters
+  `parsers` and `image` extras install `liteparse`, so the default engine is always present.
+- The LiteParse OCR server is opt-in. `config/parsers.yaml` reads `HARBORRAG_OCR_SERVER_URL`
+  with no default, and `env/.env.parser` carries the variable (empty in the example). Unset or
+  empty, the PDF and image parsers use no OCR server and LiteParse OCRs locally with Tesseract;
+  previously they fell back to `http://ppocr-server:8888/ocr`. To keep using the server, set
+  `HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr` (or `http://localhost:8888/ocr` on the host).
+- MinIO now runs from `cgr.dev/chainguard/minio` (pinned by digest) in the dev stack and in
+  `harborrag init` projects, because `quay.io/minio/minio` refuses anonymous pulls. The image
+  runs as uid 65532 rather than root, so a `minio_data` volume written by the old image may hold
+  root-owned files: fix it once with
+  `docker run --rm -v <project>_minio_data:/data alpine chown -R 65532:65532 /data`, or reset it.
 - Ingestion is sized for the shared 4-vCPU / 15 GB host instead of for I/O latency.
   `worker.max_concurrent_activities` drops from 12 to 4 (24 slots and executor threads per
   worker process instead of 72), `ingestion.document_concurrency` from 32 to 8, and the example

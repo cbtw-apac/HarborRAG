@@ -14,14 +14,8 @@ parsers:
           extract_links: true
           ocr_enabled: true
           ocr_language: en
-          ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-http://ppocr-server:8888/ocr}
+          ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
           dpi: 150
-          # Concurrent OCR requests this parser opens per PDF. The server admits
-          # PPOCR_SERVICE__MAX_INFLIGHT=32 and sheds the rest with HTTP 503, and the
-          # parse-queue holds max_concurrent_activities(4) x replicas(2) = 8 parses,
-          # so anything above 4 here can exceed the ceiling and silently lose pages
-          # from a multi-page PDF. Throughput is server-bound either way: measured
-          # 1.128 pages/s at 3 versus 1.253 at 16, for 2.4x the p50 latency.
           num_workers: 3
           preserve_very_small_text: false
           quiet: true
@@ -35,7 +29,7 @@ parsers:
     enabled: true
     settings:
       ocr_engine: liteparse
-      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-http://ppocr-server:8888/ocr}
+      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
       lang: en
       max_pixels: 100000000
 

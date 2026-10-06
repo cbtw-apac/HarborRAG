@@ -29,35 +29,9 @@ scripts/deployment/dev.sh bootstrap
 ```
 
 This creates the ignored checkout `env/` files at mode `0600` and generates the
-local MCP bearer token and the MCP database password. The MCP checkout wrapper
-reads the database, model, and optional MCP files; it does not load the API
-configuration.
-
-Then create the MCP server's database role and object-store user. The role
-grants on tables that migrations create, so the API must have started once
-first (`up` or `api` runs the control-plane migrations):
-
-```bash
-scripts/deployment/dev.sh up        # or: dev.sh data && dev.sh api
-scripts/deployment/dev.sh mcp-role  # or: dev.sh mcp-role --migrate, to start the API first
-```
-
-The MCP server connects to PostgreSQL as `HARBORRAG_MCP_DB_USER` (default
-`harborrag_mcp_reader`), not as the `POSTGRES_USER` owner account. The role is
-defined in [`deploy/postgres/mcp-reader-role.sql`](../../../../deploy/postgres/mcp-reader-role.sql):
-`SELECT` on the ingestion tables the reader tools serve from, nothing on the
-control-plane tables such as `secrets`, and `default_transaction_read_only`
-switched on so the role cannot write at all. `mcp-role` is safe to re-run; run it again after a
-migration adds an ingestion table, or the affected tool fails with
-`permission denied`.
-
-The same command creates the MinIO user `HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID`
-(default `harborrag-mcp-reader`) with the policy in
-[`deploy/minio/mcp-reader-policy.json`](../../../../deploy/minio/mcp-reader-policy.json):
-`GetObject` on the `harborrag-artifacts` bucket plus the bucket metadata calls
-the startup check needs, and nothing on the raw-source bucket. The MinIO root
-account is no longer handed to the MCP server. Both `mcp.sh` and the Compose
-file refuse to start the server while either generated secret is empty.
+local MCP bearer token. The MCP checkout wrapper reads the database, model, and
+optional MCP files; it does not load the API configuration. The server connects
+with the `POSTGRES_*` and `MINIO_ROOT_*` accounts from `env/.env.database`.
 
 > **Review the placeholders before making real tool calls.** The MCP server
 > itself does not need `HARBORRAG_SECRETS_ENCRYPTION_KEY` (it never decrypts
@@ -193,8 +167,7 @@ How it works:
 - The server looks the key up on **every** request and caches nothing, so a key
   created or revoked by the CLI takes effect on the next call, on every
   replica, without a restart. If the database cannot be reached the request is
-  refused. The MCP database role only needs `SELECT` on `mcp_api_keys`, which
-  `dev.sh mcp-role` grants.
+  refused.
 - The tenant comes from the stored row, never from the client: a call naming
   another `tenant_id` is refused. In the status UI a reader key can load and
   run its own tenant's tools; the configuration editor and API stay owner-only.
@@ -777,13 +750,9 @@ the protected model/database environment plus reachable data-service endpoints.
 
 ## Security boundaries
 
-- **Dedicated database role.** The server never holds the PostgreSQL owner
-  credentials; `harborrag_mcp_reader` cannot read `secrets` or any other
-  control-plane table, and cannot delete or truncate anything. The container is
-  not given `HARBORRAG_SECRETS_ENCRYPTION_KEY`, so even a compromised MCP
-  process cannot decrypt stored connector credentials.
-- **Read-only object store.** The MinIO user can only `GetObject` from the
-  artifact bucket; it cannot write, delete, or read raw source uploads.
+- **No secrets key.** The container is not given
+  `HARBORRAG_SECRETS_ENCRYPTION_KEY`, so the MCP process cannot decrypt stored
+  connector credentials.
 - **Loopback only.** The launcher rejects non-loopback binding. Static tokens
   are for local development only.
 - **Local stdio is the one unauthenticated path.** `docker run --rm

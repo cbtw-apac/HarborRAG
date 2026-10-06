@@ -29,7 +29,7 @@ parsers:
           output_format: markdown
           ocr_enabled: true
           ocr_language: en
-          ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-http://ppocr-server:8888/ocr}
+          ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
           dpi: 150
           num_workers: 3
           strip_code_fences: true
@@ -37,18 +37,21 @@ parsers:
 
 An explicit one-item engine chain guarantees that PDFs go through LiteParse.
 Using a built-in profile would create a fallback chain and could select another
-engine first. Available profiles are `fast`, `balanced`, `ocr`, and `quality`.
+engine first. Available profiles are `liteparse` (the default when a PDF
+definition names neither `engines` nor `profile`: LiteParse, then PyMuPDF),
+`fast`, `balanced`, `ocr`, and `quality`. The image parser's default
+`ocr_engine` is `liteparse` as well.
 `ocr_server_url` points at a self-hosted OCR service; LiteParse calls it for
-scanned pages instead of running OCR in-process.
-The ingestion worker runs in a container, so the shipped default is a Docker DNS
-name rather than `localhost`, which would be the worker itself. The OCR server
-must join the external `harborrag-data-network` under the `ppocr-server` alias;
-the URL then uses the container port, not the published host port.
+scanned pages instead of running OCR in-process. It comes from
+`HARBORRAG_OCR_SERVER_URL` in `env/.env.parser`. When that is unset or empty no
+OCR server is used and LiteParse OCRs locally with Tesseract.
 
-The server address is deployment-specific, so it reads
-`HARBORRAG_OCR_SERVER_URL` from the environment and falls back to the container
-alias. Set it in `env/.env.parser` - `http://localhost:8888/ocr` when running
-the parser directly on the host - instead of editing the catalog.
+For the containerized ingestion worker use a Docker DNS name rather than
+`localhost`, which would be the worker itself: the OCR server joins the
+external `harborrag-data-network` under the `ppocr-server` alias, so set
+`HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr` (the container port,
+not the published host port). Use `http://localhost:8888/ocr` when running the
+parser directly on the host.
 
 `strip_code_fences` removes Markdown code-fence delimiters from LiteParse's
 output. Its layout pass fences any block it reads as preformatted, which on a
@@ -84,13 +87,14 @@ parsers:
     enabled: true
     settings:
       ocr_engine: liteparse
-      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-http://ppocr-server:8888/ocr}
+      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
       lang: en
       max_pixels: 100000000
 ```
 
-`liteparse` sends raster images to the same OCR server as scanned PDF pages,
-so the worker needs no second local inference runtime. Pillow still decodes
+`liteparse` sends raster images to the same OCR server as scanned PDF pages
+(or OCRs them locally with Tesseract when no server is set), so the worker
+needs no second local inference runtime. Pillow still decodes
 the image first, so `max_pixels` and decompression-bomb limits apply before
 anything is uploaded. The alternatives are `rapidocr` (local ONNX, needs the
 `image-rapidocr` extra) and `pytesseract` (external Tesseract binary); neither

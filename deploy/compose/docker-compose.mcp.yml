@@ -19,17 +19,13 @@ services:
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
       HARBORRAG_MCP_AUDIT_PATH: /var/lib/harborrag/.harborrag/mcp-audit.jsonl
       HARBORRAG_CONTROL_DB_URL: postgresql+asyncpg://${POSTGRES_USER:?set POSTGRES_USER in the database environment file}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?set POSTGRES_DB in the database environment file}
-      HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?set HARBORRAG_SECRETS_ENCRYPTION_KEY in the database environment file}
       HARBORRAG_OBJECT_STORE_ENDPOINT_URL: ${HARBORRAG_OBJECT_STORE_ENDPOINT_URL:-http://127.0.0.1:${MINIO_API_PORT:-9000}}
-      HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the database environment file}
       HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the database environment file}
       HARBORRAG_QDRANT_URL: ${HARBORRAG_QDRANT_URL:-http://127.0.0.1:${QDRANT_HTTP_PORT:-6333}}
-      HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE: "true"
       HARBORRAG_FALKORDB_HOST: 127.0.0.1
       HARBORRAG_FALKORDB_PORT: ${FALKORDB_PORT:-6379}
       HARBORRAG_FALKORDB_MAX_CONNECTIONS: ${HARBORRAG_FALKORDB_MAX_CONNECTIONS:-32}
-      HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
     volumes:
       - ../../config:/app/config:ro
       - harborrag_mcp_audit:/var/lib/harborrag/.harborrag

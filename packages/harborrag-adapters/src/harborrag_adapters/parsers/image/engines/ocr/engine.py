@@ -47,7 +47,7 @@ class OcrImageEngine(HarborImageEngine):
         }
     )
 
-    ocr_engine: str = "pytesseract"
+    ocr_engine: str = "liteparse"
     lang: str | None = None
     config: str = ""
     timeout: int | float | None = 60
@@ -75,6 +75,10 @@ class OcrImageEngine(HarborImageEngine):
             or self.max_pixels <= 0
         ):
             raise ValueError("Image max_pixels must be a positive integer or null")
+        # A blank URL (HARBORRAG_OCR_SERVER_URL left empty) means no OCR server:
+        # LiteParse then OCRs locally with Tesseract.
+        if isinstance(self.ocr_server_url, str):
+            self.ocr_server_url = self.ocr_server_url.strip() or None
 
     @property
     def name(self) -> str:

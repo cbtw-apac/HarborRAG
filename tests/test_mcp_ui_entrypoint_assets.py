@@ -13,6 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 UI_SCRIPT = ROOT / "scripts/deployment/mcp-ui.sh"
 READER_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
+LAUNCHER = ROOT / "scripts/deployment/lib/mcp-launcher.sh"
 UI_COMPOSE = ROOT / "deploy/compose/docker-compose.mcp-ui.yml"
 READER_COMPOSE = ROOT / "deploy/compose/docker-compose.mcp.yml"
 UI_DOCKERFILE = ROOT / "deploy/docker/Dockerfile.mcp-ui"
@@ -24,13 +25,12 @@ def _ui_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     script = project / "scripts/deployment/mcp-ui.sh"
     script.parent.mkdir(parents=True)
     script.write_text(UI_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    launcher = project / "scripts/deployment/lib/mcp-launcher.sh"
+    launcher.parent.mkdir()
+    launcher.write_text(LAUNCHER.read_text(encoding="utf-8"), encoding="utf-8")
     environment = project / "env"
     environment.mkdir()
-    (environment / ".env.database").write_text(
-        "POSTGRES_USER=test\nHARBORRAG_MCP_DB_PASSWORD=test-db-password\n"
-        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY=test-object-secret\n",
-        encoding="utf-8",
-    )
+    (environment / ".env.database").write_text("POSTGRES_USER=test\n", encoding="utf-8")
     (environment / ".env.mcp").write_text(
         "HARBORRAG_MCP_BEARER_TOKEN=test-token\nHARBORRAG_MCP_UI_PORT=8124\n",
         encoding="utf-8",
@@ -144,7 +144,8 @@ def test_ui_entrypoint_requires_bootstrapped_environment(tmp_path: Path) -> None
 
 
 def test_the_reader_deployment_does_not_depend_on_the_ui() -> None:
-    reader_script = READER_SCRIPT.read_text(encoding="utf-8")
+    # The shared launcher is part of the reader deployment, so it must stay UI-free too.
+    reader_script = READER_SCRIPT.read_text(encoding="utf-8") + LAUNCHER.read_text(encoding="utf-8")
     reader_compose = READER_COMPOSE.read_text(encoding="utf-8")
     reader_dockerfile = READER_DOCKERFILE.read_text(encoding="utf-8")
 
@@ -201,19 +202,3 @@ def test_the_reader_server_works_without_the_optional_ui_extra(tmp_path: Path) -
     assert "explorer_search" not in lines[0]["tools"]
     assert lines[1] == {"ui_exit": 2}
     assert "harborrag-mcp-server[ui]" in result.stderr
-
-
-def test_ui_entrypoint_refuses_to_start_without_the_object_store_secret(tmp_path: Path) -> None:
-    # Same precheck as mcp.sh: name the missing generated secret and the fix,
-    # instead of failing inside docker compose with a raw ':?' substitution error.
-    script, docker_log, env = _ui_project(tmp_path)
-    (script.parents[2] / "env/.env.database").write_text(
-        "POSTGRES_USER=test\nHARBORRAG_MCP_DB_PASSWORD=test-db-password\n", encoding="utf-8"
-    )
-
-    result = _run(script, env, "--http")
-
-    assert result.returncode == 2
-    assert "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY" in result.stderr
-    assert "dev.sh mcp-role" in result.stderr
-    assert not docker_log.exists()
