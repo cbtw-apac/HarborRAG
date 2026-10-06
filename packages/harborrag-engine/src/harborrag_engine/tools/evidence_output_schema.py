@@ -10,7 +10,7 @@ from harborrag_core.topology.records import CanonicalAssertion
 from harborrag_core.topology.search import EvidencePath
 
 
-def _inline(schema: dict[str, Any]) -> dict[str, Any]:
+def inline_schema(schema: dict[str, Any]) -> dict[str, Any]:
     definitions = schema.get("$defs", {})
 
     def expand(value: Any) -> Any:
@@ -25,8 +25,8 @@ def _inline(schema: dict[str, Any]) -> dict[str, Any]:
     return dict(expand(schema))
 
 
-ASSERTION_SCHEMA = _inline(CanonicalAssertion.model_json_schema())
-EVIDENCE_PATH_SCHEMA = _inline(TypeAdapter(EvidencePath).json_schema())
+ASSERTION_SCHEMA = inline_schema(CanonicalAssertion.model_json_schema())
+EVIDENCE_PATH_SCHEMA = inline_schema(TypeAdapter(EvidencePath).json_schema())
 EVIDENCE_PATH_SCHEMA["additionalProperties"] = False
 
 NAVIGATION_SCHEMA: dict[str, object] = {

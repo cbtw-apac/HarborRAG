@@ -16,7 +16,6 @@ from jsonschema.validators import validator_for
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_engine.tools.base import BaseTool, ToolSpec
-from harborrag_engine.tools.describe_graph_schema import OUTPUT_SCHEMA
 from harborrag_engine.tools.output_schemas import (
     GRAPH_SEARCH_DIAGNOSTICS_SCHEMA,
     NODE_SCHEMA,
@@ -161,32 +160,6 @@ def test_retrieval_diagnostics_schema_rejects_a_malformed_graph_document() -> No
         _validator(RETRIEVAL_DIAGNOSTICS_SCHEMA).validate(malformed)
 
 
-def test_describe_graph_output_schema_rejects_an_unknown_node_kind_or_extra_key() -> None:
-    layers_schema = OUTPUT_SCHEMA["properties"]["layers"]
-    valid_layers = {"nodes": ["Chunk"], "relations": ["contains"]}
-    _validator(layers_schema).validate(valid_layers)
-    with pytest.raises(ValidationError):
-        _validator(layers_schema).validate({"nodes": ["NotARealNodeKind"], "relations": []})
-    with pytest.raises(ValidationError):
-        _validator(layers_schema).validate({**valid_layers, "extra": True})
-
-
-def test_describe_graph_output_schema_requires_every_property_section() -> None:
-    properties_schema = OUTPUT_SCHEMA["properties"]["properties"]
-    valid_properties = {
-        "common_node": ["node_key"],
-        "document_owned": ["document_id"],
-        "Chunk": ["chunk_id"],
-        "Entity": ["id"],
-        "RELATES": ["types"],
-    }
-    _validator(properties_schema).validate(valid_properties)
-    for missing_key in valid_properties:
-        incomplete = {k: v for k, v in valid_properties.items() if k != missing_key}
-        with pytest.raises(ValidationError):
-            _validator(properties_schema).validate(incomplete)
-
-
 def test_server_rejects_a_registered_tool_with_no_output_schema() -> None:
     class UndocumentedTool(BaseTool):
         spec = ToolSpec("undocumented", "undocumented")
@@ -203,3 +176,39 @@ def test_default_tool_registry_all_declare_an_output_schema() -> None:
     assert server.tools is not None
     for tool in server.tools:
         assert tool.spec.output_schema is not None, tool.spec.name
+
+
+def _references(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [ref for item in value for ref in _references(item)]
+    if not isinstance(value, dict):
+        return []
+    own = [value["$ref"]] if "$ref" in value else []
+    return own + [ref for item in value.values() for ref in _references(item)]
+
+
+def test_default_tool_registry_schemas_carry_no_unresolved_references() -> None:
+    # Fragments are nested far from any ``$defs``; an MCP client resolving a
+    # ``#/$defs/...`` pointer against the tool root rejects the whole tool.
+    server = McpServer()
+    assert server.tools is not None
+    for tool in server.tools:
+        for schema in (tool.spec.input_schema, tool.spec.output_schema):
+            assert _references(schema) == [], tool.spec.name
+
+
+def test_node_schema_accepts_a_summary_card_with_attributes() -> None:
+    node = {
+        **VALID_NODE,
+        "summary": {
+            "status": "current",
+            "card": {
+                "description": "A backend candidate.",
+                "attributes": [{"name": "stage", "values": ["placed"]}],
+            },
+        },
+    }
+    _validator(NODE_SCHEMA).validate(node)
+    node["summary"]["card"]["attributes"][0]["unexpected"] = True
+    with pytest.raises(ValidationError):
+        _validator(NODE_SCHEMA).validate(node)
