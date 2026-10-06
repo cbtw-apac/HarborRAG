@@ -286,6 +286,8 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
     client = FakeFalkorDBClient()
     subject, object_node = nodes()
     client.read_results = [
+        # The subject selector is resolved to a node key first (node_key tier hits).
+        FakeQueryResult([HeaderItem("node")], [[subject.model_dump(mode="json")]]),
         FakeQueryResult(
             [HeaderItem("subject"), HeaderItem("predicate"), HeaderItem("object")],
             [
@@ -295,7 +297,7 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
                     object_node.model_dump(mode="json"),
                 ]
             ],
-        )
+        ),
     ]
 
     result = await repository(client).search_triplets(
@@ -307,10 +309,18 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
         context=StorageOperationContext.system("tenant-1"),
     )
 
-    statement, parameters = client.read_calls[0]
+    resolution_statement, resolution_parameters = client.read_calls[0]
+    assert "node.node_key = $selector" in resolution_statement
+    assert resolution_parameters["selector"] == "node-document"
+    statement, parameters = client.read_calls[1]
     assert "subject.tenant_id = $tenant_id" in statement
     assert "node-document" not in statement
-    assert parameters["subject"] == "node-document"
+    # The relationship MATCH starts from the resolved, index-bound subject.
+    assert "node_key: $subject_key" in statement
+    assert "toLower" not in statement
+    assert "source_title" not in statement
+    assert parameters["subject_key"] == "node-document"
+    assert parameters["object_key"] is None
     assert parameters["tenant_id"] == "tenant-1"
     assert parameters["authorized_document_ids"] == ["document-1"]
     assert statement.count("$authorized_document_ids") == 3
@@ -347,9 +357,11 @@ async def test_path_search_returns_explicit_canonical_paths() -> None:
     assert "node_key: $start_node_key" in statement
     assert "node_key: $end_node_key" in statement
     assert "start.logical_id = $start_node" not in statement
-    # FalkorDB rejects ORDER BY over an unprojected path expression, so the ordering has
-    # to name the projected alias. Pinned because the failure is query-time only.
-    assert "ORDER BY size(path_relations)" in statement
+    # A bounded breadth-first shortest-path search, not an enumeration of every walk up
+    # to max_depth sorted by length -- that timed out even for neighbors of a hub.
+    assert "allShortestPaths(" in statement
+    assert "[:CONTAINS*1..4]" in statement
+    assert "ORDER BY" not in statement
     assert parameters["relationship_types"] == ["contains"]
     assert parameters["start_node_key"] == "node-document"
     assert parameters["end_node_key"] == "node-section"

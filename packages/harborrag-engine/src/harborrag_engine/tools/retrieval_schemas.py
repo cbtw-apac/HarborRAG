@@ -26,9 +26,10 @@ _DEFAULT_MAX_RESULTS = MAX_TOOL_RESULTS
 # a caller how to obtain one, so it is repeated verbatim in each description rather than
 # stated once in a place the model may not read.
 _SELECTOR_HINT = (
-    "Node selectors accept a chunk_id returned by vector_search (chunk IDs and Chunk "
-    "node keys are the same value), a node_key from an earlier graph result, or an exact "
-    "full node title. Titles are unset on chunk nodes and are never matched partially."
+    "Node selectors accept a chunk_id or document_id from vector_search, a source item "
+    "id or issue key (e.g. 'jira://CPM/CPM-110455' or 'CPM-110455'), a node_key from an "
+    "earlier graph result, or an exact full title shared by few nodes. Titles are never "
+    "matched partially."
 )
 
 
@@ -130,7 +131,7 @@ def graph_path_schema(
                 "type": "integer",
                 "minimum": 1,
                 "maximum": max_results,
-                "default": 10,
+                "default": min(10, max_results),
             },
             "direction": {
                 "type": "string",
@@ -181,7 +182,7 @@ GRAPH_TRIPLET_DESCRIPTION = (
     f"Find active subject-predicate-object records in the tenant knowledge graph. {_SELECTOR_HINT}"
 )
 GRAPH_PATH_DESCRIPTION = (
-    f"Find active graph paths between two tenant-scoped nodes. Defaults to an "
+    f"Find the shortest active graph paths between two tenant-scoped nodes. Defaults to an "
     f"undirected walk, because the spine is not uniformly directed. {_SELECTOR_HINT}"
 )
 GRAPH_SUBGRAPH_DESCRIPTION = (
