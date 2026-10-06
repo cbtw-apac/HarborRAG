@@ -242,6 +242,48 @@ async def test_cancel_and_retry_apply_postgres_state_rules(
 
 
 @pytest.mark.asyncio
+async def test_retry_of_named_documents_reruns_deterministic_but_not_source_failures(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # A blanket retry skips chunk_invalid; once a fix is deployed the operator
+    # can still re-run that document by naming it. An unsupported document
+    # fails the same way whatever runs it.
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    for document_id, code, stage in (
+        ("document:fixed-bug", "document_release_chunk_invalid", "ChunkAndValidate"),
+        ("document:unsupported", "document_release_document_unsupported", "ParseAndNormalize"),
+    ):
+        await control.tasks.record_document_result(
+            TaskDocumentResult(
+                task_id=task_id,
+                document_id=document_id,
+                status="failed",
+                result={"safe_error_code": code, "failure_stage": stage, "retryable": False},
+            )
+        )
+    await control.tasks.finalize(
+        task_id,
+        IngestionTaskState.PARTIAL,
+        summary={"stage": "COMPLETED", "failed": 2},
+    )
+
+    retry = await service.retry_failures(
+        task_id=task_id,
+        document_ids=["document:fixed-bug", "document:unsupported"],
+    )
+
+    assert retry["accepted_document_count"] == 1
+    assert temporal.retries[0].document_ids == ("document:fixed-bug",)
+
+
+@pytest.mark.asyncio
 async def test_pause_and_resume_forward_to_temporal(
     service_resources: tuple[
         IngestionApplicationService,

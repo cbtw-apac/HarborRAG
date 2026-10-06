@@ -5,8 +5,8 @@ import logging
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from harborrag_engine.ingestion import IngestionFailureClassifier
 from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.reindex import ReindexRequest
 from harborrag_runtime.ingestion.observability import (
@@ -39,7 +39,7 @@ class MaintenanceActivities:
         telemetry: IngestionTelemetry | None = None,
     ) -> None:
         self._runtime = runtime
-        self._failures = IngestionFailureClassifier()
+        self._failures = ingestion_failure_classifier()
         self._telemetry = telemetry or IngestionTelemetry()
 
     @activity.defn(name="harborrag.cleanup_source_projections")

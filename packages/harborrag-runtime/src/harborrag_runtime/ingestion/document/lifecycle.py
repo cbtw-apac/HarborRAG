@@ -26,8 +26,9 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     DocumentVersionTransitionPolicy,
-    IngestionFailureClassifier,
 )
+
+from ..failure_classification import ingestion_failure_classifier
 
 logger = logging.getLogger("harborrag.runtime.ingestion.version_lifecycle")
 
@@ -47,7 +48,7 @@ class DocumentVersionLifecycle:
         self._canonical_artifacts = canonical_artifacts
         self._chunk_reader = chunk_reader
         self._projection_artifacts = projection_artifacts
-        self._failures = IngestionFailureClassifier()
+        self._failures = ingestion_failure_classifier()
         self._transitions = DocumentVersionTransitionPolicy()
 
     async def prepare_replay(

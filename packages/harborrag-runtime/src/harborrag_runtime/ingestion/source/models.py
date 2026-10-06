@@ -89,7 +89,7 @@ class SourceDispatchSummary:
         return cls(
             published=sum(result is DocumentIngestionOutcome.PUBLISHED for result in results),
             unchanged=sum(result is DocumentIngestionOutcome.UNCHANGED for result in results),
-            failed=sum(result is DocumentIngestionOutcome.FAILED for result in results),
+            failed=sum(result.is_failure for result in results),
         )
 
     @property

@@ -24,6 +24,7 @@ from .errors import (
     SourceAuthenticationError,
     SourceAuthorizationError,
     SourceForbiddenError,
+    SourceItemNotFoundError,
     SourceUnavailableError,
     UnsupportedDocumentError,
 )
@@ -95,6 +96,8 @@ from .states import (
     ReindexJobState,
     SourceAdmissionDecision,
     SourceScanState,
+    is_explicitly_retryable_failure_code,
+    is_retryable_failure_code,
 )
 from .task_query_contracts import (
     StoredTaskDocumentResult,
@@ -128,6 +131,8 @@ __all__ = [
     "DocumentVersionSnapshot",
     "DocumentVersionState",
     "FailureCategory",
+    "is_explicitly_retryable_failure_code",
+    "is_retryable_failure_code",
     "GRAPH_SCHEMA_VERSION",
     "GraphEntityType",
     "GraphOwnershipScope",
@@ -152,6 +157,7 @@ __all__ = [
     "SourceAuthenticationError",
     "SourceAuthorizationError",
     "SourceForbiddenError",
+    "SourceItemNotFoundError",
     "SourceUnavailableError",
     "UnsupportedDocumentError",
     "ProjectionManifest",

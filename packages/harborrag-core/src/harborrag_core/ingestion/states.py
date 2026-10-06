@@ -50,6 +50,17 @@ class DocumentIngestionOutcome(StrEnum):
     PUBLISHED = "published"
     UNCHANGED = "unchanged"
     FAILED = "failed"
+    # A failure caused by the source item being gone (HTTP 404). It counts as a
+    # failed document, but says nothing about shared dependencies, so it must not
+    # trip the batch circuit breaker.
+    SOURCE_ITEM_MISSING = "source_item_missing"
+
+    @property
+    def is_failure(self) -> bool:
+        return self in (
+            DocumentIngestionOutcome.FAILED,
+            DocumentIngestionOutcome.SOURCE_ITEM_MISSING,
+        )
 
 
 class DocumentVersionState(StrEnum):
@@ -79,6 +90,44 @@ class FailureCategory(StrEnum):
     GRAPH_WRITE_FAILURE = "GRAPH_WRITE_FAILURE"
     VERIFICATION_FAILURE = "VERIFICATION_FAILURE"
     PUBLICATION_FAILURE = "PUBLICATION_FAILURE"
+
+
+# Safe error codes whose cause is the source item itself: re-running the document
+# cannot change the outcome, so not even an explicit retry is offered.
+_SOURCE_INHERENT_FAILURE_CODES = frozenset({"document_unsupported", "parser_rejected_document"})
+# Deterministic failures a blanket "retry all failures" should skip: the same
+# input fails the same way until code changes. An operator who has deployed a fix
+# can still retry such a document by naming it.
+_DETERMINISTIC_FAILURE_CODES = frozenset(
+    {"chunk_invalid", "projection_verification_failed", "source_item_not_found"}
+)
+
+
+def _failure_code(safe_error_code: str) -> str:
+    return safe_error_code.strip().lower().removeprefix("document_release_")
+
+
+def is_retryable_failure_code(safe_error_code: str) -> bool:
+    """Whether a blanket retry of failed documents should include this failure.
+
+    This is about the retry-failures action, not Temporal's in-run retry policy.
+    Infrastructure faults and replay conflicts qualify in every stage; before,
+    any PersistCanonical or ChunkAndValidate failure was excluded by stage name.
+    """
+
+    code = _failure_code(safe_error_code)
+    return (
+        bool(code)
+        and code not in _SOURCE_INHERENT_FAILURE_CODES
+        and code not in _DETERMINISTIC_FAILURE_CODES
+    )
+
+
+def is_explicitly_retryable_failure_code(safe_error_code: str) -> bool:
+    """Whether a document an operator names for retry may be retried."""
+
+    code = _failure_code(safe_error_code)
+    return bool(code) and code not in _SOURCE_INHERENT_FAILURE_CODES
 
 
 class KnowledgeNodeKind(StrEnum):
