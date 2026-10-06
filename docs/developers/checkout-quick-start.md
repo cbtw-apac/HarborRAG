@@ -252,10 +252,11 @@ HTTP surface.
 ### 10. Connect an MCP client
 
 ```bash
+scripts/deployment/dev.sh mcp-role   # once, after the API has run: the MCP server's DB role and MinIO user
 scripts/deployment/mcp.sh --check
 ```
 
-That performs a real MCP handshake and prints the four advertised retrieval tools without
+That performs a real MCP handshake and prints the eleven advertised retrieval tools without
 opening provider connections. For normal use, point your MCP client at
 `scripts/deployment/mcp.sh`; for a browser playground, run `scripts/deployment/mcp.sh --http`
 and open <http://127.0.0.1:8010/>. See

@@ -144,7 +144,7 @@ async def test_concurrent_summary_failures_prefer_infrastructure_error(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_tenant_rollup_is_lazy_and_uses_authorized_source_cards(tmp_path):
+async def test_tenant_rollup_is_queued_by_reconcile_not_by_reads(tmp_path):
     async with Harness(tmp_path) as harness:
         harness.include_graph = True
         await harness.publish()
@@ -160,6 +160,11 @@ async def test_tenant_rollup_is_lazy_and_uses_authorized_source_cards(tmp_path):
             "DEFAULT", (key,), access=harness.access, source_scopes={key: "@tenant"}
         )
         assert views[key].status == "pending"
+        # A read reports the pending card but never queues it: readers run under a
+        # read-only role. The worker's reconcile queues it once every source ACL
+        # the card depends on is resolved and public.
+        assert await runner.run_once("DEFAULT") == "idle"
+        assert await harness.control.summaries.reconcile("DEFAULT") == 1
         assert await runner.run_once("DEFAULT") == "current"
         views = await harness.control.summaries.views("DEFAULT", (key,), access=harness.access)
         assert views[key].status == "current"

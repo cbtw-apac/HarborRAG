@@ -10,22 +10,12 @@ from __future__ import annotations
 import os
 from collections.abc import MutableMapping, Sequence
 from pathlib import Path
-from urllib.parse import quote
 
-from dotenv.parser import parse_stream
-
-
-def _read_env_file(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        raise ValueError(f"Environment file does not exist: {path}")
-    values: dict[str, str] = {}
-    with path.open(encoding="utf-8") as stream:
-        for binding in parse_stream(stream):
-            if binding.error:
-                raise ValueError(f"Invalid environment file {path} at line {binding.original.line}")
-            if binding.key is not None and binding.value is not None:
-                values[binding.key] = binding.value
-    return values
+from harborrag_runtime.config.checkout import (
+    control_db_url_from_compose,
+    missing_control_db_values,
+    read_compose_env_file,
+)
 
 
 def _from_root(root: Path, value: str) -> Path:
@@ -39,20 +29,25 @@ def _set_default(environ: MutableMapping[str, str], name: str, value: str | None
 
 
 def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: bool) -> None:
-    database_values = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
+    # The dedicated reader role (deploy/postgres/mcp-reader-role.sql) once
+    # bootstrap has provisioned it; the POSTGRES_* owner account stays a
+    # fallback for checkouts bootstrapped before the role existed.
+    user_name, password_name = "POSTGRES_USER", "POSTGRES_PASSWORD"
+    if environ.get("HARBORRAG_MCP_DB_USER") and environ.get("HARBORRAG_MCP_DB_PASSWORD"):
+        user_name, password_name = "HARBORRAG_MCP_DB_USER", "HARBORRAG_MCP_DB_PASSWORD"
     if "HARBORRAG_CONTROL_DB_URL" not in environ:
-        missing = [name for name in database_values if not environ.get(name)]
+        missing = missing_control_db_values(
+            environ, user_name=user_name, password_name=password_name
+        )
         if missing and not check:
             raise ValueError("Checkout database configuration is missing: " + ", ".join(missing))
         if not missing:
-            user = quote(environ["POSTGRES_USER"], safe="")
-            password = quote(environ["POSTGRES_PASSWORD"], safe="")
-            database = quote(environ["POSTGRES_DB"], safe="")
-            port = environ.get("POSTGRES_PORT", "5432")
             _set_default(
                 environ,
                 "HARBORRAG_CONTROL_DB_URL",
-                f"postgresql+asyncpg://{user}:{password}@localhost:{port}/{database}",
+                control_db_url_from_compose(
+                    environ, user_name=user_name, password_name=password_name
+                ),
             )
 
     _set_default(
@@ -60,10 +55,16 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
         "HARBORRAG_OBJECT_STORE_ENDPOINT_URL",
         f"http://localhost:{environ.get('MINIO_API_PORT', '9000')}",
     )
-    _set_default(environ, "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID", environ.get("MINIO_ROOT_USER"))
-    _set_default(
-        environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get("MINIO_ROOT_PASSWORD")
-    )
+    # Same shape as the database role: the read-only MinIO user once bootstrap has
+    # provisioned it, the root account as a fallback for older checkouts.
+    access_key_name, secret_key_name = "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"
+    if environ.get("HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID") and environ.get(
+        "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY"
+    ):
+        access_key_name = "HARBORRAG_MCP_OBJECT_STORE_ACCESS_KEY_ID"
+        secret_key_name = "HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY"
+    _set_default(environ, "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID", environ.get(access_key_name))
+    _set_default(environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get(secret_key_name))
     _set_default(
         environ,
         "HARBORRAG_QDRANT_URL",
@@ -113,7 +114,7 @@ def load_launch_environment(
             files.append(mcp_file)
     files.extend(env_files)
     for path in files:
-        for name, value in _read_env_file(path).items():
+        for name, value in read_compose_env_file(path).items():
             if name not in protected:
                 pending[name] = value
     if root is not None:

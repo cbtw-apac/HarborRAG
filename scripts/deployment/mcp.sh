@@ -30,8 +30,9 @@ after source, dependency, or baked configuration changes.
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 MODEL_ENV_FILE, and MCP_ENV_FILE. The data services must already be running
-('scripts/deployment/dev.sh data'); the container uses the host network to
-reach their loopback ports.
+('scripts/deployment/dev.sh data') and the MCP database role provisioned once
+('scripts/deployment/dev.sh mcp-role'); the container uses the host network
+to reach their loopback ports.
 EOF
 }
 

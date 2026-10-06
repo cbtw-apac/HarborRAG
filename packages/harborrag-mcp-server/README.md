@@ -80,13 +80,15 @@ path loads API settings or executes env files as shell code. The command
 constructs the reader application and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the thirteen advertised tool names without connecting to
+MCP handshake and print the eleven advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:
 
 ```bash
 scripts/deployment/dev.sh bootstrap
+scripts/deployment/dev.sh up         # data services + API, which applies the migrations
+scripts/deployment/dev.sh mcp-role   # once: the server's least-privilege DB role and MinIO user
 scripts/deployment/mcp.sh --http
 ```
 

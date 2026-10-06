@@ -192,3 +192,24 @@ def test_migration_failure_logs_safe_actionable_diagnostics(
     assert "error_type=OperationalError" in message
     assert "already exists" not in message
     assert "hint=" in message, "the recoverable case must name its remedy"
+
+
+@pytest.mark.whitebox
+@pytest.mark.parametrize("env", ["dev", "prod"])
+@pytest.mark.parametrize("key", [None, "   "])
+def test_non_sqlite_control_db_refuses_a_blank_encryption_key_before_connecting(
+    env: str, key: str | None
+) -> None:
+    """The dev-default Fernet key must never protect secrets in a persistent
+    database, in any environment. The check runs before migrations, so this
+    unresolvable DSN is never dialled."""
+    settings = RuntimeSettings(
+        env=env,
+        control_db_url="postgresql+asyncpg://user:pass@database.invalid/control",
+        secrets_encryption_key=key,
+    )
+
+    with pytest.raises(
+        HarborConfigurationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"
+    ):
+        CompositionRoot.production(settings)

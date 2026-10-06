@@ -3,9 +3,11 @@
 from datetime import timedelta
 
 from sqlalchemy import or_, select, true, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
+from harborrag_core.security.context import AccessContext
 from harborrag_core.summaries import (
     SUMMARY_IMMEDIATE_RETRY_BLOCKERS,
     SUMMARY_PERMISSION_BLOCKERS,
@@ -142,7 +144,66 @@ class SummaryJobOperations(SummaryAuthority):
                 ):
                     await invalidate_summary_scope(session, tenant_id, row["source_scope_id"])
                     repaired += 1
+            if await self._queue_tenant_rollup(session, tenant_id):
+                repaired += 1
         return repaired
+
+    async def _queue_tenant_rollup(self, session: AsyncSession, tenant_id: str) -> bool:
+        """Queue a dirty, idle ``@tenant`` rollup the worker can justify on its own.
+
+        The tenant-wide card used to be requested lazily by a reader who could
+        read every source it would summarise. Readers no longer write (they run
+        under a read-only role), so the worker applies the same gate with the
+        runtime identity: every permission dependency must be resolved and
+        public, or the operator must have allowed shared-corpus processing. A
+        tenant whose sources carry non-public ACLs keeps needing ``backfill``,
+        because no reader-independent decision can say who may see that card.
+        """
+        try:
+            snapshot = await self._snapshot(session, tenant_id, "@tenant")
+        except HarborConflictError:
+            return False
+        shared = not snapshot.permission_dependencies and tenant_id in self._shared_processing
+        if not snapshot.permission_dependencies and not shared:
+            return False
+        if not shared:
+            acl = await self._resolved_permissions(session, tenant_id)
+            access = AccessContext.system(tenant_id)
+            now = utc_now()
+            # Every dependency needs a resolved, currently public snapshot; a
+            # missing one is unknown, and unknown is not public.
+            for dependency in snapshot.permission_dependencies:
+                resolved = acl.get((dependency.resource_kind, dependency.resource_id))
+                if resolved is None or not resolved.can_read(access, now=now):
+                    return False
+        tenant_scope = (
+            (
+                await session.execute(
+                    select(SUMMARY_SCOPES).where(
+                        SUMMARY_SCOPES.c.tenant_id == tenant_id,
+                        SUMMARY_SCOPES.c.source_scope_id == "@tenant",
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if not (
+            tenant_scope
+            and tenant_scope["policy"]
+            and tenant_scope["dirty_since"]
+            and tenant_scope["execution"] == "idle"
+        ):
+            return False
+        await session.execute(
+            update(SUMMARY_SCOPES)
+            .where(
+                SUMMARY_SCOPES.c.tenant_id == tenant_id,
+                SUMMARY_SCOPES.c.source_scope_id == "@tenant",
+            )
+            .values(execution="queued", available_at=utc_now())
+        )
+        return True
 
     async def claim(
         self, tenant_id: str, *, lease_seconds: int = 300, source_scope_id: str | None = None

@@ -212,15 +212,11 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
                 "HARBORRAG_ENV=prod; SQLite is development-only"
             )
-        if is_blank_secret(self.secrets_encryption_key) and not is_sqlite_control_db:
-            # env=dev with a real (non-SQLite) control DB is a legal combination, and
-            # it would otherwise silently encrypt stored secrets with the
-            # publicly-known dev-default key -- require an explicit key for any
-            # persistent control database, not only in prod.
-            raise ValueError(
-                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
-                "is not SQLite; the dev-only default key is not safe for stored secrets"
-            )
+        # The secrets encryption key is required only by the process that opens
+        # the control-plane secret store (CompositionRoot.production enforces it
+        # for any non-SQLite database). Reader-only processes such as the MCP
+        # server share these settings but never decrypt a stored secret, and
+        # demanding the key here handed it to a container that has no use for it.
         development = self.env == "dev"
         if self.redis_url is not None:
             try:

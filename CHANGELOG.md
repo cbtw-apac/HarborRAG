@@ -69,6 +69,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Ingestion is sized for the shared 4-vCPU / 15 GB host instead of for I/O latency.
+  `worker.max_concurrent_activities` drops from 12 to 4 (24 slots and executor threads per
+  worker process instead of 72), `ingestion.document_concurrency` from 32 to 8, and the example
+  worker replica count stays at 2. Every Compose service now has an overridable CPU and memory
+  ceiling (`HARBORRAG_<SERVICE>_CPUS` / `_MEMORY`), and Redis is bounded at 512 MB with
+  `volatile-lru`. Without the ceilings, a full Jira run drove the host into memory thrash: it
+  became unreachable and nothing was OOM-killed.
+- Ingestion workers pass already-loaded HarborRAG modules through the Temporal workflow sandbox
+  (`temporal/sandbox.py`), so it no longer re-imports them for every workflow run (about 320 ms
+  to 1 ms of CPU per document workflow). Workflow modules and their parent packages stay
+  sandboxed. The passthrough is configured on the runner because the in-module
+  `imports_passed_through()` form leaves base-class modules unresolvable when workflow inputs
+  are decoded.
+- `parse_and_normalize` parses in-process. The isolated-subprocess attempt before it could not
+  pickle the preparation stages and failed on every document before falling back.
+- Source dispatch plans are stored as pages with an index, and a document workflow resolves
+  its record from one cached page instead of downloading and parsing the whole plan. Per-
+  document cost no longer grows with the plan, which is what a 400,000-document run needs.
+- Summary reads (`entity_evidence`, `views`) run in a snapshot-isolated read-only
+  transaction and never lock or write; tenant rollups are queued by the worker's
+  `reconcile` when every source ACL is resolved and public, instead of by a reader.
+- `HARBORRAG_SECRETS_ENCRYPTION_KEY` is required by `CompositionRoot.production` (the one
+  place that opens the secret store), not by every `RuntimeSettings`; reader-only processes
+  such as the MCP server no longer receive it.
 - `ingest start --wait` and `ingest watch` render an inline progress block instead of a
   full-screen dashboard; `watch --events` streams NDJSON.
 - A summary's `coverage_mode` can now be `partial`, not only `complete` or `empty`. Coverage

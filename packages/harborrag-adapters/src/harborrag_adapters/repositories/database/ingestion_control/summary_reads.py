@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from sqlalchemy import select, tuple_, update
+from sqlalchemy import select
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,11 +19,9 @@ from harborrag_core.summaries import (
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
 from .summary_authority import SummaryAuthority
-from .summary_intent import lock_summary_tenant
 from .summary_schema import SUMMARY_BINDINGS, SUMMARY_SCOPES
-from .topology.configuration import lock_indexing_config
-from .topology.policy_schema import PERMISSION_SNAPSHOTS
-from .topology.transactions import topology_transaction
+from .topology.configuration import read_indexing_config
+from .topology.transactions import read_only_transaction
 
 
 class SummaryReadOperations(SummaryAuthority):
@@ -85,9 +83,8 @@ class SummaryReadOperations(SummaryAuthority):
 
         if str(access.tenant_id) != tenant_id or not node_keys or len(node_keys) > 1000:
             return {}
-        async with topology_transaction(self._client) as session:
-            await lock_summary_tenant(session, tenant_id)
-            state = await lock_indexing_config(session, tenant_id)
+        async with read_only_transaction(self._client) as session:
+            state = await read_indexing_config(session, tenant_id)
             if state.config.prohibited:
                 return {}
             rows = (
@@ -158,25 +155,6 @@ class SummaryReadOperations(SummaryAuthority):
         )
         return manifest.input_chunk_ids if current else ()
 
-    async def _resolved_permissions(
-        self, session: AsyncSession, tenant_id: str
-    ) -> dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot]:
-        permissions = (
-            (
-                await session.execute(
-                    select(PERMISSION_SNAPSHOTS.c.snapshot).where(
-                        PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        return {
-            (value.resource_kind, value.resource_id): value
-            for value in (ResolvedPermissionSnapshot.model_validate(item) for item in permissions)
-        }
-
     async def _scope_snapshot(
         self, session: AsyncSession, tenant_id: str, scope: str
     ) -> SummarySnapshot | None:
@@ -195,13 +173,12 @@ class SummaryReadOperations(SummaryAuthority):
     ) -> dict[str, SummaryView]:
         if str(access.tenant_id) != tenant_id or len(node_keys) > 1000:
             return {}
-        async with topology_transaction(self._client) as session:
-            await lock_summary_tenant(session, tenant_id)
-            state = await lock_indexing_config(session, tenant_id)
+        # Reads never queue summary work: the worker's reconcile and backfill own
+        # that, and a reader that wrote could not run under a read-only role.
+        async with read_only_transaction(self._client) as session:
+            state = await read_indexing_config(session, tenant_id)
             if state.config.prohibited:
                 return {key: SummaryView() for key in node_keys}
-            if source_scopes and "@tenant" in source_scopes.values():
-                await self._request_tenant(session, tenant_id, access)
             rows = (
                 (
                     await session.execute(
@@ -230,23 +207,7 @@ class SummaryReadOperations(SummaryAuthority):
             )
             result = {row["node_key"]: SummaryView() for row in rows}
             snapshots: dict[str, SummarySnapshot | None] = {}
-            permissions = (
-                (
-                    await session.execute(
-                        select(PERMISSION_SNAPSHOTS.c.snapshot).where(
-                            PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            acl = {
-                (value.resource_kind, value.resource_id): value
-                for value in (
-                    ResolvedPermissionSnapshot.model_validate(item) for item in permissions
-                )
-            }
+            acl = await self._resolved_permissions(session, tenant_id)
             for row in rows:
                 if row["policy"] is None:
                     continue
@@ -297,72 +258,6 @@ class SummaryReadOperations(SummaryAuthority):
             if source_scopes:
                 await self._pending_views(session, tenant_id, source_scopes, result)
             return result
-
-    async def _request_tenant(
-        self, session: AsyncSession, tenant_id: str, access: AccessContext
-    ) -> None:
-        try:
-            snapshot = await self._snapshot(session, tenant_id, "@tenant")
-        except HarborConflictError:
-            return
-        shared = (
-            not snapshot.permission_dependencies
-            and access.corpus_mode == "tenant_shared"
-            and tenant_id in self._shared_processing
-        )
-        if not snapshot.permission_dependencies and not shared:
-            return
-        if not shared:
-            required = [
-                (value.resource_kind, value.resource_id)
-                for value in snapshot.permission_dependencies
-            ]
-            permissions = (
-                (
-                    await session.execute(
-                        select(PERMISSION_SNAPSHOTS.c.snapshot).where(
-                            PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id,
-                            tuple_(
-                                PERMISSION_SNAPSHOTS.c.resource_kind,
-                                PERMISSION_SNAPSHOTS.c.resource_id,
-                            ).in_(required),
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if any(
-                not ResolvedPermissionSnapshot.model_validate(value).can_read(access, now=utc_now())
-                for value in permissions
-            ):
-                return
-        tenant_scope = (
-            (
-                await session.execute(
-                    select(SUMMARY_SCOPES).where(
-                        SUMMARY_SCOPES.c.tenant_id == tenant_id,
-                        SUMMARY_SCOPES.c.source_scope_id == "@tenant",
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if (
-            tenant_scope
-            and tenant_scope["policy"]
-            and tenant_scope["dirty_since"]
-            and tenant_scope["execution"] == "idle"
-        ):
-            await session.execute(
-                update(SUMMARY_SCOPES)
-                .where(
-                    SUMMARY_SCOPES.c.tenant_id == tenant_id,
-                    SUMMARY_SCOPES.c.source_scope_id == "@tenant",
-                )
-                .values(execution="queued", available_at=utc_now())
-            )
 
     @staticmethod
     async def _pending_views(

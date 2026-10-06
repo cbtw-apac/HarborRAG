@@ -1,5 +1,7 @@
 """Summary projection: authority operations."""
 
+from typing import Literal
+
 from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -36,6 +38,25 @@ class SummaryAuthority:
     def __init__(self, client: SQLAlchemyDBClient) -> None:
         self._client = client
         self._shared_processing: dict[str, str] = {}
+
+    async def _resolved_permissions(
+        self, session: AsyncSession, tenant_id: str
+    ) -> dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot]:
+        permissions = (
+            (
+                await session.execute(
+                    select(PERMISSION_SNAPSHOTS.c.snapshot).where(
+                        PERMISSION_SNAPSHOTS.c.tenant_id == tenant_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            (value.resource_kind, value.resource_id): value
+            for value in (ResolvedPermissionSnapshot.model_validate(item) for item in permissions)
+        }
 
     def allow_shared_processing(self, tenant_id: str, revision: str) -> None:
         """Opt a trusted worker/reader into an operator-approved processing basis."""
