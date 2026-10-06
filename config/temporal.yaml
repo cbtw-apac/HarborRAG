@@ -12,17 +12,20 @@ connection:
     enabled: false
     domain: null
 
-# Each worker replica owns six task-queue workers. Keep six times the activity
-# limit at or below HARBORRAG_CONTROL_DB_POOL_SIZE + HARBORRAG_CONTROL_DB_MAX_OVERFLOW
-# (the limit applies per process, so this bound holds regardless of replica count).
-# With HARBORRAG_TEMPORAL_WORKER_REPLICAS=3, each replica also holds its own CUDA
-# context, so keep this lower than the single-replica GPU setting.
-# 6 * 6 = 36, matching HARBORRAG_CONTROL_DB_POOL_SIZE=20 + HARBORRAG_CONTROL_DB_MAX_OVERFLOW=16.
-# Three replicas can then hold 108 control-database connections, which is why the
-# Compose PostgreSQL service raises max_connections to 200.
+# Each worker replica owns six task-queue workers, and this limit applies to each
+# of them: one process runs up to 6 * max_concurrent_activities activities and as
+# many default-executor threads (temporal/worker.py thread_pool_size). Keep that
+# product at or below HARBORRAG_CONTROL_DB_POOL_SIZE + HARBORRAG_CONTROL_DB_MAX_OVERFLOW.
+# Size it to the host, not to I/O latency: on the shared 4-vCPU / 15 GB host a
+# document costs ~3.7 CPU-seconds, so throughput tops out near 1 document/s and
+# extra slots only add queueing and memory. 12 (72 slots and threads per process,
+# 216 across three replicas) drove the host into memory thrash on 2026-10-01 with
+# ~32s per document; 4 gives 24 slots per process and 8 parser slots across two
+# replicas, which also keeps LiteParse OCR fan-out (parsers.yaml num_workers=3)
+# at 24 requests, under the OCR server's in-flight ceiling of 32.
 worker:
   identity: harborrag-runtime
-  max_concurrent_activities: 6
+  max_concurrent_activities: 4
   max_concurrent_workflow_tasks: 4
   max_concurrent_activity_polls: 2
   max_concurrent_workflow_polls: 2
@@ -57,18 +60,26 @@ retries:
     backoff_coefficient: 2
     maximum_interval_seconds: 60
     maximum_attempts: 8
+  # ~23 minutes of retries (2s doubling to a 5-minute cap). Storage, database
+  # and network errors are retried in every stage, so this is what rides out a
+  # MinIO, Postgres or OCR blip; at 5 attempts any outage over ~30s failed the
+  # document for good. A longer outage trips the batch circuit breaker instead.
   document:
     initial_interval_seconds: 2
     backoff_coefficient: 2
-    maximum_interval_seconds: 120
-    maximum_attempts: 5
+    maximum_interval_seconds: 300
+    maximum_attempts: 12
 
 # Default per-run source batching (documents per SourceBatchWorkflow child,
-# and concurrent DocumentIngestionWorkflow children per wave). A CLI/API
+# and DocumentIngestionWorkflow children kept in flight at once). A CLI/API
 # caller may override either per submission; these apply when they don't.
+# Per-document latency is roughly document_concurrency / throughput, so on a
+# host that finishes ~1 document/s, 32 in flight meant ~32s each with no gain
+# in throughput. 8 keeps every stage busy without piling up work in memory;
+# watch worker memory (docker stats) through the first hour of a large run.
 ingestion:
-  batch_size: 200
-  document_concurrency: 16
+  batch_size: 300
+  document_concurrency: 8
 
 workflow:
   execution_timeout_seconds: 2592000  # 30 days

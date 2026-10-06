@@ -62,10 +62,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     summary_processing_allowed: bool = False
     summary_processing_revision: str = Field(default="v1", min_length=1, max_length=128)
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
-    # Matches the Compose defaults: config/temporal.yaml runs 6 activities on each of
-    # six task queues, and TemporalRuntimeConfig refuses 36 > pool + overflow.
-    control_db_pool_size: int = Field(default=20, ge=1, le=100)
-    control_db_max_overflow: int = Field(default=16, ge=0, le=200)
+    # Matches the Compose defaults: config/temporal.yaml runs 12 activities on each of
+    # six task queues, and TemporalRuntimeConfig refuses 72 > pool + overflow.
+    control_db_pool_size: int = Field(default=40, ge=1, le=100)
+    control_db_max_overflow: int = Field(default=32, ge=0, le=200)
     secrets_encryption_key: SecretStr | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"

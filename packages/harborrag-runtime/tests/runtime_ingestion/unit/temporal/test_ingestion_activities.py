@@ -179,15 +179,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
         heartbeat_details.append(detail)
         return await operation
 
-    async def isolated_subprocess(
-        fn: Any, *args: Any, heartbeat_detail: object = "", **_kw: Any
-    ) -> object:
-        del fn, _kw
-        heartbeat_details.append(heartbeat_detail)
-        return await args[0].parse_and_normalize(args[1], args[2])
-
     monkeypatch.setattr(activity_module, "heartbeat_while", heartbeat)
-    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
     monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
     monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
     monkeypatch.setattr(activity_module, "to_prepared_stage", lambda request: "prepared-stage")
@@ -239,7 +231,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
             "task_id": "task-1",
             "document_id": "doc-1",
             "document_index": 0,
-            "mode": "subprocess",
+            "mode": "in-process",
             "resumed": False,
             "prior_attempt_count": 0,
         },
@@ -280,7 +272,6 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     assert "PublishVersion" in observer.boundaries
     assert [name for name, _ in observer.records] == [
         "capture",
-        "subprocess_outcome",
         "prepared",
         "chunking",
         "publication",

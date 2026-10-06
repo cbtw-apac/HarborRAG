@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import Callable, Coroutine, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
@@ -26,6 +27,7 @@ from harborrag_runtime.topology.summary_worker import serve_summaries
 from .connection import connect_temporal_client
 from .ingestion_activities import IngestionActivities
 from .maintenance_activities import MaintenanceActivities
+from .sandbox import workflow_sandbox_runner
 from .worker_registry import (
     validate_worker_registrations,
     worker_registrations,
@@ -33,6 +35,27 @@ from .worker_registry import (
 
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
+
+
+def thread_pool_size(config: TemporalRuntimeConfig) -> int:
+    """One thread per activity this process may run at once.
+
+    Connector loads, parsing, normalization and chunking all run through
+    ``asyncio.to_thread``, and a Jira load sleeps in the rate limiter while it
+    holds its thread. The default executor has ``cpu_count + 4`` threads (8 on
+    a 4-vCPU host), which caps the documents a replica can really progress at
+    about eight however many activity slots it has.
+    """
+
+    return config.worker.max_concurrent_activities * len(config.task_queues.as_tuple())
+
+
+def _size_thread_pool(config: TemporalRuntimeConfig) -> None:
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(
+            max_workers=thread_pool_size(config), thread_name_prefix="harborrag-activity"
+        )
+    )
 
 
 async def run_workers(
@@ -43,6 +66,7 @@ async def run_workers(
     """Run the Postgres-authoritative workflow hierarchy until shutdown."""
 
     config = TemporalRuntimeConfig.from_settings(settings)
+    _size_thread_pool(config)
     # Establish the control-plane dependency before opening every ingestion
     # repository and connector. This fails fast during Temporal startup or
     # transport errors and avoids expensive start/close churn in restart loops.
@@ -143,6 +167,7 @@ def _build_worker(
         task_queue=task_queue,
         workflows=workflows,
         activities=activities,
+        workflow_runner=workflow_sandbox_runner(workflows),
         identity=worker.identity,
         max_concurrent_activities=worker.max_concurrent_activities,
         max_concurrent_workflow_tasks=worker.max_concurrent_workflow_tasks,

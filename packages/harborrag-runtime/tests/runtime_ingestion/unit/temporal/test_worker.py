@@ -318,3 +318,22 @@ def test_worker_installs_only_supported_signal_handlers(monkeypatch) -> None:
 
     assert installed == [signal.SIGINT]
     assert set(previous) == {signal.SIGINT}
+
+
+def test_thread_pool_covers_every_activity_slot_in_the_process() -> None:
+    # Loads, parses and chunking all block a thread; the default pool of
+    # cpu_count + 4 would cap a replica well below its activity slots.
+    config = TemporalRuntimeConfig()
+
+    assert worker_module.thread_pool_size(config) == 6 * config.worker.max_concurrent_activities
+
+
+@pytest.mark.asyncio
+async def test_worker_installs_the_sized_thread_pool_on_its_loop() -> None:
+    config = TemporalRuntimeConfig()
+
+    worker_module._size_thread_pool(config)
+
+    executor = asyncio.get_running_loop()._default_executor
+    assert executor is not None
+    assert executor._max_workers == worker_module.thread_pool_size(config)

@@ -26,7 +26,7 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.connection.target == "localhost:7233"
     assert config.connection.namespace == "harborrag"
     assert config.connection.tls.enabled is False
-    assert config.worker.max_concurrent_activities == 6
+    assert config.worker.max_concurrent_activities == 4
     assert config.task_queues.as_tuple() == (
         "harborrag-discovery",
         "harborrag-transform",
