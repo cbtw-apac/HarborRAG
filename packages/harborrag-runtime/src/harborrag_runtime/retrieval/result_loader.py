@@ -105,6 +105,7 @@ class EvidenceResultLoader:
         for key in (
             "source_scope_id",
             "source_item_id",
+            "issue_key",
             "content_hash",
         ):
             value = payload.get(key)

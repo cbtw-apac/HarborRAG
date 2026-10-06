@@ -12,6 +12,7 @@ from harborrag_core.chunking import PROJECTED_RELATION_TYPES
 from harborrag_core.retrieval import GraphDirection
 from harborrag_core.topology.search import RetrievalMode
 from harborrag_engine.retrieval import RetrievalLane
+from harborrag_engine.retrieval.evidence_filters import evidence_filters_schema
 
 from .base import MAX_TOOL_RESULTS
 
@@ -59,7 +60,10 @@ def vector_search_schema(
                 "enum": [item.value for item in RetrievalLane],
                 "default": RetrievalLane.HYBRID.value,
             },
-            "filters": {"type": "object", "not": {"required": ["tenant_id"]}, "default": {}},
+            # Rendered from the provisioned payload indexes, so a caller sees the
+            # keys that are fast to filter on and an unknown key fails validation
+            # instead of becoming a full payload scan. tenant_id is not among them.
+            "filters": evidence_filters_schema(),
             "mode": {
                 "type": "string",
                 "enum": [mode.value for mode in RetrievalMode],
@@ -73,9 +77,13 @@ def vector_search_schema(
                 "maximum": 1.0,
                 "default": 0.0,
                 "description": (
-                    "Drop results whose relevance is below this. Relevance is "
-                    "measured similarity, not the rank-fusion score, whose top "
-                    "hit is near 1.0 however poor the match."
+                    "Drop results whose relevance is below this. Relevance is the "
+                    "dense cosine similarity to the query (0 when negative), on the "
+                    "dense and hybrid lanes alike; it is not the rank-fusion score, "
+                    "whose top hit is near 1.0 however poor the match. The sparse "
+                    "(BM25) lane measures no comparable similarity, reports null "
+                    "relevance, and rejects a non-zero threshold. Results with null "
+                    "relevance are dropped by any non-zero threshold."
                 ),
             },
         },

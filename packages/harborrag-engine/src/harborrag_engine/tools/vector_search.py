@@ -10,6 +10,7 @@ from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.contracts.reader import RetrievalLane, RetrievalMode, RetrievalRequest
 from harborrag_core.contracts.tools import ToolBehavior, ToolInvocationContext
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter_keys
 from harborrag_engine.tools.base import MAX_TOOL_RESULTS
 
 from .base import BaseTool, ToolSpec
@@ -35,30 +36,46 @@ logger = logging.getLogger("harborrag.runtime.tools.vector_search")
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = MAX_TOOL_RESULTS
+# Per-hit metadata no consumer of this tool reads, dropped so a 30-character
+# comment does not travel with a kilobyte of bookkeeping. ``record_kind`` and
+# ``retrieval_source`` are the same constant on every hit; ``raw_score`` is a
+# lane-internal number (cosine, BM25 or RRF) that is comparable to nothing;
+# ``quality_score`` is a chunker default (1.0 for every record chunk); and
+# ``content_hash`` has done its job once retrieval collapsed identical texts.
+# In-process callers still see them on ``RetrievalResult.metadata``.
+TRIMMED_METADATA_KEYS = frozenset(
+    {"record_kind", "retrieval_source", "raw_score", "quality_score", "content_hash"}
+)
 
 
-def _quality(result: RetrievalResult) -> float:
-    """The number a threshold may be compared against.
+def _meets(result: RetrievalResult, threshold: float) -> bool:
+    """Whether a hit is known to be at least ``threshold`` similar to the query.
 
     ``score`` is rank-fusion arithmetic on the hybrid lane, so its top hit sits
-    near 1.0 however poor the match -- the settings and the output schema both
-    say so, and thresholding it anyway meant a request for high-quality results
-    returned the top hit regardless of quality while dropping good ones further
-    down. ``relevance`` is the measured similarity. A lane that cannot measure
-    one reports ``None``, and for those ``score`` is still the only number
-    there is.
+    near 1.0 however poor the match, and thresholding it meant a request for
+    high-quality results returned the top hit regardless. ``relevance`` is the
+    measured dense similarity. A hit without one -- nothing measured it -- cannot
+    be shown to meet a bar, so a non-zero threshold drops it rather than letting
+    a squashed keyword score stand in for similarity.
     """
 
-    return result.score if result.relevance is None else result.relevance
+    if threshold <= 0.0:
+        return True
+    return result.relevance is not None and result.relevance >= threshold
 
 
 def _results(
     response: RetrievalResponse, threshold: float = 0.0, *, include_content: bool = True
 ) -> list[dict[str, object]]:
-    results = [asdict(result) for result in response.results if _quality(result) >= threshold]
-    if not include_content:
-        for result in results:
+    results = [asdict(result) for result in response.results if _meets(result, threshold)]
+    for result in results:
+        if not include_content:
             result.pop("text", None)
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            result["metadata"] = {
+                key: value for key, value in metadata.items() if key not in TRIMMED_METADATA_KEYS
+            }
     return results
 
 
@@ -113,6 +130,13 @@ class VectorSearchTool(BaseTool):
                 minimum=0.0,
                 maximum=1.0,
             )
+            if threshold > 0.0 and lane == RetrievalLane.SPARSE:
+                raise ValueError(
+                    "score_threshold filters on dense cosine similarity, which the sparse "
+                    "lane does not measure; use lane dense or hybrid, or omit it"
+                )
+            filters = mapping(arguments, "filters")
+            validate_evidence_filter_keys(filters)
             request = RetrievalRequest(
                 access=access(arguments, principal_id),
                 query=text(arguments, "query"),
@@ -123,7 +147,7 @@ class VectorSearchTool(BaseTool):
                     minimum=1,
                     maximum=_MAX_TOP_K,
                 ),
-                filters=mapping(arguments, "filters"),
+                filters=filters,
                 lane=lane,
                 mode=RetrievalMode(str(arguments.get("mode", RetrievalMode.FLAT.value))),
                 observe_graph=boolean(arguments, "observe_graph", False),
@@ -150,6 +174,10 @@ async def _search(
         return {"ok": False, "error": "vector retrieval backend is not configured"}
     try:
         response = await reader.search(request)
+    except HarborValidationError as exc:
+        # A refused filter (an unindexed source field, a range on an exact-match
+        # key) is the caller's to fix, so it says what to fix instead of "failed".
+        return {"ok": False, "error": str(exc)}
     except Exception:
         # The caller only ever sees the generic message below; the real cause
         # (e.g. a misconfigured provider or an unreachable store) is only

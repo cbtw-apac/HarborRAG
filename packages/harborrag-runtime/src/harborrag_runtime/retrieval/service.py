@@ -34,6 +34,8 @@ from harborrag_engine.retrieval import (
     AuthoritativeSearchResult,
     RetrievalLane,
 )
+from harborrag_engine.retrieval.duplicates import collapse_duplicates
+from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
 
 from .contracts import (
     CloseOperation,
@@ -245,6 +247,9 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
 
         validate_retrieval_request(query, tenant_id, top_k)
         selected = options or RetrievalOptions()
+        # Before permission conditions join it: only the caller's own keys are
+        # checked, and an unindexed one is refused rather than scanned.
+        validate_evidence_filter(selected.filters)
         started = perf_counter()
         request_id = f"retrieval-{uuid4().hex}"
         context = self._retrieval_context(
@@ -350,9 +355,14 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         permitted = await self._permissions.validate(final_validation.accepted, context)
         active_candidate_ids = {str(candidate.id) for candidate in permitted}
-        results = [
-            result for candidate, result in loaded if str(candidate.id) in active_candidate_ids
-        ]
+        # Entity- and topology-reached chunks join after the search collapsed its
+        # own duplicates, so the same text can arrive twice by different routes.
+        distinct, late_duplicates = collapse_duplicates(
+            [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
+            lambda result: result.metadata.get("content_hash"),
+            limit=top_k,
+        )
+        results = list(distinct)
         if selected.mode != RetrievalMode.FLAT:
             results, tokens, excluded = select_evidence(
                 results, topology.flat, top_k=top_k, policy=self._policy.topology
@@ -402,6 +412,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 graph_documents=observation.documents,
                 short_by=max(0, top_k - len(results)),
                 topology=topology_diagnostics,
+                duplicates_collapsed=diagnostics.collapsed_count + late_duplicates,
             ),
         )
 

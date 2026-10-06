@@ -12,16 +12,17 @@ match, then the evidence of those items *and* of everything attached to them.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.indexing import FilterOperator, VectorFilter, VectorFilterCondition
+from harborrag_engine.retrieval.evidence_filters import SOURCE_FIELD_FILTER_PREFIX
 
 if TYPE_CHECKING:
     from harborrag_core.ports.storage import VectorRepositoryPort
     from harborrag_core.storage import StorageOperationContext
 
-FIELD_FILTER_PREFIX = "fields."
+FIELD_FILTER_PREFIX = SOURCE_FIELD_FILTER_PREFIX
 
 # The traced item ids become one set-membership condition. Past this many the
 # filter is not narrowing anything useful, and a silently truncated set would
@@ -51,6 +52,19 @@ def split_field_filters(
     )
 
 
+@runtime_checkable
+class PayloadIndexCatalog(Protocol):
+    """A vector backend that can say which payload keys it has indexed."""
+
+    async def indexed_payload_fields(
+        self,
+        index_name: str,
+        *,
+        refresh: bool = False,
+        context: StorageOperationContext,
+    ) -> frozenset[str]: ...
+
+
 @dataclass(frozen=True)
 class SourceFieldTrace:
     """Turn a ``fields.*`` filter into "these items and their attachments"."""
@@ -67,6 +81,7 @@ class SourceFieldTrace:
     ) -> tuple[str, ...]:
         """The source items whose own fields satisfy the filter (already permission-scoped)."""
 
+        await self._require_indexed(field_filter, context=context)
         items = await self.vectors.distinct_values(
             self.index_name,
             "source_item_id",
@@ -80,6 +95,49 @@ class SourceFieldTrace:
                 details={"limit": self.limit},
             )
         return items
+
+    async def _require_indexed(
+        self,
+        field_filter: VectorFilter | None,
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        """Refuse a ``fields.*`` filter the collection has no payload index for.
+
+        ``fields`` holds every typed custom field, and only the ones a scope
+        declares as facets are indexed. Filtering on any other is not wrong, only
+        a read of every point's on-disk payload -- which on a large tenant ran the
+        full 30 s request deadline and then failed anyway. Failing at once, naming
+        what is indexed, is the useful answer. The cached index list is refreshed
+        once before refusing, so an index added since is honoured.
+        """
+
+        if field_filter is None or not isinstance(self.vectors, PayloadIndexCatalog):
+            return
+        wanted = {
+            condition.field
+            for clause in (field_filter.must, field_filter.should, field_filter.must_not)
+            for condition in clause
+            if condition.field.startswith(FIELD_FILTER_PREFIX)
+        }
+        indexed = await self.vectors.indexed_payload_fields(self.index_name, context=context)
+        if wanted <= indexed:
+            return
+        indexed = await self.vectors.indexed_payload_fields(
+            self.index_name, refresh=True, context=context
+        )
+        missing = sorted(wanted - indexed)
+        if not missing:
+            return
+        available = sorted(name for name in indexed if name.startswith(FIELD_FILTER_PREFIX))
+        raise HarborValidationError(
+            f"source field filter(s) {', '.join(missing)} have no payload index, so they "
+            "would scan every point; declare the field as a facet of its source scope "
+            "in graph_build.yaml (indexed on the next ingestion run) or ask an operator "
+            "to create the index. Indexed source fields: "
+            f"{', '.join(available) if available else 'none'}",
+            details={"unindexed": missing, "indexed": available},
+        )
 
     @staticmethod
     def scope(items: tuple[str, ...], rest: VectorFilter | None) -> VectorFilter:
@@ -112,6 +170,7 @@ class SourceFieldTrace:
 __all__ = [
     "FIELD_FILTER_PREFIX",
     "MAX_TRACED_ITEMS",
+    "PayloadIndexCatalog",
     "SourceFieldTrace",
     "split_field_filters",
 ]

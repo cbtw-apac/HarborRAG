@@ -122,17 +122,19 @@ def test_retrieval_result_schema_rejects_an_unlisted_metadata_key() -> None:
         "metadata": {
             "document_id": "doc-1",
             "document_version_id": "version-1",
-            "record_kind": "evidence",
             "chunk_kind": "text",
             "connector_type": "local",
             "citation_locator": {},
-            "quality_score": None,
-            "retrieval_source": "qdrant-authoritative",
             "document_title": "Document One",
             "section_path": ["Section 1"],
+            "issue_key": "CPM-1",
         },
     }
     _validator(RETRIEVAL_RESULT_SCHEMA).validate(valid)
+    # vector_search trims these from its output, so the schema no longer lists them.
+    trimmed = {**valid, "metadata": {**valid["metadata"], "retrieval_source": "qdrant"}}
+    with pytest.raises(ValidationError):
+        _validator(RETRIEVAL_RESULT_SCHEMA).validate(trimmed)
     invalid = {**valid, "metadata": {**valid["metadata"], "unlisted": "value"}}
     with pytest.raises(ValidationError):
         _validator(RETRIEVAL_RESULT_SCHEMA).validate(invalid)

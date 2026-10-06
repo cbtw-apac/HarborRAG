@@ -238,6 +238,20 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
             index_name, field, filters=filters, limit=limit, context=context
         )
 
+    @traced_repository_operation("indexed_payload_fields")
+    async def indexed_payload_fields(
+        self,
+        index_name: str,
+        *,
+        refresh: bool = False,
+        context: StorageOperationContext,
+    ) -> frozenset[str]:
+        """Payload keys with an index, so a caller can refuse an unindexed filter."""
+
+        return await self._queries.indexed_payload_fields(
+            index_name, refresh=refresh, context=context
+        )
+
     @traced_repository_operation("search")
     async def search(
         self,

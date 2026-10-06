@@ -151,6 +151,9 @@ class RetrievalDiagnostics:
     graph_documents: tuple[GraphDocumentSummary, ...] = ()
     short_by: int = 0
     topology: TopologyDiagnostics = field(default_factory=TopologyDiagnostics)
+    # Hits dropped because a better-ranked hit carried the same text (same
+    # ``content_hash``); the search window refilled the page behind them.
+    duplicates_collapsed: int = 0
 
 
 @dataclass(frozen=True, slots=True)

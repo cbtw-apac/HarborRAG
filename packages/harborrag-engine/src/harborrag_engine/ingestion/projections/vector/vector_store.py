@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 
 from harborrag_core.indexing import (
     FilterOperator,
@@ -28,7 +28,11 @@ from .vector import (
 # identifiers come in pairs -- a space and its pages, a project and its issues,
 # a document and its attachments -- so indexing the container without the item
 # left the more precise filter as the unindexed scan.
-_PAYLOAD_INDEXES = [
+#
+# This list is also the filter vocabulary ``vector_search`` advertises and
+# accepts: a key outside it has no index, and filtering on it is a scan of
+# every point's on-disk payload, so it is rejected instead of served slowly.
+EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     "document_id",
     "document_version_id",
     "record_kind",
@@ -62,8 +66,19 @@ _PAYLOAD_INDEXES = [
     "project_key",
     "labels",
     "components",
-]
+)
 _MAXIMUM_FILTERED_SCAN_PAGES = 10_000
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFieldIndex:
+    """One ``fields.<key>`` payload path a tenant filters evidence on.
+
+    ``numeric`` selects a range-capable index; anything else is matched exactly.
+    """
+
+    path: str
+    numeric: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +87,11 @@ class VectorProjectionPolicy:
     distance: VectorDistance = VectorDistance.COSINE
     dense_vector_name: str = "dense"
     sparse_vector_name: str = "sparse"
+    # Per tenant, the source fields its scopes declare as filterable facets. The
+    # ``fields`` object is open-ended (every typed Jira custom field lands in it),
+    # so it is never indexed wholesale; only what a scope names as a filter is.
+    # Without an index a ``fields.*`` filter reads every point's on-disk payload.
+    field_indexes: Mapping[str, tuple[SourceFieldIndex, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.dimension < 1:
@@ -79,7 +99,9 @@ class VectorProjectionPolicy:
         if self.dense_vector_name == self.sparse_vector_name:
             raise ValueError("dense and sparse vector names must differ")
 
-    def index(self, name: str) -> VectorIndexSpec:
+    def index(self, name: str, *, tenant_id: str | None = None) -> VectorIndexSpec:
+        declared = self.field_indexes.get(tenant_id, ()) if tenant_id is not None else ()
+        paths = sorted({item.path for item in declared} - set(EVIDENCE_PAYLOAD_INDEXES))
         return VectorIndexSpec(
             index_name=name,
             dimension=self.dimension,
@@ -87,7 +109,10 @@ class VectorProjectionPolicy:
             dense_vector_name=self.dense_vector_name,
             sparse_vector_name=self.sparse_vector_name,
             sparse_idf=True,
-            metadata_indexes=list(_PAYLOAD_INDEXES),
+            metadata_indexes=[*EVIDENCE_PAYLOAD_INDEXES, *paths],
+            float_metadata_indexes=sorted(
+                {item.path for item in declared if item.numeric} & set(paths)
+            ),
         )
 
 
@@ -104,7 +129,7 @@ class VectorProjectionStore:
 
     async def provision(self, *, context: StorageOperationContext) -> None:
         await self._repository.ensure_index(
-            self._policy.index(EVIDENCE_INDEX),
+            self._policy.index(EVIDENCE_INDEX, tenant_id=str(context.tenant_id)),
             context=context,
         )
 
