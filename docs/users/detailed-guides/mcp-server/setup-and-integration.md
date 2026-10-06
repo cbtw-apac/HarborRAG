@@ -133,15 +133,57 @@ client = Client("http://127.0.0.1:8010/mcp", auth="<token>")
 
 ### Tenant-bound reader keys and shared corpus access
 
-For an internal reader deployment, set `HARBORRAG_MCP_AUTH_MODE=api_key` and
-`HARBORRAG_MCP_KEYS_PATH=config/mcp_keys.yaml`. Copy
-[`config/mcp_keys.example.yaml`](../../../../config/mcp_keys.example.yaml) to
-that path, then create a random secret of at least 32 characters. Put its
-SHA-256 hex digest in the environment variable named by `secret_hash_env`;
-give the original secret to the MCP client. Keep a stable `principal_id` when
-rotating the secret. The server rereads the key file on every verification, so
-setting `revoked: true` takes effect without restarting. Reader keys cannot
-use the owner-only configuration API.
+For anything beyond one developer's loopback session, do not share the local
+bearer token. Set `HARBORRAG_MCP_AUTH_MODE=api_key` in `env/.env.mcp` and issue
+each person or workload its own reader key from the operator environment:
+
+```bash
+harborrag auth keys create \
+  --tenant engineering --owner user-huy --name huy-laptop --expires-in 30d
+# secret written to ~/.harborrag/keys/huy-laptop.key (directory created 0700);
+# --secret-output picks another new file, --migrate applies pending migrations
+# on a stack whose API has not started yet
+harborrag auth keys list --tenant engineering
+harborrag auth keys revoke --key-id 0123456789abcdef01234567 --reason "laptop lost"
+harborrag auth keys revoke --tenant engineering --owner user-huy --reason "left team"
+```
+
+How it works:
+
+- The key looks like `hrk_<env>_v1_<key_id>.<secret>`. Only its SHA-256 is stored,
+  in the control database table `mcp_api_keys`, together with the tenant, the
+  owner, an expiry and who issued it. The secret is written once to the
+  output file (`~/.harborrag/keys/<name>.key` unless `--secret-output` names
+  another new file; created exclusively, mode `0600`, parent directory `0700`)
+  and never printed; deliver it through your secret-sharing tool and delete
+  the file.
+- Every lifetime is bounded: at least 1 hour, at most 90 days when
+  `HARBORRAG_ENV=prod` and **7 days in `dev`** (so `--expires-in 30d` is
+  refused on a dev stack; the CLI prints the rule). A key is bound to the
+  environment it was issued in and is refused elsewhere; `mcp.sh` starts the
+  server with the API's `HARBORRAG_ENV` from `env/.env.api` for that reason.
+- The server looks the key up on **every** request and caches nothing, so a key
+  created or revoked by the CLI takes effect on the next call, on every
+  replica, without a restart. If the database cannot be reached the request is
+  refused. The MCP database role only needs `SELECT` on `mcp_api_keys`, which
+  `dev.sh mcp-role` grants.
+- The tenant comes from the stored row, never from the client: a call naming
+  another `tenant_id` is refused. In the status UI a reader key can load and
+  run its own tenant's tools; the configuration editor and API stay owner-only.
+  In `api_key` mode the loopback owner token from `env/.env.mcp` keeps working
+  beside the keys for exactly that; leave it unset on a deployment that must
+  have no owner over HTTP.
+- Creation and revocation are recorded in the `activity` table. Rotation is
+  create-new, switch the client, revoke-old; there is no automatic rotation.
+
+The CLI talks to the same control database as the API with the owner
+credentials. Run it from the checkout root and it reads `env/.env.database`
+(and `HARBORRAG_ENV` from `env/.env.api`) itself; anywhere else, export
+`HARBORRAG_CONTROL_DB_URL` and `HARBORRAG_ENV` first. It warns when it would
+otherwise fall back to the local SQLite default, which no MCP server reads.
+The previous file-backed key list
+(`config/mcp_keys.yaml` with hashes in environment variables) still works with
+`HARBORRAG_MCP_KEY_STORE=file`, but new deployments should not use it.
 
 `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the default and requires current
 source and document ACL snapshots. Set it to `tenant_shared` only for a tenant
@@ -272,9 +314,11 @@ automatically once the missing document lands.
 ### Run tools from the browser
 
 1. Open `http://127.0.0.1:8010/`.
-2. Enter the bearer token from `env/.env.mcp`.
+2. Enter the bearer token from `env/.env.mcp`, or a reader key issued by
+   `harborrag auth keys create` (server in `api_key` mode).
 3. Enter a tenant ID and select **Load tools**. Leave it blank to use the
-   tenant bound by `HARBORRAG_MCP_READER_TENANT_ID`, if one is set.
+   tenant bound to the token: `HARBORRAG_MCP_READER_TENANT_ID` for the owner
+   token, the key's own tenant for a reader key, which cannot pick another.
 4. Select **Run tool**.
 
 The page loads that tenant's effective catalog and generates argument controls

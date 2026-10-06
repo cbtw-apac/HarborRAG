@@ -24,6 +24,7 @@ from harborrag_mcp_server.server.http_auth import (
     authorize_administration,
     authorize_request_tenant,
     owner_only,
+    reader_or_owner,
     request_tenant_default,
 )
 from harborrag_mcp_server.server.http_responses import (
@@ -253,7 +254,9 @@ def _list_tools_handler(
     registry: McpServer,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
-    @owner_only(token_verifier)
+    # Readers see and run their own tenant's catalog; the tenant comes from the
+    # token's grant, and naming another one is refused below.
+    @reader_or_owner(token_verifier)
     async def list_tools(request: Request, principal_id: str) -> JSONResponse:
         tenant_value = request.query_params.get("tenant_id")
         tenant_id = tenant_value.strip() if tenant_value is not None else None
@@ -277,7 +280,14 @@ def _list_tools_handler(
             }
             for spec in registry.list_tools(tenant_id)
         ]
-        return configuration_response({"tenant_id": tenant_id, "tools": tools})
+        return configuration_response(
+            {
+                "tenant_id": tenant_id,
+                "tools": tools,
+                # Lets the page say up front that configuration needs the owner token.
+                "role": getattr(request.state, "token_role", "owner"),
+            }
+        )
 
     return list_tools
 
@@ -286,7 +296,7 @@ def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP ou
     registry: McpServer,
     token_verifier: TokenVerifier,
 ) -> Callable[[Request], Awaitable[Response]]:
-    @owner_only(token_verifier)
+    @reader_or_owner(token_verifier)
     async def call_tool(request: Request, principal_id: str) -> JSONResponse:
         try:
             payload = await _bounded_json(request, maximum=_MAX_TOOL_REQUEST_BYTES)

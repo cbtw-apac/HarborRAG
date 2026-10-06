@@ -31,8 +31,24 @@ class Unauthorized(Exception):
         self.status_code = status_code
 
 
+OWNER_ROLES: frozenset[str] = frozenset({"owner"})
+READER_ROLES: frozenset[str] = frozenset({"reader", "owner"})
+
+
 async def authenticated_owner(request: Request, token_verifier: TokenVerifier) -> str:
     """Return the authenticated owner's principal id, or raise Unauthorized."""
+
+    return await authenticated_principal(request, token_verifier, roles=OWNER_ROLES)
+
+
+async def authenticated_principal(
+    request: Request, token_verifier: TokenVerifier, *, roles: frozenset[str]
+) -> str:
+    """Authenticate the bearer and require one of ``roles``; record its grants on the request.
+
+    A reader key (``role: reader``, one tenant grant, no admin scope) may list and
+    run tools for its own tenant; everything that changes the server stays owner-only.
+    """
 
     authorization = request.headers.get("authorization", "")
     scheme, separator, token = authorization.partition(" ")
@@ -51,8 +67,16 @@ async def authenticated_owner(request: Request, token_verifier: TokenVerifier) -
     if access is None:
         raise Unauthorized("invalid bearer token", status_code=401)
     claims = access.claims or {}
-    if claims.get("role") != "owner":
+    role = claims.get("role")
+    if role not in roles:
+        if role == "reader":
+            raise Unauthorized(
+                "owner role required: a reader key can list and run tools, not change "
+                "this server's configuration",
+                status_code=403,
+            )
         raise Unauthorized("owner role required", status_code=403)
+    request.state.token_role = role
     request.state.allowed_tenants = allowed_tenants(claims)
     request.state.token_scopes = frozenset(access.scopes or ())
     subject = claims.get("sub")
@@ -130,10 +154,24 @@ def owner_only(
 ) -> Callable[[OwnerHandler], Callable[[Request], Awaitable[Response]]]:
     """Authenticate the owner once and translate rejections into JSON responses."""
 
+    return authenticated(token_verifier, roles=OWNER_ROLES)
+
+
+def reader_or_owner(
+    token_verifier: TokenVerifier,
+) -> Callable[[OwnerHandler], Callable[[Request], Awaitable[Response]]]:
+    """The playground guard: reader keys and the owner token, each within its grants."""
+
+    return authenticated(token_verifier, roles=READER_ROLES)
+
+
+def authenticated(
+    token_verifier: TokenVerifier, *, roles: frozenset[str]
+) -> Callable[[OwnerHandler], Callable[[Request], Awaitable[Response]]]:
     def decorate(handler: OwnerHandler) -> Callable[[Request], Awaitable[Response]]:
         async def guarded(request: Request) -> Response:
             try:
-                principal_id = await authenticated_owner(request, token_verifier)
+                principal_id = await authenticated_principal(request, token_verifier, roles=roles)
             except Unauthorized as exc:
                 return error_response(
                     exc.message,
@@ -152,12 +190,17 @@ def owner_only(
 
 __all__ = [
     "ADMIN_SCOPE",
+    "OWNER_ROLES",
+    "READER_ROLES",
     "Unauthorized",
     "allowed_tenants",
+    "authenticated",
     "authenticated_owner",
+    "authenticated_principal",
     "authorize_administration",
     "authorize_claimed_tenant",
     "authorize_request_tenant",
     "owner_only",
+    "reader_or_owner",
     "request_tenant_default",
 ]

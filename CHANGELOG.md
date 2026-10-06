@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `harborrag auth keys create|list|revoke`: hashed, tenant-bound MCP reader keys with a
+  bounded lifetime, stored in the control database (`mcp_api_keys`, migration 0035) and
+  verified on every request. `HARBORRAG_MCP_AUTH_MODE=api_key` accepts them (and keeps the
+  loopback owner token for the status UI); the UI's tool playground now accepts reader keys
+  for their own tenant. The secret is written once to a `0600` file, never printed.
+- `scripts/deployment/dev.sh mcp-role [--migrate]` provisions the MCP server's least-privilege
+  PostgreSQL role (`deploy/postgres/mcp-reader-role.sql`) and read-only MinIO user
+  (`deploy/minio/mcp-reader-policy.json`); `bootstrap` generates their secrets.
+- Pause, resume and cancel of an ingestion run append a `task.<id>.control` event naming the
+  action and who asked for it, next to the run's progress events.
 - `harborrag init` scaffolds a self-contained project directory (`harborrag.yaml`, `.env`,
   `config/` catalogs, `docker-compose.yml`) with provider presets for OpenAI, Azure OpenAI,
   Gemini, and OpenAI-compatible gateways. The CLI discovers the project by walking up from
@@ -86,15 +96,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - The Textual ingestion dashboard and the `textual` dependency of `harborrag-app`.
+- Three redundant MCP reader tools, leaving eleven: `composed_evidence_search` (use
+  `vector_search` with `mode: local_semantic`, then `fetch_evidence`), `verify_citations`
+  (`fetch_evidence` already rechecks publication, permissions and the expected
+  document/version), and `get_document_metadata` (`get_document_context` now returns
+  `document_title`). Remove their entries from a customised `mcp.yaml`, which rejects
+  unknown tools. The Explorer's "Deep evidence" search mode goes with them, and the reader
+  port and SDK drop `get_document_metadata` / `DocumentMetadataRequest` /
+  `DocumentMetadataResponse`; `list_documents` still returns `DocumentMetadata`.
 
 ### Security
 
+- The MCP server connects to PostgreSQL as a read-only role (`SELECT` on the ingestion
+  tables and `mcp_api_keys`, `default_transaction_read_only`) and to MinIO as a user that can
+  only read the artifact bucket; it no longer holds the owner/root credentials or the
+  secrets encryption key. The MCP Compose file no longer opts into plaintext remote backends.
+- Issued reader keys cannot name the `*` wildcard tenant, at issuance, verification and in the
+  database constraint; the file-backed key list refuses it too.
 - Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
   user and not world-writable; `--project` opts in explicitly. The CLI announces the project
   it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
 
 ### Fixed
 
+- Ingesting a large source no longer fails in discovery. The discovery and finalization
+  activities had fixed 30- and 15-minute budgets per attempt, so a Jira project of tens of
+  thousands of issues exhausted its retries before listing finished (`TimeoutError`). Both
+  budgets are now `timeouts.discovery_seconds` / `timeouts.finalization_seconds` in
+  `config/temporal.yaml` (12h / 6h there; 30 / 15 minutes when unset), frozen into each run
+  like `retries`, and finalization now heartbeats. The dispatch plan is also no longer
+  assembled in memory: paged discovery keeps only page counts and hands on the page index,
+  and finalization and retry selection read the plan one page at a time. Runs started
+  earlier keep their whole-plan artifact and still finish.
+- The MCP `vector_search` and graph tools advertised an `outputSchema` with an unresolvable
+  `#/$defs/SummaryAttribute` reference, so clients rejected them; summary schemas are now
+  fully inlined.
 - Revalidate retrieval candidates against the authoritative active document
   versions immediately before returning results, preventing a concurrent
   publication from exposing a superseded document version.

@@ -405,3 +405,81 @@ def _initialize_request() -> dict[str, object]:
             "clientInfo": {"name": "harborrag-test", "version": "1"},
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_reader_keys_use_the_playground_but_not_the_configuration(tmp_path) -> None:
+    from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+
+    audit = McpAuditLog(path=tmp_path / "audit.jsonl")
+    registry = McpServer(audit=audit)
+    configuration = McpConfigurationStore(
+        path=tmp_path / "mcp.yaml",
+        configuration=McpConfiguration(),
+        specs=registry.list_tools(),
+        audit=audit,
+        environment={},
+    )
+    registry.configuration = configuration
+    reader_token = "reader-key-" + "r" * 40
+    verifier = StaticTokenVerifier(
+        tokens={
+            TOKEN: {
+                "client_id": "harborrag-local",
+                "sub": "harborrag-local",
+                "role": "owner",
+                "tenants": ["*"],
+                "scopes": ["mcp:read", "mcp:admin"],
+            },
+            reader_token: {
+                "client_id": "mcp-key:0",
+                "sub": "user-huy",
+                "role": "reader",
+                "tenants": ["demo"],
+                "scopes": ["mcp:read"],
+            },
+        },
+        required_scopes=["mcp:read"],
+    )
+    server = create_mcp_server(registry=registry, auth=verifier)
+    register_http_routes(
+        server,
+        mcp_path="/mcp",
+        registry=registry,
+        configuration=configuration,
+        token_verifier=verifier,
+    )
+    app = server.http_app(path="/mcp")
+    reader = {"Authorization": f"Bearer {reader_token}"}
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            own_tools = await client.get("/api/tools", headers=reader)
+            other_tools = await client.get("/api/tools?tenant_id=finance", headers=reader)
+            own_call = await client.post(
+                "/api/tools/call",
+                headers=reader,
+                json={"name": "list_sources", "arguments": {}},
+            )
+            other_call = await client.post(
+                "/api/tools/call",
+                headers=reader,
+                json={"name": "list_sources", "arguments": {"tenant_id": "finance"}},
+            )
+            config = await client.get("/api/config", headers=reader)
+            reload = await client.post("/api/config/reload", headers=reader)
+            owner_config = await client.get("/api/config", headers=_owner_headers())
+
+    assert own_tools.status_code == 200
+    assert own_tools.json()["tenant_id"] == "demo"
+    assert own_tools.json()["role"] == "reader"
+    assert [tool["name"] for tool in own_tools.json()["tools"]] == EXPECTED_READER_TOOLS
+    assert other_tools.status_code == 403
+    # Bound to the key's tenant (a runtime-less registry answers with a tool error, not 403).
+    assert own_call.status_code == 200
+    assert other_call.status_code == 403
+    assert config.status_code == 403 and "reader key" in config.json()["error"]
+    assert reload.status_code == 403
+    assert owner_config.status_code == 200

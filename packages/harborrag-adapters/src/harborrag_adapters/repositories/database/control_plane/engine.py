@@ -6,6 +6,8 @@ aiosqlite for dev, Postgres via asyncpg in production.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -25,7 +27,7 @@ def _is_memory_sqlite_dsn(dsn: str) -> bool:
     return path in ("", ":memory:") or path.startswith(":memory:?")
 
 
-def create_control_plane_engine(dsn: str = DEFAULT_DSN) -> AsyncEngine:
+def create_control_plane_engine(dsn: str = DEFAULT_DSN, **pool_options: Any) -> AsyncEngine:
     """Async engine for the control-plane database.
 
     File-backed SQLite goes through NullPool: aiosqlite backs each connection
@@ -41,7 +43,9 @@ def create_control_plane_engine(dsn: str = DEFAULT_DSN) -> AsyncEngine:
     its data) alive for the engine's lifetime instead.
 
     Postgres (asyncpg) keeps SQLAlchemy's default pool, where connection
-    reuse pays off.
+    reuse pays off; ``pool_options`` (``pool_size``, ``max_overflow``,
+    ``pool_pre_ping`` ...) tune it for callers whose needs differ from the
+    API's, and are ignored for SQLite, whose pooling is fixed above.
     """
     if _is_memory_sqlite_dsn(dsn):
         return create_async_engine(
@@ -51,7 +55,7 @@ def create_control_plane_engine(dsn: str = DEFAULT_DSN) -> AsyncEngine:
         )
     if dsn.startswith("sqlite"):
         return create_async_engine(dsn, poolclass=NullPool)
-    return create_async_engine(dsn)
+    return create_async_engine(dsn, **pool_options)
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

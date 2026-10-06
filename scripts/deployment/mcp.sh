@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATABASE_ENV_FILE="${DATABASE_ENV_FILE:-env/.env.database}"
 MODEL_ENV_FILE="${MODEL_ENV_FILE:-env/.env.models}"
 MCP_ENV_FILE="${MCP_ENV_FILE:-env/.env.mcp}"
+API_ENV_FILE="${API_ENV_FILE:-env/.env.api}"
 MCP_IMAGE="${HARBORRAG_MCP_IMAGE:-harborrag-mcp-mcp}"
 MCP_STARTUP_TIMEOUT="${HARBORRAG_MCP_STARTUP_TIMEOUT:-120}"
 
@@ -49,6 +50,20 @@ require_file() {
 prepare_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${MCP_ENV_FILE}" "MCP environment"
+    # Compose would also refuse an empty value, but name the fix instead of
+    # printing a raw variable-substitution error.
+    local name
+    for name in HARBORRAG_MCP_DB_PASSWORD HARBORRAG_MCP_OBJECT_STORE_SECRET_ACCESS_KEY; do
+        grep -Eq "^${name}=.+$" "${ROOT_DIR}/${DATABASE_ENV_FILE}" ||
+            fail "${name} is not set in ${DATABASE_ENV_FILE}. Run 'scripts/deployment/dev.sh bootstrap', then 'scripts/deployment/dev.sh mcp-role' with the data services running."
+    done
+    # Reader keys carry the environment they were issued in, and the CLI issues
+    # them with the API's HARBORRAG_ENV (env/.env.api). Give the MCP server the
+    # same value so a key the API's environment issued is not refused here.
+    if [[ -z "${HARBORRAG_ENV:-}" && -f "${ROOT_DIR}/${API_ENV_FILE}" ]]; then
+        HARBORRAG_ENV="$(sed -n 's/^HARBORRAG_ENV=//p' "${ROOT_DIR}/${API_ENV_FILE}" | tail -n 1)"
+        export HARBORRAG_ENV="${HARBORRAG_ENV:-dev}"
+    fi
     export HARBORRAG_MCP_ENV_FILE="${ROOT_DIR}/${MCP_ENV_FILE}"
     export HARBORRAG_MODEL_ENV_FILE="${ROOT_DIR}/${MODEL_ENV_FILE}"
     export HARBORRAG_MCP_IMAGE="${MCP_IMAGE}"
