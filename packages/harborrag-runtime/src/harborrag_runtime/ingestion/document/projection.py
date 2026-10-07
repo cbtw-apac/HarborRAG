@@ -240,7 +240,13 @@ class DocumentProjectionStages:
             prepared.document_id
         )
         if _superseded_before_publish(snapshot, prepared, active):
-            return _superseded_outcome(prepared)
+            return _superseded_outcome(
+                prepared,
+                reason=(
+                    f"version in {snapshot.state.value} while "
+                    f"{active_version_id(active) or 'no version'} is active"
+                ),
+            )
         self._publication.require_publishable(
             decision=prepared.decision,
             state=snapshot.state,
@@ -256,10 +262,10 @@ class DocumentProjectionStages:
                 candidate_document_version_id=prepared.document_version_id,
                 expected_active_document_version_id=publication_base(prepared, active),
             )
-        except PublicationSupersededError:
-            # Another release moved the pointer after this candidate read it. The
-            # newer version stands; this one stays VERIFIED with invisible projections.
-            return _superseded_outcome(prepared)
+        except PublicationSupersededError as error:
+            # Another release moved the pointer after this candidate read it, or the
+            # source dropped the document. This version stays VERIFIED and invisible.
+            return _superseded_outcome(prepared, reason=str(error))
         if not prepared.requires_processing:
             return DocumentReleaseOutcome(
                 document_id=prepared.document_id,
@@ -333,11 +339,13 @@ def _superseded_before_publish(
     )
 
 
-def _superseded_outcome(prepared: PreparedDocumentStage) -> DocumentReleaseOutcome:
+def _superseded_outcome(prepared: PreparedDocumentStage, *, reason: str) -> DocumentReleaseOutcome:
+    # The reason tells a newer version winning from the source removing the document.
     logger.info(
-        "Document publication superseded document_id=%s document_version_id=%s",
+        "Document publication superseded document_id=%s document_version_id=%s reason=%s",
         prepared.document_id,
         prepared.document_version_id,
+        reason,
     )
     return DocumentReleaseOutcome(
         document_id=prepared.document_id,
