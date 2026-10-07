@@ -15,6 +15,7 @@ from harborrag_core.ingestion import (
     DocumentVersionState,
     ProcessingProfile,
     ProjectionManifest,
+    PublicationResult,
     SourceIdentity,
 )
 
@@ -101,3 +102,21 @@ async def advance_to_verified(
         )
     )
     await repository.mark_verified(str(value.document_version_id))
+
+
+async def publish_over_active(
+    control_plane: IngestionControlPlaneDatabase,
+    document_id: str,
+    document_version_id: str,
+) -> PublicationResult:
+    """Publish over whatever is active now: these tests have no concurrent writer."""
+
+    active = await control_plane.document_versions.active_versions([document_id])
+    current = active.get(document_id)
+    return await control_plane.publisher.publish(
+        document_id=document_id,
+        candidate_document_version_id=document_version_id,
+        expected_active_document_version_id=(
+            str(current.document_version_id) if current is not None else None
+        ),
+    )

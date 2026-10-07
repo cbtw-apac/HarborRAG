@@ -17,6 +17,7 @@ from .ingestion_control_fixtures import (
     advance_to_verified,
     candidate,
     make_control_plane,
+    publish_over_active,
     source_identity,
 )
 from .topology_fixtures import ACCESS, permit
@@ -26,10 +27,7 @@ async def prepare(control, content="one"):
     version = candidate(content)
     await permit(control, str(version.document_id))
     await advance_to_verified(control, version)
-    await control.publisher.publish(
-        document_id=str(version.document_id),
-        candidate_document_version_id=str(version.document_version_id),
-    )
+    await publish_over_active(control, str(version.document_id), str(version.document_version_id))
     await control.summaries.configure(
         "DEFAULT",
         "scope-engineering",
@@ -84,9 +82,8 @@ async def test_publish_intent_replays_without_invalidating_and_new_publication_f
         snapshot = await control.summaries.snapshot(lease)
         target = node(version)
         value = binding(lease, snapshot, target)
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
         await control.summaries.accept(lease, snapshot, value, target)
         assert (await control.summaries.views("DEFAULT", (target.node_key,), access=ACCESS))[
@@ -94,10 +91,7 @@ async def test_publish_intent_replays_without_invalidating_and_new_publication_f
         ].status == "current"
         newer = candidate("two")
         await advance_to_verified(control, newer)
-        await control.publisher.publish(
-            document_id=str(newer.document_id),
-            candidate_document_version_id=str(newer.document_version_id),
-        )
+        await publish_over_active(control, str(newer.document_id), str(newer.document_version_id))
         with pytest.raises(HarborConflictError):
             await control.summaries.accept(lease, snapshot, value, target)
         view = (await control.summaries.views("DEFAULT", (target.node_key,), access=ACCESS))[
@@ -189,10 +183,7 @@ async def test_unrelated_publication_preserves_immutable_document_work(tmp_path)
         other = candidate("other", source=source_identity("page-2"))
         await permit(control, str(other.document_id))
         await advance_to_verified(control, other)
-        await control.publisher.publish(
-            document_id=str(other.document_id),
-            candidate_document_version_id=str(other.document_version_id),
-        )
+        await publish_over_active(control, str(other.document_id), str(other.document_version_id))
         await control.summaries.renew(lease)
         await control.summaries.accept(lease, snapshot, binding(lease, snapshot, target), target)
         view = (await control.summaries.views("DEFAULT", (target.node_key,), access=ACCESS))[

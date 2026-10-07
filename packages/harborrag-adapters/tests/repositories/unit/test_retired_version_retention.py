@@ -23,7 +23,7 @@ from harborrag_core.ingestion import (
     ProjectionManifest,
 )
 
-from .ingestion_control_fixtures import candidate, make_control_plane
+from .ingestion_control_fixtures import candidate, make_control_plane, publish_over_active
 
 _FUTURE = datetime.now(UTC) + timedelta(days=1)
 
@@ -107,7 +107,7 @@ async def _retired_pair(
         raw_key="raw/confluence/doc/hash-1/source",
         raw_metadata_key="raw/confluence/doc/hash-1/metadata/m1.json",
     )
-    await control.publisher.publish(document_id=document_id, candidate_document_version_id=retired)
+    await publish_over_active(control, document_id, retired)
     active = await _verified(
         control,
         second,
@@ -116,7 +116,7 @@ async def _retired_pair(
         ),
         raw_metadata_key="raw/confluence/doc/hash-2/metadata/m2.json",
     )
-    await control.publisher.publish(document_id=document_id, candidate_document_version_id=active)
+    await publish_over_active(control, document_id, active)
     return document_id, retired, active
 
 

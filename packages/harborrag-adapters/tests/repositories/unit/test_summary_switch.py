@@ -12,7 +12,7 @@ from harborrag_adapters.repositories.database.ingestion_control.summary_schema i
 )
 from harborrag_adapters.repositories.database.sqlite.client import SQLiteDBClient
 
-from .ingestion_control_fixtures import advance_to_verified, candidate
+from .ingestion_control_fixtures import advance_to_verified, candidate, publish_over_active
 from .topology_fixtures import permit
 
 
@@ -43,9 +43,8 @@ async def test_publication_marks_summary_scopes_only_while_summarization_is_on(
         await permit(control, str(version.document_id))
         await advance_to_verified(control, version)
 
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
         await control.publisher.retire_removed(document_id=str(version.document_id))
 

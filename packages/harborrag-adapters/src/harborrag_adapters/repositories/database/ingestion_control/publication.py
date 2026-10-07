@@ -14,6 +14,7 @@ from harborrag_core.ingestion import (
     DocumentRetirementResult,
     DocumentVersionState,
     PublicationResult,
+    PublicationSupersededError,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
@@ -37,7 +38,16 @@ class DocumentVersionPublisher:
         *,
         document_id: str,
         candidate_document_version_id: str,
+        expected_active_document_version_id: str | None,
     ) -> PublicationResult:
+        """Activate a VERIFIED candidate if the active pointer is still its base.
+
+        ``expected_active_document_version_id`` is the active version the caller built
+        the candidate from (``None``: none was active). A pointer that moved since
+        raises ``PublicationSupersededError`` and nothing is written. Re-publishing the
+        version that is already active stays an idempotent replay whatever base is
+        stated, so a retried publish whose first attempt committed still succeeds.
+        """
         async with self._client.sessions.begin() as session:
             tenant = (
                 await session.execute(
@@ -79,6 +89,11 @@ class DocumentVersionPublisher:
                 )
             if candidate_state != DocumentVersionState.VERIFIED:
                 raise HarborConflictError("only a VERIFIED document version can be published")
+            _require_base(
+                document_id=document_id,
+                current_active=current_active,
+                expected_active=expected_active_document_version_id,
+            )
 
             now = utc_now()
             retired_version_id = (
@@ -264,3 +279,16 @@ class DocumentVersionPublisher:
             )
         )
         return True
+
+
+def _require_base(
+    *,
+    document_id: str,
+    current_active: str | None,
+    expected_active: str | None,
+) -> None:
+    if current_active != expected_active:
+        raise PublicationSupersededError(
+            f"document {document_id} moved from {expected_active or 'no active version'} "
+            f"to {current_active or 'no active version'} after its candidate was built"
+        )

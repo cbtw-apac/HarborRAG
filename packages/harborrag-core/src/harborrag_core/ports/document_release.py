@@ -76,7 +76,11 @@ class DocumentVersionPort(Protocol):
 
 class DocumentPublisherPort(Protocol):
     async def publish(
-        self, *, document_id: str, candidate_document_version_id: str
+        self,
+        *,
+        document_id: str,
+        candidate_document_version_id: str,
+        expected_active_document_version_id: str | None,
     ) -> PublicationResult: ...
 
     async def retire_removed(self, *, document_id: str) -> DocumentRetirementResult: ...

@@ -19,7 +19,7 @@ from harborrag_core.topology import (
 from harborrag_core.topology.config import TenantIndexingConfig
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
-from .ingestion_control_fixtures import advance_to_verified, candidate
+from .ingestion_control_fixtures import advance_to_verified, candidate, publish_over_active
 
 ACCESS = AccessContext.system("DEFAULT")
 
@@ -72,10 +72,7 @@ async def publish(control: IngestionControlPlaneDatabase, text: str = "one") -> 
     )
     await permit(control, str(version.document_id))
     await advance_to_verified(control, version)
-    await control.publisher.publish(
-        document_id=str(version.document_id),
-        candidate_document_version_id=str(version.document_version_id),
-    )
+    await publish_over_active(control, str(version.document_id), str(version.document_version_id))
 
 
 async def prepared_build(

@@ -11,7 +11,12 @@ from harborrag_core.ingestion import SourceCatalogQuery
 from harborrag_core.security import AccessContext
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
-from .ingestion_control_fixtures import advance_to_verified, candidate, make_control_plane
+from .ingestion_control_fixtures import (
+    advance_to_verified,
+    candidate,
+    make_control_plane,
+    publish_over_active,
+)
 from .topology_fixtures import policy, prepared_build, publish
 
 
@@ -20,9 +25,8 @@ async def test_shared_reader_sees_published_document_without_acl(tmp_path: Path)
     async with make_control_plane(tmp_path) as control:
         version = candidate("shared content")
         await advance_to_verified(control, version)
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
         shared = AccessContext(
             principal_id="reader", tenant_id="DEFAULT", corpus_mode="tenant_shared"
@@ -68,9 +72,8 @@ async def test_shared_summary_snapshot_requires_explicit_processing_approval(
     async with make_control_plane(tmp_path) as control:
         version = candidate("summary input")
         await advance_to_verified(control, version)
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
         async with control.summaries._client.sessions() as session:
             with pytest.raises(HarborConflictError, match="SUMMARY_PERMISSION_SNAPSHOT_MISSING"):

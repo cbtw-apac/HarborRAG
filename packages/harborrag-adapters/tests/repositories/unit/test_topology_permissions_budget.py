@@ -16,7 +16,12 @@ from harborrag_core.topology.budget import BudgetRequest, IndexingBudgetLimits, 
 from harborrag_core.topology.config import TenantIndexingConfig
 from harborrag_core.topology.permissions import DerivedArtifactLineage, ResolvedPermissionSnapshot
 
-from .ingestion_control_fixtures import advance_to_verified, candidate, make_control_plane
+from .ingestion_control_fixtures import (
+    advance_to_verified,
+    candidate,
+    make_control_plane,
+    publish_over_active,
+)
 from .topology_fixtures import ACCESS, artifact, permit, policy, prepared_build, publish
 
 
@@ -43,9 +48,8 @@ async def test_default_off_prohibition_and_unknown_permissions_are_separate(tmp_
         version = candidate("one")
         await control.topology.configure_policy(policy())
         await advance_to_verified(control, version)
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
         assert not (await control.topology.get_indexing("DEFAULT")).config.enabled
         assert await control.topology.reconcile("DEFAULT") == 0

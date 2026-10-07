@@ -9,6 +9,7 @@ from .ingestion_control_fixtures import (
     advance_to_verified,
     candidate,
     make_control_plane,
+    publish_over_active,
     source_identity,
 )
 from .topology_fixtures import permit, policy, publish
@@ -38,10 +39,7 @@ async def test_publishing_new_scope_updates_authority_and_enqueues_only_new_poli
                 )
             ).scalar_one()
         assert before == "scope-engineering"
-        await control.publisher.publish(
-            document_id=str(moved.document_id),
-            candidate_document_version_id=str(moved.document_version_id),
-        )
+        await publish_over_active(control, str(moved.document_id), str(moved.document_version_id))
         async with control._client.sessions() as session:
             after = (
                 await session.execute(

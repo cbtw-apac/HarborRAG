@@ -227,23 +227,25 @@ class DocumentProjectionStages:
         )
         if snapshot is None:
             raise RuntimeError("publication candidate disappeared")
-        is_current_active = False
-        if snapshot.state == DocumentVersionState.ACTIVE:
-            active = await self._dependencies.control.document_versions.active_snapshot(
-                prepared.document_id
-            )
-            is_current_active = active is not None and str(active.document_version_id) == str(
-                prepared.document_version_id
-            )
+        active = await self._dependencies.control.document_versions.active_snapshot(
+            prepared.document_id
+        )
+        current_active = str(active.document_version_id) if active is not None else None
         self._publication.require_publishable(
             decision=prepared.decision,
             state=snapshot.state,
             requires_processing=prepared.requires_processing,
-            is_current_active=is_current_active,
+            is_current_active=(
+                snapshot.state == DocumentVersionState.ACTIVE
+                and current_active == str(prepared.document_version_id)
+            ),
         )
         publication = await self._dependencies.control.publisher.publish(
             document_id=prepared.document_id,
             candidate_document_version_id=prepared.document_version_id,
+            # The pointer as read now. Callers that know the base they built from
+            # pass it instead.
+            expected_active_document_version_id=current_active,
         )
         if not prepared.requires_processing:
             return DocumentReleaseOutcome(

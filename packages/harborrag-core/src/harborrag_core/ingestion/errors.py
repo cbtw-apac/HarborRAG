@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harborrag_core.contracts.errors import HarborError
+from harborrag_core.contracts.errors import HarborConflictError, HarborError
 
 
 class IngestionDomainError(HarborError):
@@ -60,6 +60,16 @@ class ProjectionVerificationError(IngestionDomainError):
 
 class PublicationConflictError(IngestionDomainError):
     pass
+
+
+class PublicationSupersededError(PublicationConflictError, HarborConflictError):
+    """The candidate was built from an active version that is no longer current.
+
+    Publication is compare-and-set on the document's active pointer: the caller names
+    the version it built from, and a pointer that moved since -- a newer release, a
+    reindex, a removal -- refuses the write. Callers treat it as "superseded, skip",
+    never as a failure to retry: a newer version already stands.
+    """
 
 
 class ExecutionCapabilityError(IngestionDomainError):

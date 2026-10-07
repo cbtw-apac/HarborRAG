@@ -23,6 +23,7 @@ from .ingestion_control_fixtures import (
     advance_to_verified,
     candidate,
     make_control_plane,
+    publish_over_active,
     source_identity,
 )
 
@@ -358,9 +359,8 @@ async def test_removed_document_retirement_is_atomic_and_idempotent(
     async with control_plane:
         value = candidate("published then removed")
         await advance_to_verified(control_plane, value)
-        await control_plane.publisher.publish(
-            document_id=str(value.document_id),
-            candidate_document_version_id=str(value.document_version_id),
+        await publish_over_active(
+            control_plane, str(value.document_id), str(value.document_version_id)
         )
 
         retired = await control_plane.publisher.retire_removed(document_id=str(value.document_id))

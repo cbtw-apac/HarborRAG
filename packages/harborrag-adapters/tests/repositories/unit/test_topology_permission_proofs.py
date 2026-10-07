@@ -15,6 +15,7 @@ from .ingestion_control_fixtures import (
     advance_to_verified,
     candidate,
     make_control_plane,
+    publish_over_active,
     source_identity,
 )
 from .test_topology_permissions_budget import acl
@@ -41,10 +42,7 @@ async def test_expired_snapshot_same_revision_refresh_requeues_blocked_generatio
             expired.model_copy(update={"resource_id": str(second.document_id)})
         )
         await advance_to_verified(control, second)
-        await control.publisher.publish(
-            document_id=str(second.document_id),
-            candidate_document_version_id=str(second.document_version_id),
-        )
+        await publish_over_active(control, str(second.document_id), str(second.document_version_id))
         assert await control.topology.reconcile("DEFAULT") == 0
         await control.topology.set_permissions(acl(str(second.document_id)))
         assert await control.topology.reconcile("DEFAULT") == 1
@@ -71,9 +69,8 @@ async def test_manual_identity_bridge_requires_all_private_proofs_before_serving
             acl(str(private.document_id), public=False, allowed_principal_ids=("privileged",))
         )
         await advance_to_verified(control, private)
-        await control.publisher.publish(
-            document_id=str(private.document_id),
-            candidate_document_version_id=str(private.document_version_id),
+        await publish_over_active(
+            control, str(private.document_id), str(private.document_version_id)
         )
         second = await control.topology.claim("DEFAULT")
         assert second is not None

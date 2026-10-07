@@ -11,7 +11,7 @@ from harborrag_core.topology import ChunkExtractionCheckpoint
 from harborrag_core.topology.budget import IndexingBudgetLimits
 from harborrag_core.topology.config import TenantIndexingConfig
 
-from .ingestion_control_fixtures import candidate, make_control_plane
+from .ingestion_control_fixtures import candidate, make_control_plane, publish_over_active
 from .topology_fixtures import ACCESS, artifact, policy, prepared_build, publish
 
 
@@ -26,9 +26,8 @@ async def test_opt_in_outbox_publication_and_unchanged_backfill(tmp_path: Path) 
         assert await control.topology.reconcile("DEFAULT") == 0
         before = await control.topology.list_jobs("DEFAULT")
         version = candidate("one")
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
         assert await control.topology.list_jobs("DEFAULT") == before
         await publish(control, "two")
@@ -42,9 +41,8 @@ async def test_failed_publish_cannot_enqueue_intent(tmp_path: Path) -> None:
         version = candidate("pending")
         await control.document_versions.create_candidate(version)
         with pytest.raises(HarborConflictError):
-            await control.publisher.publish(
-                document_id=str(version.document_id),
-                candidate_document_version_id=str(version.document_version_id),
+            await publish_over_active(
+                control, str(version.document_id), str(version.document_version_id)
             )
         assert await control.topology.list_jobs("DEFAULT") == ()
 

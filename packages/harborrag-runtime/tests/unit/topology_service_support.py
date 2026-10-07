@@ -320,7 +320,13 @@ class Harness:
             )
         )
         await repo.mark_verified(str(version_id))
+        active = await self.control.document_versions.active_versions([str(document_id)])
+        current = active.get(str(document_id))
         await self.control.publisher.publish(
-            document_id=str(document_id), candidate_document_version_id=str(version_id)
+            document_id=str(document_id),
+            candidate_document_version_id=str(version_id),
+            expected_active_document_version_id=(
+                str(current.document_version_id) if current is not None else None
+            ),
         )
         return candidate

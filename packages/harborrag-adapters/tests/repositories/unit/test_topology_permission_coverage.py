@@ -12,6 +12,7 @@ from .ingestion_control_fixtures import (
     advance_to_verified,
     candidate,
     make_control_plane,
+    publish_over_active,
     source_identity,
 )
 
@@ -53,9 +54,8 @@ async def test_permission_coverage_reports_active_corpus_without_identifiers(
 
         version = candidate("permission coverage")
         await advance_to_verified(control, version)
-        await control.publisher.publish(
-            document_id=str(version.document_id),
-            candidate_document_version_id=str(version.document_version_id),
+        await publish_over_active(
+            control, str(version.document_id), str(version.document_version_id)
         )
 
         missing = await control.topology.permission_coverage("DEFAULT")
@@ -129,9 +129,8 @@ async def test_permission_coverage_classifies_future_and_multiple_resources_by_t
         )
         for version in versions:
             await advance_to_verified(control, version)
-            await control.publisher.publish(
-                document_id=str(version.document_id),
-                candidate_document_version_id=str(version.document_version_id),
+            await publish_over_active(
+                control, str(version.document_id), str(version.document_version_id)
             )
         await control.topology.set_permissions(
             snapshot(
