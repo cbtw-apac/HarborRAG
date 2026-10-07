@@ -414,7 +414,8 @@ async def test_retried_publish_of_an_already_active_version_is_a_replay(
                 document_version_id=first.document_version_id,
                 decision=SourceAdmissionDecision.NEW,
                 canonical_reference=snapshot.canonical_artifact,
-            )
+            ),
+            tenant_id="default",
         )
 
         assert retried.publication is not None
@@ -584,6 +585,8 @@ async def test_a_release_overtaken_by_a_newer_release_is_skipped_not_failed(
         assert stale.document_version_id is not None
         left = await control.document_versions.get_version(stale.document_version_id)
         assert left is not None and left.state == DocumentVersionState.VERIFIED
+        # Only the version that won the publish shows its view of shared nodes.
+        assert len(resources.graph.shared_publications) == 1
 
 
 @pytest.mark.asyncio
@@ -640,3 +643,49 @@ async def test_release_adopts_an_unrecorded_representation_left_by_an_earlier_at
         recorded = await control.document_versions.get_version(baseline.document_version_id)
         assert recorded is not None and recorded.representation_artifact is not None
         assert recorded.representation_artifact.sha256 != reference.sha256
+
+
+@pytest.mark.asyncio
+async def test_publication_shows_the_published_versions_shared_nodes(tmp_path: Path) -> None:
+    from ...fixtures.release import build_release_resources
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = build_release_service(resources)
+        await service.provision(tenant_id="default")
+
+        outcome = await service.release(release_request(source_version="1"), SourceConnector())
+
+        assert outcome.published is True
+        (published,) = resources.graph.shared_publications
+        shared = {
+            key
+            for key, node in resources.graph.nodes.items()
+            if node.node_kind.value == "SourceEntity"
+        }
+        assert shared and set(published) == shared
+
+
+@pytest.mark.asyncio
+async def test_a_failed_shared_node_update_does_not_fail_a_committed_publish(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from ...fixtures.release import build_release_resources
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    resources.graph.fail_shared_publication = True
+    async with control, resources.store:
+        service = build_release_service(resources)
+        await service.provision(tenant_id="default")
+
+        with caplog.at_level(logging.WARNING, logger="harborrag.runtime.ingestion.projection"):
+            outcome = await service.release(release_request(source_version="1"), SourceConnector())
+
+        assert outcome.published is True
+        active = await control.document_versions.active_snapshot(outcome.document_id)
+        assert active is not None
+        assert str(active.document_version_id) == outcome.document_version_id
+        assert "Shared graph node display update failed" in caplog.text

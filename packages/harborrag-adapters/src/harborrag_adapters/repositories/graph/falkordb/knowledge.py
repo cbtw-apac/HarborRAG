@@ -84,6 +84,16 @@ class FalkorKnowledgeGraphRepository:
         await self.upsert_nodes(nodes, context=context)
         await self.upsert_relations(relations, context=context)
 
+    async def publish_shared_nodes(
+        self,
+        nodes: Sequence[GraphNodeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await knowledge_writes.publish_shared_nodes(
+            await self.database_for(context, write=True), nodes, context=context
+        )
+
     async def upsert_nodes(
         self,
         nodes: Sequence[GraphNodeRecord],

@@ -53,6 +53,16 @@ class FakeKnowledgeGraphRepository:
         self.nodes.update((node.node_key, node) for node in nodes)
         self.relations.update((relation.relation_id, relation) for relation in relations)
 
+    async def publish_shared_nodes(
+        self,
+        nodes: Sequence[GraphNodeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        # Records are stored whole at write time, so the display fields are already
+        # the written ones; only the tenant guard is observable here.
+        self._require_tenant(context, (node.owner_id for node in nodes))
+
     async def verify_projection(
         self,
         nodes: Sequence[GraphNodeRecord],

@@ -81,6 +81,20 @@ class KnowledgeGraphRepositoryPort(Protocol):
         context: StorageOperationContext,
     ) -> None: ...
 
+    async def publish_shared_nodes(
+        self,
+        nodes: Sequence[GraphNodeRecord],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        """Show a published version's display fields on nodes every version shares.
+
+        ``write_projection`` keeps an existing shared node's display fields while a
+        version is only staged; publication calls this with the winning version's
+        nodes. Idempotent, so a replayed publish may call it again.
+        """
+        ...
+
     async def verify_projection(
         self,
         nodes: Sequence[GraphNodeRecord],

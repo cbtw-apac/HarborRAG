@@ -110,7 +110,7 @@ class DocumentStagePipeline:
         """Resume the shared pipeline from a canonical candidate reference."""
 
         if not prepared.requires_processing:
-            outcome = await self.projections.publish_version(prepared)
+            outcome = await self.projections.publish_version(prepared, tenant_id=request.tenant_id)
             self._log_outcome(outcome)
             return outcome
         stage_functions: dict[
@@ -164,7 +164,7 @@ class DocumentStagePipeline:
             )
         publish_started_at = perf_counter()
         try:
-            outcome = await self.projections.publish_version(prepared)
+            outcome = await self.projections.publish_version(prepared, tenant_id=request.tenant_id)
         except Exception as error:
             logger.error(
                 "Document stage failed document_id=%s document_version_id=%s "

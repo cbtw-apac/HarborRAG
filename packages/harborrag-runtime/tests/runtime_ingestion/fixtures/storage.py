@@ -53,6 +53,8 @@ class InMemoryKnowledgeGraph:
         self.write_batches = []
         self.retracted_relations = []
         self.fail_writes = False
+        self.shared_publications = []
+        self.fail_shared_publication = False
 
     async def write_projection(self, nodes, relations, *, context) -> None:
         del context
@@ -61,6 +63,14 @@ class InMemoryKnowledgeGraph:
         self.write_batches.append((tuple(nodes), tuple(relations)))
         self.nodes.update((node.node_key, node) for node in nodes)
         self.relations.update((relation.relation_id, relation) for relation in relations)
+
+    async def publish_shared_nodes(self, nodes, *, context) -> None:
+        del context
+        if self.fail_shared_publication:
+            raise ConnectionError("graph unavailable")
+        self.shared_publications.append(
+            tuple(node.node_key for node in nodes if node.node_kind.value == "SourceEntity")
+        )
 
     async def verify_projection(
         self,

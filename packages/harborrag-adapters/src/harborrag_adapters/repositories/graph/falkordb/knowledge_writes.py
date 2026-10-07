@@ -33,7 +33,11 @@ async def upsert_nodes(
     *,
     context: StorageOperationContext,
 ) -> None:
-    """Merge node rows by tenant, node_key, and schema version, one round trip per label."""
+    """Merge node rows by tenant, node_key, and schema version, one round trip per label.
+
+    A concrete SourceEntity that already exists keeps its name and description: only
+    publish_shared_nodes changes them, so a staged version never shows its view.
+    """
 
     grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     placeholders: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -61,15 +65,22 @@ async def upsert_nodes(
             WITH node, row, node.description AS described_description,
                  node.description_build_id AS description_build_id,
                  node.title AS described_title,
-                 node.name AS described_name
+                 node.name AS described_name,
+                 (node.node_kind IS NOT NULL
+                  AND coalesce(node.placeholder, false) = false) AS shown_before
             SET node = row
             SET node.description = CASE
-                    WHEN description_build_id IS NOT NULL
-                    THEN described_description ELSE row.description END,
+                    WHEN description_build_id IS NOT NULL THEN described_description
+                    WHEN row.node_kind = 'SourceEntity' AND shown_before
+                    THEN described_description
+                    ELSE row.description END,
                 node.description_build_id = description_build_id,
                 node.name = CASE
                     WHEN row.node_kind = 'Chunk' AND description_build_id IS NOT NULL
-                    THEN described_name ELSE row.name END,
+                    THEN described_name
+                    WHEN row.node_kind = 'SourceEntity' AND shown_before
+                    THEN described_name
+                    ELSE row.name END,
                 node.title = CASE
                     WHEN row.node_kind = 'Chunk' AND description_build_id IS NOT NULL
                     THEN described_title ELSE row.title END
@@ -139,6 +150,54 @@ async def upsert_relations(
             """,
             {"rows": rows},
         )
+
+
+_SHARED_DISPLAY_KEYS = ("node_key", "graph_schema_version", "tenant_id", "name", "description")
+
+
+async def publish_shared_nodes(
+    database: FalkorDBClient,
+    nodes: Sequence[GraphNodeRecord],
+    *,
+    context: StorageOperationContext,
+) -> None:
+    """Show a published version's name and description on the SourceEntities it shares.
+
+    Placeholders are left alone (they never carry a view), and a summary description
+    (``description_build_id``) keeps precedence, as in ``upsert_nodes``.
+    """
+
+    tenant_id = str(context.tenant_id)
+    rows: list[dict[str, Any]] = []
+    for node in nodes:
+        if node.node_kind != KnowledgeNodeKind.SOURCE_ENTITY:
+            continue
+        if node.attributes.get("placeholder") is True:
+            continue
+        if str(node.owner_id) != tenant_id:
+            raise ValueError("graph node owner does not match storage tenant context")
+        row = _node_row(node, tenant_id=tenant_id)
+        rows.append(
+            FalkorDBMapper.encode_properties({key: row[key] for key in _SHARED_DISPLAY_KEYS})
+        )
+    if not rows:
+        return
+    await database.write(
+        f"""
+        UNWIND $rows AS row
+        MATCH (node:KnowledgeNode:{NODE_LABELS[KnowledgeNodeKind.SOURCE_ENTITY]} {{
+            node_key: row.node_key,
+            graph_schema_version: row.graph_schema_version,
+            tenant_id: row.tenant_id
+        }})
+        WHERE coalesce(node.placeholder, false) = false
+        SET node.name = row.name,
+            node.description = CASE
+                WHEN node.description_build_id IS NOT NULL THEN node.description
+                ELSE row.description END
+        """,
+        {"rows": rows},
+    )
 
 
 async def delete_relations(

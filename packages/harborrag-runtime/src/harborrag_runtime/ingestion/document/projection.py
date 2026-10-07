@@ -7,9 +7,11 @@ import logging
 
 from harborrag_core.ingestion import (
     DocumentVersionState,
+    ProjectionManifest,
     ProjectionVerificationError,
     PublicationSupersededError,
 )
+from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     ProjectionManifestInput,
     PublicationPolicy,
@@ -219,6 +221,8 @@ class DocumentProjectionStages:
     async def publish_version(
         self,
         prepared: PreparedDocumentStage,
+        *,
+        tenant_id: str,
     ) -> DocumentReleaseOutcome:
         if not self._publication.requires_publication(prepared.decision):
             return DocumentReleaseOutcome(
@@ -270,6 +274,7 @@ class DocumentProjectionStages:
                 publication=publication,
             )
         manifest = await self._material.manifest(prepared.document_version_id)
+        await self._publish_shared_nodes(manifest, tenant_id=tenant_id)
         return DocumentReleaseOutcome(
             document_id=prepared.document_id,
             document_version_id=prepared.document_version_id,
@@ -279,3 +284,31 @@ class DocumentProjectionStages:
             graph_relations=len(manifest.graph_relation_ids),
             publication=publication,
         )
+
+    async def _publish_shared_nodes(self, manifest: ProjectionManifest, *, tenant_id: str) -> None:
+        """Show the published version's view of the source nodes it shares.
+
+        Runs only once the publish (or its replay) committed; a superseded or failed
+        version never gets here. Best effort: the version is already ACTIVE, so a graph
+        outage here must not turn a published document into a failed stage. The fields
+        are display-only, and the next publish of any document sharing the node sets
+        them again.
+        """
+
+        if manifest.graph_artifact is None:
+            return
+        context = StorageOperationContext.system(tenant_id)
+        try:
+            nodes, _ = await self._dependencies.projection_artifacts.get_graph_projection(
+                manifest.graph_artifact,
+                context=context,
+            )
+            await self._dependencies.graph_store.publish_shared_nodes(nodes, context=context)
+        except Exception as error:
+            logger.warning(
+                "Shared graph node display update failed document_id=%s "
+                "document_version_id=%s error_type=%s",
+                manifest.document_id,
+                manifest.document_version_id,
+                type(error).__name__,
+            )

@@ -257,7 +257,8 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         with self._observability.boundary("PublishVersion"):
             planned = await self._documents.get(request.document)
             outcome = await self._runtime.stages.projections.publish_version(
-                to_prepared_stage(request)
+                to_prepared_stage(request),
+                tenant_id=request.document.tenant_id,
             )
             self._observability.record_publication(
                 outcome,
