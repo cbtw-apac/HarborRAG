@@ -38,3 +38,21 @@ def active_candidate(
         expected_active_document_version_id=active_version_id(active),
         publication_base_known=True,
     )
+
+
+def overtaken_by_newer_publish(
+    replayed: DocumentVersionSnapshot,
+    active: DocumentVersionSnapshot | None,
+) -> bool:
+    """Whether another version was published after ``replayed`` was created.
+
+    A failed version is replayed long after it was built; by then a newer release
+    may stand, and publishing the replay would put older content back over it.
+    Without both timestamps nothing is known, and the replay keeps today's pointer.
+    """
+
+    if active is None or active.document_version_id == replayed.document_version_id:
+        return False
+    if active.activated_at is None or replayed.created_at is None:
+        return False
+    return active.activated_at > replayed.created_at

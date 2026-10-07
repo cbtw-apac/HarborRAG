@@ -12,7 +12,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
-from .row_values import DatabaseRow, required_text
+from .row_values import DatabaseRow, optional_datetime, required_text
 
 
 def snapshot_from_row(row: DatabaseRow) -> DocumentVersionSnapshot:
@@ -49,6 +49,8 @@ def snapshot_from_row(row: DatabaseRow) -> DocumentVersionSnapshot:
         chunk_index_artifact=artifact("chunk_index_artifact"),
         relation_artifact=artifact("relation_artifact"),
         representation_artifact=artifact("representation_artifact"),
+        created_at=optional_datetime(row, "created_at"),
+        activated_at=optional_datetime(row, "activated_at"),
     )
 
 

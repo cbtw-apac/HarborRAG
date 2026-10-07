@@ -14,6 +14,7 @@ from harborrag_core.ingestion import (
     ChangeFingerprintBuilder,
     DocumentIdentityBuilder,
     DocumentVersionCandidate,
+    DocumentVersionSnapshot,
     DocumentVersionState,
     RawDocumentReference,
     SourceAdmissionDecision,
@@ -27,7 +28,7 @@ from harborrag_engine.ingestion import (
     with_title_as_content,
 )
 
-from .capture_decisions import active_candidate
+from .capture_decisions import active_candidate, overtaken_by_newer_publish
 from .dependencies import DocumentReleaseDependencies
 from .lifecycle import DocumentVersionLifecycle
 from .materialization_helpers import enrich_raw_document
@@ -360,6 +361,11 @@ class DocumentCaptureStages:
                 document_version_id=document_version_id,
                 decision=SourceAdmissionDecision.UNCHANGED,
             )
+        active = await self._dependencies.control.document_versions.active_snapshot(
+            str(snapshot.document_id)
+        )
+        if overtaken_by_newer_publish(snapshot, active):
+            return _overtaken_replay(snapshot, active)
 
         await self._lifecycle.prepare_replay(document_version_id, snapshot.state)
         snapshot = await self._dependencies.control.document_versions.get_version(
@@ -368,9 +374,6 @@ class DocumentCaptureStages:
         if snapshot is None:
             raise HarborInvariantError("snapshot must not be None here")
         if snapshot.canonical_artifact is not None:
-            active = await self._dependencies.control.document_versions.active_snapshot(
-                str(snapshot.document_id)
-            )
             return PreparedDocumentStage(
                 document_id=str(snapshot.document_id),
                 document_version_id=document_version_id,
@@ -397,6 +400,26 @@ class DocumentCaptureStages:
                 raw_reference=raw_reference,
             ),
         )
+
+
+def _overtaken_replay(
+    replayed: DocumentVersionSnapshot,
+    active: DocumentVersionSnapshot | None,
+) -> PreparedDocumentStage:
+    """Leave an overtaken version as it is and publish nothing: the newer one stands."""
+
+    logger.info(
+        "Document replay superseded document_id=%s document_version_id=%s "
+        "active_document_version_id=%s",
+        replayed.document_id,
+        replayed.document_version_id,
+        active_version_id(active),
+    )
+    return PreparedDocumentStage(
+        document_id=str(replayed.document_id),
+        document_version_id=str(replayed.document_version_id),
+        decision=SourceAdmissionDecision.UNCHANGED,
+    )
 
 
 def _context(tenant_id: str) -> StorageOperationContext:

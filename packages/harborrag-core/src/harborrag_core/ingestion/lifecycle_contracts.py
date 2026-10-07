@@ -126,6 +126,10 @@ class DocumentVersionSnapshot(StrictModel):
     chunk_index_artifact: ArtifactReference | None = None
     relation_artifact: ArtifactReference | None = None
     representation_artifact: ArtifactReference | None = None
+    # When the version row was created and last published; replay compares them
+    # to tell a version a newer publish overtook from one that is still current.
+    created_at: datetime | None = None
+    activated_at: datetime | None = None
 
 
 class PurgeableDocumentVersion(StrictModel):
